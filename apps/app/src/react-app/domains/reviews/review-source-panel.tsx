@@ -21,6 +21,7 @@ export function ReviewSourcePanel({ client, workspaceId, citation, name, onClose
   </>}>
     {query.isPending ? <PreviewLoading /> : query.error ? <div className="p-4"><ReviewError error={query.error} /></div> : source && <>
       <blockquote className="max-h-36 shrink-0 overflow-auto border-b px-5 py-3 text-sm leading-relaxed text-muted-foreground">{source.quote}</blockquote>
+      {!source.regions.length && <p className="shrink-0 px-5 py-2 text-xs text-muted-foreground">{t("review.highlight_unavailable")}</p>}
       <ImagePreview src={source.image} alt={`${source.name} · ${t("review.page", { page: source.page })}`} regions={source.regions} />
     </>}
   </ArtifactFrame>;

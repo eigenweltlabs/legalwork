@@ -6,8 +6,10 @@ import { tmpdir } from "node:os";
 import type { ServerConfig } from "../types.js";
 import { ReviewLibrary, builtinReviewLibrary } from "./library.js";
 import { ReviewStore } from "./storage.js";
-import { ReviewLibraryEntrySchema, SavedReviewSchema } from "./schema.js";
+import { ReviewLibraryEntrySchema, SavedReviewSchema, reviewLibraryKind, reviewLibraryPrompts } from "./schema.js";
 import { columnBackend, validateReviewPolicy } from "./policy.js";
+import { BUILTIN_JEV_FALLBACKS } from "./builtin-library.js";
+import { builtinJevFallback, upgradeBuiltinReviewColumn } from "./builtin-fallback.js";
 
 test("personal prompt versions retain exact text and leave existing project snapshots unchanged", async () => {
   const root = await mkdtemp(join(tmpdir(), "review-library-"));
@@ -15,6 +17,12 @@ test("personal prompt versions retain exact text and leave existing project snap
   try {
     const library = new ReviewLibrary(config);
     const first = await library.save({ name: "My own title", language: "de", columns: [{ key: "assign", label: "My label", question: "Is assignment permitted?", kind: "yes_no" }] });
+    expect(first.kind).toBe("prompt");
+    const singleSet = await library.save({ name: "One-question set", kind: "set", language: "en", columns: first.columns });
+    expect(singleSet.kind).toBe("set");
+    const savedSet = await library.save({ id: singleSet.id, version: singleSet.version, name: singleSet.name, language: singleSet.language, columns: singleSet.columns });
+    expect(savedSet.kind).toBe("set");
+    await expect(library.save({ name: "Invalid prompt", kind: "prompt", language: "en", columns: [first.columns[0], { ...first.columns[0], key: "second" }] })).rejects.toThrow("one column");
     const store = new ReviewStore(root);
     const review = await store.create(SavedReviewSchema.parse({ id: randomUUID(), name: "Saved review", revision: 0, createdAt: 0, updatedAt: 0, settings: { mode: "jev", jev: { providerId: "firm", model: "jev" }, llm: null }, columns: first.columns, documents: [], cells: [], status: "draft", runId: null }));
     const next = { id: first.id, version: first.version, name: first.name, language: first.language, columns: [{ ...first.columns[0], question: "Is assignment prohibited?" }] };
@@ -76,12 +84,44 @@ test("country decisions include explicit countries and avoid forcing missing or 
   expect(en.options).toContain("United States");
   expect(en.options).toContain("Other country");
   expect(en.options).toContain("Multiple countries");
-  expect(en.options).toContain("Not stated");
+  expect(en.options).toContain("Not found");
+  expect(en.options).toContain("Not applicable");
   expect(en.options).toContain("Unclear");
   expect(en.options.length).toBeLessThanOrEqual(30);
   expect(de.options.length).toBe(en.options.length);
   expect(de.options[en.options.indexOf("Germany")]).toBe("Deutschland");
   expect(en.question).toContain("Do not infer");
+});
+
+test("every shipped JEV prompt and set offers absence, irrelevance and uncertainty in both languages", () => {
+  for (const locale of ["en", "de"] satisfies Array<"en" | "de">) {
+    for (const entry of builtinReviewLibrary(locale).filter(entry => entry.tags.includes("jev"))) {
+      for (const column of entry.columns) {
+        expect(column.kind).toBe("classification");
+        for (const fallback of Object.values(BUILTIN_JEV_FALLBACKS[locale])) expect(column.options).toContain(fallback);
+        expect(new Set(column.options).size).toBe(column.options.length);
+        expect(column.options.length).toBeLessThanOrEqual(30);
+        expect(builtinJevFallback(column)).not.toBeNull();
+      }
+    }
+    const binary = builtinReviewLibrary(locale).find(entry => entry.id === `builtin-assignment-${locale}`)!.columns[0];
+    expect(binary.options).toEqual(locale === "en" ? ["Yes", "No", "Not found", "Not applicable", "Unclear"] : ["Ja", "Nein", "Nicht gefunden", "Nicht anwendbar", "Unklar"]);
+  }
+});
+
+test("fallback upgrades recognize exact builtin copies while preserving custom prompts and personal entries", () => {
+  for (const locale of ["en", "de"] satisfies Array<"en" | "de">) {
+    const old = builtinReviewLibrary(locale, 2).find(entry => entry.id === `builtin-set-nda-${locale}`)!.columns;
+    for (const column of old) {
+      const copy = { ...column, key: `user-${column.key}`, label: "My display label" };
+      const updated = upgradeBuiltinReviewColumn(copy);
+      expect(updated.libraryVersion).toBe(3); expect(updated.key).toBe(copy.key); expect(updated.label).toBe(copy.label);
+      expect(upgradeBuiltinReviewColumn(updated)).toBe(updated);
+      for (const custom of [{ ...copy, question: `${copy.question} Custom question` }, { ...copy, hint: "My own instructions" }, { ...copy, libraryId: randomUUID() }]) {
+        expect(upgradeBuiltinReviewColumn(custom)).toBe(custom);
+      }
+    }
+  }
 });
 
 test("translated presets preserve column identity, order and answer structure", () => {
@@ -91,4 +131,20 @@ test("translated presets preserve column identity, order and answer structure", 
   for (const [index, entry] of en.entries()) {
     expect(de[index].columns.map(c => [c.key, c.kind, c.options.length])).toEqual(entry.columns.map(c => [c.key, c.kind, c.options.length]));
   }
+});
+
+test("sets and All prompts preserve standalone prompts and include questions stored only in sets", () => {
+  const entries = builtinReviewLibrary("en");
+  const standalone = entries.find(entry => reviewLibraryKind(entry) === "prompt")!;
+  const sets = entries.filter(entry => reviewLibraryKind(entry) === "set");
+  expect(sets.length).toBeGreaterThan(1);
+  const all = reviewLibraryPrompts(entries);
+  expect(all).toHaveLength(entries.filter(entry => reviewLibraryKind(entry) === "prompt").length);
+  expect(all.some(item => item.sets.length > 1)).toBe(true);
+  const custom = { ...sets[0], id: "personal-set", source: "personal", columns: [{ ...standalone.columns[0], question: "A custom question?" }] } satisfies typeof sets[number];
+  expect(reviewLibraryPrompts([custom])[0]).toMatchObject({ entry: { id: "personal-set" }, column: { question: "A custom question?" }, sets: [{ id: "personal-set" }] });
+  expect(reviewLibraryPrompts([standalone, { ...standalone, id: "copy", source: "personal" }])).toHaveLength(2);
+  expect(reviewLibraryPrompts([standalone, { ...standalone, id: "distinct" }])).toHaveLength(2);
+  expect(reviewLibraryKind({ columns: standalone.columns })).toBe("prompt");
+  expect(reviewLibraryKind({ columns: sets[0].columns })).toBe("set");
 });

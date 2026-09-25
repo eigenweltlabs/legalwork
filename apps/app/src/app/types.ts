@@ -184,6 +184,7 @@ export type OnboardingStep = "welcome" | "local" | "server" | "connecting";
 export const SETTINGS_TAB_VALUES = [
   "general",
   "ai",
+  "tabular-review",
   "account",
   "personalisation",
   "notifications",

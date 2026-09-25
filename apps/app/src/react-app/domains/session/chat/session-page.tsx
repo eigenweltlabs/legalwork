@@ -989,7 +989,7 @@ export function SessionPage(props: SessionPageProps) {
     />
   );
   const mainView = props.projectPage === "reviews" ? (
-    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews onOpenSession={sessionId => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
@@ -1018,6 +1018,7 @@ export function SessionPage(props: SessionPageProps) {
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
           workspaceRoot={props.selectedWorkspaceRoot}
+          isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
           projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name}
           onOpenFile={openWorkspaceFileEntry}
           onClose={closeFileSidebar}

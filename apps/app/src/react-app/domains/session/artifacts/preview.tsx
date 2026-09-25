@@ -153,8 +153,16 @@ interface ImagePreviewProps extends React.ComponentProps<"div"> {
 }
 
 export function ImagePreview({ src, alt, regions, className, ...props }: ImagePreviewProps) {
-  if (regions) return <div className={cn("min-h-0 flex-1 overflow-auto bg-muted/30 p-3", className)} {...props}>
-    <div className="relative mx-auto w-full"><img src={src} alt={alt} className="block h-auto w-full" />{regions.map((region, index) => <div key={index} className="pointer-events-none absolute border border-warning/80 bg-warning/20" style={{ left: `${region.x * 100}%`, top: `${region.y * 100}%`, width: `${region.width * 100}%`, height: `${region.height * 100}%` }} />)}</div>
+  const container = React.useRef<HTMLDivElement>(null);
+  const image = React.useRef<HTMLImageElement>(null);
+  const focusHighlight = React.useCallback(() => {
+    const first = regions?.[0];
+    if (!first || !container.current || !image.current?.clientHeight) return;
+    container.current.scrollTo({ top: Math.max(0, first.y * image.current.clientHeight - container.current.clientHeight / 3) });
+  }, [regions]);
+  React.useEffect(focusHighlight, [src, focusHighlight]);
+  if (regions) return <div ref={container} className={cn("min-h-0 flex-1 overflow-auto bg-muted/30 p-3", className)} {...props}>
+    <div className="relative mx-auto w-full"><img ref={image} src={src} alt={alt} onLoad={focusHighlight} className="block h-auto w-full" />{regions.map((region, index) => <div key={index} aria-hidden="true" className="pointer-events-none absolute bg-yellow-9/40 mix-blend-multiply" style={{ left: `${region.x * 100}%`, top: `${region.y * 100}%`, width: `${region.width * 100}%`, height: `${region.height * 100}%` }} />)}</div>
   </div>;
   return (
     <div className={cn("flex h-full items-center justify-center overflow-auto bg-muted/30 p-3", className)} {...props}>

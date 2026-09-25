@@ -50,7 +50,7 @@ import {
   writeActiveWorkspaceId,
   writeWorkspaceOrderIds,
 } from "./session-memory";
-import { legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
+import { isSessionIndexRoute, legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
@@ -669,7 +669,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
       return;
     }
-    if (selectedSessionId || pathname.endsWith("/project") || pathname.endsWith("/tasks")) return;
+    if (selectedSessionId || !isSessionIndexRoute(pathname)) return;
     if (!selectedWorkspaceId) return;
     const remembered = readLastSessionFor(selectedWorkspaceId);
     if (!remembered) return;

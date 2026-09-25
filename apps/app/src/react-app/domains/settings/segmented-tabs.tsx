@@ -21,15 +21,17 @@ export function HubTabs<T extends string>(props: {
   value: T;
   onChange: (id: T) => void;
   className?: string;
+  label?: string;
 }) {
   return (
-    <div className={cn(segmentedTrackClass, props.className)}>
+    <div role="group" aria-label={props.label} className={cn(segmentedTrackClass, props.className)}>
       {props.items.map(({ id, label, icon: Icon }) => {
         const active = props.value === id;
         return (
           <button
             key={id}
             type="button"
+            aria-pressed={active}
             onClick={() => props.onChange(id)}
             className={`${segmentedItemClass} ${active ? segmentedActiveClass : segmentedInactiveClass}`}
           >

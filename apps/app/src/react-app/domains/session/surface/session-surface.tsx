@@ -79,6 +79,8 @@ import {
   createStorageComposerMention,
   storageComposerInstruction,
   storageComposerDisplayText,
+  reviewComposerDisplayText,
+  reviewComposerInstruction,
   taskComposerDisplayText,
   taskComposerInstruction,
   type ComposerMentionKind,
@@ -1178,6 +1180,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(storageComposerInstruction(value));
           return [{ type: "text", text: storageComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "review") {
+          modelContexts.push(reviewComposerInstruction(value));
+          return [{ type: "text", text: reviewComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "task") {
           modelContexts.push(taskComposerInstruction(value));
           return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
@@ -1200,6 +1206,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
           ? legalMemoryComposerDisplayText(value)
           : kind === "storage"
             ? storageComposerDisplayText(value)
+            : kind === "review"
+              ? reviewComposerDisplayText(value)
             : kind === "task"
               ? taskComposerDisplayText(value)
               : kind === "upload"

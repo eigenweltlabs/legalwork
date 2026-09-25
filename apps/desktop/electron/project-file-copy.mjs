@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, link, lstat, realpath, unlink, utimes } from "node:fs/promises";
+import { copyFile, lstat, realpath, unlink, utimes } from "node:fs/promises";
 import path from "node:path";
 
 /** Resolve only registered local projects, including projects created by the
@@ -29,21 +29,25 @@ export async function resolveProjectFolder(workspaceId, desktopWorkspaces, serve
   return workspace.path;
 }
 
-/** Move regular files into a registered project's root without replacing files.
- * Hard links provide an exclusive, fast move on the same volume. Other volumes
- * use an exclusive copy; the source is removed only after that copy succeeds.
+/** Copy regular files into a registered project without replacing existing files.
+ * Copies have independent contents; the original is never modified or removed.
  * @param {string} workspacePath
  * @param {string[]} sources
- * @param {typeof link} [linkFile]
- * @returns {Promise<import("@legalwork/types/desktop-ipc").WorkspaceMoveFilesResult>}
+ * @param {typeof copyFile} [copy]
+ * @param {string} [folder]
+ * @returns {Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>}
  */
-export async function moveFilesIntoProject(workspacePath, sources, linkFile = link) {
-  const root = await realpath(workspacePath);
+export async function copyFilesIntoProject(workspacePath, sources, copy = copyFile, folder = "") {
+  const project = await realpath(workspacePath);
+  if (typeof folder !== "string" || path.isAbsolute(folder) || folder.split(/[/\\]/).includes("..")) throw new Error("Invalid project folder");
+  const root = await realpath(path.join(project, folder));
+  const relative = path.relative(project, root);
+  if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) throw new Error("Invalid project folder");
   if (!(await lstat(root)).isDirectory()) throw new Error("Project folder is unavailable");
   if (!Array.isArray(sources) || !sources.length || sources.some((source) => typeof source !== "string" || !path.isAbsolute(source))) {
     throw new Error("Native file paths are required");
   }
-  /** @type {import("@legalwork/types/desktop-ipc").WorkspaceMoveFilesResult} */
+  /** @type {import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult} */
   const result = { files: [] };
   for (const source of new Set(sources)) {
     const name = path.basename(source);
@@ -54,7 +58,7 @@ export async function moveFilesIntoProject(workspacePath, sources, linkFile = li
         continue;
       }
       if (await realpath(path.dirname(source)) === root) {
-        result.files.push({ name, path: name, status: "already_here" });
+        result.files.push({ name, path: path.join(folder, name), status: "already_here" });
         continue;
       }
       const extension = path.extname(name);
@@ -63,15 +67,8 @@ export async function moveFilesIntoProject(workspacePath, sources, linkFile = li
       for (let suffix = 1; suffix <= 10000; suffix += 1) {
         const destinationName = suffix === 1 ? name : `${stem} (${suffix})${extension}`;
         const destination = path.join(root, destinationName);
-        let copied = false;
         try {
-          try {
-            await linkFile(source, destination);
-          } catch (error) {
-            if (!["EXDEV", "EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS"].includes(error.code)) throw error;
-            await copyFile(source, destination, constants.COPYFILE_EXCL);
-            copied = true;
-          }
+          await copy(source, destination, constants.COPYFILE_EXCL);
         } catch (error) {
           if (error.code === "EEXIST") continue;
           throw error;
@@ -82,23 +79,20 @@ export async function moveFilesIntoProject(workspacePath, sources, linkFile = li
             if (error.code !== "ENOENT") throw error;
             return null;
           });
-          if (!target.isFile() || (!copied && (target.dev !== original.dev || target.ino !== original.ino)) || current && (current.dev !== original.dev || current.ino !== original.ino ||
-              (copied && (current.size !== original.size || current.mtimeMs !== original.mtimeMs || target.size !== original.size)))) {
+          if (!target.isFile() || !current || current.dev !== original.dev || current.ino !== original.ino ||
+              current.size !== original.size || current.mtimeMs !== original.mtimeMs || target.size !== original.size) {
             await unlink(destination);
             result.files.push({ name, status: "failed", error: "changed" });
             completed = true;
             break;
           }
-          if (copied) await utimes(destination, original.atime, original.mtime);
-          if (current) await unlink(source).catch((error) => {
-            if (error.code !== "ENOENT") throw error;
-          });
+          await utimes(destination, original.atime, original.mtime);
         } catch (error) {
-          // A failed move keeps its source. Remove only our new destination.
+          // A failed copy keeps its source. Remove only our new destination.
           await unlink(destination).catch(() => {});
           throw error;
         }
-        result.files.push({ name, path: destinationName, status: "moved" });
+        result.files.push({ name, path: path.join(folder, destinationName), status: "copied" });
         completed = true;
         break;
       }

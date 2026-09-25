@@ -284,12 +284,12 @@ export async function selectSystemOneProvider(
 export function systemOne<const Q extends SystemOneQuestions>(
   config: ServerConfig,
   input: Omit<SystemOneRequest, "questions"> & { questions: Q },
-  options?: { providerId?: string; signal?: AbortSignal },
+  options?: { providerId?: string; signal?: AbortSignal; retry?: boolean },
 ): Promise<SystemOneResult<Q>>;
 export async function systemOne(
   config: ServerConfig,
   input: SystemOneRequest,
-  options: { providerId?: string; signal?: AbortSignal } = {},
+  options: { providerId?: string; signal?: AbortSignal; retry?: boolean } = {},
 ) {
   const store = await readStore(config);
   const id = options.providerId ?? store.selection.providerId;
@@ -338,7 +338,7 @@ export async function systemOne(
       "systemone_model_unavailable",
       "The requested SystemOne model is not configured for this provider.",
     );
-  const result = await callSystemOne(target, input, { signal: options.signal });
+  const result = await callSystemOne(target, input, { signal: options.signal, retry: options.retry });
   return { ...result, providerId: id, requestedModel: target.model };
 }
 

@@ -1047,7 +1047,7 @@ function WorkspaceSidebarGroup({
 
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
-                <SidebarMenuSub className="gap-0.5 rounded-xl bg-sidebar-accent/65 p-1">
+                <SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
                   <SidebarMenuSubItem>
                     <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "home"); }}>
                       <House className="size-4" strokeWidth={1.5} />

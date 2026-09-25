@@ -21,12 +21,14 @@ import { projectFileDisplayName } from "../../workspace/project-note-title";
 import { writeWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
 import { t } from "@/i18n";
 import { projectErrorMessage } from "../../workspace/project-errors";
+import { ProjectFilesDropzone } from "../../workspace/project-files-dropzone";
 
 type WorkspaceFilesPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
   projectName?: string;
+  isRemoteWorkspace: boolean;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
   onClose?: () => void;
 };
@@ -47,6 +49,7 @@ export function WorkspaceFilesPanel({
   workspaceId,
   workspaceRoot,
   projectName,
+  isRemoteWorkspace,
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
@@ -104,6 +107,7 @@ export function WorkspaceFilesPanel({
 
   return (
     <TooltipProvider delay={1000}>
+      <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
         <PanelHeader title={t("workspace_files.files")} icon={<FolderIcon open />}>
           <Tooltip>
@@ -262,6 +266,7 @@ export function WorkspaceFilesPanel({
           )}
         </div>
       </div>
+      </ProjectFilesDropzone>
     </TooltipProvider>
   );
 }

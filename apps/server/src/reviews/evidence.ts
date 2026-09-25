@@ -7,20 +7,21 @@ import { DocumentPreparation } from "../document-preparation/service.js";
 import { preparedSchema } from "../document-preparation/schema.js";
 import type { EvidencePage } from "./chunks.js";
 import { within } from "./storage.js";
+import { REVIEW_FILE_EXTENSIONS, REVIEW_MAX_FILE_BYTES } from "./schema.js";
 
-export const REVIEW_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp", ".docx", ".txt", ".md", ".markdown"]);
+export const REVIEW_EXTENSIONS = new Set(REVIEW_FILE_EXTENSIONS.map(extension => `.${extension}`));
 export async function reviewSource(workspace: string, input: string) {
   const root = await realpath(workspace), path = await realpath(resolve(root, input));
   if (!within(root, path) || !REVIEW_EXTENSIONS.has(extname(path).toLowerCase()))
     throw new ApiError(400, "review_source", "Choose a PDF, Word document, image or text file inside this project.");
   const info = await stat(path);
-  if (!info.isFile() || info.size > 64 * 1024 * 1024) throw new ApiError(413, "review_source_size", "Review documents must be files of at most 64 MiB.");
+  if (!info.isFile() || info.size > REVIEW_MAX_FILE_BYTES) throw new ApiError(413, "review_source_size", "Review documents must be files of at most 64 MiB.");
   return { absolute: path, path: relative(root, path).split("\\").join("/"), name: basename(path), size: info.size };
 }
 export async function sourceHash(workspace: string, path: string) {
   const source = await reviewSource(workspace, path);
   const bytes = await readFile(source.absolute);
-  if (bytes.length > 64 * 1024 * 1024) throw new ApiError(413, "review_source_size", "The source is too large.");
+  if (bytes.length > REVIEW_MAX_FILE_BYTES) throw new ApiError(413, "review_source_size", "The source is too large.");
   return { source, bytes, hash: createHash("sha256").update(bytes).digest("hex") };
 }
 function decodeXml(text: string) {

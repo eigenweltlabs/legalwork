@@ -55,7 +55,7 @@ declare global {
         ...args: DesktopCommandArgs<C>
       ) => Promise<DesktopCommandResult<C>>;
       files?: {
-        moveIntoProject?: (workspaceId: string, files: File[]) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceMoveFilesResult>;
+        copyIntoProject?: (workspaceId: string, files: File[], folder?: string) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>;
       };
       shell?: {
         openExternal?: (url: string) => Promise<void>;

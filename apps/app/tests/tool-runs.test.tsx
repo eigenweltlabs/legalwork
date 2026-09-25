@@ -93,3 +93,30 @@ test("a pending or failed review action remains visible instead of disappearing 
   const failed: DynamicToolUIPart = { ...pending, state: "output-error", errorText: "Choose compatible columns." };
   for (const part of [pending, failed]) expect(getAssistantRenderGroups([bash, part], false).at(-1)).toEqual({ kind: "review", part });
 });
+
+test("review setup hides incidental project cards across prose without changing stored tool results", () => {
+  const project: DynamicToolUIPart = { ...bash, toolName: "legalwork_project_list", toolCallId: "project", output: "original inventory" };
+  const review: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_start", toolCallId: "review" };
+  for (const thinking of [false, true]) {
+    const groups = groupAssistantToolRuns(messages([[project], [{ type: "text", text: "Starting." }], [reasoning, review]]), thinking).flatMap(item => getAssistantRenderGroups(item.message.parts, thinking));
+    expect(groups.some(group => group.kind === "project")).toBe(false);
+    expect(groups.some(group => group.kind === "review")).toBe(true);
+    expect(project).not.toHaveProperty("projectCardSuppressed");
+    expect(project.output).toBe("original inventory");
+  }
+  expect(getAssistantRenderGroups([project], false)[0].kind).toBe("project");
+});
+
+test("review cards deduplicate across prose but keep different projects and failures distinct", () => {
+  const review = { id: "101ec043-4ef0-4df7-88b6-4690869e8830", name: "NDA review", status: "draft", completed: 0, total: 2, documents: 2, columns: 1 };
+  const created: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_create", toolCallId: "create", output: { ok: true, workspaceId: "project", review } };
+  const started: DynamicToolUIPart = { ...created, toolName: "legalwork_review_start", toolCallId: "start", output: { ok: true, workspaceId: "project", review: { ...review, status: "running" } } };
+  const other: DynamicToolUIPart = { ...created, toolCallId: "other-project", output: { ok: true, workspaceId: "other", review } };
+  const failed: DynamicToolUIPart = { ...started, toolCallId: "failed", state: "output-error", errorText: "Unavailable" };
+  for (const thinking of [false, true]) {
+    const groups = groupAssistantToolRuns(messages([[created], [{ type: "text", text: "Starting it now." }], [started, other, failed]]), thinking)
+      .flatMap(item => getAssistantRenderGroups(item.message.parts, thinking));
+    expect(groups.filter(group => group.kind === "review").map(group => group.part.toolCallId)).toEqual(["start", "other-project", "failed"]);
+    expect(groups.some(group => group.kind === "text" && group.text === "Starting it now.")).toBe(true);
+  }
+});

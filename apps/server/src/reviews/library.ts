@@ -5,7 +5,7 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { ReviewLibraryEntrySchema, SaveReviewLibrarySchema, type ReviewLibraryEntry } from "./schema.js";
+import { ReviewLibraryEntrySchema, SaveReviewLibrarySchema, reviewLibraryKind, type ReviewLibraryEntry } from "./schema.js";
 import { atomicJson, missing, readJson, serialized } from "./storage.js";
 
 import { builtinReviewLibrary } from "./builtin-library.js";
@@ -30,8 +30,10 @@ export class ReviewLibrary {
       const existing = input.id ? entries.find(item => item.id === input.id) : undefined;
       if (input.id && !existing) throw new ApiError(404, "review_library_not_found", "Saved prompt not found.");
       if (existing && existing.version !== input.version) throw new ApiError(409, "review_library_conflict", "This saved prompt has changed. Reload it before saving.");
+      const kind = input.kind ?? (existing ? reviewLibraryKind(existing) : reviewLibraryKind(input));
+      if (kind === "prompt" && input.columns.length !== 1) throw new ApiError(400, "review_library_kind", "A prompt contains one column. Save multiple columns as a set.");
       const id = existing?.id ?? randomUUID(), version = (existing?.version ?? 0) + 1;
-      const entry: ReviewLibraryEntry = { ...input, id, version, source: "personal", updatedAt: Date.now(), columns: input.columns.map(column => ({ ...column, libraryId: id, libraryVersion: version, libraryColumnKey: column.key })) };
+      const entry: ReviewLibraryEntry = { ...input, kind, id, version, source: "personal", updatedAt: Date.now(), columns: input.columns.map(column => ({ ...column, libraryId: id, libraryVersion: version, libraryColumnKey: column.key })) };
       await atomicJson(await this.path(), [...entries.filter(item => item.id !== id), entry]);
       return entry;
     });

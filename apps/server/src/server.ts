@@ -88,7 +88,10 @@ import { registerStorageRoutes } from "./routes/file-storage.js";
 import { DocumentPreparation } from "./document-preparation/service.js";
 import { ReviewService } from "./reviews/service.js";
 import { ReviewExecutor } from "./reviews/executor.js";
+import { ReviewSessions } from "./reviews/sessions.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
+import { ReviewDefaults } from "./reviews/storage.js";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
@@ -761,7 +764,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   });
   const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
   const preparation = new DocumentPreparation(ocr);
-  const reviews = new ReviewService(new ReviewExecutor(config), preparation);
+  const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews);
 
   const serverOptions: {
@@ -1492,7 +1495,21 @@ function createRoutes(
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
-  registerReviewRoutes({ routes, config, reviews, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  const reviewSessions = new ReviewSessions(workspace => {
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    return {
+      get: async id => {
+        const result = await client.session.get({ sessionID: id });
+        if (result.response?.status === 404) return null;
+        return unwrapOpencodeResult(result, "/session");
+      },
+      list: async () => unwrapOpencodeResult(await client.session.list(), "/session"),
+      messages: async (id, limit) => unwrapOpencodeResult(await client.session.messages({ sessionID: id, limit }), "/session/message"),
+      create: async title => unwrapOpencodeResult(await client.session.create({ title }), "/session"),
+      unarchive: async id => unwrapOpencodeResult(await client.session.update({ sessionID: id, time: { archived: 0 } }), "/session"),
+    };
+  });
+  registerReviewRoutes({ routes, config, reviews, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });

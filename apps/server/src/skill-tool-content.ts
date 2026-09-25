@@ -34,7 +34,7 @@ export function fitSkillName(raw: string): string {
  * the app detects them by it, and the engine skips a SKILL.md that carries
  * non-standard frontmatter keys. Mirrors the Workflows view's naming.
  */
-export function resolveSkillName(input: { name: string; kind: "skill" | "workflow"; workflowType: "assistant" | "tabular" }): string {
+export function resolveSkillName(input: { name: string; kind: "skill" | "workflow"; workflowType: "assistant" }): string {
   const slug = fitSkillName(input.name);
   if (!slug) return "";
   if (input.kind !== "workflow") return slug;
@@ -42,43 +42,18 @@ export function resolveSkillName(input: { name: string; kind: "skill" | "workflo
   return fitSkillName(`workflow-${input.workflowType}-${bare}`);
 }
 
-function titleFromName(name: string): string {
-  return name
-    .replace(/^workflow-(?:assistant|tabular)-/, "")
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
 /**
  * Build the SKILL.md. Frontmatter stays standard (name + description only) so
- * the engine loads it as an ordinary skill; a tabular workflow's body carries
- * the instruction to use saved project review tools.
+ * the engine loads it as an ordinary skill. Review prompts use the structured library.
  */
 export function buildSkillMarkdown(input: {
   fullName: string;
   description: string;
   instructions: string;
   kind: "skill" | "workflow";
-  workflowType: "assistant" | "tabular";
+  workflowType: "assistant";
 }): string {
   const frontmatter = `---\nname: ${input.fullName}\ndescription: ${JSON.stringify(input.description.trim())}\n---\n`;
   const body = input.instructions.trim();
-  if (input.kind !== "workflow" || input.workflowType === "assistant") {
-    return `${frontmatter}\n${body}\n`;
-  }
-  const title = titleFromName(input.fullName);
-  return `${frontmatter}\n${[
-    `# ${title}`,
-    ``,
-    "This is a **tabular review workflow**. Run it as a saved project review using legalwork_review_create and legalwork_review_start.",
-    "First read legalwork_review_settings. Its mode is mandatory: Only JEV accepts yes/no or fixed-choice classification; mixed mode routes decisions to JEV and text to LLM; Only LLM never uses JEV inference.",
-    "Use legalwork_review_library to reuse exact column definitions and sets. Do not silently rewrite or drop incompatible questions; ask the user to choose compatible questions or change settings.",
-    "Create one row per project document and the columns defined below. The live review card shows progress and opens the saved grid. Do not build an HTML artifact or run separate extraction agents.",
-    ``,
-    `## What to extract`,
-    ``,
-    body,
-    ``,
-    `When the user asks to run "${title}", use the saved-review tools above.`,
-  ].join("\n")}\n`;
+  return `${frontmatter}\n${body}\n`;
 }

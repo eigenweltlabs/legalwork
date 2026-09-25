@@ -31,6 +31,12 @@ describe("ensureWorkspaceFiles", () => {
       expect(legalwork).toContain('"authorizedRoots"');
 
       await expect(stat(join(root, ".opencode", "skills", "tabular-review"))).rejects.toThrow();
+      const reviewSkill = await readFile(join(root, ".opencode", "skills", "start-tabular-review", "SKILL.md"), "utf8");
+      expect(reviewSkill).toContain("name: start-tabular-review");
+      const authoring = await readFile(join(root, ".opencode", "skills", "author-review-prompts", "SKILL.md"), "utf8");
+      expect(authoring).toContain("legalwork_review_library_save");
+      expect(authoring).toContain('kind: "set"');
+      expect(reviewSkill).toContain("legalwork_review_start");
       await expect(stat(join(root, ".opencode", "skills", "pdf-tools", "assets", "vendor", "pdf.min.js"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "document-extractor.md"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "fusion-candidate.md"))).resolves.toBeDefined();

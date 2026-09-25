@@ -116,6 +116,34 @@ DOCX/text are read completely with explicit size limits. SystemOne decisions rem
 uncited; LLM citations are verified against source evidence. Incomplete OCR blocks
 JEV and cannot become a clean LLM "Not found" result.
 
+Review cells share a local worker queue across all projects, reviews and backends.
+On machines with at least 16 GiB RAM, up to 16 cells and 4 prepared documents
+are active; smaller laptops use 8 cells and 2 prepared documents. JEV-only,
+LLM-only and mixed reviews can each use the whole cell pool. There is no separate
+2-JEV/4-LLM partition or limit on the number of submitted reviews. Queues rotate
+between reviews. OCR remains serialized to protect local model memory.
+
+The server accepts these startup environment overrides (1–32):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LEGALWORK_REVIEW_CELL_CONCURRENCY` | 16 (8 below 16 GiB RAM) | Total active cells across backends and reviews |
+| `LEGALWORK_REVIEW_DOCUMENT_CONCURRENCY` | 4 (2 below 16 GiB RAM) | Documents held for preparation and inference |
+
+The development proxy adds no concurrency cap, and a development key does not
+need a special parallel-request cap. The app owns local scheduling. Upstream
+rate limits and transient outages use up to three attempts with exponential
+backoff, jitter and `Retry-After`; completed chunks are retained.
+Authentication, billing and invalid model answers are not retried. No model
+fallback overrides the user's selected mode. The gateway still enforces token
+and subscription budgets.
+
+The table shows queued and running cell counts. Stop removes queued jobs and
+aborts active requests before saving the final state. Completed cells survive;
+Resume runs unfinished cells. After an app/server restart, unfinished work is
+marked interrupted and waits for an explicit Resume rather than silently
+starting paid requests.
+
 See [SystemOne contract](systemone.md) and [OCR documentation](../apps/server/src/ocr/README.md).
 These steps are for local development. Pushing either branch does not deploy the
 production pool or gateways; production enablement follows model-api's separate

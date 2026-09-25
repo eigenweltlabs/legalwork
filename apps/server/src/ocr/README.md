@@ -191,11 +191,12 @@ platforms it exercises the fast model.
 
 ## Tabular Review integration
 
-`document-preparation/service.ts` is the shared consumer. The bundled review workflow
-calls `legalwork_document_prepare` once with all PDF/image paths, polls
-`legalwork_document_preparation_status`, and supplies the returned `preparationPath`
-to each document extractor. The server pins the selected model, endpoint and credentials
-for that run. DOCX/text continue through their existing readers.
+`document-preparation/service.ts` is the shared consumer. Starting a saved review
+automatically creates one preparation job for its PDF/image sources before running
+their cells. The server pins the selected model, endpoint and credentials for that
+run. Agents use the bundled `start-tabular-review` skill and review tools; standalone
+OCR preparation tools are not exposed to the agent. DOCX/text continue through their
+existing readers.
 
 Every PDF page is rendered with PDF.js at up to 144 dpi (16 million pixels maximum)
 and passed to OCR, even when a text layer exists. Native text and recognition results

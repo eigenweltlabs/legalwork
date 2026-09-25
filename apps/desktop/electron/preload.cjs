@@ -55,10 +55,10 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
   },
   files: {
-    moveIntoProject(workspaceId, files) {
+    copyIntoProject(workspaceId, files, folder) {
       const paths = files.map((file) => webUtils.getPathForFile(file));
       if (paths.some((filePath) => !filePath)) return Promise.reject(new Error("Native files are required"));
-      return ipcRenderer.invoke("legalwork:desktop", "workspaceMoveFiles", { workspaceId, paths });
+      return ipcRenderer.invoke("legalwork:desktop", "workspaceCopyFiles", { workspaceId, paths, folder });
     },
   },
   /** Subscribe to content-free error signals relayed from the main process. */

@@ -15,6 +15,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = "apps/server/resources/core-opencode";
 
 const FILES = [
+  { source: "skills/author-review-prompts/SKILL.md", path: ".opencode/skills/author-review-prompts/SKILL.md" },
+  { source: "skills/start-tabular-review/SKILL.md", path: ".opencode/skills/start-tabular-review/SKILL.md" },
   { source: "agents/document-extractor.md", path: ".opencode/agents/document-extractor.md" },
   { source: "agents/fusion-candidate.md", path: ".opencode/agents/fusion-candidate.md" },
   // docx-edit: agentic Word reading + editing (self-contained vendored OOXML engine).

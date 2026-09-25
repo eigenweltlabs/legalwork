@@ -187,14 +187,10 @@ export type SkillsViewProps = {
 // Workflows are ordinary skills tagged with `kind: workflow` frontmatter (surfaced on the
 // SkillCard), so the two views filter the same list. The legacy `workflow-` name prefix is
 // still recognized as a fallback for anything created before the switch.
-export type WorkflowType = "tabular" | "assistant";
+export type WorkflowType = "assistant";
 const WORKFLOW_PREFIX = "workflow-";
 export function isWorkflowCard(card: Pick<SkillCard, "name" | "kind">): boolean {
   return card.kind === "workflow" || card.name.startsWith(WORKFLOW_PREFIX);
-}
-function cardWorkflowType(card: SkillCard): WorkflowType {
-  if (card.workflowType === "tabular" || card.name.startsWith("workflow-tabular-")) return "tabular";
-  return "assistant";
 }
 export function workflowDisplayName(name: string): string {
   const slug = name.replace(/^workflow-(?:tabular|assistant)-/, "").replace(/^workflow-/, "");
@@ -823,15 +819,8 @@ export function SkillsView(props: SkillsViewProps) {
               <div className="grid gap-3 sm:grid-cols-2">
                 {pagedWorkflows.map((skill) => {
                   const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
-                  const workflowType = isWorkflowsView ? cardWorkflowType(skill) : null;
-                  const typeLabel = isWorkflowsView
-                    ? workflowType === "tabular"
-                      ? "Tabular"
-                      : "Assistant"
-                    : isLegalworkInjectedSkill(skill)
-                      ? "LegalWork"
-                      : null;
-                  const TypeIcon = isWorkflowsView ? (workflowType === "tabular" ? Table2 : Bot) : Blocks;
+                  const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
+                  const TypeIcon = isWorkflowsView ? Bot : Blocks;
                   return (
                     <div
                       key={skill.path}
@@ -1383,41 +1372,6 @@ function SkillCreatorButton(props: {
   );
 }
 
-// Builds the SKILL.md for a workflow. Both types carry `kind: workflow` + `workflow_type`
-// frontmatter; tabular workflows use the native saved-review tools
-// plus the free-text list of fields the creator typed.
-function buildWorkflowContent(input: {
-  type: WorkflowType;
-  fullName: string;
-  title: string;
-  description: string;
-  body: string;
-}): string {
-  // Frontmatter stays standard (name + description only) so opencode loads workflows
-  // as ordinary skills — non-standard keys like `kind`/`workflow_type` make the engine
-  // skip the SKILL.md. The `workflow-<type>-` name prefix is what marks it as a workflow.
-  const frontmatter =
-    `---\nname: ${input.fullName}\ndescription: ${JSON.stringify(input.description.trim())}\n---\n`;
-  if (input.type === "assistant") {
-    return `${frontmatter}\n${input.body.trim()}\n`;
-  }
-  const md = [
-    `# ${input.title}`,
-    ``,
-    "This is a **tabular review workflow**. Run it as a saved project review using legalwork_review_create and legalwork_review_start.",
-    "First read legalwork_review_settings. Its mode is mandatory: Only JEV accepts yes/no or fixed-choice classification; mixed mode routes decisions to JEV and text to LLM; Only LLM never uses JEV inference.",
-    "Use legalwork_review_library to reuse exact column definitions and sets. Do not silently rewrite or drop incompatible questions; ask the user to choose compatible questions or change settings.",
-    "Create one row per project document and the columns defined below. The live review card shows progress and opens the saved grid. Do not build an HTML artifact or run separate extraction agents.",
-    ``,
-    `## What to extract`,
-    ``,
-    input.body.trim(),
-    ``,
-    `When the user asks to run "${input.title}", use the saved-review tools above.`,
-  ].join("\n");
-  return `${frontmatter}\n${md}\n`;
-}
-
 // Progress card for a template-to-workflow generation run. Clicking it opens
 // the agent's session in the normal chat view so the user can watch (and answer
 // any permission prompts); done/error states carry a dismiss control, and a
@@ -1520,7 +1474,6 @@ function WorkflowCreatorButton(props: {
   saveSkillResource: SkillResourcesStore["saveSkillResource"];
 }) {
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<WorkflowType | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
@@ -1531,12 +1484,11 @@ function WorkflowCreatorButton(props: {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   // Workflows are stored with a `workflow-<type>-` name prefix so opencode loads them as
   // standard skills (frontmatter stays just name + description). The UI recognizes them by
-  // this prefix — see isWorkflowCard / cardWorkflowType / workflowDisplayName.
-  const fullName = type ? `workflow-${type}-${slug}` : slug;
+  // this prefix — see isWorkflowCard / workflowDisplayName.
+  const fullName = `workflow-assistant-${slug}`;
   const nameValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && fullName.length <= 200;
   const nameTaken = nameValid && props.existingNames.has(fullName);
   const canSubmit =
-    !!type &&
     nameValid &&
     !nameTaken &&
     description.trim().length > 0 &&
@@ -1544,7 +1496,6 @@ function WorkflowCreatorButton(props: {
     !saving;
 
   const reset = () => {
-    setType(null);
     setName("");
     setDescription("");
     setBody("");
@@ -1554,11 +1505,10 @@ function WorkflowCreatorButton(props: {
   };
 
   const submit = async () => {
-    if (!canSubmit || !type) return;
+    if (!canSubmit) return;
     setSaving(true);
     setError(null);
-    const title = name.trim() || workflowDisplayName(fullName);
-    const content = buildWorkflowContent({ type, fullName, title, description, body });
+    const content = `---\nname: ${fullName}\ndescription: ${JSON.stringify(description.trim())}\n---\n\n${body.trim()}\n`;
     try {
       const result = await props.onCreate({ name: fullName, content, description: description.trim() });
       if (result.ok) {
@@ -1599,61 +1549,14 @@ function WorkflowCreatorButton(props: {
       >
         <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{type === "tabular"
-              ? t("skills.new_tabular_workflow")
-              : type === "assistant"
-                ? t("skills.new_assistant_workflow")
-                : t("skills.new_workflow")}</DialogTitle>
-            <DialogDescription>
-              {type === "tabular"
-                ? "A tabular workflow creates a saved project review with the columns you define and the selected review mode."
-                : type === "assistant"
-                  ? t("skills.assistant_hint")
-                  : t("skills.choose_run_hint")}
-            </DialogDescription>
+            <DialogTitle>{t("skills.new_workflow")}</DialogTitle>
+            <DialogDescription>{t("skills.assistant_hint")}</DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-px py-1">
             {error ? (
               <div className="rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{error}</div>
             ) : null}
-
-            {!type ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setType("tabular")}
-                  className="flex flex-col gap-2 rounded-2xl border border-dls-border bg-dls-hover p-4 text-left transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.5)]"
-                >
-                  <Package size={20} className="text-dls-secondary" />
-                  <span className="text-sm font-semibold text-dls-text">Tabular</span>
-                  <span className="text-[12px] leading-relaxed text-dls-secondary">
-                    {t("skills.tabular_desc")}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setType("assistant")}
-                  className="flex flex-col gap-2 rounded-2xl border border-dls-border bg-dls-hover p-4 text-left transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.5)]"
-                >
-                  <Bot size={20} className="text-dls-secondary" />
-                  <span className="text-sm font-semibold text-dls-text">Assistant</span>
-                  <span className="text-[12px] leading-relaxed text-dls-secondary">
-                    {t("skills.assistant_desc")}
-                  </span>
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-2 text-xs font-medium text-dls-text">
-                    {type === "tabular" ? <Package size={14} /> : <Bot size={14} />}
-                    {type === "tabular" ? t("skills.tabular_workflow") : t("skills.assistant_workflow")}
-                  </span>
-                  <button type="button" onClick={() => setType(null)} className="text-[11px] text-dls-secondary underline">
-                    {t("skills.change_type")}
-                  </button>
-                </div>
 
                 <label className="block space-y-1.5">
                   <span className="text-xs font-medium text-dls-text">Name</span>
@@ -1687,7 +1590,7 @@ function WorkflowCreatorButton(props: {
 
                 <label className="block space-y-1.5">
                   <span className="text-xs font-medium text-dls-text">
-                    {type === "assistant" ? "Instructions" : t("skills.columns_to_extract")}
+                    {t("workflows.instructions")}
                   </span>
                   <textarea
                     value={body}
@@ -1695,27 +1598,17 @@ function WorkflowCreatorButton(props: {
                     rows={10}
                     spellCheck={false}
                     placeholder={
-                      type === "assistant"
-                        ? t("skills.instructions_placeholder")
-                        : t("skills.columns_placeholder")
+                      t("skills.instructions_placeholder")
                     }
                     className={`${inputClass} min-h-[200px] font-mono text-xs`}
                   />
-                  {type === "tabular" ? (
-                    <span className="text-[11px] text-dls-secondary">
-                      {t("skills.columns_hint")}
-                    </span>
-                  ) : null}
                 </label>
 
                 <StagedResourcesField staged={staged} onChange={setStaged} disabled={saving} />
-              </>
-            )}
           </div>
 
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />}>{t("common.cancel")}</DialogClose>
-            {type ? (
               <Button type="button" disabled={!canSubmit} onClick={() => void submit()}>
                 {saving ? (
                   <>
@@ -1726,7 +1619,6 @@ function WorkflowCreatorButton(props: {
                   "Create workflow"
                 )}
               </Button>
-            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

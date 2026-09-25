@@ -1,11 +1,11 @@
 import { ApiError } from "../errors.js";
-import type { ReviewColumn, ReviewMode, ReviewSettings, ReviewCapabilities } from "./schema.js";
-import { incompatibleJevQuestion } from "./schema.js";
+import type { ReviewCell, ReviewColumn, ReviewMode, ReviewSettings, ReviewCapabilities } from "./schema.js";
+import { incompatibleJevQuestion, isJevColumnKind } from "./schema.js";
 
 export function columnBackend(mode: ReviewMode, column: ReviewColumn): "llm" | "systemone" {
   if (mode === "jev" && incompatibleJevQuestion(column))
     throw new ApiError(422, "review_mode_conflict", "Only JEV accepts yes/no and fixed-choice classification questions.", { columnKeys: [column.key], allowedKinds: ["yes_no", "classification"], mode });
-  return mode === "llm" || column.kind === "text" ? "llm" : "systemone";
+  return mode === "llm" || !isJevColumnKind(column.kind) ? "llm" : "systemone";
 }
 
 export function validateReviewPolicy(settings: ReviewSettings, columns: ReviewColumn[]) {
@@ -13,18 +13,24 @@ export function validateReviewPolicy(settings: ReviewSettings, columns: ReviewCo
   if (incompatible.length) throw new ApiError(422, "review_mode_conflict", "These columns need an LLM. Reformulate them as yes/no or fixed-choice classification, or ask the user to change the review mode.", {
     mode: settings.mode, columnKeys: incompatible.map(column => column.key), allowedKinds: ["yes_no", "classification"],
   });
-  for (const column of columns) {
-    const backend = columnBackend(settings.mode, column);
-    if (!(backend === "systemone" ? settings.jev : settings.llm))
-      throw new ApiError(409, "review_model_required", backend === "systemone" ? "Select a JEV model in review settings." : "Select an LLM in review settings.", { backend });
-  }
 }
 
 export function validateAvailableModels(capabilities: ReviewCapabilities, settings: ReviewSettings, columns: ReviewColumn[]) {
-  validateReviewPolicy(settings, columns);
-  for (const backend of new Set(columns.map(column => columnBackend(settings.mode, column)))) {
+  const blocked = new Map<string, NonNullable<ReviewCell["blockedBy"]>>();
+  for (const column of columns) {
+    if (settings.mode === "jev" && incompatibleJevQuestion(column)) {
+      blocked.set(column.key, "jev_mode");
+      continue;
+    }
+    const backend = columnBackend(settings.mode, column);
     const selected = backend === "systemone" ? settings.jev : settings.llm;
     if (!selected || !capabilities.models.some(model => model.backend === backend && model.providerId === selected.providerId && model.model === selected.model))
-      throw new ApiError(409, "review_model_unavailable", "The selected review model is unavailable. Reconnect it or explicitly choose another model in review settings.", { backend, selected });
+      blocked.set(column.key, backend);
   }
+  if (columns.length && blocked.size === columns.length) {
+    if ([...blocked.values()].every(reason => reason === "jev_mode"))
+      throw new ApiError(422, "review_mode_conflict", "These columns cannot run in Only JEV mode. Choose JEV + LLM or Only LLM to run them.", { columnKeys: [...blocked.keys()] });
+    throw new ApiError(409, "review_model_unavailable", "Connect and select the model required by these columns in review settings.", { columnKeys: [...blocked.keys()] });
+  }
+  return blocked;
 }

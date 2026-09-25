@@ -1,4 +1,5 @@
 import { SystemOneSettingsSection } from "../domains/settings/pages/systemone-view";
+import { TabularReviewSettingsView } from "../domains/settings/pages/tabular-review-view";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -231,6 +232,7 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "ai":
+    case "tabular-review":
     case "account":
     case "personalisation":
     case "notifications":
@@ -1971,6 +1973,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             />
           </SettingsStack>
         );
+      case "tabular-review":
+        return <TabularReviewSettingsView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} workspaceId={runtimeWorkspaceId} onManageProviders={() => navigateSettingsPath("ai")} />;
       case "ai":
         return (
           <AiSettingsView
@@ -2119,6 +2123,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <View
             workspaceId={selectedWorkspaceId}
+            reviewClient={legalworkClient}
+            reviewWorkspaceId={hubWorkspaceId}
             inlineEditor={props.singleView !== true}
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { setTimeout as delay } from "node:timers/promises";
 import { ApiError } from "./errors.js";
+import { retryAfterMs } from "./retry-after.js";
 import {
   SystemOneRequestSchema,
   SystemOneQuestionTypeSchema,
@@ -31,6 +32,7 @@ export async function callSystemOne(
     signal?: AbortSignal;
     fetch?: typeof fetch;
     retryDelayMs?: number;
+    retry?: boolean;
   } = {},
 ) {
   const parsed = SystemOneRequestSchema.safeParse(input);
@@ -56,7 +58,8 @@ export async function callSystemOne(
     AbortSignal.timeout(120_000),
   ]);
   const fetcher = options.fetch ?? fetch;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const attempts = options.retry === false ? 1 : 3;
+  for (let attempt = 0; attempt < attempts; attempt++) {
     let response: Response;
     try {
       signal.throwIfAborted();
@@ -123,7 +126,7 @@ export async function callSystemOne(
     }
     // Never return upstream bodies: they may echo state, credentials or internal URLs.
     await response.body?.cancel();
-    if ([429, 529, 502, 503, 504].includes(response.status) && attempt < 2) {
+    if ([429, 529, 502, 503, 504].includes(response.status) && attempt < attempts - 1) {
       const header = response.headers.get("retry-after");
       const seconds = header === null ? NaN : Number(header);
       const retryAt =
@@ -172,11 +175,13 @@ export async function callSystemOne(
         429,
         "systemone_rate_limited",
         "The SystemOne provider is rate limited. Try again later.",
+        { retryAfterMs: retryAfterMs(response.headers.get("retry-after")) },
       );
     throw new ApiError(
       503,
       "systemone_unavailable",
       "The selected SystemOne provider is unavailable. Try again later.",
+      { retryAfterMs: retryAfterMs(response.headers.get("retry-after")) },
     );
   }
   throw new ApiError(503, "systemone_unavailable", "SystemOne request failed.");

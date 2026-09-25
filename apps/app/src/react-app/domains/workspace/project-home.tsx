@@ -75,6 +75,7 @@ export function ProjectHome(props: {
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
   return (
+    <ProjectFilesDropzone projectId={props.projectId} workspaceId={workspaceId} isRemoteWorkspace={props.isRemoteWorkspace}>
     <div className="@container/project min-h-0 flex-1 overflow-y-auto" data-testid="project-home">
       <div className="mx-auto w-full max-w-4xl px-6 py-8 @min-[720px]/project:px-12 @min-[720px]/project:py-10">
         <header className="mb-8">
@@ -136,8 +137,6 @@ export function ProjectHome(props: {
           </CollapsibleContent>
         </Collapsible>
 
-        <ProjectFilesDropzone projectId={props.projectId} workspaceId={workspaceId} isRemoteWorkspace={props.isRemoteWorkspace} />
-
         <section aria-label={t("projects.notes")}>
           <SectionHeading title={t("projects.notes")} action={<Button variant="ghost" size="icon-sm" aria-label={t("projects.add_note")} title={t("projects.add_note")} onClick={() => setNoteOpen(true)}><Plus className="size-4" /></Button>} />
           <div className="mt-3">
@@ -188,6 +187,7 @@ export function ProjectHome(props: {
         </DialogContent>
       </Dialog>
     </div>
+    </ProjectFilesDropzone>
   );
 }
 

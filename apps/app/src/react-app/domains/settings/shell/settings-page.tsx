@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Sparkles,
   Store,
+  Table2,
   UserCircle,
   Wrench,
   Zap,
@@ -64,6 +65,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Zap;
+    case "tabular-review":
+      return Table2;
     case "account":
       return UserCircle;
     case "personalisation":
@@ -117,6 +120,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return t("settings.tab_ai");
+    case "tabular-review":
+      return t("review.title");
     case "account":
       return t("settings.tab_account");
     case "personalisation":
@@ -170,6 +175,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
 
 export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
+    case "tabular-review":
+      return t("review.defaults_scope");
     case "ai":
       return t("settings.tab_description_ai");
     case "account":
@@ -235,7 +242,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "tabular-review", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after AI Providers.
   if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");

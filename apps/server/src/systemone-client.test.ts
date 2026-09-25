@@ -164,6 +164,15 @@ describe("SystemOne wire contract", () => {
       server.stop();
     }
   });
+  test("review scheduling can own retries and receives Retry-After without upstream secrets", async () => {
+    let calls = 0;
+    const server = serving(() => { calls++; return new Response("secret upstream body", { status: 429, headers: { "retry-after": "60" } }); });
+    try {
+      await expect(callSystemOne({ ...target, endpoint: server.endpoint }, request, { retry: false }))
+        .rejects.toMatchObject({ status: 429, code: "systemone_rate_limited", details: { retryAfterMs: 60_000 } });
+      expect(calls).toBe(1);
+    } finally { server.stop(); }
+  });
   test("rejects unsupported questions before sending and honors cancellation", async () => {
     let calls = 0;
     const server = serving(() => {

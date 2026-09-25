@@ -77,7 +77,7 @@ export function WorkflowEditorPanel({ id, onClose }: { id: string; onClose: () =
           <div><h3 className="text-sm font-semibold">{t("workflows.details")}</h3><p className="mt-1 text-xs text-muted-foreground">{t("workflows.details_hint")}</p></div>
           <label className="block text-xs font-medium">{t("workflows.name")}<input autoFocus={draft.isNew} value={draft.title} disabled={readOnly} placeholder={t("skills.name_placeholder")} onChange={(event) => changeWorkflowTitle(draft, event.currentTarget.value)} className={fieldClass} /></label>
           <label className="block text-xs font-medium">{t("skills.description_when_to_use")}<textarea rows={3} value={draft.description} disabled={readOnly} placeholder={t("skills.description_placeholder_workflow")} onChange={(event) => editWorkflow(id, { description: event.currentTarget.value })} className={`${fieldClass} resize-y`} /></label>
-          <div className="space-y-1 text-xs"><div className="font-medium">{t("workflows.type")}</div><div className="text-muted-foreground">{draft.type === "tabular" ? t("skills.tabular_workflow") : t("skills.assistant_workflow")}</div></div>
+          <div className="space-y-1 text-xs"><div className="font-medium">{t("workflows.type")}</div><div className="text-muted-foreground">{t("workflows.workflow")}</div></div>
           {validation ? <p className="text-xs text-muted-foreground">{validation}</p> : null}
           {draft.isNew ? <Button variant="outline" size="sm" onClick={() => setTab("instructions")}>{t("workflows.write_instructions")}</Button> : null}
         </div>

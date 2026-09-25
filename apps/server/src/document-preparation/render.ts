@@ -1,9 +1,10 @@
 import { createCanvas, loadImage, DOMMatrix, Path2D } from "@napi-rs/canvas";
 import { pdfAsset } from "./pdf-assets.js";
-import type { OcrPage } from "../ocr/types.js";
+import type { OcrContent, OcrPage } from "../ocr/types.js";
+import { pdfQuoteRegions } from "./highlights.js";
 
-export type RenderedPage = { image: OcrPage; nativeText: string };
-export type RenderedDocument = { pageCount: number; page: (number: number, signal: AbortSignal) => Promise<RenderedPage>; close: () => Promise<void> };
+export type RenderedPage = { image: OcrPage; nativeText: string; highlights?: OcrContent["regions"][number]["box"][] };
+export type RenderedDocument = { pageCount: number; page: (number: number, signal: AbortSignal, quote?: string) => Promise<RenderedPage>; close: () => Promise<void> };
 class CanvasFactory {
   create(width: number, height: number) { const canvas = createCanvas(width, height); return { canvas, context: canvas.getContext("2d") }; }
   reset(target: { canvas: ReturnType<typeof createCanvas> }, width: number, height: number) { target.canvas.width = width; target.canvas.height = height; }
@@ -58,7 +59,7 @@ export async function openDocument(bytes: Uint8Array, kind: "pdf" | "image"): Pr
   if (pdf.numPages > 1000) { await loading.destroy(); throw new Error("Review documents must contain at most 1000 pages."); }
   return {
     pageCount: pdf.numPages,
-    async page(number, signal) {
+    async page(number, signal, quote) {
       signal.throwIfAborted();
       const page = await pdf.getPage(number);
       const unit = page.getViewport({ scale: 1 });
@@ -73,8 +74,13 @@ export async function openDocument(bytes: Uint8Array, kind: "pdf" | "image"): Pr
         await task.promise;
         const content = await page.getTextContent();
         const nativeText = content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("").trim();
+        const context = canvas.getContext("2d");
+        const highlights = quote ? pdfQuoteRegions(content, viewport, quote, (text, family, size) => {
+          context.font = `${size}px ${family}`;
+          return context.measureText(text).width;
+        }) : undefined;
         signal.throwIfAborted();
-        return { nativeText, image: { pageNumber: number, mimeType: "image/png", width: canvas.width, height: canvas.height, data: new Uint8Array(await canvas.encode("png")) } };
+        return { nativeText, highlights, image: { pageNumber: number, mimeType: "image/png", width: canvas.width, height: canvas.height, data: new Uint8Array(await canvas.encode("png")) } };
       } finally { signal.removeEventListener("abort", abort); page.cleanup(); }
     },
     close: () => loading.destroy(),

@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
@@ -47,7 +47,11 @@ export class ReviewStore {
   async list() {
     const directory = await this.directory();
     const names = (await readdir(directory)).filter(name => /^[0-9a-f-]{36}\.json$/.test(name));
-    return Promise.all(names.map(name => this.read(name.slice(0, -5))));
+    const rows = await Promise.all(names.map(async name => {
+      try { return await this.read(name.slice(0, -5)); }
+      catch (error) { if (error instanceof ApiError && error.code === "review_not_found") return null; throw error; }
+    }));
+    return rows.filter(row => row !== null);
   }
   async create(value: SavedReview) {
     return serialized(await this.path(value.id), async () => {
@@ -69,18 +73,50 @@ export class ReviewStore {
   }
   async archive(review: SavedReview) {
     if (!review.runId) return;
-    const directory = join(await this.directory(), "history");
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    if (await realpath(directory) !== directory) throw new ApiError(403, "review_path", "Invalid review history path.");
-    await atomicJson(join(directory, `${review.id}-${review.runId}.json`), review);
+    return serialized(await this.path(review.id), async () => {
+      await this.read(review.id); // A concurrent delete must not recreate history.
+      const directory = join(await this.directory(), "history");
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      if (await realpath(directory) !== directory) throw new ApiError(403, "review_path", "Invalid review history path.");
+      await atomicJson(join(directory, `${review.id}-${review.runId}.json`), review);
+    });
+  }
+  async remove(id: string, revision: number) {
+    const path = await this.path(id);
+    return serialized(path, async () => {
+      const current = await this.read(id);
+      if (current.status === "running") throw new ApiError(409, "review_delete_running", "Stop the review before deleting it.");
+      if (current.revision !== revision) throw new ApiError(409, "review_conflict", "This review has changed. Reload it before deleting.");
+      const history = join(await this.directory(), "history");
+      try {
+        if (await realpath(history) !== history) throw new ApiError(403, "review_path", "Invalid review history path.");
+        for (const name of await readdir(history)) {
+          if (name.startsWith(`${id}-`) && name.endsWith(".json")) await rm(join(history, name));
+        }
+      } catch (error) { if (!missing(error)) throw error; }
+      await rm(path);
+    });
+  }
+}
+
+/** User defaults live with application state, never inside an individual project. */
+export class ReviewDefaults {
+  constructor(private root: string) {}
+  private async path() {
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    return join(await realpath(this.root), "review-defaults.json");
   }
   async settings(fallback: ReviewSettings) {
-    try { return await readJson(join(await this.directory(), "settings.json"), ReviewSettingsSchema); }
+    try { return await readJson(await this.path(), ReviewSettingsSchema); }
     catch (error) { if (missing(error)) return fallback; throw error; }
   }
   async saveSettings(settings: ReviewSettings) {
-    const path = join(await this.directory(), "settings.json");
+    const path = await this.path();
     await serialized(path, () => atomicJson(path, ReviewSettingsSchema.parse(settings)));
     return settings;
+  }
+  async reset() {
+    const path = await this.path();
+    await serialized(path, () => rm(path, { force: true }));
   }
 }

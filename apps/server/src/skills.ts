@@ -80,10 +80,9 @@ async function parseSkillEntry(
   const { data, body } = parsed;
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
-  const kind = data.kind === "workflow" ? "workflow" : undefined;
-  const workflowType = data.workflow_type === "tabular" || data.workflow_type === "assistant"
-    ? data.workflow_type
-    : undefined;
+  // Legacy tabular workflows remain callable under their original names and paths.
+  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-") ? "workflow" : undefined;
+  const workflowType = kind === "workflow" ? "assistant" : undefined;
   const trigger =
     typeof data.trigger === "string"
       ? data.trigger

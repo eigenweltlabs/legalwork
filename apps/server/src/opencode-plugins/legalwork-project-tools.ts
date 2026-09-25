@@ -58,6 +58,7 @@ export const LegalWorkProjectTools = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     output.system.push([
       "For questions about what is in this project, use legalwork_project_list first. It scopes tasks, notes, files, recordings and sessions to the current project, and shows interactive cards to the user.",
+      "A request to start a tabular review is not a project inventory question. Use attached paths directly, or legalwork_review_files for silent file discovery; do not show the project card as a setup step.",
       "When the user requests particular kinds, list those kinds. For everything/an overview, omit kind. Read details only when needed using legalwork_project_read, task tools or document tools. Do not inspect internal application databases or reconstruct project state from folders.",
       "Cards let the user open the existing task, note, document, recording or session viewer. For inventory questions, respond with one brief sentence after the tool. Do not repeat the card as a list, headings or table. Do not expose internal IDs, storage paths or hashed filenames unless the user specifically requests them. The cards are visible inline in the chat, not in a side panel.",
       "Lists and reads are bounded. Follow nextCursor/nextOffset before claiming completeness. Report unavailable sections as unavailable, not empty.",

@@ -8,6 +8,11 @@ export function workspaceSessionRoute(workspaceId: string, sessionId?: string | 
     : `/workspace/${workspace}/session`;
 }
 
+/** Last-session restoration belongs only to an empty chat route, never a project page. */
+export function isSessionIndexRoute(pathname: string) {
+  return /^(?:\/workspace\/[^/]+)?\/session\/?$/.test(pathname);
+}
+
 export function workspaceSettingsRoute(
   workspaceId: string,
   tab: SettingsTab | "extensions/mcp" | "extensions/plugins" | string = "general",
