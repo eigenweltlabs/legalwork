@@ -14,14 +14,15 @@ description: >-
 
 This skill is how this firm runs **tabular document review** — the workflow Harvey and
 Legora call a "review grid": documents are **rows**, the fields you care about are
-**columns**, and every cell is an independent, source-cited extraction. Unlike the
+**columns**, and each cell contains a cited LLM extraction or an explicitly uncited
+SystemOne decision. Unlike the
 SaaS versions, this runs on the firm's own models and infrastructure, the column logic
 lives in firm-owned **doctype skills**, and the output is a self-contained artifact the
 firm keeps.
 
-You are the **orchestrator**. You do not read the documents yourself. You define the
-grid, fan out one `document-extractor` subagent per document, then assemble the results
-into one HTML artifact.
+You are the **orchestrator**. Define the grid, discover and select the review model,
+prepare each document (optionally with one `document-extractor` subagent per file),
+call the review tool, and assemble the returned rows into one HTML artifact.
 
 ## The shape of the job
 
@@ -32,7 +33,7 @@ into one HTML artifact.
   ...
 ```
 
-Each cell = a short `value` (what shows in the grid) plus, behind a click, a longer
+For LLM extraction, each cell = a short `value` (what shows in the grid) plus, behind a click, a longer
 `reason`, one verbatim `quote` sentence, and the cited PDF `page` rendered with that
 sentence highlighted. Every value is grounded in a quote from that document or it is
 "Not found". No hallucinated cells.
@@ -80,45 +81,63 @@ Normalize the final columns into objects you'll pass down and render:
 the header (`Governing law`), `question` is the precise instruction the extractor
 answers, `hint` is optional (format/where to look).
 
-### 3. Fan out — one subagent per document, in parallel
+### 3. Choose a backend and model, then review each document
 
-For each document, spawn the **`document-extractor`** subagent with the **Task tool**.
-Issue the calls **in parallel** (multiple Task calls in a single turn) so the grid fills
-concurrently — this is the whole point of the fan-out.
+Call **`tabular_review_models`** first. It returns available `llm` and `systemone`
+models with `providerId`, `model`, supported `questionTypes`, and `citations`.
+Discovery errors mean availability is unknown; do not invent a model or silently
+switch backends. Honor the user's model/backend choice. Otherwise choose:
 
-Default granularity is **one extractor per file**: it reads the document once and fills
-that file's entire row across all columns. (This is cheaper and more consistent than one
-subagent per cell, because the document is read a single time.) **Escalate to a
-per-cell extractor** only for a column that is high-stakes and came back `low`
-confidence or conflicted — re-run just that (file, column) pair with a focused prompt.
+- **`llm`** for free-text extraction (parties, dates, clauses) or cited explanations.
+- **`systemone`** for JEV-like typed decisions: yes/no probability (`noul`), fixed
+  choices (`choice`), or ordered rubric scores (`score`). Every column needs a
+  `decision` using that model's advertised question types. It cannot extract free
+  text, quotes, or reasoning. If citations are required, choose an LLM.
 
-Give each extractor exactly this:
+For mixed free-text/decision columns, use an LLM for the grid unless the user asks
+for separate passes. Do not silently rewrite a free-text question into a decision.
+Do not ask the user which question types a provider supports: discovery supplies it.
 
+For each document, obtain its **complete** text using the bundled readers below,
+then call **`tabular_review_row`** with `backend`, `providerId`, `model`, `file`,
+`title`, `docType`, `pages: [{page, text}]`, and `columns`. Preserve PDF page numbers;
+use `page: null` for unpaginated text. Never summarize or truncate the source before
+sending it. Empty/scanned documents are `Unreadable`; no OCR is provided here.
+
+- PDF: `node .opencode/skills/pdf-tools/assets/pdf-agent.mjs text "<file>"`.
+- DOCX: `node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "<file>"`.
+- Text: read the complete file directly.
+
+Example SystemOne column:
+```json
+{"key":"assignment","label":"Assignment allowed","question":"May the agreement be assigned without consent?","decision":{"type":"noul","instructions":"Answer using the whole agreement, including exceptions.","criteria":{"true":"Assignment without consent is expressly allowed.","false":"Consent is required or assignment is prohibited or not addressed."}}}
 ```
-FILE: <path to the one document>
-DOC_TYPE: <NDA | Commercial Lease | ... | unknown>
-COLUMNS:
-  1. key: parties
-     question: Who are the parties to this agreement (full legal names)?
-     hint: Check the preamble and signature block.
-  2. key: governing_law
-     question: Which jurisdiction's law governs?
-  ... (every column, with key + question, hints where useful)
+For `choice`, supply `criteria` as named options mapped to descriptions (include an
+absent/unclear option where appropriate). For `score`, supply 2–10 ordered criteria.
+The tool returns `{ok:true,row}` with a **cells map** and `review` provenance. Keep
+all returned metadata, probabilities, usage and actual serving model in the data file.
+A failure returns `{ok:false,error}`: retain the document with visible Error cells,
+and report the error. Do not retry using a different model without an explicit choice.
 
-Return ONLY the strict JSON object defined in your instructions.
-```
+SystemOne cells are **uncited model decisions**, not verified extractions. Preserve
+`confidence: null`, `evidence: "uncited"`, and `decision`. Never invent quotes, pages,
+reasoning, or convert probability to high/medium/low extraction confidence.
+The artifact labels these decisions and shows their distribution.
 
-Each extractor returns a JSON object: `{ file, title, docType, summary, cells: [ {key,
-value, reason, quote, page, location, confidence} ] }`. Remember: `value` is short (it's
-a table cell), `reason` is the longer sidebar explanation, `quote` is one verbatim
-sentence, and `page` is the 1-based page that sentence is on.
+### 3a. Delegate document preparation when useful
+
+For many files, delegate one document to each `document-extractor` with the selected
+`BACKEND`, `PROVIDER_ID`, and `MODEL`, plus the columns (including any `decision`).
+In this mode the extractor reads the source and calls `tabular_review_row`, returning
+its row unchanged. The model performing the review is the explicitly selected model;
+the preparation agent must not replace its answers.
 
 ### 4. Collect and assemble the data file
 
-Parse each extractor's JSON (read the last ```json block). If one fails to parse or the
-subagent errored, keep the row with that file's cells set to `value: "Error"`,
+Use the tool's `row` directly and keep its `review` provenance and cells map.
+If a tool fails or a preparation subagent errors, keep the row with that file's cells set to `value: "Error"`,
 `confidence: "low"` — never drop a document silently; the grid must account for every
-file. Convert each extractor's `cells` array into a map keyed by `key`.
+file. Tool rows already use a cells map keyed by column key.
 
 Write a data file `<matter-slug>-review.data.json` in the workspace with this shape.
 Give each row BOTH paths so the viewer works in the app and when opened from disk:
@@ -225,8 +244,8 @@ is installed, the suggestion library above is the fallback.
 
 ## Notes & guardrails
 
-- **Open models, firm-owned.** Don't hardcode a model — extractors inherit the firm's
-  configured model. The value here is that the column logic and corrections stay in the
+- **Open models, firm-owned.** Don't hardcode a model — discover the firm's
+  available models and use the chosen model explicitly. The value here is that the column logic and corrections stay in the
   firm's skills and artifacts.
 - **Never fabricate a cell.** A blank, source-cited grid beats a confident wrong one.
   This is the one bar that matters; everything else is convenience.

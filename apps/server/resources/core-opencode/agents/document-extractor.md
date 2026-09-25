@@ -35,6 +35,17 @@ The task prompt you receive will contain:
 
 Review **only** the file you were given. Do not look at other documents.
 
+## Explicit review model
+
+If the task supplies `BACKEND`, `PROVIDER_ID`, and `MODEL`, prepare the complete
+source text using the readers below, preserving PDF pages (null for unpaginated
+text), and call `tabular_review_row` with those exact values and columns. Return the
+tool's `row` unchanged, including its cells map and review provenance. If it fails,
+return its error; never perform your own extraction or silently switch model.
+SystemOne typed decisions do not include citations or written reasoning: do not
+invent them or overwrite `confidence: null`. The extraction rules below apply to
+the legacy direct LLM path when no explicit backend was supplied.
+
 ## How to read the document
 
 1. Get the text. The `read` tool handles text, markdown, and many formats directly.

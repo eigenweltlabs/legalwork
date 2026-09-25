@@ -1,3 +1,4 @@
+import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
 /**
  * Global (account-level) manifest for the PAID Eigenwelt Model API provider.
  *
@@ -35,6 +36,7 @@ export type EigenweltPaidManifest = {
   baseURL: string;
   apiKey: string;
   models: EigenweltManifestModel[];
+  systemOne?: SystemOneConfiguration;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,7 +78,8 @@ function parsePaidManifest(value: unknown): EigenweltPaidManifest | null {
   if (!isRecord(value)) return null;
   if (typeof value.baseURL !== "string" || !value.baseURL) return null;
   if (typeof value.apiKey !== "string" || !value.apiKey) return null;
-  return { baseURL: value.baseURL, apiKey: value.apiKey, models: parseManifestModels(value.models) };
+  const systemOne = SystemOneConfigurationSchema.safeParse(value.systemOne);
+  return { baseURL: value.baseURL, apiKey: value.apiKey, models: parseManifestModels(value.models), ...(systemOne.success ? { systemOne: systemOne.data } : {}) };
 }
 
 export function eigenweltPaidManifestCachePath(config: ServerConfig): string {
@@ -128,8 +131,8 @@ export async function refreshEigenweltPaidManifest(
   const cached = await readCachedEigenweltPaidManifest(config);
   if (!cached) return { modelCount: 0, changed: false };
 
-  const { baseURL, models } = await fetchEigenweltManifest(options); // throws on unreachable
-  const next: EigenweltPaidManifest = { ...cached, baseURL, models };
+  const { baseURL, models, systemOne } = await fetchEigenweltManifest(options); // throws on unreachable
+  const next: EigenweltPaidManifest = { ...cached, baseURL, models, ...(systemOne ? { systemOne } : {}) };
   const changed = JSON.stringify(cached) !== JSON.stringify(next);
   if (changed) await writeCachedEigenweltPaidManifest(config, next);
   return { modelCount: next.models.length, changed };
@@ -180,4 +183,13 @@ export function buildEigenweltPaidProviderBlock(manifest: EigenweltPaidManifest)
     },
     models: buildEigenweltModelsMap(manifest.models),
   };
+}
+
+export async function applyEigenweltSystemOne(config: ServerConfig, value: unknown): Promise<void> {
+  const parsed = SystemOneConfigurationSchema.safeParse(value);
+  if (!parsed.success) return; // omitted fields from older platforms keep the last snapshot
+  const cached = await readCachedEigenweltPaidManifest(config);
+  if (cached && JSON.stringify(cached.systemOne) !== JSON.stringify(parsed.data)) {
+    await writeCachedEigenweltPaidManifest(config, { ...cached, systemOne: parsed.data });
+  }
 }

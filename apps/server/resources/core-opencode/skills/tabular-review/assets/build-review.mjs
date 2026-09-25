@@ -60,7 +60,7 @@ function main() {
   const html = template
     .replace("/*__PDFJS__*/", () => scriptSafe(pdfjs))
     .replace("/*__PDF_WORKER__*/", () => scriptSafe(worker))
-    .replace("/*__REVIEW_DATA__*/", () => JSON.stringify(data));
+    .replace("/*__REVIEW_DATA__*/", () => scriptSafe(JSON.stringify(data)));
 
   const out = args.out ? resolve(args.out) : dataAbs.replace(/\.data\.json$/i, ".html").replace(/\.json$/i, ".html");
   writeFileSync(out, html, "utf8");

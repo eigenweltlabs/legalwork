@@ -22,3 +22,6 @@ export { startEmbeddedServer, type EmbeddedServerHandle, type EmbeddedServerOpti
 export { startServer } from "./server.js";
 export { resolveServerConfig } from "./config.js";
 export type { ServeResult } from "./serve-node.js";
+
+export { systemOne, readSystemOneSettings } from "./systemone.js";
+export * from "./systemone-schema.js";

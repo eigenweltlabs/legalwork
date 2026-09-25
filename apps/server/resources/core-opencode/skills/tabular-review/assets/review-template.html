@@ -54,7 +54,7 @@
   .legend{display:flex;align-items:center;gap:14px;padding:10px 24px;background:var(--paper);border-bottom:1px solid var(--line-soft);}
   .legend span.k{display:inline-flex;align-items:center;gap:6px;font:500 11px var(--mono);color:var(--muted);}
   .sq{width:9px;height:9px;border-radius:2px;display:inline-block;}
-  .sq.high{background:var(--live);} .sq.medium{background:var(--gold);} .sq.low{background:var(--brick);} .sq.na{background:rgba(14,10,7,.22);}
+  .sq.decision{background:transparent;border:1px solid currentColor;} .sq.high{background:var(--live);} .sq.medium{background:var(--gold);} .sq.low{background:var(--brick);} .sq.na{background:rgba(14,10,7,.22);}
   .scroll{overflow:auto;height:calc(100vh - 58px - 39px);}
   table{border-collapse:separate;border-spacing:0;width:100%;background:var(--paper);}
   thead th{position:sticky;top:0;z-index:20;background:var(--paper);text-align:left;vertical-align:bottom;padding:12px 14px;border-bottom:1px solid var(--ink);white-space:nowrap;}
@@ -121,6 +121,7 @@
   <span class="eyebrow">Confidence</span>
   <span class="k"><i class="sq high"></i>High</span><span class="k"><i class="sq medium"></i>Medium</span>
   <span class="k"><i class="sq low"></i>Low</span><span class="k"><i class="sq na"></i>Not found</span>
+  <span class="k"><i class="sq decision"></i>Uncited decision</span>
 </div>
 <div class="scroll">
   <table id="grid"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table>
@@ -314,7 +315,7 @@
       data.columns.forEach((col) => {
         const cell = getCell(row, col.key); const na = isNA(cell);
         const td = document.createElement("td"); if (cell && cell.quote) td.className = "evid";
-        td.innerHTML = `<div class="cell ${na ? "na" : ""}"><i class="sq ${na ? "na" : confClass(cell && cell.confidence)}"></i><span class="val">${esc(na ? "Not found" : cell.value)}</span></div>`;
+        td.innerHTML = `<div class="cell ${na ? "na" : ""}"><i class="sq ${na ? "na" : cell && cell.decision ? "decision" : confClass(cell && cell.confidence)}"></i><span class="val">${esc(na ? "Not found" : cell.value)}</span></div>`;
         td.addEventListener("click", () => openDrawer(row, col, cell));
         tr.appendChild(td);
       });
@@ -324,13 +325,19 @@
   }
 
   function openDrawer(row, col, cell) {
-    const na = isNA(cell); const conf = na ? "na" : confClass(cell && cell.confidence);
+    const na = isNA(cell); const conf = na ? "na" : cell && cell.decision ? "decision" : confClass(cell && cell.confidence);
     $("dEyebrow").textContent = col.label || col.key;
     $("dAnswer").textContent = na ? "Not found" : cell.value; $("dAnswer").className = na ? "na" : "";
     $("dSrc").textContent = [row.title || row.file, cell && cell.location].filter(Boolean).join("  ·  ");
     const parts = [];
     if (col.question) parts.push(`<div class="sec"><span class="eyebrow">Question</span><div class="reason" style="margin-top:8px">${esc(col.question)}</div></div>`);
-    parts.push(`<div class="sec"><span class="eyebrow">Answer</span><div class="answer ${na ? "na" : ""}" style="margin-top:8px">${esc(na ? "Not found" : cell.value)}</div><div><span class="pill ${conf}"><i class="sq ${conf}"></i>${esc(na ? "Not found" : (cell.confidence || "—"))} confidence</span></div></div>`);
+    parts.push(`<div class="sec"><span class="eyebrow">Answer</span><div class="answer ${na ? "na" : ""}" style="margin-top:8px">${esc(na ? "Not found" : cell.value)}</div><div><span class="pill ${conf}"><i class="sq ${conf}"></i>${esc(cell && cell.decision ? "Uncited model decision" : (na ? "Not found" : (cell.confidence || "—")) + " confidence")}</span></div></div>`);
+    if (row.review) parts.push(`<div class="sec"><span class="eyebrow">Review model</span><div class="reason" style="margin-top:8px">${esc(row.review.backend === "systemone" ? "SystemOne" : "LLM")} · ${esc(row.review.providerId)} · ${esc(row.review.requestedModel)} (served by ${esc(row.review.model)})</div></div>`);
+    if (cell && cell.decision) {
+      const answer = cell.decision;
+      const probabilities = answer.type === "noul" ? { yes: answer.noul, no: 1 - answer.noul } : answer.probabilities;
+      parts.push(`<div class="sec"><span class="eyebrow">Model probabilities</span><div class="reason" style="margin-top:8px">${Object.entries(probabilities || {}).map(([key, p]) => `${esc(answer.legend && answer.legend[key] || key)}: ${esc((p * 100).toFixed(2))}%`).join("<br>")}</div></div>`);
+    }
     if (cell && cell.reason) parts.push(`<div class="sec"><span class="eyebrow">Reason</span><div class="reason" style="margin-top:8px">${esc(cell.reason)}</div></div>`);
     if (cell && cell.quote) parts.push(`<div class="sec"><span class="eyebrow-row"><span class="eyebrow">Source${cell.page ? " · page " + cell.page : ""}</span></span><blockquote>${esc(cell.quote)}</blockquote><div id="pvMount"></div></div>`);
     if (row.summary) parts.push(`<div class="sec"><span class="eyebrow">Document</span><div class="reason" style="margin-top:8px">${esc(row.summary)}</div></div>`);
@@ -347,10 +354,10 @@
   function closeDrawer() { $("drawer").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true"); $("scrim").classList.remove("open"); }
 
   function toCSV() {
-    const cols = data.columns || []; const head = ["Document", "File", "Doc type"];
-    cols.forEach((c) => { const L = c.label || c.key; head.push(L, `${L} — confidence`, `${L} — page`, `${L} — reason`); });
+    const cols = data.columns || []; const head = ["Document", "File", "Doc type", "Backend", "Provider", "Requested model", "Serving model"];
+    cols.forEach((c) => { const L = c.label || c.key; head.push(L, `${L} — confidence`, `${L} — page`, `${L} — reason`, `${L} — decision probabilities`); });
     const lines = [head];
-    (data.rows || []).forEach((row) => { const line = [row.title || "", row.file || "", row.docType || ""]; cols.forEach((c) => { const cell = getCell(row, c.key); const na = isNA(cell); line.push(na ? "Not found" : cell.value, na ? "" : (cell.confidence || ""), cell && cell.page ? cell.page : "", (cell && cell.reason) || ""); }); lines.push(line); });
+    (data.rows || []).forEach((row) => { const review = row.review || {}; const line = [row.title || "", row.file || "", row.docType || "", review.backend || "", review.providerId || "", review.requestedModel || "", review.model || ""]; cols.forEach((c) => { const cell = getCell(row, c.key); const na = isNA(cell); line.push(na ? "Not found" : cell.value, na ? "" : (cell.confidence || ""), cell && cell.page ? cell.page : "", (cell && cell.reason) || "", cell && cell.decision ? JSON.stringify(cell.decision) : ""); }); lines.push(line); });
     const csv = lines.map((r) => r.map((v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `${(data.matter || "review").replace(/[^\w.-]+/g, "_")}.csv`;
     document.body.appendChild(a); a.click(); a.remove();

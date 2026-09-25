@@ -1,3 +1,4 @@
+import { SystemOneSettingsSection } from "../domains/settings/pages/systemone-view";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -1578,8 +1579,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     ? t("status.providers_connected", { count: providerConnectedIds.length })
     : t("settings.no_providers_connected");
   const providerConnectedIdSet = new Set(providerConnectedIds);
-  // Eigenwelt is managed from its own "Eigenwelt" account tab, not as a model
-  // provider — hide it from the AI providers list (a footnote points there).
+  // Eigenwelt has a dedicated managed account row that links to the Account tab;
+  // exclude it from the API-key provider rows below.
   //
   // Connecting is OAuth-only (the bare API-key path was removed), so a signed-in
   // account ALWAYS carries a rotating token and the server reports
@@ -1987,6 +1988,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
             eigenweltConnected={eigenweltConnected}
+            onManageEigenweltAccount={() => navigateSettingsPath("account")}
+            systemOneView={<SystemOneSettingsSection client={legalworkClient} onManageSubscription={() => navigateSettingsPath("account")} />}
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}

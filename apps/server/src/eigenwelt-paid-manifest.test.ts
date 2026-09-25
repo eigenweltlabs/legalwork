@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   applyEigenweltPaidManifestModels,
+  applyEigenweltSystemOne,
   eigenweltPaidManifestRevision,
   parseManifestModels,
   readCachedEigenweltPaidManifest,
@@ -126,4 +127,17 @@ describe("eigenweltPaidManifestRevision", () => {
     // The key is not part of the fingerprint: a rotated key is not a model change.
     expect(eigenweltPaidManifestRevision({ ...base, apiKey: "other", models: [EUROPE, US] })).toBe(both);
   });
+});
+
+
+test("SystemOne metadata survives model refresh with the same subscription key, and older payloads stay compatible", async () => {
+  const config = await setup();
+  const systemOne = { enabled: true, available: true, baseURL: "https://api.eigenweltlabs.com", model: "EigenJev", region: "EU", questionTypes: ["noul", "choice", "score"] };
+  await applyEigenweltSystemOne(config, systemOne);
+  expect(await readCachedEigenweltPaidManifest(config)).toBeNull();
+  await writeCachedEigenweltPaidManifest(config, { baseURL: "https://chat.test/v1", apiKey: "same-subscription-key", models: [EUROPE] });
+  await applyEigenweltSystemOne(config, systemOne);
+  await applyEigenweltPaidManifestModels(config, [US]);
+  await applyEigenweltSystemOne(config, undefined);
+  expect(await readCachedEigenweltPaidManifest(config)).toMatchObject({ apiKey: "same-subscription-key", models: [US], systemOne });
 });

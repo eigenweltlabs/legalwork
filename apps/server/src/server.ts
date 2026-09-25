@@ -1,3 +1,5 @@
+import { registerSystemOneRoutes } from "./routes/systemone.js";
+import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -1472,6 +1474,7 @@ function createRoutes(
   benchmarkRunner: BenchmarkRunner,
 ): Route[] {
   const routes: Route[] = [];
+  registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });
 
   registerCoreRoutes({
@@ -2248,6 +2251,7 @@ function createRoutes(
         baseURL: body.baseURL,
         apiKey: body.apiKey,
         models: parseManifestModels(body.models),
+        ...(SystemOneConfigurationSchema.safeParse(body.systemOne).success ? { systemOne: SystemOneConfigurationSchema.parse(body.systemOne) } : {}),
       });
       await rebuildEngineConfigFile(workspace);
     }
