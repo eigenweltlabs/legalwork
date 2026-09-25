@@ -70,12 +70,6 @@ pnpm --filter @legalwork/desktop check:electron
 
 Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Final local results: 643 app tests passed; 910 server tests passed with 11 optional-service skips; 180 desktop tests passed with 1 platform skip. The repository i18n audit, all type checks, both builds, 110-method IPC coverage and 4,254 English/German translation keys passed. The initial server run timed out during existing OAuth test setup; that test passed in isolation and the entire suite passed on rerun. CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
 
-### Native evidence
-
-![Project Home with an active recording](evidence/projects/electron-home-recording.png)
-
-![German inline sidebar customization](evidence/projects/electron-customization-de.png)
-
 ## Delivery boundaries
 
 Eigenwelt Sync (EIG-208), JEV/provider setup (EIG-209), Tabular Review/OCR (EIG-210), unified search and metadata filters (EIG-211), and full email remain separate deliveries. Task/project and recording/project links are currently local; synchronization must explicitly include them. Sessions must not sync unless individually shared. The final integrated sprint UX/UI pass remains EIG-214. Release is planned after milestone 2; email follows in its own sprint.
