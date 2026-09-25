@@ -1,3 +1,4 @@
+import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -2972,6 +2973,24 @@ function createRoutes(
     await ensureFreshPlatformToken(config).catch(() => null);
     return localTaskConnection();
   };
+
+  const projectContentSources = async (workspaceId: string): Promise<ProjectContentSources> => {
+    const workspace = await resolveWorkspace(config, workspaceId);
+    const { orgId } = await localTaskConnection();
+    return {
+      workspace, orgId, tasks: await taskStore(config), recorder: config.recorder,
+      sessions: async (limit) => {
+        const result = await createWorkspaceOpencodeClient(config, workspace).session.list({ limit });
+        return unwrapOpencodeResult(result, "/session");
+      },
+    };
+  };
+  addRoute(routes, "GET", "/workspace/:id/project/contents", "client", async (ctx) => {
+    return jsonResponse(await listProjectContents(await projectContentSources(ctx.params.id), Object.fromEntries(ctx.url.searchParams)));
+  });
+  addRoute(routes, "GET", "/workspace/:id/project/content", "client", async (ctx) => {
+    return jsonResponse(await readProjectContent(await projectContentSources(ctx.params.id), Object.fromEntries(ctx.url.searchParams)));
+  });
 
   addRoute(routes, "GET", "/workspace/:id/tasks", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);

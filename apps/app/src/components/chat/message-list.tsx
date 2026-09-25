@@ -1,5 +1,7 @@
 "use memo";
 
+import { ProjectContentsTool } from "./project/project-contents-card";
+
 import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
@@ -422,6 +424,8 @@ const AssistantMessage = React.memo(
                 </MessageContent>
               )
             }
+
+            if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
 
             if (group.kind === "file") {
               return (

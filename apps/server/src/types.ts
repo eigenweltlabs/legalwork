@@ -1,3 +1,4 @@
+import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
 export type WorkspaceType = "local" | "remote";
@@ -103,6 +104,8 @@ export interface RecorderLiveTranscriptStatus {
 }
 
 export interface RecorderBridge {
+  listProjectRecordings?: (projectId: string) => Promise<Pick<AudioRecordingMeta, "id" | "title" | "durationMs" | "status" | "segmentCount">[]>;
+  readProjectRecording?: (projectId: string, id: string) => Promise<Pick<AudioRecordingDetail, "segments"> | null>;
   status: (workspacePath: string) => RecorderLiveTranscriptStatus | Promise<RecorderLiveTranscriptStatus>;
   setLiveTranscript: (
     enabled: boolean,

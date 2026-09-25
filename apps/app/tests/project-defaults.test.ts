@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
-import { defaultAkteFields, emptyProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "../src/react-app/domains/workspace/project-defaults-store";
+import { defaultAkteFields, emptyProjectFields, localizedProjectFields, projectFieldLabel, useProjectDefaultsStore, withInitialProjectFields } from "../src/react-app/domains/workspace/project-defaults-store";
 
 test("untouched projects inherit optional defaults while saved schemas, values and removals are preserved", () => {
   const defaults: ProjectField[] = [{ id: "client", label: "Client", type: "text", value: "Never copy a value" }];
@@ -45,4 +45,24 @@ test("saving a project field to defaults preserves the template and excludes pro
     { id: "custom", label: "Priority", type: "select", options: ["High", "Low"], value: null },
   ]);
   store.reset();
+});
+
+test("suggested labels map between English and German without changing values or options", () => {
+  const german: ProjectField = { id: "client", label: "Mandant", labelSource: "suggested", type: "text", value: "Acme" };
+  expect(projectFieldLabel(german, "en")).toBe("Client");
+  expect(projectFieldLabel(german, "de")).toBe("Mandant");
+  const localized = localizedProjectFields([german], "en");
+  expect(localized[0]).toEqual({ ...german, label: "Client" });
+  expect(localizedProjectFields(localized, "de")[0]).toEqual(german);
+  expect(german.label).toBe("Mandant");
+});
+
+test("legacy saved presets map only when their id and original label match", () => {
+  const legacy: ProjectField = { id: "client", label: "Mandant", type: "text", value: null };
+  expect(projectFieldLabel(legacy, "en")).toBe("Client");
+  expect(localizedProjectFields([legacy], "en")[0].labelSource).toBe("suggested");
+  expect(projectFieldLabel({ ...legacy, id: "custom-client" }, "en")).toBe("Mandant");
+  expect(projectFieldLabel({ ...legacy, label: "My client" }, "de")).toBe("My client");
+  expect(projectFieldLabel({ ...legacy, labelSource: "custom" }, "en")).toBe("Mandant");
+  expect(localizedProjectFields([{ ...legacy, labelSource: "custom" }], "en")[0].label).toBe("Mandant");
 });

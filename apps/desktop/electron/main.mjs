@@ -1143,6 +1143,16 @@ const runtimeManager = createRuntimeManager({
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
+    listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
+      .filter((recording) => recording.projectIds?.includes(projectId))
+      .map(({ id, title, durationMs, status, segmentCount }) => ({ id, title, durationMs, status, segmentCount })),
+    readProjectRecording: async (projectId, id) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      if (!linked) return null;
+      const detail = await recorderService().getRecording(id);
+      return detail ? { segments: detail.segments } : null;
+    },
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },

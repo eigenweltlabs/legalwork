@@ -1,4 +1,4 @@
-import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
+import type { ProjectContents, ProjectContentKind, ProjectDetails, ProjectField } from "@legalwork/types/workspace";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -1659,6 +1659,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, method: "POST", body: { enabled }, timeoutMs: timeouts.status },
       ),
     getProjectDefaults: () => requestJson<{ folderPath: string }>(baseUrl, "/workspaces/project-defaults", { token, hostToken }),
+    getProjectContents: (workspaceId: string, input: { kind?: ProjectContentKind; path?: string; cursor?: string; limit?: number } = {}) => {
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) if (value !== undefined) query.set(key, String(value));
+      return requestJson<ProjectContents>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/contents?${query}`, { token, hostToken });
+    },
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),

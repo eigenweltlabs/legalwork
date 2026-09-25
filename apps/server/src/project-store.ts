@@ -22,6 +22,7 @@ const fieldSchema = z
       .max(100)
       .regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().trim().min(1).max(100),
+    labelSource: z.enum(["suggested", "custom"]).optional(),
     type: z.enum(["text", "number", "date", "select"]),
     value: z.union([z.string().max(4000), z.number().finite(), z.null()]),
     options: z.array(z.string().trim().min(1).max(200)).max(100).optional(),

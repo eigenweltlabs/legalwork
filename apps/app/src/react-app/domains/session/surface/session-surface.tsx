@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
@@ -2140,6 +2141,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         status={status}
                         retryStatus={retryStatusForDisplay}
                       />
+                      <RecordingDetailDialog />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
                 </OpenTargetProvider>

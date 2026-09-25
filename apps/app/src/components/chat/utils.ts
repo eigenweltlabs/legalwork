@@ -1,3 +1,4 @@
+import { isProjectListTool } from "./project/project-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
 import { t } from "@/i18n";
@@ -114,6 +115,7 @@ type AssistantRenderGroup =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string; isStreaming: boolean }
   | { kind: "file"; part: FileUIPart }
+  | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
 
 /** Combine consecutive activity across engine messages, retaining prose boundaries. */
@@ -221,6 +223,7 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
+      if (isProjectListTool(part)) { groups.push({ kind: "project", part }); continue; }
       const previous = groups.at(-1)
       if (previous?.kind === "tools") previous.parts.push(part)
       else if (previous?.kind === "reasoning") {

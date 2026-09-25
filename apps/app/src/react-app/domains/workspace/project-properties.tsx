@@ -9,6 +9,8 @@ import { toast } from "@/components/ui/sonner";
 import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
 
+import { projectFieldLabel } from "./project-defaults-store";
+
 const fieldIcons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter };
 
 function displayValue(field: ProjectField) {
@@ -39,25 +41,26 @@ export function ProjectProperties({ fields, onSave, className }: {
   };
   return <dl className={cn("space-y-1", className)}>
     {fields.map((field) => {
+      const label = projectFieldLabel(field);
       const Icon = fieldIcons[field.type];
       const empty = field.value === null || field.value === "";
       return <div key={field.id} className="grid min-h-9 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-start gap-2 text-xs">
-        <dt className="flex min-w-0 items-center gap-2 py-2 text-muted-foreground" title={field.label}><Icon className="size-3.5 shrink-0 opacity-70" /><span className="break-words leading-4">{field.label}</span></dt>
+        <dt className="flex min-w-0 items-center gap-2 py-2 text-muted-foreground" title={label}><Icon className="size-3.5 shrink-0 opacity-70" /><span className="break-words leading-4">{label}</span></dt>
         <dd className="min-w-0">
           {editing?.id === field.id ? field.type === "select" ? (
             <Select open value={editing.draft} onOpenChange={(open) => { if (!open && !saving.current) setEditing(null); }} onValueChange={(value) => { void save(field, value ?? ""); }}>
-              <SelectTrigger aria-label={field.label} className="h-8 w-full px-2 text-xs" disabled={busy}><SelectValue placeholder={t("projects.empty_value")} /></SelectTrigger>
+              <SelectTrigger aria-label={label} className="h-8 w-full px-2 text-xs" disabled={busy}><SelectValue placeholder={t("projects.empty_value")} /></SelectTrigger>
               <SelectContent><SelectItem value="">{t("projects.empty_value")}</SelectItem>{field.options?.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
             </Select>
           ) : (
-            <Input autoFocus aria-label={field.label} type={field.type === "text" ? "text" : field.type} lang={currentLocale()} step="any" maxLength={4000} className="h-8 px-2 text-xs md:text-xs" value={editing.draft} disabled={busy}
+            <Input autoFocus aria-label={label} type={field.type === "text" ? "text" : field.type} lang={currentLocale()} step="any" maxLength={4000} className="h-8 px-2 text-xs md:text-xs" value={editing.draft} disabled={busy}
               onChange={(event) => setEditing({ id: field.id, draft: event.target.value })}
               onBlur={(event) => { if (event.currentTarget.validity.valid) void save(field, event.currentTarget.value); }}
               onKeyDown={(event) => {
                 if (event.key === "Escape") { cancelled.current = true; setEditing(null); }
                 if (event.key === "Enter") { event.preventDefault(); if (event.currentTarget.reportValidity()) void save(field, event.currentTarget.value); }
               }} />
-          ) : <Button variant="ghost" disabled={busy} className={cn("h-auto min-h-8 w-full justify-start whitespace-normal break-words px-2 py-1.5 text-left text-xs font-normal text-foreground", empty && "text-muted-foreground/60")} title={empty ? t("projects.empty_value") : undefined} aria-label={t("projects.edit_value", { name: field.label })} onClick={() => { cancelled.current = false; setEditing({ id: field.id, draft: String(field.value ?? "") }); }}>{displayValue(field)}</Button>}
+          ) : <Button variant="ghost" disabled={busy} className={cn("h-auto min-h-8 w-full justify-start whitespace-normal break-words px-2 py-1.5 text-left text-xs font-normal text-foreground", empty && "text-muted-foreground/60")} title={empty ? t("projects.empty_value") : undefined} aria-label={t("projects.edit_value", { name: label })} onClick={() => { cancelled.current = false; setEditing({ id: field.id, draft: String(field.value ?? "") }); }}>{displayValue(field)}</Button>}
         </dd>
       </div>;
     })}

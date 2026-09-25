@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { t } from "@/i18n";
 import { toast } from "sonner";
-import { defaultAkteFields, useProjectDefaultsStore } from "./project-defaults-store";
+import { defaultAkteFields, localizedProjectFields, useProjectDefaultsStore } from "./project-defaults-store";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { projectErrorMessage } from "./project-errors";
 import { changeProjectFieldType, parseProjectOptions } from "./project-field-editing";
@@ -33,7 +33,7 @@ export function ProjectMetadata(props: {
     date: t("projects.type_date"),
     select: t("projects.type_select"),
   };
-  const [fields, setFields] = useState(props.details.fields);
+  const [fields, setFields] = useState(() => localizedProjectFields(props.details.fields));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -82,7 +82,7 @@ export function ProjectMetadata(props: {
               maxLength={100}
               value={field.label}
               onChange={(event) =>
-                change(field.id, { label: event.target.value })
+                change(field.id, { label: event.target.value, labelSource: "custom" })
               }
             />
             <Select
@@ -216,7 +216,7 @@ export function ProjectMetadata(props: {
           onClick={() =>
             setFields((current) => [
               ...current,
-              { id: crypto.randomUUID(), label: "", type: "text", value: null },
+              { id: crypto.randomUUID(), labelSource: "custom", label: "", type: "text", value: null },
             ])
           }
         >
@@ -236,7 +236,7 @@ export function ProjectMetadata(props: {
           setBusy(true);
           try {
             const latest = await props.onReload();
-            setFields(latest.fields);
+            setFields(localizedProjectFields(latest.fields));
             setOptionDrafts({});
             setConflict(false);
             setError(null);

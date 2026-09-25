@@ -65,3 +65,13 @@ test("a live command run stays active between calls and keeps its key when strea
   expect(between).toContain("Running commands");
   expect(between).not.toContain("Ran commands");
 });
+
+test("project widgets remain visible outside collapsed tool activity, also after reloading history", () => {
+  const project: DynamicToolUIPart = { ...bash, toolName: "legalwork_project_list", toolCallId: "project-1", output: "{}" };
+  for (const thinking of [false, true]) {
+    const runs = groupAssistantToolRuns(messages([[bash], [reasoning, project], [appTool]]), thinking);
+    const groups = runs.flatMap((run) => getAssistantRenderGroups(run.message.parts, thinking));
+    expect(groups.map((group) => group.kind)).toEqual(["tools", "project", "tools"]);
+    expect(groups[1]).toEqual({ kind: "project", part: project });
+  }
+});

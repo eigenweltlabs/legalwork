@@ -12,6 +12,14 @@ Home embeds the shared Tasks list, six tasks per page, including server paginati
 
 Record starts capture on Home and associates it with that project. While capture is active the action reads Stop recording, and New Chat uses a red dot as its icon. New Chat enables live recording context by default; its adjacent dropdown offers a chat without that context while capture continues. Synthetic transcript setup does not produce an Empty message row. Missing recording setup offers an explicit route to Recorder. The global Recorder action remains immediate and does not require a project. Below Tasks, Recordings supports linking existing recordings, playback and transcript viewing through existing components. Unlinking never deletes audio, and recordings may belong to multiple projects.
 
+## Project context in chat
+
+The agent uses `legalwork_project_list` for project inventory questions. One call provides scoped tasks with attachment counts, note previews, files/folders, explicitly linked recordings, sessions and metadata. Results appear as compact chat cards outside the collapsed command history, with expansion and pagination. Cards open the existing task, Markdown, file and recording viewers or navigate to a session. Folder cards browse the project in place.
+
+`legalwork_project_read` reads a linked task, note, text file or recording transcript with continuation for long content. Binary documents continue through the existing document tools. Unavailable sources are distinguished from empty lists. Project boundaries and linked recording membership are checked; content is treated as untrusted source data.
+
+Suggested metadata labels map between English and German by stable field ID, including recognized legacy defaults. Editing a label makes it custom, so it remains literal across language changes and when saved to defaults. Values and selection choices are preserved.
+
 ## Navigation and files
 
 The main sidebar keeps app features above Projects. Each expanded project's inset contains Home, Tabular Review, Tasks, Files and Sessions. Tabular Review is reserved for milestone 2. Sessions expands a nested list with groups, Show more, drag ordering and existing right-click actions. Group children have a small additional indent. Project name and chevron both toggle expansion; Home and Tasks handle navigation. Opening a chat expands its session list. New projects appear first, preserving the order of older projects. Files opens a right panel without taking the active highlight from the main page.
@@ -36,14 +44,15 @@ Disconnected project folders stay registered and are not recreated by bootstrap,
 
 ## Verification
 
-Current UI checks use the actual macOS Electron development app through native controls. No browser substitute is used for final UI verification. Temporary QA projects and documents were used; no model prompt or workflow was submitted.
+Current UI checks use the actual macOS Electron development app through native controls. No browser substitute is used for final UI verification. Temporary QA projects and documents were used. Live agent inventory prompts verified the project tools and cards; no workflow was submitted.
 
 Verified in Electron:
 
 - Native default-folder and selected-folder creation, preserving an existing document; new project ordering; inline rename across Home/sidebar/Files; route persistence after reload.
 - Native Choose files moves a fixture into a server-created project's real folder; the source is removed and the destination bytes are unchanged.
 - Missing-folder startup and Home error, followed by restoring the original folder and retrying successfully.
-- Optional metadata, incompatible type conversion protection, Enter-to-save selection options and concurrent-edit recovery.
+- Optional metadata, incompatible type conversion protection, Enter-to-save selection options and concurrent-edit recovery; suggested labels in both English and German.
+- Live agent inventory in a single tool call, compact chat cards, opening notes and recordings, folder browsing and expanding results.
 - Note creation while Files is open, clean titles, editor opening/closing/reopening, saved content previews and horizontal access to older notes.
 - Home tasks through all 55 fixture rows across the server cursor boundary, list-only creation, context actions, shared detail viewer and workflow selection retaining its project.
 - Recording on Home without navigation, Stop recording, red-dot New Chat, default live context and dropdown opt-out; capture finalized and linked. Empty transcript setup is not rendered as an empty user message.
@@ -68,7 +77,7 @@ pnpm --filter @legalwork/desktop test
 pnpm --filter @legalwork/desktop check:electron
 ```
 
-Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Final local results: 643 app tests passed; 910 server tests passed with 11 optional-service skips; 180 desktop tests passed with 1 platform skip. The repository i18n audit, all type checks, both builds, 110-method IPC coverage and 4,254 English/German translation keys passed. The initial server run timed out during existing OAuth test setup; that test passed in isolation and the entire suite passed on rerun. CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
+Regression coverage includes selected/default folder persistence, missing-folder recovery, metadata revisions and malformed metadata preservation, task associations, recording links/finalization, file collisions and cross-volume failure safety, trusted project lookup and encoded file references. Final local results: 647 app tests passed; 916 server tests passed with 11 optional-service skips; 180 desktop tests passed with 1 platform skip. The repository i18n audit, all type checks, both builds, 110-method IPC coverage and 4,263 English/German translation keys passed. The initial server run timed out during existing OAuth test setup; that test passed in isolation and the entire suite passed on rerun. CI results are recorded in the PR. Existing dependency-annotation and large-bundle build warnings remain. On this Mac the native build uses `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk`; no system SDK setting was changed.
 
 ## Delivery boundaries
 

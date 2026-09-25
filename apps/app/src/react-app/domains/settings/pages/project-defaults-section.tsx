@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { LayoutSection, LayoutSectionHeader, LayoutSectionTitle, LayoutSectionDescription, LayoutSectionItem, LayoutSectionItemHeader, LayoutSectionItemTitle, LayoutSectionItemHeaderActions } from "../settings-layout";
 import { ProjectMetadata } from "../../workspace/project-metadata";
-import { defaultAkteFields, useProjectDefaultsStore } from "../../workspace/project-defaults-store";
+import { defaultAkteFields, projectFieldLabel, useProjectDefaultsStore } from "../../workspace/project-defaults-store";
 import { t } from "@/i18n";
 
 export function ProjectDefaultsSection() {
@@ -26,7 +26,7 @@ export function ProjectDefaultsSection() {
           {savedFields !== null ? <Button size="sm" variant="ghost" onClick={reset}>{t("projects.defaults_reset")}</Button> : null}
         </LayoutSectionItemHeaderActions>
       </LayoutSectionItemHeader>
-      <div className="flex flex-wrap gap-2">{fields.map((field) => <Badge key={field.id} variant="secondary" className="font-normal">{field.label}</Badge>)}</div>
+      <div className="flex flex-wrap gap-2">{fields.map((field) => <Badge key={field.id} variant="secondary" className="font-normal">{projectFieldLabel(field)}</Badge>)}</div>
     </LayoutSectionItem>
     <Dialog open={editing} onOpenChange={setEditing}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
