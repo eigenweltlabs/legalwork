@@ -35,8 +35,8 @@ call the review tool, and assemble the returned rows into one HTML artifact.
 
 For LLM extraction, each cell = a short `value` (what shows in the grid) plus, behind a click, a longer
 `reason`, one verbatim `quote` sentence, and the cited PDF `page` rendered with that
-sentence highlighted. Every value is grounded in a quote from that document or it is
-"Not found". No hallucinated cells.
+sentence highlighted. Every value is grounded in source evidence. Use "Not found" only after complete
+extraction; incomplete or unreadable evidence is "Needs review". No hallucinated cells.
 
 ---
 
@@ -81,7 +81,29 @@ Normalize the final columns into objects you'll pass down and render:
 the header (`Governing law`), `question` is the precise instruction the extractor
 answers, `hint` is optional (format/where to look).
 
-### 3. Choose a backend and model, then review each document
+### 3. Prepare PDFs and images, then fan out
+
+Before starting document extractors, call **`legalwork_document_prepare` once with
+all PDF, PNG, JPEG and WebP paths for this run**. This freezes the OCR model selected
+in Settings → AI Providers across the review. Omit language hints unless known;
+never assume that documents are English or German. DOCX/text use their existing readers.
+
+Poll `legalwork_document_preparation_status` with the returned ID while preparation
+is queued/running. Tell the user the selected model and actual document/page progress;
+space status checks several seconds apart. On cancellation, call
+`legalwork_document_preparation_cancel`. A later prepare call reuses completed pages;
+`force: true` explicitly repeats OCR, including previously cached uncertain pages.
+
+Every PDF page is rendered and OCRed, including pages with native text. Native text
+and OCR stay separate; the presence of a text layer does not rule out handwriting.
+The tool returns one workspace-relative **`preparationPath`** per prepared document.
+Pass it as `PREPARATION` to that document's extractor. Keep that path on its output row.
+If preparation cannot start (e.g. model not installed), report the actionable tool
+error. If it fails for a file, retain the row as **Needs review**, with
+`preparationError` containing the failure. Do not silently use only native text or
+switch models. Never interpret a failed/unreadable page as proof a clause is absent.
+
+### 4. Choose a backend and model, then review each document
 
 Call **`tabular_review_models`** first. It returns available `llm` and `systemone`
 models with `providerId`, `model`, supported `questionTypes`, and `citations`.
@@ -98,15 +120,19 @@ For mixed free-text/decision columns, use an LLM for the grid unless the user as
 for separate passes. Do not silently rewrite a free-text question into a decision.
 Do not ask the user which question types a provider supports: discovery supplies it.
 
-For each document, obtain its **complete** text using the bundled readers below,
-then call **`tabular_review_row`** with `backend`, `providerId`, `model`, `file`,
-`title`, `docType`, `pages: [{page, text}]`, and `columns`. Preserve PDF page numbers;
-use `page: null` for unpaginated text. Never summarize or truncate the source before
-sending it. Empty/scanned documents are `Unreadable`; no OCR is provided here.
+For each document, call **`tabular_review_row`** with `backend`, `providerId`,
+`model`, `file`, `title`, `docType`, and `columns`.
 
-- PDF: `node .opencode/skills/pdf-tools/assets/pdf-agent.mjs text "<file>"`.
-- DOCX: `node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "<file>"`.
-- Text: read the complete file directly.
+- PDF/images: pass `preparationPath` from step 3. The tool loads and validates the
+  prepared evidence, preserving native text, OCR text, page numbers and regions.
+  Omit `pages`; do not replace OCR evidence with a text-only PDF extraction.
+- DOCX: use `node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "<file>"`
+  and supply complete `pages: [{page: null, text}]`.
+- Text: read the complete file and supply `pages: [{page: null, text}]`.
+
+Never summarize or truncate the source. Incomplete preparation prevents SystemOne
+review; retain a Needs review row and report the preparation error. LLMs may cite
+found passages on uncertain pages, but must not claim an absent term is Not found.
 
 Example SystemOne column:
 ```json
@@ -124,15 +150,22 @@ SystemOne cells are **uncited model decisions**, not verified extractions. Prese
 reasoning, or convert probability to high/medium/low extraction confidence.
 The artifact labels these decisions and shows their distribution.
 
-### 3a. Delegate document preparation when useful
+### 4a. Delegate document preparation when useful
 
 For many files, delegate one document to each `document-extractor` with the selected
-`BACKEND`, `PROVIDER_ID`, and `MODEL`, plus the columns (including any `decision`).
+`BACKEND`, `PROVIDER_ID`, and `MODEL`, plus `PREPARATION` for PDF/images and the columns (including any `decision`).
 In this mode the extractor reads the source and calls `tabular_review_row`, returning
 its row unchanged. The model performing the review is the explicitly selected model;
 the preparation agent must not replace its answers.
 
-### 4. Collect and assemble the data file
+Cells may include `citations: [{page, quote, source: "native"|"ocr", regionIds?: [0, 1]}]`.
+Preserve ALL citations, including those on different pages; region IDs are zero-based
+indexes into that page's OCR regions. Do not invent rectangles. The builder reads the
+preparation file, checks source hashes and quotes, and resolves region coordinates.
+A model without regions still gets a page-level citation. Incomplete extraction or
+unverifiable quotes must not become a clean "Not found" result.
+
+### 5. Collect and assemble the data file
 
 Use the tool's `row` directly and keep its `review` provenance and cells map.
 If a tool fails or a preparation subagent errors, keep the row with that file's cells set to `value: "Error"`,
@@ -148,22 +181,24 @@ Give each row BOTH paths so the viewer works in the app and when opened from dis
 
 ```json
 {
+  "preparationRequired": true,
   "matter": "<short matter/review name>",
   "generatedAt": "<current ISO 8601 timestamp>",
   "columns": [ { "key": "...", "label": "...", "question": "..." } ],
   "rows": [
     {
       "file": "ndas/acme.pdf", "fileAbs": "/abs/path/to/ndas/acme.pdf",
+      "preparationPath": ".opencode/legalwork/prepared-documents/<key>.json",
       "title": "...", "docType": "...", "summary": "...",
       "cells": {
-        "<key>": { "value": "<short>", "reason": "<longer>", "quote": "<one sentence>", "page": 3, "location": "§7.2", "confidence": "high" }
+        "<key>": { "value": "<short>", "reason": "<longer>", "quote": "<one sentence>", "page": 3, "location": "§7.2", "confidence": "high", "citations": [{ "page": 3, "quote": "<one sentence>", "source": "native" }] }
       }
     }
   ]
 }
 ```
 
-### 5. Build the artifact (run the builder — do NOT hand-write the HTML)
+### 6. Build the artifact (run the builder — do NOT hand-write the HTML)
 
 Run the bundled builder. It injects a pdf.js viewer + the Eigenwelt theme + your JSON and
 writes a `.html` artifact. **No PDF is embedded** — the artifact loads each source PDF
@@ -193,7 +228,7 @@ How the viewer reads the local PDF (no embedding):
   the highlighting viewer. This is why `fileAbs` matters — without it that link is dead.
 - No poppler or other system tools are required — pdf.js renders in the browser.
 
-### 6. Summarize in chat
+### 7. Summarize in chat
 
 After building the artifact, give a short readout: how many documents × columns, the name
 of the artifact file, and — most useful to a lawyer — the **exceptions**: cells that came

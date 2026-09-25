@@ -1,4 +1,5 @@
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
+import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -1611,6 +1612,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
+    saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
+    removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
+    cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,

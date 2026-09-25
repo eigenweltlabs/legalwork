@@ -25,3 +25,4 @@ export type { ServeResult } from "./serve-node.js";
 
 export { systemOne, readSystemOneSettings } from "./systemone.js";
 export * from "./systemone-schema.js";
+export * from "./ocr/index.js";

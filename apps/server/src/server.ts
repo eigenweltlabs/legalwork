@@ -84,6 +84,10 @@ import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runn
 import { openBenchmarkStore } from "./benchmarks/store.js";
 import { registerBenchmarkRoutes } from "./routes/benchmarks.js";
 import { registerStorageRoutes } from "./routes/file-storage.js";
+import { DocumentPreparation } from "./document-preparation/service.js";
+import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
+import { registerOcrRoutes } from "./routes/ocr.js";
+import { OcrManager } from "./ocr/manager.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -751,7 +755,9 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner);
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
+  const preparation = new DocumentPreparation(ocr);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation);
 
   const serverOptions: {
     hostname: string;
@@ -962,6 +968,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       approvals.dispose();
+      preparation.stop();
+      ocr.runtime.cancel();
       stopTaskSync();
       stopTaskReminders();
       benchmarkRunner.dispose();
@@ -1472,9 +1480,13 @@ function createRoutes(
   officeTools: OfficeToolRelay,
   onWorkspacesChanged: () => void,
   benchmarkRunner: BenchmarkRunner,
+  ocr: OcrManager,
+  preparation: DocumentPreparation,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
+  registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });
 
   registerCoreRoutes({

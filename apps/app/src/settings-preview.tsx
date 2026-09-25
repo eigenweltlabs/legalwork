@@ -15,6 +15,8 @@ import { initLocale } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { cn } from "@/lib/utils";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
+import { OcrSettingsSection } from "@/react-app/domains/settings/pages/ocr-settings-section";
+import type { OcrSettingsView, OcrServerInput } from "@legalwork/types/ocr";
 import { SystemOneSettingsSection } from "@/react-app/domains/settings/pages/systemone-view";
 import { AiSettingsView, type AiSettingsViewProps } from "@/react-app/domains/settings/pages/ai-view";
 import type { SystemOneSettings, SystemOneProviderInput, SystemOneSelection } from "@legalwork/types/systemone";
@@ -50,6 +52,37 @@ const systemOnePreview = {
   systemOneDeleteProvider: async (id: string): Promise<{ ok: true }> => { systemOneSample.providers = systemOneSample.providers.filter(p => p.id !== id); return { ok: true }; },
   systemOneSelect: async (selection: SystemOneSelection): Promise<{ ok: true }> => { systemOneSample.selection = selection; return { ok: true }; },
   systemOneTest: async (): Promise<{ ok: true }> => ({ ok: true }),
+};
+
+// In-memory OCR settings: no downloads, requests or persisted credentials.
+const ocrSample: OcrSettingsView = {
+  defaultEngineId: "local-fast", readOnly: false, installerAvailable: true, installation: null,
+  engines: [
+    { id: "local-fast", label: "Fast", kind: "local", model: "pp-ocrv6-small", languages: null, keyConfigured: false, status: "not-installed" },
+    { id: "local-quality", label: "Quality", kind: "local", model: "paddleocr-vl", languages: null, keyConfigured: false, status: "not-installed" },
+    { id: "remote-sample", label: "Firm OCR", kind: "mistral-ocr", model: "mistral-ocr-latest", endpoint: "https://ocr.example.com/v1/ocr", authentication: "api-key", languages: null, keyConfigured: true, status: "ready" },
+  ],
+};
+const ocrPreview = {
+  getOcrSettings: async () => structuredClone(ocrSample),
+  testOcrEngine: async () => ({ ok: true }),
+  saveOcrServer: async ({ apiKey: _key, ...input }: OcrServerInput, id = crypto.randomUUID()) => {
+    ocrSample.engines = [...ocrSample.engines.filter(engine => engine.id !== id), { ...input, id, keyConfigured: input.authentication === "api-key", status: "ready" }];
+    return structuredClone(ocrSample);
+  },
+  setDefaultOcrEngine: async (id: string) => { ocrSample.defaultEngineId = id; return structuredClone(ocrSample); },
+  installOcrEngine: async (id: string) => {
+    const engine = ocrSample.engines.find(engine => engine.id === id);
+    if (engine) engine.status = "ready";
+    ocrSample.installation = { engineId: id, stage: "complete" };
+    return structuredClone(ocrSample);
+  },
+  cancelOcrInstall: async () => { ocrSample.installation = null; return structuredClone(ocrSample); },
+  removeOcrServer: async (id: string) => {
+    ocrSample.engines = ocrSample.engines.filter(engine => engine.id !== id);
+    if (ocrSample.defaultEngineId === id) ocrSample.defaultEngineId = "local-fast";
+    return structuredClone(ocrSample);
+  },
 };
 
 function SettingsPreview() {
@@ -119,6 +152,7 @@ function SettingsPreview() {
               eigenweltConnected={!params.has("disconnected-account")}
               onManageEigenweltAccount={() => toast("Preview Eigenwelt account")}
               cloudProviderIds={new Set(["google"])}
+              ocrView={<OcrSettingsSection client={ocrPreview} />}
               systemOneView={<SystemOneSettingsSection client={systemOnePreview} onManageSubscription={() => toast("Preview subscription")} />}
             />
           ) : activeTab === "appearance" ? (

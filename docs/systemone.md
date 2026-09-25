@@ -140,14 +140,21 @@ names and capabilities, with per-backend errors if discovery fails. It does not 
 keys or provider endpoints. Selection is per call, not a change to the user's default.
 
 `tabular_review_row` accepts `backend: "llm" | "systemone"`, `providerId`, `model`,
-`file`, `title`, `docType`, full source `pages: [{page: number | null, text}]`, and
+`file`, `title`, `docType`, and either a `preparationPath` for PDF/images or full
+source `pages: [{page: number | null, text}]` for DOCX/text, plus
 `columns: [{key, label, question, hint?, decision?}]`. SystemOne requires `decision`
 using the existing typed question schema for every column. Free-text/cited review
-uses LLM. The agent uses existing PDF/DOCX text readers; unreadable scans remain
-unreadable. No implicit OCR, truncation, or model fallback occurs.
+uses LLM. The agent first prepares PDF/images with `legalwork_document_prepare`,
+which pins the selected OCR engine for the run. The review tool verifies the source
+hash and workspace paths, then loads native/OCR text and regions without discarding
+page identity. DOCX/text keep their existing readers. No truncation or model fallback
+occurs. Incomplete or uncertain OCR blocks SystemOne inference; LLMs can return cited
+findings but cannot turn uncertain extraction into a clean "Not found" result.
 
 LLM review runs in an isolated child session with tools disabled and validates exact
-column IDs and verbatim citations against the supplied page text. This validates
+column IDs and verbatim citations against the supplied page text, including OCR
+source/region references and multiple citations. The artifact builder resolves
+coordinates from the prepared evidence and preserves uncited SystemOne decisions. This validates
 citation occurrence, not the legal correctness of an answer. SystemOne uses the same
 server relay and subscription key as other calls. Availability and capabilities are
 rechecked before inference. Explicit failures remain errors, never synthetic answers.
