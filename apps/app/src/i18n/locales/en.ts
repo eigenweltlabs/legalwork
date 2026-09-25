@@ -4,6 +4,17 @@
  */
 
 export default {
+  "review.see_details": "See details",
+  "review.actions": "Review actions",
+  "review.select_documents": "Select all documents",
+  "review.select_document": "Select {name}",
+  "review.selected_count": "{count} selected",
+  "review.rerun_selected": "Rerun selected",
+  "review.clear_selection": "Clear selection",
+  "review.previous_document": "Previous document",
+  "review.next_document": "Next document",
+  "review.previous_column": "Previous column",
+  "review.next_column": "Next column",
   "review.source_count_one": "{count} source",
   "review.source_count_other": "{count} sources",
   "review.edit_saved": "Edit saved prompt",

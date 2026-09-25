@@ -26,6 +26,12 @@ Results keep the executed prompt, model, source hash and evidence references. So
 
 The library contains English/German starters, individual saved columns and named sets. Personal names and prompts remain literal in either language. Users can inspect the complete questions/options, save and edit entries, and explicitly update copied columns. Each edit creates a new version; existing review snapshots and results stay unchanged until updated. Agent tools can discover, read, save and reuse the same definitions. Sharing across firms remains part of the existing sync/sharing work.
 
+The defaults include 12 decision-only sets: NDA, commercial agreement, commercial lease, credit agreement, change of control, employment, shareholder agreement, share purchase agreement, supply agreement, limited partnership, e-discovery triage and due-diligence triage. All run in Only JEV, mixed or LLM mode. Exact names, dates, amounts, notice periods and detailed findings are separate optional LLM columns. Existing copied prompts retain their old version until the user explicitly updates them.
+
+Country columns enumerate 25 countries plus Other country, Multiple countries, Not stated and Unclear within the 30-choice limit. Governing law and dispute forum are separate decisions; a further legal-system column can distinguish English/Scottish/Northern Irish law and selected US states. Country classifications are intentionally coarser than exact legal-system extraction. Multi-part checks such as NDA carveouts are independent columns, so one missing exception cannot be hidden in a single broad answer. Triage columns identify possible issues, not established legal conclusions.
+
+Topic coverage was checked against [Mike's tabular workflow library](https://github.com/open-legal-products/mike-workflows/tree/main/tabular-review-workflows), which includes 11 general workflows and five Finnish/Polish jurisdiction-specific workflows. The general topics were adapted into bilingual decision prompts; the jurisdiction-specific packs are not shipped as purportedly validated local-law reviews. Attribution is retained in `THIRD_PARTY_NOTICES/mike-workflows.txt`. These defaults use the native review-library API and agent tools, not legacy executable review skills.
+
 ## Legacy migration
 
 The bundled `tabular-review` artifact skill, HTML builder and `tabular_review_row` / `tabular_review_models` registrations are removed. The shared PDF reader retains its PDF.js assets under `pdf-tools`.

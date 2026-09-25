@@ -14,6 +14,17 @@
  */
 
 const de = {
+  "review.see_details": "Details anzeigen",
+  "review.actions": "Prüfungsaktionen",
+  "review.select_documents": "Alle Dokumente auswählen",
+  "review.select_document": "{name} auswählen",
+  "review.selected_count": "{count} ausgewählt",
+  "review.rerun_selected": "Auswahl erneut prüfen",
+  "review.clear_selection": "Auswahl aufheben",
+  "review.previous_document": "Vorheriges Dokument",
+  "review.next_document": "Nächstes Dokument",
+  "review.previous_column": "Vorherige Spalte",
+  "review.next_column": "Nächste Spalte",
   "review.source_count_one": "{count} Quelle",
   "review.source_count_other": "{count} Quellen",
   "review.edit_saved": "Gespeicherte Vorlage bearbeiten",

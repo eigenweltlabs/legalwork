@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import type { ServerConfig } from "../types.js";
 import { ReviewLibrary, builtinReviewLibrary } from "./library.js";
 import { ReviewStore } from "./storage.js";
-import { SavedReviewSchema } from "./schema.js";
+import { ReviewLibraryEntrySchema, SavedReviewSchema } from "./schema.js";
+import { columnBackend, validateReviewPolicy } from "./policy.js";
 
 test("personal prompt versions retain exact text and leave existing project snapshots unchanged", async () => {
   const root = await mkdtemp(join(tmpdir(), "review-library-"));
@@ -34,9 +35,60 @@ test("curated sets have localized prompts and fixed classification choices", () 
   for (const locale of ["en", "de"] satisfies Array<"en" | "de">) {
     const entries = builtinReviewLibrary(locale);
     expect(entries.some(entry => entry.id === `builtin-set-due-diligence-${locale}`)).toBe(true);
-    for (const entry of entries) for (const column of entry.columns) {
+    expect(new Set(entries.map(entry => entry.id)).size).toBe(entries.length);
+    for (const entry of entries) {
+      expect(ReviewLibraryEntrySchema.safeParse(entry).success).toBe(true);
+      for (const column of entry.columns) {
       expect(column.question.length).toBeGreaterThan(10);
       if (column.kind === "classification") expect(column.options.length).toBeGreaterThanOrEqual(2);
+      expect(column.libraryId).toBe(entry.id);
+      expect(column.libraryVersion).toBe(entry.version);
+      }
     }
+  }
+});
+
+test("every decision preset runs under the enforced Only JEV policy in both languages", () => {
+  const settings = { mode: "jev", jev: { providerId: "firm", model: "EigenJev" }, llm: null } satisfies Parameters<typeof validateReviewPolicy>[0];
+  for (const locale of ["en", "de"] satisfies Array<"en" | "de">) {
+    const entries = builtinReviewLibrary(locale);
+    const presets = entries.filter(entry => entry.id.startsWith("builtin-set-") && entry.tags.includes("jev"));
+    expect(presets).toHaveLength(12);
+    for (const entry of presets) {
+      expect(() => validateReviewPolicy(settings, entry.columns)).not.toThrow();
+      for (const column of entry.columns) {
+        expect(columnBackend("jev", column)).toBe("systemone");
+        expect(columnBackend("mixed", column)).toBe("systemone");
+        expect(columnBackend("llm", column)).toBe("llm");
+      }
+    }
+    const extraction = entries.find(entry => entry.id === `builtin-set-exact-extraction-${locale}`)!;
+    expect(() => validateReviewPolicy(settings, extraction.columns)).toThrow("need an LLM");
+    expect(extraction.columns.every(column => columnBackend("mixed", column) === "llm")).toBe(true);
+  }
+});
+
+test("country decisions include explicit countries and avoid forcing missing or unlisted jurisdictions", () => {
+  const en = builtinReviewLibrary("en").find(entry => entry.id === "builtin-governing-law-en")!.columns[0];
+  const de = builtinReviewLibrary("de").find(entry => entry.id === "builtin-governing-law-de")!.columns[0];
+  expect(en.kind).toBe("classification");
+  expect(en.options).toContain("Germany");
+  expect(en.options).toContain("United States");
+  expect(en.options).toContain("Other country");
+  expect(en.options).toContain("Multiple countries");
+  expect(en.options).toContain("Not stated");
+  expect(en.options).toContain("Unclear");
+  expect(en.options.length).toBeLessThanOrEqual(30);
+  expect(de.options.length).toBe(en.options.length);
+  expect(de.options[en.options.indexOf("Germany")]).toBe("Deutschland");
+  expect(en.question).toContain("Do not infer");
+});
+
+test("translated presets preserve column identity, order and answer structure", () => {
+  const en = builtinReviewLibrary("en");
+  const de = builtinReviewLibrary("de");
+  expect(de.length).toBe(en.length);
+  for (const [index, entry] of en.entries()) {
+    expect(de[index].columns.map(c => [c.key, c.kind, c.options.length])).toEqual(entry.columns.map(c => [c.key, c.kind, c.options.length]));
   }
 });
