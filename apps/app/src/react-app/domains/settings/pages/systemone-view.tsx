@@ -180,7 +180,7 @@ export function SystemOneSettingsSection({
                     <ProviderIcon providerId={provider.managed ? "eigenwelt" : undefined} size={20} className="text-dls-text" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{provider.name}</p>
-                      <p className="text-xs text-dls-secondary">{t(`systemone.${provider.status}`)}</p>
+                      <p className="text-xs text-dls-secondary">{t(provider.status === "ready" ? "systemone.ready" : provider.status === "disabled" ? "systemone.disabled" : provider.status === "disconnected" ? "systemone.disconnected" : "systemone.unavailable")}</p>
                     </div>
                   </div>
                   <ProviderActionsMenu name={provider.name} disabled={busy}>

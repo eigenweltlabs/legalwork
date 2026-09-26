@@ -1,3 +1,4 @@
+import { reviewModeLabel } from "./review-labels";
 import { useState, type ReactNode } from "react";
 import { LayoutSection, LayoutSectionItem } from "../settings/settings-layout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -52,7 +53,7 @@ export function ReviewSettingsForm({ client, workspaceId, review, onClose, onBus
   return <div className="space-y-5">
       <ReviewError error={query.error || mutation.error} />
       {settings ? <fieldset disabled={mutation.isPending} className="min-w-0 space-y-5"><Stack>
-        <Section className="space-y-2"><Label>{t("review.mode")}</Label><ReviewSelect label={t("review.mode")} value={settings.mode} onChange={value => change({ ...settings, mode: ReviewModeSchema.parse(value) })} options={["jev", "mixed", "llm"].map(value => ({ value, label: t(`review.${value}`) }))} /><p className="text-sm leading-relaxed text-muted-foreground">{t(`review.${settings.mode}_body`)}</p></Section>
+        <Section className="space-y-2"><Label>{t("review.mode")}</Label><ReviewSelect label={t("review.mode")} value={settings.mode} onChange={value => change({ ...settings, mode: ReviewModeSchema.parse(value) })} options={ReviewModeSchema.options.map(value => ({ value, label: reviewModeLabel(value) }))} /><p className="text-sm leading-relaxed text-muted-foreground">{t(settings.mode === "jev" ? "review.jev_body" : settings.mode === "mixed" ? "review.mixed_body" : "review.llm_body")}</p></Section>
         {excluded.length > 0 && <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground"><p>{t("review.jev_excluded_columns")}</p><ul className="mt-2 max-h-24 space-y-1 overflow-y-auto">{excluded.map(column => <li key={column.key}>{column.label}</li>)}</ul></div>}
         {backends.filter(backend => settings.mode === "mixed" || settings.mode === backend).map(backend => {
           const models = query.data?.models.filter(model => model.backend === (backend === "jev" ? "systemone" : "llm")) ?? [];
@@ -61,7 +62,7 @@ export function ReviewSettingsForm({ client, workspaceId, review, onClose, onBus
           const providerModels = models.filter(model => model.providerId === selected?.providerId);
           const unavailable = selected && !models.some(model => model.providerId === selected.providerId && model.model === selected.model);
           return <Section key={backend} className="space-y-3">
-            <h3 className="text-sm font-medium">{t(`review.${backend}_model`)}</h3>
+            <h3 className="text-sm font-medium">{t(backend === "jev" ? "review.jev_model" : "review.llm_model")}</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>{t("review.provider")}</Label><ReviewSelect label={t("review.select_provider")} value={selected?.providerId ?? ""} options={providers} disabled={mutation.isPending || !providers.length} onChange={providerId => {
                 const model = models.find(model => model.providerId === providerId);

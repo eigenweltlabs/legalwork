@@ -29,6 +29,23 @@ const endpointExamples: Record<OcrApiType, string> = {
   "mistral-ocr": "https://api.mistral.ai/v1/ocr",
   "chat-completions": "http://localhost:8000/v1/chat/completions",
 };
+const ocrStatusLabels: Record<Engine["status"], () => string> = {
+  ready: () => t("ocr.status_ready"),
+  "not-installed": () => t("ocr.status_not-installed"),
+  unsupported: () => t("ocr.status_unsupported"),
+  "missing-key": () => t("ocr.status_missing-key"),
+};
+const ocrStatusLabel = (status: Engine["status"]) => ocrStatusLabels[status]();
+const ocrInstallLabels: Record<NonNullable<OcrSettingsView["installation"]>["stage"], () => string> = {
+  runtime: () => t("ocr.install_runtime"),
+  dependencies: () => t("ocr.install_dependencies"),
+  models: () => t("ocr.install_models"),
+  checking: () => t("ocr.install_checking"),
+  complete: () => t("ocr.install_complete"),
+  failed: () => t("ocr.install_failed"),
+  cancelled: () => t("ocr.install_cancelled"),
+};
+const ocrInstallLabel = (stage: NonNullable<OcrSettingsView["installation"]>["stage"]) => ocrInstallLabels[stage]();
 const activeInstall = (settings: OcrSettingsView | null) => Boolean(settings?.installation && !["complete", "failed", "cancelled"].includes(settings.installation.stage));
 const engineLabel = (engine: Engine) => engine.kind === "local"
   ? t(engine.model === "pp-ocrv6-small" ? "ocr.fast" : "ocr.quality") : engine.label;
@@ -122,7 +139,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
             <p className="text-sm">{engine.kind === "local" ? engineLabel(engine) : engine.model}</p>
             {selected ? <SettingsStatusBadge tone={engine.status === "ready" ? "ready" : "neutral"} label={t("ocr.default")} className="min-h-6 px-2" /> : null}
           </div>
-          <p className="text-xs text-dls-secondary">{t(`ocr.status_${engine.status}`)}</p>
+          <p className="text-xs text-dls-secondary">{ocrStatusLabel(engine.status)}</p>
           {engine.kind === "local" ? <p className="mt-1 text-xs text-dls-secondary">{t(engine.model === "pp-ocrv6-small" ? "ocr.fast_description" : "ocr.quality_description")}</p> : null}
         </div>
         <ProviderActionsMenu name={engine.kind === "local" ? engineLabel(engine) : engine.model} disabled={disabled}>
@@ -174,7 +191,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
       {settings && !settings.installerAvailable ? <SettingsNotice tone="warning">{t("ocr.installer_missing")}</SettingsNotice> : null}
       {settings?.installation ? <SettingsNotice tone={settings.installation.stage === "failed" ? "error" : "neutral"}>
         <div role="status" className="flex items-center justify-between gap-3">
-          <span>{t(`ocr.install_${settings.installation.stage}`)}</span>
+          <span>{ocrInstallLabel(settings.installation.stage)}</span>
           {installing ? <Button variant="outline" disabled={disabled} onClick={() => client && void update(() => client.cancelOcrInstall())}>{t("ocr.cancel")}</Button> : null}
         </div>
       </SettingsNotice> : null}

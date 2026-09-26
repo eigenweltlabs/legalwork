@@ -1,3 +1,4 @@
+import { reviewColumnLabel } from "./review-labels";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Layers, List, Copy, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
@@ -59,7 +60,7 @@ export function ReviewPromptLibrary({ client, workspaceId }: { client: Legalwork
             <TableCell className="text-xs text-muted-foreground">{t(entry.source === "builtin" ? "review.starters" : "review.saved")}</TableCell><TableCell>{actions(entry)}</TableCell>
           </TableRow>) : prompts.filter(item => matches(item.column.label, item.column.question, item.column.hint, ...item.entry.tags, ...item.sets.map(set => set.name))).map(item => <TableRow key={item.id} className="cursor-pointer" onClick={() => edit(item.entry, item.column.key)}>
             <TableCell className="max-w-md whitespace-normal py-4 pl-4"><button className="text-left font-medium" onClick={event => { event.stopPropagation(); edit(item.entry, item.column.key); }}>{item.column.label}</button><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{item.column.question}</p>{!!item.sets.length && <p className="mt-1 text-xs text-muted-foreground">{t("review.in_sets", { names: item.sets.map(set => set.name).join(", ") })}</p>}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">{t(`review.${item.column.kind}`)}</TableCell>
+            <TableCell className="text-xs text-muted-foreground">{reviewColumnLabel(item.column.kind)}</TableCell>
             <TableCell className="text-xs text-muted-foreground">{t(item.entry.source === "builtin" ? "review.starters" : "review.saved")}</TableCell><TableCell>{actions(item.entry, item.column.key)}</TableCell>
           </TableRow>)}
         </TableBody>

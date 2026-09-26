@@ -1,3 +1,4 @@
+import { reviewStatusLabel } from "./review-labels";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -36,7 +37,7 @@ export function ReviewProbabilities({ result }: { result: ReviewResult }) {
 
 export function ReviewStatus({ status }: { status: string }) {
   return <Badge variant="outline" className={cn("gap-1.5 border-transparent font-normal", status === "complete" ? "bg-success-soft text-success" : ["blocked", "needs_review", "stale", "error", "interrupted"].includes(status) ? "bg-warning-soft text-warning" : "bg-muted/60 text-muted-foreground")}>
-    {status === "running" && <Loader2 className="size-3 animate-spin" />}{t(`review.${status}`)}
+    {status === "running" && <Loader2 className="size-3 animate-spin" />}{reviewStatusLabel(status)}
   </Badge>;
 }
 export function reviewCellError(cell: ReviewCell) {

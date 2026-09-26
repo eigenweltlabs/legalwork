@@ -1,3 +1,4 @@
+import { reviewActionLabel } from "@/react-app/domains/reviews/review-labels";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
@@ -35,7 +36,7 @@ function ReviewCard({ card }: { card: NonNullable<ReturnType<typeof parseReviewC
   return <section className="my-2 max-w-xl overflow-hidden rounded-2xl border bg-background">
     <ReviewProgressCard progress={progress} href={workspaceReviewsRoute(card.workspaceId, card.review.id)} available={available} disconnected={query.isError} />
     {mutation.error && <div className="px-4 pb-3"><ReviewError error={mutation.error} /></div>}
-    {review && reviewRunAction(review) !== "rerun_all" && <footer className="flex justify-end border-t px-3 py-2"><Button variant="ghost" size="sm" disabled={!available || mutation.isPending || !review.columns.length || !review.documents.length} onClick={() => mutation.mutate()}>{state === "running" ? <Square className="size-3.5" /> : <Play className="size-3.5" />}{t(`review.${reviewRunAction(review)}`)}</Button></footer>}
+    {review && reviewRunAction(review) !== "rerun_all" && <footer className="flex justify-end border-t px-3 py-2"><Button variant="ghost" size="sm" disabled={!available || mutation.isPending || !review.columns.length || !review.documents.length} onClick={() => mutation.mutate()}>{state === "running" ? <Square className="size-3.5" /> : <Play className="size-3.5" />}{reviewActionLabel(reviewRunAction(review))}</Button></footer>}
   </section>;
 }
 
