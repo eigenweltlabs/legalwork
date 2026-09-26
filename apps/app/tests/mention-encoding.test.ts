@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  createReviewComposerMention,
+  parseReviewComposerMention,
+  reviewComposerInstruction,
+  reviewComposerDisplayText,
   createTaskComposerMention,
   parseTaskComposerMention,
   taskComposerDisplayText,
@@ -205,4 +209,16 @@ describe("intake task mention", () => {
     expect(parseTaskComposerMention("legalwork-task://")).toBeNull();
     expect(taskComposerDisplayText("docs/a.md")).toBe("docs/a.md");
   });
+});
+
+test("review references display the name and pass only the stable ID as model context", () => {
+  const id = "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911";
+  const label = "Änderungen & obligations — @client #1";
+  const value = createReviewComposerMention(id, label);
+  expect(parseReviewComposerMention(decodeComposerMentionValue(encodeComposerMentionValue(value)))).toEqual({ reviewId: id, label });
+  expect(reviewComposerDisplayText(value)).toBe(label);
+  expect(reviewComposerInstruction(value)).toContain("legalwork_review_results with this reviewId");
+  expect(reviewComposerInstruction(value)).toContain(id);
+  expect(reviewComposerInstruction(value)).not.toContain(label);
+  expect(parseReviewComposerMention("legalwork-review://bad?name=bad")).toBeNull();
 });

@@ -1,6 +1,7 @@
+import { retireLegacyReview } from "./reviews/retire-legacy.js";
 import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 
 import { ensureDir, exists } from "./utils.js";
 import { ApiError } from "./errors.js";
@@ -61,15 +62,14 @@ async function ensureWorkspaceLegalworkConfig(workspaceRoot: string, preset: str
 }
 
 /**
- * Seed the "bundled-core" skills/agents (the tabular-review engine, its HTML template,
- * the builder, and the document-extractor agent) into the workspace. These are
+ * Seed the bundled document tools and internal inference agents into the workspace. These are
  * APP-MANAGED: a hash stamp (`.opencode/.legalwork-core`) records the bundle version,
  * and when the app ships a new bundle the stale copies are refreshed in place. Between
  * versions it is a no-op (and a core file the user deletes simply comes back). Files for
  * OTHER skills are never touched. Returns the reload reasons for any files written.
  */
 async function ensureCoreOpencodeFiles(workspaceRoot: string): Promise<ReloadReason[]> {
-  const reasons = new Set<ReloadReason>();
+  const reasons = new Set<ReloadReason>(await retireLegacyReview(workspaceRoot));
   const stampPath = join(workspaceRoot, ".opencode", ".legalwork-core");
   const prev = (await exists(stampPath)) ? (await readFile(stampPath, "utf8")).trim() : "";
   // Refresh when the bundle changed (or this workspace was never stamped). This overwrites
@@ -107,7 +107,12 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
   }
-  await ensureDir(workspaceRoot);
+  // Creation explicitly creates the root before calling us. At startup an
+  // existing registered folder may be disconnected: keep its registration,
+  // but never recreate it and make missing documents look like an empty project.
+  if (!(await stat(workspaceRoot).catch(() => null))?.isDirectory()) {
+    return { changed: false, reloadReasons: [] };
+  }
   // Before anything writes into .opencode: a stray file of that name makes the
   // engine's instance bootstrap throw EEXIST, which 500s every route for this
   // workspace (issue #62).

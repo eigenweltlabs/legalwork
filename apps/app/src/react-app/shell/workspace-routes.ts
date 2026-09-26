@@ -8,6 +8,11 @@ export function workspaceSessionRoute(workspaceId: string, sessionId?: string | 
     : `/workspace/${workspace}/session`;
 }
 
+/** Last-session restoration belongs only to an empty chat route, never a project page. */
+export function isSessionIndexRoute(pathname: string) {
+  return /^(?:\/workspace\/[^/]+)?\/session\/?$/.test(pathname);
+}
+
 export function workspaceSettingsRoute(
   workspaceId: string,
   tab: SettingsTab | "extensions/mcp" | "extensions/plugins" | string = "general",
@@ -22,4 +27,16 @@ export function globalSettingsRoute(tab: SettingsTab) {
 export function legacySessionRoute(sessionId?: string | null) {
   const session = sessionId?.trim();
   return session ? `/session/${encodeURIComponent(session)}` : "/session";
+}
+
+export function workspaceProjectRoute(workspaceId: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/project`;
+}
+
+export function workspaceTasksRoute(workspaceId: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/tasks`;
+}
+
+export function workspaceReviewsRoute(workspaceId: string, reviewId?: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/reviews${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ""}`;
 }

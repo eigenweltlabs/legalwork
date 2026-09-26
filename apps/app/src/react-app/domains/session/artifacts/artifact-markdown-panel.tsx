@@ -14,6 +14,7 @@ import { loadMarkdownDraft, savedMarkdownDraft, replaceMarkdownText, type Markdo
 import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "./open-target";
 import { t } from "@/i18n";
+import { projectFileDisplayName } from "../../workspace/project-note-title";
 
 type Props = {
   sessionId: string;
@@ -77,6 +78,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       update((current) => current ? savedMarkdownDraft(current, snapshot.content, result.updatedAt ?? null) : current);
       queryClient.setQueryData(["markdown-editor", workspaceId, target.value], { ...result, content: snapshot.content });
       void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
+      void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
       setSaveError(null);
       return true;
     } catch (error) {
@@ -154,7 +156,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   return <div className="h-full min-h-0" onKeyDownCapture={(event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void save(); }
   }}>
-    <ArtifactFrame expandable title={target.name} icon={<ArtifactIcon type="markdown" className="size-5" />}
+    <ArtifactFrame expandable title={projectFileDisplayName(target.value, target.name)} icon={<ArtifactIcon type="markdown" className="size-5" />}
       meta={<span role="status">{saving ? t("common.saving") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
       actions={<>
         {saveActions ? saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}

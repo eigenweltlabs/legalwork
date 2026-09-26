@@ -1,7 +1,10 @@
+import { ProjectReviews } from "../../reviews/project-reviews";
+import { ProjectHome } from "../../workspace/project-home";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -213,6 +216,11 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
+  projectPage?: "home" | "tasks" | "reviews";
+  onRenameProject?: (name: string) => Promise<boolean>;
+  projectTasksView?: React.ReactNode;
+  onStartProjectRecording: () => void;
+  onCreateProjectSession?: (shareRecording: boolean) => void | Promise<void>;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
@@ -310,16 +318,19 @@ function controlStringArg(args: unknown, key: string) {
 }
 
 export function SessionPage(props: SessionPageProps) {
+  const navigate = useNavigate();
+  const hasMainView = Boolean(props.mainView || props.projectPage);
   const { config: shellConfig } = useShellConfig();
   const queryClient = useQueryClient();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
   // The side panel's open/close state is keyed per chat session. Top-level
   // mainView pages (Evals / Benchmark) have no selected session, so they key
-  // it on the synthetic EVALS_PANEL_SESSION_ID instead. Without this the key
+  // it on the synthetic EVALS_PANEL_SESSION_ID instead. Project homes keep
+  // separate keys so documents cannot carry over to another project. Without this the key
   // is null and the panel can never open (regressed as "opens only on the 2nd
   // click, and only after having visited a chat session first").
-  const panelStateSessionId = props.mainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
+  const panelStateSessionId = props.projectPage ? `project:${props.selectedWorkspaceId}` : hasMainView ? EVALS_PANEL_SESSION_ID : props.selectedSessionId ?? EVALS_PANEL_SESSION_ID;
   const workflowsPage = props.sidebar.activeNav === "workflows";
   const mobile = useIsMobile();
   const sessionSidePanel = useUiStateStore((state) => (
@@ -700,14 +711,14 @@ export function SessionPage(props: SessionPageProps) {
       const target = resolvePathOpenTarget(result.path, accessibleTargets, "legalmemory");
       if (!target) throw new Error(t("session.legalmemory_unusable_path"));
       queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
-      openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
+      openTarget(target, undefined, hasMainView ? panelStateSessionId : undefined);
     } catch (error) {
       toast.error(t("session.open_failed", { name: file.name }), {
         description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
       throw error;
     }
-  }, [accessibleTargets, openTarget, props.legalworkServerClient, props.mainView, props.runtimeWorkspaceId, queryClient]);
+  }, [accessibleTargets, openTarget, props.legalworkServerClient, hasMainView, panelStateSessionId, props.runtimeWorkspaceId, queryClient]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
     nextHiddenIds.add(target.id);
@@ -725,7 +736,7 @@ export function SessionPage(props: SessionPageProps) {
       );
       // On mainView pages (Evals / Benchmark) tabs live under the synthetic
       // panel session so the side panel can render without a chat session.
-      if (target) openTarget(target, undefined, props.mainView ? EVALS_PANEL_SESSION_ID : undefined);
+      if (target) openTarget(target, undefined, hasMainView ? panelStateSessionId : undefined);
     };
     const hide = (event: Event) => {
       const requested = (event as CustomEvent<OpenTarget>).detail;
@@ -738,7 +749,7 @@ export function SessionPage(props: SessionPageProps) {
       window.removeEventListener("legalwork-open-accessible-target", open);
       window.removeEventListener("legalwork-hide-accessible-target", hide);
     };
-  }, [accessibleTargets, openTarget, removeAccessibleTarget]);
+  }, [accessibleTargets, openTarget, removeAccessibleTarget, hasMainView, panelStateSessionId]);
   useEffect(() => {
     const handler = () => setCurrentSidePanel(null);
     window.addEventListener("legalwork-close-right-pane", handler);
@@ -977,6 +988,26 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
+  const mainView = props.projectPage === "reviews" ? (
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews onOpenSession={sessionId => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
+  ) : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
+      key={props.selectedWorkspaceId}
+      client={props.legalworkServerClient}
+      workspaceId={props.runtimeWorkspaceId}
+      projectId={props.selectedWorkspaceId}
+      isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+      onStartRecording={props.onStartProjectRecording}
+      name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
+      onOpenFile={openWorkspaceFileEntry}
+      onNewSession={(shareRecording) => props.onCreateProjectSession
+        ? props.onCreateProjectSession(shareRecording)
+        : props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
+      tasksView={props.projectTasksView}
+      onRename={props.onRenameProject}
+    /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
+  ) : props.mainView;
+
   const fileSidebars = (
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
@@ -987,11 +1018,28 @@ export function SessionPage(props: SessionPageProps) {
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
           workspaceRoot={props.selectedWorkspaceRoot}
+          isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+          projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name}
           onOpenFile={openWorkspaceFileEntry}
           onClose={closeFileSidebar}
         />
       )}
     />
+  );
+
+  const workspaceFilesRailButton = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", filesRailActive && "text-foreground")}
+      onClick={openFilesRailPane}
+      title={t("session.workspace_files")}
+      aria-label={t("session.workspace_files")}
+      aria-pressed={filesRailActive}
+      disabled={!props.legalworkServerClient || !props.runtimeWorkspaceId}
+    >
+      <Folder size={17} />
+    </Button>
   );
 
   return (
@@ -1012,6 +1060,14 @@ export function SessionPage(props: SessionPageProps) {
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
+          onOpenProjectFiles={(workspaceId) => {
+            if (workspaceId === props.selectedWorkspaceId && !props.mainView) {
+              setFileSidebarState(panelStateSessionId, "files");
+            } else {
+              setFileSidebarState(`project:${workspaceId}`, "files");
+              void props.sidebar.onSelectWorkspace(workspaceId);
+            }
+          }}
           showInitialLoading={sidebarInitialLoading}
           showSessionActions={Boolean(props.onRenameSession || props.onDeleteSession || props.onArchiveSession)}
           sessionStatusById={props.sidebar.sessionStatusById}
@@ -1050,7 +1106,7 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         /> : null}
-        {props.mainView ? (
+        {hasMainView ? (
           // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
@@ -1073,7 +1129,7 @@ export function SessionPage(props: SessionPageProps) {
                   <NotificationBell />
                 </div>
               </header>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{props.mainView}</div>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
                   clientConnected={props.clientConnected}
@@ -1101,10 +1157,11 @@ export function SessionPage(props: SessionPageProps) {
                   >
                     {workflowFocusMode ? <div className="shrink-0 border-b border-border px-3 py-2"><Button variant="ghost" size="sm" onClick={() => setSidePanelState(panelStateSessionId, null)}>{t("workflows.back_to_library")}</Button></div> : null}
                     <div className="min-h-0 flex-1"><SidePanel
-                      sessionId={EVALS_PANEL_SESSION_ID}
+                      sessionId={panelStateSessionId}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
+                      projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
                       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
                       onClose={closeRightPane}
                     /></div>
@@ -1126,6 +1183,8 @@ export function SessionPage(props: SessionPageProps) {
               >
                 <PanelsTopLeft size={17} />
               </Button>
+
+              {workspaceFilesRailButton}
 
               <Button
                 variant="ghost"
@@ -1477,6 +1536,7 @@ export function SessionPage(props: SessionPageProps) {
                     workspaceId={props.runtimeWorkspaceId}
                     workspaceRoot={props.selectedWorkspaceRoot}
                     isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                    projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
                     onClose={closeRightPane}
                   />
                 </ResizablePanel>
@@ -1497,21 +1557,7 @@ export function SessionPage(props: SessionPageProps) {
               >
                 <PanelsTopLeft size={17} />
               </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cn(
-                "lw-session-rail-button hover:bg-muted hover:text-foreground",
-                filesRailActive && "text-foreground",
-              )}
-              onClick={openFilesRailPane}
-              title={t("session.workspace_files")}
-              aria-label={t("session.workspace_files")}
-              aria-pressed={filesRailActive}
-              disabled={!props.selectedSessionId || !props.legalworkServerClient || !props.runtimeWorkspaceId}
-            >
-              <Folder size={17} />
-            </Button>
+              {workspaceFilesRailButton}
 
               <Button
                 variant="ghost"

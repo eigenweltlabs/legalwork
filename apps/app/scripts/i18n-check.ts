@@ -37,6 +37,10 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "review.status", // Identical German and English noun.
+  "review.mixed", // Product model names: JEV + LLM.
+  "review.sets", "review.prompts", "workflows.workflow", // Established product terminology in both languages.
+  "systemone.typesafe",
   // Storage protocol names and the shared technical term "Port".
   "storage.provider_webdav", "storage.provider_sftp", "storage.provider_ftp", "storage.field_port",
   // Tool transcript: loanwords and identical tokens
@@ -46,11 +50,13 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "tool.generic", "tool.detail_in_path", "tool_activity.agent_prefix",
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
+  "ocr.api_paddle", "ocr.api_mistral",
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
   "premium_upsell.eyebrow",
   "recorder.tier_premium_name", "recorder.tier_premium_locked", "recorder.tier_max_name",
   "skills.cloud_org_fallback", "mcp.quick_connect_featured",
   // Professional terms LegalWork deliberately leaves untranslated
+  "projects.sessions",
   "composer.agent_label", "composer.agents_label", "composer.mcps_label", "composer.skill_source",
   "composer.app_kind", "session.permission_detail_agent", "session.permission_detail_tool",
   "session.permission_detail_diff", "session.permission_detail_url", "session.doom_loop_tool_label",

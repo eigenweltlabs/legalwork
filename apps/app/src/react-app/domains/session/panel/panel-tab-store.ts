@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -32,6 +33,8 @@ export type ArtifactPanelTab = {
   size?: number;
   updatedAt?: number;
   storage?: StorageFileSource;
+  sourcePage?: number;
+  reviewCitation?: ReviewSourceReference;
 }
 
 export type TaskPanelTab = {

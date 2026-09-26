@@ -3,6 +3,10 @@ import { t } from "@/i18n";
 
 const PREFIX = "attachment://workspace?";
 
+export function createWorkspaceAttachmentMention(name: string, path: string) {
+  return `${PREFIX}${new URLSearchParams({ name, path }).toString()}`;
+}
+
 export function parseWorkspaceAttachmentMention(value: string) {
   if (!value.startsWith(PREFIX)) return null;
   const params = new URLSearchParams(value.slice(PREFIX.length));
@@ -18,6 +22,7 @@ export async function uploadWorkspaceAttachment(
   client: Pick<LegalworkServerClient, "writeWorkspaceBinaryFile">,
   workspaceId: string,
   file: File,
+  displayName = file.name,
 ) {
   // Keep the extension, and avoid path separators and Markdown/URL syntax on
   // disk. The original filename remains the label displayed to the user.
@@ -27,11 +32,7 @@ export async function uploadWorkspaceAttachment(
     data: await file.arrayBuffer(),
   });
   if (!result.ok || !result.path) throw new Error(t("workspace.upload_incomplete"));
-  const params = new URLSearchParams({
-    name: file.name,
-    path: result.path,
-  });
-  return `${PREFIX}${params.toString()}`;
+  return createWorkspaceAttachmentMention(displayName, result.path);
 }
 
 /** Ordinary workspace links already render as clickable file badges. */
@@ -39,7 +40,8 @@ export function workspaceAttachmentDisplayText(value: string) {
   const attachment = parseWorkspaceAttachmentMention(value);
   if (!attachment) return value;
   const label = attachment.name.replace(/[\\`*_{}\[\]<>]/g, "\\$&").replace(/[\r\n]/g, " ");
-  return `[${label}](${attachment.path})`;
+  const path = attachment.path.split("/").map((part) => encodeURIComponent(part).replaceAll("(", "%28").replaceAll(")", "%29")).join("/");
+  return `[${label}](${path})`;
 }
 
 export function workspaceAttachmentInstruction(value: string) {

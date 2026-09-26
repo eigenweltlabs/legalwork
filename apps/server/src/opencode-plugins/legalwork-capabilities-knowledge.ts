@@ -58,8 +58,10 @@ Here is what you can help users with:
 - \`legalwork_skill_list\` shows what is already installed — check it before creating something that may already exist.
 - A skill or workflow may ship the firm's own templates and playbooks in a \`resources/\` folder inside its own skill folder; when its SKILL.md lists such files (for example in an "Attached resources" section), read those files and follow them. Pass \`resourcePaths\` to \`legalwork_skill_create\` to ship a template with a new workflow.
 
+- Tabular-review prompts and sets live under Workflows > Tabular Review Prompts. Load \`author-review-prompts\` and save them with \`legalwork_review_library_save\`, not \`legalwork_skill_create\`. Existing tabular workflows appear as normal workflows.
+
 ## PDF Actions
-- LegalWork can annotate PDFs (sticky notes, highlights), list and fill form fields, and stamp signatures via the bundled \`pdf-tools\` skill — load it whenever the user wants to act on a PDF, even if they don't use the /annotate, /fill-form, or /sign commands.
+- LegalWork can annotate PDFs (sticky notes, highlights), list and fill form fields, and stamp signatures via the bundled \`pdf-tools\` skill — load it for those PDF editing actions. For tabular reviews containing PDFs, load \`start-tabular-review\` instead; the review runner handles reading and OCR automatically.
 - Every PDF action writes a new copy next to the source (\`.annotated.pdf\`, \`.filled.pdf\`, \`.signed.pdf\`); the original file is never modified. Output the resulting path so it opens in the in-app PDF viewer.
 
 ## Plugins

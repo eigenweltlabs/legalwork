@@ -2,6 +2,12 @@
 import * as React from "react";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 import {
+  House,
+  MessageSquare,
+  Files,
+  ListTodo,
+  Settings,
+  Table2,
   Archive,
   ArchiveRestore,
   FlaskConical,
@@ -23,7 +29,7 @@ import {
   Tag,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
@@ -83,15 +89,15 @@ import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
 import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
-import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
+import { workspaceProjectRoute, workspaceSessionRoute, workspaceTasksRoute, workspaceReviewsRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
-  buildSessionTreeState,
   flattenSessionRows,
   getRootSessions,
+  partitionArchivedSessions,
+  buildSessionTreeState,
   isSessionArchived,
   isStreamingSessionStatus,
-  partitionArchivedSessions,
   workspaceKindLabel,
   workspaceLabel,
 } from "./utils";
@@ -99,14 +105,16 @@ import type { FlattenedSessionRow, SessionListItem, SessionTreeState } from "./u
 import {
   useSessionManagementStore,
   usePinnedSessionIds,
-  useSessionOrder,
   useWorkspaceGroups,
+  useSessionOrder,
   type SessionGroupDefinition,
 } from "./session-management-store";
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../status/session-activity-store";
-import { DEFAULT_SHELL_CONFIG, useShellConfig } from "../../../shell/shell-config";
+import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
+import { SidebarBrandEditor, SidebarCustomization } from "./sidebar-customization";
+import { startSessionDrag, acceptsSessionDrag, readSessionDrag } from "./session-drag";
 
 interface SessionStatusIndicatorProps {
   className?: string;
@@ -462,6 +470,7 @@ export type AppSidebarProps = {
   selectedWorkspaceId: string;
   developerMode: boolean;
   selectedSessionId: string | null;
+  onOpenProjectFiles: (workspaceId: string) => void;
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;
   connectingWorkspaceId: string | null;
@@ -520,6 +529,13 @@ const NAV_ITEM_CLASS =
 
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
+  const [customizingNavigation, setCustomizingNavigation] = React.useState(false);
+  const customizationButtonRef = React.useRef<HTMLButtonElement>(null);
+  const finishCustomizingNavigation = () => {
+    setCustomizingNavigation(false);
+    requestAnimationFrame(() => customizationButtonRef.current?.focus());
+  };
+  const location = useLocation();
   const navigate = useNavigate();
   const unreadTasks = useUnreadTaskCount();
   const showUnreadTasks = unreadTasks > 0 && props.activeNav !== "tasks";
@@ -533,7 +549,6 @@ export function AppSidebar(props: AppSidebarProps) {
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = React.useState<Set<string>>(
     () => new Set(),
   );
-  const [previewCountByWorkspaceId, setPreviewCountByWorkspaceId] = React.useState<Record<string, number>>({});
   const [expandedSessionIds, setExpandedSessionIds] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -583,17 +598,6 @@ export function AppSidebar(props: AppSidebarProps) {
     expandWorkspace(id);
   }, [props.selectedWorkspaceId, expandWorkspace]);
 
-  const previewCount = (workspaceId: string) =>
-    previewCountByWorkspaceId[workspaceId] ?? MAX_SESSIONS_PREVIEW;
-
-  const showMoreSessions = (workspaceId: string, totalRoots: number) => {
-    expandWorkspace(workspaceId);
-    setPreviewCountByWorkspaceId((current) => ({
-      ...current,
-      [workspaceId]: Math.min((current[workspaceId] ?? MAX_SESSIONS_PREVIEW) + MAX_SESSIONS_PREVIEW, totalRoots),
-    }));
-  };
-
   React.useEffect(() => {
     const workspaceId = props.selectedWorkspaceId.trim();
     if (!workspaceId) return;
@@ -631,9 +635,101 @@ export function AppSidebar(props: AppSidebarProps) {
     : "";
   const sidebarBrandAlt = sidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName;
 
+  const navigationItems: Record<ShellNavKey, React.ReactNode> = {
+    navNewChat: shellConfig.navNewChat ? <SidebarMenuItem key="navNewChat">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton className="lw-sidebar-new-chat mb-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]">
+                    <PenLine className="size-[18px]" strokeWidth={1.5} />
+                    <span>{t("projects.new_chat")}</span>
+                  </SidebarMenuButton>
+                }
+              />
+              <DropdownMenuContent align="start" side="bottom" sideOffset={4} className="w-64">
+                {props.workspaceSessionGroups.map((group) => (
+                  <DropdownMenuItem
+                    key={group.workspace.id}
+                    disabled={props.newChatDisabled}
+                    onClick={() => props.onCreateChatInWorkspace(group.workspace.id)}
+                  >
+                    <WorkspaceIcon workspaceId={group.workspace.id} sizeClass="size-4" />
+                    <span className="truncate">{workspaceLabel(group.workspace)}</span>
+                  </DropdownMenuItem>
+                ))}
+                {props.workspaceSessionGroups.length > 0 ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuItem onClick={props.onOpenCreateWorkspace}>
+                  <FolderPlus className="size-4" />
+                  {t("projects.create")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem> : null,
+    navTasks: shellConfig.navTasks && props.onShowTasks ? (
+            <SidebarMenuItem key="navTasks">
+              <SidebarMenuButton
+                className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+                isActive={props.activeNav === "tasks"}
+                onClick={props.onShowTasks}
+              >
+                <Inbox className="size-[18px]" strokeWidth={1.5} />
+                <span>{t("sidebar.tasks")}</span>
+                {/* The space keeps the spoken name "Tasks (2 new)"; a flex row ignores it. */}
+                {showUnreadTasks ? <>{" "}<span className="sr-only">{t("sidebar.tasks_unread", { count: unreadTasks })}</span></> : null}
+              </SidebarMenuButton>
+              {/* Tasks announced since the pane was last open (task notifications). */}
+              {showUnreadTasks ? (
+                <SidebarMenuBadge
+                  aria-hidden
+                  className="end-2.5 h-4 min-w-4 rounded-full bg-primary px-1 text-[10px] leading-none font-semibold text-primary-foreground peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground peer-data-[size=default]/menu-button:top-2.5"
+                >
+                  {unreadTasks > 9 ? "9+" : unreadTasks}
+                </SidebarMenuBadge>
+              ) : null}
+            </SidebarMenuItem>
+          ) : null,
+    navWorkflows: shellConfig.navWorkflows ? <SidebarMenuItem key="navWorkflows">
+            <SidebarMenuButton
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+              isActive={props.activeNav === "workflows"}
+              onClick={() => (props.onShowWorkflows ? props.onShowWorkflows() : goSettings("general"))}
+            >
+              <Workflow className="size-[18px]" strokeWidth={1.5} />
+              <span>{t("sidebar.workflows")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem> : null,
+    navRecorder: shellConfig.navRecorder ? <SidebarMenuItem key="navRecorder">
+            <SidebarMenuButton
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+              isActive={props.activeNav === "recorder"}
+              onClick={() => props.onShowRecorder?.()}
+            >
+              <Mic className="size-[18px]" strokeWidth={1.5} />
+              <span>{t("recorder.nav_label")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem> : null,
+    navEvaluations: shellConfig.navEvaluations ? <SidebarMenuItem key="navEvaluations">
+            <SidebarMenuButton
+              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
+              isActive={props.activeNav === "evals"}
+              onClick={() => props.onShowEvals?.()}
+            >
+              <FlaskConical className="size-[19px]" strokeWidth={1.5} />
+              <span>{t("sidebar.evals")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem> : null,
+  };
+
   const contextValue: SidebarContextValue = {
     selectedWorkspaceId: props.selectedWorkspaceId,
-    selectedSessionId: props.selectedSessionId,
+    selectedSessionId: props.activeNav || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") ? null : props.selectedSessionId,
+    activeProjectFeature: props.activeNav ? null : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
+      : location.pathname.endsWith("/project") ? "home" : props.selectedSessionId ? "sessions" : null,
+    onOpenProjectPage: async (workspaceId, page) => {
+      if (await props.onSelectWorkspace(workspaceId) === false) return;
+      navigate(page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
+    },
+    onOpenProjectFiles: props.onOpenProjectFiles,
     developerMode: props.developerMode,
     showSessionActions: props.showSessionActions,
     sessionStatusById: props.sessionStatusById,
@@ -665,12 +761,13 @@ export function AppSidebar(props: AppSidebarProps) {
         collapsible="offcanvas"
         role="navigation"
         aria-label={t("sidebar.main_navigation")}
-        className="mac:**:data-[sidebar=sidebar]:bg-transparent"
+        className="group/project-sidebar mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-12 mac:block mac:titlebar-drag"/>
         <div className="flex shrink-0 flex-col pb-4">
-        <div className="px-2 pb-1 mac:titlebar-no-drag">
-          <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", showSidebarBrandName ? "items-center py-2" : "items-center py-0") }>
+        <div className="shrink-0 px-2 pb-1 mac:titlebar-no-drag">
+          <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", (showSidebarBrandName || customizingNavigation) ? "items-center py-2" : "items-center py-0") }>
+            {customizingNavigation ? <SidebarBrandEditor onDone={finishCustomizingNavigation} /> : <>
             <img
               src={sidebarBrandLogoSrc}
               alt={`${sidebarBrandAlt} logo`}
@@ -682,96 +779,22 @@ export function AppSidebar(props: AppSidebarProps) {
               )}
             />
             {showSidebarBrandName ? (
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="truncate text-[15px] font-semibold leading-tight tracking-[-0.02em]">{sidebarBrandName}</div>
               </div>
             ) : null}
+            </>}
+            <Button ref={customizationButtonRef} variant="ghost" size="icon" className={cn("ml-auto size-6 shrink-0 text-muted-foreground transition-opacity group-hover/project-sidebar:opacity-100 group-hover/project-sidebar:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto", !customizingNavigation && "pointer-events-none opacity-0")} aria-label={t("projects.customize_nav")} title={t("projects.customize_nav")} aria-expanded={customizingNavigation} onClick={() => customizingNavigation ? finishCustomizingNavigation() : setCustomizingNavigation(true)}>
+              <Settings className="size-3.5" />
+            </Button>
           </div>
         </div>
+        {customizingNavigation ? <div className="max-h-[60svh] overflow-y-auto px-2 pb-2 pt-1 mac:titlebar-no-drag"><SidebarCustomization onDone={finishCustomizingNavigation} /></div> : null}
+        <div className={cn(customizingNavigation && "hidden")}>
         <SidebarMenu className={cn("gap-1 px-2.5 mac:titlebar-no-drag", showSidebarBrandName ? "pt-3" : "pt-2")}>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton className="lw-sidebar-new-chat mb-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]">
-                    <PenLine className="size-[18px]" strokeWidth={1.5} />
-                    <span>{t("sidebar.new_task")}</span>
-                  </SidebarMenuButton>
-                }
-              />
-              <DropdownMenuContent align="start" side="bottom" sideOffset={4} className="w-64">
-                {props.workspaceSessionGroups.map((group) => (
-                  <DropdownMenuItem
-                    key={group.workspace.id}
-                    disabled={props.newChatDisabled}
-                    onClick={() => props.onCreateChatInWorkspace(group.workspace.id)}
-                  >
-                    <WorkspaceIcon workspaceId={group.workspace.id} sizeClass="size-4" />
-                    <span className="truncate">{workspaceLabel(group.workspace)}</span>
-                  </DropdownMenuItem>
-                ))}
-                {props.workspaceSessionGroups.length > 0 ? <DropdownMenuSeparator /> : null}
-                <DropdownMenuItem onClick={props.onCreateChatInNewWorkspace}>
-                  <FolderPlus className="size-4" />
-                  {t("sidebar.new_folder")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-          {props.onShowTasks ? (
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
-                isActive={props.activeNav === "tasks"}
-                onClick={props.onShowTasks}
-              >
-                <Inbox className="size-[18px]" strokeWidth={1.5} />
-                <span>{t("sidebar.tasks")}</span>
-                {/* The space keeps the spoken name "Tasks (2 new)"; a flex row ignores it. */}
-                {showUnreadTasks ? <>{" "}<span className="sr-only">{t("sidebar.tasks_unread", { count: unreadTasks })}</span></> : null}
-              </SidebarMenuButton>
-              {/* Tasks announced since the pane was last open (task notifications). */}
-              {showUnreadTasks ? (
-                <SidebarMenuBadge
-                  aria-hidden
-                  className="end-2.5 h-4 min-w-4 rounded-full bg-primary px-1 text-[10px] leading-none font-semibold text-primary-foreground peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground peer-data-[size=default]/menu-button:top-2.5"
-                >
-                  {unreadTasks > 9 ? "9+" : unreadTasks}
-                </SidebarMenuBadge>
-              ) : null}
-            </SidebarMenuItem>
-          ) : null}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
-              isActive={props.activeNav === "workflows"}
-              onClick={() => (props.onShowWorkflows ? props.onShowWorkflows() : goSettings("general"))}
-            >
-              <Workflow className="size-[18px]" strokeWidth={1.5} />
-              <span>{t("sidebar.workflows")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
-              isActive={props.activeNav === "recorder"}
-              onClick={() => props.onShowRecorder?.()}
-            >
-              <Mic className="size-[18px]" strokeWidth={1.5} />
-              <span>{t("recorder.nav_label")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
-              isActive={props.activeNav === "evals"}
-              onClick={() => props.onShowEvals?.()}
-            >
-              <FlaskConical className="size-[19px]" strokeWidth={1.5} />
-              <span>{t("sidebar.evals")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {shellConfig.navOrder.map((key) => navigationItems[key])}
         </SidebarMenu>
+        </div>
         {/* Flows directly under the last nav item, with a little breathing room. */}
         <div className="mt-3">
           <SidebarWorkflowGenerationBadge
@@ -782,10 +805,8 @@ export function AppSidebar(props: AppSidebarProps) {
 
         <div className="flex min-h-0 flex-1 flex-col border-t border-sidebar-border/70 pt-1">
           <div className="lw-sidebar-folders-header flex h-10 shrink-0 items-center gap-2 px-5 mac:titlebar-no-drag">
-            <span className="lw-section-eyebrow">{t("sidebar.folders")}</span>
-            <span className="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label={t("sidebar.folder_count", { count: props.workspaceSessionGroups.length })}>
-              {props.workspaceSessionGroups.length}
-            </span>
+            <span className="lw-section-eyebrow">{t("projects.plural")}</span>
+            <Button variant="ghost" size="icon" className="ml-auto size-6" aria-label={t("projects.create")} title={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>
           </div>
           <LazyMotion features={domMax}>
             <m.div
@@ -807,8 +828,6 @@ export function AppSidebar(props: AppSidebarProps) {
                     group={group}
                     className={cn(index === 0 && "mac:pt-0")}
                     showInitialLoading={props.showInitialLoading}
-                    previewCount={previewCount(group.workspace.id)}
-                    showMoreSessions={showMoreSessions}
                   />
                 ))}
               </Reorder.Group>
@@ -833,16 +852,12 @@ type WorkspaceReorderItemProps = {
   className: string;
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
-  previewCount: number;
-  showMoreSessions: (workspaceId: string, totalRoots: number) => void;
 };
 
 function WorkspaceReorderItem({
   className,
   group,
   showInitialLoading,
-  previewCount,
-  showMoreSessions,
 }: WorkspaceReorderItemProps) {
   const dragControls = useDragControls();
 
@@ -866,8 +881,6 @@ function WorkspaceReorderItem({
         className={className}
         group={group}
         showInitialLoading={showInitialLoading}
-        previewCount={previewCount}
-        showMoreSessions={showMoreSessions}
         onWorkspaceTitlePointerDown={(event) => dragControls.start(event, { distanceThreshold: 10 })}
       />
     </Reorder.Item>
@@ -893,20 +906,17 @@ function WorkspaceHeader({
 }: WorkspaceHeaderProps) {
   const ctx = useSidebarContext();
 
-  const handleSelectWorkspace = () => {
-    void Promise.resolve(ctx.onSelectWorkspace(workspace.id));
-  };
-
   return (
     <SidebarMenuButton
       {...props}
+      aria-expanded={ctx.expandedWorkspaceIds.has(workspace.id)}
       className={cn(
         "[&_.lw-folder-icon]:size-5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
         onClick?.(event);
-        handleSelectWorkspace();
+        if (!event.defaultPrevented) ctx.toggleWorkspaceExpanded(workspace.id);
       }}
     >
       <WorkspaceIcon workspaceId={workspace.id} sizeClass="size-5" open={ctx.expandedWorkspaceIds.has(workspace.id)} />
@@ -933,12 +943,12 @@ function WorkspaceHeader({
   );
 }
 
+const PROJECT_FEATURE_CLASS = "min-h-8 h-auto gap-2 rounded-md px-2.5 ps-2.5 py-1.5 text-[13px] data-active:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-border/50 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip";
+
 type WorkspaceSidebarGroupProps = {
   className: string;
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
-  previewCount: number;
-  showMoreSessions: (workspaceId: string, totalRoots: number) => void;
   onWorkspaceTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
 };
 
@@ -946,23 +956,10 @@ function WorkspaceSidebarGroup({
   className,
   group,
   showInitialLoading,
-  previewCount,
-  showMoreSessions,
   onWorkspaceTitlePointerDown,
 }: WorkspaceSidebarGroupProps) {
   const ctx = useSidebarContext();
   const workspace = group.workspace;
-  const tree = useSessionTree(group.sessions, ctx.sessionStatusById);
-
-  const forcedExpandedSessionIds = React.useMemo(
-    () => new Set(
-      ctx.selectedSessionId
-        ? tree.ancestorIdsBySessionId.get(ctx.selectedSessionId) ?? []
-        : [],
-    ),
-    [ctx.selectedSessionId, tree.ancestorIdsBySessionId],
-  );
-
   const isConnecting = ctx.connectingWorkspaceId === workspace.id;
   const connectionState: WorkspaceConnectionState = ctx.workspaceConnectionStateById[workspace.id] ?? {
     status: "idle",
@@ -973,6 +970,15 @@ function WorkspaceSidebarGroup({
   const taskLoadError = getWorkspaceTaskLoadErrorDisplay(workspace, group.error);
   const isExpanded = ctx.expandedWorkspaceIds.has(workspace.id);
   const isSelected = ctx.selectedWorkspaceId === workspace.id;
+  const [sessionsOpen, setSessionsOpen] = React.useState(false);
+  const showSessions = sessionsOpen;
+
+  React.useEffect(() => {
+    if (isSelected && ctx.activeProjectFeature === "sessions") {
+      setSessionsOpen(true);
+      ctx.expandWorkspace(workspace.id);
+    }
+  }, [isSelected, ctx.activeProjectFeature, ctx.expandWorkspace, workspace.id]);
 
   const statusLabel = (() => {
     if (connectionState.status === "error") return connectionState.message?.trim() || taskLoadError.message;
@@ -984,39 +990,7 @@ function WorkspaceSidebarGroup({
     return workspaceKindLabel(workspace);
   })();
 
-  const pinnedIds = usePinnedSessionIds();
-  const orderIds = useSessionOrder(workspace.id);
-  const { groups: wsGroups, assignments: wsAssignments } = useWorkspaceGroups(workspace.id);
-  const store = useSessionManagementStore;
 
-  const { active: activeSessions, archived: archivedSessions } = React.useMemo(
-    () => partitionArchivedSessions(group.sessions),
-    [group.sessions],
-  );
-  const sessionRows = flattenSessionRows(
-    group.sessions,
-    wsGroups.length > 0 ? Number.MAX_SAFE_INTEGER : previewCount,
-    tree,
-    ctx.expandedSessionIds,
-    forcedExpandedSessionIds,
-    pinnedIds,
-    orderIds,
-  );
-  const visibleRootIds = React.useMemo(
-    () => sessionRows.flatMap((row) => (row.depth === 0 ? [row.session.id] : [])),
-    [sessionRows],
-  );
-  const activeRootCount = React.useMemo(
-    () => getRootSessions(activeSessions).length,
-    [activeSessions],
-  );
-  const [archivedExpanded, setArchivedExpanded] = React.useState(false);
-  const remainingRootSessions = Math.max(0, activeRootCount - previewCount);
-  const showMoreLabel = remainingRootSessions > 0
-    ? t("workspace_list.show_more", {
-      count: Math.min(MAX_SESSIONS_PREVIEW, remainingRootSessions),
-    })
-    : t("workspace_list.show_more_fallback");
 
   return (
     <SidebarGroup className={className}>
@@ -1047,8 +1021,9 @@ function WorkspaceSidebarGroup({
                   }}
                   disabled={ctx.newChatDisabled}
                   aria-label={t("session.new_task")}
+                  title={t("session.new_task")}
                 >
-                  <Plus className="size-4" />
+                  <MessageSquare className="size-3.5" strokeWidth={1.5} />
                 </Button>
                 <WorkspaceActionsMenu
                   workspace={workspace}
@@ -1070,108 +1045,53 @@ function WorkspaceSidebarGroup({
               </Button>
             </div>
 
-            <CollapsibleContent className="pt-px">
-              <SidebarMenuSub>
-                {showInitialLoading || (group.status === "loading" && group.sessions.length === 0) ? (
+            <CollapsibleContent className="pt-1 pb-3">
+              <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
+                <SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
                   <SidebarMenuSubItem>
-                    <SidebarMenuSubButton aria-disabled className="text-muted-foreground text-xs truncate">
-                      <span className="truncate">{t("workspace.loading_tasks")}</span>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "home"); }}>
+                      <House className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.home")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
-                ) : activeSessions.length > 0 || archivedSessions.length > 0 ? (
-                  <>
-                    {wsGroups.length > 0 ? (
-                      <GroupedSessionList
-                        sessionRows={sessionRows}
-                        groups={wsGroups}
-                        assignments={wsAssignments}
-                        pinnedIds={pinnedIds}
-                        tree={tree}
-                        workspaceId={workspace.id}
-                        forcedExpandedSessionIds={forcedExpandedSessionIds}
-                        store={store}
-                      />
-                    ) : (
-                      <Reorder.Group
-                        as="div"
-                        axis="y"
-                        values={visibleRootIds}
-                        onReorder={(ids) => {
-                          const visible = new Set(ids);
-                          const allRootIds = getRootSessions(activeSessions).map((s) => s.id);
-                          const full = [...ids, ...allRootIds.filter((id) => !visible.has(id))];
-                          store.getState().reorderSessions(workspace.id, full);
-                        }}
-                        className="flex flex-col"
-                      >
-                        {sessionRows.map((row) => (
-                          <SessionMenuItem
-                            key={row.session.id}
-                            session={row.session}
-                            depth={row.depth}
-                            tree={tree}
-                            workspaceId={workspace.id}
-                            forcedExpandedSessionIds={forcedExpandedSessionIds}
-                            isPinned={pinnedIds.has(row.session.id)}
-                            draggable={row.depth === 0}
-                          />
-                        ))}
-                      </Reorder.Group>
-                    )}
-                    {wsGroups.length === 0 && activeRootCount > previewCount ? (
-                      <SidebarMenuSubItem className="flex items-center gap-1 ps-10 text-xs text-muted-foreground">
-                        <SidebarMenuSubButton
-                          className="w-auto min-w-0 ps-0 pr-0 text-muted-foreground text-xs"
-                          onClick={() => showMoreSessions(workspace.id, activeRootCount)}
-                        >
-                          <span className="truncate">{showMoreLabel}</span>
-                        </SidebarMenuSubButton>
-                        <span aria-hidden className="shrink-0">⋅</span>
-                        <button
-                          type="button"
-                          className="min-w-0 truncate rounded-md px-1 py-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-                          onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}
-                        >
-                          {t("session_management.create_group")}
-                        </button>
-                      </SidebarMenuSubItem>
-                    ) : null}
-                    {archivedSessions.length > 0 ? (
-                      <ArchivedSessionsSection
-                        sessions={archivedSessions}
-                        tree={tree}
-                        workspaceId={workspace.id}
-                        forcedExpandedSessionIds={forcedExpandedSessionIds}
-                        expanded={archivedExpanded}
-                        onToggle={() => setArchivedExpanded((value) => !value)}
-                      />
-                    ) : null}
-                  </>
-                ) : group.status === "error" ? (
                   <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      aria-disabled
-                      className={cn("text-xs", taskLoadError.tone === "offline" ? "text-amber-600" : "text-destructive")}
-                    >
-                      <span className="truncate">{taskLoadError.message}</span>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
+                      <Table2 className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.tab_review")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
-                ) : (
                   <SidebarMenuSubItem>
-                    <SidebarMenuSubButton
-                      className="text-muted-foreground text-xs"
-                      onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}
-                      aria-disabled={ctx.newChatDisabled}
-                    >
-                      <span className="truncate">
-                        {isRemoteWorkspace && connectionState.status === "connected"
-                          ? connectionState.message?.trim() || t("workspace.connected_no_tasks")
-                          : t("workspace.no_tasks")}
-                      </span>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "tasks"} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "tasks"); }}>
+                      <ListTodo className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.tasks")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
-                )}
-              </SidebarMenuSub>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
+                      <Files className="size-4" strokeWidth={1.5} />
+                      <span>{t("projects.files")}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <li>
+                    <div className="group/project-sessions-heading relative">
+                      <SidebarMenuSubButton className={cn(PROJECT_FEATURE_CLASS, "pe-18")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} aria-expanded={showSessions} onClick={() => {
+                        setSessionsOpen(!showSessions);
+                      }}>
+                        <MessageSquare className="size-4" strokeWidth={1.5} />
+                        <span className="min-w-0 truncate">{t("projects.sessions")}</span>
+                        <ChevronRight className={cn("absolute right-2.5 size-3.5 text-muted-foreground transition-transform", showSessions && "rotate-90")} />
+                      </SidebarMenuSubButton>
+                      <Button variant="ghost" size="icon-xs" className="absolute right-12 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" disabled={ctx.newChatDisabled} aria-label={t("session.new_task")} title={t("session.new_task")} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare className="size-3.5" strokeWidth={1.5} /></Button>
+                      <Button variant="ghost" size="icon-xs" className="absolute right-6 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>
+                    </div>
+                    <Collapsible open={showSessions}><CollapsibleContent>
+                      <div className="mb-1 ml-[18px] mt-1.5 border-l border-sidebar-border pl-1">
+                        <WorkspaceSessions group={group} loading={showInitialLoading} />
+                      </div>
+                    </CollapsibleContent></Collapsible>
+                  </li>
+                </SidebarMenuSub>
+              </div>
             </CollapsibleContent>
           </Collapsible>
         </SidebarMenu>
@@ -1180,7 +1100,6 @@ function WorkspaceSidebarGroup({
   );
 }
 
-const SESSION_DRAG_TYPE = "application/x-legalwork-session-id";
 const UNGROUPED_GROUP_ID = "__legalwork_ungrouped";
 
 function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onTitlePointerDown }: {
@@ -1238,21 +1157,24 @@ function GroupDropZone({ groupId, workspaceId, children }: {
         dragOver && "bg-accent/40 ring-1 ring-accent/60",
       )}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
+        if (acceptsSessionDrag(e.dataTransfer, workspaceId)) {
           e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
           setDragOver(true);
         }
       }}
       onDragLeave={(e) => {
         // Only clear when leaving this container, not when entering a child.
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) {
           setDragOver(false);
         }
       }}
       onDrop={(e) => {
         setDragOver(false);
-        const sessionId = e.dataTransfer.getData(SESSION_DRAG_TYPE);
+        const sessionId = readSessionDrag(e.dataTransfer, workspaceId);
         if (sessionId) {
+          e.preventDefault();
+          e.stopPropagation();
           store.getState().assignGroup(workspaceId, sessionId, groupId);
         }
       }}
@@ -1263,7 +1185,7 @@ function GroupDropZone({ groupId, workspaceId, children }: {
 }
 
 /** Renders sessions partitioned by group. Empty groups always show. Ungrouped sessions render at the end. */
-function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree, workspaceId, forcedExpandedSessionIds, store }: {
+function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree, workspaceId, forcedExpandedSessionIds, store, showAll = false }: {
   sessionRows: FlattenedSessionRow[];
   groups: SessionGroupDefinition[];
   assignments: Record<string, string>;
@@ -1272,11 +1194,12 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
   workspaceId: string;
   forcedExpandedSessionIds: Set<string>;
   store: typeof useSessionManagementStore;
+  showAll?: boolean;
 }) {
   const [previewCountByGroup, setPreviewCountByGroup] = React.useState<Record<string, number>>({});
 
   const groupPreviewCount = (groupId: string) =>
-    previewCountByGroup[groupId] ?? MAX_SESSIONS_PREVIEW;
+    showAll ? Number.MAX_SAFE_INTEGER : previewCountByGroup[groupId] ?? 5;
 
   const showMoreInGroup = React.useCallback((groupId: string, totalCount: number) => {
     setPreviewCountByGroup((current) => ({
@@ -1383,7 +1306,7 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
               expanded={ungroupedExpanded}
               onToggle={() => store.getState().toggleGroupExpanded(workspaceId, UNGROUPED_GROUP_ID)}
             />
-            <CollapsibleContent>
+            <CollapsibleContent className="ps-5">
               <Reorder.Group
                 as="div"
                 axis="y"
@@ -1417,7 +1340,7 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
               {ungroupedRemaining > 0 ? (
                 <SidebarMenuSubItem>
                   <SidebarMenuSubButton
-                    className="text-muted-foreground text-xs"
+                    className="ps-3 text-muted-foreground text-xs"
                     onClick={() => showMoreInGroup(UNGROUPED_GROUP_ID, ungroupedRows.length)}
                   >
                     <span className="truncate">
@@ -1473,7 +1396,7 @@ function SessionGroupSection({ group, rows, expanded, workspaceId, store, render
             onRemove={() => store.getState().removeGroup(workspaceId, group.id)}
             onTitlePointerDown={(event) => dragControls.start(event, { distanceThreshold: 10 })}
           />
-          <CollapsibleContent>
+          <CollapsibleContent className="ps-5">
             {visibleRows.length > 0
               ? (
                 <>
@@ -1481,7 +1404,7 @@ function SessionGroupSection({ group, rows, expanded, workspaceId, store, render
                   {remaining > 0 ? (
                     <SidebarMenuSubItem>
                       <SidebarMenuSubButton
-                        className="text-muted-foreground text-xs"
+                        className="ps-3 text-muted-foreground text-xs"
                         onClick={onShowMore}
                       >
                         <span className="truncate">
@@ -1524,6 +1447,7 @@ type SessionMenuItemProps = {
   forcedExpandedSessionIds: Set<string>;
   isPinned?: boolean;
   draggable?: boolean;
+  compact?: boolean;
 };
 
 function SessionMenuItem({
@@ -1534,11 +1458,12 @@ function SessionMenuItem({
   depth,
   isPinned = false,
   draggable = false,
+  compact = false,
 }: SessionMenuItemProps) {
   const ctx = useSidebarContext();
   const isSelected = ctx.selectedSessionId === session.id;
   const displayTitle = getDisplaySessionTitle(session.title);
-  const hasChildren = (tree.descendantCountBySessionId.get(session.id) ?? 0) > 0;
+  const hasChildren = !compact && (tree.descendantCountBySessionId.get(session.id) ?? 0) > 0;
   const isExpanded = ctx.expandedSessionIds.has(session.id) || forcedExpandedSessionIds.has(session.id);
   const sessionActivityStatus = ctx.sessionStatusById?.[session.id];
   const isSessionActive = tree.activeIds.has(session.id);
@@ -1565,11 +1490,10 @@ function SessionMenuItem({
     ctx.onPrefetchSession?.(workspaceId, session.id);
   };
 
-  const dragProps = depth === 0 ? {
+  const dragProps = depth === 0 && !compact ? {
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
-      e.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
-      e.dataTransfer.effectAllowed = "move";
+      startSessionDrag(e.dataTransfer, workspaceId, session.id);
     },
   } : {};
 
@@ -1584,7 +1508,7 @@ function SessionMenuItem({
           <CollapsibleTrigger
             render={
               <SidebarMenuSubButton
-                className={cn("relative", depth > 0 && "ps-13")}
+                className={cn("relative h-7 rounded-md ps-2 text-xs data-[size=md]:text-xs data-active:bg-background", depth > 0 && "ps-5")}
                 isActive={isSelected}
                 aria-current={isSelected ? "page" : undefined}
                 onClick={openSession}
@@ -1633,7 +1557,9 @@ function SessionMenuItem({
           onFocus={prefetchSession}
           className={cn(
             "transition-[padding] duration-75",
-            depth > 0 && "ps-13",
+            "h-7 rounded-md ps-2 text-xs data-[size=md]:text-xs data-active:bg-background",
+            compact && "text-xs",
+            depth > 0 && "ps-5",
             showActivity
               ? "pe-14"
               : "group-hover/menu-sub-item:pe-8 group-focus-within/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8 [@media(hover:none)]:pe-8",
@@ -1719,5 +1645,44 @@ function ArchivedSessionsSection({
         ))}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+
+/** Shared session rows, grouping, drag actions and archive controls. */
+function WorkspaceSessions({ group, loading = false, showAll = false }: {
+  group: WorkspaceSessionGroup; loading?: boolean; showAll?: boolean;
+}) {
+  const ctx = useSidebarContext();
+  const workspaceId = group.workspace.id;
+  const tree = useSessionTree(group.sessions, ctx.sessionStatusById);
+  const pinnedIds = usePinnedSessionIds();
+  const orderIds = useSessionOrder(workspaceId);
+  const { groups, assignments } = useWorkspaceGroups(workspaceId);
+  const [limit, setLimit] = React.useState(5);
+  const [archivedOpen, setArchivedOpen] = React.useState(false);
+  const forcedExpandedSessionIds = new Set(ctx.selectedSessionId ? tree.ancestorIdsBySessionId.get(ctx.selectedSessionId) ?? [] : []);
+  const { active, archived } = partitionArchivedSessions(group.sessions);
+  const rows = flattenSessionRows(group.sessions, showAll || groups.length ? Number.MAX_SAFE_INTEGER : limit, tree, ctx.expandedSessionIds, forcedExpandedSessionIds, pinnedIds, orderIds);
+  const remaining = Math.max(0, getRootSessions(active).length - limit);
+  const visibleRootIds = rows.filter((row) => row.depth === 0).map((row) => row.session.id);
+  return (
+    <SidebarMenuSub aria-label={t("projects.sessions")}>
+      {loading || (group.status === "loading" && !group.sessions.length) ? <li className="px-3 py-2 text-xs text-muted-foreground">{t("workspace.loading_tasks")}</li> : groups.length ? (
+        <GroupedSessionList sessionRows={rows} groups={groups} assignments={assignments} pinnedIds={pinnedIds} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} store={useSessionManagementStore} showAll={showAll} />
+      ) : (
+        <Reorder.Group as="div" axis="y" values={visibleRootIds} onReorder={(ids) => {
+          const visible = new Set(ids);
+          useSessionManagementStore.getState().reorderSessions(workspaceId, [...ids, ...getRootSessions(active).map((session) => session.id).filter((id) => !visible.has(id))]);
+        }}>
+          {rows.map((row) => <SessionMenuItem key={row.session.id} session={row.session} depth={row.depth} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} isPinned={pinnedIds.has(row.session.id)} draggable={row.depth === 0} />)}
+          {!rows.length ? <li className="px-3 py-2 text-xs text-muted-foreground">{group.status === "error" ? getWorkspaceTaskLoadErrorDisplay(group.workspace, group.error).message : t("projects.no_sessions")}</li> : null}
+        </Reorder.Group>
+      )}
+      {!showAll && !groups.length && remaining > 0 ? <li className="px-3 pt-1 pb-2">
+        <button type="button" className="text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring" onClick={() => setLimit((value) => value + MAX_SESSIONS_PREVIEW)}>{t("workspace_list.show_more", { count: Math.min(MAX_SESSIONS_PREVIEW, remaining) })}</button>
+      </li> : null}
+      {archived.length ? <ArchivedSessionsSection sessions={archived} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} expanded={archivedOpen} onToggle={() => setArchivedOpen((value) => !value)} /> : null}
+    </SidebarMenuSub>
   );
 }

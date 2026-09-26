@@ -41,6 +41,7 @@ const ArtifactMarkdownPanel = lazy(() => import("./artifact-markdown-panel").the
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 const StorageFilePanel = lazy(() => import("../panel/storage-file-panel").then((module) => ({ default: module.StorageFilePanel })));
+const ReviewSourcePanel = lazy(() => import("../../reviews/review-source-panel").then(module => ({ default: module.ReviewSourcePanel })));
 
 type ArtifactPanelProps = {
   sessionId: string;
@@ -59,6 +60,7 @@ type ArtifactPanelViewProps = {
   workspaceRoot: string;
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
+  sourcePage?: number;
   localReadOnly?: boolean;
   saveActions?: (persist: () => Promise<boolean>, busy: boolean) => ReactNode;
   onClose: () => void;
@@ -127,6 +129,10 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
     return null;
   }
 
+  if (tab.reviewCitation) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
+    <ReviewSourcePanel client={client} workspaceId={workspaceId} citation={tab.reviewCitation} name={tab.label} onClose={onClose} />
+  </Suspense></OfficeEditorBoundary>;
+
   if (target.preview === "markdown") {
     return <OfficeEditorBoundary key={`${workspaceId}:${target.id}`}><Suspense fallback={<PreviewLoading />}>
       <ArtifactMarkdownPanel sessionId={sessionId} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} target={target} onClose={onClose} />
@@ -142,6 +148,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
       workspaceRoot={workspaceRoot}
       isRemoteWorkspace={isRemoteWorkspace}
       target={target}
+      sourcePage={tab.sourcePage}
       onClose={onClose}
     />
   );
@@ -156,7 +163,7 @@ function stringProperty(value: Record<string, unknown>, key: string) {
   return typeof property === "string" ? property : "";
 }
 
-export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -673,7 +680,7 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
           <ImagePreview src={binaryObjectUrl} alt={target.name} />
         ) : target.preview === "pdf" && data?.kind === "binary" && binaryObjectUrl ? (
-          <PdfPreview url={binaryObjectUrl} title={target.name} />
+          <PdfPreview url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name} />
         ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
           <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
         ) : data?.kind === "text" ? (

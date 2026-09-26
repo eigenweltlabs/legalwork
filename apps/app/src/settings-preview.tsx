@@ -2,6 +2,7 @@
 // Dev-only fixture, deliberately absent from production Vite inputs.
 // The real settings shell, overview, and privacy controls use local sample state.
 import { useState } from "react";
+import { BrowserRouter } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { MotionConfig } from "motion/react";
 import { Settings2 } from "lucide-react";
@@ -14,6 +15,11 @@ import { initLocale } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { cn } from "@/lib/utils";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
+import { OcrSettingsSection } from "@/react-app/domains/settings/pages/ocr-settings-section";
+import type { OcrSettingsView, OcrServerInput } from "@legalwork/types/ocr";
+import { SystemOneSettingsSection } from "@/react-app/domains/settings/pages/systemone-view";
+import { AiSettingsView, type AiSettingsViewProps } from "@/react-app/domains/settings/pages/ai-view";
+import type { SystemOneSettings, SystemOneProviderInput, SystemOneSelection } from "@legalwork/types/systemone";
 import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-view";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
@@ -32,17 +38,72 @@ const workspaces = [
   { id: "visual-personal", name: "Personal", color: "#6c6c76" },
 ];
 
+// In-memory SystemOne fixture. Connection tests here never send model requests.
+const systemOneSample: SystemOneSettings = {
+  selection: { providerId: "eigenwelt", model: "EigenJev" },
+  providers: [{ id: "eigenwelt", name: "Eigenwelt", endpoint: "https://api.eigenweltlabs.com/v1/systemone", models: [{ id: "EigenJev", name: "EigenJev Europe", source: "configured", questionTypes: ["noul", "choice", "score"] }], managed: true, enabled: true, status: "ready", region: "EU" }],
+};
+const systemOnePreview = {
+  systemOneSettings: async () => structuredClone(systemOneSample),
+  systemOneSaveProvider: async ({ apiKey: _key, ...provider }: SystemOneProviderInput): Promise<{ ok: true }> => {
+    systemOneSample.providers = [...systemOneSample.providers.filter(p => p.id !== provider.id), { ...provider, models: [{ id: "jev-latest", name: "jev-latest", questionTypes: ["noul", "choice", "score"], source: "discovered" }, { id: "jev-preview", name: "jev-preview", questionTypes: ["noul", "choice", "score"], source: "discovered" }, ...provider.models.map((model) => ({ ...model, source: "configured" }))], managed: false, status: provider.enabled ? "ready" : "disabled" }];
+    return { ok: true };
+  },
+  systemOneDeleteProvider: async (id: string): Promise<{ ok: true }> => { systemOneSample.providers = systemOneSample.providers.filter(p => p.id !== id); return { ok: true }; },
+  systemOneSelect: async (selection: SystemOneSelection): Promise<{ ok: true }> => { systemOneSample.selection = selection; return { ok: true }; },
+  systemOneTest: async (): Promise<{ ok: true }> => ({ ok: true }),
+};
+
+// In-memory OCR settings: no downloads, requests or persisted credentials.
+const ocrSample: OcrSettingsView = {
+  defaultEngineId: "local-fast", readOnly: false, installerAvailable: true, installation: null,
+  engines: [
+    { id: "local-fast", label: "Fast", kind: "local", model: "pp-ocrv6-small", languages: null, keyConfigured: false, status: "not-installed" },
+    { id: "local-quality", label: "Quality", kind: "local", model: "paddleocr-vl", languages: null, keyConfigured: false, status: "not-installed" },
+    { id: "remote-sample", label: "Firm OCR", kind: "mistral-ocr", model: "mistral-ocr-latest", endpoint: "https://ocr.example.com/v1/ocr", authentication: "api-key", languages: null, keyConfigured: true, status: "ready" },
+  ],
+};
+const ocrPreview = {
+  getOcrSettings: async () => structuredClone(ocrSample),
+  testOcrEngine: async () => ({ ok: true }),
+  saveOcrServer: async ({ apiKey: _key, ...input }: OcrServerInput, id = crypto.randomUUID()) => {
+    ocrSample.engines = [...ocrSample.engines.filter(engine => engine.id !== id), { ...input, id, keyConfigured: input.authentication === "api-key", status: "ready" }];
+    return structuredClone(ocrSample);
+  },
+  setDefaultOcrEngine: async (id: string) => { ocrSample.defaultEngineId = id; return structuredClone(ocrSample); },
+  installOcrEngine: async (id: string) => {
+    const engine = ocrSample.engines.find(engine => engine.id === id);
+    if (engine) engine.status = "ready";
+    ocrSample.installation = { engineId: id, stage: "complete" };
+    return structuredClone(ocrSample);
+  },
+  cancelOcrInstall: async () => { ocrSample.installation = null; return structuredClone(ocrSample); },
+  removeOcrServer: async (id: string) => {
+    ocrSample.engines = ocrSample.engines.filter(engine => engine.id !== id);
+    if (ocrSample.defaultEngineId === id) ocrSample.defaultEngineId = "local-fast";
+    return structuredClone(ocrSample);
+  },
+};
+
 function SettingsPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
     const requested = params.get("tab");
-    return requested === "preferences" || requested === "appearance" ? requested : "general";
+    return requested === "preferences" || requested === "appearance" || requested === "ai" ? requested : "general";
   });
   const [compact, setCompact] = useState(params.has("compact"));
   const [selectedWorkspace, setSelectedWorkspace] = useState(workspaces[0]);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false);
   const [hideAppMode, setHideAppMode] = useState<HideAppMode>("recording");
+  const [providers, setProviders] = useState<AiSettingsViewProps["connectedProviders"]>(
+    params.has("empty-providers") ? [] : [
+      { id: "anthropic", name: "Anthropic", source: "api" },
+      { id: "openai", name: "OpenAI", source: "env" },
+      { id: "custom-preview", name: "Firm models", source: "custom", editableAsCustom: true },
+      { id: "google", name: "Google", source: "api" },
+    ],
+  );
 
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-muted/30">
@@ -71,6 +132,29 @@ function SettingsPreview() {
         >
           {activeTab === "general" ? (
             <GeneralSettingsView onNavigateTab={setActiveTab} developerMode={false} />
+          ) : activeTab === "ai" ? (
+            <AiSettingsView
+              busy={false}
+              providerAuthBusy={false}
+              providerStatusLabel={providers.length ? "Connected" : "Disconnected"}
+              providerStatusStyle=""
+              providerSummary={providers.length ? `${providers.length} providers connected` : "No providers connected yet."}
+              connectedProviders={providers}
+              disconnectingProviderId={null}
+              providerConnectError={null}
+              providerDisconnectStatus={null}
+              providerDisconnectError={null}
+              onOpenProviderAuth={() => toast("Preview provider connection")}
+              onDisconnectProvider={(id) => setProviders(current => current.filter(provider => provider.id !== id))}
+              onReplaceProviderKey={() => toast("Preview key replacement")}
+              onEditProvider={() => toast("Preview provider editing")}
+              canDisconnectProvider={(source) => source !== "env" && source !== "config"}
+              eigenweltConnected={!params.has("disconnected-account")}
+              onManageEigenweltAccount={() => toast("Preview Eigenwelt account")}
+              cloudProviderIds={new Set(["google"])}
+              ocrView={<OcrSettingsSection client={ocrPreview} />}
+              systemOneView={<SystemOneSettingsSection client={systemOnePreview} onManageSubscription={() => toast("Preview subscription")} />}
+            />
           ) : activeTab === "appearance" ? (
             // The same language picker Settings -> Customization renders.
             <AppearanceView busy={false} />
@@ -105,7 +189,7 @@ createRoot(root).render(
     <TooltipProvider>
       <ShellConfigProvider>
         <ReloadCoordinatorProvider>
-          <SettingsPreview />
+          <BrowserRouter><SettingsPreview /></BrowserRouter>
           <Toaster />
         </ReloadCoordinatorProvider>
       </ShellConfigProvider>

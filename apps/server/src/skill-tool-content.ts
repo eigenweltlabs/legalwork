@@ -34,7 +34,7 @@ export function fitSkillName(raw: string): string {
  * the app detects them by it, and the engine skips a SKILL.md that carries
  * non-standard frontmatter keys. Mirrors the Workflows view's naming.
  */
-export function resolveSkillName(input: { name: string; kind: "skill" | "workflow"; workflowType: "assistant" | "tabular" }): string {
+export function resolveSkillName(input: { name: string; kind: "skill" | "workflow"; workflowType: "assistant" }): string {
   const slug = fitSkillName(input.name);
   if (!slug) return "";
   if (input.kind !== "workflow") return slug;
@@ -42,42 +42,18 @@ export function resolveSkillName(input: { name: string; kind: "skill" | "workflo
   return fitSkillName(`workflow-${input.workflowType}-${bare}`);
 }
 
-function titleFromName(name: string): string {
-  return name
-    .replace(/^workflow-(?:assistant|tabular)-/, "")
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
 /**
  * Build the SKILL.md. Frontmatter stays standard (name + description only) so
- * the engine loads it as an ordinary skill; a tabular workflow's body carries
- * the instruction to run through the bundled `tabular-review` skill.
+ * the engine loads it as an ordinary skill. Review prompts use the structured library.
  */
 export function buildSkillMarkdown(input: {
   fullName: string;
   description: string;
   instructions: string;
   kind: "skill" | "workflow";
-  workflowType: "assistant" | "tabular";
+  workflowType: "assistant";
 }): string {
   const frontmatter = `---\nname: ${input.fullName}\ndescription: ${JSON.stringify(input.description.trim())}\n---\n`;
   const body = input.instructions.trim();
-  if (input.kind !== "workflow" || input.workflowType === "assistant") {
-    return `${frontmatter}\n${body}\n`;
-  }
-  const title = titleFromName(input.fullName);
-  return `${frontmatter}\n${[
-    `# ${title}`,
-    ``,
-    "This is a **tabular review workflow**. To run it, load the **`tabular-review`** skill",
-    "and build a review grid over the user's documents — one row per document, with a",
-    "source citation in every cell — extracting the fields described below.",
-    ``,
-    `## What to extract`,
-    ``,
-    body,
-    ``,
-    `When the user asks to run "${title}", use the \`tabular-review\` skill.`,
-  ].join("\n")}\n`;
+  return `${frontmatter}\n${body}\n`;
 }

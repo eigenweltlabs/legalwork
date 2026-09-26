@@ -3,11 +3,12 @@ import { basename, dirname, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
-import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
-import { addRoute, type Route } from "./registry.js";
+import { addRoute, type RequestContext, type Route } from "./registry.js";
+import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails } from "../project-store.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -19,6 +20,8 @@ interface RegisterWorkspaceRoutesOptions {
   onWorkspacesChanged: () => void;
   jsonResponse: JsonResponse;
   readJsonBody: ReadJsonBody;
+  readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
+  requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   readOptionalJsonBody: ReadJsonBody;
   parseOptionalBoolean: ParseOptionalBoolean;
   ensureWritable: (config: ServerConfig) => void;
@@ -239,6 +242,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     onWorkspacesChanged,
     jsonResponse,
     readJsonBody,
+    readJsonBodyLimited,
+    requireClientScope,
     readOptionalJsonBody,
     parseOptionalBoolean,
     ensureWritable,
@@ -279,13 +284,39 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return jsonResponse({ supported: true, path: path ?? null });
   });
 
+  addRoute(routes, "GET", "/workspaces/project-defaults", "host", async () => {
+    return jsonResponse({ folderPath: defaultProjectRoot(config.projectsDirectory) });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await readProjectDetails(workspace.path));
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/project", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireClientScope(ctx, "collaborator");
+    return jsonResponse(await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024)));
+  });
+
   addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
-    const folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
+    const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
+    let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
 
+    if (body.folderMode === "default") {
+      if (folderPath || !readStringField(body, "name")) throw new ApiError(400, "invalid_payload", "A default-folder project needs a name and no selected path.");
+      try {
+        folderPath = await createDefaultProjectFolder(name, defaultProjectRoot(config.projectsDirectory));
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(422, "project_folder_unavailable", "The project folder could not be created. Check folder access or choose your own folder.");
+      }
+    }
     if (!folderPath) {
       throw new ApiError(400, "invalid_payload", "folderPath is required");
     }
@@ -293,6 +324,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const workspacePath = resolve(folderPath);
     await ensureDir(workspacePath);
     await ensureWorkspaceFiles(workspacePath, preset);
+    if (projectFields) await initializeProjectFields(workspacePath, projectFields);
 
     const workspace: WorkspaceInfo = {
       id: workspaceIdForPath(workspacePath),
@@ -459,6 +491,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
     const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
+    // Engine activation can create its state directory. Validate the original
+    // local folder first, so a disconnected project is not replaced by an empty one.
+    if (workspace.workspaceType === "local") await resolveWorkspace(config, workspace.id);
     const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
     const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
     const persist = queryPersist ?? (body.persist === true);

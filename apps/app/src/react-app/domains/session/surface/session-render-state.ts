@@ -40,5 +40,8 @@ export function deriveRenderedSessionMessages(input: {
     ? mergeSnapshotAndLiveMessages(snapshotMessages, liveMessages, { appendLiveOnlyMessages: true })
     : liveMessages;
 
-  return applyRevertCursor(messages, revertMessageId);
+  // Synthetic context (such as live-recording instructions) has no visible
+  // parts. Keep it in the underlying history without rendering an empty row.
+  return applyRevertCursor(messages, revertMessageId)
+    .filter((message) => message.role !== "user" || message.parts.length > 0);
 }

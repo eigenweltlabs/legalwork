@@ -22,6 +22,8 @@ extraResources:
       - node.exe
       - LICENSE
       - runtime.json
+  - from: ../server/resources/ocr
+    to: ocr
   - from: ../app/dist
     to: app-dist
   - from: ../app/dist-word-addin
@@ -50,6 +52,8 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
 asarUnpack:
+  - node_modules/.pnpm/@napi-rs+canvas*/**
+  - node_modules/@napi-rs/canvas*/**
   - node_modules/.pnpm/@lydell+node-pty*/**
   - node_modules/node-pty/**
   # sherpa-onnx ships prebuilt native libraries (local speech-to-text for the

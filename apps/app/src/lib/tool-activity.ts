@@ -49,6 +49,7 @@ function hostnameOf(url: string | undefined): string | undefined {
  * streamed input (fields may be missing despite the type contract).
  */
 export function getToolActivityLabel(part: AnyToolPart): string {
+  if ((part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "")) === "legalwork_review_results") return t("tool_activity.reading_review_results");
   if (isBashToolPart(part)) {
     const description = part.input?.description?.trim()
     return description ? truncateText(description, 64) : t("tool_activity.running_command")
@@ -120,4 +121,3 @@ export function getActiveToolLabel(parts: DynamicToolUIPart[]): string | null {
   }
   return null
 }
-

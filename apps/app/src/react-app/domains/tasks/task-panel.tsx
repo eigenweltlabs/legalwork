@@ -24,6 +24,7 @@ import {
 } from "./tasks-queries";
 
 type TaskPanelProps = {
+  projects?: { id: string; name: string }[];
   sessionId: string;
   tab: TaskPanelTab;
   client: LegalworkServerClient | null;
@@ -101,6 +102,7 @@ export function TaskPanel(props: TaskPanelProps) {
 
   return (
     <TaskDetail
+      projects={props.projects}
       task={task}
       submission={detailQuery.data?.submission}
       notes={detailQuery.data?.notes ?? []}

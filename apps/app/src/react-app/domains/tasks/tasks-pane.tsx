@@ -17,17 +17,18 @@
  * Deliberately small otherwise: no sub-tasks, labels, cycles, saved views or
  * drag ordering; this is a queue to work through, not a project tracker.
  *
- * The surface is global (there is no workspace-scoped route) because tasks
- * are the machine's while workspaces are folders on it. A folder only enters
- * the picture when a task is actually run locally.
+ * The shared surface also renders a project's filtered list, either on its
+ * Tasks page or embedded in Home. Project links do not duplicate task data.
  */
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownWideNarrow,
+  ArrowUpRight,
   AtSign,
   ChevronDown,
   CloudOff,
   ListFilter,
+  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -37,6 +38,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ListPagination } from "@/components/list-pagination";
+import { SectionHeading } from "@/react-app/design-system/surface";
 import {
   Select,
   SelectContent,
@@ -62,6 +65,7 @@ import type {
 import type { ModelRef } from "@/app/types";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { projectErrorMessage } from "../workspace/project-errors";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import {
   StartWorkflowDialog,
@@ -74,6 +78,8 @@ import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-sto
 import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
 import { TaskDetail } from "./task-detail";
+import { requestOpenTask } from "./task-reference";
+import { LinkProjectTaskDialog } from "./link-project-task-dialog";
 import { TASK_STATUSES, taskMemberOptions, taskStatusLabel } from "./task-format";
 import { OptionText } from "./task-glyphs";
 import { TaskList, type TaskListGroup } from "./task-list";
@@ -103,7 +109,16 @@ import {
   type TaskQuery,
 } from "./tasks-queries";
 
+const HOME_PAGE_SIZE = 6;
+
 export type TasksPaneProps = {
+  /** A bounded Home section using the same rows, actions and task viewer. */
+  embedded?: boolean;
+  onViewAll?: () => void;
+  /** Restricts the shared list and new tasks to one project. */
+  projectId?: string;
+  /** Project views open the existing task viewer without leaving the project. */
+  detailMode?: "inline" | "panel";
   /** The local LegalWork server, which holds the task store (and the firm connection). */
   client: LegalworkServerClient | null;
   /** Transport only: which server instance the call goes to. */
@@ -146,7 +161,9 @@ export function TasksPane(props: TasksPaneProps) {
   const [startMode, setStartMode] = useState<StartTaskMode | null>(null);
   const [starting, setStarting] = useState(false);
   const [creating, setCreating] = useState(false);
-  const inTrash = view === "trash";
+  const [linking, setLinking] = useState(false);
+  const inTrash = !props.embedded && view === "trash";
+  const [page, setPage] = useState(0);
 
   const openTask = props.openTask;
   useEffect(() => {
@@ -156,10 +173,13 @@ export function TasksPane(props: TasksPaneProps) {
   }, [openTask, setView]);
 
   const query = useMemo<TaskQuery>(() => {
+    // Home always shows this project's tasks, independently of the full page's filters.
+    if (props.embedded) return { projectId: props.projectId, sort: "updated", order: "desc" };
     const resolvedAssignees = [...new Set(assignees
       .map((assignee) => assignee === ASSIGNEE_ME ? access.accountUserId : assignee)
       .filter((assignee): assignee is string => Boolean(assignee)))];
     return {
+      ...(props.projectId ? { projectId: props.projectId } : {}),
       ...(resolvedAssignees.length ? { assignees: resolvedAssignees } : {}),
       ...(statuses.length && !inTrash ? { statuses } : {}),
       ...(endpointIds.length ? { endpointIds } : {}),
@@ -170,7 +190,7 @@ export function TasksPane(props: TasksPaneProps) {
       // and priority carries its own documented order in the store.
       ...((sort === "priority" || sort === "due") && !inTrash ? {} : { order: "desc" as const }),
     };
-  }, [access.accountUserId, assignees, endpointIds, inTrash, selectedTags, sort, statuses]);
+  }, [access.accountUserId, assignees, endpointIds, inTrash, selectedTags, sort, statuses, props.projectId, props.embedded]);
 
   const tasksQuery = useTasks(context, query);
   const membersQuery = useTaskMembers(context);
@@ -187,6 +207,16 @@ export function TasksPane(props: TasksPaneProps) {
   const deleteAttachment = useDeleteTaskAttachment(context);
 
   const tasks = flattenTaskPages(tasksQuery.data?.pages);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(tasks.length / HOME_PAGE_SIZE) - 1));
+  const visibleTasks = props.embedded ? tasks.slice(currentPage * HOME_PAGE_SIZE, (currentPage + 1) * HOME_PAGE_SIZE) : tasks;
+  const changePage = async (next: number) => {
+    if (tasksQuery.isFetchingNextPage) return;
+    if ((next + 1) * HOME_PAGE_SIZE > tasks.length && tasksQuery.hasNextPage) {
+      const result = await tasksQuery.fetchNextPage();
+      if (result.isError) { toast.error(t("tasks.load_failed")); return; }
+    }
+    setPage(next);
+  };
   const members = membersQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   const recordRun = useTaskRunStore((state) => state.recordRun);
@@ -204,18 +234,18 @@ export function TasksPane(props: TasksPaneProps) {
   // "All" keeps the queue legible by sectioning it: what needs attention on
   // top, finished work at the bottom, in the chosen order within each.
   const groups = useMemo<TaskListGroup[] | null>(() => {
-    if (statuses.length === 1 || inTrash) return null;
+    if (props.embedded || statuses.length === 1 || inTrash) return null;
     return TASK_STATUSES.map((status) => ({
       status,
       tasks: tasks.filter((task) => task.status === status),
     })).filter((group) => group.tasks.length > 0);
-  }, [inTrash, statuses.length, tasks]);
+  }, [inTrash, statuses.length, tasks, props.embedded]);
 
   // Open the detail from the row already in hand so the click is instant; the
   // fetch only adds the submission, the history and any field changed meanwhile.
   const selectedTask =
     detailQuery.data?.task ?? tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const filtered = assignees.length > 0 || endpointIds.length > 0 || selectedTags.length > 0 || statuses.length > 0 || inTrash;
+  const filtered = !props.embedded && (assignees.length > 0 || endpointIds.length > 0 || selectedTags.length > 0 || statuses.length > 0 || inTrash);
   const syncing = runSync.isPending;
   const refreshing = syncing || (tasksQuery.isFetching && !tasksQuery.isFetchingNextPage);
   const busy = deleteTask.isPending || restoreTask.isPending || starting;
@@ -247,11 +277,11 @@ export function TasksPane(props: TasksPaneProps) {
   };
 
   const create = (input: Parameters<typeof createTask.mutate>[0]) => {
-    createTask.mutate(input, {
-      onSuccess: (task) => {
+    createTask.mutate({ ...input, ...(props.projectId ? { projectId: props.projectId } : {}) }, {
+      onSuccess: () => {
         setCreating(false);
+        if (props.embedded) setPage(0);
         if (inTrash) switchView("tasks");
-        setSelectedTaskId(task.id);
       },
       onError: (error) => toast.error(t("tasks.create_failed"), { description: error instanceof Error ? error.message : undefined }),
     });
@@ -341,7 +371,21 @@ export function TasksPane(props: TasksPaneProps) {
       ? t("tasks.count_more", { count: tasks.length })
       : t("tasks.count", { count: tasks.length })
     : null;
-  const showingDetail = selectedTask !== null;
+  const requestRun = (task: LegalworkTask, mode: StartTaskMode) => {
+    setSelectedTaskId(task.id);
+    const project = task.projectId ? props.workspaces.find((workspace) => workspace.id === task.projectId) : null;
+    if (task.projectId && !project) {
+      toast.error(t("tasks.linked_project_unavailable"));
+      return;
+    }
+    if (project && mode === "session") { void startRun(task, { workspace: project, workflowName: null }); return; }
+    setStartMode(mode);
+  };
+  const showingDetail = selectedTask !== null && props.detailMode !== "panel";
+  const selectTask = (id: string) => {
+    setSelectedTaskId(id);
+    if (props.detailMode === "panel") requestOpenTask(id, tasks.find((task) => task.id === id)?.title ?? t("tasks.title"));
+  };
 
   return (
     // Center the list at a readable width until a task is opened. Then the pane splits
@@ -349,7 +393,7 @@ export function TasksPane(props: TasksPaneProps) {
     // panels can take the rest) — list beside detail — and below that the
     // detail takes over. task-detail.tsx uses the same breakpoint to swap its
     // back arrow for a close cross.
-    <div className="@container/tasks flex h-full min-h-0 flex-1">
+    <div className={cn("@container/tasks flex min-h-0", !props.embedded && "h-full flex-1")}>
       <section
         aria-label={t(inTrash ? "tasks.trash" : "tasks.title")}
         className={cn(
@@ -359,11 +403,18 @@ export function TasksPane(props: TasksPaneProps) {
             : "mx-auto flex max-w-4xl",
         )}
       >
-        <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 pb-3 pt-4">
+        {props.embedded ? (
+          <SectionHeading className="mb-3" title={t("projects.tasks")} action={<>
+            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={props.onViewAll}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
+            {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 className="size-4" /></Button> : null}
+            <Button variant="ghost" size="icon-sm" aria-label={t("tasks.new_task")} title={t("tasks.new_task")} onClick={() => setCreating(true)}><Plus className="size-4" /></Button>
+          </>} />
+        ) : <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 pb-3 pt-4">
           <div className="flex items-center gap-2">
             <h1 className="text-[15px] font-medium leading-6 tracking-[-0.02em] text-foreground">{t(inTrash ? "tasks.trash" : "tasks.title")}</h1>
             {countLabel ? <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span> : null}
             <div className="ms-auto flex items-center gap-0.5">
+              {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 /></Button> : null}
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -480,18 +531,18 @@ export function TasksPane(props: TasksPaneProps) {
               <span><strong className="font-medium text-foreground">{t("tasks.sync_unavailable")}</strong> {t("tasks.sync_unavailable_detail")}</span>
             </p>
           ) : null}
-        </header>
+        </header>}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className={cn(props.embedded ? "overflow-hidden rounded-xl border border-border bg-background" : "min-h-0 flex-1 overflow-y-auto")}>
           <TaskList
-            tasks={tasks}
+            tasks={visibleTasks}
             groups={groups}
             selectedTaskId={selectedTaskId}
             accountUserId={access.accountUserId}
             loading={tasksQuery.isLoading}
             error={
-              tasksQuery.error
-                ? tasksQuery.error instanceof Error
+              tasksQuery.error && (!props.embedded || !tasksQuery.data)
+                ? props.projectId ? projectErrorMessage(tasksQuery.error) : tasksQuery.error instanceof Error
                   ? tasksQuery.error.message
                   : t("tasks.load_failed")
                 : null
@@ -499,17 +550,11 @@ export function TasksPane(props: TasksPaneProps) {
             filtered={filtered}
             trash={inTrash}
             emptyHint={emptyHint}
-            hasNextPage={Boolean(tasksQuery.hasNextPage)}
+            hasNextPage={!props.embedded && Boolean(tasksQuery.hasNextPage)}
             fetchingNextPage={tasksQuery.isFetchingNextPage}
-            onSelect={setSelectedTaskId}
-            onStartSession={(task) => {
-              setSelectedTaskId(task.id);
-              setStartMode("session");
-            }}
-            onStartWorkflow={(task) => {
-              setSelectedTaskId(task.id);
-              setStartMode("workflow");
-            }}
+            onSelect={selectTask}
+            onStartSession={(task) => requestRun(task, "session")}
+            onStartWorkflow={(task) => requestRun(task, "workflow")}
             members={members}
             tagSuggestions={tags}
             onPatch={(task, patch) => {
@@ -525,14 +570,16 @@ export function TasksPane(props: TasksPaneProps) {
             onRetry={() => void tasksQuery.refetch()}
             onClearFilters={clearFilters}
           />
+          {props.embedded ? <ListPagination label={t("tasks.pagination")} page={currentPage} pageSize={HOME_PAGE_SIZE} total={tasks.length} hasMore={tasksQuery.hasNextPage} busy={tasksQuery.isFetchingNextPage} onPageChange={(next) => void changePage(next)} className="border-t border-border/60" /> : null}
         </div>
       </section>
 
-      {selectedTask ? (
+      {selectedTask && props.detailMode !== "panel" ? (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           <TaskDetail
             key={selectedTask.id}
             task={selectedTask}
+            projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
             submission={detailQuery.data?.submission}
             notes={detailQuery.data?.notes ?? []}
             submissionPending={detailQuery.isLoading}
@@ -544,8 +591,8 @@ export function TasksPane(props: TasksPaneProps) {
             onPatch={(patch) => updateTask.mutateAsync({ taskId: selectedTask.id, patch })}
             onDelete={() => remove(selectedTask)}
             onRestore={() => restore(selectedTask)}
-            onStartWorkflow={() => setStartMode("workflow")}
-            onStartSession={() => setStartMode("session")}
+            onStartWorkflow={() => requestRun(selectedTask, "workflow")}
+            onStartSession={() => requestRun(selectedTask, "session")}
             onOpenSession={(link) => props.onOpenSession(link.workspaceId, link.sessionId)}
             onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
             onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
@@ -566,7 +613,8 @@ export function TasksPane(props: TasksPaneProps) {
           taskTitle={selectedTask.title}
           onClose={() => setStartMode(null)}
           workspaces={props.workspaces}
-          defaultWorkspaceId={props.workspaceId}
+          defaultWorkspaceId={selectedTask.projectId ?? props.workspaceId}
+          linkedProjectId={selectedTask.projectId ?? undefined}
           baseUrl={props.baseUrl}
           token={props.token}
           busy={starting}
@@ -574,6 +622,7 @@ export function TasksPane(props: TasksPaneProps) {
         />
       ) : null}
 
+      {linking && props.projectId && props.client ? <LinkProjectTaskDialog client={props.client} workspaceId={props.workspaceId} projectId={props.projectId} onClose={() => setLinking(false)} /> : null}
       {creating ? (
         <NewTaskDialog
           open

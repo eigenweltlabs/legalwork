@@ -20,6 +20,14 @@ const FILE_SESSION_CATALOG_DEFAULT_LIMIT = 2000;
 const FILE_SESSION_CATALOG_MAX_LIMIT = 10000;
 const FILE_LIST_MAX_ENTRIES = 2000;
 
+function fileContentDisposition(type: "inline" | "attachment", filename: string): string {
+  // Headers are byte strings. Keep an ASCII fallback and the exact UTF-8 name
+  // in filename* (RFC 8187), including macOS decomposed Unicode filenames.
+  const fallback = filename.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^\x20-\x7e]|["\\%]/g, "_");
+  const encoded = encodeURIComponent(filename).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${type}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
 
@@ -571,7 +579,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `attachment; filename=\"${basename(relativePath)}\"`);
+    headers.set("Content-Disposition", fileContentDisposition("attachment", basename(relativePath)));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });
@@ -661,7 +669,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
+    headers.set("Content-Disposition", fileContentDisposition("attachment", basename(relativePath)));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });
@@ -1138,7 +1146,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", contentTypeForPath(relativePath));
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `inline; filename="${basename(relativePath)}"`);
+    headers.set("Content-Disposition", fileContentDisposition("inline", basename(relativePath)));
     headers.set("X-LegalWork-Updated-At", String(info.mtimeMs));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });

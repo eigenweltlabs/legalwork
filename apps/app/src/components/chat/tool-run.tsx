@@ -12,6 +12,7 @@ type ToolPart = ToolUIPart | DynamicToolUIPart;
 export function compactToolName(part: ToolPart) {
   if (isBashToolPart(part)) return t(isToolPartInFlight(part) ? "tool_run.run_command" : "tool_run.ran_command");
   const name = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
+  if (name === "legalwork_review_results") return t(isToolPartInFlight(part) ? "tool_activity.reading_review_results" : "tool_run.review_results");
   const short = name.replace(/^inapp_/, "").replace(/[_-]+/g, " ");
   return short.charAt(0).toUpperCase() + short.slice(1);
 }

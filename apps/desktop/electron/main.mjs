@@ -56,6 +56,7 @@ import { createBrowserPanel } from "./browser-panel.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
+import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
 import { parseSkillFrontmatter } from "./skill-frontmatter.mjs";
@@ -1142,6 +1143,16 @@ const runtimeManager = createRuntimeManager({
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
+    listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
+      .filter((recording) => recording.projectIds?.includes(projectId))
+      .map(({ id, title, durationMs, status, segmentCount }) => ({ id, title, durationMs, status, segmentCount })),
+    readProjectRecording: async (projectId, id) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      if (!linked) return null;
+      const detail = await recorderService().getRecording(id);
+      return detail ? { segments: detail.segments } : null;
+    },
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },
@@ -1761,6 +1772,12 @@ const desktopCommandHandlers = {
   },
   "workspaceCreate": async (event, ...args) => {
       return workspaceStore.createWorkspace(args[0] ?? {});
+  },
+  "workspaceCopyFiles": async (event, ...args) => {
+      const input = args[0];
+      const state = await workspaceStore.readWorkspaceState();
+      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, await runtimeManager.legalworkServerInfo());
+      return copyFilesIntoProject(root, input.paths, undefined, input.folder);
   },
   "workspaceCreateRemote": async (event, ...args) => {
       return workspaceStore.createRemoteWorkspace(args[0] ?? {});
@@ -2429,6 +2446,9 @@ const desktopCommandHandlers = {
   },
   "audioRecordingRename": async (event, ...args) => {
       return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
+  },
+  "audioRecordingSetProject": async (event, ...args) => {
+      return recorderService().setRecordingProject(String(args[0] ?? ""), String(args[1] ?? ""), args[2] === true);
   },
   "audioRecordingRetain": async (event, ...args) => {
       return recorderService().retainRecording(String(args[0] ?? ""));

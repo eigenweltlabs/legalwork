@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
@@ -40,6 +41,7 @@ import {
   materializeStorageFile,
   type StorageFileDragItem,
 } from "@/app/lib/storage-file-drag";
+import type { WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
 import type {
   LegalworkServerClient,
   LegalworkSessionSnapshot,
@@ -77,6 +79,8 @@ import {
   createStorageComposerMention,
   storageComposerInstruction,
   storageComposerDisplayText,
+  reviewComposerDisplayText,
+  reviewComposerInstruction,
   taskComposerDisplayText,
   taskComposerInstruction,
   type ComposerMentionKind,
@@ -91,7 +95,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
+import { createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { SessionScrollOverlay } from "./scroll-overlay";
@@ -1176,6 +1180,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(storageComposerInstruction(value));
           return [{ type: "text", text: storageComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "review") {
+          modelContexts.push(reviewComposerInstruction(value));
+          return [{ type: "text", text: reviewComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "task") {
           modelContexts.push(taskComposerInstruction(value));
           return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
@@ -1198,6 +1206,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
           ? legalMemoryComposerDisplayText(value)
           : kind === "storage"
             ? storageComposerDisplayText(value)
+            : kind === "review"
+              ? reviewComposerDisplayText(value)
             : kind === "task"
               ? taskComposerDisplayText(value)
               : kind === "upload"
@@ -1678,6 +1688,36 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  const handleDropWorkspaceFile = async (file: WorkspaceFileDragItem) => {
+    try {
+      let reference: string;
+      if (file.workspaceId === props.workspaceId) {
+        // Already in this project: reference the original, just as a storage
+        // drop references its checked-out file, without a binary model upload.
+        const stat = await props.client.statWorkspaceFile(props.workspaceId, file.path);
+        if (!stat.exists || stat.kind !== "file") throw new Error(t("composer.workspace_file_unavailable"));
+        reference = createWorkspaceAttachmentMention(file.name, file.path);
+      } else {
+        // A file from another project needs a copy the current agent can read.
+        const download = await props.client.downloadWorkspaceFile(file.workspaceId, file.path);
+        const filename = file.path.split(/[\\/]/).pop() || file.name;
+        const copy = new File([download.data], filename, { type: download.contentType ?? "application/octet-stream" });
+        reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, copy, file.name);
+        void queryClient.invalidateQueries({ queryKey: ["workspace-files", props.workspaceId] });
+      }
+      const state = useComposerStateStore.getState();
+      const currentDraft = getComposerDraft(state, props.sessionId);
+      const currentMentions = getComposerMentions(state, props.sessionId);
+      const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+      setComposerDraft(props.sessionId, `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `);
+      setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "upload" });
+    } catch (error) {
+      toast.error(t("session.attach_failed", { name: file.name }), {
+        description: error instanceof Error ? error.message : t("composer.workspace_file_unavailable"),
+      });
+    }
+  };
+
   const handlePasteText = (text: string) => {
     const id = `paste-${Math.random().toString(36).slice(2)}`;
     const label = `${id.slice(-4)} · ${text.split(/\r?\n/).length} lines`;
@@ -2109,6 +2149,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         status={status}
                         retryStatus={retryStatusForDisplay}
                       />
+                      <RecordingDetailDialog />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
                 </OpenTargetProvider>
@@ -2201,6 +2242,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
         onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
         onDropStorageFile={handleDropStorageFile}
+        onDropWorkspaceFile={handleDropWorkspaceFile}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}

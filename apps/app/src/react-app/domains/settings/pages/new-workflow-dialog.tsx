@@ -45,7 +45,7 @@ export function NewWorkflowDialog({ workspaceId, type, busy, onClose, onCreated 
     <DialogContent className="sm:max-w-lg">
       <form className="contents" onSubmit={submit}>
         <DialogHeader>
-          <DialogTitle>{type === "tabular" ? t("skills.new_tabular_workflow") : t("skills.new_workflow")}</DialogTitle>
+          <DialogTitle>{t("skills.new_workflow")}</DialogTitle>
           <DialogDescription>{t("workflows.new_description")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">

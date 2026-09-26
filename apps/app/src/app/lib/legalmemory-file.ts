@@ -125,7 +125,7 @@ export async function materializeLegalMemoryFolder(
  * the artifact panel from caching a transient miss immediately after export.
  */
 export async function materializeLegalMemoryFile(
-  client: LegalworkServerClient,
+  client: Pick<LegalworkServerClient, "legalMemoryOpen" | "downloadWorkspaceFile">,
   workspaceId: string,
   documentId: string,
 ) {

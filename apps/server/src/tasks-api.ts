@@ -79,6 +79,14 @@ function parseAssignee(value: unknown): string | null {
   return value.trim() || null;
 }
 
+function parseProjectId(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !value.trim() || value.length > 200) {
+    throw new ApiError(400, "invalid_task_project", "projectId must be a project id or null.");
+  }
+  return value.trim();
+}
+
 function parseTags(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((tag) => typeof tag !== "string")) {
     throw new ApiError(400, "invalid_task_tags", "tags must be a list of text values.");
@@ -92,6 +100,7 @@ function parseTags(value: unknown): string[] {
 /** The list filter/sort/paging params off a request's query. */
 export function parseTaskListParams(search: URLSearchParams): TaskListParams {
   const params: TaskListParams = {};
+  if (search.has("projectId")) params.projectId = parseProjectId(search.get("projectId")) ?? undefined;
   const assignees = search.getAll("assignee").map((value) => value.trim()).filter(Boolean);
   if (assignees.length === 1) params.assignee = assignees[0];
   else if (assignees.length > 1) params.assignees = assignees;
@@ -148,6 +157,7 @@ export function parseTaskCreate(body: Record<string, unknown>, workspaceId?: str
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) throw new ApiError(400, "invalid_task_title", "A task needs a title.");
   const create: TaskCreate = { title };
+  if (body.projectId !== undefined) create.projectId = parseProjectId(body.projectId);
   if (body.sessionId !== undefined) {
     if (typeof body.sessionId !== "string" || !body.sessionId.trim() || body.sessionId.length > 200) {
       throw new ApiError(400, "invalid_task_session", "sessionId must be a session id.");
@@ -209,6 +219,7 @@ export function parseTaskSessionLink(body: Record<string, unknown>): {
 /** A PATCH body. Only the keys sent are applied; an empty patch is refused. */
 export function parseTaskPatch(body: Record<string, unknown>): TaskPatch {
   const patch: TaskPatch = {};
+  if (body.projectId !== undefined) patch.projectId = parseProjectId(body.projectId);
   if (body.title !== undefined) {
     if (typeof body.title !== "string" || !body.title.trim()) {
       throw new ApiError(400, "invalid_task_title", "A task needs a title.");

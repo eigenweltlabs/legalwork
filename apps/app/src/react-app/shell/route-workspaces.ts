@@ -176,17 +176,19 @@ export function orderRouteWorkspaces(workspaces: RouteWorkspace[], orderIds: str
   const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
   const ordered: RouteWorkspace[] = [];
   const usedIds = new Set<string>();
+  const savedIds = new Set(orderIds);
+
+  for (const workspace of workspaces) {
+    if (savedIds.has(workspace.id) || usedIds.has(workspace.id)) continue;
+    ordered.push(workspace);
+    usedIds.add(workspace.id);
+  }
 
   for (const id of orderIds) {
     const workspace = workspaceById.get(id);
     if (!workspace || usedIds.has(id)) continue;
     ordered.push(workspace);
     usedIds.add(id);
-  }
-
-  for (const workspace of workspaces) {
-    if (usedIds.has(workspace.id)) continue;
-    ordered.push(workspace);
   }
 
   return ordered;

@@ -6,6 +6,8 @@ import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { globalSkillsDir } from "./workspace-files.js";
+import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
@@ -36,6 +38,7 @@ const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.hos
 let managedOpencode: ManagedOpencodeServer | null = null;
 
 if (!config.readOnly) {
+  await retireSharedLegacyReview(globalSkillsDir());
   for (const workspace of config.workspaces) {
     await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
   }

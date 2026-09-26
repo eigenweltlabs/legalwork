@@ -1,3 +1,5 @@
+import { SystemOneSettingsSection } from "../domains/settings/pages/systemone-view";
+import { TabularReviewSettingsView } from "../domains/settings/pages/tabular-review-view";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -67,6 +69,7 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { PremiumUpsellHost } from "@/react-app/domains/recorder/premium-upsell-context";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
+import { OcrSettingsSection } from "@/react-app/domains/settings/pages/ocr-settings-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
 import "@/react-app/domains/settings/computer-use-config";
@@ -140,6 +143,7 @@ import {
 } from "@/app/utils";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -228,6 +232,7 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "ai":
+    case "tabular-review":
     case "account":
     case "personalisation":
     case "notifications":
@@ -1578,8 +1583,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     ? t("status.providers_connected", { count: providerConnectedIds.length })
     : t("settings.no_providers_connected");
   const providerConnectedIdSet = new Set(providerConnectedIds);
-  // Eigenwelt is managed from its own "Eigenwelt" account tab, not as a model
-  // provider — hide it from the AI providers list (a footnote points there).
+  // Eigenwelt has a dedicated managed account row that links to the Account tab;
+  // exclude it from the API-key provider rows below.
   //
   // Connecting is OAuth-only (the bare API-key path was removed), so a signed-in
   // account ALWAYS carries a rotating token and the server reports
@@ -1845,7 +1850,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       let list: WorkspaceList | null = null;
       if (legalworkClient) {
         list = await legalworkClient
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
           .catch(() => null);
       }
       if (!list) {
@@ -1968,6 +1973,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             />
           </SettingsStack>
         );
+      case "tabular-review":
+        return <TabularReviewSettingsView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} workspaceId={runtimeWorkspaceId} onManageProviders={() => navigateSettingsPath("ai")} />;
       case "ai":
         return (
           <AiSettingsView
@@ -1987,6 +1994,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
             eigenweltConnected={eigenweltConnected}
+            onManageEigenweltAccount={() => navigateSettingsPath("account")}
+            systemOneView={<SystemOneSettingsSection client={legalworkClient} onManageSubscription={() => navigateSettingsPath("account")} />}
+            ocrView={<OcrSettingsSection client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />}
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
@@ -2113,6 +2123,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <View
             workspaceId={selectedWorkspaceId}
+            reviewClient={legalworkClient}
+            reviewWorkspaceId={hubWorkspaceId}
             inlineEditor={props.singleView !== true}
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}

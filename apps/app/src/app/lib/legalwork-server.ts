@@ -1,3 +1,7 @@
+import { applyReviewUpdate, type ReviewUpdate, type QueryReviewResults, type CreateReview, type EditReview, type RunReview, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities, type ReviewLibraryEntry, type SaveReviewLibrary, type ReviewSourceReference, type ReviewSourcePage } from "@legalwork/types/reviews";
+import type { ProjectContents, ProjectContentKind, ProjectDetails, ProjectField } from "@legalwork/types/workspace";
+import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
+import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -222,6 +226,7 @@ export type EigenweltEntitlementsView = {
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
 export type EigenweltSignInPayload = {
+  systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
   orgId?: string;
@@ -242,6 +247,7 @@ export type EigenweltSignInPayload = {
 export type EigenweltSignInWaitResult = EigenweltSignInPayload | { pending: true };
 
 export type EigenweltManifest = {
+  systemOne?: SystemOneConfiguration;
   baseURL: string;
   models: EigenweltManifestModel[];
 };
@@ -330,6 +336,7 @@ export type LegalworkTaskSync = {
 };
 
 export type LegalworkTask = {
+  projectId?: string | null;
   id: string;
   origin: LegalworkTaskOrigin;
   title: string;
@@ -384,6 +391,7 @@ export type LegalworkTaskMember = {
 export type LegalworkTaskEndpoint = { id: string; name: string };
 
 export type LegalworkTaskListParams = {
+  projectId?: string;
   assignee?: string;
   assignees?: string[];
   status?: LegalworkTaskStatus;
@@ -401,6 +409,7 @@ export type LegalworkTaskListParams = {
 };
 
 export type LegalworkTaskCreate = {
+  projectId?: string | null;
   title: string;
   description?: string;
   priority?: LegalworkTaskPriority;
@@ -411,6 +420,7 @@ export type LegalworkTaskCreate = {
 };
 
 export type LegalworkTaskPatch = {
+  projectId?: string | null;
   title?: string;
   description?: string;
   status?: LegalworkTaskStatus;
@@ -1608,6 +1618,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
+    saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
+    removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
+    cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,
@@ -1653,7 +1670,38 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/recorder/live-transcript`,
         { token, hostToken, method: "POST", body: { enabled }, timeoutMs: timeouts.status },
       ),
-    createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string }) =>
+    getProjectDefaults: () => requestJson<{ folderPath: string }>(baseUrl, "/workspaces/project-defaults", { token, hostToken }),
+    getProjectContents: (workspaceId: string, input: { kind?: ProjectContentKind; path?: string; cursor?: string; limit?: number } = {}) => {
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) if (value !== undefined) query.set(key, String(value));
+      return requestJson<ProjectContents>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/contents?${query}`, { token, hostToken });
+    },
+    listReviews: (workspaceId: string) => requestJson<{ reviews: ReviewSummary[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken }),
+    getReview: async (workspaceId: string, reviewId: string, previous?: SavedReview) => {
+      const path = `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`;
+      const update = await requestJson<ReviewUpdate>(baseUrl, `${path}/updates${previous ? `?revision=${previous.revision}` : ""}`, { token, hostToken });
+      return applyReviewUpdate(previous, update) ?? requestJson<SavedReview>(baseUrl, path, { token, hostToken });
+    },
+    queryReviewRows: (workspaceId: string, reviewId: string, input: Omit<QueryReviewResults, "cursor" | "limit" | "view">) => requestJson<{ revision: number; documentIds: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/rows/query`, { token, hostToken, method: "POST", body: input }),
+    deleteReview: (workspaceId: string, reviewId: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "DELETE", body: { revision } }),
+    createReview: (workspaceId: string, input: CreateReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken, method: "POST", body: input }),
+    editReview: (workspaceId: string, reviewId: string, input: EditReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "PATCH", body: input }),
+    getReviewSession: (workspaceId: string, reviewId: string) => requestJson<{ sessionId: string | null }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/session`, { token, hostToken }),
+    openReviewSession: (workspaceId: string, reviewId: string) => requestJson<{ sessionId: string; prefill: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/session`, { token, hostToken, method: "POST" }),
+    startReview: (workspaceId: string, reviewId: string, input: RunReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/start`, { token, hostToken, method: "POST", body: input }),
+    cancelReview: (workspaceId: string, reviewId: string) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/cancel`, { token, hostToken, method: "POST" }),
+    reviewCapabilities: (workspaceId: string, reviewId?: string) => requestJson<ReviewCapabilities>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews${reviewId ? `/${encodeURIComponent(reviewId)}` : ""}/settings`, { token, hostToken }),
+    saveReviewSettings: (workspaceId: string, settings: ReviewSettings, review?: Pick<SavedReview, "id" | "revision">) => requestJson<ReviewSettings | SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews${review ? `/${encodeURIComponent(review.id)}` : ""}/settings`, { token, hostToken, method: "PUT", body: review ? { settings, revision: review.revision } : settings }),
+    resetReviewDefaults: (workspaceId: string) => requestJson<ReviewCapabilities>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/settings`, { token, hostToken, method: "DELETE" }),
+    reviewLibrary: (workspaceId: string, language: "en" | "de") => requestJson<{ entries: ReviewLibraryEntry[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library?language=${language}`, { token, hostToken }),
+    saveReviewLibrary: (workspaceId: string, input: SaveReviewLibrary) => requestJson<ReviewLibraryEntry>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library`, { token, hostToken, method: "POST", body: input }),
+    removeReviewLibrary: (workspaceId: string, id: string) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
+    reviewCitationPage: (workspaceId: string, citation: ReviewSourceReference) => requestJson<ReviewSourcePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(citation.reviewId)}/source/${encodeURIComponent(citation.documentId)}/${encodeURIComponent(citation.columnKey)}/${citation.citationIndex}?completedAt=${citation.completedAt}`, { token, hostToken }),
+    reviewSource: (workspaceId: string, reviewId: string, documentId: string, sourceHash?: string) => requestJson<{ path: string; sourceHash: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/source/${encodeURIComponent(documentId)}${sourceHash ? `?sourceHash=${encodeURIComponent(sourceHash)}` : ""}`, { token, hostToken }),
+    getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
+    updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
+      requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; projectFields?: ProjectField[] }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
@@ -2134,6 +2182,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/api/eigenwelt/oauth/wait/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: 130_000 },
       ),
+    systemOneSettings: () => requestJson<SystemOneSettings>(baseUrl, "/systemone/settings", { token, hostToken, timeoutMs: 30_000 }),
+    systemOneSaveProvider: (provider: SystemOneProviderInput) => requestJson<{ ok: true }>(baseUrl, "/systemone/providers", { token, hostToken, method: "PUT", body: provider }),
+    systemOneDeleteProvider: (providerId: string) => requestJson<{ ok: true }>(baseUrl, `/systemone/providers/${encodeURIComponent(providerId)}`, { token, hostToken, method: "DELETE" }),
+    systemOneSelect: (selection: SystemOneSelection) => requestJson<{ ok: true }>(baseUrl, "/systemone/selection", { token, hostToken, method: "PUT", body: selection, timeoutMs: 30_000 }),
+    systemOneTest: (selection: SystemOneSelection, signal?: AbortSignal) => requestJson<{ ok: true }>(baseUrl, "/systemone/test", { token, hostToken, method: "POST", body: selection, signal, timeoutMs: 150_000 }),
+    systemOne: <const Q extends SystemOneQuestions>(request: Omit<SystemOneRequest, "questions"> & { questions: Q }, options: SystemOneOptions = {}) =>
+      requestJson<SystemOneResult<Q>>(baseUrl, "/systemone", { token, hostToken, method: "POST", body: { request, providerId: options.providerId }, signal: options.signal, timeoutMs: 150_000 }),
     eigenweltModels: () =>
       requestJson<EigenweltManifest>(baseUrl, "/api/eigenwelt/models", {
         token,
@@ -2157,6 +2212,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseURL?: string;
         apiKey?: string;
         models?: EigenweltManifestModel[];
+        systemOne?: SystemOneConfiguration;
         // Sign-out: clears the connection + the global manifest, and removes
         // the firm's tasks from this machine after a last push. Answers 409
         // `tasks_pending` (details.pending) while changes could not be
@@ -2385,6 +2441,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // workspace in the path only scopes the request — tasks are the machine's.
     listTasks: (workspaceId: string, params?: LegalworkTaskListParams) => {
       const query = new URLSearchParams();
+      if (params?.projectId) query.set("projectId", params.projectId);
       if (params?.assignee) query.set("assignee", params.assignee);
       for (const assignee of params?.assignees ?? []) query.append("assignee", assignee);
       if (params?.status) query.set("status", params.status);

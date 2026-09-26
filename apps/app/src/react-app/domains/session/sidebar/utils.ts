@@ -40,6 +40,12 @@ export const getRootSessions = (sessions: WorkspaceSessionGroup["sessions"]) => 
   });
 };
 
+/** Five latest conversations, independent of pinning or manual ordering. */
+export const getRecentProjectSessions = (sessions: SessionListItem[]) =>
+  getRootSessions(sessions.filter((session) => !isSessionArchived(session)))
+    .sort((a, b) => (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0))
+    .slice(0, 5);
+
 /** Split sessions into active vs. archived. Archived sessions live in their own section. */
 export const partitionArchivedSessions = (sessions: WorkspaceSessionGroup["sessions"]) => {
   const active: SessionListItem[] = [];

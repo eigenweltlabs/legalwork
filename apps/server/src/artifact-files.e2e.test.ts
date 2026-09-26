@@ -55,6 +55,42 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("previews and downloads preserve Unicode filenames in safe response headers", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const filenames = [
+      "SH-Lu\u0308beck_HRB_26773_HL+Liste_der_Gesellschafter-20260925162201.pdf",
+      "Vertrag-München.pdf",
+      "契約書-📄.pdf",
+      "Client's \"draft\" (100%)*.pdf",
+      "contract.pdf",
+    ];
+    const bytes = Buffer.from("%PDF-1.7\n% filename regression fixture\n");
+    for (const filename of filenames) {
+      for (const area of ["reports", ".opencode/legalwork/inbox", ".opencode/legalwork/outbox"]) {
+        await mkdir(join(root, area), { recursive: true });
+        await writeFile(join(root, area, filename), bytes);
+      }
+      const id = Buffer.from(filename).toString("base64url");
+      for (const [path, disposition] of [
+        [`files/raw?path=${encodeURIComponent(`reports/${filename}`)}`, "inline"],
+        [`inbox/${id}`, "attachment"],
+        [`artifacts/${id}`, "attachment"],
+      ]) {
+        const response = await fetch(`${base}/workspace/ws_1/${path}`, { headers: auth(token) });
+        expect(response.status).toBe(200);
+        const header = response.headers.get("content-disposition") ?? "";
+        expect(header).toMatch(/^[\x20-\x7e]+$/);
+        expect(header.startsWith(`${disposition}; filename="`)).toBe(true);
+        const encoded = header.match(/; filename\*=UTF-8''([^;]+)$/)?.[1];
+        expect(encoded).toBeDefined();
+        expect(encoded).not.toMatch(/['()*]/);
+        expect(decodeURIComponent(encoded ?? "")).toBe(filename);
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+      }
+    }
+  });
+
   test("template copies preserve the source and reject overwrites, traversal and symlink escapes", async () => {
     const root = await createWorkspaceRoot();
     const outside = await createWorkspaceRoot();

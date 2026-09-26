@@ -631,7 +631,13 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   }
 
   async function setSelectedWorkspace(workspaceId) {
-    return mutateWorkspaceState((state) => {
+    return mutateWorkspaceState(async (state) => {
+      // Projects created through the server must also survive a desktop restart.
+      // Register the selected project without recreating its folder or metadata.
+      if (workspaceId && !state.workspaces.some((entry) => entry.id === workspaceId)) {
+        const created = (await recoverWorkspacesFromServerConfig()).find((entry) => entry.id === workspaceId);
+        if (created) state.workspaces.unshift(created);
+      }
       state.selectedId = workspaceId;
       state.activeId = workspaceId || null;
       return state;

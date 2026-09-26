@@ -19,19 +19,6 @@ export type BundledPlugin = {
 
 export const BUNDLED_PLUGINS: BundledPlugin[] = [
   {
-    id: "tabular-review",
-    name: "Tabular Review",
-    description:
-      "Firm-owned document review grid — extract structured, source-cited columns across many documents into an interactive table. The open-model answer to Harvey/Legora review grids.",
-    command: "/review-docs",
-    components: [
-      "tabular-review skill",
-      "document-extractor agent",
-      "/review-docs command",
-      "PDF.js viewer artifact",
-    ],
-  },
-  {
     id: "docx-redline",
     name: "DOCX Redline",
     description:

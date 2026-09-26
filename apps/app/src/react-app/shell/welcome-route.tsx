@@ -17,6 +17,7 @@ import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
+import { newProjectFields } from "../domains/workspace/project-defaults-store";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import {
   analyticsSurface,
@@ -170,6 +171,7 @@ export function WelcomeRoute() {
               folderPath: folder,
               name: workspaceName,
               preset: "starter",
+              projectFields: newProjectFields(),
             });
             serverBaseUrl = normalizedBaseUrl;
             serverToken = resolvedToken;

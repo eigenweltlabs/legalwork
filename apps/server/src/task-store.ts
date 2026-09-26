@@ -69,6 +69,8 @@ export type TaskSyncInfo = {
 };
 
 export type Task = {
+  /** Local project link; synchronized with project identity in the project-sync delivery. */
+  projectId?: string | null;
   id: string;
   origin: TaskOrigin;
   title: string;
@@ -148,6 +150,7 @@ export type TaskNotification = {
 export type TaskDetail = { task: Task; submission: unknown; notes: TaskNote[] };
 
 export type TaskListParams = {
+  projectId?: string;
   assignee?: string;
   assignees?: string[];
   status?: TaskStatus;
@@ -167,6 +170,8 @@ export type TaskListParams = {
 export type TaskPage = { tasks: Task[]; nextCursor: string | null };
 
 export type TaskCreate = {
+  /** Local project link; synchronized with project identity in the project-sync delivery. */
+  projectId?: string | null;
   /** Client-chosen id, so a retried create never duplicates. Defaults to a fresh UUID. */
   id?: string;
   title: string;
@@ -180,6 +185,8 @@ export type TaskCreate = {
 };
 
 export type TaskPatch = {
+  /** Local project link; synchronized with project identity in the project-sync delivery. */
+  projectId?: string | null;
   title?: string;
   description?: string;
   status?: TaskStatus;
@@ -330,6 +337,8 @@ async function openSqlite(path: string): Promise<SqliteHandle> {
 }
 
 const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS task_projects (task_id TEXT PRIMARY KEY NOT NULL, project_id TEXT NOT NULL)`,
+  "CREATE INDEX IF NOT EXISTS task_projects_project ON task_projects(project_id)",
   `CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY NOT NULL,
     origin TEXT NOT NULL DEFAULT 'desktop',
@@ -756,11 +765,15 @@ export class TaskStore {
     const attachments = this.attachmentsOf(ids);
     const pending = this.pendingOf(ids);
     const sessions = this.sessionLinksOf(ids);
+    const projects = new Map(ids.length ? this.db.all(
+      `SELECT task_id, project_id FROM task_projects WHERE task_id IN (${ids.map(() => "?").join(",")})`, ids,
+    ).map((row) => [text(row.task_id), text(row.project_id)]) : []);
     return rows.map((row) => {
       const id = text(row.id);
       const outbox = pending.get(id);
       return {
         id,
+        projectId: projects.get(id) ?? null,
         origin: toOrigin(row.origin),
         title: text(row.title),
         description: text(row.description),
@@ -855,6 +868,10 @@ export class TaskStore {
     const where: string[] = [];
     const values: SqlValue[] = [];
 
+    if (params.projectId) {
+      where.push("EXISTS (SELECT 1 FROM task_projects p WHERE p.task_id = t.id AND p.project_id = ?)");
+      values.push(params.projectId);
+    }
     if (params.deleted === "only") where.push("t.deleted_at IS NOT NULL");
     else if (params.deleted !== "include") where.push("t.deleted_at IS NULL");
     if (params.assignee) {
@@ -986,6 +1003,7 @@ export class TaskStore {
           now,
         ],
       );
+      if (input.projectId) this.db.run("INSERT INTO task_projects (task_id, project_id) VALUES (?, ?)", [id, input.projectId]);
       if (input.createdInSession) {
         this.db.run(
           "INSERT OR REPLACE INTO task_sessions (task_id, session_id, workspace_id, kind, workflow_name, started_at) VALUES (?, ?, ?, 'created', NULL, ?)",
@@ -1053,10 +1071,14 @@ export class TaskStore {
         sets.push("last_local_run_at = ?");
         values.push(patch.lastLocalRunAt);
       }
-      if (sets.length === 0 && patch.note === undefined) {
+      if (patch.projectId !== undefined) {
+        if (patch.projectId === null) this.db.run("DELETE FROM task_projects WHERE task_id = ?", [id]);
+        else this.db.run("INSERT INTO task_projects (task_id, project_id) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET project_id = excluded.project_id", [id, patch.projectId]);
+      }
+      if (sets.length === 0 && patch.note === undefined && patch.projectId === undefined) {
         throw new ApiError(400, "invalid_task_patch", "Nothing to update.");
       }
-      if (sets.length > 0) {
+      if (sets.length > 0 || patch.projectId !== undefined) {
         sets.push("updated_at = ?");
         values.push(now);
         this.db.run(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
