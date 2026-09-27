@@ -53,7 +53,8 @@ async function snapshot(ocr: OcrManager): Promise<Snapshot> {
     throw new ApiError(400, "ocr_key_required", "Add the selected model's API key in Settings → AI Providers, then retry.");
   return {
     service: createConfiguredOcrService({ ...settings, engines: [engine] }, { localRuntime: ocr.runtime.local, resolveApiKey: async () => key }),
-    fingerprint: digest(JSON.stringify(engine)),
+    // Native preprocessing/decoding changes evidence; do not reuse Python OCR pages.
+    fingerprint: digest(JSON.stringify(engine) + (engine.kind === "local" && engine.model === "pp-ocrv6-small" ? ":native-ocr-1" : "")),
   };
 }
 

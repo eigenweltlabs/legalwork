@@ -76,19 +76,56 @@ Cancellation terminates the local worker or aborts the HTTP request. Custom adap
 must honor their `AbortSignal`. A failure rejects the job; completed pages have already
 been emitted through progress. There are no automatic retries or paid API retries.
 
-## Provision local models explicitly
+## Provision local models
 
-Python/model downloads are **not** part of extraction or application startup. The
-settings UI provides explicit Download model, cancellation, progress and Test sample
-controls. The host needs `uv` on PATH (or an absolute `LEGALWORK_OCR_UV_BIN` override).
-The installer creates a managed Python 3.12 environment, installs pinned direct
-dependencies, downloads pinned models and checks a built-in sample before reporting
-Ready. uv itself is not bundled. The UI explains when it is missing. Only Apple
-Silicon currently supports the higher-quality MLX runtime.
+On startup, a writable server automatically prepares the small model in the
+background when `local-fast` is the saved default and its installation is missing.
+This includes the first launch after an application update. Startup does not wait
+for downloads; Settings shows progress, cancellation and the existing Download model
+retry control. Ready installations are reused. Selecting a custom or higher-quality
+default skips automatic setup; the larger model remains an explicit download.
+
+The small model uses bundled native ONNX Runtime, the `paddleocr` JavaScript
+pipeline and the image decoder already shipped for PDF rendering. It needs no
+Python, `uv`, dependency installation or administrator rights. Setup downloads only
+the official, revision-pinned detector/recognizer and dictionary configuration
+(about 31.2 MB), checks exact sizes and SHA-256 digests, then recognizes a built-in
+sample before reporting Ready. Downloads publish atomically; complete verified
+assets are reused on retry. Extraction uses explicit local paths and disables fetch.
+
+`native-worker.cjs` runs in a separate process using the desktop's bundled Node.
+Only the host's OS/locale variables and explicit module directory are forwarded;
+timeouts and cancellation kill the process. The worker returns normalized regions
+through the existing OCR interface. Existing Python-provisioned small-model
+manifests/weights are reused without needing the old Python environment. Existing
+Python files are retained because the optional quality model may still use them.
+Review evidence gets a new cache fingerprint when switching to native recognition.
+
+Desktop builds unpack the worker's libraries outside ASAR and remove other
+platforms' ONNX binaries. ONNX Runtime 1.23.2 is pinned because later npm releases
+omit Intel macOS binaries. The target binding is required at packaging time.
+Measured on macOS ARM64: approximately 39 MB additional installed libraries (11 MB as a gzip
+archive), reusing existing Canvas and Node; the final installer delta depends on
+its compression. Windows/Linux sizes and native execution require separate checks.
+
+The optional higher-quality MLX model still uses Python on Apple Silicon. Its
+explicit setup reuses `uv` on PATH or downloads a pinned, checksum-verified helper,
+then installs Python 3.12 and the quality dependencies. `LEGALWORK_OCR_UV_BIN` can
+override that helper. This path is never invoked for the default small model.
+
+Cancelling small-model setup is remembered across restarts; Download model clears
+that cancellation and retries. Failed setup retries on the next launch, or manually
+from Settings. Closing the application cancels running setup without disabling the
+next startup attempt. To disable automatic setup for a deployment, set
+`LEGALWORK_OCR_AUTO_DOWNLOAD=0` or `"autoDownloadOcr": false` in the server config.
+Read-only servers never start automatic downloads. Extraction itself never installs
+models; callers still need to wait for the selected model to become ready.
 
 `apps/server/resources/ocr/` is included in server package files and Electron's
-external resources, so Python scripts remain outside ASAR. The manual setup below
-is also available for embedding hosts with their own runtime lifecycle.
+external resources, so workers remain outside ASAR. Npm/server installations also
+need the declared native runtime dependencies next to the server package. The
+manual Python setup below remains available for embedding hosts that explicitly
+provide a Python worker instead of `OcrRuntime`'s bundled native worker.
 
 Example from `apps/server`, using Python 3.12 and `uv`:
 
@@ -174,6 +211,24 @@ variables or `PYTHONPATH`.
 pnpm --filter legalwork-server exec bun test src/ocr/ocr.test.ts
 pnpm --filter legalwork-server typecheck
 ```
+
+Native setup/packaging verification (the first command intentionally downloads
+the small model into a fresh temporary directory and prints its root):
+
+```sh
+pnpm --filter legalwork-server exec bun script/smoke-native-ocr.ts
+LEGALWORK_OCR_NATIVE_SMOKE_ROOT=/printed/ocr/root pnpm --filter legalwork-server exec bun test src/ocr/native.test.ts
+pnpm --filter @legalwork/desktop exec node scripts/prepare-node-runtime.mjs
+LEGALWORK_OCR_NATIVE_SMOKE_ROOT=/printed/ocr/root pnpm --filter @legalwork/desktop exec node scripts/smoke-ocr-package.mjs
+pnpm --filter @legalwork/desktop exec node --test electron/packaged-ocr.test.mjs electron/packaged-server-deps.test.mjs
+```
+
+The package smoke builds an isolated ASAR/unpacked dependency tree, prunes foreign
+ONNX binaries, and runs the real worker with an empty PATH and only shipped modules.
+It reports both uncompressed additional libraries and their gzip archive size.
+Native recognition checks include English, German, French, Spanish, skewed text,
+blank pages, JPEG/WebP and rejected dimension mismatches. They do not replace the
+handwriting/contract-quality benchmark or a signed desktop release test.
 
 The tests cover explicit engine selection, no fallback, language and size validation,
 coordinates, source identity, warnings, progress, queueing, deadlines, cancellation,

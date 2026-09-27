@@ -1,6 +1,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { Arch } = require("electron-builder");
+const { pruneOcrRuntime } = require("./packaged-ocr.cjs");
 
 const computerUseHelperAppName = "LegalWork Computer Use.app";
 
@@ -91,6 +93,8 @@ async function afterPack(context) {
   const resources = appPath ? path.join(appPath, "Contents", "Resources") : path.join(context.appOutDir, "resources");
   const nodePath = path.join(resources, "node", context.electronPlatformName === "win32" ? "node.exe" : "node");
   if (!fs.existsSync(nodePath)) throw new Error(`Missing packaged Node runtime: ${nodePath}`);
+  const arch = typeof context.arch === "string" ? context.arch : Arch[context.arch];
+  pruneOcrRuntime(resources, context.electronPlatformName, arch);
   const triple = targetTriple(context.electronPlatformName, context.arch);
   if (!triple) return;
 

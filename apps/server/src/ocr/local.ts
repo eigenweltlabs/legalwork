@@ -9,6 +9,8 @@ export type LocalOcrRuntime = {
   python: string;
   workerPath: string;
   modelDirectory: string;
+  /** Bundled small-model worker. Python remains available for the optional MLX model. */
+  native?: { executable: string; workerPath: string; moduleDirectory: string };
 };
 
 function workerEnvironment(): NodeJS.ProcessEnv {
@@ -33,10 +35,11 @@ export function createLocalOcrEngine(input: LocalEngineSettings, runtime: LocalO
     info,
     async recognize(page, context) {
       context.signal.throwIfAborted();
+      const native = settings.model === "pp-ocrv6-small" ? runtime.native : undefined;
       const output = await new Promise<string>((resolve, reject) => {
-        const child = execFile(runtime.python, [runtime.workerPath, "--model", settings.model, "--model-dir", runtime.modelDirectory], {
+        const child = execFile(native?.executable ?? runtime.python, [native?.workerPath ?? runtime.workerPath, "--model", settings.model, "--model-dir", runtime.modelDirectory], {
           encoding: "utf8", maxBuffer: OCR_MAX_RESPONSE_BYTES, signal: context.signal, killSignal: "SIGKILL",
-          env: workerEnvironment(),
+          env: { ...workerEnvironment(), ...(native ? { NODE_PATH: native.moduleDirectory, BUN_BE_BUN: "1" } : {}) },
         }, (error, stdout) => {
           if (error) {
             // Never forward stderr: it may contain document text, paths, or runtime environment details.

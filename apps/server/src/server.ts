@@ -936,6 +936,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     idleTimeout: 120,
   });
 
+  if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();
+
   // Optional HTTPS listener for the Word add-in. It shares the exact same
   // fetch handler (API, OpenCode proxy, and /word-addin static hosting), so
   // the task pane talks to a single same-origin base URL. Word requires
@@ -978,7 +980,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
       approvals.dispose();
       reviews.stop();
       preparation.stop();
-      ocr.runtime.cancel();
+      ocr.stop();
       stopTaskSync();
       stopTaskReminders();
       benchmarkRunner.dispose();

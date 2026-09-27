@@ -61,6 +61,14 @@ asarUnpack:
   # outside the asar.
   - node_modules/.pnpm/sherpa-onnx*/**
   - node_modules/sherpa-onnx-node/**
+  # The bundled Node OCR worker must resolve JS and native files outside ASAR.
+  - node_modules/.pnpm/onnxruntime*/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/onnxruntime-common/**
+  - node_modules/.pnpm/paddleocr*/**
+  - node_modules/paddleocr/**
+  - node_modules/.pnpm/image-size*/**
+  - node_modules/image-size/**
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
