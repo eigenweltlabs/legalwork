@@ -67,8 +67,8 @@ The app hears the same way from its own server (`app-sync-events.ts`, `GET /sync
 
 ### Access ending, stopping, signing out
 
-- Owner stops syncing: the project stays on the owner's computer as a local project. The platform drops its documents and tasks; colleagues' copies are removed.
-- A member loses access: their copy is removed. If changes made there had not reached the firm, it is held instead and Home asks: **Keep it as my own project** or **Remove it**. Given access again, it syncs again.
+- Owner stops syncing: the project stays on the owner's computer as a local project. The platform drops its documents and tasks; colleagues' copies are removed. Shared again from the same project, it is the same project at the firm (this computer remembers its id, `project_stopped`, and the platform revives it for its owner): a copy held back takes it up again, and colleagues whose copy was removed get it back under its name, not as a second project.
+- A member loses access: their copy is removed. If changes made there had not reached the firm, it is held instead and Home asks: **Keep it as my own project** or **Remove it**. Given access again, it syncs again. What both sides last agreed on is forgotten then (the firm's copy may have been dropped meanwhile), so nothing missing at the firm is taken as deleted there: the two are merged, and files that differ are kept both.
 - A folder the member brought themselves (used as their copy) is never deleted: losing access or leaving turns it back into their own local project, and the owner's id in it is left alone. Only folders sync created are removed.
 - Sign-out: copies that came from the firm are removed (the sign-out stops first if they hold unsent changes). The member's own synced projects stay and resume after signing in to the same firm.
 

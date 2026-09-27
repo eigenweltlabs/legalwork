@@ -438,6 +438,14 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
     : { access: remote.access, memberIds: remote.memberIds, scope: remote.scope };
   const tasks = await taskStore(config);
   if (settings.scope.tasks && !link.settings.scope.tasks) tasks.publishProjectTasks(link.workspaceId);
+  if (link.state === "revoked") {
+    // Given access again after a while without it (its owner may have stopped
+    // syncing it, which empties the firm's copy): what both sides last agreed
+    // on no longer holds, so nothing missing at the firm counts as deleted there.
+    store.clearFileBase(link.projectId);
+    store.clearReviewBase(link.projectId);
+    store.remoteIndex(link.projectId).clear();
+  }
   store.updateLink(link.workspaceId, {
     role: remote.role,
     ownerUserId: remote.ownerUserId,
@@ -960,7 +968,8 @@ export async function saveProjectSyncSettings(
     throw new ApiError(409, "project_sync_offer_pending", "This folder is already a project shared with you: decide first whether to use it as your copy.");
   }
   if (!link) {
-    const projectId = randomUUID();
+    // Shared again after its owner stopped: the same project at the firm, not a second one.
+    const projectId = store.takeStopped(workspace.id, orgId) ?? randomUUID();
     await setProjectSyncId(workspace.path, projectId);
     store.saveLink({
       workspaceId: workspace.id,
@@ -1002,7 +1011,10 @@ export async function stopProjectSync(config: ServerConfig, workspace: Workspace
   requireOwner(link);
   const confirmed = link.confirmed;
   await keepAsLocal(config, store, link);
-  if (confirmed) store.enqueue(link.projectId, { kind: "stop" });
+  if (confirmed) {
+    store.enqueue(link.projectId, { kind: "stop" });
+    store.markStopped(workspace.id, link.projectId, link.orgId);
+  }
   scheduleProjectSync(config, 500);
   return projectSyncStatus(config, workspace);
 }
