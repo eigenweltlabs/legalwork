@@ -25,7 +25,7 @@ import type {
   ProjectSyncState,
   ProjectSyncStatus,
 } from "@legalwork/types/workspace";
-import { LegalworkServerError, type LegalworkServerClient, type LegalworkTaskMember } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient, type LegalworkTaskMember, type LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -33,6 +33,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { projectFileDisplayName } from "./project-note-title";
 import { WorkspaceIcon } from "@/react-app/design-system/workspace-icon";
 import { t } from "@/i18n";
 import { formatTaskDateTime } from "../tasks/task-format";
@@ -55,7 +56,6 @@ const STATE_LABELS: Record<ProjectSyncState, () => string> = {
   offline: () => t("project_sync.state_offline"),
   error: () => t("project_sync.state_error"),
   unavailable: () => t("project_sync.state_unavailable"),
-  conflict: () => t("project_sync.state_conflict"),
   paused: () => t("project_sync.state_paused"),
   revoked: () => t("project_sync.state_revoked"),
   offered: () => t("project_sync.state_offered"),
@@ -274,7 +274,12 @@ function OfferDecision(props: {
  * project whose access ended, send or undo deletions sync held back, look at
  * copies kept from a conflict, and what could not reach the firm.
  */
-export function ProjectSyncNotice(props: { client: LegalworkServerClient; workspaceId: string }) {
+export function ProjectSyncNotice(props: {
+  client: LegalworkServerClient;
+  workspaceId: string;
+  /** Open a version to compare before choosing which stays. */
+  onOpenFile?: (entry: LegalworkWorkspaceDirectoryEntry) => void;
+}) {
   const queryClient = useQueryClient();
   const status = useProjectSyncStatus(props.client, props.workspaceId);
   const [busy, setBusy] = useState(false);
@@ -305,7 +310,15 @@ export function ProjectSyncNotice(props: { client: LegalworkServerClient; worksp
     }
   };
   const resolve = (input: Parameters<LegalworkServerClient["resolveProjectSync"]>[1]) =>
-    act(() => props.client.resolveProjectSync(props.workspaceId, input));
+    act(async () => {
+      const next = await props.client.resolveProjectSync(props.workspaceId, input);
+      // A version put back or dropped here: what shows the project's files reloads.
+      if (input.action === "keep_mine" || input.action === "use_theirs") {
+        void queryClient.invalidateQueries({ predicate: (query) => query.queryKey.includes(props.workspaceId) });
+      }
+      return next;
+    });
+  const open = (path: string) => props.onOpenFile?.({ name: path.split("/").at(-1) ?? path, path, kind: "file" });
 
   const notices: ReactElement[] = [];
   if (data.state === "revoked") {
@@ -336,16 +349,26 @@ export function ProjectSyncNotice(props: { client: LegalworkServerClient; worksp
       </Alert>,
     );
   }
+  // Both changed a file and it could not be merged: which version stays, as the editor asks.
   for (const conflict of data.conflicts) {
+    const copyPath = conflict.copyPath;
     notices.push(
-      <Alert key={`conflict-${conflict.copyPath}`}>
+      <Alert key={`conflict-${copyPath}`}>
         <AlertTriangle className="text-warning" />
-        <AlertDescription>{t("project_sync.conflict", { path: conflict.path, copy: conflict.copyPath })}</AlertDescription>
-        <AlertAction>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void resolve({ action: "dismiss_conflict", copyPath: conflict.copyPath })}>
-            {t("project_sync.conflict_done")}
-          </Button>
-        </AlertAction>
+        <AlertDescription className="space-y-3">
+          <p>{t("project_sync.conflict", { name: projectFileDisplayName(conflict.path, conflict.path.split("/").at(-1) ?? conflict.path) })}</p>
+          {props.onOpenFile ? (
+            <p className="flex flex-wrap gap-x-4 gap-y-1">
+              <button type="button" className="text-xs underline underline-offset-2 hover:text-foreground" onClick={() => open(conflict.path)}>{t("project_sync.open_theirs")}</button>
+              <button type="button" className="text-xs underline underline-offset-2 hover:text-foreground" onClick={() => open(copyPath)}>{t("project_sync.open_mine")}</button>
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void resolve({ action: "dismiss_conflict", copyPath })}>{t("project_sync.keep_both")}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void resolve({ action: "use_theirs", copyPath })}>{t("project_sync.use_theirs")}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void resolve({ action: "keep_mine", copyPath })}>{t("project_sync.keep_mine")}</Button>
+          </div>
+        </AlertDescription>
       </Alert>,
     );
   }

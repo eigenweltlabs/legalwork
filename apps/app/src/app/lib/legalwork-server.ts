@@ -2599,7 +2599,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       input:
         | { action: "keep_local" | "delete_files" | "restore_files" | "use_folder" | "keep_apart" }
         | { action: "remove"; force?: boolean }
-        | { action: "dismiss_conflict"; copyPath: string },
+        | { action: "dismiss_conflict" | "use_theirs" | "keep_mine"; copyPath: string },
     ) =>
       requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync/resolve`, {
         token,

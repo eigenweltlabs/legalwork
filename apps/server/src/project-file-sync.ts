@@ -204,6 +204,13 @@ export function conflictCopyPath(path: string, label: string, at: Date, taken: (
   }
 }
 
+/** Move a file of the project into the sync trash, as sync does with what it removes here. */
+export async function moveToSyncTrash(root: string, path: string, at: Date = new Date()): Promise<void> {
+  const target = join(root, ".legalwork", "sync-trash", at.toISOString().replace(/[:.]/g, "-"), ...path.split("/"));
+  await mkdir(dirname(target), { recursive: true });
+  await rename(join(root, ...path.split("/")), target);
+}
+
 /** How long files removed by sync stay recoverable in `.legalwork/sync-trash`. */
 const TRASH_KEEP_MS = 30 * 86_400_000;
 

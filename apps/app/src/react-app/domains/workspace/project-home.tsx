@@ -105,7 +105,7 @@ export function ProjectHome(props: {
           </div>
         </header>
 
-        {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} />}
+        {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} onOpenFile={props.onOpenFile} />}
 
         <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="border-t border-border/60 bg-background/60 px-5 py-1.5 @min-[720px]/project-page:px-6">
           <div className="flex items-center gap-2">

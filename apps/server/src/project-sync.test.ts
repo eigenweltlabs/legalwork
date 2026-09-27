@@ -395,7 +395,8 @@ describe("project sync between computers", () => {
     // What shows Ben's project reloads: its files changed on his computer.
     expect((await projectSyncOverview(member.config)).contents[copy.id]).toBeGreaterThan(0);
     const status = await projectSyncStatus(member.config, copy);
-    expect(status.state).toBe("conflict");
+    // Not a state of the project: Home asks which version stays.
+    expect(status.state).not.toBe("error");
     expect(status.conflicts).toHaveLength(1);
     const copyName = status.conflicts[0]?.copyPath ?? "";
     expect(copyName).toMatch(/^Vertrag \(Ben, \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\)\.docx$/);
@@ -405,6 +406,49 @@ describe("project sync between computers", () => {
     }
     await resolveProjectSync(member.config, copy, { action: "dismiss_conflict", copyPath: copyName });
     expect((await projectSyncStatus(member.config, copy)).conflicts).toEqual([]);
+  });
+
+  test("after a conflict, keeping mine puts it back for everyone, and taking theirs drops mine, both into the sync trash", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Akte");
+    await write(akte, "Vertrag.docx", "base");
+    await write(akte, "Vollmacht.docx", "base");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+
+    for (const name of ["Vertrag.docx", "Vollmacht.docx"]) {
+      await write(akte, name, "Anna's edit");
+      await write(copy, name, "Ben's edit");
+    }
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const conflicts = (await projectSyncStatus(member.config, copy)).conflicts;
+    const copyOf = (path: string) => conflicts.find((conflict) => conflict.path === path)?.copyPath ?? "";
+
+    await resolveProjectSync(member.config, copy, { action: "keep_mine", copyPath: copyOf("Vertrag.docx") });
+    await resolveProjectSync(member.config, copy, { action: "use_theirs", copyPath: copyOf("Vollmacht.docx") });
+    expect((await projectSyncStatus(member.config, copy)).conflicts).toEqual([]);
+    expect(await read(copy, "Vertrag.docx")).toBe("Ben's edit");
+    expect(await read(copy, "Vollmacht.docx")).toBe("Anna's edit");
+    expect(await read(copy, copyOf("Vertrag.docx"))).toBeNull();
+    expect(await read(copy, copyOf("Vollmacht.docx"))).toBeNull();
+    expect(await readdir(join(copy.path, ".legalwork", "sync-trash"))).not.toEqual([]);
+
+    // The next rounds take the choice to the firm and to Anna, copies gone there too
+    // (once the restored file has settled, as every file saved a moment ago waits).
+    const past = new Date(Date.now() - 60_000);
+    await utimes(join(copy.path, "Vertrag.docx"), past, past);
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect(await read(akte, "Vertrag.docx")).toBe("Ben's edit");
+    expect(await read(akte, "Vollmacht.docx")).toBe("Anna's edit");
+    expect(await read(akte, copyOf("Vertrag.docx"))).toBeNull();
+    expect(await read(akte, copyOf("Vollmacht.docx"))).toBeNull();
+    await expect(resolveProjectSync(member.config, copy, { action: "keep_mine", copyPath: "../Vertrag.docx" })).rejects.toMatchObject({ code: "project_conflict_not_found" });
   });
 
   test("a member taken off the project loses the copy — or decides, when changes made there had not reached the firm", async () => {
