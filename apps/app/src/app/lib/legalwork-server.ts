@@ -13,6 +13,7 @@ import type {
 } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
+import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -2578,6 +2579,27 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     /** Every synced project's state, and a revision that moves when projects arrive, leave or are renamed. */
     projectSyncOverview: () =>
       requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, timeoutMs: timeouts.status }),
+    /**
+     * Hear this server's sync events (GET /sync/events), each handed to
+     * `onPoke` as it comes, until the stream ends or `signal` aborts.
+     */
+    syncEvents: async (onPoke: (poke: SyncPoke) => void, signal: AbortSignal) => {
+      const url = `${baseUrl}/sync/events`;
+      const response = await resolveFetch(url)(url, {
+        headers: buildAuthHeaders(token, hostToken, { Accept: "text/event-stream" }),
+        signal,
+      });
+      if (!response.ok || !response.body) throw new LegalworkServerError(response.status, "request_failed", response.statusText);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const feed = serverSentEvents((data) => {
+        const poke = syncPokeOf(data);
+        if (poke) onPoke(poke);
+      });
+      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        feed(decoder.decode(chunk.value, { stream: true }));
+      }
+    },
     runProjectSync: () =>
       requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
     projectSyncStatus: (workspaceId: string) =>

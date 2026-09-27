@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { requireIntakeClient } from "./eigenwelt-intake.js";
@@ -26,35 +26,6 @@ const POKE_DELAY_MS = 300;
 /** Signed out, or no firm: look again this often. */
 const IDLE_RETRY_MS = 30_000;
 const MAX_BACKOFF_MS = 60_000;
-
-export const syncPokeSchema = z.object({
-  projects: z.boolean().optional(),
-  tasks: z.boolean().optional(),
-  resync: z.boolean().optional(),
-});
-export type SyncPoke = z.infer<typeof syncPokeSchema>;
-
-/** Feed it a server-sent event stream's text as it comes; it hands on each event's data. */
-export function serverSentEvents(onData: (data: string) => void): (text: string) => void {
-  let buffer = "";
-  return (text) => {
-    buffer += text.replace(/\r\n?/g, "\n");
-    for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
-      const lines = buffer.slice(0, end).split("\n");
-      buffer = buffer.slice(end + 2);
-      const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart());
-      if (data.length > 0) onData(data.join("\n"));
-    }
-  };
-}
-
-function jsonOf(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -101,8 +72,8 @@ export function startSyncEvents(
         const decoder = new TextDecoder();
         const feed = serverSentEvents((data) => {
           heard = true;
-          const poke = syncPokeSchema.safeParse(jsonOf(data));
-          if (poke.success) onPoke(poke.data);
+          const poke = syncPokeOf(data);
+          if (poke) onPoke(poke);
         });
         for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
           feed(decoder.decode(chunk.value, { stream: true }));

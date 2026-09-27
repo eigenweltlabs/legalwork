@@ -1,3 +1,4 @@
+import { announceSyncChange } from "./app-sync-events.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
   intakeCreateTask,
@@ -428,6 +429,9 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
     result.error = messageOf(error);
   }
   store.setSyncState({ ...state, pullCursor: cursor, lastError: result.error });
+  if (result.pushed + result.failed + result.pulled + result.hidden > 0 || result.error !== state.lastError) {
+    announceSyncChange(config, "tasks");
+  }
   return result;
 }
 
@@ -456,6 +460,7 @@ export async function signOutOfFirmTasks(
   const pending = store.pendingFor(orgId);
   if (pending > 0 && !options.force) return { ok: false, pending };
   const { tasks } = await store.forgetFirm(orgId);
+  announceSyncChange(config, "tasks");
   return { ok: true, removed: tasks };
 }
 

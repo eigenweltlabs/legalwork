@@ -35,6 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { projectFileDisplayName } from "./project-note-title";
 import { WorkspaceIcon } from "@/react-app/design-system/workspace-icon";
+import { useSyncEventsLive } from "@/react-app/kernel/sync-events";
 import { t } from "@/i18n";
 import { formatTaskDateTime } from "../tasks/task-format";
 import { initialsOf, OptionText } from "../tasks/task-glyphs";
@@ -111,11 +112,13 @@ function memberName(member: LegalworkTaskMember): string {
   return member.name?.trim() || member.email?.trim() || member.userId;
 }
 
+/** Re-read on the server's sync events (session-route); polled only without them. */
 function useProjectSyncStatus(client: LegalworkServerClient, workspaceId: string) {
+  const live = useSyncEventsLive((state) => state.live);
   return useQuery({
     queryKey: ["project-sync", workspaceId],
     queryFn: () => client.projectSyncStatus(workspaceId),
-    refetchInterval: PROJECT_SYNC_POLL_MS,
+    refetchInterval: live ? false : PROJECT_SYNC_POLL_MS,
   });
 }
 

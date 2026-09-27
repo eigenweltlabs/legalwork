@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { syncEventStream } from "./app-sync-events.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import type { IntakeClient, IntakeTask, IntakeTaskPatch, IntakeTaskPullPage } from "./eigenwelt-intake.js";
 import { ApiError } from "./errors.js";
@@ -43,6 +44,16 @@ async function makeConfig(): Promise<{ config: ServerConfig; store: TaskStore }>
 
 async function connect(config: ServerConfig): Promise<void> {
   await writeEigenweltConnection(config, { platformToken: "tok_test", account: ACCOUNT });
+}
+
+/** What an app window's sync event stream carried while `run` ran. */
+async function heard(config: ServerConfig, run: () => Promise<unknown>): Promise<string> {
+  const window = new AbortController();
+  const response = syncEventStream(config, window.signal);
+  await run();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  window.abort();
+  return response.text();
 }
 
 type Call = { method: string; taskId?: string; body?: unknown };
@@ -459,6 +470,17 @@ describe("task-sync", () => {
     const [a, b] = await Promise.all([runTaskSync(config, { platform }), runTaskSync(config, { platform })]);
     expect(a).toBe(b);
     expect(calls.filter((call) => call.method === "pull")).toHaveLength(1);
+  });
+
+  test("an open app window hears when a round changed the tasks here, not when it changed nothing", async () => {
+    const { config } = await makeConfig();
+    await connect(config);
+    const quiet = fakePlatform();
+    expect(await heard(config, () => runTaskSync(config, { platform: quiet.platform }))).not.toContain("tasks");
+    const busy = fakePlatform({
+      pages: [{ tasks: [{ ...remoteTask({ id: "44444444-4444-4444-8444-444444444444" }), notes: [], submission: null }], nextCursor: null, hidden: [] }],
+    });
+    expect(await heard(config, () => runTaskSync(config, { platform: busy.platform }))).toContain('{"tasks":true}');
   });
 });
 

@@ -108,6 +108,7 @@ import {
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
+import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
@@ -138,6 +139,7 @@ import {
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
+import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
 import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
@@ -502,6 +504,12 @@ export function SessionRoute() {
       void getReactQueryClient().invalidateQueries({ predicate: (query) => query.queryKey.includes(id) });
     }
   });
+  // The server says when projects or tasks changed here: what shows them re-reads.
+  useSyncEvents(client);
+  useEffect(() => onSyncPoke((poke) => {
+    if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+    if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
+  }), []);
   useEffect(() => {
     if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
     const search = new URLSearchParams(location.search);

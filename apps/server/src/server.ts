@@ -28,6 +28,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import OpenAI from "openai";
 import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
+import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
@@ -3161,6 +3162,12 @@ function createRoutes(
     throw new ApiError(400, "invalid_search_kind", "Search sessions, tasks or files.");
   });
 
+  // A task changed here: other windows show it now, and it goes to the firm.
+  const tasksChanged = () => {
+    announceSyncChange(config, "tasks");
+    scheduleTaskSync(config);
+  };
+
   addRoute(routes, "GET", "/workspace/:id/tasks", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
@@ -3193,7 +3200,7 @@ function createRoutes(
     const input = parseTaskCreate(body, workspace.id);
     if (input.projectId) await resolveWorkspace(config, input.projectId);
     const task = store.createTask(input, actor);
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task }, 201);
   });
 
@@ -3213,7 +3220,7 @@ function createRoutes(
     const patch = parseTaskPatch(body);
     if (patch.projectId) await resolveWorkspace(config, patch.projectId);
     const task = store.patchTask(ctx.params.taskId, patch, actor);
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
   });
 
@@ -3227,7 +3234,7 @@ function createRoutes(
     const { actor } = await localTaskConnection();
     const choice = parseTaskConflictChoice(await readJsonBodyLimited(ctx.request, 256 * 1024));
     const detail = store.resolveTextConflict(ctx.params.taskId, choice, actor);
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse(detail);
   });
 
@@ -3239,7 +3246,7 @@ function createRoutes(
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
     const task = store.deleteTask(ctx.params.taskId);
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
   });
 
@@ -3260,7 +3267,7 @@ function createRoutes(
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
     const task = store.restoreTask(ctx.params.taskId);
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
   });
 
@@ -3298,7 +3305,7 @@ function createRoutes(
         bytes: new Uint8Array(await file.arrayBuffer()),
       });
     }
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
   });
 
@@ -3313,7 +3320,7 @@ function createRoutes(
       await resolveWorkspace(config, ctx.params.id);
       const store = await taskStore(config);
       const task = await store.deleteAttachment(ctx.params.taskId, ctx.params.attachmentId);
-      scheduleTaskSync(config);
+      tasksChanged();
       return jsonResponse({ ok: true, task });
     },
   );
@@ -3426,6 +3433,9 @@ function createRoutes(
     if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found");
     return workspace;
   };
+
+  // What the app windows hear about sync (app-sync-events.ts): one stream each.
+  addRoute(routes, "GET", "/sync/events", "client", async (ctx) => syncEventStream(config, ctx.request.signal));
 
   addRoute(routes, "GET", "/project-sync", "client", async () => {
     return jsonResponse(await projectSyncOverview(config));
