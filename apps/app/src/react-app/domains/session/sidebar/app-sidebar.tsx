@@ -951,6 +951,7 @@ function WorkspaceSidebarGroup({
   const [sessionsOpen, setSessionsOpen] = React.useState(false);
   const { config } = useShellConfig();
   const showSessions = !config.collapseProjectSessions || sessionsOpen;
+  const projectNavItems = config.projectNavOrder.filter(key => key === "projectSessions" ? config.collapseProjectSessions : config[key]);
 
 
   const statusLabel = (() => {
@@ -1021,8 +1022,8 @@ function WorkspaceSidebarGroup({
 
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
-                <SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
-                  {config.projectNavOrder.filter(key => key === "projectSessions" ? config.collapseProjectSessions : config[key]).map(key => ({
+                {projectNavItems.length > 0 && <SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
+                  {projectNavItems.map(key => ({
                   projectHome: <SidebarMenuSubItem key="projectHome">
                     <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "home"); }}>
                       <House className="size-4" strokeWidth={1.5} />
@@ -1066,7 +1067,7 @@ function WorkspaceSidebarGroup({
                     </CollapsibleContent></Collapsible>
                   </li>,
                   })[key])}
-                </SidebarMenuSub>
+                </SidebarMenuSub>}
                 {!config.collapseProjectSessions && <RecentProjectSessions group={group} loading={showInitialLoading} />}
               </div>
             </CollapsibleContent>

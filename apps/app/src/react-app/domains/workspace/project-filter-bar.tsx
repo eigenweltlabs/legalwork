@@ -128,7 +128,7 @@ export function ProjectFilterBar(props: {
         {props.loading && props.filters.length > 0 ? <><Loader2 className="size-3 animate-spin" />{t("project_filters.loading")}</> : props.filters.length > 0 ? t("project_filters.result_count", { count: props.resultCount, total: props.totalCount }) : t("project_filters.project_count", { count: props.totalCount })}
       </span>
     </div>
-    {props.unavailable > 0 && <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground" role="status">
+    {props.filters.length > 0 && props.unavailable > 0 && <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground" role="status">
       <span>{t("project_filters.unavailable", { count: props.unavailable })}</span>
       <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={props.onRetry}>{t("project_filters.retry")}</button>
     </div>}
