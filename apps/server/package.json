@@ -59,6 +59,7 @@
     "gray-matter": "4.0.3",
     "jsonc-parser": "^3.2.1",
     "minimatch": "^10.0.1",
+    "node-diff3": "^3.2.1",
     "openai": "^7.8.0",
     "pdfjs-dist": "6.3.289",
     "smb3-client": "0.2.0",

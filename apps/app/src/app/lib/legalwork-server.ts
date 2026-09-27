@@ -611,6 +611,9 @@ export type LegalworkWorkspaceFileWriteResult = {
   bytes: number;
   updatedAt: number;
   revision?: string;
+  /** The file had changed since it was loaded, and was merged: `content` is what was written. */
+  merged?: boolean;
+  content?: string;
 };
 
 export type LegalworkWorkspaceFileDeleteResult = {
@@ -2973,7 +2976,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     writeWorkspaceFile: (
       workspaceId: string,
-      payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean },
+      /** `baseContent`: the text as loaded, so a file changed since is merged with it rather than refused. */
+      payload: { path: string; content: string; baseUpdatedAt?: number | null; baseContent?: string; force?: boolean },
     ) =>
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,

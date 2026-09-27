@@ -75,11 +75,20 @@ function memoryRemote() {
 
 function memoryBase(): FileBaseStore & { map: Map<string, FileBase> } {
   const map = new Map<string, FileBase>();
+  const texts = new Map<string, string>();
   return {
     map,
     entries: () => new Map(map),
     put: (key, value) => void map.set(key, value),
-    drop: (key) => void map.delete(key),
+    drop: (key) => {
+      map.delete(key);
+      texts.delete(key);
+    },
+    text: (key) => texts.get(key) ?? null,
+    putText: (key, text) => {
+      if (text === null) texts.delete(key);
+      else texts.set(key, text);
+    },
   };
 }
 
@@ -214,6 +223,40 @@ describe("syncProjectFiles", () => {
     // The copy reaches the firm too, under its own name.
     expect(s.remote.text(copy)).toBe("mine");
     expect(s.remote.text("Klage.docx")).toBe("theirs");
+  });
+
+  test("merges a note both sides edited in different places, here and at the firm, without a copy", async () => {
+    const s = await setup();
+    const note = "Notes/Termin-ee006b29.md";
+    await s.write(note, "# Termin\n\nDer Mandant kommt am Montag um zehn Uhr.\n");
+    await run(s);
+    await s.write(note, "# Termin\n\nDer Mandant kommt am Dienstag um zehn Uhr.\n");
+    await utimes(join(s.root, note), new Date(), new Date(Date.now() - 60_000));
+    s.remote.put(note, "# Termin\n\nDer Mandant kommt am Montag um elf Uhr.\n");
+
+    const result = await run(s);
+
+    const merged = "# Termin\n\nDer Mandant kommt am Dienstag um elf Uhr.\n";
+    expect(result).toMatchObject({ merged: 1, conflicts: [] });
+    expect(await s.read(note)).toBe(merged);
+    expect(s.remote.text(note)).toBe(merged);
+    // Agreed now: the next round has nothing to do.
+    expect(await run(s)).toMatchObject({ uploaded: 0, downloaded: 0, merged: 0 });
+  });
+
+  test("keeps both versions of a note when both changed the same words", async () => {
+    const s = await setup();
+    const note = "Notes/Hallo-ee006b29.md";
+    await s.write(note, "# Hallo\n\nDu Kleiner\n");
+    await run(s);
+    await s.write(note, "# Hallo\n\nDu Großer\n");
+    await utimes(join(s.root, note), new Date(), new Date(Date.now() - 60_000));
+    s.remote.put(note, "# Hallo\n\nDu Mittlerer\n");
+
+    const result = await run(s);
+
+    expect(result.merged).toBe(0);
+    expect(result.conflicts).toEqual([{ path: note, copyPath: "Notes/Hallo-ee006b29 (Anna Muster, 2099-09-25 14.03).md" }]);
   });
 
   test("brings back a file deleted here that was edited remotely", async () => {

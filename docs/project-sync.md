@@ -37,7 +37,8 @@ A round does not list a project's documents whole each time: this computer keeps
 - Changed here or remotely only: goes to the other side. Every upload and remote delete names the version it replaces; the platform refuses a stale one.
 - Deleted remotely: moved to `.legalwork/sync-trash/<time>/` (kept 30 days).
 - Deleted on one side, edited on the other: the edit wins and comes back.
-- Edited differently on both sides: the firm's version keeps the name. This computer's version is kept next to it as `Name (Member, 2026-09-25 14.03).ext` and syncs too. Home lists the copy until dismissed.
+- Edited differently on both sides: text a person writes (notes, `.md` and `.txt`) is merged as Git merges, by lines and, where both changed the same lines (a paragraph is one line), by words (`text-merge.ts`); sync keeps the text both sides last agreed on as the base (`project_file_base_text`). Only where both changed the same words, and for every other kind of file (Word, PDF), the firm's version keeps the name and this computer's version is kept next to it as `Name (Member, 2026-09-25 14.03).ext`, which syncs too. Home lists the copy until dismissed.
+- Open in the editor while it changed (a colleague's edit synced in): unsaved typing is never replaced. Saving sends the text as loaded, and the file is merged the same way; the editor shows the merged text and says so. Changed in the same place: the editor asks, **Keep both** (yours as a copy beside it), **Use the other version** or **Keep mine**.
 - More than 10 deletions (and half the files) at once here: held back until the user chooses **Delete for everyone** or **Bring them back**.
 - Folder missing: sync pauses for that project; nothing is deleted.
 - Not synced: hidden files and folders (`.legalwork`, `.opencode`, `.git`), Office lock files, temporary downloads, files over 256 MB, names another system cannot store. The last two are listed in the dialog.
