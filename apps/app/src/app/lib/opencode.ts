@@ -76,7 +76,7 @@ function getRequestUrl(input: RequestInfo | URL): string {
 
 export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number): number {
   const url = getRequestUrl(input);
-  if (SESSION_LONG_RUNNING_URL_RE.test(url)) {
+  if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
     return 0;
   }
   // The OAuth callback long-polls until the user finishes signing in. Cut

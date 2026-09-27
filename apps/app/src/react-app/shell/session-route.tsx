@@ -1344,7 +1344,7 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string) => {
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1412,7 +1412,7 @@ export function SessionRoute() {
             // the message is handed off, not when the whole fusion turn
             // (task calls + synthesis) finishes. Progress streams
             // through the fusion store; failures surface as a session error.
-            void runFusionSend({
+            const run = runFusionSend({
               client: opencodeClient,
               directory: selectedWorkspaceRoot || undefined,
               mainSessionId: targetSessionId,
@@ -1427,21 +1427,29 @@ export function SessionRoute() {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
               useSessionActivityStore.getState().setError(selectedWorkspaceId, targetSessionId, message);
+              if (options?.waitForCompletion) throw error;
             });
+            if (options?.waitForCompletion) await run;
             return;
           }
         }
 
-        const result = await opencodeClient.session.promptAsync({
+        const request = {
           sessionID: targetSessionId,
           parts,
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
           ...(turnSystemContext ? { system: turnSystemContext } : {}),
-        });
-        if (result.error) {
-          throw new Error(serializeSDKError(result.error));
+        };
+        if (options?.waitForCompletion) {
+          // The queue advances after the engine's whole loop, not after a tool
+          // step, a streamed assistant message, or the prompt_async HTTP 204.
+          const result = unwrap(await opencodeClient.session.prompt(request));
+          if (result.info.error) throw new Error(serializeSDKError(result.info.error));
+        } else {
+          const result = await opencodeClient.session.promptAsync(request);
+          if (result.error) throw new Error(serializeSDKError(result.error));
         }
       },
       onDraftChange: () => {

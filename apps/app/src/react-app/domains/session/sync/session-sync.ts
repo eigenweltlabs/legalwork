@@ -903,18 +903,17 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
 
   if (event.type === "message.updated") {
     const props = (event.properties ?? {}) as {
-      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; time?: { created?: number; completed?: number } };
+      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; finish?: string; error?: unknown; time?: { created?: number; completed?: number } };
     };
     const info = props.info;
     if (!info?.id || !info.sessionID || (info.role !== "user" && info.role !== "assistant" && info.role !== "system")) {
       return;
     }
     useSessionActivityStore.getState().markMessageRole(workspaceId, info.sessionID, info.id, info.role);
-    // A completed assistant turn means the run is finished. Treat it as a
-    // fallback idle signal so the sidebar spinner stops even when the
-    // `session.idle` event is dropped or never arrives — otherwise the run
-    // status stays "running" forever and the spinner spins on a done session.
-    if (info.role === "assistant" && typeof info.time?.completed === "number") {
+    // Each tool step is a completed assistant message, not a completed run.
+    // Only a terminal answer/error may substitute for a missing idle event.
+    if (info.role === "assistant" && typeof info.time?.completed === "number"
+      && (info.error || (info.finish && info.finish !== "tool-calls" && info.finish !== "unknown"))) {
       useSessionActivityStore.getState().setRunStatus(workspaceId, info.sessionID, idleStatus);
       if (isTrackedSession(entry, info.sessionID)) {
         queryClient.setQueryData(statusKey(workspaceId, info.sessionID), idleStatus);
