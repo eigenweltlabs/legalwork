@@ -109,6 +109,13 @@ export const PROJECT_SYNC_SCHEMA = [
     org_id TEXT NOT NULL,
     removed_at INTEGER NOT NULL
   )`,
+  // Projects their owner stopped syncing here: shared again, each is the same
+  // project at the firm, so a colleague's held-back copy takes it up again.
+  `CREATE TABLE IF NOT EXISTS project_stopped (
+    workspace_id TEXT PRIMARY KEY NOT NULL,
+    project_id TEXT NOT NULL,
+    org_id TEXT NOT NULL
+  )`,
   // A firm project shared with this member whose id one of their own
   // projects' folders already carries (a folder on a shared drive, say). Never
   // taken over silently: the member decides to use that folder as their copy
@@ -612,6 +619,17 @@ export class ProjectSyncStore {
 
   clearRemoved(projectId: string): void {
     this.db.run("DELETE FROM project_removed WHERE project_id = ?", [projectId]);
+  }
+
+  markStopped(workspaceId: string, projectId: string, orgId: string): void {
+    this.db.run("INSERT OR REPLACE INTO project_stopped (workspace_id, project_id, org_id) VALUES (?, ?, ?)", [workspaceId, projectId, orgId]);
+  }
+
+  /** The firm project this one was until its owner stopped syncing it here, in this firm; forgotten once taken. */
+  takeStopped(workspaceId: string, orgId: string): string | null {
+    const row = this.db.get("SELECT project_id FROM project_stopped WHERE workspace_id = ? AND org_id = ?", [workspaceId, orgId]);
+    this.db.run("DELETE FROM project_stopped WHERE workspace_id = ?", [workspaceId]);
+    return row ? text(row.project_id) : null;
   }
 
   // --- Offers: a shared project one of the member's own folders already is -------------

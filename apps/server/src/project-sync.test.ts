@@ -214,6 +214,14 @@ async function write(workspace: WorkspaceInfo, path: string, text: string) {
   await utimes(join(workspace.path, path), past, past);
 }
 
+/** Every file of a copy past the settle time, as it is a few seconds after it arrived. */
+async function settleFiles(workspace: WorkspaceInfo) {
+  const past = new Date(Date.now() - 60_000);
+  for (const entry of await readdir(workspace.path, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile()) await utimes(join(entry.parentPath, entry.name), past, past);
+  }
+}
+
 function settings(overrides: Partial<ProjectSyncSettings> = {}): ProjectSyncSettings {
   return { access: "members", memberIds: [], scope: ALL, ...overrides };
 }
@@ -476,6 +484,7 @@ describe("project sync between computers", () => {
     // Given access again, the held-back copy syncs again, changes included.
     await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
     await runProjectSync(owner.config, { platform });
+    await settleFiles(copy);
     await runProjectSync(member.config, { platform });
     await runProjectSync(owner.config, { platform });
     expect((await projectSyncStatus(member.config, copy)).state).toBe("synced");
@@ -524,6 +533,42 @@ describe("project sync between computers", () => {
     expect(await read(akte, "a.txt")).toBe("a");
     expect((await projectSyncStatus(owner.config, akte)).mode).toBe("local");
     expect((await readProjectDetails(akte.path)).syncProjectId).toBeUndefined();
+  });
+
+  test("shared again after stopping, it is the same project: a copy held back takes it up again, with its changes and nothing lost", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Akte");
+    await write(akte, "a.txt", "a");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    const firstId = (await readProjectDetails(akte.path)).syncProjectId;
+
+    // Ben writes a note that has not reached the firm when Anna stops: his copy is held back.
+    await write(copy, "Notes/Ben.md", "Ben's note");
+    await stopProjectSync(owner.config, akte);
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform: { ...platform, storage: () => {
+      throw new ApiError(502, "intake_unreachable", "offline for documents");
+    } } });
+    expect((await projectSyncStatus(member.config, copy)).state).toBe("revoked");
+
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(akte.path)).syncProjectId).toBe(firstId);
+    expect(projects.size).toBe(1);
+
+    await settleFiles(copy);
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([copy.id]);
+    expect((await projectSyncStatus(member.config, copy)).state).toBe("synced");
+    expect((await projectSyncStatus(member.config, copy)).conflicts).toEqual([]);
+    expect(await read(copy, "a.txt")).toBe("a");
+    expect(await read(akte, "Notes/Ben.md")).toBe("Ben's note");
   });
 
   test("an arrival interrupted after its folder was made is picked up again, not duplicated", async () => {
