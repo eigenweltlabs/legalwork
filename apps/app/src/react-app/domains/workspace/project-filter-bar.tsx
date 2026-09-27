@@ -14,9 +14,38 @@ import { filterNeedsValue, filterOperators, validProjectFilter, type FilterOpera
 const icons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter };
 
 function operatorLabel(operator: FilterOperator, type: ProjectFilterField["type"]) {
-  if (type === "select" && (operator === "is" || operator === "is_not")) return t(`project_filters.${operator === "is" ? "is_any" : "is_none"}`);
+  if (type === "select" && (operator === "is" || operator === "is_not")) return operator === "is" ? t("project_filters.is_any") : t("project_filters.is_none");
   if (type === "date" && operator === "is") return t("project_filters.on");
-  return t(`project_filters.${operator}`);
+  return {
+    contains: t("project_filters.contains"),
+    not_contains: t("project_filters.not_contains"),
+    is: t("project_filters.is"),
+    is_not: t("project_filters.is_not"),
+    starts_with: t("project_filters.starts_with"),
+    gt: t("project_filters.gt"),
+    gte: t("project_filters.gte"),
+    lt: t("project_filters.lt"),
+    lte: t("project_filters.lte"),
+    between: t("project_filters.between"),
+    before: t("project_filters.before"),
+    after: t("project_filters.after"),
+    today: t("project_filters.today"),
+    past_7: t("project_filters.past_7"),
+    past_30: t("project_filters.past_30"),
+    next_7: t("project_filters.next_7"),
+    next_30: t("project_filters.next_30"),
+    empty: t("project_filters.empty"),
+    not_empty: t("project_filters.not_empty"),
+  }[operator];
+}
+
+function fieldTypeLabel(type: ProjectFilterField["type"]) {
+  return {
+    text: t("projects.type_text"),
+    number: t("projects.type_number"),
+    date: t("projects.type_date"),
+    select: t("projects.type_select"),
+  }[type];
 }
 
 function filterSummary(filter: ProjectFilter) {
@@ -68,7 +97,7 @@ export function ProjectFilterBar(props: {
                     return <CommandItem key={field.key} value={field.key} onClick={() => setField(field)} className="gap-2.5 rounded-lg px-2 py-2 text-xs">
                       <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1 truncate">{field.label}</span>
-                      <span className="text-[10px] text-muted-foreground">{t(`projects.type_${field.type}`)}</span>
+                      <span className="text-[10px] text-muted-foreground">{fieldTypeLabel(field.type)}</span>
                     </CommandItem>;
                   })}
                   <CommandEmpty className="px-2 py-5 text-center text-xs text-muted-foreground">{t(props.loading ? "projects.loading" : "project_filters.no_fields")}</CommandEmpty>
@@ -85,7 +114,7 @@ export function ProjectFilterBar(props: {
           <DropdownMenuContent align="start" className="w-64">
             {(["all", "any"] satisfies ProjectFilterMode[]).map(mode => <DropdownMenuItem key={mode} onClick={() => props.onModeChange(mode)} className="items-start gap-2">
               <Check className={cn("mt-0.5 size-3.5", props.mode !== mode && "invisible")} />
-              <span><span className="block text-xs">{t(`project_filters.match_${mode}`)}</span><span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{t(`project_filters.match_${mode}_hint`)}</span></span>
+              <span><span className="block text-xs">{mode === "all" ? t("project_filters.match_all") : t("project_filters.match_any")}</span><span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{mode === "all" ? t("project_filters.match_all_hint") : t("project_filters.match_any_hint")}</span></span>
             </DropdownMenuItem>)}
           </DropdownMenuContent>
         </DropdownMenu>}

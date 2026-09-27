@@ -39,6 +39,25 @@ const icons = {
   browse: FolderSearch, tool: Wrench,
 };
 
+function categoryLabel(category: ReturnType<typeof categoryOf>): string {
+  return {
+    command: t("tool_run.summary.command"),
+    read: t("tool_run.summary.read"),
+    edit: t("tool_run.summary.edit"),
+    write: t("tool_run.summary.write"),
+    search: t("tool_run.summary.search"),
+    web: t("tool_run.summary.web"),
+    skill: t("tool_run.summary.skill"),
+    plan: t("tool_run.summary.plan"),
+    agent: t("tool_run.summary.agent"),
+    question: t("tool_run.summary.question"),
+    credentials: t("tool_run.summary.credentials"),
+    review: t("tool_run.summary.review"),
+    browse: t("tool_run.summary.browse"),
+    tool: t("tool_run.summary.tool"),
+  }[category];
+}
+
 export function getToolIcon(part: ToolPart) {
   return icons[categoryOf(part)];
 }
@@ -62,12 +81,12 @@ export function getToolHistoryLabel(part: ToolPart): string {
   if (nameOf(part) === "legalwork_review_results") return t("tool_run.review_results");
   if (nameOf(part) === "legalwork_review_settings") return t("tool_run.review_settings");
   if (nameOf(part) === "legalwork_review_list") return t("tool_run.review_list");
-  if (categoryOf(part) !== "tool") return t(`tool_run.summary.${categoryOf(part)}`);
+  if (categoryOf(part) !== "tool") return categoryLabel(categoryOf(part));
   const name = nameOf(part).replace(/^(?:inapp_|legalwork_)/, "").replace(/[_-]+/g, " ");
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 export function getToolRunSummary(parts: ToolPart[]): string {
   if (parts.length === 1) return getToolHistoryLabel(parts[0]);
-  return [...new Set(parts.map(categoryOf))].map(category => t(`tool_run.summary.${category}`)).join(" · ");
+  return [...new Set(parts.map(categoryOf))].map(categoryLabel).join(" · ");
 }

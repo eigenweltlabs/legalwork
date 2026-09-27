@@ -1096,7 +1096,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")
     : props.sidebar.activeNav === "evals" ? t("sidebar.evals")
-    : props.sidebar.activeNav === "extensions" ? t("sidebar.extensions")
+    : props.sidebar.activeNav === "extensions" ? t("extensions.title")
     : showWorkspaceSetupEmptyState ? t("session.create_or_connect_workspace")
     : selectedSessionTitle || t("session.default_title");
   const sidebarVisible = !props.detached && shellConfig.sidebar && chatSidebarOpen && !mobile;
