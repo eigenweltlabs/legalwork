@@ -131,6 +131,8 @@ const revisions = new Map<string, number>();
 const poked = new Map<string, boolean>();
 /** Per project, how often sync changed its files here: the app reloads what shows them when it moves. */
 const contentRevisions = new Map<string, Map<string, number>>();
+/** Projects sync took off this computer: the app forgets them in its own list too. */
+const removedWorkspaces = new Map<string, Set<string>>();
 const roundStates = new Map<string, RoundState>();
 const rounds = new Map<string, Promise<ProjectSyncResult>>();
 const pendingRounds = new Map<string, ReturnType<typeof setTimeout>>();
@@ -523,6 +525,7 @@ async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: P
   store.removeLink(link.workspaceId);
   if (workspace) {
     await unregisterWorkspace(config, workspace);
+    removedWorkspaces.set(keyOf(config), (removedWorkspaces.get(keyOf(config)) ?? new Set<string>()).add(workspace.id));
     // Only a folder sync made itself is deleted; a folder the member brought is theirs.
     const root = resolve(defaultProjectRoot(config.projectsDirectory));
     if (link.origin === "remote" && resolve(workspace.path).startsWith(root + sep)) {
@@ -941,6 +944,7 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
     revision: revisions.get(keyOf(config)) ?? 0,
     states,
     contents: Object.fromEntries(contentRevisions.get(keyOf(config)) ?? []),
+    removed: [...(removedWorkspaces.get(keyOf(config)) ?? [])],
   };
 }
 

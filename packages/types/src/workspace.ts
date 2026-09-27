@@ -132,6 +132,8 @@ export type ProjectSyncOverview = {
   states: Record<string, ProjectSyncState>;
   /** Per project: moves whenever sync changed its files on this computer, so what shows them reloads. */
   contents: Record<string, number>;
+  /** Projects sync took off this computer while the server ran: the app's own list forgets them too. */
+  removed: string[];
 };
 
 export type WorkspaceWire = {

@@ -30,13 +30,15 @@ export const PROJECT_SYNC_POLL_MS = 5_000;
 
 /**
  * Keep the sidebar's sync states current, reload the project list when
- * projects arrive from the firm, leave, or are renamed there, and tell which
- * projects' files sync changed here (a colleague's note, a conflict copy).
+ * projects arrive from the firm, leave, or are renamed there, tell which
+ * projects' files sync changed here (a colleague's note, a conflict copy),
+ * and which projects sync took off this computer.
  */
 export function useProjectSyncPoller(
   client: LegalworkServerClient | null,
   onProjectsChanged: () => void,
   onContentsChanged: (workspaceIds: string[]) => void,
+  onProjectsRemoved: (workspaceIds: string[]) => void,
 ): void {
   const setOverview = useProjectSyncStore((state) => state.setOverview);
   const revision = useRef<number | null>(null);
@@ -45,6 +47,9 @@ export function useProjectSyncPoller(
   changed.current = onProjectsChanged;
   const contentsChanged = useRef(onContentsChanged);
   contentsChanged.current = onContentsChanged;
+  const projectsRemoved = useRef(onProjectsRemoved);
+  projectsRemoved.current = onProjectsRemoved;
+  const forgotten = useRef(new Set<string>());
   useEffect(() => {
     if (!client) return;
     let stopped = false;
@@ -59,6 +64,9 @@ export function useProjectSyncPoller(
         const moved = Object.keys(overview.contents).filter((id) => before !== null && before[id] !== overview.contents[id]);
         if (moved.length > 0) contentsChanged.current(moved);
         contents.current = overview.contents;
+        const gone = overview.removed.filter((id) => !forgotten.current.has(id));
+        for (const id of gone) forgotten.current.add(id);
+        if (gone.length > 0) projectsRemoved.current(gone);
       } catch {
         // An older server has no project sync: nothing to show.
       }
