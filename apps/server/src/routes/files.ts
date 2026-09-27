@@ -8,6 +8,7 @@ import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import { mergeableText, mergeText } from "../text-merge.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
@@ -1286,6 +1287,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const baseUpdatedAt =
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
+    // The text the editor loaded: a file changed since (a colleague's edit
+    // synced in, say) is merged with it, as project sync merges notes.
+    const baseContent = typeof body.baseContent === "string" ? body.baseContent : null;
 
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
 
@@ -1294,11 +1298,21 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       throw new ApiError(400, "invalid_path", "Path must point to a file");
     }
     const beforeUpdatedAt = before ? before.mtimeMs : null;
+    let written = content;
+    let merged = false;
     if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      throw new ApiError(409, "conflict", "File changed since it was loaded", {
-        baseUpdatedAt,
-        currentUpdatedAt: beforeUpdatedAt,
-      });
+      const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
+      const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
+      if (combined === null) {
+        throw new ApiError(409, "conflict", "File changed since it was loaded", {
+          baseUpdatedAt,
+          currentUpdatedAt: beforeUpdatedAt,
+          // Changed in the same place: the editor asks which version to keep.
+          ...(current === null ? {} : { reason: "overlap", current: { content: current, updatedAt: beforeUpdatedAt } }),
+        });
+      }
+      written = combined;
+      merged = combined !== content;
     }
 
     await requireApproval(ctx, {
@@ -1310,7 +1324,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, written, "utf8");
     await rename(tmp, absPath);
     const after = await stat(absPath);
     const revision = fileRevision(after);
@@ -1331,6 +1345,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       timestamp: Date.now(),
     });
 
-    return jsonResponse({ ok: true, path: relativePath, bytes, updatedAt: after.mtimeMs, revision });
+    return jsonResponse({
+      ok: true,
+      path: relativePath,
+      bytes: Buffer.byteLength(written, "utf8"),
+      updatedAt: after.mtimeMs,
+      revision,
+      ...(merged ? { merged: true, content: written } : {}),
+    });
   });
 }

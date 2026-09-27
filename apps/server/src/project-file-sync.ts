@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, relative, sep } from "node:path";
 
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
+import { MERGEABLE_TEXT_MAX_BYTES, mergeableText, mergeText } from "./text-merge.js";
 
 /**
  * One project folder kept in step with a remote copy of its documents.
@@ -19,9 +20,12 @@ import type { StorageAdapter } from "./file-storage/common.js";
  *   deleted remotely only        → moved to .legalwork/sync-trash here
  *   deleted on one side, edited
  *   on the other                 → the edit wins and comes back
- *   edited differently on both   → the remote version keeps the name; this
- *                                  computer's version is kept beside it as a
- *                                  copy, which then syncs like any new file
+ *   edited differently on both   → text a person writes (notes) is merged,
+ *                                  as Git merges; otherwise, or where both
+ *                                  changed the same words, the remote version
+ *                                  keeps the name and this computer's version
+ *                                  is kept beside it as a copy, which then
+ *                                  syncs like any new file
  *
  * Nothing is overwritten or removed without the other side's version being
  * the one last seen: uploads and remote deletes are conditional, and a local
@@ -41,6 +45,9 @@ export type FileBaseStore = {
   entries(): Map<string, FileBase>;
   put(key: string, entry: FileBase): void;
   drop(key: string): void;
+  /** For text that is merged (`mergeableText`): its agreed content, the base of a merge; null when not kept. */
+  text?(key: string): string | null;
+  putText?(key: string, text: string | null): void;
 };
 
 export type FileSyncOptions = {
@@ -69,6 +76,8 @@ export type FileSyncConflict = { path: string; copyPath: string };
 export type FileSyncSkip = { path: string; reason: "too_large" | "name_clash" | "failed"; detail?: string };
 
 export type FileSyncResult = {
+  /** Changed on both sides and merged: in place here, and at the firm. */
+  merged: number;
   uploaded: number;
   downloaded: number;
   removedRemote: number;
@@ -229,6 +238,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
   const now = options.now ?? (() => new Date());
   const settleMs = options.settleMs ?? 2_000;
   const result: FileSyncResult = {
+    merged: 0,
     uploaded: 0,
     downloaded: 0,
     removedRemote: 0,
@@ -321,6 +331,54 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
   const takenPaths = new Set([...local.keys(), ...remoteFiles.keys()]);
   const extraUploads: string[] = [];
 
+  /** Keep what both sides now agree a text says, if it is one that is merged. */
+  const rememberText = async (key: string, path: string, abs: string, sha256: string): Promise<void> => {
+    if (!base.putText || !mergeableText(path)) return;
+    const bytes = await readFile(abs).catch(() => null);
+    const agreed = bytes && bytes.byteLength <= MERGEABLE_TEXT_MAX_BYTES && createHash("sha256").update(bytes).digest("hex") === sha256;
+    base.putText(key, agreed ? bytes.toString("utf8") : null);
+  };
+
+  /**
+   * Both sides changed a text: merge the two against what they last agreed
+   * on, in place here and at the firm. False when it cannot be merged (no
+   * agreed text kept, or both changed the same words): the copy it is.
+   */
+  const mergeBoth = async (key: string, file: LocalFile, remoteFile: { path: string; version: string }): Promise<boolean> => {
+    const agreed = mergeableText(file.path) && file.size <= MERGEABLE_TEXT_MAX_BYTES ? (base.text?.(key) ?? null) : null;
+    if (agreed === null) return false;
+    await mkdir(workDir, { recursive: true });
+    const temporary = join(workDir, randomUUID());
+    try {
+      const received = await remote.download(remoteFile.path, temporary);
+      if (received.sha256 !== remoteFile.version) {
+        result.stale = true;
+        return true;
+      }
+      const merged = mergeText(agreed, await readFile(file.abs, "utf8"), await readFile(temporary, "utf8"));
+      if (merged === null) return false;
+      // Only over the file this round read: one saved meanwhile waits for the next round.
+      const current = await stat(file.abs);
+      if (current.size !== file.size || current.mtimeMs !== file.mtimeMs) {
+        result.stale = true;
+        return true;
+      }
+      await writeFile(temporary, merged, "utf8");
+      await rename(temporary, file.abs);
+      const placed = await stat(file.abs);
+      const sha256 = createHash("sha256").update(merged).digest("hex");
+      await remote.upload(file.path, file.abs, "application/octet-stream", { version: remoteFile.version });
+      base.put(key, { path: file.path, sha256, size: placed.size, mtimeMs: placed.mtimeMs });
+      base.putText?.(key, merged);
+      result.merged += 1;
+      result.downloaded += 1;
+      result.uploaded += 1;
+      return true;
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  };
+
   const placeDownload = async (key: string, targetPath: string, expected: LocalFile | null): Promise<void> => {
     const remoteFile = remoteFiles.get(key);
     if (!remoteFile) return;
@@ -344,6 +402,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
       await rename(temporary, target);
       const placed = await stat(target);
       base.put(key, { path: targetPath, sha256: remoteFile.version, size: placed.size, mtimeMs: placed.mtimeMs });
+      await rememberText(key, targetPath, target, remoteFile.version);
       result.downloaded += 1;
     } finally {
       await rm(temporary, { force: true });
@@ -370,7 +429,10 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
     try {
       switch (action) {
         case "adopt":
-          if (file && localSha) base.put(key, { path: file.path, sha256: localSha, size: file.size, mtimeMs: file.mtimeMs });
+          if (file && localSha) {
+            base.put(key, { path: file.path, sha256: localSha, size: file.size, mtimeMs: file.mtimeMs });
+            await rememberText(key, file.path, file.abs, localSha);
+          }
           break;
         case "forget":
           base.drop(key);
@@ -385,6 +447,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
           const version = remoteFile?.version;
           await remote.upload(file.path, file.abs, "application/octet-stream", version === undefined ? { createOnly: true } : { version });
           base.put(key, { path: file.path, sha256: localSha, size: file.size, mtimeMs: file.mtimeMs });
+          await rememberText(key, file.path, file.abs, localSha);
           result.uploaded += 1;
           break;
         }
@@ -413,6 +476,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
         }
         case "conflict": {
           if (!file || !remoteFile) break;
+          if (await mergeBoth(key, file, remoteFile)) break;
           const copyPath = conflictCopyPath(file.path, label, now(), (candidate) => takenPaths.has(fileKey(candidate)));
           takenPaths.add(fileKey(copyPath));
           await rename(file.abs, join(root, ...copyPath.split("/")));

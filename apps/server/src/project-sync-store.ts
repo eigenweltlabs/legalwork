@@ -58,6 +58,14 @@ export const PROJECT_SYNC_SCHEMA = [
     mtime_ms REAL NOT NULL,
     PRIMARY KEY (project_id, path_key)
   )`,
+  // The agreed content of text that is merged rather than copied when both
+  // sides changed it (notes): the base of that merge.
+  `CREATE TABLE IF NOT EXISTS project_file_base_text (
+    project_id TEXT NOT NULL,
+    path_key TEXT NOT NULL,
+    content TEXT NOT NULL,
+    PRIMARY KEY (project_id, path_key)
+  )`,
   // The same for the project's Tabular Reviews and their earlier runs, by
   // their path at the firm; a review keeps its agreed text, to merge against.
   `CREATE TABLE IF NOT EXISTS project_review_base (
@@ -360,6 +368,7 @@ export class ProjectSyncStore {
     const link = this.linkByWorkspace(workspaceId);
     if (!link) return;
     this.db.run("DELETE FROM project_file_base WHERE project_id = ?", [link.projectId]);
+    this.db.run("DELETE FROM project_file_base_text WHERE project_id = ?", [link.projectId]);
     this.db.run("DELETE FROM project_review_base WHERE project_id = ?", [link.projectId]);
     this.db.run("DELETE FROM project_remote_files WHERE project_id = ?", [link.projectId]);
     this.db.run("DELETE FROM project_remote_seq WHERE project_id = ?", [link.projectId]);
@@ -433,13 +442,30 @@ export class ProjectSyncStore {
              size = excluded.size, mtime_ms = excluded.mtime_ms`,
           [projectId, key, entry.path, entry.sha256, entry.size, entry.mtimeMs],
         ),
-      drop: (key) => this.db.run("DELETE FROM project_file_base WHERE project_id = ? AND path_key = ?", [projectId, key]),
+      drop: (key) => {
+        this.db.run("DELETE FROM project_file_base WHERE project_id = ? AND path_key = ?", [projectId, key]);
+        this.db.run("DELETE FROM project_file_base_text WHERE project_id = ? AND path_key = ?", [projectId, key]);
+      },
+      text: (key) => {
+        const row = this.db.get("SELECT content FROM project_file_base_text WHERE project_id = ? AND path_key = ?", [projectId, key]);
+        return typeof row?.content === "string" ? row.content : null;
+      },
+      putText: (key, content) => {
+        if (content === null) this.db.run("DELETE FROM project_file_base_text WHERE project_id = ? AND path_key = ?", [projectId, key]);
+        else
+          this.db.run(
+            `INSERT INTO project_file_base_text (project_id, path_key, content) VALUES (?, ?, ?)
+             ON CONFLICT(project_id, path_key) DO UPDATE SET content = excluded.content`,
+            [projectId, key, content],
+          );
+      },
     };
   }
 
   /** Forget what both sides last agreed on: the next round treats every file as new on both sides. */
   clearFileBase(projectId: string): void {
     this.db.run("DELETE FROM project_file_base WHERE project_id = ?", [projectId]);
+    this.db.run("DELETE FROM project_file_base_text WHERE project_id = ?", [projectId]);
   }
 
   reviewBase(projectId: string): ReviewBaseStore {

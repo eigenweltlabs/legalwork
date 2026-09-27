@@ -250,6 +250,30 @@ describe("project sync between computers", () => {
     expect((await projectSyncStatus(owner.config, akte)).state).toBe("synced");
   });
 
+  test("a note edited on both computers in different places ends up with both edits, and no copy", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Akte");
+    const note = "Notes/Termin-ee006b29.md";
+    await write(akte, note, "# Termin\n\nDer Mandant kommt am Montag um zehn Uhr.\n");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+
+    await write(akte, note, "# Termin\n\nDer Mandant kommt am Dienstag um zehn Uhr.\n");
+    await write(copy, note, "# Termin\n\nDer Mandant kommt am Montag um zehn Uhr.\n\nVollmacht mitbringen.\n");
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+
+    const both = "# Termin\n\nDer Mandant kommt am Dienstag um zehn Uhr.\n\nVollmacht mitbringen.\n";
+    expect(await read(akte, note)).toBe(both);
+    expect(await read(copy, note)).toBe(both);
+    expect((await projectSyncStatus(member.config, copy)).conflicts).toEqual([]);
+  });
+
   test("a Tabular Review goes with the documents, and a colleague's answers come back", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
