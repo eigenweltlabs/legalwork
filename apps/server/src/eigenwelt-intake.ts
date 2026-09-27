@@ -123,6 +123,9 @@ export type IntakeTaskPatch = {
   /** When the client made the change; the platform applies each field only
    *  if nothing newer has set it since (last-writer-wins per field). */
   changedAt?: string;
+  /** The title and description the change started from: a colleague's change
+   *  since is merged with it, and what cannot be comes back as a conflict. */
+  bases?: { title?: string; description?: string };
   /** Appended to the task's history; it never replaces triage's note. */
   note?: string;
   noteSource?: IntakeTaskNoteSource;
@@ -596,13 +599,24 @@ export async function intakeGetTask(client: IntakeClient, taskId: string): Promi
   };
 }
 
+/** A title or description a colleague changed in the same words meanwhile: theirs stayed, this is what was sent. */
+export type IntakeTextConflict = { field: "title" | "description"; mine: string; theirs: string };
+
+function parseTextConflicts(json: unknown): IntakeTextConflict[] {
+  if (!isRecord(json) || !Array.isArray(json.conflicts)) return [];
+  return json.conflicts.flatMap((entry): IntakeTextConflict[] => {
+    if (!isRecord(entry) || (entry.field !== "title" && entry.field !== "description")) return [];
+    return typeof entry.mine === "string" && typeof entry.theirs === "string" ? [{ field: entry.field, mine: entry.mine, theirs: entry.theirs }] : [];
+  });
+}
+
 export async function intakePatchTask(
   client: IntakeClient,
   taskId: string,
   patch: IntakeTaskPatch,
-): Promise<IntakeTask | null> {
+): Promise<{ task: IntakeTask | null; conflicts: IntakeTextConflict[] }> {
   const json = await intakeRequest(client, "PATCH", `/api/intake/tasks/${encodeURIComponent(taskId)}`, patch);
-  return parseWrittenTask(json);
+  return { task: parseWrittenTask(json), conflicts: parseTextConflicts(json) };
 }
 
 export async function intakeCreateTask(

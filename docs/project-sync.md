@@ -56,6 +56,8 @@ A round does not list a project's documents whole each time: this computer keeps
 
 ### Tasks
 
+- Two people changing one task: each field on its own, the later change wins (status, due date, assignee, priority, tags); notes are only ever added. Title and description are merged like notes: an edit says what it started from, and a colleague's change meanwhile is merged with it on the platform. Where both changed the same words, the colleague's text stays, and the one whose change came second is asked, in a notification and on the task: **Keep both** (theirs stays, and yours is kept in the task's history), **Use theirs** or **Keep mine**.
+- Pokes start task rounds too: a colleague's task change arrives within a few seconds.
 - Moving a firm task into a local project: only its creator can, and it is withdrawn from the firm (its content leaves the platform, other computers forget it). Inbox tasks and colleagues' tasks cannot move into a local project.
 - Moving a local task into a synced project, or turning on sync or tasks: it is sent whole (task, notes, files).
 - Turning tasks off, or stopping sync: the owner's computer keeps them as local tasks; the platform withdraws its copies. Inbox tasks go back to the firm's task list.

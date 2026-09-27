@@ -461,7 +461,10 @@ export type LegalworkTaskNote = {
   createdAt: string;
 };
 
-export type LegalworkTaskDetail = { task: LegalworkTask; submission: unknown; notes: LegalworkTaskNote[] };
+/** A title or description a colleague changed in the same words: theirs stayed, `mine` is what this member wrote. */
+export type LegalworkTaskTextConflict = { field: "title" | "description"; mine: string; theirs: string; at: string };
+export type LegalworkTaskConflictChoice = { field: "title" | "description"; keep: "mine" | "theirs"; note?: string };
+export type LegalworkTaskDetail = { task: LegalworkTask; submission: unknown; notes: LegalworkTaskNote[]; conflicts: LegalworkTaskTextConflict[] };
 
 /** Where the local store stands against the platform. */
 export type LegalworkTaskSyncStatus = {
@@ -477,7 +480,7 @@ export type LegalworkTaskSyncStatus = {
 };
 
 /** Something to announce about a task (the server's task-notifications.ts). */
-export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue" | "conflict";
 
 /**
  * Whose the task is, for the signed-in member: `mine` (assigned to them, or
@@ -2489,6 +2492,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`,
         { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    resolveTaskConflict: (workspaceId: string, taskId: string, choice: LegalworkTaskConflictChoice) =>
+      requestJson<LegalworkTaskDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/conflicts`,
+        { token, hostToken, method: "POST", body: choice, timeoutMs: timeouts.config },
       ),
     createTask: (workspaceId: string, payload: LegalworkTaskCreate) =>
       requestJson<{ ok: boolean; task: LegalworkTask }>(

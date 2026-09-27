@@ -128,7 +128,7 @@ export type TaskSessionLink = {
  * it arrived from the firm, it was assigned to the signed-in member, it is due
  * today, it is overdue.
  */
-export type TaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+export type TaskNotificationKind = "new" | "assigned" | "due_today" | "overdue" | "conflict";
 
 /**
  * Whose a task is, as the signed-in member sees it — what the app's "which
@@ -149,7 +149,26 @@ export type TaskNotification = {
   createdAt: string;
 };
 
-export type TaskDetail = { task: Task; submission: unknown; notes: TaskNote[] };
+/**
+ * A title or description this member changed while a colleague changed the
+ * same words (task-sync.ts): the colleague's text stayed, `mine` is what this
+ * member wrote, for them to decide which stays.
+ */
+export type TaskTextConflict = { field: "title" | "description"; mine: string; theirs: string; at: string };
+export type TaskDetail = { task: Task; submission: unknown; notes: TaskNote[]; conflicts: TaskTextConflict[] };
+
+/** Which version of a conflicting title or description stays; `note` keeps this member's in the history too. */
+export type TaskConflictChoice = { field: "title" | "description"; keep: "mine" | "theirs"; note?: string };
+
+export function parseTaskConflictChoice(value: unknown): TaskConflictChoice {
+  const field = typeof value === "object" && value !== null && "field" in value ? value.field : undefined;
+  const keep = typeof value === "object" && value !== null && "keep" in value ? value.keep : undefined;
+  const note = typeof value === "object" && value !== null && "note" in value ? value.note : undefined;
+  if ((field !== "title" && field !== "description") || (keep !== "mine" && keep !== "theirs") || (note !== undefined && typeof note !== "string")) {
+    throw new ApiError(400, "invalid_task_conflict_choice", "Choose which version stays: mine or theirs.");
+  }
+  return { field, keep, ...(note === undefined ? {} : { note }) };
+}
 
 export type TaskListParams = {
   projectId?: string;
@@ -230,7 +249,8 @@ const SCALAR_FIELDS: TaskScalarField[] = ["title", "description", "status", "pri
  */
 export type TaskSyncOp =
   | { kind: "create"; changedAt: string }
-  | { kind: "patch"; fields: Partial<Pick<Task, TaskScalarField>>; changedAt: string }
+  /** `bases`: the title and description this change started from, for the platform to merge against. */
+  | { kind: "patch"; fields: Partial<Pick<Task, TaskScalarField>>; changedAt: string; bases?: { title?: string; description?: string } }
   | { kind: "delete"; changedAt: string }
   | { kind: "restore"; changedAt: string }
   | { kind: "note"; noteId: string; body: string; source: TaskNoteSource; createdAt: string }
@@ -404,6 +424,16 @@ const SCHEMA = [
   // What the app is to announce about the tasks: one row per task and
   // occasion (a due day, the moment of an assignment), so nothing is announced
   // twice. Ids only — the text is read from the task when the app claims it.
+  // Titles and descriptions a colleague changed in the same words: theirs
+  // stayed, and this member decides (task-sync.ts).
+  `CREATE TABLE IF NOT EXISTS task_text_conflicts (
+    task_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    mine TEXT NOT NULL,
+    theirs TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (task_id, field)
+  )`,
   `CREATE TABLE IF NOT EXISTS task_notifications (
     id TEXT PRIMARY KEY NOT NULL,
     task_id TEXT NOT NULL,
@@ -515,7 +545,7 @@ function toOrigin(value: unknown): TaskOrigin {
 }
 
 function toNotificationKind(value: unknown): TaskNotificationKind | null {
-  return value === "new" || value === "assigned" || value === "due_today" || value === "overdue" ? value : null;
+  return value === "new" || value === "assigned" || value === "due_today" || value === "overdue" || value === "conflict" ? value : null;
 }
 
 /** Open or in progress: the tasks someone still has to do. */
@@ -815,7 +845,41 @@ export class TaskStore {
 
   getDetail(id: string): TaskDetail {
     const task = this.requireTask(id);
-    return { task, submission: this.getSubmission(id), notes: this.listNotes(id) };
+    return { task, submission: this.getSubmission(id), notes: this.listNotes(id), conflicts: this.textConflicts(id) };
+  }
+
+  textConflicts(taskId: string): TaskTextConflict[] {
+    return this.db.all("SELECT * FROM task_text_conflicts WHERE task_id = ? ORDER BY field", [taskId]).flatMap((row) => {
+      const field = row.field;
+      if ((field !== "title" && field !== "description") || typeof row.mine !== "string" || typeof row.theirs !== "string") return [];
+      return [{ field, mine: row.mine, theirs: row.theirs, at: new Date(Number(row.created_at)).toISOString() }];
+    });
+  }
+
+  /** The platform kept a colleague's text over this member's: remember theirs for them to decide, and say so. */
+  recordTextConflicts(taskId: string, conflicts: Omit<TaskTextConflict, "at">[], now: number = Date.now()): void {
+    for (const conflict of conflicts) {
+      this.db.run(
+        `INSERT INTO task_text_conflicts (task_id, field, mine, theirs, created_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(task_id, field) DO UPDATE SET mine = excluded.mine, theirs = excluded.theirs, created_at = excluded.created_at`,
+        [taskId, conflict.field, conflict.mine, conflict.theirs, now],
+      );
+      this.recordNotification(taskId, "conflict", `${conflict.field}:${now}`, now);
+    }
+  }
+
+  /**
+   * Settle a conflicting title or description: theirs stays as it is, or
+   * mine replaces it (an edit like any other, which the next round sends);
+   * with `note`, mine is kept in the task's history as well.
+   */
+  resolveTextConflict(taskId: string, choice: TaskConflictChoice, actor: TaskActor, now: number = Date.now()): TaskDetail {
+    const conflict = this.textConflicts(taskId).find((entry) => entry.field === choice.field);
+    if (!conflict) throw new ApiError(404, "task_conflict_not_found", "There is nothing to decide for this task.");
+    if (choice.keep === "mine") this.patchTask(taskId, { [choice.field]: conflict.mine }, actor, now);
+    if (choice.note !== undefined && choice.note.trim()) this.patchTask(taskId, { note: choice.note }, actor, now);
+    this.db.run("DELETE FROM task_text_conflicts WHERE task_id = ? AND field = ?", [taskId, choice.field]);
+    return this.getDetail(taskId);
   }
 
   /**
@@ -1149,7 +1213,14 @@ export class TaskStore {
         this.db.run(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
       }
       const changedAt = new Date(now).toISOString();
-      if (Object.keys(fields).length > 0) this.enqueue(id, { kind: "patch", fields, changedAt }, now);
+      // Text starts from what it was: a colleague's change to it meanwhile is merged, not overwritten.
+      const bases = {
+        ...(fields.title !== undefined && fields.title !== task.title ? { title: task.title } : {}),
+        ...(fields.description !== undefined && fields.description !== task.description ? { description: task.description } : {}),
+      };
+      if (Object.keys(fields).length > 0) {
+        this.enqueue(id, { kind: "patch", fields, changedAt, ...(Object.keys(bases).length > 0 ? { bases } : {}) }, now);
+      }
       if (patch.lastLocalRunAt !== undefined) {
         this.enqueue(id, { kind: "run_marker", lastLocalRunAt: patch.lastLocalRunAt }, now);
       }
@@ -1437,7 +1508,11 @@ export class TaskStore {
         assigneeUserId: nullableText(row.assignee_user_id),
         createdByUserId: nullableText(row.created_by_user_id),
       };
-      if (task.deletedAt !== null || !isOpenStatus(task.status)) return [];
+      if (task.deletedAt !== null) return [];
+      // A version to choose is news on a closed task too, until it is chosen.
+      if (kind === "conflict") {
+        if (this.textConflicts(text(row.task_id)).length === 0) return [];
+      } else if (!isOpenStatus(task.status)) return [];
       if (kind === "due_today" || kind === "overdue") {
         const due = dueOccasion(task, now);
         if (!due || due.kind !== kind || due.occasion !== text(row.occasion)) return [];

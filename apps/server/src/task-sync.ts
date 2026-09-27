@@ -18,6 +18,7 @@ import {
   type IntakeTaskListParams,
   type IntakeTaskPatch,
   type IntakeTaskPullPage,
+  type IntakeTextConflict,
 } from "./eigenwelt-intake.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { ApiError } from "./errors.js";
@@ -42,6 +43,10 @@ import type { ServerConfig } from "./types.js";
  * Conflicts are the platform's to settle, per field: a push carries when the
  * change was made, and the platform applies a field only when nothing newer
  * has set it since. Whatever it settled on comes back with the next pull.
+ * Title and description are text: a push says what it started from, and a
+ * colleague's change to it meanwhile is merged with it. What cannot be merged
+ * (both changed the same words) stays the colleague's, and this member is
+ * asked which version stays (task-store.ts `recordTextConflicts`).
  *
  * A pull also notes what the member should hear about — a task that arrived,
  * a task assigned to them (task-notifications.ts).
@@ -63,7 +68,7 @@ export type TaskSyncResult = {
 /** The platform calls a round makes; injectable so a test can stand in for the platform. */
 export type TaskSyncPlatform = {
   createTask: (client: IntakeClient, input: IntakeTaskCreate) => Promise<IntakeTask | null>;
-  patchTask: (client: IntakeClient, taskId: string, patch: IntakeTaskPatch) => Promise<IntakeTask | null>;
+  patchTask: (client: IntakeClient, taskId: string, patch: IntakeTaskPatch) => Promise<{ task: IntakeTask | null; conflicts: IntakeTextConflict[] }>;
   deleteTask: (client: IntakeClient, taskId: string) => Promise<IntakeTask | null>;
   restoreTask: (client: IntakeClient, taskId: string) => Promise<IntakeTask | null>;
   withdrawTask: (client: IntakeClient, taskId: string) => Promise<void>;
@@ -152,7 +157,7 @@ async function pushOne(
       return remote?.updatedAt ?? null;
     }
     case "project": {
-      const remote = await platform.patchTask(client, task.id, {
+      const { task: remote } = await platform.patchTask(client, task.id, {
         projectId: remoteProjectOf(projects, op.projectId),
         changedAt: op.changedAt,
       });
@@ -162,7 +167,13 @@ async function pushOne(
       await platform.withdrawTask(client, task.id);
       return null;
     case "patch": {
-      const remote = await platform.patchTask(client, task.id, { ...op.fields, changedAt: op.changedAt });
+      const { task: remote, conflicts } = await platform.patchTask(client, task.id, {
+        ...op.fields,
+        changedAt: op.changedAt,
+        ...(op.bases === undefined ? {} : { bases: op.bases }),
+      });
+      // The colleague's text stayed; the pull brings it, and this member decides.
+      if (conflicts.length > 0) store.recordTextConflicts(task.id, conflicts);
       return remote?.updatedAt ?? null;
     }
     case "delete":
@@ -170,7 +181,7 @@ async function pushOne(
     case "restore":
       return (await platform.restoreTask(client, task.id))?.updatedAt ?? null;
     case "note": {
-      const remote = await platform.patchTask(client, task.id, {
+      const { task: remote } = await platform.patchTask(client, task.id, {
         note: op.body,
         noteSource: op.source,
         noteId: op.noteId,
@@ -197,7 +208,7 @@ async function pushOne(
       await platform.deleteAttachment(client, task.id, op.attachmentId);
       return null;
     case "run_marker": {
-      const remote = await platform.patchTask(client, task.id, { lastLocalRunAt: op.lastLocalRunAt });
+      const { task: remote } = await platform.patchTask(client, task.id, { lastLocalRunAt: op.lastLocalRunAt });
       return remote?.updatedAt ?? null;
     }
   }

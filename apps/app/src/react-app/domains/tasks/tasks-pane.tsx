@@ -104,6 +104,7 @@ import {
   useTaskSyncStatus,
   useTaskTags,
   useTasks,
+  useResolveTaskConflict,
   useUpdateTask,
   useUploadTaskAttachments,
   type TaskQuery,
@@ -201,6 +202,7 @@ export function TasksPane(props: TasksPaneProps) {
   const runSync = useRunTaskSync(context);
   const createTask = useCreateTask(context);
   const updateTask = useUpdateTask(context);
+  const resolveConflict = useResolveTaskConflict(context);
   const deleteTask = useDeleteTask(context);
   const restoreTask = useRestoreTask(context);
   const uploadAttachments = useUploadTaskAttachments(context);
@@ -594,6 +596,8 @@ export function TasksPane(props: TasksPaneProps) {
             accountUserId={access.accountUserId}
             onBack={() => setSelectedTaskId(null)}
             onPatch={(patch) => updateTask.mutateAsync({ taskId: selectedTask.id, patch })}
+            conflicts={detailQuery.data?.conflicts}
+            onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
             onDelete={() => remove(selectedTask)}
             onRestore={() => restore(selectedTask)}
             onStartWorkflow={() => requestRun(selectedTask, "workflow")}

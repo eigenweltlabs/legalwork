@@ -194,7 +194,7 @@ import {
   intakeListMembers,
   requireIntakeClient,
 } from "./eigenwelt-intake.js";
-import { taskStore } from "./task-store.js";
+import { parseTaskConflictChoice, taskStore } from "./task-store.js";
 import { startTaskReminderTimer } from "./task-notifications.js";
 import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer } from "./task-sync.js";
 import {
@@ -3215,6 +3215,20 @@ function createRoutes(
     const task = store.patchTask(ctx.params.taskId, patch, actor);
     scheduleTaskSync(config);
     return jsonResponse({ ok: true, task });
+  });
+
+  // A title or description a colleague changed in the same words: which
+  // version stays (task-store.ts resolveTextConflict).
+  addRoute(routes, "POST", "/workspace/:id/tasks/:taskId/conflicts", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const { actor } = await localTaskConnection();
+    const choice = parseTaskConflictChoice(await readJsonBodyLimited(ctx.request, 256 * 1024));
+    const detail = store.resolveTextConflict(ctx.params.taskId, choice, actor);
+    scheduleTaskSync(config);
+    return jsonResponse(detail);
   });
 
   // Soft: the task goes to the trash and comes back with /restore. An agent

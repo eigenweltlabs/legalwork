@@ -229,7 +229,7 @@ describe("intakeGetTask", () => {
 describe("intakePatchTask", () => {
   test("sends only the fields the caller set, as JSON", async () => {
     stubFetch(() => jsonResponse({ ...TASK, status: "done" }));
-    const task = await intakePatchTask(client, "task_1", { status: "done", assigneeUserId: null });
+    const { task } = await intakePatchTask(client, "task_1", { status: "done", assigneeUserId: null });
 
     expect(calls[0].url).toBe("https://platform.test/api/intake/tasks/task_1");
     expect(calls[0].init.method).toBe("PATCH");
@@ -240,9 +240,16 @@ describe("intakePatchTask", () => {
 
   test("accepts a `{ task }` envelope and answers null when neither shape comes back", async () => {
     stubFetch(() => jsonResponse({ task: TASK }));
-    expect((await intakePatchTask(client, "task_1", { priority: 4 }))?.id).toBe("task_1");
+    expect((await intakePatchTask(client, "task_1", { priority: 4 })).task?.id).toBe("task_1");
     stubFetch(() => jsonResponse({ ok: true }));
-    expect(await intakePatchTask(client, "task_1", { priority: 4 })).toBeNull();
+    expect((await intakePatchTask(client, "task_1", { priority: 4 })).task).toBeNull();
+  });
+
+  test("hands back a title or description a colleague changed in the same words", async () => {
+    stubFetch(() => jsonResponse({ task: TASK, conflicts: [{ field: "title", mine: "Frist Schmidt", theirs: "Frist Müller" }, { field: "status", mine: "x", theirs: "y" }] }));
+    const result = await intakePatchTask(client, "task_1", { title: "Frist Schmidt", bases: { title: "Frist" } });
+    expect(JSON.parse(String(calls[0].init.body))).toMatchObject({ bases: { title: "Frist" } });
+    expect(result.conflicts).toEqual([{ field: "title", mine: "Frist Schmidt", theirs: "Frist Müller" }]);
   });
 });
 

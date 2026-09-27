@@ -13,6 +13,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import DOMPurify from "dompurify";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArchiveRestore,
   Bot,
@@ -60,11 +61,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type {
   LegalworkTask,
   LegalworkTaskAttachment,
+  LegalworkTaskConflictChoice,
   LegalworkTaskMember,
   LegalworkTaskNote,
   LegalworkTaskPatch,
   LegalworkTaskSessionLink,
+  LegalworkTaskTextConflict,
 } from "@/app/lib/legalwork-server";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { hasStorageFileDrag, readStorageFileDrag, type StorageFileDragItem } from "@/app/lib/storage-file-drag";
 import { writeTaskAttachmentDrag } from "@/app/lib/task-attachment-drag";
 import { formatBytes } from "@/app/utils";
@@ -326,10 +330,59 @@ export type TaskDetailProps = {
   onUploadAttachments: (files: File[]) => Promise<unknown>;
   onUploadStorageAttachment: (file: StorageFileDragItem) => Promise<unknown>;
   onRemoveAttachment: (attachment: LegalworkTaskAttachment) => Promise<unknown>;
+  /** Title or description a colleague changed in the same words: which version stays is this member's. */
+  conflicts?: LegalworkTaskTextConflict[];
+  onResolveConflict?: (choice: LegalworkTaskConflictChoice) => Promise<unknown>;
 };
+
+/** Both versions, and the member picks which stays; keeping both puts theirs in the history. */
+function TaskConflictNotice(props: {
+  conflict: LegalworkTaskTextConflict;
+  busy: boolean;
+  onResolve: (choice: LegalworkTaskConflictChoice) => Promise<unknown>;
+}) {
+  const { conflict } = props;
+  const [working, setWorking] = useState(false);
+  const choose = async (keep: "mine" | "theirs", both = false) => {
+    setWorking(true);
+    try {
+      const label = t(conflict.field === "title" ? "tasks.conflict_note_title" : "tasks.conflict_note_description");
+      await props.onResolve({ field: conflict.field, keep, ...(both ? { note: `${label}\n\n${conflict.mine}` } : {}) });
+    } catch (error) {
+      toast.error(t("tasks.conflict_failed"), { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setWorking(false);
+    }
+  };
+  const disabled = props.busy || working;
+  const version = (label: string, text: string) => (
+    <div>
+      <dt className="font-medium text-foreground">{label}</dt>
+      <dd className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1.5">{text}</dd>
+    </div>
+  );
+  return (
+    <Alert className="mb-4">
+      <AlertTriangle className="text-warning" />
+      <AlertDescription className="space-y-3">
+        <p>{t(conflict.field === "title" ? "tasks.conflict_title" : "tasks.conflict_description")}</p>
+        <dl className="grid gap-2 text-xs">
+          {version(t("tasks.conflict_theirs"), conflict.theirs)}
+          {version(t("tasks.conflict_mine"), conflict.mine)}
+        </dl>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={disabled} onClick={() => void choose("theirs", true)}>{t("tasks.conflict_keep_both")}</Button>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => void choose("theirs")}>{t("tasks.conflict_use_theirs")}</Button>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => void choose("mine")}>{t("tasks.conflict_keep_mine")}</Button>
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 export function TaskDetail(props: TaskDetailProps) {
   const { task } = props;
+  const resolveConflict = props.onResolveConflict;
   // The newest run started from the task on this machine, for the toolbar's
   // "Open run"; the session that filed the task is not a run of it.
   const latestRun = task.sessions.find((link) => link.kind !== "created") ?? null;
@@ -632,6 +685,11 @@ export function TaskDetail(props: TaskDetailProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 py-6 sm:px-6">
+          {resolveConflict
+            ? (props.conflicts ?? []).map((conflict) => (
+                <TaskConflictNotice key={conflict.field} conflict={conflict} busy={props.busy} onResolve={resolveConflict} />
+              ))
+            : null}
           <>
               <div className="space-y-4 pb-6">
                 <Input
