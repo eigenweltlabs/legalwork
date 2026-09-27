@@ -3,8 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { serverSentEvents, type SyncPoke } from "@legalwork/types/sync-events";
+
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { serverSentEvents, startSyncEvents, type SyncPoke } from "./eigenwelt-sync-events.js";
+import { startSyncEvents } from "./eigenwelt-sync-events.js";
 import type { ServerConfig } from "./types.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];

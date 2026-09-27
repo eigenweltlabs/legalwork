@@ -12,6 +12,7 @@ import type {
 } from "@legalwork/types/workspace";
 import { z } from "zod";
 
+import { announceSyncChange } from "./app-sync-events.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { requireIntakeClient, type IntakeClient } from "./eigenwelt-intake.js";
 import { eigenweltProjectStorage, type RemoteFileIndex } from "./eigenwelt-project-storage.js";
@@ -150,6 +151,7 @@ function workspacesChanged(config: ServerConfig): void {
   const key = keyOf(config);
   revisions.set(key, (revisions.get(key) ?? 0) + 1);
   hosts.get(key)?.onWorkspacesChanged();
+  announceSyncChange(config, "projects");
 }
 
 function messageOf(error: unknown): string {
@@ -749,6 +751,8 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     roundStates.set(key, { offline: unreachable(error), error: result.error, at: Date.now() });
   }
   refreshWatchers(config, store.links(orgId));
+  // What the round changed (states, files, conflicts) shows in the app now.
+  announceSyncChange(config, "projects");
   return result;
 }
 

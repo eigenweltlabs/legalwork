@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import type { ProjectSyncOverview, ProjectSyncState } from "@legalwork/types/workspace";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
 
 /** Every synced project's state, for the sidebar; filled by `useProjectSyncPoller`. */
 export const useProjectSyncStore = create<{
@@ -21,9 +22,9 @@ export const useProjectSyncStore = create<{
 }));
 
 /**
- * How often the app asks its own server (on this computer, so it costs
- * nothing) for sync states: what the firm pokes this computer about shows
- * this soon after its round.
+ * How often the app asks its own server for sync states while it hears no
+ * sync events from it (kernel/sync-events.ts). With them, a round's changes
+ * show as soon as the round ends.
  */
 export const PROJECT_SYNC_POLL_MS = 5_000;
 
@@ -64,9 +65,15 @@ export function useProjectSyncPoller(
     };
     void poll();
     useProjectSyncStore.setState({ refresh: () => void poll() });
-    const timer = window.setInterval(() => void poll(), PROJECT_SYNC_POLL_MS);
+    const unsubscribe = onSyncPoke((poke) => {
+      if (poke.projects || poke.resync) void poll();
+    });
+    const timer = window.setInterval(() => {
+      if (!useSyncEventsLive.getState().live) void poll();
+    }, PROJECT_SYNC_POLL_MS);
     return () => {
       stopped = true;
+      unsubscribe();
       window.clearInterval(timer);
       useProjectSyncStore.setState({ refresh: () => {} });
     };
