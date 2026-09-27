@@ -14,13 +14,18 @@ import type { WorkspaceInfo } from "./types.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
-async function fixture(fail = false) {
+async function fixture(fail = false, layoutAvailable = true) {
   const scratch = fileURLToPath(new URL("../../../.legalwork/scratch/", import.meta.url));
   await mkdir(scratch, { recursive: true });
   const root = await realpath(await mkdtemp(join(scratch, "search-fixture-")));
   let calls = 0;
   const box = { x: .1, y: .2, width: .6, height: .1 };
-  const preparation = new DocumentPreparation(new OcrManager(join(root, ".ocr")), { snapshot: async () => {
+  const preparation = new DocumentPreparation(new OcrManager(join(root, ".ocr")), {
+    layout: { fingerprint: "fixture-layout", async detect() {
+      if (!layoutAvailable) throw new Error("Layout unavailable");
+      return { model: "fixture-layout", regions: [{ label: "text", box, confidence: .99, order: 0 }] };
+    } },
+    snapshot: async () => {
     if (fail) throw new Error("OCR unavailable");
     return { fingerprint: "fixture", service: new OcrService([{ info: { id: "fixture", label: "Fixture", execution: "local", model: "fixture", regions: true, languages: null, warnings: [] }, recognize: async () => {
       calls++;
@@ -67,6 +72,20 @@ test("a clause split across pages returns every contributing passage", () => {
   const result = documentMatches({ pages, text: pages.map(page => page.text).join("\n\n"), hash: "hash", complete: true, extraction: "native" }, "split.pdf", "ownership terminate");
   expect(result.sources.map(source => source.page)).toEqual([1, 2]);
   expect(result.sources[1].quote).toContain("terminate");
+});
+
+test("missing layout preserves searchable OCR locations but reports incomplete evidence", async () => {
+  const f = await fixture(false, false);
+  await writeFile(join(f.root, "scan.png"), await readFile(new URL("./ocr/fixtures/bilingual.png", import.meta.url)));
+  const shared = await extractCorpusText(f.root, "scan.png", f.preparation, signal());
+  expect(shared.complete).toBe(false);
+  expect(shared.pages.find(page => page.source === "ocr")?.regions?.[0].box).toEqual(f.box);
+  const result = await settled(f, "quarterly escrow");
+  expect(result.items).toHaveLength(1);
+  expect(result.items[0].incomplete).toBe(true);
+  expect(result.incomplete).toBe(1);
+  expect(result.retryable).toBe(true);
+  expect(f.calls()).toBe(1);
 });
 
 test("unreadable images are reported, partial native text remains searchable, and external symlinks are excluded", async () => {
