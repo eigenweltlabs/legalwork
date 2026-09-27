@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import type { IntakeClient, IntakeTask, IntakeTaskPatch, IntakeTaskPullPage } from "./eigenwelt-intake.js";
 import { ApiError } from "./errors.js";
+import { projectSyncStore, type ProjectLink } from "./project-sync-store.js";
 import { taskStore, type TaskStore } from "./task-store.js";
 import { runTaskSync, signOutOfFirmTasks, startTaskSyncTimer, type TaskSyncPlatform } from "./task-sync.js";
 import type { ServerConfig } from "./types.js";
@@ -49,6 +50,7 @@ type Call = { method: string; taskId?: string; body?: unknown };
 function remoteTask(overrides: Partial<IntakeTask> & { id: string }): IntakeTask {
   return {
     origin: "desktop",
+    projectId: null,
     endpointId: null,
     endpointName: null,
     submissionId: null,
@@ -108,6 +110,10 @@ function fakePlatform(script: {
     restoreTask: async (_client, taskId) => {
       calls.push({ method: "restore", taskId });
       return remoteTask({ id: taskId });
+    },
+    withdrawTask: async (_client, taskId) => {
+      calls.push({ method: "withdraw", taskId });
+      failing("withdrawTask");
     },
     uploadAttachment: async (_client, taskId, file) => {
       calls.push({ method: "upload", taskId, body: { id: file.id, filename: file.filename, size: file.bytes.byteLength } });
@@ -342,6 +348,79 @@ describe("task-sync", () => {
       platform: fakePlatform({ pages: [page([{ ...backlog, assigneeUserId: "user_ada", updatedAt: "2026-09-16T10:00:00.000Z" }])] }).platform,
     });
     expect(claim()).toEqual(["Alt: assigned"]);
+  });
+
+  test("a task follows its project: sent with the firm's project id, taken back into a local project, kept when hidden", async () => {
+    const { config, store } = await makeConfig();
+    await connect(config);
+    const projects = await projectSyncStore(config);
+    const link = (workspaceId: string, projectId: string, confirmed = true): ProjectLink => ({
+      workspaceId,
+      projectId,
+      orgId: ORG,
+      origin: "local",
+      role: "owner",
+      ownerUserId: "user_ada",
+      settings: { access: "members", memberIds: [], scope: { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: false } },
+      confirmed,
+      remoteUpdatedAt: null,
+      filesReconciledAt: null,
+      state: "active",
+      allowDeletions: false,
+      lastSyncAt: null,
+      lastError: null,
+      report: null,
+    });
+    projects.saveLink(link("ws_synced", "44444444-4444-4444-8444-444444444444"));
+    const task = store.createTask({ title: "Frist", projectId: "ws_synced" }, ADA);
+    const { platform, calls } = fakePlatform({
+      pages: [{ tasks: [], nextCursor: null, hidden: [] }, { tasks: [], nextCursor: null, hidden: [task.id] }],
+    });
+
+    await runTaskSync(config, { platform });
+    expect(calls[0]).toMatchObject({ method: "create", body: { id: task.id, projectId: "44444444-4444-4444-8444-444444444444" } });
+
+    // Into a project that stays on this machine: withdrawn from the firm, and
+    // the platform's later "hidden" for it does not take it away here.
+    store.patchTask(task.id, { projectId: "ws_local" }, ADA);
+    await runTaskSync(config, { platform });
+    expect(calls.filter((call) => call.method === "withdraw")).toEqual([{ method: "withdraw", taskId: task.id }]);
+    expect(store.getTask(task.id)).toMatchObject({ projectId: "ws_local", sync: { orgId: null, pending: false } });
+  });
+
+  test("a task never leaves without its project: it waits for the project's upload, and stays when the project no longer syncs", async () => {
+    const { config, store } = await makeConfig();
+    await connect(config);
+    const projects = await projectSyncStore(config);
+    projects.saveLink({
+      workspaceId: "ws_new",
+      projectId: "55555555-5555-4555-8555-555555555555",
+      orgId: ORG,
+      origin: "local",
+      role: "owner",
+      ownerUserId: "user_ada",
+      settings: { access: "members", memberIds: [], scope: { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: false } },
+      confirmed: false,
+      remoteUpdatedAt: null,
+      filesReconciledAt: null,
+      state: "active",
+      allowDeletions: false,
+      lastSyncAt: null,
+      lastError: null,
+      report: null,
+    });
+    const task = store.createTask({ title: "Frist", projectId: "ws_new" }, ADA);
+    const { platform, calls } = fakePlatform();
+
+    await runTaskSync(config, { platform });
+    expect(calls.map((call) => call.method)).not.toContain("create");
+    expect(store.getTask(task.id)?.sync.pending).toBe(true);
+
+    // The project stopped syncing before its upload: the task stays here, unsent.
+    projects.removeLink("ws_new");
+    await runTaskSync(config, { platform });
+    expect(calls.map((call) => call.method)).not.toContain("create");
+    expect(store.getTask(task.id)?.sync).toMatchObject({ orgId: null, pending: false });
   });
 
   test("concurrent callers share the round in flight", async () => {

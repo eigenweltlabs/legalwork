@@ -106,6 +106,8 @@ export interface RecorderLiveTranscriptStatus {
 export interface RecorderBridge {
   listProjectRecordings?: (projectId: string) => Promise<Pick<AudioRecordingMeta, "id" | "title" | "durationMs" | "status" | "segmentCount">[]>;
   readProjectRecording?: (projectId: string, id: string) => Promise<Pick<AudioRecordingDetail, "segments"> | null>;
+  /** Copy a finished recording linked to the project into its `recordings/` folder, for project sync; false when not written. */
+  exportProjectRecording?: (projectId: string, id: string, projectRoot: string) => Promise<boolean>;
   status: (workspacePath: string) => RecorderLiveTranscriptStatus | Promise<RecorderLiveTranscriptStatus>;
   setLiveTranscript: (
     enabled: boolean,

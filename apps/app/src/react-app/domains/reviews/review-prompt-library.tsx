@@ -1,7 +1,7 @@
 import { reviewColumnLabel } from "./review-labels";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Layers, List, Copy, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { BookOpen, Layers, List, Copy, MoreHorizontal, Pencil, Plus, Search, Share2, Trash2 } from "lucide-react";
 import { reviewLibraryKind, reviewLibraryPrompts, type ReviewLibraryEntry } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,11 @@ import { HubTabs } from "../settings/segmented-tabs";
 import { ReviewLibraryEditor } from "./review-library-editor";
 
 type Editor = { kind: "prompt" | "set"; entry?: ReviewLibraryEntry; initialColumnKey?: string };
-export function ReviewPromptLibrary({ client, workspaceId }: { client: LegalworkServerClient; workspaceId: string }) {
+export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
+  client: LegalworkServerClient; workspaceId: string;
+  /** Share one of the user's own sets with the firm (Team); single prompts are not shared. */
+  onShareSet?: (entry: ReviewLibraryEntry) => void;
+}) {
   const language = currentLocale(), queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["review-library", workspaceId, language], queryFn: () => client.reviewLibrary(workspaceId, language) });
   const [view, setView] = useState<"sets" | "prompts">("sets");
@@ -35,6 +39,7 @@ export function ReviewPromptLibrary({ client, workspaceId }: { client: Legalwork
   const actions = (entry: ReviewLibraryEntry, initialColumnKey?: string) => <DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("workflows.actions", { name: entry.name })} onClick={event => event.stopPropagation()} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
     <DropdownMenuContent align="end"><DropdownMenuItem onClick={event => { event.stopPropagation(); edit(entry, initialColumnKey); }}>{entry.source === "personal" ? <Pencil /> : <Copy />}{t(entry.source === "personal" ? "common.edit" : "review.customize_copy")}</DropdownMenuItem>
+      {onShareSet && initialColumnKey === undefined && entry.source === "personal" && reviewLibraryKind(entry) === "set" && <DropdownMenuItem onClick={event => { event.stopPropagation(); onShareSet(entry); }}><Share2 />{t("workflows.share")}</DropdownMenuItem>}
       {entry.source === "personal" && <DropdownMenuItem variant="destructive" onClick={event => { event.stopPropagation(); setRemoveTarget(entry); }}><Trash2 />{t(reviewLibraryKind(entry) === "set" ? "review.delete_set" : "review.delete_prompt")}</DropdownMenuItem>}
     </DropdownMenuContent>
   </DropdownMenu>;

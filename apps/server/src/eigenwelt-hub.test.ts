@@ -77,6 +77,13 @@ describe("validateHubName", () => {
     expect(() => validateHubName("has space")).toThrow(ApiError);
     expect(() => validateHubName("a".repeat(101))).toThrow(ApiError);
   });
+
+  test("a prompt set keeps the name a person gave it", () => {
+    expect(validateHubName(" Prüfung (Kaufvertrag) ", "review_set")).toBe("Prüfung (Kaufvertrag)");
+    expect(() => validateHubName("Prüfung (Kaufvertrag)", "workflow")).toThrow(ApiError);
+    expect(() => validateHubName("Zeile\nzwei", "review_set")).toThrow(ApiError);
+    expect(() => validateHubName("a".repeat(101), "review_set")).toThrow(ApiError);
+  });
 });
 
 describe("serializeWorkflowSkill", () => {

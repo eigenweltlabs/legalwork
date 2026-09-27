@@ -30,7 +30,8 @@ export interface StorageAdapter {
   upload(path: string, source: string, contentType: string, condition: WriteCondition): Promise<void>;
   mkdir(path: string): Promise<void>;
   rename?(path: string, destination: string, kind: StorageEntry["kind"]): Promise<void>;
-  deleteFile?(path: string): Promise<void>;
+  /** With a version, removes only that version; a newer one is a `storage_conflict`. */
+  deleteFile?(path: string, condition?: WriteCondition): Promise<void>;
   deleteFolder?(path: string): Promise<void>;
   close?(): Promise<void>;
 }

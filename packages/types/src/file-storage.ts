@@ -183,6 +183,8 @@ export type StorageEntry = {
   kind: "file" | "folder";
   size: number | null;
   modifiedAt: string | null;
+  /** The version a conditional write names, when the provider lists it. */
+  version?: string;
 };
 export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
 /** Literal, case-insensitive metadata search over files, including unopened folders. */

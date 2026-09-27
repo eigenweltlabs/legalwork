@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { workspaceSettingsRoute } from "../../shell/workspace-routes";
 import { ArrowLeft, ArrowUpRight, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Settings2, Square, Table2, Trash2, X } from "lucide-react";
 import type { ReviewCell, ReviewColumn, RunReview, SavedReview } from "@legalwork/types/reviews";
-import { incompatibleJevQuestion, reviewRunAction } from "@legalwork/types/reviews";
+import { incompatibleJevQuestion, reviewRunAction, reviewRunningElsewhere } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -74,6 +74,8 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
     onOpenSession(result.sessionId);
   } });
   const running = review?.status === "running";
+  // A colleague's computer runs it (a synced project): this one watches.
+  const elsewhere = review ? reviewRunningElsewhere(review) : false;
   const runnable = review?.columns.some(column => review.settings.mode !== "jev" || !incompatibleJevQuestion(column));
   const openReview = (id?: string) => {
     setSelected(null);
@@ -130,7 +132,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
         </> : review && <>
           <Button variant="ghost" size="sm" disabled={busy} aria-label={t("review.settings")} onClick={() => setDialog({ type: "settings" })}><Settings2 className="size-3.5" />{reviewModeLabel(review.settings.mode)}</Button>
           <Button variant="outline" disabled={discussion.isPending} onClick={() => discussion.mutate()}><MessageSquare className="size-4" />{t(linkedSession.data?.sessionId ? "review.continue_session" : "review.discuss_session")}</Button>
-          {running ? <Button size="sm" variant="outline" disabled={change.isPending} onClick={() => change.mutate({ type: "stop" })}><Square className="size-3.5" />{t("review.stop")}</Button> : <Button size="sm" disabled={!runnable || !review.documents.length || busy} onClick={() => change.mutate({ type: "run", options: { rerun: runAction === "rerun_all", retryFailed: runAction === "retry_failed" } })}>{runAction === "rerun_all" ? <RotateCcw className="size-3.5" /> : <Play className="size-3.5" />}{reviewActionLabel(runAction)}</Button>}
+          {elsewhere ? <span role="status" className="text-xs text-muted-foreground">{review.runner?.name ? t("review.running_elsewhere", { name: review.runner.name }) : t("review.running_elsewhere_unnamed")}</span> : running ? <Button size="sm" variant="outline" disabled={change.isPending} onClick={() => change.mutate({ type: "stop" })}><Square className="size-3.5" />{t("review.stop")}</Button> : <Button size="sm" disabled={!runnable || !review.documents.length || busy} onClick={() => change.mutate({ type: "run", options: { rerun: runAction === "rerun_all", retryFailed: runAction === "retry_failed" } })}>{runAction === "rerun_all" ? <RotateCcw className="size-3.5" /> : <Play className="size-3.5" />}{reviewActionLabel(runAction)}</Button>}
           <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("review.actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger><DropdownMenuContent align="end">
             <DropdownMenuItem disabled={busy || !review.cells.some(cell => cell.status === "error")} onClick={() => change.mutate({ type: "run", options: { retryFailed: true } })}><RotateCcw />{t("review.retry_failed")}</DropdownMenuItem>
             <DropdownMenuItem disabled={busy} onClick={() => setDialog({ type: "name" })}><FileText />{t("review.rename")}</DropdownMenuItem><DropdownMenuItem disabled={busy || !review.columns.length} onClick={() => setDialog({ type: "save", columns: review.columns })}><BookOpen />{t("review.save_set")}</DropdownMenuItem><DropdownMenuItem disabled={busy || !runnable} onClick={() => change.mutate({ type: "run", options: { rerun: true } })}><RotateCcw />{t("review.rerun_all")}</DropdownMenuItem><DropdownMenuItem disabled={!review.cells.some(cell => cell.result)} onClick={() => exportReview(review)}><Download />{t("review.export")}</DropdownMenuItem>
