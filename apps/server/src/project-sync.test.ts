@@ -512,6 +512,8 @@ describe("project sync between computers", () => {
     await runProjectSync(member.config, { platform });
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([copy.id]);
     expect(await readdir(second?.path ?? "").catch(() => null)).toBeNull();
+    // The app's own list forgets it too.
+    expect((await projectSyncOverview(member.config)).removed).toEqual([second?.id ?? ""]);
   });
 
   test("a file whose time alone moved is no change: without real changes, the copy goes when access ends", async () => {
@@ -549,6 +551,8 @@ describe("project sync between computers", () => {
     await runProjectSync(member.config, { platform });
 
     expect(projectsOf(member.config)).toEqual([]);
+    expect((await projectSyncOverview(member.config)).removed).toHaveLength(1);
+    expect((await projectSyncOverview(owner.config)).removed).toEqual([]);
     expect(await read(akte, "a.txt")).toBe("a");
     expect((await projectSyncStatus(owner.config, akte)).mode).toBe("local");
     expect((await readProjectDetails(akte.path)).syncProjectId).toBeUndefined();

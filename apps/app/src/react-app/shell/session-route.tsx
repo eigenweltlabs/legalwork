@@ -503,6 +503,9 @@ export function SessionRoute() {
     for (const id of workspaceIds) {
       void getReactQueryClient().invalidateQueries({ predicate: (query) => query.queryKey.includes(id) });
     }
+  }, (workspaceIds) => {
+    // Sync took these projects off this computer (access ended, or removed from Home).
+    void Promise.all(workspaceIds.map((id) => forgetWorkspaceHere(id))).then(() => refreshRouteState());
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
@@ -1638,19 +1641,12 @@ export function SessionRoute() {
     }
   }, [workspaces]);
 
-  const handleForgetWorkspace = useCallback(
+  // Gone from the server (removed from the sidebar, or taken off this
+  // computer by project sync): the desktop's own list and this window forget
+  // it too, so the next refresh can't resurrect the row from whichever list
+  // wins the merge.
+  const forgetWorkspaceHere = useCallback(
     async (workspaceId: string) => {
-      if (typeof window !== "undefined") {
-        const message =
-          t("workspace_list.remove_confirm") ||
-          "Remove this workspace from the sidebar?";
-        if (!window.confirm(message)) return;
-      }
-      // Remove from both stores so the next refresh can't resurrect the row
-      // from whichever list wins the merge.
-      if (client) {
-        await client.deleteWorkspace(workspaceId).catch(() => undefined);
-      }
       if (isDesktopRuntime()) {
         await workspaceForget(workspaceId).catch(() => undefined);
       }
@@ -1661,9 +1657,25 @@ export function SessionRoute() {
       }
       forgetWorkspaceMemory(workspaceId);
       sessionManagementStore.getState().forgetWorkspace(workspaceId);
+    },
+    [navigate, selectedWorkspaceId],
+  );
+
+  const handleForgetWorkspace = useCallback(
+    async (workspaceId: string) => {
+      if (typeof window !== "undefined") {
+        const message =
+          t("workspace_list.remove_confirm") ||
+          "Remove this workspace from the sidebar?";
+        if (!window.confirm(message)) return;
+      }
+      if (client) {
+        await client.deleteWorkspace(workspaceId).catch(() => undefined);
+      }
+      await forgetWorkspaceHere(workspaceId);
       await refreshRouteState();
     },
-    [client, navigate, refreshRouteState, selectedWorkspaceId],
+    [client, forgetWorkspaceHere, refreshRouteState],
   );
 
 
