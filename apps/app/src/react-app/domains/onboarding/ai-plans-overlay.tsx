@@ -711,7 +711,10 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       tabIndex={-1}
       data-testid="ai-plans-overlay"
       className={cn(
-        "fixed inset-0 z-40 flex flex-col bg-background/35 outline-none backdrop-blur-[14px] dark:bg-background/70",
+        "fixed inset-0 z-40 flex flex-col outline-none",
+        props.mode === "onboarding"
+          ? "bg-background"
+          : "bg-background/35 backdrop-blur-[14px] dark:bg-background/70",
         // Over a working app the screen fades in. In onboarding it follows
         // an opaque step, and a fade would show the bare app first.
         props.mode === "gate" && "duration-300 animate-in fade-in-0",
