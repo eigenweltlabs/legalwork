@@ -26,7 +26,6 @@ import type {
   ProjectSyncStatus,
 } from "@legalwork/types/workspace";
 import { LegalworkServerError, type LegalworkServerClient, type LegalworkTaskMember, type LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -168,9 +167,9 @@ export function ProjectShareButton(props: { client: LegalworkServerClient; works
   return (
     <>
       <Button
-        variant="outline"
+        variant="ghost"
         size="sm"
-        className="shrink-0 gap-2 rounded-lg shadow-xs"
+        className="shrink-0 gap-1.5 rounded-[var(--lw-radius-md)] px-2.5 text-xs"
         aria-haspopup="dialog"
         aria-label={shared ? t("project_sync.manage_sharing") : t("project_sync.share_project")}
         title={attention ? STATE_LABELS[attention]() : shared && data.settings.access === "org" ? t("project_sync.access_org") : others.join(", ") || undefined}
@@ -232,6 +231,7 @@ function OfferDecision(props: {
   workspaceId: string;
   offer: NonNullable<ProjectSyncStatus["offer"]>;
   onDecided?: () => void;
+  className?: string;
 }) {
   const queryClient = useQueryClient();
   const members = useTaskMembers({ client: props.client, workspaceId: props.workspaceId });
@@ -252,22 +252,24 @@ function OfferDecision(props: {
     }
   };
   return (
-    <Alert variant="warning">
-      <Users />
-      <AlertDescription className="space-y-3">
-        <p>
-          {t("project_sync.offer", {
-            owner: owner ? memberName(owner) : t("project_sync.owner_unknown"),
-            name: props.offer.name,
-          })}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void decide("use_folder")}>{t("project_sync.use_folder")}</Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide("keep_apart")}>{t("project_sync.keep_apart")}</Button>
-        </div>
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-      </AlertDescription>
-    </Alert>
+    <NoticeRow
+      className={props.className}
+      icon={<Users />}
+      tone="warning"
+      title={STATE_LABELS.offered()}
+      actions={<>
+        <Button size="sm" variant="outline" className="text-xs" disabled={busy} onClick={() => void decide("use_folder")}>{t("project_sync.use_folder")}</Button>
+        <Button size="sm" variant="ghost" className="text-xs" disabled={busy} onClick={() => void decide("keep_apart")}>{t("project_sync.keep_apart")}</Button>
+      </>}
+    >
+      <p>
+        {t("project_sync.offer", {
+          owner: owner ? memberName(owner) : t("project_sync.owner_unknown"),
+          name: props.offer.name,
+        })}
+      </p>
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
+    </NoticeRow>
   );
 }
 
@@ -290,8 +292,8 @@ export function ProjectSyncNotice(props: {
   const data = status.data;
   if (data?.offer) {
     return (
-      <div className="mb-6" aria-live="polite">
-        <OfferDecision client={props.client} workspaceId={props.workspaceId} offer={data.offer} />
+      <div className={NOTICES} aria-live="polite">
+        <OfferDecision client={props.client} workspaceId={props.workspaceId} offer={data.offer} className={NOTICE_ROW} />
       </div>
     );
   }
@@ -322,77 +324,107 @@ export function ProjectSyncNotice(props: {
       return next;
     });
   const open = (path: string) => props.onOpenFile?.({ name: path.split("/").at(-1) ?? path, path, kind: "file" });
+  const choice = (label: string, onClick: () => void, primary = false) => (
+    <Button size="sm" variant={primary ? "outline" : "ghost"} className="text-xs" disabled={busy} onClick={onClick}>{label}</Button>
+  );
 
   const notices: ReactElement[] = [];
   if (data.state === "revoked") {
     notices.push(
-      <Alert key="revoked" variant="warning">
-        <AlertTriangle />
-        <AlertDescription className="space-y-3">
-          <p>{t("project_sync.revoked", { count: data.pendingChanges })}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void resolve({ action: "keep_local" })}>{t("project_sync.keep_local")}</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void resolve({ action: "remove", force: true })}>{t("project_sync.remove_copy")}</Button>
-          </div>
-        </AlertDescription>
-      </Alert>,
+      <NoticeRow key="revoked" className={NOTICE_ROW} icon={<AlertTriangle />} tone="warning" title={STATE_LABELS.revoked()} actions={<>
+        {choice(t("project_sync.keep_local"), () => void resolve({ action: "keep_local" }), true)}
+        {choice(t("project_sync.remove_copy"), () => void resolve({ action: "remove", force: true }))}
+      </>}>
+        {t("project_sync.revoked", { count: data.pendingChanges })}
+      </NoticeRow>,
     );
   }
   if (data.pausedDeletions > 0) {
     notices.push(
-      <Alert key="paused" variant="warning">
-        <AlertTriangle />
-        <AlertDescription className="space-y-3">
-          <p>{t("project_sync.paused", { count: data.pausedDeletions })}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void resolve({ action: "restore_files" })}>{t("project_sync.restore_files")}</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void resolve({ action: "delete_files" })}>{t("project_sync.delete_files")}</Button>
-          </div>
-        </AlertDescription>
-      </Alert>,
+      <NoticeRow key="paused" className={NOTICE_ROW} icon={<AlertTriangle />} tone="warning" title={STATE_LABELS.paused()} actions={<>
+        {choice(t("project_sync.restore_files"), () => void resolve({ action: "restore_files" }), true)}
+        {choice(t("project_sync.delete_files"), () => void resolve({ action: "delete_files" }))}
+      </>}>
+        {t("project_sync.paused", { count: data.pausedDeletions })}
+      </NoticeRow>,
     );
   }
   // Both changed a file and it could not be merged: which version stays, as the editor asks.
   for (const conflict of data.conflicts) {
     const copyPath = conflict.copyPath;
     notices.push(
-      <Alert key={`conflict-${copyPath}`}>
-        <AlertTriangle className="text-warning" />
-        <AlertDescription className="space-y-3">
-          <p>{t("project_sync.conflict", { name: projectFileDisplayName(conflict.path, conflict.path.split("/").at(-1) ?? conflict.path) })}</p>
-          {props.onOpenFile ? (
-            <p className="flex flex-wrap gap-x-4 gap-y-1">
-              <button type="button" className="text-xs underline underline-offset-2 hover:text-foreground" onClick={() => open(conflict.path)}>{t("project_sync.open_theirs")}</button>
-              <button type="button" className="text-xs underline underline-offset-2 hover:text-foreground" onClick={() => open(copyPath)}>{t("project_sync.open_mine")}</button>
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void resolve({ action: "dismiss_conflict", copyPath })}>{t("project_sync.keep_both")}</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void resolve({ action: "use_theirs", copyPath })}>{t("project_sync.use_theirs")}</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void resolve({ action: "keep_mine", copyPath })}>{t("project_sync.keep_mine")}</Button>
-          </div>
-        </AlertDescription>
-      </Alert>,
+      <NoticeRow
+        key={`conflict-${copyPath}`}
+        className={NOTICE_ROW}
+        icon={<AlertTriangle />}
+        tone="warning"
+        title={projectFileDisplayName(conflict.path, conflict.path.split("/").at(-1) ?? conflict.path)}
+        actions={<>
+          {choice(t("project_sync.keep_both"), () => void resolve({ action: "dismiss_conflict", copyPath }), true)}
+          {choice(t("project_sync.use_theirs"), () => void resolve({ action: "use_theirs", copyPath }))}
+          {choice(t("project_sync.keep_mine"), () => void resolve({ action: "keep_mine", copyPath }))}
+        </>}
+      >
+        <p>{t("project_sync.conflict")}</p>
+        {props.onOpenFile ? (
+          <p className="flex flex-wrap gap-x-3">
+            <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => open(conflict.path)}>{t("project_sync.open_theirs")}</button>
+            <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => open(copyPath)}>{t("project_sync.open_mine")}</button>
+          </p>
+        ) : null}
+      </NoticeRow>,
     );
   }
   if (data.state === "error" || data.state === "offline") {
     notices.push(
-      <Alert key="error" variant={data.state === "error" ? "destructive" : "default"}>
-        {data.state === "error" ? <AlertTriangle /> : <CloudOff />}
-        <AlertDescription>{data.state === "offline" ? t("project_sync.offline") : t("project_sync.error", { message: data.error ?? "" })}</AlertDescription>
-        <AlertAction>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => props.client.runProjectSync())}>
-            <RefreshCw className="size-3.5" />{t("project_sync.retry")}
-          </Button>
-        </AlertAction>
-      </Alert>,
+      <NoticeRow
+        key="error"
+        className={NOTICE_ROW}
+        icon={data.state === "error" ? <AlertTriangle /> : <CloudOff />}
+        tone={data.state === "error" ? "danger" : "quiet"}
+        title={STATE_LABELS[data.state]()}
+        actions={<Button size="sm" variant="ghost" className="text-xs" disabled={busy} onClick={() => void act(() => props.client.runProjectSync())}><RefreshCw className="size-3.5" />{t("project_sync.retry")}</Button>}
+      >
+        {data.state === "offline" ? t("project_sync.offline") : t("project_sync.error", { message: data.error ?? "" })}
+      </NoticeRow>,
     );
   }
   if (notices.length === 0) return null;
   return (
-    <div className="mb-6 space-y-2" aria-live="polite">
+    <div className={NOTICES} aria-live="polite">
       {notices}
-      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p role="alert" className={cn(NOTICE_ROW, "text-xs text-destructive")}>{error}</p> : null}
+    </div>
+  );
+}
+
+/** The notices are rows of the project's header card, as its details are. */
+const NOTICES = "divide-y divide-border/60 border-t border-border/60 bg-background/60";
+const NOTICE_ROW = "px-5 py-3 @min-[720px]/project-page:px-6";
+
+const NOTICE_TONES = {
+  warning: "bg-amber-3/40 text-amber-11",
+  danger: "bg-red-3/40 text-red-11",
+  quiet: "bg-muted/60 text-muted-foreground",
+};
+
+/** Something about the project's sync to look at: a tile, what it is, and what can be done about it. */
+function NoticeRow(props: {
+  icon: ReactNode;
+  tone: keyof typeof NOTICE_TONES;
+  title: string;
+  children?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-3", props.className)}>
+      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg [&_svg]:size-4", NOTICE_TONES[props.tone])}>{props.icon}</span>
+      <div className="min-w-36 flex-1">
+        <p className="text-sm font-medium">{props.title}</p>
+        {props.children ? <div className="mt-0.5 space-y-1 text-xs leading-5 text-muted-foreground">{props.children}</div> : null}
+      </div>
+      {props.actions ? <div className="flex flex-wrap items-center gap-1">{props.actions}</div> : null}
     </div>
   );
 }
@@ -492,7 +524,7 @@ function ProjectShareDialog(props: {
         {!data || !settings ? (
           <p className="text-sm text-muted-foreground">{status.error ? t("project_sync.failed") : t("projects.loading")}</p>
         ) : data.offer ? (
-          <OfferDecision client={props.client} workspaceId={props.workspaceId} offer={data.offer} onDecided={props.onClose} />
+          <OfferDecision client={props.client} workspaceId={props.workspaceId} offer={data.offer} onDecided={props.onClose} className="rounded-xl border border-border/60 p-3" />
         ) : leaving ? (
           <>
             {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
