@@ -1,4 +1,4 @@
-import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
+import { serverSentEvents, syncPokeOf, type SyncPoke } from "./sync-events.js";
 
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { requireIntakeClient } from "./eigenwelt-intake.js";
