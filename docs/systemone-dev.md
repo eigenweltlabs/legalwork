@@ -86,15 +86,15 @@ chat providers and OCR engines retain their own configuration.
 
    Do not skip shared preparation on a fresh checkout. Sign in through Account to
    the local platform. Use a local firm with an active/trial test subscription;
-   enable Europe and EigenJev Europe on its platform Models page.
-8. In AI Providers → SystemOne → Eigenwelt → EigenJev Europe, use the three-dot
+   enable Europe and Eigenwelt Europe EigenJev on its platform Models page.
+8. In AI Providers → SystemOne → Eigenwelt → Eigenwelt Europe EigenJev, use the three-dot
    menu's **Test connection**. Verify a successful real upstream response in the
    proxy metadata log, with serving model and token usage. Gateway health alone
    does not verify inference. There is no synthetic fallback.
 
 Before the alias rollout, the production pool accepts `jev-latest` and returns
 `openjev-0.1`; the proxy explicitly maps the local `EigenJev` request alias to it.
-After rollout, use `upstreamModel=EigenJev`. The UI remains **EigenJev Europe** and
+After rollout, use `upstreamModel=EigenJev`. The UI remains **Eigenwelt Europe EigenJev** and
 local metering charges **€0.05 per billion input tokens**, with free output.
 The earlier temporary development credential expires October 1, 2026; it must be
 rotated rather than copied as a permanent shared credential.

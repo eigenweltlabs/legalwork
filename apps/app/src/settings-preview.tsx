@@ -41,7 +41,10 @@ const workspaces = [
 // In-memory SystemOne fixture. Connection tests here never send model requests.
 const systemOneSample: SystemOneSettings = {
   selection: { providerId: "eigenwelt", model: "EigenJev" },
-  providers: [{ id: "eigenwelt", name: "Eigenwelt", endpoint: "https://api.eigenweltlabs.com/v1/systemone", models: [{ id: "EigenJev", name: "EigenJev Europe", source: "configured", questionTypes: ["noul", "choice", "score"] }], managed: true, enabled: true, status: "ready", region: "EU" }],
+  providers: [{ id: "eigenwelt", name: "Eigenwelt", endpoint: "https://api.eigenweltlabs.com/v1/systemone", models: [
+    { id: "EigenJev", name: "Eigenwelt Europe EigenJev", source: "configured", questionTypes: ["noul", "choice", "score"], region: "EU", status: "ready" },
+    { id: "TypeSafeJev", name: "Eigenwelt US Jev", source: "configured", questionTypes: ["noul", "choice", "score"], region: "US", status: params.has("us-disabled") ? "disabled" : "ready" },
+  ], managed: true, enabled: true, status: "ready" }],
 };
 const systemOnePreview = {
   systemOneSettings: async () => structuredClone(systemOneSample),

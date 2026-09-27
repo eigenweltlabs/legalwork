@@ -19,6 +19,8 @@ let viewer: string;
 let enabled = true;
 let available = true;
 let platformStatus = 200;
+let multipleModels = false;
+let usEnabled = false;
 let catalogStatus = 200;
 let catalogNames = ["jev-latest", "jev-preview"];
 const sent: Array<{ authorization: string | null; model: string }> = [];
@@ -96,6 +98,10 @@ beforeAll(async () => {
           model: "EigenJev",
           questionTypes: ["noul", "choice", "score"],
           region: "EU",
+          ...(multipleModels ? { models: [
+            { model: "EigenJev", name: "Eigenwelt Europe EigenJev", region: "EU", enabled, available, questionTypes: ["noul", "choice", "score"] },
+            { model: "TypeSafeJev", name: "Eigenwelt US Jev", region: "US", enabled: usEnabled, available: true, questionTypes: ["noul", "choice", "score"] },
+          ] } : {}),
         });
       }
       if (path === "/v1/models") {
@@ -264,6 +270,21 @@ test("managed EigenJev reuses the subscription key and denies disabled, unavaila
     authorization: "Bearer existing-subscription-key",
     model: "EigenJev",
   });
+  // A newer platform exposes independent models under the same subscription provider.
+  multipleModels = true;
+  const managed = () => call("POST", "", { providerId: "eigenwelt", request: { ...request, model: "TypeSafeJev" } });
+  const settings = await (await call("GET", "/settings")).json();
+  expect(settings.providers[0].models).toMatchObject([
+    { id: "EigenJev", status: "ready", region: "EU" },
+    { id: "TypeSafeJev", status: "disabled", region: "US" },
+  ]);
+  expect((await managed()).status).toBe(409);
+  usEnabled = true;
+  enabled = false;
+  expect((await managed()).status).toBe(200);
+  expect(sent.at(-1)).toEqual({ model: "TypeSafeJev", authorization: "Bearer existing-subscription-key" });
+  expect((await call("POST", "", { request })).status).toBe(409);
+  usEnabled = false;
   const count = sent.length;
   enabled = false;
   expect((await call("POST", "", { request })).status).toBe(409);

@@ -222,3 +222,34 @@ test("a throttled JEV chunk retries individually without repeating prior success
   const result = await retried.execute(workspace, review("jev"), column, { ...evidence, pages: [{ page: 1, text: "A".repeat(120_000) }] }, new AbortController().signal);
   expect(result.value).toBe("Yes"); expect(seen).toEqual([1, 2, 2, 0]);
 });
+
+
+test("review discovery excludes disabled managed models even when the provider is ready", async () => {
+  const managed = new ReviewExecutor(config, { infer: async () => { throw new Error("Discovery must not infer"); }, settings: async () => ({ ...settings, providers: [
+    SystemOneProviderSchema.parse({ ...settings.providers[0], id: "eigenwelt", managed: true, models: [
+      { id: "EigenJev", name: "Eigenwelt Europe EigenJev", questionTypes: ["noul", "choice"], source: "configured", status: "ready", region: "EU" },
+      { id: "TypeSafeJev", name: "Eigenwelt US Jev", questionTypes: ["noul", "choice"], source: "configured", status: "disabled", region: "US" },
+    ] }),
+  ] }) });
+  const result = await managed.models(workspace);
+  expect(result.models.some(model => model.model === "EigenJev")).toBe(true);
+  expect(result.models.some(model => model.model === "TypeSafeJev")).toBe(false);
+});
+
+test("a subscriber's explicit TypeSafe selection survives unavailability without switching region", async () => {
+  const selection = { providerId: "eigenwelt", model: "TypeSafeJev" };
+  const discovery = new ReviewExecutor(config, {
+    subscribed: async () => true,
+    settings: async () => ({ ...settings, selection, providers: [SystemOneProviderSchema.parse({
+      ...settings.providers[0], id: "eigenwelt", managed: true,
+      models: [
+        { id: "EigenJev", name: "EU", questionTypes: ["noul", "choice"], source: "configured", status: "ready" },
+        { id: "TypeSafeJev", name: "US", questionTypes: ["noul", "choice"], source: "configured", status: "unavailable" },
+      ],
+    })] }),
+    infer: async () => { throw new Error("Discovery must not infer"); },
+  });
+  const result = await discovery.models(workspace);
+  expect(result.settings.jev).toEqual(selection);
+  expect(result.models.some(model => model.model === "TypeSafeJev")).toBe(false);
+});

@@ -203,16 +203,18 @@ export function SystemOneSettingsSection({
                   <div className="mt-3 w-full divide-y divide-dls-border border-t border-dls-border">
                     {provider.models.map((model) => {
                       const selected = settings.selection.providerId === provider.id && settings.selection.model === model.id;
+                      const status = provider.status === "ready" ? model.status ?? provider.status : provider.status;
                       return (
                         <div key={model.id} className="flex items-center justify-between gap-3 py-3 pl-8 last:pb-0">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="truncate text-sm">{model.name}</p>
-                              {selected ? <SettingsStatusBadge label={t("systemone.default")} tone={provider.status === "ready" ? "ready" : "neutral"} className="min-h-6 px-2" /> : null}
+                              {selected ? <SettingsStatusBadge label={t("systemone.default")} tone={status === "ready" ? "ready" : "neutral"} className="min-h-6 px-2" /> : null}
                             </div>
+                            {model.status ? <p className="text-xs text-dls-secondary">{t(status === "ready" ? "systemone.ready" : status === "disabled" ? "systemone.disabled" : status === "disconnected" ? "systemone.disconnected" : "systemone.unavailable")}</p> : null}
                             {model.description ? <p className="text-xs text-dls-secondary">{model.description}</p> : null}
                           </div>
-                          <ProviderActionsMenu name={model.name} disabled={busy || provider.status !== "ready"}>
+                          <ProviderActionsMenu name={model.name} disabled={busy || status !== "ready"}>
                             {!selected ? (
                               <DropdownMenuItem onClick={() => void run(() => client.systemOneSelect({ providerId: provider.id, model: model.id }))}>
                                 {t("systemone.select")}

@@ -79,7 +79,18 @@ export const SystemOneEndpointSchema = z
       !url.hash
     );
   }, "Use an HTTP(S) endpoint without credentials, query or fragment");
+export const SystemOneManagedModelSchema = z.object({
+  model: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  available: z.boolean(),
+  region: z.enum(["EU", "US"]),
+  questionTypes: z.array(SystemOneQuestionTypeSchema),
+  deploymentRevision: z.string().optional(),
+});
 export const SystemOneConfigurationSchema = z.object({
+  // Optional for compatibility with platforms serving only EigenJev.
+  models: z.array(SystemOneManagedModelSchema).optional(),
   enabled: z.boolean(),
   available: z.boolean(),
   baseURL: SystemOneEndpointSchema,
@@ -137,7 +148,7 @@ export type SystemOneResult<Q extends SystemOneQuestions = SystemOneQuestions> =
 export type SystemOneModel = z.infer<typeof SystemOneModelSchema>;
 export const SystemOneProviderSchema = SystemOneProviderInputSchema.omit({ apiKey: true, id: true, models: true }).extend({
   id: z.string(),
-  models: z.array(SystemOneModelSchema.extend({ source: z.enum(["discovered", "configured"]) })),
+  models: z.array(SystemOneModelSchema.extend({ source: z.enum(["discovered", "configured"]), region: z.string().optional(), status: z.enum(["ready", "disabled", "unavailable"]).optional() })),
   managed: z.boolean(),
   status: z.enum(["ready", "disabled", "disconnected", "unavailable"]),
   region: z.string().optional(),

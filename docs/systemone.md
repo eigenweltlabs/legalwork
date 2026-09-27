@@ -1,7 +1,7 @@
 # SystemOne
 
 SystemOne is a separate typed-question API, not a chat provider. Settings → AI
-lists the managed EigenJev model and lets users configure JEV-compatible providers.
+lists the managed Eigenwelt Europe EigenJev and Eigenwelt US Jev models and lets users configure JEV-compatible providers.
 Tabular Review consumes this contract through agent tools; document search and OCR remain separate.
 
 ## Subscription and providers
@@ -14,7 +14,7 @@ the server checks `/api/desktop/systemone`; an outage never grants access. Sign-
 disabled access and removed membership prevent execution. Platform model choices
 control both the `EigenJev` and legacy `jev-latest` gateway aliases together.
 
-EigenJev Europe costs **€0.05 per billion input tokens; output tokens are free**.
+Eigenwelt Europe EigenJev costs **€0.05 per billion input tokens; output tokens are free**.
 Usage consumes the existing subscription allowance through that same key.
 The gateway retains fractional-cent spend and the platform rounds cumulative
 spend, so small requests are not individually rounded up or discarded.
@@ -22,7 +22,22 @@ spend, so small requests are not individually rounded up or discarded.
 A provider is one connection (name, endpoint, API key, enablement), serving many models.
 Models belong to its `models[]` collection and carry their own ID, display name,
 description, release date and question types. The Eigenwelt provider currently serves
-**EigenJev Europe** through the existing subscription key.
+**Eigenwelt Europe EigenJev** and **Eigenwelt US Jev** through the existing subscription key.
+TypeSafe JEV requires explicit US region permission and its own model opt-in. Both
+models cost €0.05 per billion input tokens with free output. TypeSafe credentials
+stay on the paid gateway; standalone API keys cannot call this model.
+
+The platform appends a `models[]` catalog to `/api/desktop/systemone`, with per-model
+`model`, `name`, `region`, `enabled`, `available`, `questionTypes` and optional
+`deploymentRevision`. The original top-level EigenJev fields remain for older
+clients. Settings expose each managed model's `region` and `status`; review model
+discovery excludes disabled/unavailable models even when another model from the
+provider is ready. A saved selection never falls back to another region.
+
+The managed request ID **`TypeSafeJev`** maps to TypeSafe's original `jev-latest`
+upstream. Its versioned response model is preserved for review provenance. The
+existing EigenJev `jev-latest` compatibility alias continues to mean the EU model.
+See model-api's `gateway/dev/README.md` for server-side credentials and rollout.
 
 Following [TypeSafe's original model API](https://docs.typesafe.ai/models), LegalWork
 fetches authenticated `GET /v1/models` next to `POST /v1/systemone`. It parses the
@@ -133,7 +148,7 @@ Deploy the matching model-api change and the patched OpenJev pool before enablin
 jev-latest. See model-api's `infra/openjev/README.md` for rollout and rollback order.
 Older platform versions leave managed EigenJev unavailable; existing chat remains usable.
 
-The managed model is displayed as **EigenJev Europe**. Request identifiers remain `EigenJev` and the compatibility alias `jev-latest`; changing the display name does not change stored selections or subscription permissions. Custom provider setup assumes the standard SystemOne question types and verifies them through Test connection; users do not configure those capabilities in the form.
+The managed model is displayed as **Eigenwelt Europe EigenJev**. Request identifiers remain `EigenJev` and the compatibility alias `jev-latest`; changing the display name does not change stored selections or subscription permissions. Custom provider setup assumes the standard SystemOne question types and verifies them through Test connection; users do not configure those capabilities in the form.
 
 ## Tabular Review
 

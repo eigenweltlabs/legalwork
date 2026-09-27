@@ -83,7 +83,7 @@ async function updateStore(
 }
 
 /** Fetch authoritative enablement before a managed call; outages never become permission. */
-async function managedProvider(config: ServerConfig, signal?: AbortSignal) {
+async function managedProvider(config: ServerConfig, signal?: AbortSignal, selectedModel = "EigenJev") {
   const token = await ensureFreshPlatformToken(config);
   const connection = await readEigenweltConnection(config);
   const manifest = await readCachedEigenweltPaidManifest(config);
@@ -91,10 +91,12 @@ async function managedProvider(config: ServerConfig, signal?: AbortSignal) {
     id: "eigenwelt",
     name: "Eigenwelt",
     endpoint: "https://api.eigenweltlabs.com/v1/systemone",
-    models: [{ id: "EigenJev", name: "EigenJev Europe", questionTypes: ["noul", "choice", "score"], source: "configured" }],
+    models: [
+      { id: "EigenJev", name: "Eigenwelt Europe EigenJev", region: "EU", questionTypes: ["noul", "choice", "score"], source: "configured" },
+      { id: "TypeSafeJev", name: "Eigenwelt US Jev", region: "US", questionTypes: ["noul", "choice", "score"], source: "configured" },
+    ],
     enabled: false,
     managed: true,
-    region: "EU",
     status: "disconnected",
   };
   if (!token || !manifest || !connection.platformURL)
@@ -146,29 +148,25 @@ async function managedProvider(config: ServerConfig, signal?: AbortSignal) {
   )
     return { view: base, target: null };
   const endpoint = `${remote.baseURL.replace(/\/+$/, "")}/v1/systemone`;
+  const models = remote.models ?? [{ ...remote, name: "Eigenwelt Europe EigenJev" }];
   const view: SystemOneProvider = {
-    ...base,
-    endpoint,
-    enabled: remote.enabled,
-    models: [{ id: remote.model, name: "EigenJev Europe", questionTypes: remote.questionTypes, source: "configured" }],
-    status: !remote.enabled
-      ? "disabled"
-      : remote.available
-        ? "ready"
-        : "unavailable",
+    ...base, endpoint,
+    enabled: models.some(model => model.enabled),
+    models: models.map(model => ({
+      id: model.model, name: model.name, region: model.region,
+      questionTypes: model.questionTypes, source: "configured",
+      status: !model.enabled ? "disabled" : model.available ? "ready" : "unavailable",
+    })),
+    status: models.some(model => model.enabled && model.available) ? "ready"
+      : models.some(model => model.enabled) ? "unavailable" : "disabled",
   };
+  const selected = models.find(model => model.model === selectedModel && model.enabled && model.available);
   return {
     view,
-    target:
-      view.status === "ready"
-        ? {
-            endpoint,
-            apiKey: manifest.apiKey,
-            model: remote.model,
-            questionTypes: remote.questionTypes,
-            deploymentRevision: remote.deploymentRevision,
-          }
-        : null,
+    target: selected ? {
+      endpoint, apiKey: manifest.apiKey, model: selected.model,
+      questionTypes: selected.questionTypes, deploymentRevision: selected.deploymentRevision,
+    } : null,
   };
 }
 
@@ -299,18 +297,20 @@ export async function systemOne(
     throw new ApiError(422, "systemone_model_required", "Specify a model when choosing a different provider.");
   let target;
   if (id === "eigenwelt") {
-    const managed = await managedProvider(config, options.signal);
+    const managed = await managedProvider(config, options.signal, model);
     if (options.signal?.aborted)
       throw new ApiError(
         499,
         "systemone_cancelled",
         "SystemOne request cancelled.",
       );
+    if (!managed.view.models.some(entry => entry.id === model))
+      throw new ApiError(422, "systemone_model_unavailable", "The requested subscription model is not available from this platform.");
     if (!managed.target)
       throw new ApiError(
         409,
-        `systemone_${managed.view.status}`,
-        `EigenJev is ${managed.view.status}. Check your subscription connection and platform settings.`,
+        `systemone_${managed.view.models.find(m => m.id === model)?.status ?? managed.view.status}`,
+        "The selected subscription model is unavailable. Check its model and region settings on the platform.",
       );
     target = managed.target;
   } else {

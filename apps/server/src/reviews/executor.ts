@@ -63,7 +63,7 @@ export class ReviewExecutor {
     ]);
     if (jev.status === "fulfilled") {
       for (const provider of jev.value.providers.filter(provider => provider.status === "ready"))
-        for (const model of provider.models.filter(model => model.questionTypes.includes("noul") && model.questionTypes.includes("choice")))
+        for (const model of provider.models.filter(model => (!model.status || model.status === "ready") && model.questionTypes.includes("noul") && model.questionTypes.includes("choice")))
           models.push({ backend: "systemone", providerId: provider.id, providerName: provider.name, model: model.id, name: model.name });
       if (models.some(model => model.providerId === jev.value.selection.providerId && model.model === jev.value.selection.model)) selectedJev = jev.value.selection;
     } else errors.push("JEV model discovery is unavailable.");
@@ -82,13 +82,15 @@ export class ReviewExecutor {
       ?? paidModels.find(model => model.model === "ewl-large") ?? paidModels[0];
     const llmDefault = subscribed ? paid : models.find(model => model.backend === "llm" && model.providerId === selectedLlm?.providerId && model.model === selectedLlm?.model)
       ?? models.find(model => model.backend === "llm");
-    // Subscription defaults always use managed EigenJev, even when a different
-    // JEV provider is selected elsewhere. An outage must not select another provider.
+    // Honor an explicitly selected managed model, including during an outage.
+    // Other provider selections do not change the subscription's EigenJev default.
     const configuredJev = jev.status === "fulfilled" ? jev.value.providers.filter(provider => provider.enabled || (subscribed && provider.id === EIGENWELT_PROVIDER_ID))
       .flatMap(provider => provider.models.filter(model => model.questionTypes.includes("noul") && model.questionTypes.includes("choice"))
         .map(model => ({ providerId: provider.id, model: model.id }))) : [];
+    const managedSelection = jev.status === "fulfilled" && jev.value.selection.providerId === EIGENWELT_PROVIDER_ID
+      ? jev.value.selection : { providerId: EIGENWELT_PROVIDER_ID, model: "EigenJev" };
     const jevDefault = subscribed
-      ? configuredJev.find(model => model.providerId === EIGENWELT_PROVIDER_ID) ?? { providerId: EIGENWELT_PROVIDER_ID, model: "EigenJev" }
+      ? managedSelection
       : configuredJev.find(model => model.providerId === selectedJev?.providerId && model.model === selectedJev?.model) ?? configuredJev[0];
     selectedLlm = llmDefault ? { providerId: llmDefault.providerId, model: llmDefault.model } : null;
     selectedJev = jevDefault ? { providerId: jevDefault.providerId, model: jevDefault.model } : null;
