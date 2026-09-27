@@ -25,6 +25,7 @@ import type {
   LegalworkTaskPatch,
   LegalworkTaskSyncStatus,
   LegalworkServerClient,
+  LegalworkTaskConflictChoice,
 } from "@/app/lib/legalwork-server";
 import { useEigenweltEntitlements } from "../connections/eigenwelt-entitlements";
 
@@ -236,6 +237,19 @@ export function useUpdateTask(context: TaskQueryContext) {
     mutationFn: async (input: { taskId: string; patch: LegalworkTaskPatch }) => {
       if (!client || !workspaceId) throw new Error("not connected");
       return client.patchTask(workspaceId, input.taskId, input.patch);
+    },
+    onSuccess: (_result, input) => invalidate(input.taskId),
+  });
+}
+
+/** Which version of a conflicting title or description stays. */
+export function useResolveTaskConflict(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (input: { taskId: string; choice: LegalworkTaskConflictChoice }) => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return client.resolveTaskConflict(workspaceId, input.taskId, input.choice);
     },
     onSuccess: (_result, input) => invalidate(input.taskId),
   });

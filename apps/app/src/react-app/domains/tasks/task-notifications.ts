@@ -24,7 +24,7 @@ import { taskDueTone } from "./task-format";
 import type { TaskNotificationPreferences, TaskNotificationScope } from "./task-notification-preferences";
 
 /** The kinds in the order a batch shows them: what is the user's first. */
-const KIND_ORDER: LegalworkTaskNotificationKind[] = ["assigned", "new", "overdue", "due_today"];
+const KIND_ORDER: LegalworkTaskNotificationKind[] = ["conflict", "assigned", "new", "overdue", "due_today"];
 
 /** How many tasks a center entry remembers by name; its count goes on past that. */
 const MAX_ENTRY_TASKS = 100;
@@ -51,6 +51,9 @@ function kindWanted(kind: LegalworkTaskNotificationKind, preferences: TaskNotifi
       return preferences.dueToday;
     case "overdue":
       return preferences.overdue;
+    case "conflict":
+      // The member's own change waits for their decision: always said.
+      return true;
   }
 }
 
@@ -76,12 +79,13 @@ export function selectTaskAnnouncements(
 ): TaskAnnouncement[] {
   const wanted = notifications.filter(
     (notification) =>
-      kindWanted(notification.kind, preferences) && audienceWanted(notification.audience, preferences.scope),
+      kindWanted(notification.kind, preferences) &&
+      (notification.kind === "conflict" || audienceWanted(notification.audience, preferences.scope)),
   );
   const arrived = new Set(wanted.filter((notification) => isArrival(notification.kind)).map((notification) => notification.taskId));
   const byKind = new Map<LegalworkTaskNotificationKind, TaskAnnouncementTask[]>();
   for (const notification of wanted) {
-    if (!isArrival(notification.kind) && arrived.has(notification.taskId)) continue;
+    if ((notification.kind === "due_today" || notification.kind === "overdue") && arrived.has(notification.taskId)) continue;
     const tasks = byKind.get(notification.kind) ?? [];
     if (!tasks.some((task) => task.id === notification.taskId)) {
       tasks.push({ id: notification.taskId, title: notification.title, dueDate: notification.dueDate });
@@ -109,6 +113,8 @@ function headline(kind: LegalworkTaskNotificationKind, count: number): string {
       return t("tasks.notify_due_today", { count });
     case "overdue":
       return t("tasks.notify_overdue", { count });
+    case "conflict":
+      return t("tasks.notify_conflict", { count });
   }
 }
 
