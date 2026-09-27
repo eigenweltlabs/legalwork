@@ -258,7 +258,12 @@ export async function pendingReviewChanges(root: string, base: ReviewBaseStore):
   let changed = 0;
   for (const [key, file] of local) {
     const known = agreed.get(key);
-    if (!known || known.size !== file.size || known.mtimeMs !== file.mtimeMs) changed += 1;
+    if (!known || known.size !== file.size) changed += 1;
+    else if (known.mtimeMs !== file.mtimeMs) {
+      // Its time alone moved (a touch, another runtime's rounding): the content says.
+      const read = parseShared(await readFile(file.abs, "utf8").catch(() => ""));
+      if (!read || sha256(read.json) !== known.sha256) changed += 1;
+    }
   }
   for (const key of agreed.keys()) if (!local.has(key)) changed += 1;
   return changed;

@@ -27,7 +27,7 @@ import {
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
-import { fileKey, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
+import { fileKey, hashFile, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
 import { pendingReviewChanges, reviewDocumentKeys, syncProjectReviews } from "./project-review-sync.js";
 import {
   createDefaultProjectFolder,
@@ -487,7 +487,8 @@ async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: st
       seen.add(key);
       const info = await stat(abs);
       const known = base.get(key);
-      if (!known || known.size !== info.size || known.mtimeMs !== info.mtimeMs) changed += 1;
+      // A time that moved alone (a touch, another runtime's rounding) is no change: the content says.
+      if (!known || known.size !== info.size || (known.mtimeMs !== info.mtimeMs && (await hashFile(abs)) !== known.sha256)) changed += 1;
     }
   }
   for (const key of base.keys()) if (!seen.has(key)) changed += 1;
@@ -887,8 +888,12 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
   }
   const round = roundStates.get(keyOf(config));
   const conflicts = store.conflicts(link.projectId);
-  const pendingChanges = store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
   const available = await folderAvailable(workspace.path);
+  // A copy held back no longer syncs, so no round reports on it: count what it is held for.
+  const pendingChanges =
+    link.state === "revoked" && available
+      ? await localChanges(store, link, workspace.path)
+      : store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
   return {
     workspaceId: workspace.id,
     connected: orgId !== null,

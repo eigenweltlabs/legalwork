@@ -478,7 +478,7 @@ describe("project sync between computers", () => {
       throw new ApiError(502, "intake_unreachable", "offline for documents");
     } } });
     expect(pull.removed).toBe(0);
-    expect((await projectSyncStatus(member.config, copy)).state).toBe("revoked");
+    expect(await projectSyncStatus(member.config, copy)).toMatchObject({ state: "revoked", pendingChanges: 1 });
     expect(await read(copy, "b.txt")).toBe("Ben's note");
 
     // Given access again, the held-back copy syncs again, changes included.
@@ -512,6 +512,25 @@ describe("project sync between computers", () => {
     await runProjectSync(member.config, { platform });
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([copy.id]);
     expect(await readdir(second?.path ?? "").catch(() => null)).toBeNull();
+  });
+
+  test("a file whose time alone moved is no change: without real changes, the copy goes when access ends", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Akte");
+    await write(akte, "a.txt", "a");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    const touched = new Date(Date.now() - 30_000);
+    await utimes(join(copy.path, "a.txt"), touched, touched);
+
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect(projectsOf(member.config)).toEqual([]);
   });
 
   test("stopping sync keeps the owner's project local and takes every copy away", async () => {
