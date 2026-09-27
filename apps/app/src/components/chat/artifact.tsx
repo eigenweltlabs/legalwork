@@ -51,13 +51,7 @@ function ArtifactButton({ artifact }: ArtifactButtonProps) {
     </>
   );
 
-  if (!canOpen) {
-    return (
-      <div className="flex h-auto w-fit max-w-full flex-none shrink-0 items-center justify-start gap-1.5 rounded-xl border border-border px-2 py-1.5 text-left whitespace-nowrap">
-        {content}
-      </div>
-    );
-  }
+  if (!canOpen) return null;
 
   return (
     <DescriptiveButton
@@ -98,14 +92,14 @@ interface ArtifactListProps {
 }
 
 export function ArtifactList({ messages, includeTargetFallbacks = false, tasks = [] }: ArtifactListProps) {
-  const artifacts = useArtifacts(messages, { includeTargetFallbacks });
+  const artifacts = useArtifacts(messages, { includeTargetFallbacks }).filter(canOpenArtifact);
 
   if (artifacts.length === 0 && tasks.length === 0) {
     return null;
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-2 md:px-10">
+    <div className="w-full min-w-0">
       <div className="no-scrollbar flex min-w-0 flex-nowrap gap-2 overflow-x-auto pb-1">
         {artifacts.map((artifact) => (
           <ArtifactButton key={artifact.id} artifact={artifact} />

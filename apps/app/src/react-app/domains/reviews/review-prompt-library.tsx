@@ -5,6 +5,7 @@ import { BookOpen, Layers, List, Copy, MoreHorizontal, Pencil, Plus, Search, Tra
 import { reviewLibraryKind, reviewLibraryPrompts, type ReviewLibraryEntry } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { SectionHeading } from "../../design-system/surface";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -37,17 +38,17 @@ export function ReviewPromptLibrary({ client, workspaceId }: { client: Legalwork
       {entry.source === "personal" && <DropdownMenuItem variant="destructive" onClick={event => { event.stopPropagation(); setRemoveTarget(entry); }}><Trash2 />{t(reviewLibraryKind(entry) === "set" ? "review.delete_set" : "review.delete_prompt")}</DropdownMenuItem>}
     </DropdownMenuContent>
   </DropdownMenu>;
-  return <section className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-6 py-6" aria-label={t("review.prompts_title")}>
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-lg font-semibold tracking-tight">{t("review.prompts_title")}</h1><p className="mt-1 text-sm text-muted-foreground">{t("review.prompts_body")}</p></div>
-      <Button size="sm" onClick={() => setEditor({ kind: view === "sets" ? "set" : "prompt" })}><Plus className="size-4" />{t(view === "sets" ? "review.new_set" : "review.new_prompt")}</Button>
-    </header>
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+  return <section className="@container/library flex min-h-0 w-full flex-1 flex-col" aria-label={t("review.prompts_title")}>
+    <SectionHeading title={t("review.prompts_title")} description={t("review.prompts_body")} className="mb-5 shrink-0 flex-wrap" action={<Button onClick={() => setEditor({ kind: view === "sets" ? "set" : "prompt" })}><Plus className="size-4" />{t(view === "sets" ? "review.new_set" : "review.new_prompt")}</Button>} />
+    <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3">
       <HubTabs label={t("review.library")} value={view} onChange={setView} items={[
         { id: "sets", label: `${t("review.sets")} (${sets.length})`, icon: Layers },
         { id: "prompts", label: `${t("review.all_prompts")} (${prompts.length})`, icon: List },
       ]} />
-      <div className="relative ml-auto min-w-40 flex-1 sm:max-w-xs"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input className="h-9 pl-9" aria-label={t("review.search_library")} placeholder={t("review.search_library")} value={search} onChange={event => setSearch(event.target.value)} /></div>
-      <div className="w-36"><ReviewSelect value={source} onChange={setSource} label={t("review.library_source")} options={[{ value: "all", label: t("review.all") }, { value: "builtin", label: t("review.starters") }, { value: "personal", label: t("review.saved") }]} /></div>
+      <div className="flex w-full min-w-0 items-center gap-2 @min-[800px]/library:ml-auto @min-[800px]/library:w-auto @min-[800px]/library:flex-1 @min-[800px]/library:max-w-lg">
+        <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input className="h-9 pl-9" aria-label={t("review.search_library")} placeholder={t("review.search_library")} value={search} onChange={event => setSearch(event.target.value)} /></div>
+        <div className="w-32 shrink-0"><ReviewSelect value={source} onChange={setSource} label={t("review.library_source")} options={[{ value: "all", label: t("review.all") }, { value: "builtin", label: t("review.starters") }, { value: "personal", label: t("review.saved") }]} /></div>
+      </div>
     </div>
     <p className="mb-4 text-xs text-muted-foreground">{t(view === "sets" ? "review.sets_body" : "review.all_prompts_body")}</p>
     <ReviewError error={query.error || remove.error} />

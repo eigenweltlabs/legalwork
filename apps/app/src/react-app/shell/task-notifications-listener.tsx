@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useDetachedWindow } from "./use-detached-window";
 
 import { toast } from "@/components/ui/sonner";
 import { desktopNotificationShow } from "@/app/lib/desktop";
@@ -55,8 +55,7 @@ function nonce(): string {
  * the app icon, to the main one.
  */
 export function TaskNotificationsListener() {
-  const { search } = useLocation();
-  const detached = new URLSearchParams(search).get("detached") === "1";
+  const detached = useDetachedWindow();
   const platform = usePlatform();
   const showTasksPane = useShowTasksPane();
   const showTasksPaneRef = useRef(showTasksPane);

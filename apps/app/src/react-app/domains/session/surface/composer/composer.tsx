@@ -1038,7 +1038,7 @@ export function ReactSessionComposer(props: ComposerProps) {
         imeComposingRef.current = false;
       }}
     >
-      <div className="max-w-[800px] mx-auto">
+      <div className="lw-session-column">
         {props.queueAccessory}
         {/* Main composer panel */}
         <div

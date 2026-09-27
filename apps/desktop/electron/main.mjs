@@ -1669,7 +1669,21 @@ async function openDetachedSessionWindow(event, input = {}) {
     throw new Error("A workspace and chat session are required to open a new window.");
   }
 
-  const key = `${workspaceId}:${sessionId}`;
+  return openDetachedWindow(event, `${workspaceId}:${sessionId}`, sessionWindowRoute(workspaceId, sessionId), input.title);
+}
+
+async function openDetachedProjectWindow(event, input) {
+  const workspaceId = String(input?.workspaceId ?? "").trim();
+  const page = input?.page;
+  if (!workspaceId || !["home", "reviews", "tasks", "files"].includes(page)) {
+    throw new Error("A workspace and valid project page are required to open a new window.");
+  }
+  const path = page === "home" || page === "files" ? "project" : page;
+  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
+  return openDetachedWindow(event, `project:${workspaceId}:${page}`, route, input.title);
+}
+
+async function openDetachedWindow(event, key, route, title) {
   const existing = detachedSessionWindows.get(key);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
@@ -1694,7 +1708,7 @@ async function openDetachedSessionWindow(event, input = {}) {
     height: 760,
     minWidth: 640,
     minHeight: 480,
-    title: detachedWindowTitle(input?.title),
+    title: detachedWindowTitle(title),
     show: false,
     ...windowAppearanceOptions,
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
@@ -1712,9 +1726,9 @@ async function openDetachedSessionWindow(event, input = {}) {
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
   logWindowErrors(sessionWindow.webContents);
 
-  sessionWindow.on("page-title-updated", (pageTitleEvent, title) => {
+  sessionWindow.on("page-title-updated", (pageTitleEvent, pageTitle) => {
     pageTitleEvent.preventDefault();
-    sessionWindow.setTitle(detachedWindowTitle(title || input?.title));
+    sessionWindow.setTitle(detachedWindowTitle(pageTitle || title));
   });
   sessionWindow.once("ready-to-show", () => {
     sessionWindow.show();
@@ -1745,7 +1759,7 @@ async function openDetachedSessionWindow(event, input = {}) {
 
   const sourceUrl = event.sender.getURL();
   const appDocumentUrl = sourceUrl.split("#", 1)[0];
-  await sessionWindow.loadURL(`${appDocumentUrl}#${sessionWindowRoute(workspaceId, sessionId)}`);
+  await sessionWindow.loadURL(`${appDocumentUrl}#${route}`);
   return true;
 }
 
@@ -1761,6 +1775,7 @@ const desktopCommandHandlers = {
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
+  "openProjectWindow": async (event, input) => openDetachedProjectWindow(event, input),
   "workspaceBootstrap": async (event, ...args) => {
       return workspaceStore.readWorkspaceState();
   },

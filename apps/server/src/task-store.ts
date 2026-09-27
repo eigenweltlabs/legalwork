@@ -1,3 +1,4 @@
+import { matchesSearch, searchExcerpt, type ContentSearchResult } from "./search-schema.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -931,6 +932,21 @@ export class TaskStore {
       tasks,
       nextCursor: rows.length > limit ? (tasks[tasks.length - 1]?.id ?? null) : null,
     };
+  }
+
+  searchTasks(query: string, orgId: string | null, workspaceId: string, projectOnly = false): ContentSearchResult[] {
+    const rows = this.db.all(
+      `SELECT t.id, t.title, t.description, t.updated_at, t.status,
+        (SELECT p.project_id FROM task_projects p WHERE p.task_id = t.id LIMIT 1) AS project_id
+       FROM tasks t WHERE t.deleted_at IS NULL
+        AND (? IS NULL OR t.origin = 'desktop' OR t.remote_org_id IS NULL OR t.remote_org_id = ?)
+        AND (? = 0 OR EXISTS (SELECT 1 FROM task_projects p WHERE p.task_id = t.id AND p.project_id = ?))
+       ORDER BY (t.status = 'done') ASC, t.updated_at DESC`, [orgId, orgId, projectOnly ? 1 : 0, workspaceId]);
+    return rows.filter(row => matchesSearch(`${text(row.title)} ${text(row.description)}`, query)).slice(0, 61).map(row => ({
+      kind: "tasks", id: text(row.id), workspaceId: projectOnly ? workspaceId : nullableText(row.project_id) ?? "",
+      title: text(row.title), excerpt: searchExcerpt(text(row.description), query), updatedAt: Number(row.updated_at),
+      completed: row.status === "done",
+    }));
   }
 
   /** Every endpoint the local tasks name, for the pane's filter. */

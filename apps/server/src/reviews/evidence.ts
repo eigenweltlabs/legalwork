@@ -83,7 +83,7 @@ export async function prepareReviewEvidence(options: {
     const complete = prepared.status === "complete" && prepared.pageCount > 0 && prepared.pages.length === prepared.pageCount && prepared.pages.every(page => page.status === "complete");
     const pages: EvidencePage[] = prepared.pages.flatMap(page => [
       { page: page.page, text: page.nativeText, source: "native", status: page.status },
-      { page: page.page, text: page.ocr?.text ?? "", source: "ocr", status: page.status, regions: page.ocr?.regions.map(region => ({ text: region.text })) },
+      { page: page.page, text: page.ocr?.text ?? "", source: "ocr", status: page.status, regions: page.ocr?.regions },
     ]);
     if (!complete) pages.push({ page: null, text: "", status: "needs-review" });
     if (!pages.some(page => page.text.trim())) throw new Error(entry.error || "No readable evidence. Check OCR settings and retry.");

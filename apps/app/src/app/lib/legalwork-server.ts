@@ -1,3 +1,6 @@
+import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
+import type { ContentSearchResponse } from "@legalwork/types/search";
+import type { JevSearchProgress } from "@legalwork/types/corpus";
 import { applyReviewUpdate, type ReviewUpdate, type QueryReviewResults, type CreateReview, type EditReview, type RunReview, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities, type ReviewLibraryEntry, type SaveReviewLibrary, type ReviewSourceReference, type ReviewSourcePage } from "@legalwork/types/reviews";
 import type { ProjectContents, ProjectContentKind, ProjectDetails, ProjectField } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
@@ -1682,6 +1685,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       const update = await requestJson<ReviewUpdate>(baseUrl, `${path}/updates${previous ? `?revision=${previous.revision}` : ""}`, { token, hostToken });
       return applyReviewUpdate(previous, update) ?? requestJson<SavedReview>(baseUrl, path, { token, hostToken });
     },
+    getJevSearchProgress: (workspaceId: string, jobId: string) => requestJson<JevSearchProgress>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}`, { token, hostToken }),
     queryReviewRows: (workspaceId: string, reviewId: string, input: Omit<QueryReviewResults, "cursor" | "limit" | "view">) => requestJson<{ revision: number; documentIds: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/rows/query`, { token, hostToken, method: "POST", body: input }),
     deleteReview: (workspaceId: string, reviewId: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "DELETE", body: { revision } }),
     createReview: (workspaceId: string, input: CreateReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken, method: "POST", body: input }),
@@ -1970,6 +1974,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken },
       );
     },
+    searchSourcePage: (workspaceId: string, source: SearchSourceReference) => requestJson<SearchSourcePage>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/search-source`, { method: "POST", body: source, token, hostToken }),
+    searchContents: (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal?: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) =>
+      requestJson<ContentSearchResponse>(baseUrl,
+        kind === "tasks" ? `/tasks/search?${new URLSearchParams({ q: query, ...(options?.projectOnly ? { projectId: workspaceId } : {}) })}` : `/workspace/${encodeURIComponent(workspaceId)}/search/${kind}?${new URLSearchParams({ q: query, ...(options?.retry ? { retry: "true" } : {}) })}`,
+        { token, hostToken, signal, timeoutMs: 60_000 }),
     getSession: (workspaceId: string, sessionId: string) =>
       requestJson<{ item: Session }>(
         baseUrl,

@@ -1,3 +1,4 @@
+import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -88,7 +89,6 @@ import {
 import { desktopBridge } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
-import { PaperGrainGradient } from "@legalwork/ui/react";
 import { useShellConfig } from "@/react-app/shell/shell-config";
 import { useReactRenderWatchdog } from "@/react-app/shell/react-render-watchdog";
 import { SessionDebugPanel } from "./debug-panel";
@@ -297,19 +297,7 @@ function AssistantWaitingCard({ label = t("session.assistant_thinking") }: { lab
   return (
     <div className="flex justify-start" role="status" aria-live="polite">
       <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
-        <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
-          <PaperGrainGradient
-            speed={12}
-            softness={0.1}
-            intensity={1}
-            noise={0.05}
-            shape="sphere"
-            colors={["#818cf8", "#fb7185", "#fbbf24", "#34d399"]}
-            colorBack="#ffffff00"
-            style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
-          />
-        </div>
-        <span>{label}</span>
+        <span className="lw-tool-shimmer">{label}</span>
       </div>
     </div>
   );
@@ -835,9 +823,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => reactStatusKey(props.workspaceId, props.sessionId),
     [props.workspaceId, props.sessionId],
   );
+  const searchTarget = useSearchNavigation(state => state.target);
+  const searchMessageId = searchTarget?.kind === "sessions" && searchTarget.id === props.sessionId && searchTarget.workspaceId === props.workspaceId ? searchTarget.messageId : undefined;
+  const fullHistorySession = useRef<string | null>(null);
+  if (searchMessageId) fullHistorySession.current = props.sessionId;
   const snapshotQuery = useQuery<LegalworkSessionSnapshot>({
     queryKey: snapshotQueryKey,
-    queryFn: async () => (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, { limit: 140 })).item,
+    queryFn: async () => (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? undefined : { limit: 140 })).item,
     staleTime: 500,
   });
 
@@ -1916,6 +1908,27 @@ export function SessionSurface(props: SessionSurfaceProps) {
     contentRef,
   });
 
+  const searchMessagePresent = Boolean(searchMessageId && renderedMessages.some(message => message.id === searchMessageId));
+  useEffect(() => {
+    if (!searchMessageId || searchMessagePresent) return;
+    let cancelled = false;
+    void snapshotQuery.refetch().then(result => {
+      if (cancelled) return;
+      if (result.error || !result.data?.messages.some(message => message.info.id === searchMessageId)) {
+        toast.error(t("content_search.message_unavailable"));
+        useSearchNavigation.getState().setTarget(null);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [searchMessageId, searchMessagePresent, snapshotQuery.refetch]);
+  useEffect(() => {
+    if (!searchMessageId || !searchMessagePresent) return;
+    const frame = requestAnimationFrame(() => {
+      if (sessionScroll.jumpToMessage(searchMessageId)) useSearchNavigation.getState().setTarget(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [searchMessageId, searchMessagePresent, sessionScroll.jumpToMessage]);
+
   // Sending a message is an explicit "take me to the latest": jump to the
   // bottom and re-arm follow mode regardless of any prior manual scrolling
   // (awaitingAssistantBaseline is set exactly once per send).
@@ -2058,13 +2071,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           }}
           onScroll={sessionScroll.handleScroll}
           className={cn(
-            "absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5",
+            "lw-session-transcript absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-4 md:px-8",
             props.realtimeVoiceActive && "pointer-events-none",
           )}
         >
-          {/* Chat column: tighter than the composer (800px) so messages
-               keep a comfortable reading width and don't feel "too big". */}
-          <div ref={contentRef} className="mx-auto w-full max-w-[720px]">
+          <div ref={contentRef} className="lw-session-column">
             {showDelayedLoading && pendingSessionLoad ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">

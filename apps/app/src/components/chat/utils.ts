@@ -1,3 +1,4 @@
+import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
 import { isReviewCardTool, reviewCardIdentity } from "./review/review-tool";
 import { isProjectListTool, suppressProjectCard } from "./project/project-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
@@ -116,6 +117,7 @@ type AssistantRenderGroup =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string; isStreaming: boolean }
   | { kind: "file"; part: FileUIPart }
+  | { kind: "jev-search"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "review"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
@@ -125,10 +127,17 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
   const reviewSetup = items.some(item => item.message.parts.some(part => isToolUIPart(part) && isReviewCardTool(part)));
   // A create → prose → start sequence still represents one live review card.
   const latestReviewActions = new Map<string, string>();
+  const searchCards = new Map<string, ToolUIPart | DynamicToolUIPart>();
   for (const item of items) for (const part of item.message.parts) {
     if (!isToolUIPart(part)) continue;
-    const identity = reviewCardIdentity(part);
-    if (identity) latestReviewActions.set(identity, part.toolCallId);
+    const searchId = jevSearchIdentity(part);
+    const identity = reviewCardIdentity(part) ?? searchId;
+    // Keep the original search card mounted, with the latest saved progress.
+    if (searchId) {
+      const first = searchCards.get(searchId);
+      searchCards.set(searchId, first ? withLatestJevSearchProgress(first, part) : part);
+    }
+    if (identity && (!searchId || !latestReviewActions.has(identity))) latestReviewActions.set(identity, part.toolCallId);
   }
   const result: UIMessageWithIndex[] = []
   let activity: UIMessageWithIndex | undefined
@@ -137,7 +146,7 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
     let prose: UIMessageWithIndex | undefined
     for (const [index, part] of item.message.parts.entries()) {
       if (isToolUIPart(part)) {
-        const identity = reviewCardIdentity(part);
+        const identity = reviewCardIdentity(part) ?? jevSearchIdentity(part);
         if (identity && latestReviewActions.get(identity) !== part.toolCallId) continue;
       }
       if (isReasoningUIPart(part) && !showThinking) continue
@@ -158,7 +167,9 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
           activity.message.id = `tool-run:${part.toolCallId}`
           activityHasTool = true
         }
-        activity.message.parts.push(reviewSetup && isToolUIPart(part) && isProjectListTool(part) ? suppressProjectCard(part) : part)
+        const searchId = isToolUIPart(part) ? jevSearchIdentity(part) : null;
+        activity.message.parts.push(searchId ? searchCards.get(searchId) ?? part
+          : reviewSetup && isToolUIPart(part) && isProjectListTool(part) ? suppressProjectCard(part) : part)
       } else {
         activity = undefined
         if (!prose) {
@@ -237,6 +248,13 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
+      if (shouldRenderJevSearchCard(part)) {
+        const id = jevSearchIdentity(part);
+        const existing = id ? groups.findIndex(group => group.kind === "jev-search" && jevSearchIdentity(group.part) === id) : -1;
+        const previous = groups[existing];
+        if (previous?.kind === "jev-search") { previous.part = withLatestJevSearchProgress(previous.part, part); continue; }
+        groups.push({ kind: "jev-search", part }); continue;
+      }
       if (isReviewCardTool(part)) {
         const id = reviewCardIdentity(part);
         const existing = id ? groups.findIndex(group => group.kind === "review" && reviewCardIdentity(group.part) === id) : -1;

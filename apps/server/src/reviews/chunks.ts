@@ -1,6 +1,6 @@
 export type EvidencePage = {
   page: number | null; text: string; source?: "native" | "ocr";
-  status?: "complete" | "needs-review" | "error"; regions?: Array<{ text: string }>;
+  status?: "complete" | "needs-review" | "error"; regions?: Array<{ text: string; box?: { x: number; y: number; width: number; height: number } }>;
 };
 export type EvidenceChunk = { index: number; pages: EvidencePage[]; start: number; end: number };
 

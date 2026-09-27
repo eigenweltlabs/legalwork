@@ -102,6 +102,7 @@ export function TaskPanel(props: TaskPanelProps) {
 
   return (
     <TaskDetail
+      inPanel
       projects={props.projects}
       task={task}
       submission={detailQuery.data?.submission}

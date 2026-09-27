@@ -2424,16 +2424,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   return (
     <>
       {props.singleView ? (
-        // Standalone page (Skills / Integrations) hosted in the main app shell: render
-        // just the active view, no settings nav chrome. Matches SettingsContent's padding
-        // and centering so the view sits where it does inside Settings.
+        // Standalone pages use the same pane-relative gutters and content width.
+        // Workflows owns its frame so its list and editor can scroll independently.
         <div className={route.tab === "workflows"
           ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
-          : "min-w-0 min-h-0 flex-1 overflow-y-auto flex flex-col items-center gap-6 p-4 md:gap-8 md:p-6 lg:p-8 bg-background"}>
-          {settingsView}
+          : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
+          {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>
       ) : (
         <SettingsShell
+          accountClient={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
           activeTab={route.tab}
           onSelectTab={(tab) => navigateSettingsPath(tab)}
           developerMode={developerMode}

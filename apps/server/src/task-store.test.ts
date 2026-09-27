@@ -538,3 +538,24 @@ describe("task-store: project links", () => {
     expect(store.listOutbox().map((item) => item.op.kind)).toEqual(["create", "create", "create"]);
   });
 });
+
+test("search returns recent tasks without a query and limits linked tasks to the selected project", async () => {
+  const { store } = await makeStore();
+  const first = store.createTask({ title: "Prepare escrow agreement", projectId: "a" }, ANON, 1000);
+  const second = store.createTask({ title: "Review escrow terms", projectId: "b" }, ANON, 2000);
+  const unlinked = store.createTask({ title: "Other task" }, ANON, 3000);
+  expect(store.searchTasks("", null, "a").map(task => task.id)).toEqual([unlinked.id, second.id, first.id]);
+  expect(store.searchTasks("escrow", null, "a", true).map(task => task.id)).toEqual([first.id]);
+  expect(store.searchTasks("", null, "b", true).map(task => task.id)).toEqual([second.id]);
+  expect(store.searchTasks("", null, "a").find(task => task.id === unlinked.id)?.workspaceId).toBe("");
+});
+
+test("completed tasks remain searchable and follow active tasks even when more recently updated", async () => {
+  const { store } = await makeStore();
+  const active = store.createTask({ title: "Review escrow" }, ANON, 1000);
+  const done = store.createTask({ title: "Review escrow" }, ANON, 2000);
+  store.patchTask(done.id, { status: "done" }, ANON, 3000);
+  const results = store.searchTasks("escrow", null, "a");
+  expect(results.map(task => task.id)).toEqual([active.id, done.id]);
+  expect(results.map(task => task.completed)).toEqual([false, true]);
+});

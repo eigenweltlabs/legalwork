@@ -309,6 +309,8 @@ export type TaskDetailProps = {
   accountUserId: string | null;
   /** Closes the task, back to the list alone: the back arrow in one column, the cross in two. */
   onBack: () => void;
+  /** Panel tabs already provide navigation and a close button. */
+  inPanel?: boolean;
   /** Every in-place change goes through here; it resolves when the store has it. */
   onPatch: (patch: LegalworkTaskPatch) => Promise<unknown>;
   onDelete: () => void;
@@ -500,8 +502,9 @@ export function TaskDetail(props: TaskDetailProps) {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <header className="shrink-0 border-b border-border py-3">
-        <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center justify-between gap-2 px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className={cn("mx-auto flex w-full max-w-2xl flex-wrap items-center gap-2 px-4 sm:px-6", props.inPanel ? "justify-end" : "justify-between")}>
+          {(!props.inPanel || inTrash) && <div className="flex min-w-0 items-center gap-2">
+            {!props.inPanel && <>
             <Button variant="ghost" size="icon-sm" className="@min-[880px]/tasks:hidden" aria-label={t("tasks.back_to_list")} onClick={props.onBack}>
               <ArrowLeft />
             </Button>
@@ -529,14 +532,15 @@ export function TaskDetail(props: TaskDetailProps) {
                 <TooltipContent>{sessionLinkLabel(task.createdSession)}</TooltipContent>
               </Tooltip>
             ) : null}
+            </>}
             {inTrash ? (
               <span className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-muted/40 px-2 text-[11px] font-medium text-muted-foreground">
                 <Trash2 aria-hidden className="size-3" />
                 {t("tasks.in_trash")}
               </span>
             ) : null}
-          </div>
-          <div className="grid w-full gap-2 @min-[360px]/tasks:flex @min-[360px]/tasks:w-auto @min-[360px]/tasks:flex-wrap @min-[360px]/tasks:items-center">
+          </div>}
+          <div className={props.inPanel ? "flex flex-wrap items-center gap-2" : "grid w-full gap-2 @min-[360px]/tasks:flex @min-[360px]/tasks:w-auto @min-[360px]/tasks:flex-wrap @min-[360px]/tasks:items-center"}>
             {inTrash ? (
               <Button size="sm" disabled={props.busy} aria-busy={props.busy} onClick={props.onRestore}>
                 {props.busy ? <Loader2 className="animate-spin" /> : <ArchiveRestore />}
@@ -613,7 +617,7 @@ export function TaskDetail(props: TaskDetailProps) {
                 <TooltipContent>{t("tasks.delete")}</TooltipContent>
               </Tooltip>
             )}
-            <Button
+            {!props.inPanel && <Button
               variant="ghost"
               size="icon-sm"
               className="hidden @min-[880px]/tasks:inline-flex"
@@ -621,7 +625,7 @@ export function TaskDetail(props: TaskDetailProps) {
               onClick={props.onBack}
             >
               <X />
-            </Button>
+            </Button>}
           </div>
         </div>
       </header>

@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
@@ -137,8 +138,9 @@ import {
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
-import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
-import { SessionSearchDialog } from "./session-search-dialog";
+import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
+import type { ContentSearchResult } from "@legalwork/types/search";
+import { useSearchNavigation } from "./search-navigation";
 import {
   eigenweltBillingUrl,
   hasEigenweltFeature,
@@ -148,7 +150,6 @@ import {
 import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
 import { WhatsNewDialog } from "./whats-new";
 import { TranscriptionIntroDialog } from "./transcription-intro";
-import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
@@ -190,7 +191,6 @@ import { useSessionControlActions } from "@/react-app/domains/session/control/se
 import { legacySessionRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
-import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import {
   countConnectedProviders,
   ensureProviderListQuery,
@@ -346,19 +346,16 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
-  const detached = useMemo(
-    () => new URLSearchParams(location.search).get("detached") === "1",
-    [location.search],
-  );
-  const [showEvals, setShowEvals] = useState(false);
+  const detached = useDetachedWindow();
+  const [showEvals, setShowEvals] = useState(location.pathname.endsWith("/evals"));
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
   // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
-  const [showWorkflows, setShowWorkflows] = useState(false);
+  const [showWorkflows, setShowWorkflows] = useState(location.pathname === "/workflows");
   const [showExtensions, setShowExtensions] = useState(false);
-  const [showRecorder, setShowRecorder] = useState(false);
+  const [showRecorder, setShowRecorder] = useState(location.pathname === "/recorder");
   const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
   const recordingSessionStarting = useRef(false);
-  const [showTasks, setShowTasks] = useState(false);
+  const [showTasks, setShowTasks] = useState(location.pathname === "/tasks");
   // A task a notification asked to show: the pane opens on it (see
   // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
   // their task in the side panel instead.
@@ -368,34 +365,38 @@ export function SessionRoute() {
   // not close the pane it opened (see the pane-closing effect below).
   const keepTasksPaneUntil = useRef(0);
   const showEvalsPane = useCallback(() => {
+    navigate("/evals");
     setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
     setShowTasks(false);
-  }, []);
+  }, [navigate]);
   const showWorkflowsPane = useCallback(() => {
+    navigate("/workflows");
     setShowWorkflows(true);
     setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
     setShowTasks(false);
-  }, []);
+  }, [navigate]);
   const showRecorderPane = useCallback(() => {
+    navigate("/recorder");
     setRecorderProject(null);
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowTasks(false);
-  }, []);
+  }, [navigate]);
   const showTasksPane = useCallback(() => {
+    navigate("/tasks");
     setShowTasks(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
-  }, []);
+  }, [navigate]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
@@ -517,20 +518,16 @@ export function SessionRoute() {
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
-  const [developerMode, setDeveloperMode] = useState(() => {
+  const [developerMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("legalwork.developerMode") === "1";
   });
-  const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
 
   // Provider IDs that were just added — used to highlight them as
-  useEffect(() => {
-    setPaletteAccessibleTargets([]);
-  }, [selectedSessionId, selectedWorkspaceId]);
 
   // Provider catalog cache. Used to compute the reasoning/thinking variant
   // options for whichever model is currently selected so the composer's
@@ -617,10 +614,6 @@ export function SessionRoute() {
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces],
   );
   useSessionGroupSync({ workspaces, endpointForWorkspace });
-  const selectedWorkspaceGroupState = sessionManagementStore((state) => (
-    selectedWorkspaceId ? state.groupsByWorkspace[selectedWorkspaceId] : undefined
-  ));
-  const assignSessionToGroup = sessionManagementStore((state) => state.assignGroup);
   const seedWorkspaceActivitySessions = useSessionActivityStore((state) => state.seedWorkspaceSessions);
   const sessionActivityByWorkspaceId = useSessionActivityStore((state) => state.statusesByWorkspaceId);
 
@@ -1009,7 +1002,7 @@ export function SessionRoute() {
   // Organizing local project files, notes and tasks does not need an AI model.
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
-    !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !createWorkspaceOpen;
+    location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -1770,8 +1763,6 @@ export function SessionRoute() {
   const {
     commandPaletteOpen,
     setCommandPaletteOpen,
-    sessionSearchOpen,
-    setSessionSearchOpen,
     terminalOpen,
     setTerminalOpen,
   } = useShellShortcuts({
@@ -1863,6 +1854,7 @@ export function SessionRoute() {
         t("session.workspace_fallback");
       const list = sessionsByWorkspaceId[workspace.id] ?? [];
       for (const session of list) {
+        if (session.time?.archived) continue;
         const sessionId = (session as { id?: string }).id?.trim() ?? "";
         if (!sessionId) continue;
         const title = getDisplaySessionTitle(
@@ -1901,101 +1893,40 @@ export function SessionRoute() {
     navigate: navigateToWorkspaceSession,
   };
 
-  const paletteSessionGroups = useMemo<SessionGroupOption[]>(
-    () => selectedWorkspaceGroupState?.groups ?? [],
-    [selectedWorkspaceGroupState?.groups],
-  );
+  const searchWorkspaces = useMemo<SearchWorkspace[]>(() => sidebarWorkspaces.map(workspace => ({
+    id: workspace.id, title: workspace.displayNameResolved, local: workspace.workspaceType !== "remote",
+    server: endpointForWorkspace(workspace)?.baseUrl ?? workspace.id,
+  })), [sidebarWorkspaces, endpointForWorkspace]);
 
-  const currentSessionForGroupMove = useMemo(() => {
-    if (!selectedWorkspaceId || !selectedSessionId) return null;
-    return paletteSessionOptions.find(
-      (session) => session.workspaceId === selectedWorkspaceId && session.sessionId === selectedSessionId,
-    ) ?? null;
-  }, [paletteSessionOptions, selectedSessionId, selectedWorkspaceId]);
+  const searchContents = useCallback(async (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) => {
+    const workspace = workspaces.find(item => item.id === workspaceId);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!endpoint) throw new Error("Project is unavailable.");
+    const response = await endpoint.client.searchContents(endpoint.workspaceId, kind, query, signal, options);
+    return { ...response, items: response.items.map(item => ({ ...item,
+      workspaceId: item.workspaceId === endpoint.workspaceId ? workspaceId : item.workspaceId,
+      title: item.kind === "sessions" ? getDisplaySessionTitle(item.title) : item.title,
+    })) };
+  }, [workspaces, endpointForWorkspace]);
 
-  const currentSessionGroupId = selectedSessionId
-    ? selectedWorkspaceGroupState?.assignments[selectedSessionId] ?? null
-    : null;
+  const searchProject = useCallback(async (workspaceId: string) => {
+    const workspace = workspaces.find(item => item.id === workspaceId);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!endpoint) throw new Error("Project is unavailable.");
+    return endpoint.client.getProjectDetails(endpoint.workspaceId);
+  }, [workspaces, endpointForWorkspace]);
 
-  const handleMoveCurrentSessionToGroup = useCallback((groupId: string) => {
-    if (!selectedWorkspaceId || !selectedSessionId) return;
-    assignSessionToGroup(selectedWorkspaceId, selectedSessionId, groupId);
-  }, [assignSessionToGroup, selectedSessionId, selectedWorkspaceId]);
-
-  const sessionSearchFetcher = useMemo<SessionMessageFetcher | null>(() => {
-    if (!client) return null;
-    // Cap the transcript fetch to keep multi-workspace scans fast; matches in
-    // anything older than the most recent 400 messages are traded away for
-    // responsiveness.
-    return async (workspaceId: string, sessionId: string) =>
-      (await client.getSessionMessages(workspaceId, sessionId, { limit: 400 })).items;
-  }, [client]);
-
-  const sessionSearchPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-search.open",
-    title: t("session_route.search_messages_title"),
-    detail: t("session_route.search_messages_detail"),
-    meta: "Cmd/Ctrl+Shift+F",
-    searchText: "search find sessions messages history transcript content",
-    action: () => {
-      setCommandPaletteOpen(false);
-      setSessionSearchOpen(true);
-    },
-  }), []);
-
-  const terminalPaletteItems = useMemo<PaletteItem[]>(() => [
-    {
-      id: "terminal.toggle",
-      title: terminalOpen ? "Hide terminal" : "Show terminal",
-      detail: t("session_route.terminal_detail"),
-      meta: "Cmd/Ctrl+J",
-      searchText: "terminal shell command line console show hide toggle",
-      action: () => {
-        setCommandPaletteOpen(false);
-        setTerminalOpen((value) => !value);
-      },
-    },
-  ], [terminalOpen]);
-
-  const developerModePaletteItem = useMemo<PaletteItem>(() => ({
-    id: "developer-mode.toggle",
-    title: developerMode ? t("settings.disable_developer_mode") : t("settings.enable_developer_mode"),
-    detail: t("settings.developer_mode_desc"),
-    meta: developerMode ? "On" : "Off",
-    searchText: "developer dev mode debug diagnostics toggle enable disable",
-    action: () => {
-      setCommandPaletteOpen(false);
-      setDeveloperMode((current) => {
-        const next = !current;
-        try { window.localStorage.setItem("legalwork.developerMode", next ? "1" : "0"); } catch {}
-        return next;
-      });
-    },
-  }), [developerMode]);
-
-  const nextSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-tab.next",
-    title: t("session_route.next_tab_title"),
-    detail: t("session_route.next_tab_detail"),
-    meta: "Cmd/Ctrl+T",
-    searchText: "next session tab switch forward",
-    action: () => {
-      setCommandPaletteOpen(false);
-      goToNextSessionTab();
-    },
-  }), [goToNextSessionTab]);
-
-  const prevSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-tab.previous",
-    title: t("session_route.prev_tab_title"),
-    detail: t("session_route.prev_tab_detail"),
-    meta: "Cmd/Ctrl+Shift+T",
-    searchText: "previous session tab switch back",
-    action: () => {
-      setCommandPaletteOpen(false);
-      goToPrevSessionTab();
-    },
-  }), [goToPrevSessionTab]);
+  const openSearchResult = useCallback((result: ContentSearchResult) => {
+    setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
+    if (result.kind === "tasks") {
+      setOpenTask({ id: result.id, at: Date.now() });
+      setShowTasks(true);
+      return;
+    }
+    useSearchNavigation.getState().setTarget(result.messageId || result.kind === "files" ? result : null);
+    if (result.kind === "sessions") navigateToWorkspaceSession(result.workspaceId, result.id);
+    else navigate(workspaceProjectRoute(result.workspaceId));
+  }, [navigate, navigateToWorkspaceSession]);
 
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
@@ -2020,16 +1951,21 @@ export function SessionRoute() {
     setWorkspaces((current) => orderRouteWorkspaces(current, nextOrderIds));
   }, []);
 
+  const sessionTarget = useCallback((sessionId: string) => {
+    const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) => sessions.some(session => session.id === sessionId));
+    const workspace = workspaces.find(workspace => workspace.id === (owner?.[0] ?? selectedWorkspaceId));
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!workspace || !endpoint) throw new Error(t("sidebar.sessions_unavailable"));
+    return { workspace, endpoint, client: createClient(endpoint.opencodeBaseUrl, workspace.path?.trim() || undefined, { token: endpoint.token, mode: "legalwork" }) };
+  }, [sessionsByWorkspaceId, workspaces, selectedWorkspaceId, endpointForWorkspace]);
+
   const handleArchiveSession = useCallback(
     async (sessionId: string, archived: boolean) => {
       if (!opencodeClient) return;
       try {
-        await setSessionArchived(
-          opencodeClient,
-          sessionId,
-          archived,
-          selectedWorkspaceRoot || undefined,
-        );
+        const target = sessionTarget(sessionId);
+        await setSessionArchived(target.client, sessionId, archived, target.workspace.path || undefined);
+        await loadWorkspaceSessionsInBackground([target.workspace]);
         await refreshRouteState();
       } catch (error) {
         console.error("[session-route] archive session failed", error);
@@ -2041,7 +1977,7 @@ export function SessionRoute() {
         );
       }
     },
-    [opencodeClient, refreshRouteState, selectedWorkspaceRoot],
+    [opencodeClient, refreshRouteState, sessionTarget, loadWorkspaceSessionsInBackground],
   );
 
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
@@ -2144,14 +2080,15 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  // Leaving a top-level pane (Evals/Skills/Integrations): any session/workspace
-  // navigation drops back to the session view.
+  // Main pages can also be reached from Settings or browser history.
+  // Keep the selected pane in step with the route after workspace hydration.
   useEffect(() => {
-    setShowEvals(false);
-    setShowWorkflows(false);
+    setShowEvals(location.pathname.endsWith("/evals"));
+    setShowWorkflows(location.pathname === "/workflows");
     setShowExtensions(false);
-    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(false);
-  }, [selectedSessionId, selectedWorkspaceId]);
+    setShowRecorder(location.pathname === "/recorder");
+    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(location.pathname === "/tasks");
+  }, [location.pathname, selectedSessionId, selectedWorkspaceId]);
 
   return (
     <WorkspaceProvider
@@ -2330,6 +2267,7 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
+      projectsPage={location.pathname === "/projects" && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
       projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
@@ -2401,7 +2339,7 @@ export function SessionRoute() {
             singleView
             initialPath="workflows"
             workspaceId={selectedWorkspaceId}
-            onClose={() => setShowWorkflows(false)}
+            onClose={() => { setShowWorkflows(false); navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }}
           />
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
@@ -2441,6 +2379,7 @@ export function SessionRoute() {
               // unmounted while this pane is the main view — swap back to the
               // session first, then dispatch once it has remounted.
               setShowRecorder(false);
+              navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
               window.setTimeout(() => {
                 window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
               }, 350);
@@ -2454,6 +2393,15 @@ export function SessionRoute() {
         sessionTabNavRef.current = { ...sessionTabNavRef.current, options: tabs };
       }}
       sidebar={{
+        onOpenSearch: () => setCommandPaletteOpen(true),
+        onShowChats: () => {
+          setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
+          navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
+        },
+        onShowProjects: () => {
+          setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
+          navigate("/projects");
+        },
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
@@ -2597,11 +2545,9 @@ export function SessionRoute() {
           ? async (sessionId, nextTitle) => {
               const trimmed = nextTitle.trim();
               if (!trimmed) return;
-              await opencodeClient.session.update({
-                sessionID: sessionId,
-                title: trimmed,
-                directory: selectedWorkspaceRoot || undefined,
-              });
+              const target = sessionTarget(sessionId);
+              await target.client.session.update({ sessionID: sessionId, title: trimmed, directory: target.workspace.path || undefined });
+              await loadWorkspaceSessionsInBackground([target.workspace]);
               await refreshRouteState();
             }
           : undefined
@@ -2609,9 +2555,9 @@ export function SessionRoute() {
       onDeleteSession={
         client && selectedWorkspaceId
           ? async (sessionId) => {
-              const endpoint = endpointForWorkspace(selectedWorkspace);
-              if (!endpoint) return;
+              const { workspace, endpoint } = sessionTarget(sessionId);
               await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              await loadWorkspaceSessionsInBackground([workspace]);
               if (selectedSessionId === sessionId) {
                 navigateToWorkspaceSession(selectedWorkspaceId);
               }
@@ -2622,7 +2568,6 @@ export function SessionRoute() {
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
       statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
-      onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
     <CreateProjectModal
       client={client}
@@ -2655,43 +2600,11 @@ export function SessionRoute() {
     <CommandPalette
       open={commandPaletteOpen}
       onClose={() => setCommandPaletteOpen(false)}
-      onCreateNewSession={() => {
-        if (selectedWorkspaceId) {
-          void handleCreateChatInWorkspace(selectedWorkspaceId);
-        }
-      }}
-      onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
-      onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
-      onOpenModelPicker={() => {
-        modelPicker.setQuery("");
-        modelPicker.setRecentProviderIds(new Set());
-        window.requestAnimationFrame(() => modelPicker.setOpen(true));
-      }}
-      selectedModelLabel={modelLabel}
-      accessibleTargets={paletteAccessibleTargets}
-      onOpenAccessibleTarget={(target) => {
-        try {
-          window.dispatchEvent(new CustomEvent("legalwork-open-accessible-target", { detail: target }));
-        } catch {
-          // ignore event dispatch failures
-        }
-      }}
-      onHideAccessibleTarget={(target) => {
-        try {
-          window.dispatchEvent(new CustomEvent("legalwork-hide-accessible-target", { detail: target }));
-        } catch {
-          // ignore event dispatch failures
-        }
-      }}
+      workspaces={searchWorkspaces}
       sessions={paletteSessionOptions}
-      sessionGroups={paletteSessionGroups}
-      currentSessionForGroupMove={currentSessionForGroupMove}
-      currentSessionGroupId={currentSessionGroupId}
-      onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem]}
-      listAgents={listAgents}
-      selectedAgent={selectedAgent}
-      onSelectAgent={setSelectedAgent}
+      search={searchContents}
+      project={searchProject}
+      onOpenResult={openSearchResult}
     />
     <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={announcementsReady} />
@@ -2711,13 +2624,6 @@ export function SessionRoute() {
           return false;
         }
       }}
-    />
-    <SessionSearchDialog
-      open={sessionSearchOpen}
-      onClose={() => setSessionSearchOpen(false)}
-      sessions={paletteSessionOptions}
-      fetchMessages={sessionSearchFetcher}
-      onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
     />
     <ModelPickerModal
       open={modelPicker.open}

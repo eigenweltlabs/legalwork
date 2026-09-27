@@ -1,3 +1,4 @@
+import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
@@ -34,6 +35,7 @@ export type ArtifactPanelTab = {
   updatedAt?: number;
   storage?: StorageFileSource;
   sourcePage?: number;
+  searchSources?: SearchSourceReference[];
   reviewCitation?: ReviewSourceReference;
 }
 

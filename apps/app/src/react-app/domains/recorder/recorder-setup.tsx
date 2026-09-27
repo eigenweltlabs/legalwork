@@ -21,11 +21,12 @@
  * skipping clears the flag.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check, Cpu, Download, ExternalLink, Loader2, Lock, Mic, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Check, Cpu, Download, ExternalLink, Loader2, Lock, ShieldCheck, Sparkles, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { SectionHeading } from "../../design-system/surface";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import type {
@@ -366,27 +367,12 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
   const requestingMic = demo ? sim.micBusy : micBusy;
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-xl flex-col justify-center px-6 py-12">
+    <div className="lw-page-content lw-page-top pb-8">
       {/* Header */}
-      <div className="flex flex-col items-start">
-        <span
-          className={cn(
-            "flex size-11 items-center justify-center rounded-2xl transition-colors duration-300",
-            allDone ? "bg-success-soft text-success" : "bg-brand-soft text-brand",
-          )}
-        >
-          {allDone ? <Check className="size-5" /> : <Mic className="size-5" />}
-        </span>
-        <h1 className="mt-4 text-2xl font-medium tracking-[-0.02em] text-ink">
-          {allDone ? t("recorder.setup_done_title") : t("recorder.setup_title_flow")}
-        </h1>
-        <p className="mt-1.5 max-w-md text-sm leading-relaxed text-subtext">
-          {allDone ? t("recorder.setup_done_subtitle") : t("recorder.setup_subtitle_flow")}
-        </p>
-      </div>
+      <SectionHeading size="page" title={allDone ? t("recorder.setup_done_title") : t("recorder.setup_title_flow")} description={allDone ? t("recorder.setup_done_subtitle") : t("recorder.setup_subtitle_flow")} />
 
       {/* Steps */}
-      <div className="mt-7 divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
+      <div className="mt-6 max-w-3xl divide-y divide-border overflow-hidden rounded-2xl border border-border bg-background">
         {steps.map((step, index) => {
           const active = index === activeIndex;
           if (step.id === "microphone") {
@@ -589,7 +575,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
       />
 
       {/* Footer: privacy assurance + exit */}
-      <div className="mt-5 flex items-center justify-between gap-4">
+      <div className="mt-5 flex max-w-3xl flex-wrap items-center justify-between gap-4">
         <p className="flex items-center gap-1.5 text-xs text-subtext">
           <ShieldCheck className="size-3.5 shrink-0 text-success" />
           {t("recorder.setup_privacy_note")}

@@ -1,11 +1,13 @@
+import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
+import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft, ArrowRight, AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import {
@@ -59,6 +61,7 @@ import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig } from "../../../shell/shell-config";
+import { workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute } from "../../../shell/workspace-routes";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
@@ -117,6 +120,9 @@ export type SessionPageHistoryControls = {
 };
 
 export type SessionPageSidebarProps = {
+  onOpenSearch?: () => void;
+  onShowChats?: () => void;
+  onShowProjects?: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -216,6 +222,7 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
+  projectsPage?: boolean;
   projectPage?: "home" | "tasks" | "reviews";
   onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
@@ -319,11 +326,14 @@ function controlStringArg(args: unknown, key: string) {
 
 export function SessionPage(props: SessionPageProps) {
   const navigate = useNavigate();
-  const hasMainView = Boolean(props.mainView || props.projectPage);
+  const location = useLocation();
+  const hasMainView = Boolean(props.mainView || props.projectPage || props.projectsPage);
   const { config: shellConfig } = useShellConfig();
   const queryClient = useQueryClient();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
+  const topLevelPage = Boolean(props.projectsPage || props.sidebar.activeNav);
+  const chatSidebarOpen = sidebarOpen && !topLevelPage;
   // The side panel's open/close state is keyed per chat session. Top-level
   // mainView pages (Evals / Benchmark) have no selected session, so they key
   // it on the synthetic EVALS_PANEL_SESSION_ID instead. Project homes keep
@@ -341,6 +351,11 @@ export function SessionPage(props: SessionPageProps) {
   const toggleSidePanelState = useUiStateStore((state) => state.toggleSidePanelState);
   const fileSidebar = useUiStateStore((state) => state.fileSidebarState[panelStateSessionId] ?? null);
   const setFileSidebarState = useUiStateStore((state) => state.setFileSidebarState);
+  useEffect(() => {
+    if (props.detached && props.projectPage && new URLSearchParams(location.search).get("panel") === "files") {
+      setFileSidebarState(panelStateSessionId, "files");
+    }
+  }, [props.detached, props.projectPage, location.search, panelStateSessionId, setFileSidebarState]);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const transcriptTargets = usePanelTabStore((state) => (
@@ -472,8 +487,9 @@ export function SessionPage(props: SessionPageProps) {
     minRightWidth: 320,
   });
   const [browserPanelDefaultWidth, setBrowserPanelDefaultWidth] = useState(browserPanelWidth);
-  const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width", string> = {
-    "--sidebar-width": `${leftSidebarWidth}px`,
+  const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
+    "--sidebar-width-icon": "var(--lw-window-left-rail-width)",
+    "--sidebar-width": `calc(${leftSidebarWidth}px + var(--lw-window-left-rail-width))`,
   };
   useEffect(() => {
     if (sidePanelOpen) return;
@@ -641,6 +657,16 @@ export function SessionPage(props: SessionPageProps) {
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
   }, [downloadOpenTarget, openTab, panelStateSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  const searchTarget = useSearchNavigation(state => state.target);
+  useEffect(() => {
+    if (searchTarget?.kind !== "files" || !searchTarget.path || searchTarget.workspaceId !== props.selectedWorkspaceId || !props.projectPage) return;
+    if (searchTarget.sources?.some(source => source.page)) {
+      openTab(panelStateSessionId, { id: `search-source:${searchTarget.path}`, type: "artifact", label: searchTarget.title,
+        value: searchTarget.path, preview: classifyOpenTarget(searchTarget.path, "file"), searchSources: searchTarget.sources });
+      preserveSidePanelOnPanelOpenRef.current = true; setCurrentSidePanel("panel");
+    } else openWorkspaceFileEntry({ name: searchTarget.title, path: searchTarget.path, kind: "file", updatedAt: searchTarget.updatedAt });
+    useSearchNavigation.getState().setTarget(null);
+  }, [searchTarget, props.selectedWorkspaceId, props.projectPage, openWorkspaceFileEntry, openTab, panelStateSessionId, setCurrentSidePanel]);
   const openStorageFile = useCallback((root: StorageRoot, file: StorageEntry) => {
     if (!props.runtimeWorkspaceId) return;
     const tab = storageFileTab(props.runtimeWorkspaceId, root, file);
@@ -794,10 +820,6 @@ export function SessionPage(props: SessionPageProps) {
     [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
   );
   useEffect(() => {
-    if (!props.detached) return;
-    document.title = selectedSessionTitle || t("session.default_title");
-  }, [props.detached, selectedSessionTitle]);
-  useEffect(() => {
     setSessionTabs((current) => {
       const currentWorkspaceTabs = current.filter((tab) => tab.workspaceId === props.selectedWorkspaceId);
       const next = props.selectedSessionId && !currentWorkspaceTabs.some((tab) => tab.sessionId === props.selectedSessionId)
@@ -901,6 +923,14 @@ export function SessionPage(props: SessionPageProps) {
     });
   }, [props.sidebar.workspaceSessionGroups]);
 
+  const openProjectWindow = useCallback((workspaceId: string, page: "home" | "reviews" | "tasks" | "files") => {
+    if (!isElectronRuntime()) return;
+    const title = t(page === "reviews" ? "projects.tab_review" : page === "tasks" ? "projects.tasks" : page === "files" ? "projects.files" : "projects.home");
+    void desktopBridge.openProjectWindow({ workspaceId, page, title }).catch(() => {
+      toast.error(t("projects.open_in_new_window_failed"));
+    });
+  }, []);
+
   useEffect(() => {
     if (props.detached || !props.selectedSessionId || !isElectronRuntime()) return;
     const selectedSessionId = props.selectedSessionId;
@@ -988,8 +1018,24 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
-  const mainView = props.projectPage === "reviews" ? (
-    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews onOpenSession={sessionId => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
+  const mainView = props.projectsPage ? <ProjectsPage
+    client={props.environmentClient ?? null}
+    groups={props.sidebar.workspaceSessionGroups}
+    onOpenSearch={props.sidebar.onOpenSearch}
+    onOpenProject={async (id, page) => {
+      if (await props.sidebar.onSelectWorkspace(id) === false) return;
+      if (page === "projectFiles") setFileSidebarState(`project:${id}`, "files");
+      navigate(page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
+    }}
+    onOpenSession={openSessionTab}
+    onNewChat={props.sidebar.onCreateChatInWorkspace}
+    onCreate={props.sidebar.onOpenCreateWorkspace}
+    onRename={props.sidebar.onOpenRenameWorkspace}
+    onReveal={props.sidebar.onRevealWorkspace}
+    onForget={props.sidebar.onForgetWorkspace}
+    newChatDisabled={props.sidebar.newChatDisabled}
+  /> : props.projectPage === "reviews" ? (
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews onOpenSession={sessionId => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
@@ -1005,7 +1051,7 @@ export function SessionPage(props: SessionPageProps) {
         : props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
       tasksView={props.projectTasksView}
       onRename={props.onRenameProject}
-    /> : <p className="p-8 text-muted-foreground">{t("projects.connecting")}</p>
+    /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.mainView;
 
   const fileSidebars = (
@@ -1042,20 +1088,83 @@ export function SessionPage(props: SessionPageProps) {
     </Button>
   );
 
+  const windowTitle = props.projectsPage ? t("projects.plural")
+    : props.projectPage === "home" ? workspaceName
+    : props.projectPage === "reviews" ? t("projects.tab_review")
+    : props.projectPage === "tasks" ? t("projects.tasks")
+    : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
+    : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
+    : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")
+    : props.sidebar.activeNav === "evals" ? t("sidebar.evals")
+    : props.sidebar.activeNav === "extensions" ? t("sidebar.extensions")
+    : showWorkspaceSetupEmptyState ? t("session.create_or_connect_workspace")
+    : selectedSessionTitle || t("session.default_title");
+  const sidebarVisible = !props.detached && shellConfig.sidebar && chatSidebarOpen && !mobile;
+  useEffect(() => {
+    if (props.detached) document.title = windowTitle;
+  }, [props.detached, windowTitle]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--lw-canvas)] text-dls-text mac:bg-transparent">
+    <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
       <SidebarProvider
-        open={sidebarOpen}
+        open={chatSidebarOpen}
         onOpenChange={setSidebarOpen}
         className={cn(
-          "relative min-h-0 flex-1 mac:bg-transparent",
+          "lw-workspace-shell relative min-h-0 flex-1",
           leftSidebarResizing &&
-            "**:data-[slot=sidebar-container]:transition-none **:data-[slot=sidebar-gap]:transition-none",
+            "**:data-[slot=sidebar-container]:transition-none **:data-[slot=sidebar-gap]:transition-none [&_.lw-window-navigation]:transition-none",
           !shellConfig.sidebar && "**:data-[slot=sidebar-container]:hidden **:data-[slot=sidebar-gap]:hidden",
         )}
         style={sidebarProviderStyle}
+        data-sidebar-visible={sidebarVisible}
       >
+        <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center gap-2 pr-2 electron:titlebar-drag">
+          <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
+            {!props.detached && <>
+              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
+              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
+              {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+            </>}
+          </div>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
+            {props.developerMode && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
+            {props.busyHint && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.busyHint}</span>}
+          </div>
+            <div className="flex items-center gap-1.5 text-gray-10 titlebar-no-drag">
+              {/* Revert/redo moved to per-message actions */}
+              {!hasMainView && !props.detached && props.selectedSessionId && isElectronRuntime() ? (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => openSessionWindow(props.selectedWorkspaceId, props.selectedSessionId!)}
+                  title={t("session.open_in_new_window")}
+                  aria-label={t("session.open_in_new_window")}
+                >
+                  <AppWindowMac size={16} />
+                </Button>
+              ) : null}
+              <NotificationBell />
+              {props.developerMode ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    try {
+                      window.localStorage.removeItem("legalwork.acknowledgedProviders");
+                      window.localStorage.removeItem("legalwork.orgOnboardingSeen");
+                    } catch {}
+                  }}
+                  title={t("settings.clear_onboarding_hint")}
+                >
+                  {t("session.reset_notifications")}
+                </Button>
+              ) : null}
+            </div>
+
+        </header>
         {!props.detached ? <AppSidebar
+          accountClient={props.environmentClient ?? props.legalworkServerClient ?? null}
           workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
@@ -1077,6 +1186,7 @@ export function SessionPage(props: SessionPageProps) {
           onSelectWorkspace={props.sidebar.onSelectWorkspace}
           onOpenSession={openSessionTab}
           onOpenSessionWindow={isElectronRuntime() ? openSessionWindow : undefined}
+          onOpenProjectWindow={isElectronRuntime() ? openProjectWindow : undefined}
           onPrefetchSession={props.sidebar.onPrefetchSession}
           onCreateChatInWorkspace={props.sidebar.onCreateChatInWorkspace}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}
@@ -1102,6 +1212,9 @@ export function SessionPage(props: SessionPageProps) {
           onShowExtensions={props.sidebar.onShowExtensions}
           onShowRecorder={props.sidebar.onShowRecorder}
           onShowTasks={props.sidebar.onShowTasks}
+          onOpenSearch={props.sidebar.onOpenSearch}
+          onShowChats={props.sidebar.onShowChats}
+          onShowProjects={props.sidebar.onShowProjects}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
@@ -1110,26 +1223,13 @@ export function SessionPage(props: SessionPageProps) {
           // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.
-          <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
+          <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden">
             <div className="flex min-h-0 flex-1">
-            <ResizablePanelGroup orientation="horizontal" className={cn("min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
+            <ResizablePanelGroup orientation="horizontal" className={cn("lw-workspace-surface min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-              <header className="lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-                <div className="flex min-w-0 items-center gap-3">
-                  {shellConfig.sidebar ? (
-                <SidebarTrigger className="mac:hidden" />
-              ) : (
-                // Keeps the title clear of overlaid leading controls (e.g. the
-                // Word pane back button) when the sidebar trigger is hidden.
-                <span aria-hidden className="w-6 shrink-0" />
-              )}
-                </div>
-                <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
-                  <NotificationBell />
-                </div>
-              </header>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{mainView}</div>
+
+              <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
                   clientConnected={props.clientConnected}
@@ -1171,7 +1271,7 @@ export function SessionPage(props: SessionPageProps) {
               {fileSidebars}
             </ResizablePanelGroup>
             {/* Same right icon rail as the session view. */}
-            <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
+            {shellConfig.panelRail && <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-[var(--lw-window-right-rail-width)] shrink-0 flex-col items-center gap-1.5 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -1197,78 +1297,19 @@ export function SessionPage(props: SessionPageProps) {
               >
                 <MemoryDriveIcon />
               </Button>
-          </aside>
+          </aside>}
             </div>
           </SidebarInset>
         ) : (
-        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_.lw-session-header]:transition-[padding-left] mac:[&_.lw-session-header]:duration-200 mac:[&_.lw-session-header]:ease-linear mac:peer-data-[state=collapsed]:[&_.lw-session-header]:pl-28 mac:max-md:[&_.lw-session-header]:pl-28">
+        <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden">
           <div className="flex min-h-0 flex-1">
           <ResizablePanelGroup
             orientation="horizontal"
-            className="min-h-0 flex-1"
+            className="lw-workspace-surface min-h-0 flex-1"
           >
             <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-          <header className={cn("lw-session-header z-10 flex h-11 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar", props.detached && "mac:pl-20")}>
-            <div className="flex min-w-0 items-center gap-3">
-              {!props.detached && shellConfig.sidebar ? (
-                <SidebarTrigger className="mac:hidden" />
-              ) : (
-                // Keeps the title clear of overlaid leading controls (e.g. the
-                // Word pane back button) when the sidebar trigger is hidden.
-                <span aria-hidden className="w-6 shrink-0" />
-              )}
-              <h1 className="truncate text-[13px] font-medium tracking-[-0.01em] text-dls-text">
-                {showWorkspaceSetupEmptyState
-                  ? t("session.create_or_connect_workspace")
-                  : selectedSessionTitle || t("session.default_title")}
-              </h1>
-              <span className="hidden truncate border-l border-dls-border pl-3 text-xs text-dls-secondary lg:inline">
-                {workspaceName}
-              </span>
-              {props.developerMode ? (
-                <span className="hidden text-[12px] text-dls-secondary lg:inline">
-                  {props.headerStatus}
-                </span>
-              ) : null}
-              {props.busyHint ? (
-                <span className="hidden text-[12px] text-dls-secondary lg:inline">
-                  {props.busyHint}
-                </span>
-              ) : null}
-            </div>
 
-            <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
-              {/* Revert/redo moved to per-message actions */}
-              {!props.detached && props.selectedSessionId && isElectronRuntime() ? (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => openSessionWindow(props.selectedWorkspaceId, props.selectedSessionId!)}
-                  title={t("session.open_in_new_window")}
-                  aria-label={t("session.open_in_new_window")}
-                >
-                  <AppWindowMac size={16} />
-                </Button>
-              ) : null}
-              <NotificationBell />
-              {props.developerMode ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    try {
-                      window.localStorage.removeItem("legalwork.acknowledgedProviders");
-                      window.localStorage.removeItem("legalwork.orgOnboardingSeen");
-                    } catch {}
-                  }}
-                  title={t("settings.clear_onboarding_hint")}
-                >
-                  {t("session.reset_notifications")}
-                </Button>
-              ) : null}
-            </div>
-          </header>
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">
@@ -1545,7 +1586,7 @@ export function SessionPage(props: SessionPageProps) {
           {fileSidebars}
           </ResizablePanelGroup>
           {shellConfig.panelRail ? (
-          <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-12 shrink-0 flex-col items-center gap-2 border-l border-border px-1.5 py-3 text-muted-foreground mac:titlebar-no-drag">
+          <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-[var(--lw-window-right-rail-width)] shrink-0 flex-col items-center gap-1.5 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -1575,7 +1616,6 @@ export function SessionPage(props: SessionPageProps) {
           </div>
         </SidebarInset>
         )}
-        {!props.detached && shellConfig.sidebar && !props.titlebarControlsHidden ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}

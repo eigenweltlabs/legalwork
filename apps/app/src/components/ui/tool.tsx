@@ -5,52 +5,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { getToolActivityLabel, isToolPartInFlight } from "@/lib/tool-activity"
+import { isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity"
+import { getToolHistoryLabel, getToolIcon } from "@/components/tools/tool-presentation"
 import { cn } from "@/lib/utils"
 import {
-  Blocks,
-  Bot,
   ChevronDown,
+  Ban,
   CircleAlert,
-  FilePen,
-  KeyRound,
-  ListTodo,
-  LoaderCircle,
-  MessageCircleQuestion,
-  Search,
-  SquareCode,
-  Wrench,
 } from "lucide-react"
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import { t } from "@/i18n";
-
-function toolIcon(part: ToolPart) {
-  const name = part.type === "dynamic-tool" ? part.toolName : part.type
-  switch (name) {
-    case "edit":
-    case "write":
-    case "apply_patch":
-      return FilePen
-    case "grep":
-    case "glob":
-      return Search
-    case "lsp":
-      return SquareCode
-    case "skill":
-      return Blocks
-    case "todowrite":
-      return ListTodo
-    case "question":
-      return MessageCircleQuestion
-    case "request_env_var":
-    case "env_var_request":
-      return KeyRound
-    case "task":
-      return Bot
-    default:
-      return Wrench
-  }
-}
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart
 
@@ -120,12 +84,13 @@ function DiffLines({ diff }: { diff: string }) {
 const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) => {
   const { state, input } = toolPart
   const inFlight = isToolPartInFlight(toolPart)
-  const isError = state === "output-error"
-  const label = title ?? getToolActivityLabel(toolPart)
+  const denied = isToolPermissionDenied(toolPart)
+  const isError = state === "output-error" && !denied
+  const label = title ?? getToolHistoryLabel(toolPart)
   const hasInput = input !== null && input !== undefined
   const hasOutput = "output" in toolPart && toolPart.output !== undefined
   const inputDiff = getInputDiff(input)
-  const Icon = toolIcon(toolPart)
+  const Icon = getToolIcon(toolPart)
 
   return (
     <Collapsible className={className} defaultOpen={defaultOpen}>
@@ -134,9 +99,7 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
       >
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="transition-opacity group-hover:opacity-0">
-            {inFlight ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : isError ? (
+            {denied ? <Ban className="size-4" /> : isError ? (
               <CircleAlert className="text-destructive size-4" />
             ) : (
               <Icon className="size-3.5" />
@@ -144,9 +107,9 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
           </span>
           <ChevronDown className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100 group-data-panel-open:rotate-180" />
         </span>
-        <span className="min-w-0 truncate">{label}</span>
+        <span className={cn("min-w-0 truncate", inFlight && "lw-tool-shimmer")}>{label}</span>
         {isError ? (
-          <span className="text-destructive shrink-0 text-xs">failed</span>
+          <span className="text-destructive shrink-0 text-xs">{t("tool_run.failed")}</span>
         ) : null}
       </CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden text-sm transition-[height] duration-150 ease-out data-starting-style:h-0 data-ending-style:h-0 [&[hidden]:not([hidden='until-found'])]:hidden">

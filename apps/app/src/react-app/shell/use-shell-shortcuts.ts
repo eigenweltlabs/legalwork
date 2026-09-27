@@ -14,7 +14,6 @@ export type UseShellShortcutsInput = {
 export function useShellShortcuts(input: UseShellShortcutsInput) {
   const { canCreateChat, workspaceId, onCreateChat, onNextSessionTab, onPrevSessionTab } = input;
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
 
   // Global shortcuts:
@@ -27,10 +26,10 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
   const handleGlobalShortcut = useEffectEvent((event: KeyboardEvent) => {
     const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
     const mod = isMac ? event.metaKey : event.ctrlKey;
-    if (!mod) return;
+    if (!mod || event.isComposing) return;
     if (event.shiftKey && !event.altKey && event.key?.toLowerCase() === "f") {
       event.preventDefault();
-      setSessionSearchOpen((value) => !value);
+      setCommandPaletteOpen((value) => !value);
       return;
     }
     if (event.shiftKey && !event.altKey && event.key?.toLowerCase() === "t") {
@@ -57,7 +56,8 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
     }
     if (key === "k") {
       event.preventDefault();
-      setCommandPaletteOpen((value) => !value);
+      event.stopImmediatePropagation();
+      if (!event.repeat) setCommandPaletteOpen((value) => !value);
       return;
     }
     if (key === "j") {
@@ -74,15 +74,22 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => handleGlobalShortcut(event);
+    // App search owns Cmd/Ctrl+K before embedded editors can insert a link.
+    // Other shortcuts keep their existing bubbling behavior.
+    const captureSearch = (event: KeyboardEvent) => {
+      if (!event.isComposing && event.key.toLowerCase() === "k") handleGlobalShortcut(event);
+    };
+    window.addEventListener("keydown", captureSearch, true);
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", captureSearch, true);
+      window.removeEventListener("keydown", handler);
+    };
   }, []);
 
   return {
     commandPaletteOpen,
     setCommandPaletteOpen,
-    sessionSearchOpen,
-    setSessionSearchOpen,
     terminalOpen,
     setTerminalOpen,
   };

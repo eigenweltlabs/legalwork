@@ -146,7 +146,7 @@ function TierRow(props: {
   );
 }
 
-export function ModelTierSelect(props: { disabled?: boolean }) {
+export function ModelTierSelect(props: { disabled?: boolean; className?: string }) {
   const store = useRecorderStore();
   const navigate = useNavigate();
   const upsell = usePremiumUpsell();
@@ -186,8 +186,8 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
         <DropdownMenuTrigger
           disabled={props.disabled}
           render={
-            <Button variant="outline" size="sm" className="h-8 min-w-[180px] justify-between">
-              <span className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className={cn("h-8 min-w-[180px] justify-between", props.className)}>
+              <span className="flex min-w-0 items-center gap-2">
                 {selectedTier ? (
                   <>
                     <span className="font-medium text-ink">{tierName(selectedTier.key)}</span>
@@ -207,7 +207,7 @@ export function ModelTierSelect(props: { disabled?: boolean }) {
             </Button>
           }
         />
-        <DropdownMenuContent align="start" className="w-[320px] rounded-2xl p-1.5">
+        <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)] rounded-2xl p-1.5">
           <div className="px-2 pb-1 pt-1 text-2xs font-semibold uppercase tracking-wide text-tertiary">
             {t("recorder.model_select_label")}
           </div>

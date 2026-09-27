@@ -44,7 +44,9 @@
     "./model-limits": "./src/model-limits.ts",
     "./systemone": "./src/systemone.ts",
     "./ocr": "./src/ocr.ts",
-    "./reviews": "./src/reviews.ts"
+    "./reviews": "./src/reviews.ts",
+    "./corpus": "./src/corpus.ts",
+    "./search": "./src/search.ts"
   },
   "files": [
     "src",

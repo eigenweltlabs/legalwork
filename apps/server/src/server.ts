@@ -1,3 +1,9 @@
+import { z } from "zod";
+import { reviewSourcePage } from "./reviews/source-page.js";
+import { searchSessionContents, searchFileContents } from "./content-search.js";
+import { CorpusService } from "./corpus/service.js";
+import { extractCorpusText } from "./corpus/extract.js";
+import { readSystemOneSettings, systemOne } from "./systemone.js";
 import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
 import { registerSystemOneRoutes } from "./routes/systemone.js";
 import { SystemOneConfigurationSchema } from "./systemone-schema.js";
@@ -764,8 +770,20 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   });
   const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
   const preparation = new DocumentPreparation(ocr);
+  const corpus = new CorpusService({
+    selection: async () => {
+      const settings = await readSystemOneSettings(config);
+      const provider = settings.providers.find(provider => provider.id === settings.selection.providerId);
+      const model = provider?.models.find(model => model.id === settings.selection.model);
+      if (provider?.status !== "ready" || !model?.questionTypes.includes("noul") || !model.questionTypes.includes("choice"))
+        throw new ApiError(409, "corpus_provider", "Select an available JEV provider supporting yes/no and classification in Settings.");
+      return settings.selection;
+    },
+    extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
+    infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
+  });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus);
 
   const serverOptions: {
     hostname: string;
@@ -976,6 +994,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       approvals.dispose();
+      await corpus.stop();
       reviews.stop();
       preparation.stop();
       ocr.runtime.cancel();
@@ -1492,9 +1511,23 @@ function createRoutes(
   ocr: OcrManager,
   preparation: DocumentPreparation,
   reviews: ReviewService,
+  corpus: CorpusService,
 ): Route[] {
   const routes: Route[] = [];
-  registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
+  registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
+    const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
+    if (primary) {
+      await writeLegalworkRuntimeConfigFile(config, primary.id);
+      idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+        for (const workspace of config.workspaces) {
+          if (workspace.workspaceType === "remote") continue;
+          try {
+            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace);
+          } catch { /* A stopped engine will read the updated configuration on startup. */ }
+        }
+      });
+    }
+  } });
   const reviewSessions = new ReviewSessions(workspace => {
     const client = createWorkspaceOpencodeClient(config, workspace);
     return {
@@ -1509,7 +1542,7 @@ function createRoutes(
       unarchive: async id => unwrapOpencodeResult(await client.session.update({ sessionID: id, time: { archived: 0 } }), "/session"),
     };
   });
-  registerReviewRoutes({ routes, config, reviews, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });
@@ -3030,6 +3063,45 @@ function createRoutes(
   });
   addRoute(routes, "GET", "/workspace/:id/project/content", "client", async (ctx) => {
     return jsonResponse(await readProjectContent(await projectContentSources(ctx.params.id), Object.fromEntries(ctx.url.searchParams)));
+  });
+
+  // Task records live in the local database, independently of project folders.
+  // A disconnected drive must not disable the server-wide task search.
+  addRoute(routes, "GET", "/tasks/search", "client", async ctx => {
+    const query = (ctx.url.searchParams.get("q") ?? "").trim().slice(0, 300);
+    const projectId = ctx.url.searchParams.get("projectId");
+    const workspace = projectId ? config.workspaces.find(workspace => workspace.id === projectId || `rem_${workspace.id}` === projectId) : undefined;
+    if (projectId && !workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+    const { orgId } = await localTaskConnection();
+    const items = (await taskStore(config)).searchTasks(query, orgId, workspace?.id ?? "", Boolean(projectId));
+    return jsonResponse({ items: items.slice(0, 60), limited: items.length > 60 });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/search-source", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const source = z.object({
+      path: z.string().min(1).max(4096), hash: z.string().regex(/^[a-f0-9]{64}$/),
+      page: z.number().int().positive(), source: z.enum(["native", "ocr"]),
+      quote: z.string().min(1).max(4000), preparationPath: z.string().max(4096).optional(),
+    }).parse(await readJsonBodyLimited(ctx.request, 32 * 1024));
+    return jsonResponse(await reviewSourcePage(workspace.path, source.path, {
+      sourceHash: source.hash, preparationPath: source.preparationPath,
+      citations: [{ page: source.page, quote: source.quote, source: source.source }],
+    }, 0, ctx.request.signal));
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/search/:kind", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const query = (ctx.url.searchParams.get("q") ?? "").trim().slice(0, 300);
+    if (query.length < 2 && !(ctx.params.kind === "tasks" && !query)) return jsonResponse({ items: [] });
+    if (ctx.params.kind === "sessions") return jsonResponse(await searchSessionContents(config, workspace, query, ctx.request.signal));
+    if (ctx.params.kind === "files") return jsonResponse(await searchFileContents(workspace, query, ctx.request.signal, preparation, ctx.url.searchParams.get("retry") === "true"));
+    if (ctx.params.kind === "tasks") {
+      const { orgId } = await localTaskConnection();
+      const items = (await taskStore(config)).searchTasks(query, orgId, workspace.id, ctx.url.searchParams.get("scope") === "project");
+      return jsonResponse({ items: items.slice(0, 60), limited: items.length > 60 });
+    }
+    throw new ApiError(400, "invalid_search_kind", "Search sessions, tasks or files.");
   });
 
   addRoute(routes, "GET", "/workspace/:id/tasks", "client", async (ctx) => {

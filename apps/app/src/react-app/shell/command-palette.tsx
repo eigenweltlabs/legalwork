@@ -1,447 +1,206 @@
-/** @jsxImportSource react */
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-} from "react";
-import type { Agent } from "@opencode-ai/sdk/v2/client";
-
+import { useQueries } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CornerDownLeft, FileText, LayoutGrid, ListTodo, Loader2, MessageSquare, Search, X } from "lucide-react";
+import { matchesSearch, searchTerms, type ContentSearchKind, type ContentSearchResponse, type ContentSearchResult } from "@legalwork/types/search";
 import { t } from "@/i18n";
-import {
-  Command,
-  CommandDialog,
-  CommandDialogPopup,
-  CommandDialogTitle,
-  CommandEmpty,
-  CommandFooter,
-  CommandHeader,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandPanel,
-  CommandShortcut,
-} from "@/components/ui/command";
+import { isMacPlatform } from "@/app/utils";
+import { Command, CommandDialog, CommandDialogPopup, CommandDialogTitle, CommandEmpty, CommandFooter, CommandHeader, CommandInput, CommandItem, CommandList, CommandPanel } from "@/components/ui/command";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { BrainCircuit, Check, ChevronLeftIcon, FileText, FolderInput, Globe } from "lucide-react";
-
-export type PaletteItem = {
-  id: string;
-  title: string;
-  detail?: string;
-  meta?: string;
-  icon?: ReactNode;
-  searchText?: string;
-  action: () => void;
-};
-
-export type AccessibleTargetOption = {
-  id: string;
-  kind: "url" | "file";
-  value: string;
-  name: string;
-  preview: string;
-};
-
-type PaletteMode = "root" | "sessions" | "accessible-items" | "groups";
+import { SearchGlass } from "./search-glass";
+import { rankSearchResults } from "./search-ranking";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { ProjectDetails } from "@legalwork/types/workspace";
+import { matchesProjectFilters, useProjectFilterStore } from "../domains/workspace/project-filters";
+import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "../domains/workspace/project-defaults-store";
+import "./command-palette.css";
 
 export type SessionOption = {
-  workspaceId: string;
-  sessionId: string;
-  title: string;
-  workspaceTitle: string;
-  updatedAt: number;
-  searchText: string;
-  isActive: boolean;
+  workspaceId: string; sessionId: string; title: string; workspaceTitle: string;
+  updatedAt: number; searchText: string; isActive: boolean;
 };
+export type SearchWorkspace = { id: string; title: string; local: boolean; server: string };
+type SearchFilter = "all" | ContentSearchKind;
+const kinds: ContentSearchKind[] = ["sessions", "projects", "tasks", "files"];
+const filters: SearchFilter[] = ["all", ...kinds];
+const icons = { sessions: MessageSquare, projects: LayoutGrid, tasks: ListTodo, files: FileText };
+const labels = () => ({ all: t("content_search.all"), sessions: t("content_search.sessions"), projects: t("content_search.projects"), tasks: t("content_search.tasks"), files: t("content_search.files") });
 
-export type SessionGroupOption = {
-  id: string;
-  label: string;
-};
-
-function targetIcon(target: AccessibleTargetOption) {
-  if (target.kind === "url") return <Globe className="size-4 text-primary" />;
-  if (target.preview === "sheet") {
-    return (
-      <span className="inline-flex h-4 min-w-6 shrink-0 items-center justify-center rounded-[4px] border border-emerald-500/30 bg-emerald-500/10 px-0.5 text-[7px] font-bold leading-none text-emerald-700">
-        XLS
-      </span>
-    );
-  }
-  if (target.preview === "markdown") {
-    return (
-      <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-primary/25 bg-primary/10 text-[8px] font-bold leading-none text-primary">
-        MD
-      </span>
-    );
-  }
-  if (target.preview === "word") {
-    return (
-      <span className="inline-flex h-4 min-w-6 shrink-0 items-center justify-center rounded-[4px] border border-indigo-500/30 bg-indigo-500/10 px-0.5 text-[7px] font-bold leading-none text-indigo-700">
-        DOC
-      </span>
-    );
-  }
-  return <FileText className="size-4 text-primary" />;
+function Highlight({ text, query }: { text: string; query: string }) {
+  const terms = searchTerms(query).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!terms.length) return <>{text}</>;
+  return <>{text.split(new RegExp(`(${terms.join("|")})`, "gi")).map((part, index) => index % 2
+    ? <mark key={index} className="search-highlight">{part}</mark> : part)}</>;
 }
 
-export type CommandPaletteProps = {
+export function CommandPalette(props: {
   open: boolean;
   onClose: () => void;
-  /** Called when a session row is chosen. */
-  onOpenSession: (workspaceId: string, sessionId: string) => void;
-  /** Called when "New session" is chosen. */
-  onCreateNewSession: () => void;
-  /** Called when "Open settings" is chosen. Accepts an optional route to jump straight to a tab. */
-  onOpenSettings: (route?: string) => void;
-  /** Optional: open the full default-model picker. */
-  onOpenModelPicker?: () => void;
-  selectedModelLabel?: string;
-  /** Optional — open a URL in the user's browser. Falls back to window.open. */
-  onOpenUrl?: (url: string) => void;
-  /** Optional: current session servers/artifacts exposed through Cmd/Ctrl+K. */
-  accessibleTargets?: AccessibleTargetOption[];
-  onOpenAccessibleTarget?: (target: AccessibleTargetOption) => void;
-  onHideAccessibleTarget?: (target: AccessibleTargetOption) => void;
-  /** Optional: sessions for the second mode. */
+  workspaces: SearchWorkspace[];
   sessions: SessionOption[];
-  sessionGroups?: SessionGroupOption[];
-  currentSessionForGroupMove?: { title: string } | null;
-  currentSessionGroupId?: string | null;
-  onMoveCurrentSessionToGroup?: (groupId: string) => void;
-  extraItems?: PaletteItem[];
-  /** Optional: agent picker submode (Switch agent). */
-  listAgents?: () => Promise<Agent[]>;
-  selectedAgent?: string | null;
-  onSelectAgent?: (agent: string | null) => void;
-};
+  project: (workspaceId: string) => Promise<ProjectDetails>;
+  search: (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) => Promise<ContentSearchResponse>;
+  onOpenResult: (result: ContentSearchResult) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState("__all__");
+  const [revision, setRevision] = useState(0);
+  const retryRef = useRef(false);
+  const [preparing, setPreparing] = useState(0);
+  const [retryable, setRetryable] = useState(false);
+  const filterState = useProjectFilterStore();
+  const savedDefaults = useProjectDefaultsStore(state => state.fields);
+  const details = useQueries({ queries: props.workspaces.map(workspace => ({
+    queryKey: ["search-project", workspace.id], queryFn: () => props.project(workspace.id),
+    enabled: props.open && scope === "__filtered__", staleTime: 0, retry: 1,
+  })) });
+  const eligibleIds = props.workspaces.filter((workspace, index) => {
+    if (scope === "__all__") return true;
+    if (scope !== "__filtered__") return workspace.id === scope;
+    const detail = details[index].data;
+    return detail && matchesProjectFilters(withInitialProjectFields(detail, savedDefaults ?? defaultAkteFields()).fields, filterState.filters, filterState.mode);
+  }).map(workspace => workspace.id).join("\n");
+  const scopedWorkspaces = useMemo(() => { const ids = new Set(eligibleIds.split("\n")); return props.workspaces.filter(workspace => ids.has(workspace.id)); }, [eligibleIds, props.workspaces]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [filter, setFilter] = useState<SearchFilter>("all");
+  const resultsByJob = useRef(new Map<string, ContentSearchResult[]>());
+  const previousSearch = useRef("");
+  const [results, setResults] = useState<ContentSearchResult[]>([]);
+  const [pending, setPending] = useState(0);
+  const [issues, setIssues] = useState<string[]>([]);
+  const [limited, setLimited] = useState(false);
+  const [resultQuery, setResultQuery] = useState("");
+  const trimmed = query.trim();
+  const names = labels();
 
-/**
- * React command palette (Cmd/Ctrl+K).
- *
- * - Root mode: "New session", "Open settings", and a link into the Sessions submode.
- * - Sessions submode: fuzzy list of every session across workspaces.
- */
-export function CommandPalette(props: CommandPaletteProps) {
-  const [mode, setMode] = useState<PaletteMode>("root");
+  useEffect(() => { if (!props.open) { setQuery(""); setFilter("all"); setScope("__all__"); } }, [props.open]);
+  useEffect(() => {
+    const key = JSON.stringify([trimmed, filter, eligibleIds, scope]);
+    if (previousSearch.current !== key) { previousSearch.current = key; resultsByJob.current.clear(); setResults([]); }
+    setIssues([]); setLimited(false); setPending(0); setPreparing(0); setRetryable(false); setResultQuery(trimmed);
+    if (!props.open || trimmed.length === 1 || (trimmed.length < 2 && filter !== "tasks" && filter !== "all") || filter === "projects") return;
+    const controller = new AbortController();
+    const retry = retryRef.current; retryRef.current = false;
+    const jobs: Array<{ workspace: SearchWorkspace; kind: "sessions" | "tasks" | "files" }> = [];
+    const taskServers = new Set<string>();
+    for (const workspace of scopedWorkspaces) {
+      if (trimmed.length >= 2 && (filter === "all" || filter === "sessions")) jobs.push({ workspace, kind: "sessions" });
+      if (trimmed.length >= 2 && workspace.local && (filter === "all" || filter === "files")) jobs.push({ workspace, kind: "files" });
+      if ((filter === "all" || filter === "tasks") && (scope !== "__all__" || !taskServers.has(workspace.server))) {
+        taskServers.add(workspace.server); jobs.push({ workspace, kind: "tasks" });
+      }
+    }
+    setPending(jobs.length);
+    const timer = window.setTimeout(() => {
+      const run = async (job: typeof jobs[number]) => {
+        try {
+          const response = await props.search(job.workspace.id, job.kind, trimmed, controller.signal, { projectOnly: scope !== "__all__", retry });
+          if (controller.signal.aborted) return;
+          resultsByJob.current.set(`${job.workspace.id}:${job.kind}`, response.items);
+          setResults([...resultsByJob.current.values()].flat());
+          if (response.limited) setLimited(true);
+          if (response.preparing) setPreparing(current => current + (response.preparing ?? 0));
+          if (response.retryable) setRetryable(true);
+          if (response.skipped || response.incomplete) setIssues(current => [...current, t("content_search.files_incomplete", { project: job.workspace.title })]);
+          const fileIssues = response.issues;
+          if (fileIssues?.length) setIssues(current => [...current, ...fileIssues.map(issue => `${issue.path}: ${issue.reason}`)]);
+        } catch {
+          if (!controller.signal.aborted) setIssues(current => [...current, t("content_search.failed", { kind: labels()[job.kind], project: job.workspace.title })]);
+        } finally {
+          if (!controller.signal.aborted) setPending(current => Math.max(0, current - 1));
+        }
+      };
+      // File extraction must never queue ahead of transcript search. Keep disk work modest.
+      const files = jobs.filter(job => job.kind === "files");
+      const worker = async () => { while (files.length && !controller.signal.aborted) { const job = files.shift(); if (job) await run(job); } };
+      const records = jobs.filter(job => job.kind !== "files");
+      const recordWorker = async () => { while (records.length && !controller.signal.aborted) { const job = records.shift(); if (job) await run(job); } };
+      void Promise.all([recordWorker(), recordWorker(), recordWorker(), recordWorker(), worker(), worker()]);
+    }, 220);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [props.open, scopedWorkspaces, props.search, trimmed, filter, scope, revision, eligibleIds]);
 
   useEffect(() => {
-    if (!props.open) {
-      setMode("root");
-    }
-  }, [props.open]);
+    if (!props.open || pending || !preparing) return;
+    const timer = window.setTimeout(() => setRevision(value => value + 1), 1500);
+    return () => window.clearTimeout(timer);
+  }, [props.open, pending, preparing, revision]);
 
-  const openUrl = (url: string) => {
-    if (props.onOpenUrl) {
-      props.onOpenUrl(url);
-    } else {
-      window.open(url, "_blank", "noopener");
-    }
-  };
+  const items = useMemo(() => {
+    const projects: ContentSearchResult[] = scopedWorkspaces.filter(workspace => matchesSearch(workspace.title, trimmed)).map(workspace => ({
+      kind: "projects", id: workspace.id, workspaceId: workspace.id, title: workspace.title, excerpt: "", updatedAt: 0,
+    }));
+    const recent: ContentSearchResult[] = props.sessions.filter(session => scopedWorkspaces.some(workspace => workspace.id === session.workspaceId) && (!trimmed || matchesSearch(session.title, trimmed))).map(session => ({
+      kind: "sessions", id: session.sessionId, workspaceId: session.workspaceId, title: session.title, excerpt: "", updatedAt: session.updatedAt,
+    }));
+    const source = trimmed.length < 2 ? [...recent.slice(0, 8), ...projects.slice(0, 8), ...(resultQuery === trimmed ? results : [])] : [...projects, ...(resultQuery === trimmed ? results : [])];
+    const unique = new Map<string, ContentSearchResult>();
+    for (const item of source) unique.set(`${item.kind}:${item.workspaceId}:${item.id}`, item);
+    return rankSearchResults([...unique.values()].filter(item => filter === "all" || item.kind === filter), trimmed);
+  }, [scopedWorkspaces, props.sessions, trimmed, filter, results, resultQuery]);
+  const visible = items.filter((item, index, all) => all.slice(0, index).filter(previous => previous.kind === item.kind).length < (filter === "all" ? 20 : 60));
 
-  const accessibleTargetCount = props.accessibleTargets?.length ?? 0;
-  const sessionGroupCount = props.sessionGroups?.length ?? 0;
-  const canMoveCurrentSessionToGroup = Boolean(props.currentSessionForGroupMove && props.onMoveCurrentSessionToGroup);
-
-  const rootItems = useMemo<PaletteItem[]>(() => [
-    {
-      id: "new-session",
-      title: t("session.cmd_new_session_title"),
-      detail: t("session.cmd_new_session_detail"),
-      meta: t("session.cmd_new_session_meta"),
-      action: () => {
-        props.onClose();
-        props.onCreateNewSession();
-      },
-    },
-    {
-      id: "sessions",
-      title: t("session.cmd_sessions_title"),
-      detail: t("session.cmd_sessions_detail", undefined, {
-        count: props.sessions.length.toLocaleString(),
-      }),
-      meta: t("session.cmd_sessions_meta"),
-      action: () => {
-        setMode("sessions");
-      },
-    },
-    ...(props.onOpenModelPicker
-      ? [{
-          id: "models",
-          title: t("palette.switch_model"),
-          detail: t("palette.switch_model_detail"),
-          meta: props.selectedModelLabel ?? t("session.default_model"),
-          icon: <BrainCircuit className="size-4 text-primary" />,
-          searchText: "model models llm provider openai anthropic claude gpt gemini switch pick select default",
-          action: () => {
-            props.onClose();
-            props.onOpenModelPicker?.();
-          },
-        }]
-      : []),
-    ...(canMoveCurrentSessionToGroup
-      ? [{
-          id: "move-to-group",
-          title: t("palette.move_to_group"),
-          detail: props.currentSessionForGroupMove
-            ? `Add ${props.currentSessionForGroupMove.title} to an existing group`
-            : t("command_palette.add_to_group"),
-          meta: sessionGroupCount > 0 ? `${sessionGroupCount.toLocaleString()} groups` : t("command_palette.no_groups"),
-          icon: <FolderInput className="size-4 text-primary" />,
-          searchText: "move to group add task session folder organize",
-          action: () => {
-            setMode("groups");
-          },
-        }]
-      : []),
-    {
-      id: "accessible-items",
-      title: t("palette.accessible_items"),
-      detail: accessibleTargetCount > 0
-        ? `Open ${accessibleTargetCount.toLocaleString()} servers and artifacts detected in this session`
-        : t("command_palette.no_servers"),
-      meta: "Session",
-      action: () => {
-        setMode("accessible-items");
-      },
-    },
-    ...(props.extraItems ?? []),
-    {
-      id: "open-settings",
-      title: t("settings.tab_general"),
-      detail: t("settings.tab_description_general"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        props.onOpenSettings();
-      },
-    },
-    // Top-bar shortcuts — these used to be selectable via Cmd+K and were
-    // missing after the React port. Each one mirrors one of the icons at
-    // the bottom-right of the session surface (documentation / feedback)
-    // plus every settings tab the user is likely to reach for.
-    {
-      id: "settings-skills",
-      title: t("settings.tab_skills"),
-      detail: t("settings.tab_description_skills"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        props.onOpenSettings("/settings/skills");
-      },
-    },
-    {
-      id: "settings-extensions",
-      title: t("settings.tab_extensions"),
-      detail: t("settings.tab_description_extensions"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        props.onOpenSettings("/settings/extensions");
-      },
-    },
-    {
-      id: "settings-appearance",
-      title: t("settings.tab_appearance"),
-      detail: t("settings.tab_description_appearance"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        props.onOpenSettings("/settings/appearance");
-      },
-    },
-    {
-      id: "settings-recovery",
-      title: t("settings.tab_recovery"),
-      detail: t("settings.tab_description_recovery"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        props.onOpenSettings("/settings/recovery");
-      },
-    },
-    {
-      id: "settings-updates",
-      title: t("settings.tab_updates"),
-      detail: t("settings.tab_description_updates"),
-      meta: t("session.cmd_settings_meta"),
-      action: () => {
-        props.onClose();
-        props.onOpenSettings("/settings/updates");
-      },
-    },
-  ], [accessibleTargetCount, canMoveCurrentSessionToGroup, props, sessionGroupCount]);
-
-  const sessionItems = useMemo<PaletteItem[]>(
-    () =>
-      props.sessions.map((item) => ({
-        id: `session:${item.workspaceId}:${item.sessionId}`,
-        title: item.title,
-        detail: item.workspaceTitle,
-        meta: item.isActive
-          ? t("session.cmd_current_workspace")
-          : t("session.cmd_switch"),
-        searchText: item.searchText,
-        action: () => {
-          props.onClose();
-          props.onOpenSession(item.workspaceId, item.sessionId);
-        },
-      })),
-    [props],
-  );
-
-  const accessibleItems = useMemo<PaletteItem[]>(() => {
-    const targets = props.accessibleTargets ?? [];
-    return [
-      ...targets.map((target) => ({
-        id: `accessible:${target.id}`,
-        title: target.name || target.value,
-        detail: target.value,
-        meta: target.kind === "url" ? "Server" : "Artifact",
-        icon: targetIcon(target),
-        searchText: `${target.name} ${target.value} ${target.preview}`.toLowerCase(),
-        action: () => {
-          props.onClose();
-          props.onOpenAccessibleTarget?.(target);
-        },
-      })),
-      ...targets.map((target) => ({
-        id: `accessible-hide:${target.id}`,
-        title: `Stop tracking ${target.name || target.value}`,
-        detail: target.value,
-        meta: "Hide",
-        icon: targetIcon(target),
-        searchText: `stop tracking hide ${target.name} ${target.value} ${target.preview}`.toLowerCase(),
-        action: () => {
-          props.onClose();
-          props.onHideAccessibleTarget?.(target);
-        },
-      })),
-    ];
-  }, [props]);
-
-  const groupItems = useMemo<PaletteItem[]>(() => (
-    (props.sessionGroups ?? []).map((group) => ({
-      id: `group:${group.id}`,
-      title: group.label,
-      meta: props.currentSessionGroupId === group.id ? "Current" : undefined,
-      icon: props.currentSessionGroupId === group.id
-        ? <Check className="size-4 text-primary" />
-        : <FolderInput className="size-4 text-muted-foreground" />,
-      searchText: `group ${group.label}`.toLowerCase(),
-      action: () => {
-        props.onClose();
-        props.onMoveCurrentSessionToGroup?.(group.id);
-      },
-    }))
-  ), [props]);
-
-  const handleEscape = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key === "Escape") {
+  return <CommandDialog open={props.open} onOpenChange={open => { if (!open) props.onClose(); }}>
+    <CommandDialogPopup className="search-dialog" backdropClassName="search-backdrop" viewportClassName="search-viewport" onKeyDownCapture={event => {
+      if (event.target !== inputRef.current) return;
+      if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
       event.preventDefault();
       event.stopPropagation();
-      if (mode !== "root") {
-        setMode("root");
-        return;
-      }
-      props.onClose();
-    }
-  };
-
-  const handleBackspace = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (
-      event.key === "Backspace" &&
-      event.currentTarget.value === "" &&
-      mode !== "root"
-    ) {
-      event.preventDefault();
-      setMode("root");
-    }
-  };
-
-  const handleOpenChange = (open: boolean) => {
-    if (!open) {
-      props.onClose();
-    }
-  };
-
-  const items = mode === "sessions"
-    ? sessionItems
-    : mode === "accessible-items"
-      ? accessibleItems
-      : mode === "groups"
-        ? groupItems
-        : rootItems;
-
-  return (
-    <CommandDialog open={props.open} onOpenChange={handleOpenChange}>
-      <CommandDialogPopup onKeyDownCapture={handleEscape}>
-        <CommandDialogTitle>
-          {mode === "sessions"
-            ? t("session.palette_title_sessions")
-            : mode === "accessible-items"
-              ? t("palette.accessible_items")
-              : mode === "groups"
-                ? t("palette.move_to_group")
-                : t("session.palette_title_actions")
-          }
-        </CommandDialogTitle>
-        <Command key={mode} items={items}>
-          <CommandHeader className="flex items-center gap-0">
-            {mode !== "root" && (
-              <Button variant="outline" size="icon-sm" className="rounded-xl" onClick={() => setMode("root")}>
-                <ChevronLeftIcon className="size-4" />
-                <span className="sr-only">{t("common.back")}</span>
-              </Button>
-            )}
-            <CommandInput
-              className="w-full"
-              placeholder={
-                mode === "sessions"
-                  ? t("session.palette_placeholder_sessions")
-                  : mode === "accessible-items"
-                    ? t("command_palette.search_servers")
-                    : mode === "groups"
-                      ? t("command_palette.search_groups")
-                      : t("session.palette_placeholder_actions")
-              }
-              onKeyDown={handleBackspace}
-            />
-          </CommandHeader>
-          <CommandPanel>
-            <CommandEmpty>{mode === "accessible-items" ? t("command_palette.no_items") : mode === "groups" ? t("command_palette.no_groups_workspace") : t("session.palette_no_matches")}</CommandEmpty>
-            <CommandList>
-              {(item: PaletteItem) => (
-                <CommandItem
-                  key={item.id}
-                  value={item.id}
-                  onClick={item.action}
-                >
-                  {item.icon ? <span className="mr-2 shrink-0">{item.icon}</span> : null}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{item.title}</div>
-                    {item.detail ? (
-                      <div className="truncate text-muted-foreground text-xs">
-                        {item.detail}
-                      </div>
-                    ) : null}
-                    {item.searchText ? (
-                      <span className="sr-only">{item.searchText}</span>
-                    ) : null}
-                  </div>
-                  {item.meta ? <CommandShortcut>{item.meta}</CommandShortcut> : null}
-                </CommandItem>
-              )}
-            </CommandList>
-          </CommandPanel>
-          <CommandFooter>
-            <span>{t("session.palette_hint_navigate")}</span>
-            <span>{t("session.palette_hint_run")}</span>
-          </CommandFooter>
-        </Command>
-      </CommandDialogPopup>
-    </CommandDialog>
-  );
+      setFilter(current => filters[(filters.indexOf(current) + (event.shiftKey ? -1 : 1) + filters.length) % filters.length]);
+      inputRef.current?.focus({ preventScroll: true });
+    }}>
+      <CommandDialogTitle>{t("content_search.title")}</CommandDialogTitle>
+      <Command items={visible} filter={null} value={query} onValueChange={setQuery}>
+        <CommandHeader className="search-capsule">
+          <SearchGlass />
+          <CommandInput ref={inputRef} className="w-full" startAddon={null} placeholder={t("content_search.placeholder")} aria-label={t("content_search.title")} />
+          <Button variant="ghost" size="icon-sm" className="search-dismiss" onClick={props.onClose} aria-label={t("common.close")} title={`${t("common.close")} (Esc)`}><X /><kbd aria-hidden="true">esc</kbd></Button>
+        </CommandHeader>
+        <div className="search-results-glass">
+        <SearchGlass />
+        <div className="search-scope">
+          <Select value={scope} onValueChange={value => { if (value) setScope(value); }}>
+            <SelectTrigger size="sm" aria-label={t("content_search.scope")}><SelectValue>{scope === "__all__" ? t("content_search.all_projects") : scope === "__filtered__" ? t("content_search.filtered_projects") : props.workspaces.find(workspace => workspace.id === scope)?.title}</SelectValue></SelectTrigger>
+            <SelectContent align="start" className="search-scope-menu">
+              <SelectItem value="__all__">{t("content_search.all_projects")}</SelectItem>
+              {!!filterState.filters.length && <SelectItem value="__filtered__">{t("content_search.filtered_projects")}</SelectItem>}
+              {props.workspaces.map(workspace => <SelectItem key={workspace.id} value={workspace.id} title={workspace.title}>{workspace.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {scope === "__filtered__" && <span>{details.some(detail => detail.isFetching) ? t("content_search.searching") : details.some(detail => detail.isError) ? t("content_search.metadata_unavailable") : t("content_search.projects_count", { count: scopedWorkspaces.length })}</span>}
+        </div>
+        <Tabs value={filter} onValueChange={value => { if (value === "all" || value === "sessions" || value === "projects" || value === "tasks" || value === "files") setFilter(value); }} className="search-filters">
+          <TabsList aria-label={t("content_search.filter")} aria-keyshortcuts="Tab Shift+Tab">
+            {filters.map(kind => <TabsTrigger key={kind} value={kind} onClick={() => inputRef.current?.focus({ preventScroll: true })}>{names[kind]}</TabsTrigger>)}
+          </TabsList>
+        </Tabs>
+        <CommandPanel className="search-results-panel">
+          <CommandEmpty className="search-empty"><Search aria-hidden="true" /><span>{(pending || preparing) ? t("content_search.searching") : trimmed.length === 1 ? t("content_search.keep_typing") : trimmed ? t("content_search.no_results") : t("content_search.start")}</span></CommandEmpty>
+          <CommandList>{(item: ContentSearchResult) => {
+            const Icon = icons[item.kind];
+            const project = props.workspaces.find(workspace => workspace.id === item.workspaceId)?.title;
+            return <CommandItem key={`${item.kind}:${item.workspaceId}:${item.id}`} value={`${item.kind}:${item.workspaceId}:${item.id}`} className="search-result" onClick={() => { props.onClose(); props.onOpenResult(item); }}>
+              <span className="search-result-icon" aria-hidden="true"><Icon /></span>
+              <div className="min-w-0 flex-1">
+                <div className="search-result-title"><Highlight text={item.title} query={trimmed} /></div>
+                <div className="search-result-meta">{names[item.kind]}{item.completed ? ` · ${t("tasks.status_done")}` : ""}{project && item.kind !== "projects" ? ` · ${project}` : ""}{item.path && item.excerpt !== item.path ? ` · ${item.path}` : ""}</div>
+                {item.incomplete && <div className="search-result-meta">{t("content_search.partial")}</div>}
+                {item.sources?.some(source => source.page) && <div className="search-result-meta">{t("content_search.pages", { pages: [...new Set(item.sources.flatMap(source => source.page ? [source.page] : []))].join(", ") })}</div>}
+                {trimmed && item.excerpt ? <div className="search-result-excerpt"><Highlight text={item.excerpt} query={trimmed} /></div> : null}
+              </div>
+              <CornerDownLeft className="search-result-enter" aria-hidden="true" />
+            </CommandItem>;
+          }}</CommandList>
+        </CommandPanel>
+        {issues.length > 0 && <details className="search-issues"><summary>{t("content_search.incomplete_summary")}</summary><div className="max-h-28 overflow-auto">{[...new Set(issues)].map(issue => <p key={issue}>{issue}</p>)}</div></details>}
+        {retryable && <Button variant="ghost" size="sm" className="search-retry" onClick={() => { retryRef.current = true; setRevision(value => value + 1); }}>{t("content_search.retry")}</Button>}
+        <CommandFooter>
+          <span className="search-shortcut">{t("content_search.open_shortcut", { shortcut: isMacPlatform() ? "⌘ K" : "Ctrl + K" })}</span>
+          <span aria-live="polite" className="search-footer-status">{(pending || preparing) ? <><Loader2 className="size-3 animate-spin" />{preparing ? t("content_search.preparing", { count: preparing }) : t("content_search.searching")}</> : limited || visible.length < items.length ? t("content_search.refine") : (trimmed || filter === "tasks") ? t("content_search.results", { count: visible.length }) : null}</span>
+          <span className="search-key-help">{t("content_search.keys")}</span>
+        </CommandFooter>
+        </div>
+      </Command>
+    </CommandDialogPopup>
+  </CommandDialog>;
 }

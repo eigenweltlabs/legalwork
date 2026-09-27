@@ -23,6 +23,7 @@ export function registerSystemOneRoutes(deps: {
   readJsonBody: (request: Request) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
+  onSettingsChanged?: () => Promise<void>;
 }) {
   const {
     routes,
@@ -53,6 +54,7 @@ export function registerSystemOneRoutes(deps: {
       config,
       parse(SystemOneProviderInputSchema, await readJsonBody(ctx.request)),
     );
+    await deps.onSettingsChanged?.();
     return jsonResponse({ ok: true });
   });
   addRoute(
@@ -64,6 +66,7 @@ export function registerSystemOneRoutes(deps: {
       ensureWritable(config);
       requireClientScope(ctx, "collaborator");
       await deleteSystemOneProvider(config, ctx.params.providerId);
+      await deps.onSettingsChanged?.();
       return jsonResponse({ ok: true });
     },
   );
@@ -74,6 +77,7 @@ export function registerSystemOneRoutes(deps: {
       config,
       parse(SystemOneSelectionSchema, await readJsonBody(ctx.request)),
     );
+    await deps.onSettingsChanged?.();
     return jsonResponse({ ok: true });
   });
   addRoute(routes, "POST", "/systemone/test", "client", async (ctx) => {

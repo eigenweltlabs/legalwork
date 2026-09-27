@@ -121,101 +121,104 @@ export function TaskTable(props: TaskTableProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" size="sm">
-                {t("benchmark.filter_work_type")}
-                {filters.workTypes.length ? ` (${filters.workTypes.length})` : ""}
-                <ChevronDown size={13} />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start">
-            {BENCHMARK_WORK_TYPES.map((workType) => (
-              <DropdownMenuCheckboxItem
-                key={workType}
-                checked={filters.workTypes.includes(workType)}
-                onCheckedChange={() => toggleWorkType(workType)}
-                onSelect={(event) => event.preventDefault()}
-              >
-                {workTypeLabel(workType)}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" size="sm">
-                {t("benchmark.filter_tags")}
-                {filters.tags.length ? ` (${filters.tags.length})` : ""}
-                <ChevronDown size={13} />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-            {allTags.length === 0 ? (
-              <div className="px-2 py-1.5 text-[12px] text-muted-foreground">—</div>
-            ) : (
-              allTags.map((tag) => (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 basis-96 flex-wrap items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" size="sm">
+                  {t("benchmark.filter_work_type")}
+                  {filters.workTypes.length ? ` (${filters.workTypes.length})` : ""}
+                  <ChevronDown size={13} />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="start">
+              {BENCHMARK_WORK_TYPES.map((workType) => (
                 <DropdownMenuCheckboxItem
-                  key={tag}
-                  checked={filters.tags.includes(tag)}
-                  onCheckedChange={() => toggleTag(tag)}
+                  key={workType}
+                  checked={filters.workTypes.includes(workType)}
+                  onCheckedChange={() => toggleWorkType(workType)}
                   onSelect={(event) => event.preventDefault()}
                 >
-                  {tag}
+                  {workTypeLabel(workType)}
                 </DropdownMenuCheckboxItem>
-              ))
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-        <div className="min-w-44 flex-1">
-          <SettingsListSearchInput
-            placeholder={t("benchmark.search_tasks")}
-            value={searchDraft}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="outline" size="sm">
+                  {t("benchmark.filter_tags")}
+                  {filters.tags.length ? ` (${filters.tags.length})` : ""}
+                  <ChevronDown size={13} />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+              {allTags.length === 0 ? (
+                <div className="px-2 py-1.5 text-[12px] text-muted-foreground">—</div>
+              ) : (
+                allTags.map((tag) => (
+                  <DropdownMenuCheckboxItem
+                    key={tag}
+                    checked={filters.tags.includes(tag)}
+                    onCheckedChange={() => toggleTag(tag)}
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {tag}
+                  </DropdownMenuCheckboxItem>
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <div className="min-w-40 flex-1">
+            <SettingsListSearchInput
+              placeholder={t("benchmark.search_tasks")}
+              value={searchDraft}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
         </div>
-
-        <Button variant="outline" size="sm" onClick={props.onImport}>
-          <Download size={13} />
-          {t("benchmark.import_tasks")}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void exportTasks(selectedTaskIds)}
-          disabled={exporting || selectedTaskIds.length === 0}
-          title={t("benchmark.export_tasks_hint")}
-        >
-          <FileDown size={13} />
-          {exporting ? t("benchmark.exporting") : t("benchmark.export_tasks")}
-          {selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}
-        </Button>
-        <Button variant="outline" size="sm" onClick={props.onNewTask}>
-          <Plus size={13} />
-          {t("benchmark.new_task")}
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="size-8 text-red-11 hover:text-red-11"
-          onClick={() => setConfirmDelete(true)}
-          disabled={selectedTaskIds.length === 0}
-          title={`${t("benchmark.delete_tasks")}${selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}`}
-        >
-          <Trash2 size={13} />
-        </Button>
-        <Button size="sm" onClick={props.onStartRun} disabled={selectedTaskIds.length === 0}>
-          <Play size={13} />
-          {t("benchmark.start_run")}
-          {selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={props.onImport}>
+            <Download size={13} />
+            {t("benchmark.import_tasks")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void exportTasks(selectedTaskIds)}
+            disabled={exporting || selectedTaskIds.length === 0}
+            title={t("benchmark.export_tasks_hint")}
+          >
+            <FileDown size={13} />
+            {exporting ? t("benchmark.exporting") : t("benchmark.export_tasks")}
+            {selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}
+          </Button>
+          <Button variant="outline" size="sm" onClick={props.onNewTask}>
+            <Plus size={13} />
+            {t("benchmark.new_task")}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8 text-red-11 hover:text-red-11"
+            onClick={() => setConfirmDelete(true)}
+            disabled={selectedTaskIds.length === 0}
+            title={`${t("benchmark.delete_tasks")}${selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}`}
+          >
+            <Trash2 size={13} />
+          </Button>
+          <Button size="sm" onClick={props.onStartRun} disabled={selectedTaskIds.length === 0}>
+            <Play size={13} />
+            {t("benchmark.start_run")}
+            {selectedTaskIds.length ? ` (${selectedTaskIds.length})` : ""}
+          </Button>
+        </div>
       </div>
 
       {tasksError ? <SettingsNotice tone="error">{tasksError}</SettingsNotice> : null}
