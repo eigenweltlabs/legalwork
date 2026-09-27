@@ -22,6 +22,7 @@ function pruneOcrRuntime(resources, platform, arch) {
   for (const dependency of ["onnxruntime-node", "@napi-rs/canvas", "paddleocr", "image-size"]) requireUnpacked.resolve(dependency);
   createRequire(requireUnpacked.resolve("onnxruntime-node")).resolve("onnxruntime-common");
   if (!fs.existsSync(path.join(resources, "ocr", "native-worker.cjs"))) throw new Error("Missing bundled OCR worker");
+  if (!fs.existsSync(path.join(resources, "ocr", "layout-worker.cjs"))) throw new Error("Missing bundled layout worker");
 }
 
 module.exports = { pruneOcrRuntime };

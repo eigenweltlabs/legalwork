@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - dev
+      - codex/projects-akte-workspace
   push:
     branches:
       - dev
@@ -118,6 +119,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Typecheck app and build server
+        if: runner.os == 'Linux'
+        run: |
+          pnpm --filter @legalwork/app typecheck
+          pnpm --filter legalwork-server build
 
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test

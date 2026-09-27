@@ -22,10 +22,14 @@ test("packaged OCR retains only its target runtime and fails if required payload
         await writeFile(path.join(bin, os, cpu, "onnxruntime_binding.node"), "fixture");
       }
       await mkdir(path.join(resources, "ocr")); await writeFile(path.join(resources, "ocr/native-worker.cjs"), "");
+      await writeFile(path.join(resources, "ocr/layout-worker.cjs"), "");
       pruneOcrRuntime(resources, platform, arch);
       assert.deepEqual(await readdir(bin), [platform]);
       assert.deepEqual(await readdir(path.join(bin, platform)), [arch]);
       assert.throws(() => pruneOcrRuntime(resources, platform, "missing"), /Missing OCR runtime/);
+      await rm(path.join(resources, "ocr/layout-worker.cjs"));
+      assert.throws(() => pruneOcrRuntime(resources, platform, arch), /Missing bundled layout worker/);
+      await writeFile(path.join(resources, "ocr/layout-worker.cjs"), "");
       await rm(path.join(resources, "ocr/native-worker.cjs"));
       assert.throws(() => pruneOcrRuntime(resources, platform, arch), /Missing bundled OCR worker/);
     }
