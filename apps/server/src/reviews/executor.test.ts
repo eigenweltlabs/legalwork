@@ -127,6 +127,31 @@ test("incomplete source evidence cannot disappear when chunking drops empty page
   const result = await executor.execute(workspace, review("llm"), column, { ...evidence, complete: false }, new AbortController().signal);
   expect(result.value).toBe("Needs review"); expect(result.evidence).toBe("uncertain");
 });
+test("unlocatable linked evidence yields Needs review before a false absence answer", async () => {
+  incidentalAbsenceCitation = true;
+  const linked = { ...evidence, pages: [{ page: 1, text: "Assignment is permitted.", source: "ocr" as const,
+    blocks: [{ id: "main", kind: "text", start: 0, end: 24 }] }],
+    relations: [{ id: "missing", kind: "annotates" as const,
+      source: { page: 1, regionId: "main" }, target: { page: 2, regionId: "missing" },
+      status: "candidate" as const, basis: "arrow" as const, explanation: "Arrow" }] };
+  const result = await executor.execute(workspace, review("llm"), column, linked, new AbortController().signal);
+  expect(result.value).toBe("Needs review");
+  expect(calls.some(call => call.path.endsWith("/message"))).toBe(false);
+});
+test("JEV relevance receives a linked next-page exception before selecting chunks", async () => {
+  const linked = { ...evidence, pages: [
+    { page: 1, text: "Assignment is permitted." + "x".repeat(120_000), source: "ocr" as const,
+      blocks: [{ id: "main", kind: "text", start: 0, end: 24 }] },
+    { page: 2, text: "Exception applies.", source: "ocr" as const,
+      blocks: [{ id: "exception", kind: "note", start: 0, end: 18 }] },
+  ], relations: [{ id: "link", kind: "annotates" as const,
+    source: { page: 1, regionId: "main" }, target: { page: 2, regionId: "exception" },
+    status: "candidate" as const, basis: "arrow" as const, explanation: "Arrow" }] };
+  const result = await executor.execute(workspace, review("jev"), column, linked, new AbortController().signal);
+  expect(result.value).toBe("Needs review"); // Both relevant chunks exceed combined context.
+  expect(JSON.stringify(decisions[0].state)).toContain("Exception applies.");
+  expect(JSON.stringify(decisions[0].state)).toContain('"status":"candidate"');
+});
 test("disconnected selected model fails before creating a review session", async () => {
   modelOffline = true;
   await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("no longer available");

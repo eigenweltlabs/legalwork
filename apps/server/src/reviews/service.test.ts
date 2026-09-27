@@ -345,7 +345,7 @@ test("a multi-document review pins one OCR configuration even when defaults chan
   await writeFile(join(root, "one.png"), bytes); await writeFile(join(root, "two.png"), bytes);
   let currentModel = "A", snapshots = 0;
   const recognized: string[] = [], inferred: string[] = [];
-  const preparation = new DocumentPreparation(new OcrManager(join(root, "ocr")), { snapshot: async () => {
+  const preparation = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout: { fingerprint: "test-layout", async detect() { return { model: "test-layout", regions: [{ label: "text", box: { x: 0, y: 0, width: 1, height: 1 }, confidence: 1, order: 0 }] }; } }, snapshot: async () => {
     snapshots++; const model = currentModel;
     return { fingerprint: model, service: new OcrService([{ info: { id: "fixture", label: model, execution: "local", model, languages: null, regions: false, warnings: [] }, recognize: async () => {
       recognized.push(model); currentModel = "B"; return { text: `Recognized with ${model}`, regions: [], truncated: false };

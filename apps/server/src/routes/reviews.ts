@@ -70,5 +70,6 @@ export function registerReviewRoutes(options: {
   route("POST", "/:review/cancel", (ctx, workspace) => reviews.cancel(workspace, ctx.params.review));
   route("GET", "/:review/source/:document", (ctx, workspace) => reviews.verifySource(workspace, ctx.params.review, ctx.params.document, ctx.url.searchParams.get("sourceHash") ?? undefined));
   route("GET", "/:review/source/:document/:column/:citation", (ctx, workspace) => reviews.citationPage(workspace, ctx.params.review, ctx.params.document, ctx.params.column,
-    z.coerce.number().int().nonnegative().parse(ctx.params.citation), z.coerce.number().int().nonnegative().parse(ctx.url.searchParams.get("completedAt")), ctx.request.signal));
+    z.coerce.number().int().nonnegative().parse(ctx.params.citation), z.coerce.number().int().nonnegative().parse(ctx.url.searchParams.get("completedAt")), ctx.request.signal,
+    ctx.url.searchParams.has("page") ? z.coerce.number().int().positive().parse(ctx.url.searchParams.get("page")) : undefined));
 }

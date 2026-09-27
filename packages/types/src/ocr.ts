@@ -15,6 +15,8 @@ export type OcrSettingsView = {
   readOnly: boolean;
   installerAvailable: boolean;
   installation: { engineId: string; stage: "runtime" | "dependencies" | "models" | "checking" | "complete" | "failed" | "cancelled" } | null;
+  /** Absent on older servers. Layout is shared by all OCR providers, not a selectable OCR engine. */
+  layout?: { model: string; bytes: number; status: "ready" | "not-installed" };
   engines: Array<{
     id: string;
     label: string;

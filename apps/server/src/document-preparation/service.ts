@@ -2,18 +2,23 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import type { PageStructure } from "@legalwork/types/document-structure";
 import { ApiError } from "../errors.js";
 import { createConfiguredOcrService } from "../ocr/index.js";
 import { OcrManager } from "../ocr/manager.js";
 import { languageSchema, OcrError } from "../ocr/types.js";
 import type { OcrEngineInfo } from "../ocr/types.js";
 import type { OcrService } from "../ocr/service.js";
+import { LayoutRuntime } from "./layout-runtime.js";
+import { assemblePageStructure, unavailableStructure, type DocumentLayout } from "./structure.js";
+import { linkDocumentStructure } from "./relations.js";
+import { detectDocumentMarks } from "./marks.js";
 import { openDocument, type RenderedDocument } from "./render.js";
 
 import { pageSchema, preparedSchema, type PreparedDocument } from "./schema.js";
 export { preparedSchema, type PreparedDocument } from "./schema.js";
 
-const VERSION = "review-preparation-1";
+const VERSION = "review-preparation-2";
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 export const prepareInput = z.strictObject({
@@ -61,11 +66,13 @@ async function snapshot(ocr: OcrManager): Promise<Snapshot> {
 /** Shared document preparation for review tools. Jobs and page OCR are serialized across runs. */
 export class DocumentPreparation {
   private readonly jobs = new Map<string, Job>();
+  private readonly layout: DocumentLayout;
   private pending: Promise<unknown> = Promise.resolve();
   constructor(private readonly ocr: OcrManager, private readonly options: {
+    layout?: DocumentLayout;
     snapshot?: () => Promise<Snapshot>;
     open?: (bytes: Uint8Array, kind: "pdf" | "image") => Promise<RenderedDocument>;
-  } = {}) {}
+  } = {}) { this.layout = options.layout ?? new LayoutRuntime(ocr.runtime.local); }
 
   async start(workspace: string, raw: unknown) {
     const input = prepareInput.parse(raw);
@@ -88,6 +95,7 @@ export class DocumentPreparation {
     this.pending = this.pending.catch(() => undefined).then(async () => {
       if (job.controller.signal.aborted) return;
       job.status = "running";
+      let layoutUnavailable = false;
       for (let index = 0; index < sources.length; index++) {
         if (job.controller.signal.aborted) break;
         const entry = job.documents[index]!;
@@ -98,12 +106,12 @@ export class DocumentPreparation {
           const bytes = await readFile(source.path);
           if (bytes.length > MAX_FILE_BYTES) throw new Error("Document is too large.");
           const sourceSha256 = digest(bytes);
-          const key = digest(JSON.stringify([VERSION, source.file, sourceSha256, selected.fingerprint, input.languages]));
+          const key = digest(JSON.stringify([VERSION, source.file, sourceSha256, selected.fingerprint, this.layout.fingerprint, input.languages]));
           const target = await this.outputPath(root, key);
           const prior = input.force ? undefined : await this.cached(target, key);
-          const doc: PreparedDocument = prior ?? { version: VERSION, key, file: source.file, fileAbs: source.path, sourceSha256, engine, pageCount: 0, pages: [], status: "needs-review" };
+          const doc: PreparedDocument = prior ?? { version: VERSION, key, file: source.file, fileAbs: source.path, sourceSha256, engine, layoutFingerprint: this.layout.fingerprint, relations: [], pageCount: 0, pages: [], status: "needs-review" };
           entry.preparationPath = relative(root, target).split(sep).join("/");
-          if (prior && prior.pages.length === prior.pageCount && prior.pages.every(page => page.status !== "error")) {
+          if (prior && prior.pages.length === prior.pageCount && prior.pages.every(page => page.status !== "error" && page.structure?.status !== "unavailable")) {
             entry.completedPages = prior.pageCount; entry.pageCount = prior.pageCount; entry.status = prior.status; continue;
           }
           let rendered: RenderedDocument | undefined;
@@ -114,16 +122,40 @@ export class DocumentPreparation {
             for (let page = 1; page <= doc.pageCount; page++) {
               job.controller.signal.throwIfAborted();
               const existing = doc.pages.find(item => item.page === page);
-              if (existing && existing.status !== "error") { entry.completedPages++; continue; }
+              if (existing && existing.status !== "error" && existing.structure?.status !== "unavailable") { entry.completedPages++; continue; }
               let nativeText = "", width = 0, height = 0;
               let result: z.infer<typeof pageSchema>;
               try {
                 const renderedPage = await rendered.page(page, job.controller.signal);
                 nativeText = renderedPage.nativeText; width = renderedPage.image.width; height = renderedPage.image.height;
-                const recognized = await selected.service.extract({ sourceId: sourceSha256, pages: [renderedPage.image], languages: input.languages, signal: job.controller.signal });
-                const ocr = recognized.pages[0]!;
+                // A layout retry can reuse successful OCR without sending the document again.
+                const ocr = existing?.ocr ?? (await selected.service.extract({ sourceId: sourceSha256, pages: [renderedPage.image], languages: input.languages, signal: job.controller.signal })).pages[0]!;
+                // Persist transcription before layout so cancelling or restarting here does not repeat OCR.
+                const staged: z.infer<typeof pageSchema> = { page, nativeText, width, height, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
+                  structure: unavailableStructure(), status: "needs-review" };
+                if (evidenceBytes + Buffer.byteLength(JSON.stringify(staged)) - (existing ? Buffer.byteLength(JSON.stringify(existing)) : 0) > MAX_EVIDENCE_BYTES)
+                  throw new ApiError(400, "document_size", "Extracted evidence exceeds 64 MiB. Split this document into smaller files and retry.");
+                doc.pages = [...doc.pages.filter(item => item.page !== page), staged].sort((a, b) => a.page - b.page);
+                await this.save(root, key, doc);
+                let structure: PageStructure;
+                try {
+                  if (layoutUnavailable) throw new OcrError("runtime-unavailable", "The layout runtime is unavailable for this run.");
+                  const detected = await this.layout.detect(renderedPage.image, job.controller.signal);
+                  structure = assemblePageStructure(page, ocr, detected);
+                  try {
+                    structure.marks = await detectDocumentMarks(renderedPage.image, structure.regions, job.controller.signal, ocr.regions);
+                    if (structure.marks.length) { structure.issues.push("visual-amendments-need-review"); structure.status = "partial"; }
+                  } catch (error) {
+                    if (job.controller.signal.aborted) throw error;
+                    structure.issues.push("page-marks-unavailable"); structure.status = "partial";
+                  }
+                } catch (error) {
+                  if (job.controller.signal.aborted) throw error;
+                  if (error instanceof OcrError && error.code === "runtime-unavailable") layoutUnavailable = true;
+                  structure = unavailableStructure();
+                }
                 const uncertain = !ocr.text.trim() || ocr.truncated || /\[illegible\]/i.test(ocr.text) || ocr.regions.some(region => region.confidence !== undefined && region.confidence < 0.5);
-                result = { page, nativeText, width, height, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated }, status: uncertain ? "needs-review" : "complete" };
+                result = { page, nativeText, width, height, structure, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated }, status: uncertain || structure.status !== "complete" ? "needs-review" : "complete" };
               } catch (error) {
                 if (job.controller.signal.aborted) throw error;
                 result = { page, nativeText, width, height, ocr: null, status: "error", error: error instanceof OcrError ? error.message : "Could not read this page. Retry preparation or choose another OCR model." };
@@ -135,6 +167,7 @@ export class DocumentPreparation {
               await this.save(root, key, doc);
               entry.completedPages++;
             }
+            doc.relations = linkDocumentStructure(doc.pages);
             doc.status = doc.pages.every(page => page.status === "complete") ? "complete" : "needs-review";
           } catch (error) {
             doc.status = "error"; doc.error = error instanceof ApiError ? error.message : job.controller.signal.aborted ? "Preparation was cancelled. Retry to resume completed pages." : "Could not prepare this document. Check that it is readable and not password-protected, then retry.";

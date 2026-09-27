@@ -144,7 +144,7 @@ export interface ServerConfig {
   workspaces: WorkspaceInfo[];
   authorizedRoots: string[];
   readOnly: boolean;
-  /** Background setup of the default small OCR model; enabled by resolved host config. */
+  /** Background setup of the layout model and the small OCR model when selected; enabled by resolved host config. */
   autoDownloadOcr?: boolean;
   startedAt: number;
   tokenSource: "cli" | "env" | "file" | "generated";

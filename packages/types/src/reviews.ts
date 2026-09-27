@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SystemOneAnswerSchema } from "./systemone.js";
+import type { DocumentRegion, DocumentRelation, PageStructure } from "./document-structure.js";
 
 export const REVIEW_FILE_EXTENSIONS = ["pdf", "docx", "png", "jpg", "jpeg", "webp", "txt", "md", "markdown"];
 export const REVIEW_MAX_FILE_BYTES = 64 * 1024 * 1024;
@@ -200,6 +201,8 @@ export type ReviewSourcePage = {
   name: string; path: string; page: number; pageCount: number; quote: string;
   image: string; width: number; height: number;
   regions: Array<{ x: number; y: number; width: number; height: number }>;
+  structure?: PageStructure;
+  relatedPassages?: Array<{ relation: DocumentRelation; direction: "outgoing" | "incoming"; page: number; region: DocumentRegion }>;
 };
 export type ReviewCapabilities = {
   settings: ReviewSettings;

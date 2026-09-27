@@ -13,15 +13,66 @@ const responseSchema = z.object({ choices: z.array(z.object({
 const mistralResponse = z.object({ pages: z.array(z.object({ markdown: z.string() })).length(1) });
 const paddleResponse = z.object({
   errorCode: z.literal(0),
-  result: z.object({ layoutParsingResults: z.array(z.object({ markdown: z.object({ text: z.string() }) })).length(1) }),
+  result: z.object({
+    dataInfo: z.unknown().optional(),
+    layoutParsingResults: z.array(z.object({
+      markdown: z.object({ text: z.string() }),
+      prunedResult: z.unknown().optional(),
+    })).length(1),
+  }),
+});
+const paddleGeometry = z.object({
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+const paddlePrunedResult = paddleGeometry.extend({
+  parsing_res_list: z.array(z.unknown()).optional(),
+  doc_preprocessor_res: z.object({
+    angle: z.number().optional(),
+    model_settings: z.object({ use_doc_unwarping: z.boolean().optional() }).optional(),
+  }).nullish(),
+});
+const paddleBlock = z.object({
+  block_bbox: z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()]),
+  block_content: z.string().min(1).max(100_000),
+  block_label: z.string(),
 });
 
 type OcrApiAdapter = {
   body: (settings: ServerEngineSettings, page: OcrPage, languages: readonly string[]) => unknown;
-  parse: (body: unknown) => OcrContent;
+  parse: (body: unknown, page: OcrPage) => OcrContent;
 };
 const invalidResponse = () => new OcrError("invalid-response", "The OCR server did not return a valid transcription.");
 const imageDataUrl = (page: OcrPage) => `data:${page.mimeType};base64,${Buffer.from(page.data).toString("base64")}`;
+
+function paddleRegions(result: z.infer<typeof paddleResponse>["result"], page: OcrPage): OcrContent["regions"] {
+  const pruned = paddlePrunedResult.safeParse(result.layoutParsingResults[0].prunedResult);
+  if (!pruned.success) return [];
+  const dataInfo = paddleGeometry.safeParse(result.dataInfo);
+  // Coordinates from a resized or transformed server image do not locate text in the supplied page.
+  if (result.dataInfo !== undefined && !dataInfo.success) return [];
+  if (pruned.data.width !== undefined && pruned.data.width !== page.width) return [];
+  if (pruned.data.height !== undefined && pruned.data.height !== page.height) return [];
+  if (dataInfo.success && ((dataInfo.data.width !== undefined && dataInfo.data.width !== page.width)
+    || (dataInfo.data.height !== undefined && dataInfo.data.height !== page.height))) return [];
+  const angle = pruned.data.doc_preprocessor_res?.angle;
+  if (angle !== undefined && angle !== 0 && angle !== -1) return [];
+  if (pruned.data.doc_preprocessor_res?.model_settings?.use_doc_unwarping) return [];
+
+  const regions: OcrContent["regions"] = [];
+  for (const candidate of pruned.data.parsing_res_list ?? []) {
+    const block = paddleBlock.safeParse(candidate);
+    if (!block.success || !block.data.block_content.trim() || /image|figure|chart|picture|logo|diagram/i.test(block.data.block_label)) continue;
+    const [left, top, right, bottom] = block.data.block_bbox;
+    if (left < 0 || top < 0 || right > page.width || bottom > page.height || right <= left || bottom <= top) continue;
+    regions.push({
+      text: block.data.block_content,
+      box: { x: left / page.width, y: top / page.height, width: (right - left) / page.width, height: (bottom - top) / page.height },
+    });
+    if (regions.length === 20_000) break;
+  }
+  return regions;
+}
 
 const adapters: Record<ServerEngineSettings["kind"], OcrApiAdapter> = {
   "chat-completions": {
@@ -52,11 +103,11 @@ const adapters: Record<ServerEngineSettings["kind"], OcrApiAdapter> = {
   },
   paddleocr: {
     // The deployed /layout-parsing pipeline selects the model, not a request field.
-    body: (_settings, page) => ({ file: Buffer.from(page.data).toString("base64"), fileType: 1, visualize: false, returnMarkdownImages: false }),
-    parse(body) {
+    body: (_settings, page) => ({ file: Buffer.from(page.data).toString("base64"), fileType: 1, useDocOrientationClassify: false, useDocUnwarping: false, visualize: false, returnMarkdownImages: false }),
+    parse(body, page) {
       const parsed = paddleResponse.safeParse(body);
       if (!parsed.success) throw invalidResponse();
-      return { text: parsed.data.result.layoutParsingResults[0].markdown.text, regions: [], truncated: false };
+      return { text: parsed.data.result.layoutParsingResults[0].markdown.text, regions: paddleRegions(parsed.data.result, page), truncated: false };
     },
   },
 };
@@ -83,7 +134,7 @@ export function createServerOcrEngine(input: ServerEngineSettings, resolveApiKey
   const settings = serverEngineSchema.parse(input);
   const adapter = adapters[settings.kind];
   return {
-    info: { id: settings.id, label: settings.label, model: settings.model, execution: "remote", regions: false, languages: settings.languages, warnings: [] },
+    info: { id: settings.id, label: settings.label, model: settings.model, execution: "remote", regions: settings.kind === "paddleocr", languages: settings.languages, warnings: [] },
     async recognize(page, context) {
       context.signal.throwIfAborted();
       let apiKey: string | undefined;
@@ -102,7 +153,7 @@ export function createServerOcrEngine(input: ServerEngineSettings, resolveApiKey
           // Deliberately omit provider bodies, URLs, and keys from errors.
           throw new OcrError("server-failed", `The OCR server rejected the request (HTTP ${response.status}).`);
         }
-        return adapter.parse(await limitedJson(response));
+        return adapter.parse(await limitedJson(response), page);
       } catch (error) {
         if (error instanceof OcrError) throw error;
         throw new OcrError("server-failed", "The OCR server request failed.");

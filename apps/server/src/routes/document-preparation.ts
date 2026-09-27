@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readPreparedDocument } from "../document-preparation/read.js";
 import { ApiError } from "../errors.js";
 import { DocumentPreparation } from "../document-preparation/service.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -27,6 +28,17 @@ export function registerDocumentPreparationRoutes(options: {
     });
   };
   route("POST", base, async (ctx, workspace) => preparation.start(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024)));
+  route("GET", `${base}/document`, async (ctx, workspace) => {
+    const url = new URL(ctx.request.url);
+    const query = z.object({ file: z.string().min(1).max(4096), preparationPath: z.string().min(1).max(4096),
+      page: z.coerce.number().int().positive().max(1000).optional() }).parse({
+        file: url.searchParams.get("file"), preparationPath: url.searchParams.get("preparationPath"),
+        page: url.searchParams.get("page") ?? undefined,
+      });
+    const document = await readPreparedDocument(workspace, query.file, query.preparationPath);
+    if (query.page !== undefined && query.page > document.pageCount) throw new ApiError(404, "preparation_page", "Page not found.");
+    return { ...document, pages: query.page === undefined ? document.pages : document.pages.filter(page => page.page === query.page) };
+  });
   route("GET", `${base}/:job`, (ctx, workspace) => preparation.status(workspace, ctx.params.job));
   route("DELETE", `${base}/:job`, (ctx, workspace) => preparation.cancel(workspace, ctx.params.job));
 }

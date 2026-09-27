@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -12,6 +12,12 @@ export const smallModelAssets = [
   { name: "rec.onnx", url: `${recognizer}/inference.onnx`, bytes: 21159378, sha256: "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634" },
   { name: "inference.yml", url: `${recognizer}/inference.yml`, bytes: 150579, sha256: "ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1" },
 ];
+export const layoutModelAsset = {
+  name: "inference.onnx",
+  url: "https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_onnx/resolve/46bbdf188bb0a772c08aed74882ce7e51a8f1ea6/inference.onnx",
+  bytes: 130502049,
+  sha256: "45bf71750b00739a41fc209f132eb104a4d6b5bb29483c9078164d8b87cf28ba",
+};
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
 /** Bounded downloads, verified before atomic publication. Complete assets survive retries. */
@@ -57,4 +63,31 @@ export async function prepareSmallModel(directory: string, signal: AbortSignal) 
     signal.throwIfAborted();
     await rename(temporary, join(directory, "pp-ocrv6-small.json"));
   } finally { await rm(temporary, { force: true }); }
+}
+
+export async function prepareLayoutModel(directory: string, signal: AbortSignal) {
+  const assets = join(directory, "pp-doclayout-v3-onnx");
+  await mkdir(assets, { recursive: true, mode: 0o700 });
+  await downloadModelAsset(layoutModelAsset, join(assets, layoutModelAsset.name), signal);
+}
+
+// Avoid hashing a 130 MB asset on every settings poll; recheck whenever its file metadata changes.
+const checkedLayouts = new Map<string, { signature: string; ready: boolean }>();
+export async function layoutModelReady(directory: string, signal?: AbortSignal): Promise<boolean> {
+  signal?.throwIfAborted();
+  const path = join(directory, "pp-doclayout-v3-onnx", layoutModelAsset.name);
+  try {
+    const file = await stat(path);
+    if (!file.isFile() || file.size !== layoutModelAsset.bytes) { checkedLayouts.delete(path); return false; }
+    const signature = `${file.dev}:${file.ino}:${file.size}:${file.mtimeMs}:${file.ctimeMs}`;
+    const checked = checkedLayouts.get(path);
+    if (checked?.signature === signature) return checked.ready;
+    const ready = hash(await readFile(path)) === layoutModelAsset.sha256;
+    signal?.throwIfAborted();
+    if (checkedLayouts.size >= 32) checkedLayouts.clear();
+    checkedLayouts.set(path, { signature, ready });
+    return ready;
+  } catch {
+    signal?.throwIfAborted(); checkedLayouts.delete(path); return false;
+  }
 }

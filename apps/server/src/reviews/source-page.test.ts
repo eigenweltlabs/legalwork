@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { reviewSourcePage } from "./source-page.js";
 import { ReviewResultSchema } from "./schema.js";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
+import { PageStructureSchema } from "@legalwork/types/document-structure";
 
 test("source preview highlights validated OCR regions and rejects stale or escaped evidence", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "review-source-page-")));
@@ -50,6 +51,28 @@ test("native PDF quotations highlight only cited sentence spans, across lines, p
     expect(region.width).toBeCloseTo(font.widthOfTextAtSize(quote, 12) / 400, 2);
     expect(region.y).toBeGreaterThan(.08); expect(region.y).toBeLessThan(.13);
     expect(region.height).toBeCloseTo(12 / 400, 2);
+    const structure = (id: string, text: string) => PageStructureSchema.parse({
+      version: "document-structure-1", model: "fixture", status: "complete", readingOrder: [id], tables: [], marks: [], issues: [],
+      regions: [{ id, kind: "text", label: "text", box: { x: .1, y: .1, width: .5, height: .1 }, text,
+        ocrRegionIds: [], order: 0, writing: "printed", source: "layout" }],
+    });
+    const relation = { id: "r1", kind: "continues", source: { page: 1, regionId: "p1" }, target: { page: 2, regionId: "p2" },
+      status: "candidate", basis: "page-boundary", explanation: "Possible continuation" };
+    await writeFile(join(root, "prepared.json"), JSON.stringify({ version: "review-preparation-2", key: "fixture", file: "contract.pdf", fileAbs: join(root, "contract.pdf"),
+      sourceSha256: result.sourceHash, engine: { id: "fixture", label: "Fixture", model: "fixture", execution: "local" },
+      pageCount: 2, status: "complete", relations: [relation], pages: [
+        { page: 1, nativeText: prefix + quote, ocr: null, width: 400, height: 400, status: "complete", structure: structure("p1", quote) },
+        { page: 2, nativeText: "Die Kündigungsfrist beträgt dreißig Tage.", ocr: null, width: 400, height: 400, status: "complete", structure: structure("p2", "Continuation") },
+      ] }));
+    const structured = { ...result, preparationPath: "prepared.json" };
+    const withStructure = await reviewSourcePage(root, "contract.pdf", structured, 0, new AbortController().signal);
+    expect(withStructure.structure?.regions[0]?.text).toBe(quote);
+    expect(withStructure.relatedPassages?.[0]).toMatchObject({ page: 2, relation: { status: "candidate" }, region: { text: "Continuation" } });
+    const next = await reviewSourcePage(root, "contract.pdf", structured, 0, new AbortController().signal, 2);
+    expect(next.page).toBe(2); expect(next.quote).toBe(""); expect(next.regions).toEqual([]);
+    expect(next.relatedPassages?.[0]).toMatchObject({ page: 1, direction: "incoming" });
+    await expect(reviewSourcePage(root, "contract.pdf", { ...structured, citations: [{ page: 1, source: "native", quote: "Invented quote" }] }, 0, new AbortController().signal, 2)).rejects.toThrow("source page");
+    await expect(reviewSourcePage(root, "contract.pdf", structured, 0, new AbortController().signal, 3)).rejects.toThrow("does not exist");
     // Existing results without source/region metadata work without rerunning inference.
     const legacy = await reviewSourcePage(root, "contract.pdf", { ...result, citations: [{ page: 1, quote }] }, 0, new AbortController().signal);
     expect(legacy.regions).toEqual(first.regions);

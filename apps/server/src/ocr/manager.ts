@@ -7,6 +7,7 @@ import { ApiError } from "../errors.js";
 import { createConfiguredOcrService } from "./index.js";
 import { isLoopbackOcrEndpoint, OcrSettingsStore, serverEngineSchema } from "./settings.js";
 import { OcrRuntime, ocrTestPage } from "./runtime.js";
+import { layoutModelAsset } from "./models.js";
 import { OcrVault, vaultLock } from "./vault.js";
 
 const serverInput = z.strictObject({
@@ -46,6 +47,7 @@ export class OcrManager {
     return {
       defaultEngineId: settings.defaultEngineId, readOnly,
       installerAvailable: await this.runtime.available(), installation: this.runtime.installation ?? (this.automaticPending ? { engineId: "local-fast", stage: "runtime" } : null),
+      layout: { model: "pp-doclayout-v3-onnx", bytes: layoutModelAsset.bytes, status: await this.runtime.layoutReady() ? "ready" : "not-installed" },
       engines: await Promise.all(settings.engines.map(async (engine) => {
         const keyConfigured = engine.kind !== "local" && engine.apiKeyRef !== null && Boolean(await this.vault.get(engine.apiKeyRef));
         return {
@@ -113,21 +115,23 @@ export class OcrManager {
   async downloadDefaultIfNeeded() {
     if (this.automaticAttempted || this.stopped) return;
     this.automaticAttempted = true; this.automaticPending = true;
+    let target: string | undefined = "local-fast";
     try {
       const settings = await this.store.read();
-      if (settings.defaultEngineId !== "local-fast") return;
       if (await access(join(this.runtime.root, "auto-download-cancelled")).then(() => true, () => false)) return;
-      if (await this.runtime.ready("pp-ocrv6-small")) return;
+      target = settings.defaultEngineId === "local-fast" && !await this.runtime.ready("pp-ocrv6-small")
+        ? "local-fast" : !await this.runtime.layoutReady() ? "local-layout" : undefined;
+      if (!target) return;
       if (this.stopped || this.automaticCancelled || this.testing || this.startingInstall || this.runtime.busy) return;
-      await this.install("local-fast", true);
+      await this.install(target, true);
     } catch {
-      if (!this.stopped && !this.runtime.busy) this.runtime.installation = { engineId: "local-fast", stage: "failed" };
+      if (!this.stopped && !this.runtime.busy) this.runtime.installation = { engineId: target ?? "local-layout", stage: "failed" };
     } finally { this.automaticPending = false; }
   }
   async cancelInstall() {
     this.automaticCancelled = true;
     if (this.automaticPending && !this.runtime.busy) this.runtime.installation = { engineId: "local-fast", stage: "cancelled" };
-    if (this.automaticPending || (this.runtime.busy && this.runtime.installation?.engineId === "local-fast")) {
+    if (this.automaticPending || (this.runtime.busy && ["local-fast", "local-layout"].includes(this.runtime.installation?.engineId ?? ""))) {
       await mkdir(this.runtime.root, { recursive: true, mode: 0o700 });
       await writeFile(join(this.runtime.root, "auto-download-cancelled"), "1\n", { mode: 0o600 });
     }
@@ -139,13 +143,16 @@ export class OcrManager {
     this.startingInstall = true;
     try {
       const engine = (await this.store.read()).engines.find((item) => item.id === id);
-      if (!engine || engine.kind !== "local") throw new ApiError(404, "ocr_not_found", "Local OCR model not found.");
+      if (id !== "local-layout" && (!engine || engine.kind !== "local")) throw new ApiError(404, "ocr_not_found", "Local OCR model not found.");
       if (this.stopped || (automatic && this.automaticCancelled)) return;
-      if (id === "local-fast" && !automatic) {
+      if ((id === "local-fast" || id === "local-layout") && !automatic) {
         await rm(join(this.runtime.root, "auto-download-cancelled"), { force: true });
         this.automaticCancelled = false;
       }
-      if (!this.stopped && !(automatic && this.automaticCancelled)) await this.runtime.install(engine);
+      if (!this.stopped && !(automatic && this.automaticCancelled)) {
+        if (id === "local-layout") await this.runtime.installLayout();
+        else if (engine?.kind === "local") await this.runtime.install(engine);
+      }
     } finally { this.startingInstall = false; }
   }
   async test(id: string) {

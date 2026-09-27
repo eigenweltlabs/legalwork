@@ -1,7 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { OcrRuntime } from "./runtime.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 
@@ -28,16 +29,24 @@ test("OCR HTTP settings require host authority, redact keys and respect read-onl
     expect(saved.status).toBe(200);
     const text = await saved.text();
     expect(text).toContain('"keyConfigured":true');
+    expect(text).toContain('"layout":{"model":"pp-doclayout-v3-onnx","bytes":130502049,"status":"not-installed"}');
     expect(text).not.toContain("super-secret");
     expect(text).not.toContain("apiKeyRef");
     const unavailable = await fetch(`${base}/ocr/default`, { headers, method: "PUT", body: JSON.stringify({ engineId: "local-fast" }) });
     expect(unavailable.status).toBe(400);
     expect(await unavailable.text()).toContain("ocr_not_ready");
+    const layoutInstall = spyOn(OcrRuntime.prototype, "installLayout").mockResolvedValue();
+    try {
+      expect((await fetch(`${base}/ocr/engines/local-layout/install`, { method: "POST" })).status).toBe(401);
+      expect((await fetch(`${base}/ocr/engines/local-layout/install`, { headers, method: "POST" })).status).toBe(200);
+      expect(layoutInstall).toHaveBeenCalledTimes(1);
+    } finally { layoutInstall.mockRestore(); }
     config.readOnly = true;
     for (const [path, method, body] of [
       ["/ocr/default", "PUT", '{"engineId":"local-quality"}'],
       ["/ocr/servers", "POST", "{}"],
       ["/ocr/engines/local-fast/install", "POST", "{}"],
+      ["/ocr/engines/local-layout/install", "POST", "{}"],
       ["/ocr/engines/local-fast/test", "POST", "{}"],
       ["/ocr/install", "DELETE", "{}"],
     ]) expect((await fetch(`${base}${path}`, { headers, method, body })).status).toBe(403);

@@ -86,6 +86,7 @@ export class OcrService {
           signal.throwIfAborted();
           if (!content.success) throw new OcrError("invalid-response", "The OCR engine returned invalid text or coordinates.");
           const pageWarnings = [...warnings];
+          if (content.data.text.trim() && !content.data.regions.length && !pageWarnings.includes("regions-unavailable")) pageWarnings.push("regions-unavailable");
           if (!content.data.text.trim()) pageWarnings.push("empty-text");
           if (content.data.truncated) pageWarnings.push("output-truncated");
           const result: OcrPageResult = {

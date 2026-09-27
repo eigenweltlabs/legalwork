@@ -19,10 +19,11 @@ async function setup() {
   const root = await mkdtemp(join(tmpdir(), "ocr-auto-")); roots.push(root);
   const manager = new OcrManager(root);
   const install = spyOn(manager.runtime, "install").mockImplementation(async engine => { manager.runtime.installation = { engineId: engine.id, stage: "complete" }; });
-  return { root, manager, install };
+  const layoutInstall = spyOn(manager.runtime, "installLayout").mockImplementation(async () => { manager.runtime.installation = { engineId: "local-layout", stage: "complete" }; });
+  return { root, manager, install, layoutInstall };
 }
 
-test("automatically provisions only the small default, once per launch, preserving settings", async () => {
+test("automatically starts small OCR plus layout setup once per launch, preserving settings", async () => {
   const { manager, install } = await setup();
   const before = await manager.store.read();
   await Promise.all([manager.downloadDefaultIfNeeded(), manager.downloadDefaultIfNeeded()]);
@@ -32,17 +33,45 @@ test("automatically provisions only the small default, once per launch, preservi
   expect((await manager.view()).installation?.stage).toBe("complete");
 });
 
-test("does not redownload a ready model or install when another model is selected", async () => {
+test("existing OCR and custom providers install only missing layout without changing selection", async () => {
   for (const selected of ["ready", "local-quality", "custom"]) {
-    const { manager, install } = await setup();
+    const { manager, install, layoutInstall } = await setup();
     if (selected === "ready") spyOn(manager.runtime, "ready").mockResolvedValue(true);
     else if (selected === "local-quality") await manager.store.write({ ...await manager.store.read(), defaultEngineId: selected });
     else {
       const id = await manager.saveServer({ label: "Custom", endpoint: "http://localhost:8000/ocr", kind: "paddleocr", authentication: "none", model: "OCR", languages: null });
       await manager.setDefault(id);
     }
-    await manager.downloadDefaultIfNeeded(); expect(install).not.toHaveBeenCalled();
+    const before = await manager.store.read();
+    await manager.downloadDefaultIfNeeded(); await manager.downloadDefaultIfNeeded();
+    expect(install).not.toHaveBeenCalled(); expect(layoutInstall).toHaveBeenCalledTimes(1);
+    expect(await manager.store.read()).toEqual(before);
   }
+});
+
+test("ready small OCR and layout are both reused without installation", async () => {
+  const { manager, install, layoutInstall } = await setup();
+  spyOn(manager.runtime, "ready").mockResolvedValue(true);
+  spyOn(manager.runtime, "layoutReady").mockResolvedValue(true);
+  await manager.downloadDefaultIfNeeded();
+  expect(install).not.toHaveBeenCalled(); expect(layoutInstall).not.toHaveBeenCalled();
+  expect((await manager.view()).layout?.status).toBe("ready");
+});
+
+test("layout cancellation persists and explicit layout retry clears it", async () => {
+  const { root, manager, layoutInstall } = await setup();
+  spyOn(manager.runtime, "ready").mockResolvedValue(true);
+  let release!: (ready: boolean) => void;
+  const pending = new Promise<boolean>(resolve => { release = resolve; });
+  const readiness = spyOn(manager.runtime, "layoutReady").mockReturnValue(pending);
+  const run = manager.downloadDefaultIfNeeded();
+  await manager.cancelInstall(); release(false); await run;
+  expect(layoutInstall).not.toHaveBeenCalled(); readiness.mockRestore();
+  const restarted = new OcrManager(root), retry = spyOn(restarted.runtime, "installLayout").mockResolvedValue();
+  await restarted.downloadDefaultIfNeeded(); expect(retry).not.toHaveBeenCalled();
+  await restarted.install("local-layout"); expect(retry).toHaveBeenCalledTimes(1);
+  expect(await access(join(root, "auto-download-cancelled")).then(() => true, () => false)).toBe(false);
+  await expect(restarted.setDefault("local-layout")).rejects.toThrow("not found");
 });
 
 test("cancelling preflight persists across launches, while explicit download retries clear cancellation", async () => {

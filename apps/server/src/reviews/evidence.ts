@@ -5,7 +5,9 @@ import { unzipSync } from "fflate";
 import { ApiError } from "../errors.js";
 import { DocumentPreparation } from "../document-preparation/service.js";
 import { preparedSchema } from "../document-preparation/schema.js";
-import type { EvidencePage } from "./chunks.js";
+import { quoteRange } from "../document-preparation/highlights.js";
+import type { DocumentRelation, PageStructure } from "@legalwork/types/document-structure";
+import type { EvidenceBlock, EvidencePage, EvidenceTable } from "./chunks.js";
 import { within } from "./storage.js";
 import { REVIEW_FILE_EXTENSIONS, REVIEW_MAX_FILE_BYTES } from "./schema.js";
 
@@ -46,7 +48,63 @@ export function docxEvidence(bytes: Uint8Array): EvidencePage[] {
     return { page: null, text: `[${name}]\n${text}`, source: "native", status: /<w:(?:drawing|pict|del|ins)\b/.test(xml) ? "needs-review" : "complete" };
   });
 }
-export type ReviewEvidence = { hash: string; pages: EvidencePage[]; preparationPath?: string; complete: boolean };
+export type ReviewEvidence = { hash: string; pages: EvidencePage[]; preparationPath?: string; complete: boolean;
+  relations?: DocumentRelation[] };
+export function structureOffsets(text: string, structure: PageStructure | undefined, ocrRegions?: Array<{ text: string }>):
+  { blocks: EvidenceBlock[]; tables: EvidenceTable[] } {
+  if (!structure) return { blocks: [], tables: [] };
+  const blocks: EvidenceBlock[] = [];
+  const byId = new Map(structure.regions.map(region => [region.id, region]));
+  const uniqueRange = (haystack: string, needle: string) => {
+    const found = quoteRange(haystack, needle);
+    return found && !quoteRange(haystack.slice(found.end), needle) ? found : null;
+  };
+  const ocrOffsets: Array<{ start: number; end: number } | null> = [];
+  if (ocrRegions) {
+    let lineCursor = 0;
+    for (const line of ocrRegions) {
+      const next = quoteRange(text.slice(lineCursor), line.text);
+      const match = next ? { start: lineCursor + next.start, end: lineCursor + next.end } : uniqueRange(text, line.text);
+      ocrOffsets.push(match);
+      if (match) lineCursor = match.end;
+    }
+  }
+  for (const id of new Set([...structure.readingOrder, ...structure.regions.map(region => region.id)])) {
+    const region = byId.get(id);
+    if (!region?.text.trim()) continue;
+    const mapped = ocrRegions ? region.ocrRegionIds.filter(index => index < ocrOffsets.length && ocrOffsets[index]) : [];
+    if (mapped.length) {
+      for (const index of mapped) {
+        const match = ocrOffsets[index];
+        if (match) blocks.push({ id, kind: region.kind, ...match, ocrRegionIds: [index] });
+      }
+      continue;
+    }
+    // A claimed OCR line ID must not silently fall back to a different identical phrase.
+    if (ocrRegions && region.ocrRegionIds.length) continue;
+    const match = uniqueRange(text, region.text);
+    if (match) {
+      blocks.push({ id, kind: region.kind, ...match });
+      continue;
+    }
+    for (const line of region.text.split(/\r?\n/).filter(Boolean)) {
+      const part = uniqueRange(text, line);
+      if (part) blocks.push({ id, kind: region.kind, ...part });
+    }
+  }
+  const tables: EvidenceTable[] = structure.tables.map(table => {
+    return { regionId: table.regionId, rows: table.rows, columns: table.columns, status: table.status,
+      cells: table.cells.flatMap(cell => {
+        const match = uniqueRange(text, cell.text);
+        return match ? [{ row: cell.row, column: cell.column, ...match }] : [];
+      }) };
+  });
+  for (const table of tables) {
+    if (blocks.some(block => block.id === table.regionId) || !table.cells.length) continue;
+    for (const cell of table.cells) blocks.push({ id: table.regionId, kind: "table", start: cell.start, end: cell.end });
+  }
+  return { blocks, tables };
+}
 export async function prepareReviewEvidence(options: {
   workspace: string; path: string; preparation: DocumentPreparation; signal: AbortSignal; force: boolean;
   preparationJobId?: string;
@@ -81,12 +139,17 @@ export async function prepareReviewEvidence(options: {
     const prepared = preparedSchema.parse(JSON.parse(await readFile(path, "utf8")));
     if (prepared.sourceSha256 !== hash || (await sourceHash(root, source.path)).hash !== hash) throw new Error("The source changed during preparation. Run the review again.");
     const complete = prepared.status === "complete" && prepared.pageCount > 0 && prepared.pages.length === prepared.pageCount && prepared.pages.every(page => page.status === "complete");
-    const pages: EvidencePage[] = prepared.pages.flatMap(page => [
-      { page: page.page, text: page.nativeText, source: "native", status: page.status },
-      { page: page.page, text: page.ocr?.text ?? "", source: "ocr", status: page.status, regions: page.ocr?.regions.map(region => ({ text: region.text })) },
-    ]);
+    const pages: EvidencePage[] = prepared.pages.flatMap(page => {
+      const nativeOffsets = structureOffsets(page.nativeText, page.structure);
+      const ocrOffsets = structureOffsets(page.ocr?.text ?? "", page.structure, page.ocr?.regions);
+      return [
+        { page: page.page, text: page.nativeText, source: "native", status: page.status, ...nativeOffsets },
+        { page: page.page, text: page.ocr?.text ?? "", source: "ocr", status: page.status,
+          regions: page.ocr?.regions.map(region => ({ text: region.text })), ...ocrOffsets },
+      ];
+    });
     if (!complete) pages.push({ page: null, text: "", status: "needs-review" });
     if (!pages.some(page => page.text.trim())) throw new Error(entry.error || "No readable evidence. Check OCR settings and retry.");
-    return { hash, pages, preparationPath: entry.preparationPath, complete };
+    return { hash, pages, preparationPath: entry.preparationPath, complete, relations: prepared.relations };
   } finally { options.signal.removeEventListener("abort", cancel); }
 }

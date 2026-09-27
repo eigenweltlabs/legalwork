@@ -345,12 +345,12 @@ export class ReviewService {
     }
     return { path: document.path, sourceHash: hash };
   }
-  async citationPage(workspace: WorkspaceInfo, id: string, documentId: string, columnKey: string, citationIndex: number, completedAt: number, signal: AbortSignal) {
+  async citationPage(workspace: WorkspaceInfo, id: string, documentId: string, columnKey: string, citationIndex: number, completedAt: number, signal: AbortSignal, page?: number) {
     const review = await this.get(workspace, id);
     const cell = review.cells.find(cell => cell.documentId === documentId && cell.columnKey === columnKey);
     if (!cell?.result || cell.result.completedAt !== completedAt) throw new ApiError(409, "review_conflict", "This answer has changed. Open its current source citation.");
     const source = await this.verifySource(workspace, id, documentId, cell.result.sourceHash);
-    return reviewSourcePage(workspace.path, source.path, cell.result, citationIndex, signal);
+    return reviewSourcePage(workspace.path, source.path, cell.result, citationIndex, signal, page);
   }
   async stop() { for (const controller of this.active.values()) controller.abort(); await Promise.allSettled(this.runs.values()); }
 }

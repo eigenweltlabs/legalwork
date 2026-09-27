@@ -62,6 +62,11 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
   const [showInstallSuccess, setShowInstallSuccess] = useState(false);
   const installing = activeInstall(settings);
   const installStage = settings?.installation?.stage;
+  const layoutInstalling = installing && settings?.installation?.engineId === "local-layout";
+  const layoutRetry = settings?.installation?.engineId === "local-layout" && (installStage === "failed" || installStage === "cancelled");
+  const layoutStatus = layoutRetry ? t(installStage === "failed" ? "ocr.status_failed" : "ocr.status_cancelled")
+    : layoutInstalling && settings?.installation ? ocrInstallLabel(settings.installation.stage)
+    : settings?.layout ? ocrStatusLabel(settings.layout.status) : "";
   const apiTypes = [
     { value: "paddleocr", label: t("ocr.api_paddle") },
     { value: "mistral-ocr", label: t("ocr.api_mistral") },
@@ -181,7 +186,18 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
           <Monitor size={20} className="shrink-0 text-dls-text" />
           <div><p className="text-sm font-medium">{t("ocr.local_provider")}</p><p className="text-xs text-dls-secondary">{t("ocr.local_description")}</p></div>
         </div>
-        <div className="mt-3 w-full divide-y divide-dls-border border-t border-dls-border">{settings.engines.filter(engine => engine.kind === "local").map(engineRow)}</div>
+        <div className="mt-3 w-full divide-y divide-dls-border border-t border-dls-border">{settings.engines.filter(engine => engine.kind === "local").map(engineRow)}
+          {settings.layout ? <div className="py-3 pl-8 last:pb-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm">{t("ocr.layout")}</p>
+                <p className="text-xs text-dls-secondary">{layoutStatus}</p>
+                <p className="mt-1 text-xs text-dls-secondary">{t("ocr.layout_description")}</p>
+              </div>
+              {settings.layout.status !== "ready" || layoutRetry ? <Button variant="outline" size="sm" disabled={disabled || installing || !settings.installerAvailable} onClick={() => client && void update(() => client.installOcrEngine("local-layout"))}>{t(layoutRetry ? "ocr.retry_download" : "ocr.download")}</Button> : null}
+            </div>
+          </div> : null}
+        </div>
       </LayoutSectionItem> : null}
       {settings?.engines.filter(engine => engine.kind !== "local").map(engine => <LayoutSectionItem key={engine.id} className="gap-0">
         <div className="flex w-full items-center justify-between gap-3">
@@ -202,7 +218,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
       {settings && !settings.installerAvailable ? <SettingsNotice tone="warning">{t("ocr.installer_missing")}</SettingsNotice> : null}
       {settings?.installation && (installStage !== "complete" || showInstallSuccess) ? <SettingsNotice tone={settings.installation.stage === "failed" ? "error" : "neutral"}>
         <div role="status" className="flex items-center justify-between gap-3">
-          <span>{ocrInstallLabel(settings.installation.stage)}</span>
+          <span>{settings.installation.engineId === "local-layout" ? `${t("ocr.layout")}: ` : ""}{ocrInstallLabel(settings.installation.stage)}</span>
           {installing ? <Button variant="outline" disabled={disabled} onClick={() => client && void update(() => client.cancelOcrInstall())}>{t("ocr.cancel")}</Button> : null}
         </div>
       </SettingsNotice> : null}

@@ -734,7 +734,7 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
-export async function startServer(config: ServerConfig): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -763,7 +763,7 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
   const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
-  const preparation = new DocumentPreparation(ocr);
+  const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews);
 

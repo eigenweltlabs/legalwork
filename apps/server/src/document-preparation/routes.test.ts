@@ -31,7 +31,7 @@ test("internal review preparation API enforces workspace authorization, pins the
     authorizedRoots: [workspace], readOnly: false, startedAt: Date.now(),
     tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
-  const server = await startServer(config);
+  const server = await startServer(config, { documentLayout: { fingerprint: "test-layout", async detect() { return { model: "test-layout", regions: [{ label: "text", box: { x: 0, y: 0, width: 1, height: 1 }, confidence: 1, order: 0 }] }; } } });
   try {
     const base = `http://127.0.0.1:${server.port}`;
     const host = { "x-legalwork-host-token": "host-token", "content-type": "application/json" };
@@ -54,8 +54,15 @@ test("internal review preparation API enforces workspace authorization, pins the
       await new Promise(resolve => setTimeout(resolve, 10));
       status = statusSchema.parse(await (await fetch(`${endpoint}/${run.id}`, { headers: client })).json());
     }
-    expect(status.status).toBe("complete"); expect(models).toEqual(["first-model", "first-model"]);
+    expect(status.status).toBe("needs-review"); expect(models).toEqual(["first-model", "first-model"]);
     const prepared = preparedSchema.parse(JSON.parse(await readFile(join(workspace, status.documents[0]!.preparationPath!), "utf8")));
+    const structureUrl = `${endpoint}/document?file=contract.pdf&preparationPath=${encodeURIComponent(status.documents[0]!.preparationPath!)}&page=2`;
+    expect((await fetch(structureUrl)).status).toBe(401);
+    const structured = await fetch(structureUrl, { headers: client });
+    expect(structured.status).toBe(200);
+    const shared = preparedSchema.parse(await structured.json());
+    expect(shared.pages.map(page => page.page)).toEqual([2]);
+    expect(shared.pages[0]?.structure?.issues).toContain("ocr-coordinates-unavailable");
     expect(prepared.pages.length).toBe(2); expect(prepared.pages[1]!.nativeText).toContain("Second page"); expect(prepared.pages[1]!.ocr?.text).toContain("Recognized");
     expect((await fetch(endpoint, { headers: client, method: "POST", body: JSON.stringify({ files: ["../server.json"] }) })).status).toBe(403);
     config.readOnly = true;
