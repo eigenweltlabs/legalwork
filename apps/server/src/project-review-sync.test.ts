@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -152,6 +152,10 @@ describe("Tabular Reviews with a synced project", () => {
       expect(await side.sync()).toMatchObject({ uploaded: 0, downloaded: 0, pending: 0 });
       expect(await pendingReviewChanges(side.root, side.base)).toBe(0);
     }
+    // A time that moved alone is no change.
+    const later = new Date(Date.now() + 5_000);
+    await utimes(join(ben.root, ".opencode", "legalwork", "reviews", `${ID}.json`), later, later);
+    expect(await pendingReviewChanges(ben.root, ben.base)).toBe(0);
     // This computer's chat link and prepared documents stay as they were here.
     const own = await anna.read();
     expect(own.sessionId).toBe("ses_anna");

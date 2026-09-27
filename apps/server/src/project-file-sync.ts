@@ -160,7 +160,7 @@ async function scanLocal(root: string, includes: (path: string) => boolean) {
   return { files, clashes, unsyncable };
 }
 
-async function hashFile(abs: string): Promise<string> {
+export async function hashFile(abs: string): Promise<string> {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(abs)) hash.update(chunk);
   return hash.digest("hex");
