@@ -33,6 +33,106 @@ export type ProjectDetails = {
   version: 1;
   revision: number;
   fields: ProjectField[];
+  /**
+   * The firm's id for this project once it syncs. Kept with the folder, so a
+   * folder added again (or found again after a reinstall) is recognised as the
+   * same project rather than becoming a second copy of it.
+   */
+  syncProjectId?: string;
+};
+
+/**
+ * What a synced project carries to the firm. Chats are never part of it:
+ * each chat is shared on its own, through its own sharing.
+ */
+export type ProjectSyncScope = {
+  documents: boolean;
+  notes: boolean;
+  tasks: boolean;
+  recordings: boolean;
+  metadata: boolean;
+  /** Tabular Reviews and their earlier runs, with the documents they review (even with `documents` off). */
+  reviews: boolean;
+};
+
+export type ProjectSyncAccess = "org" | "members";
+
+/** What the owner chooses when turning sync on, or changing it later. */
+export type ProjectSyncSettings = {
+  access: ProjectSyncAccess;
+  /** Colleagues who see a `members` project besides its owner. */
+  memberIds: string[];
+  scope: ProjectSyncScope;
+};
+
+/**
+ * Where a project stands, as the project's sync status shows it:
+ * `local` — not synced; `pending` — changes on their way; `synced` — up to
+ * date; `offline` — the firm cannot be reached; `error` — the last attempt
+ * failed; `unavailable` — the project folder is missing; `conflict` — both
+ * sides changed a file and a copy was kept; `paused` — many files were
+ * deleted here and sync waits for a decision; `revoked` — access ended while
+ * changes made here had not been uploaded.
+ */
+export type ProjectSyncState =
+  | "local"
+  | "pending"
+  | "synced"
+  | "offline"
+  | "error"
+  | "unavailable"
+  | "conflict"
+  | "paused"
+  | "revoked"
+  /** Shared with this member, and one of their own projects' folders already is it: theirs to decide. */
+  | "offered";
+
+export type ProjectSyncConflict = {
+  /** The file as the firm has it. */
+  path: string;
+  /** Where this computer's version was kept. */
+  copyPath: string;
+  at: string;
+};
+
+export type ProjectSyncSkipped = {
+  path: string;
+  reason: "too_large" | "name_clash" | "failed";
+};
+
+export type ProjectSyncStatus = {
+  workspaceId: string;
+  /** Signed in with a firm, so sync is possible at all. */
+  connected: boolean;
+  mode: "local" | "synced";
+  /** This member's relation to a synced project; only the owner changes its settings. */
+  role: "owner" | "member" | null;
+  /** The signed-in member looking at it. */
+  viewerUserId: string | null;
+  ownerUserId: string | null;
+  settings: ProjectSyncSettings;
+  state: ProjectSyncState;
+  lastSyncAt: string | null;
+  error: string | null;
+  /** Changes made here that have not reached the firm yet. */
+  pendingChanges: number;
+  conflicts: ProjectSyncConflict[];
+  skipped: ProjectSyncSkipped[];
+  /** Files deleted here that sync holds back until the user decides. */
+  pausedDeletions: number;
+  /** A member's copy that is a folder they brought themselves: leaving keeps it as their own project. */
+  ownFolder: boolean;
+  /** A project shared with this member whose folder this local project already is, waiting for their decision. */
+  offer: { projectId: string; name: string; ownerUserId: string } | null;
+};
+
+/** Every project's state at once, for the sidebar; `revision` moves when projects arrive, leave or are renamed. */
+export type ProjectSyncOverview = {
+  connected: boolean;
+  revision: number;
+  states: Record<string, ProjectSyncState>;
+  /** Per project: moves whenever sync changed its files on this computer, so what shows them reloads. */
+  contents: Record<string, number>;
 };
 
 export type WorkspaceWire = {

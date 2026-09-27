@@ -26,6 +26,7 @@ function remoteTask(overrides: Partial<RemoteTask> = {}): RemoteTask {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     origin: "intake",
+    projectId: null,
     title: "Fristverlängerung Meier",
     description: "Bis Freitag.",
     status: "open",
@@ -534,8 +535,9 @@ describe("task-store: project links", () => {
     reopened.patchTask(first.id, { projectId: null }, ANON, 5000);
     expect(reopened.getTask(first.id)?.projectId).toBeNull();
     expect(reopened.listTasks().tasks).toHaveLength(3);
-    // The existing cloud task protocol is unaffected; project sync is separate.
-    expect(store.listOutbox().map((item) => item.op.kind)).toEqual(["create", "create", "create"]);
+    // Tasks of projects that stay on this machine are not queued for the firm;
+    // the one moved out of every project now is, whole.
+    expect(store.listOutbox().map((item) => [item.taskId, item.op.kind])).toEqual([[first.id, "create"]]);
   });
 });
 

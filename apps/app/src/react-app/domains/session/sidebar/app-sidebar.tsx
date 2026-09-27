@@ -29,6 +29,8 @@ import {
   LayoutGrid,
   AppWindowMac,
   Tag,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -125,6 +127,8 @@ import { startSessionDrag, acceptsSessionDrag, readSessionDrag } from "./session
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
+import { ProjectFolderIcon } from "../../workspace/project-sync";
+import { useProjectSyncStore } from "../../workspace/project-sync-store";
 
 interface SessionStatusIndicatorProps {
   className?: string;
@@ -430,6 +434,8 @@ type WorkspaceActionsMenuProps = {
 
 function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProps) {
   const ctx = useSidebarContext();
+  const shared = useProjectSyncStore((store) => store.states[workspace.id] !== undefined);
+  const share = useProjectSyncStore((store) => store.share);
 
   return (
     <DropdownMenu>
@@ -453,6 +459,12 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
           <Pencil className="size-4" />
           {t("workspace_list.edit_name")}
         </DropdownMenuItem>
+        {workspace.workspaceType === "local" ? (
+          <DropdownMenuItem onClick={() => share({ workspaceId: workspace.id, name: workspaceLabel(workspace) })}>
+            {shared ? <Users className="size-4" /> : <UserPlus className="size-4" />}
+            {shared ? t("project_sync.manage_sharing") : t("project_sync.share_project")}
+          </DropdownMenuItem>
+        ) : null}
         {workspace.workspaceType === "local" ? (
           <DropdownMenuItem onClick={() => ctx.onRevealWorkspace(workspace.id)}>
             <FolderOpen className="size-4" />
@@ -888,7 +900,7 @@ function WorkspaceHeader({
       onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}
     >
       <span className="relative flex size-5 shrink-0">
-        <WorkspaceIcon workspaceId={workspace.id} sizeClass="size-5" open={ctx.expandedWorkspaceIds.has(workspace.id)} />
+        <ProjectFolderIcon workspaceId={workspace.id} open={ctx.expandedWorkspaceIds.has(workspace.id)} />
         {isRunning && (
           <SessionStatusIndicator
             className="absolute -right-1 -bottom-1 rounded-full bg-sidebar text-sidebar-foreground ring-2 ring-sidebar [&>svg]:size-3"

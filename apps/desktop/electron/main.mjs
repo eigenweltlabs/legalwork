@@ -1153,6 +1153,11 @@ const runtimeManager = createRuntimeManager({
       const detail = await recorderService().getRecording(id);
       return detail ? { segments: detail.segments } : null;
     },
+    exportProjectRecording: async (projectId, id, projectRoot) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return false;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      return linked && (await recorderService().exportToProject(id, projectRoot)) !== null;
+    },
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },

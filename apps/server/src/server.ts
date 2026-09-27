@@ -97,6 +97,7 @@ import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
+import { ReviewLibrary } from "./reviews/library.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
 import { registerOcrRoutes } from "./routes/ocr.js";
@@ -182,8 +183,10 @@ import {
   EIGENWELT_HUB_MAX_BATCH_ITEMS,
   EIGENWELT_HUB_MAX_PAYLOAD_BYTES,
   EIGENWELT_HUB_MAX_SECRET_BYTES,
+  type EigenweltHubItemDetail,
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
+import { startSyncEvents } from "./eigenwelt-sync-events.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
   EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
@@ -194,6 +197,22 @@ import {
 import { taskStore } from "./task-store.js";
 import { startTaskReminderTimer } from "./task-notifications.js";
 import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer } from "./task-sync.js";
+import {
+  configureProjectSync,
+  noteProjectDetailsSaved,
+  noteProjectRemoved,
+  noteProjectRenamed,
+  projectSyncActionSchema,
+  projectSyncOverview,
+  projectSyncStatus,
+  resolveProjectSync,
+  runProjectSync,
+  saveProjectSyncSettings,
+  signOutOfFirmProjects,
+  startProjectSyncTimer,
+  stopProjectSync,
+} from "./project-sync.js";
+import { projectSyncSettingsSchema } from "./project-sync-store.js";
 import {
   connectedTaskOrgId,
   parseTaskCreate,
@@ -758,6 +777,12 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   // Tasks push and pull with the firm's account in the background (a no-op
   // while no firm is connected); each local write also asks for a round.
   const stopTaskSync = startTaskSyncTimer(config);
+  // Synced projects (Akten) likewise; a project arriving from the firm is a
+  // new folder for the reload watchers too.
+  configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
+  const stopProjectSyncTimer = startProjectSyncTimer(config);
+  // The firm pokes this computer when something changed, so rounds start at once.
+  const stopSyncEvents = startSyncEvents(config);
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
@@ -999,6 +1024,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
       preparation.stop();
       ocr.runtime.cancel();
       stopTaskSync();
+      stopProjectSyncTimer();
+      stopSyncEvents();
       stopTaskReminders();
       benchmarkRunner.dispose();
       watcherHandle.close();
@@ -1583,6 +1610,9 @@ function createRoutes(
     resolveWorkspace,
     serializeWorkspace,
     reloadOpencodeEngine,
+    onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
+    onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
+    onProjectRemoved: (workspaceId) => noteProjectRemoved(config, workspaceId),
   });
 
   registerSessionRoutes({
@@ -2166,11 +2196,19 @@ function createRoutes(
   const parseHubKind = (value: string): EigenweltHubKind => {
     if (
       value === "skill" || value === "workflow" || value === "mcp" || value === "plugin" ||
-      value === "integration" || value === "preset"
+      value === "integration" || value === "preset" || value === "review_set"
     ) {
       return value;
     }
-    throw new ApiError(400, "invalid_hub_kind", "kind must be skill, workflow, mcp or plugin.");
+    throw new ApiError(400, "invalid_hub_kind", "kind must be skill, workflow, mcp, plugin or review_set.");
+  };
+
+  // A Tabular Review prompt set from the firm's Team library becomes the
+  // member's own copy; installed again, that copy is updated.
+  const installReviewSet = async (workspaceId: string, item: EigenweltHubItemDetail) => {
+    const entry = await new ReviewLibrary(config).installShared(item.id, item.payload);
+    await recordHubInstall(config, workspaceId, item.id, { version: item.version, kind: item.kind, name: entry.name, installedAt: Date.now() });
+    return entry;
   };
 
   const parseSharedMcpSecret = (secretJson: string): Record<string, unknown> => {
@@ -2279,15 +2317,21 @@ function createRoutes(
     // tasks leave this machine first (a last push, then the wipe); changes
     // that could not be pushed stop the sign-out until `force` says otherwise.
     if (body.disconnect === true) {
-      const tasks = await signOutOfFirmTasks(config, { force: body.force === true });
-      if (!tasks.ok) {
+      const force = body.force === true;
+      // Every check first, then anything leaves: synced project copies go
+      // only once the tasks may go too.
+      const projects = await signOutOfFirmProjects(config, { force, apply: false });
+      const tasks = await signOutOfFirmTasks(config, { force });
+      const pending = (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
+      if (pending > 0) {
         throw new ApiError(
           409,
           "tasks_pending",
-          `${tasks.pending} change(s) made on this computer have not reached the firm yet.`,
-          { pending: tasks.pending },
+          `${pending} change(s) made on this computer have not reached the firm yet.`,
+          { pending },
         );
       }
+      await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
       await clearCachedEigenweltPaidManifest(config);
       await rebuildEngineConfigFile(workspace);
@@ -2683,6 +2727,10 @@ function createRoutes(
     }
     const allowOverwrite = body.allowOverwrite === true;
     const item = await hubGet(client, ctx.params.itemId);
+    if (item.kind === "review_set") {
+      const entry = await installReviewSet(workspace.id, item);
+      return jsonResponse({ ok: true, kind: item.kind, name: entry.name, version: item.version });
+    }
     if (item.kind === "skill" || item.kind === "workflow") {
       const files =
         item.payload && typeof item.payload === "object"
@@ -2882,6 +2930,12 @@ function createRoutes(
           }
           const res = await hubCreate(client, { kind: "plugin", name, description, payload });
           results.push({ ref, kind, ok: true, id: res.id, version: res.version });
+        } else if (kind === "review_set") {
+          // Only sets, never single prompts, go to the firm (ReviewLibrary.shareable).
+          const set = await new ReviewLibrary(config).shareable(ref);
+          // The firm's list shows at most 100 characters of a name and 500 of a description; the set keeps both whole.
+          const res = await hubCreate(client, { kind: "review_set", name: set.name.slice(0, 100), description: (description ?? set.description).slice(0, 500) || undefined, payload: { set } });
+          results.push({ ref, kind, ok: true, id: res.id, version: res.version });
         } else {
           throw new ApiError(400, "unshareable_kind", `Cannot batch-share kind: ${kind}`);
         }
@@ -2926,7 +2980,10 @@ function createRoutes(
     for (const itemId of itemIds) {
       try {
         const item = await hubGet(client, itemId);
-        if (item.kind === "skill" || item.kind === "workflow") {
+        if (item.kind === "review_set") {
+          const entry = await installReviewSet(workspace.id, item);
+          results.push({ id: item.id, kind: item.kind, name: entry.name, ok: true });
+        } else if (item.kind === "skill" || item.kind === "workflow") {
           const files = item.payload && typeof item.payload === "object"
             ? (item.payload as { files?: unknown }).files
             : null;
@@ -3346,6 +3403,52 @@ function createRoutes(
     await resolveWorkspace(config, ctx.params.id);
     const round = await runTaskSync(config);
     return jsonResponse({ ...(await taskSyncStatus()), round });
+  });
+
+  // Synced projects (project-sync.ts). The status reads without the folder,
+  // so a project whose folder is missing can still say so.
+  const syncedWorkspace = (id: string): WorkspaceInfo => {
+    const workspace = config.workspaces.find((entry) => entry.id === id && entry.workspaceType !== "remote");
+    if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+    return workspace;
+  };
+
+  addRoute(routes, "GET", "/project-sync", "client", async () => {
+    return jsonResponse(await projectSyncOverview(config));
+  });
+
+  addRoute(routes, "POST", "/project-sync", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const round = await runProjectSync(config);
+    return jsonResponse({ ...(await projectSyncOverview(config)), round });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/project/sync", "client", async (ctx) => {
+    return jsonResponse(await projectSyncStatus(config, syncedWorkspace(ctx.params.id)));
+  });
+
+  addRoute(routes, "PUT", "/workspace/:id/project/sync", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = projectSyncSettingsSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_project_sync_settings", "Choose who sees the project and what it syncs.");
+    return jsonResponse(await saveProjectSyncSettings(config, workspace, parsed.data));
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/project/sync", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    return jsonResponse(await stopProjectSync(config, syncedWorkspace(ctx.params.id)));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/project/sync/resolve", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const parsed = projectSyncActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_project_sync_action", "Unknown project sync action.");
+    return jsonResponse(await resolveProjectSync(config, syncedWorkspace(ctx.params.id), parsed.data));
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {

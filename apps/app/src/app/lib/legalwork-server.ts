@@ -2,7 +2,15 @@ import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/s
 import type { ContentSearchResponse } from "@legalwork/types/search";
 import type { JevSearchProgress } from "@legalwork/types/corpus";
 import { applyReviewUpdate, type ReviewUpdate, type QueryReviewResults, type CreateReview, type EditReview, type RunReview, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities, type ReviewLibraryEntry, type SaveReviewLibrary, type ReviewSourceReference, type ReviewSourcePage } from "@legalwork/types/reviews";
-import type { ProjectContents, ProjectContentKind, ProjectDetails, ProjectField } from "@legalwork/types/workspace";
+import type {
+  ProjectContents,
+  ProjectContentKind,
+  ProjectDetails,
+  ProjectField,
+  ProjectSyncOverview,
+  ProjectSyncSettings,
+  ProjectSyncStatus,
+} from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
@@ -261,7 +269,8 @@ export type EigenweltHubKind =
   | "mcp"
   | "plugin"
   | "integration"
-  | "preset";
+  | "preset"
+  | "review_set";
 
 /** One shared item in the firm hub (list view — no payload). */
 export type EigenweltHubItem = {
@@ -2554,6 +2563,48 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/task-members`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
+    /** Every synced project's state, and a revision that moves when projects arrive, leave or are renamed. */
+    projectSyncOverview: () =>
+      requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, timeoutMs: timeouts.status }),
+    runProjectSync: () =>
+      requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
+    projectSyncStatus: (workspaceId: string) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    /** Turn sync on, or change who sees the project and what it syncs (its owner). */
+    saveProjectSync: (workspaceId: string, settings: ProjectSyncSettings) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: settings,
+        timeoutMs: timeouts.config,
+      }),
+    /** The owner stops syncing: the project stays here, and leaves the firm. */
+    stopProjectSync: (workspaceId: string) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        method: "DELETE",
+        timeoutMs: timeouts.config,
+      }),
+    resolveProjectSync: (
+      workspaceId: string,
+      input:
+        | { action: "keep_local" | "delete_files" | "restore_files" | "use_folder" | "keep_apart" }
+        | { action: "remove"; force?: boolean }
+        | { action: "dismiss_conflict"; copyPath: string },
+    ) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync/resolve`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: input,
+        timeoutMs: timeouts.config,
+      }),
     listTaskTags: (workspaceId: string) =>
       requestJson<{ tags: string[] }>(
         baseUrl,

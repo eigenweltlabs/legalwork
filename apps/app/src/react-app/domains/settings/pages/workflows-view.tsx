@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, BookOpen, HardDrive, Users, ChevronDown, Download, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, Wand2, Workflow } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ReviewPromptLibrary } from "../../reviews/review-prompt-library";
@@ -33,6 +33,11 @@ export type WorkflowsViewProps = SkillsViewProps & {
   workspaceId: string;
   reviewClient?: LegalworkServerClient | null;
   reviewWorkspaceId?: string | null;
+  /** Team → Tabular Review Prompts: the prompt sets the firm shares. */
+  firmReviewSetsView?: ReactNode;
+  /** Share one of the user's own prompt sets, or pick some, with the firm. */
+  onShareReviewSet?: (id: string) => void;
+  onOpenReviewSetShare?: () => void;
   /** Settings routes have no app viewer, so host the same editor beside the list. */
   inlineEditor?: boolean;
   extensions: SkillsViewProps["extensions"] & { workspaceContextKey: () => string };
@@ -238,7 +243,10 @@ export function WorkflowsView(props: WorkflowsViewProps) {
         { id: "prompts", label: t("review.prompts_title"), icon: BookOpen },
       ]} />
     </div>
-    {section === "workflows" ? workflows : scope === "team" ? <section><SectionHeading title={t("review.prompts_title")} description={t("review.team_prompts_later")} /></section> : props.reviewClient && props.reviewWorkspaceId ? <ReviewPromptLibrary key={props.reviewWorkspaceId} client={props.reviewClient} workspaceId={props.reviewWorkspaceId} /> : <p className="text-sm text-muted-foreground">{t("projects.connecting")}</p>}
+    {section === "workflows" ? workflows : scope === "team" ? <section aria-label={t("review.prompts_title")} className="flex min-h-0 w-full flex-1 flex-col">
+      {props.onOpenReviewSetShare ? <header className="mb-4 flex shrink-0 justify-end"><Button variant="ghost" size="icon-sm" aria-label={t("workflows.share")} onClick={props.onOpenReviewSetShare}><Share2 /></Button></header> : null}
+      <div className="min-h-0 flex-1 overflow-y-auto">{props.firmReviewSetsView}</div>
+    </section> : props.reviewClient && props.reviewWorkspaceId ? <ReviewPromptLibrary key={props.reviewWorkspaceId} client={props.reviewClient} workspaceId={props.reviewWorkspaceId} onShareSet={props.canShareWithFirm && props.onShareReviewSet ? entry => props.onShareReviewSet?.(entry.id) : undefined} /> : <p className="text-sm text-muted-foreground">{t("projects.connecting")}</p>}
     </div>
   </div>;
 }

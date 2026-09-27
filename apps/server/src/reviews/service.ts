@@ -3,7 +3,7 @@ import { setMaxListeners } from "node:events";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 import { ApiError } from "../errors.js";
 import type { WorkspaceInfo } from "../types.js";
-import { incompatibleJevQuestion, reviewDecisionThreshold, ReviewColumnKindSchema, CreateReviewSchema, EditReviewSchema, RunReviewSchema, ReviewSettingsSchema, type ReviewCell, type ReviewDocument, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities } from "./schema.js";
+import { incompatibleJevQuestion, reviewDecisionThreshold, reviewRunningElsewhere, ReviewColumnKindSchema, CreateReviewSchema, EditReviewSchema, RunReviewSchema, ReviewSettingsSchema, type ReviewCell, type ReviewDocument, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities } from "./schema.js";
 import { ReviewDefaults, ReviewStore, serialized } from "./storage.js";
 import { prepareReviewEvidence, reviewSource, sourceHash } from "./evidence.js";
 import { columnBackend, validateAvailableModels, validateReviewPolicy } from "./policy.js";
@@ -27,6 +27,12 @@ function summary(review: SavedReview): ReviewSummary {
     documents: review.documents.length, columns: review.columns.length, total: review.cells.length, completed: review.cells.filter(cell => cell.status === "complete").length };
 }
 type Dependencies = Pick<ReviewExecutor, "models" | "execute">;
+/** Reviews running on this computer, by project folder and review id: project sync asks. */
+const runningHere = new Set<string>();
+export function reviewRunActive(workspacePath: string, id: string) { return runningHere.has(`${workspacePath}\0${id}`); }
+function elsewhere(review: SavedReview) {
+  if (reviewRunningElsewhere(review)) throw new ApiError(409, "review_running_elsewhere", `${review.runner?.name ?? "A colleague"} is running this review on their computer. Wait until it has finished.`);
+}
 export class ReviewService {
   private resultQueries = new ReviewResultQueries();
   private updates = new ReviewUpdates();
@@ -72,6 +78,7 @@ export class ReviewService {
     return this.capabilities(workspace);
   }
   private editable(review: SavedReview) {
+    elsewhere(review);
     if (review.status === "running") throw new ApiError(409, "review_running", "Stop the review before changing its columns, sources or settings.");
   }
   private async documents(workspace: WorkspaceInfo, paths: string[], previous: ReviewDocument[] = []) {
@@ -94,9 +101,9 @@ export class ReviewService {
   }
   async get(workspace: WorkspaceInfo, id: string) {
     const store = new ReviewStore(workspace.path), review = await store.read(id);
-    if (review.status === "running" && !this.active.has(this.key(workspace, id))) return store.update(id, current => {
-      if (current.status !== "running" || this.active.has(this.key(workspace, id))) return;
-      current.status = "interrupted"; current.error = "The review was interrupted. Resume to keep completed cells and retry unfinished work.";
+    if (review.status === "running" && !this.active.has(this.key(workspace, id)) && !reviewRunningElsewhere(review)) return store.update(id, current => {
+      if (current.status !== "running" || this.active.has(this.key(workspace, id)) || reviewRunningElsewhere(current)) return;
+      current.status = "interrupted"; current.runner = null; current.error = "The review was interrupted. Resume to keep completed cells and retry unfinished work.";
       for (const cell of current.cells) if (cell.status === "running" || cell.status === "queued") cell.status = "pending";
       for (const document of current.documents) if (document.status === "preparing") document.status = "pending";
     });
@@ -142,6 +149,7 @@ export class ReviewService {
     const key = this.key(workspace, id);
     return serialized(`${key}:start`, async () => {
       const current = await this.get(workspace, id);
+      elsewhere(current);
       if (current.status === "running") throw new ApiError(409, "review_delete_running", "Stop the review before deleting it.");
       await this.runs.get(key); // Let a completed/cancelled run finish writing its history.
       await new ReviewStore(workspace.path).remove(id, revision);
@@ -204,6 +212,7 @@ export class ReviewService {
         await this.runs.get(key); // Finish archival before admitting a new run for this review.
       }
       const review = await this.get(workspace, id);
+      elsewhere(review);
       if (!review.documents.length) throw new ApiError(400, "review_no_documents", "Add a document before starting the review.");
       if (!review.columns.length) throw new ApiError(400, "review_no_columns", "Add a column before starting the review.");
       if (input.columnKeys?.some(key => !review.columns.some(column => column.key === key)) || input.documentIds?.some(id => !review.documents.some(document => document.id === id)))
@@ -211,14 +220,14 @@ export class ReviewService {
       const blocked = validateAvailableModels(await this.capabilities(workspace, id), review.settings,
         review.columns.filter(column => !input.columnKeys || input.columnKeys.includes(column.key)));
       await store.archive(review);
-      const controller = new AbortController(); this.active.set(key, controller);
+      const controller = new AbortController(); this.active.set(key, controller); runningHere.add(key);
       // Every bounded document/cell job subscribes to this run's cancellation.
       setMaxListeners(0, controller.signal);
       let started: SavedReview;
       try {
         started = await store.update(id, current => {
           if (!current.sessionId && input.sessionId) { current.sessionId = input.sessionId; current.sessionCreatedForReview = false; }
-          current.runId = randomUUID(); current.status = "running"; current.error = null;
+          current.runId = randomUUID(); current.status = "running"; current.error = null; current.runner = null;
           for (const cell of current.cells) {
             const selected = (!input.columnKeys || input.columnKeys.includes(cell.columnKey)) && (!input.documentIds || input.documentIds.includes(cell.documentId));
             if (selected && (input.retryFailed ? cell.status === "error" : input.rerun || input.reprocess || !["complete", "needs_review"].includes(cell.status))) {
@@ -234,11 +243,11 @@ export class ReviewService {
             }
           }
         }, input.revision);
-      } catch (error) { this.active.delete(key); throw error; }
+      } catch (error) { this.active.delete(key); runningHere.delete(key); throw error; }
       const run = this.run(workspace, started, input, controller, blocked).catch(async () => {
         if (controller.signal.aborted) return;
         await store.update(id, current => { current.status = "interrupted"; current.error = "The review could not save its progress. Retry to continue."; }).catch(() => undefined);
-      }).finally(() => { this.active.delete(key); this.runs.delete(key); });
+      }).finally(() => { this.active.delete(key); runningHere.delete(key); this.runs.delete(key); });
       this.runs.set(key, run);
       return started;
     });
@@ -332,6 +341,7 @@ export class ReviewService {
   }
   async cancel(workspace: WorkspaceInfo, id: string) {
     const review = await this.get(workspace, id);
+    elsewhere(review);
     this.active.get(this.key(workspace, id))?.abort();
     return review;
   }

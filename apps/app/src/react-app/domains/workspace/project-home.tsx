@@ -22,6 +22,7 @@ import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { t } from "@/i18n";
 import { projectErrorMessage } from "./project-errors";
+import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -83,6 +84,7 @@ export function ProjectHome(props: {
           <div className="flex items-start gap-1">
             <ProjectName name={props.name} onRename={props.onRename} />
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Star className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
+            {props.isRemoteWorkspace ? null : <ProjectShareButton client={client} workspaceId={workspaceId} projectName={props.name} />}
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-xl shadow-xs">
@@ -102,6 +104,8 @@ export function ProjectHome(props: {
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}>{recordingActive ? <Square className="text-red-9" fill="currentColor" /> : <Mic />}{recordLabel}</Button>
           </div>
         </header>
+
+        {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} />}
 
         <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="border-t border-border/60 bg-background/60 px-5 py-1.5 @min-[720px]/project-page:px-6">
           <div className="flex items-center gap-2">

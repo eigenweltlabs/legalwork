@@ -55,7 +55,8 @@ async function readText(path: string, maxBytes: number) {
   } finally { await handle.close(); }
 }
 
-function noteTitle(name: string) { return name.replace(/-[a-f0-9]{8}\.md$/i, "").replace(/\.md$/i, ""); }
+/** The note's name without its file id, also on a sync conflict copy (`Hallo-ee006b29 (Anna, …).md`). */
+function noteTitle(name: string) { return name.replace(/\.md$/i, "").replace(/-[a-f0-9]{8}(?=( \([^)]*\))*$)/i, ""); }
 function preview(text: string) { return text.replace(/^#{1,6}\s+/gm, "").replace(/\s+/g, " ").trim().slice(0, 280); }
 function pageItems(items: ProjectContentItem[], limit: number, cursor?: string) {
   const start = cursor ? items.findIndex((item) => item.id === cursor) + 1 : 0;

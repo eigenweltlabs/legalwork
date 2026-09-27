@@ -847,9 +847,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
   const [teamShareOpen, setTeamShareOpen] = useState(false);
   const [teamShareInitial, setTeamShareInitial] = useState<{
-    kind: "skill" | "workflow" | "mcp" | "plugin";
+    kind: "skill" | "workflow" | "mcp" | "plugin" | "review_set";
     ref: string;
   } | null>(null);
+  // The prompt library shares prompt sets only; every other entry point offers all kinds.
+  const [teamShareKinds, setTeamShareKinds] = useState<Array<"review_set"> | null>(null);
   // The recorder's premium gate + upsell challenge for the Settings surface (the
   // model-manager download list) is owned by <PremiumUpsellHost/>, mounted in the
   // JSX below with the same client + workspace.
@@ -861,6 +863,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return;
       }
       setTeamShareInitial({ kind, ref: skillName });
+      setTeamShareOpen(true);
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
+  const shareReviewSetWithFirm = useCallback(
+    (id: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      setTeamShareKinds(["review_set"]);
+      setTeamShareInitial({ kind: "review_set", ref: id });
       setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
@@ -2125,6 +2140,22 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             workspaceId={selectedWorkspaceId}
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
+            onShareReviewSet={shareReviewSetWithFirm}
+            onOpenReviewSetShare={canShareWithFirm ? () => {
+              setTeamShareKinds(["review_set"]);
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
+            firmReviewSetsView={
+              <HubDownloadSection
+                legalworkClient={legalworkClient}
+                workspaceId={hubWorkspaceId}
+                kind="review_set"
+                onConfigApplied={() => {
+                  void getReactQueryClient().invalidateQueries({ queryKey: ["review-library"] });
+                }}
+              />
+            }
             inlineEditor={props.singleView !== true}
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}
@@ -2583,10 +2614,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         workspaceId={hubWorkspaceId}
         open={teamShareOpen}
         initialSelection={teamShareInitial}
+        kinds={teamShareKinds}
         includeGlobalSkills={(selectedWorkspace?.workspaceType ?? "local") !== "remote"}
         onOpenChange={(open) => {
           setTeamShareOpen(open);
-          if (!open) setTeamShareInitial(null);
+          if (!open) {
+            setTeamShareInitial(null);
+            setTeamShareKinds(null);
+          }
         }}
         onShared={() => {
           void getReactQueryClient().invalidateQueries({ queryKey: ["eigenwelt-hub"] });

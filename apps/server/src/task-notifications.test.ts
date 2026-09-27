@@ -38,6 +38,7 @@ const dueOn = (day: number) => new Date(2026, 8, day).toISOString();
 function remoteTask(overrides: Partial<RemoteTask> & { id: string }): RemoteTask {
   return {
     origin: "intake",
+    projectId: null,
     title: "Frist Meier",
     description: "",
     status: "open",

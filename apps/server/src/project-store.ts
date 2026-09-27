@@ -86,6 +86,7 @@ const detailsSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
   fields: fieldsSchema,
+  syncProjectId: z.string().uuid().optional(),
 });
 const patchSchema = z.object({
   revision: z.number().int().nonnegative(),
@@ -164,23 +165,36 @@ export async function updateProjectDetails(
       "invalid_project_metadata",
       parsed.error.issues[0]?.message ?? "Invalid project metadata.",
     );
+  return writeProjectDetails(root, (current) => {
+    if (parsed.data.revision !== current.revision) {
+      throw new ApiError(
+        409,
+        "project_changed",
+        "This project changed in another window. Reload before saving.",
+      );
+    }
+    return { ...current, fields: parsed.data.fields };
+  });
+}
+
+/** Record (or clear) the firm's id for the project, beside its details. */
+export async function setProjectSyncId(root: string, syncProjectId: string | null): Promise<ProjectDetails> {
+  return writeProjectDetails(root, (current) =>
+    syncProjectId === null ? { version: 1, revision: current.revision, fields: current.fields } : { ...current, syncProjectId },
+  );
+}
+
+/** One write at a time per folder, each against the details as they stand. */
+async function writeProjectDetails(
+  root: string,
+  change: (current: ProjectDetails) => ProjectDetails,
+): Promise<ProjectDetails> {
   const previous = writes.get(root) ?? Promise.resolve();
   const next = previous
     .catch(() => undefined)
     .then(async () => {
       const current = await readProjectDetails(root);
-      if (parsed.data.revision !== current.revision) {
-        throw new ApiError(
-          409,
-          "project_changed",
-          "This project changed in another window. Reload before saving.",
-        );
-      }
-      const updated: ProjectDetails = {
-        version: 1,
-        revision: current.revision + 1,
-        fields: parsed.data.fields,
-      };
+      const updated: ProjectDetails = { ...change(current), version: 1, revision: current.revision + 1 };
       const path = await metadataPath(root, true);
       const temporary = `${path}.${randomUUID()}.tmp`;
       try {

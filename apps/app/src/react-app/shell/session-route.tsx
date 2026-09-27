@@ -137,6 +137,8 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
+import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
 import type { ContentSearchResult } from "@legalwork/types/search";
@@ -492,6 +494,13 @@ export function SessionRoute() {
   } = useWorkspaceRouteState({
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
+  });
+  // Projects synced with the firm arrive, leave and get renamed in the background.
+  useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
+    // Sync changed files of these projects here: whatever shows them reloads.
+    for (const id of workspaceIds) {
+      void getReactQueryClient().invalidateQueries({ predicate: (query) => query.queryKey.includes(id) });
+    }
   });
   useEffect(() => {
     if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
@@ -2664,6 +2673,7 @@ export function SessionRoute() {
       }}
       onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
     />
+    {client ? <ProjectShareHost client={client} /> : null}
     </WorkspaceProvider>
   );
 }
