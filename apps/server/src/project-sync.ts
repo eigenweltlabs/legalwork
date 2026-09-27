@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { readdir, rm, stat } from "node:fs/promises";
+import { copyFile, readdir, rm, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import type {
   ProjectField,
@@ -26,7 +26,7 @@ import {
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
-import { fileKey, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
+import { fileKey, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
 import { pendingReviewChanges, reviewDocumentKeys, syncProjectReviews } from "./project-review-sync.js";
 import {
   createDefaultProjectFolder,
@@ -837,13 +837,11 @@ function stateOf(
   connected: boolean,
   round: RoundState | undefined,
   pendingChanges: number,
-  conflicts: number,
 ): ProjectSyncState {
   if (link.state === "revoked") return "revoked";
   if (!available) return "unavailable";
   if (!connected || round?.offline) return "offline";
   if ((link.report?.heldDeletions ?? 0) > 0) return "paused";
-  if (conflicts > 0) return "conflict";
   if (link.lastError !== null || (round?.error ?? null) !== null) return "error";
   if (pendingChanges > 0 || !link.confirmed || link.lastSyncAt === null) return "pending";
   return "synced";
@@ -887,7 +885,7 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
     viewerUserId: userId,
     ownerUserId: link.ownerUserId,
     settings: link.settings,
-    state: stateOf(link, available, orgId !== null, round, pendingChanges, conflicts.length),
+    state: stateOf(link, available, orgId !== null, round, pendingChanges),
     lastSyncAt: link.lastSyncAt === null ? null : new Date(link.lastSyncAt).toISOString(),
     error: link.lastError ?? round?.error ?? null,
     pendingChanges,
@@ -914,7 +912,6 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
       orgId !== null,
       round,
       pendingChanges,
-      store.conflicts(link.projectId).length,
     );
   }
   if (orgId !== null) {
@@ -1011,7 +1008,12 @@ export const projectSyncActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("remove"), force: z.boolean().optional() }),
   z.object({ action: z.literal("delete_files") }),
   z.object({ action: z.literal("restore_files") }),
+  // Both sides changed a file, and this computer's version was kept beside it as a copy:
+  // keep both (the copy stays), take the firm's version (the copy goes), or keep this one
+  // (it replaces the firm's, and the copy goes).
   z.object({ action: z.literal("dismiss_conflict"), copyPath: z.string().min(1).max(2048) }),
+  z.object({ action: z.literal("use_theirs"), copyPath: z.string().min(1).max(2048) }),
+  z.object({ action: z.literal("keep_mine"), copyPath: z.string().min(1).max(2048) }),
   z.object({ action: z.literal("use_folder") }),
   z.object({ action: z.literal("keep_apart") }),
 ]);
@@ -1080,6 +1082,24 @@ export async function resolveProjectSync(
     case "dismiss_conflict":
       store.dismissConflict(link.projectId, input.copyPath);
       break;
+    case "use_theirs":
+    case "keep_mine": {
+      // The paths come from the conflict as sync recorded it, never from the request.
+      const conflict = store.conflicts(link.projectId).find((entry) => entry.copyPath === input.copyPath);
+      if (!conflict) throw new ApiError(404, "project_conflict_not_found", "There is no such conflicting copy.");
+      const root = resolve(workspace.path);
+      const copy = join(root, ...conflict.copyPath.split("/"));
+      const present = await stat(copy).catch(() => null);
+      if (input.action === "keep_mine") {
+        if (!present) throw new ApiError(409, "project_conflict_copy_missing", "Your version is no longer there.");
+        // An edit here like any other: the next round takes it to the firm.
+        await copyFile(copy, join(root, ...conflict.path.split("/")));
+      }
+      // Recoverable for a while, like everything sync removes; the next round removes it at the firm too.
+      if (present) await moveToSyncTrash(root, conflict.copyPath);
+      store.dismissConflict(link.projectId, conflict.copyPath);
+      break;
+    }
   }
   scheduleProjectSync(config, 500);
   return projectSyncStatus(config, workspace);

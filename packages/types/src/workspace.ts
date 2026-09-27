@@ -81,7 +81,6 @@ export type ProjectSyncState =
   | "offline"
   | "error"
   | "unavailable"
-  | "conflict"
   | "paused"
   | "revoked"
   /** Shared with this member, and one of their own projects' folders already is it: theirs to decide. */
