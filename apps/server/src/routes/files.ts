@@ -8,6 +8,7 @@ import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import { mergeableText, mergeText } from "../text-merge.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
@@ -205,10 +206,35 @@ function normalizeUrlTarget(value: string): string | null {
   }
 }
 
+// Replies often list only a basename below a folder heading. Resolve it only
+// when it names one file in the project; never choose between duplicate names.
+async function workspaceArtifactNames(workspaceRoot: string): Promise<Map<string, string | null>> {
+  const names = new Map<string, string | null>();
+  const pending = [workspaceRoot];
+  let visited = 0;
+  try {
+    for (const directory of pending) {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        // An incomplete scan cannot establish uniqueness.
+        if (++visited > 10_000) return new Map();
+        const path = join(directory, entry.name);
+        if (entry.isDirectory() && entry.name !== ".git" && entry.name !== "node_modules") pending.push(path);
+        if (!entry.isFile()) continue;
+        const name = entry.name.toLowerCase();
+        names.set(name, names.has(name) ? null : relative(workspaceRoot, path).replace(/\\/g, "/"));
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  return names;
+}
+
 export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown): Promise<Array<Record<string, unknown>>> {
   const targets = Array.isArray(input) ? input.slice(0, 80) : [];
   const results = new Map<string, Record<string, unknown>>();
   const workspaceResolved = resolve(workspaceRoot);
+  let artifactNames: Map<string, string | null> | undefined;
 
   for (const item of targets) {
     if (!item || typeof item !== "object") continue;
@@ -253,8 +279,16 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     } catch {
       continue;
     }
+    let absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+    if (!isAbsolute(rawValue) && !relativePath.includes("/") && !(await exists(absPath))) {
+      artifactNames ??= await workspaceArtifactNames(workspaceResolved);
+      const matchedPath = artifactNames.get(relativePath.toLowerCase());
+      if (matchedPath) {
+        relativePath = matchedPath;
+        absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+      }
+    }
     const key = `file:${relativePath.toLowerCase()}`;
-    const absPath = resolveSafeChildPath(workspaceRoot, relativePath);
     let existsFile = false;
     let size: number | undefined;
     let updatedAt: number | undefined;
@@ -1253,6 +1287,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const baseUpdatedAt =
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
+    // The text the editor loaded: a file changed since (a colleague's edit
+    // synced in, say) is merged with it, as project sync merges notes.
+    const baseContent = typeof body.baseContent === "string" ? body.baseContent : null;
 
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
 
@@ -1261,11 +1298,21 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       throw new ApiError(400, "invalid_path", "Path must point to a file");
     }
     const beforeUpdatedAt = before ? before.mtimeMs : null;
+    let written = content;
+    let merged = false;
     if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      throw new ApiError(409, "conflict", "File changed since it was loaded", {
-        baseUpdatedAt,
-        currentUpdatedAt: beforeUpdatedAt,
-      });
+      const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
+      const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
+      if (combined === null) {
+        throw new ApiError(409, "conflict", "File changed since it was loaded", {
+          baseUpdatedAt,
+          currentUpdatedAt: beforeUpdatedAt,
+          // Changed in the same place: the editor asks which version to keep.
+          ...(current === null ? {} : { reason: "overlap", current: { content: current, updatedAt: beforeUpdatedAt } }),
+        });
+      }
+      written = combined;
+      merged = combined !== content;
     }
 
     await requireApproval(ctx, {
@@ -1277,7 +1324,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, written, "utf8");
     await rename(tmp, absPath);
     const after = await stat(absPath);
     const revision = fileRevision(after);
@@ -1298,6 +1345,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       timestamp: Date.now(),
     });
 
-    return jsonResponse({ ok: true, path: relativePath, bytes, updatedAt: after.mtimeMs, revision });
+    return jsonResponse({
+      ok: true,
+      path: relativePath,
+      bytes: Buffer.byteLength(written, "utf8"),
+      updatedAt: after.mtimeMs,
+      revision,
+      ...(merged ? { merged: true, content: written } : {}),
+    });
   });
 }

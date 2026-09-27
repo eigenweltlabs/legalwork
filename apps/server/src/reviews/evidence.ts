@@ -145,7 +145,7 @@ export async function prepareReviewEvidence(options: {
       return [
         { page: page.page, text: page.nativeText, source: "native", status: page.status, ...nativeOffsets },
         { page: page.page, text: page.ocr?.text ?? "", source: "ocr", status: page.status,
-          regions: page.ocr?.regions.map(region => ({ text: region.text })), ...ocrOffsets },
+          regions: page.ocr?.regions, ...ocrOffsets },
       ];
     });
     if (!complete) pages.push({ page: null, text: "", status: "needs-review" });

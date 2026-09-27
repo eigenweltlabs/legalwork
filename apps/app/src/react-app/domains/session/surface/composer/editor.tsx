@@ -660,9 +660,8 @@ function SubmitPlugin(props: { onSubmit: (options: { queue: boolean }) => void |
         if (event?.shiftKey) return false;
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return false;
-        // Plain Enter submits. Cmd/Ctrl+Enter submits with the queue
-        // modifier — while the agent is busy this queues the message to
-        // send once the current task finishes.
+        // Enter and Cmd/Ctrl+Enter submit. The session queues either
+        // form while busy; Shift+Enter above remains a newline.
         event?.preventDefault();
         void onSubmitRef.current({ queue: event?.metaKey === true || event?.ctrlKey === true });
         return true;

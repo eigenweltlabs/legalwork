@@ -388,6 +388,10 @@ export type DesktopCommandMap = {
     args: [input: { workspaceId: string; sessionId: string; title?: string }];
     result: boolean;
   };
+  openProjectWindow: {
+    args: [input: { workspaceId: string; page: "home" | "reviews" | "tasks" | "files"; title?: string }];
+    result: boolean;
+  };
 
   // Workspace state
   workspaceBootstrap: { args: []; result: WorkspaceList };

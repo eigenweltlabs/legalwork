@@ -472,3 +472,24 @@ test("restart recovery resets OCR state and resumes unfinished cells without rep
   expect(review.cells[0]).toEqual(kept); expect(review.cells[1].status).toBe("complete");
   expect(f.calls.map(call => call.column.key)).toEqual(["assign", "second"]);
 });
+
+test("a review a colleague's computer runs is watched here: not interrupted, run, changed, stopped or deleted", async () => {
+  const f = await fixture(), review = await f.create(), store = new ReviewStore(f.root);
+  await store.update(review.id, current => { current.status = "running"; current.runner = { userId: "user_anna", name: "Anna", at: Date.now() }; });
+  const watched = await f.service.get(f.workspace, review.id);
+  expect(watched.status).toBe("running");
+  for (const attempt of [
+    () => f.service.start(f.workspace, review.id, { revision: watched.revision }),
+    () => f.service.edit(f.workspace, review.id, { revision: watched.revision, name: "Changed" }),
+    () => f.service.cancel(f.workspace, review.id),
+    () => f.service.remove(f.workspace, review.id, watched.revision),
+  ]) await expect(attempt()).rejects.toMatchObject({ code: "review_running_elsewhere" });
+
+  // No sign of life from there for too long: the run is over, as after a restart here.
+  await store.update(review.id, current => { current.runner = { userId: "user_anna", name: "Anna", at: Date.now() - 11 * 60_000 }; });
+  const over = await f.service.get(f.workspace, review.id);
+  expect(over.status).toBe("interrupted");
+  expect(over.runner).toBeNull();
+  await f.service.start(f.workspace, over.id, { revision: over.revision });
+  expect((await settled(f.service, f.workspace, review.id)).status).toBe("complete");
+});

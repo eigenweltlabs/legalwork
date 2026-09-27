@@ -1,13 +1,14 @@
 import { reviewColumnLabel } from "./review-labels";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, FileText, MoreHorizontal, Pencil, Plus, RotateCcw, Trash2, X, CircleCheck, ListFilter, Text, ChevronUp, ChevronDown, CalendarDays, Hash, Banknote, Percent, ListChecks } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, FileText, MoreHorizontal, Pencil, RotateCcw, Trash2, X, CircleCheck, ListFilter, Text, ChevronUp, ChevronDown, CalendarDays, Hash, Banknote, Percent, ListChecks } from "lucide-react";
 import type { ReviewCell, ReviewColumn, SavedReview } from "@legalwork/types/reviews";
 import { incompatibleJevQuestion } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ReviewCellPreview } from "./review-cell";
+import { ReviewAddColumnButton } from "./review-add-column";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { currentLocale, t } from "@/i18n";
@@ -19,7 +20,7 @@ import { ReviewError, ReviewStatus, ReviewProbabilities, reviewCellError, review
 export function ReviewGrid({ review, onSelect, selected, onEdit, onSave, onColumns, onAdd, busy, selectedDocuments, onSelectDocuments }: {
   review: SavedReview; onSelect: (cell: ReviewCell) => void; selected?: ReviewCell;
   onEdit: (column: ReviewColumn) => void; onSave: (columns: ReviewColumn[]) => void;
-  onColumns: (columns: ReviewColumn[]) => void; onAdd: () => void; busy: boolean;
+  onColumns: (columns: ReviewColumn[]) => void; onAdd: (source: "new" | "library") => void; busy: boolean;
   selectedDocuments: string[]; onSelectDocuments: (ids: string[]) => void;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
@@ -79,7 +80,7 @@ export function ReviewGrid({ review, onSelect, selected, onEdit, onSave, onColum
         </TableHead>;
       })}
       {right > 0 && <TableHead aria-hidden="true" className="border-b bg-muted/20 p-0" style={{ width: right }} />}
-      <TableHead aria-colindex={review.columns.length + 2} className="h-14 w-10 border-b bg-muted/20 px-1"><Button variant="ghost" size="icon-sm" aria-label={t("review.add_column")} disabled={busy} onClick={onAdd}><Plus className="size-3.5" /></Button></TableHead>
+      <TableHead aria-colindex={review.columns.length + 2} className="h-14 w-10 border-b bg-muted/20 px-1"><ReviewAddColumnButton compact disabled={busy} onSelect={onAdd} /></TableHead>
     </TableRow></TableHeader>
     <TableBody>
       {top > 0 && <TableRow aria-hidden="true" className="hover:bg-transparent"><TableCell className="border-0 p-0" colSpan={visibleColumns.length + 2 + Number(left > 0) + Number(right > 0)} style={{ height: top }} /></TableRow>}

@@ -44,12 +44,12 @@ export function SectionHeading({
   const Heading = size === "page" ? "h1" : size === "section" ? "h2" : "h3";
 
   return (
-    <div data-slot="section-heading" className={cn("flex min-w-0 items-start justify-between gap-4", className)}>
+    <div data-slot="section-heading" className={cn("flex min-w-0 items-start justify-between gap-4", size === "page" && "flex-wrap items-center", className)}>
       <div className="min-w-0">
         <Heading
           className={cn(
             "font-medium text-foreground",
-            size === "page" && "text-2xl leading-tight tracking-[-0.035em]",
+            size === "page" && "text-2xl font-semibold leading-tight tracking-[-0.035em]",
             size === "section" && "text-base leading-snug tracking-[-0.02em]",
             size === "sidebar" && "text-xs leading-5 tracking-[-0.01em]",
           )}
@@ -57,12 +57,12 @@ export function SectionHeading({
           {title}
         </Heading>
         {description ? (
-          <div className={cn("mt-1 text-muted-foreground", size === "sidebar" ? "text-xs leading-5" : "text-sm leading-relaxed")}>
+          <div className={cn("mt-1 text-muted-foreground", size === "page" && "max-w-prose", size === "sidebar" ? "text-xs leading-5" : "text-sm leading-relaxed")}>
             {description}
           </div>
         ) : null}
       </div>
-      {action ? <div className="flex shrink-0 items-center gap-1">{action}</div> : null}
+      {action ? <div className={cn("flex items-center gap-1", size === "page" ? "min-w-0 flex-wrap gap-2" : "shrink-0")}>{action}</div> : null}
     </div>
   );
 }

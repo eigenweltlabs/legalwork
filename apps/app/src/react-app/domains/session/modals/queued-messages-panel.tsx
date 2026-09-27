@@ -1,56 +1,106 @@
 /** @jsxImportSource react */
-import { ListPlus, X } from "lucide-react";
-
+import { FileText, GripVertical, Pencil, Play, Trash2, Undo2 } from "lucide-react";
+import { LazyMotion, Reorder, domMax, useDragControls, useReducedMotion } from "motion/react";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import type { QueuedComposerDraft } from "../surface/composer-state-store";
 
 export type QueuedMessagesPanelProps = {
-  messages: string[];
-  onRemove: (index: number) => void;
+  messages: QueuedComposerDraft[];
+  onRemove: (id: string) => void;
+  onEdit: (id: string) => void;
+  onReorder: (ids: string[]) => void;
+  editingId?: string;
+  onCancelEdit: () => void;
+  paused: boolean;
+  onResume: () => void;
+  disabled: boolean;
 };
 
-/**
- * Shows the follow-up messages the user has queued while the agent is busy.
- * Rendered above the composer (mirrors the QuestionPanel header style). Each
- * entry can be removed with an X. The whole panel hides when the queue is
- * empty — callers should simply not render it in that case, but we also guard
- * here for safety.
- */
 export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
-  if (props.messages.length === 0) return null;
-
+  if (!props.messages.length) return null;
+  const ids = props.messages.map((message) => message.id);
   return (
-    <div className="overflow-hidden border-b border-dls-border bg-transparent">
-      <div className="border-b border-dls-border px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex size-5 shrink-0 items-center justify-center rounded-full border border-gray-7/40 bg-gray-3/40 text-gray-11">
-            <ListPlus size={12} />
-          </div>
-          <div className="text-sm font-medium leading-5 text-gray-12">
-            {t("composer.queued_count", { count: props.messages.length })}
-          </div>
-        </div>
-      </div>
+    <section
+      data-message-queue
+      aria-label={t("composer.queued_count", { count: props.messages.length })}
+      className="mx-3 -mb-3 rounded-t-[18px] border border-b-0 border-border/70 bg-background/90 px-1.5 pt-1 pb-3"
+    >
+      {props.paused && <div className="flex h-7 items-center justify-between gap-3 px-2 text-xs text-muted-foreground">
+        <span>{t("composer.queue_paused")}</span>
+        <Button variant="ghost" size="xs" disabled={props.disabled} onClick={props.onResume}>
+          <Play className="size-3" />{t("composer.resume_queue")}
+        </Button>
+      </div>}
+      <LazyMotion features={domMax}>
+        <Reorder.Group axis="y" values={ids} onReorder={props.onReorder} layoutScroll className="max-h-40 overflow-y-auto overscroll-contain">
+          {props.messages.map((message, index) => (
+            <QueuedMessageRow key={message.id} message={message} index={index} editing={props.editingId === message.id}
+              editDisabled={Boolean(props.editingId)} onEdit={props.onEdit} onRemove={props.onRemove} onCancelEdit={props.onCancelEdit}
+              onMove={(direction) => {
+                const target = index + direction;
+                if (target < 0 || target >= ids.length) return;
+                const next = [...ids];
+                next.splice(index, 1);
+                next.splice(target, 0, message.id);
+                props.onReorder(next);
+              }}
+            />
+          ))}
+        </Reorder.Group>
+      </LazyMotion>
+    </section>
+  );
+}
 
-      <div className="max-h-48 space-y-2 overflow-auto px-4 py-3">
-        {props.messages.map((message, index) => (
-          <div
-            key={index}
-            className="flex items-start justify-between gap-3 rounded-xl border border-gray-6 bg-gray-1 px-3 py-2.5"
-          >
-            <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5 text-gray-11">
-              {message}
-            </div>
-            <button
-              type="button"
-              onClick={() => props.onRemove(index)}
-              className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12"
-              title={t("common.remove")}
-            >
-              <X size={13} />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
+function QueuedMessageRow(props: {
+  message: QueuedComposerDraft;
+  index: number;
+  editing: boolean;
+  editDisabled: boolean;
+  onEdit: (id: string) => void;
+  onRemove: (id: string) => void;
+  onCancelEdit: () => void;
+  onMove: (direction: number) => void;
+}) {
+  const dragControls = useDragControls();
+  const reducedMotion = useReducedMotion();
+  const { message } = props;
+  return (
+    <Reorder.Item value={message.id} dragListener={false} dragControls={dragControls} dragElastic={0} dragMomentum={false}
+      transition={{ duration: reducedMotion ? 0 : 0.15 }}
+      whileDrag={{ backgroundColor: "var(--background)", boxShadow: "0 3px 10px rgb(0 0 0 / 0.08)" }}
+      className="relative flex h-8 items-center gap-1.5 rounded-lg px-1 hover:bg-muted/40"
+    >
+      <Button variant="ghost" size="icon-xs" className="touch-none cursor-grab text-muted-foreground/60 active:cursor-grabbing"
+        aria-label={t("composer.reorder_queued", { number: props.index + 1 })} title={t("composer.reorder_queued_hint")}
+        onPointerDown={(event) => dragControls.start(event)}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          event.stopPropagation();
+          props.onMove(event.key === "ArrowUp" ? -1 : 1);
+        }}
+      ><GripVertical className="size-3.5" /></Button>
+      {message.attachments.slice(0, 2).map((attachment) => (
+        <span key={attachment.id} title={attachment.name} className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded border border-border/70 bg-muted/30">
+          {attachment.kind === "image" && attachment.previewUrl
+            ? <img src={attachment.previewUrl} alt={attachment.name} className="size-full object-cover" />
+            : <FileText className="size-3.5 text-muted-foreground" />}
+        </span>
+      ))}
+      <span className={`min-w-0 flex-1 truncate text-[13px] leading-5 ${props.editing ? "text-muted-foreground" : "text-foreground"}`} title={message.text}>
+        {message.text.trim() || t("composer.queued_attachments_only", { count: message.attachments.length })}
+      </span>
+      {props.editing && <span className="text-[11px] text-muted-foreground">{t("composer.editing_queued")}</span>}
+      <Button variant="ghost" size="icon-xs" disabled={!props.editing && props.editDisabled}
+        onClick={() => props.editing ? props.onCancelEdit() : props.onEdit(message.id)}
+        aria-label={t(props.editing ? "composer.cancel_queued_edit" : "composer.edit_queued")}
+        title={t(props.editing ? "composer.cancel_queued_edit" : "composer.edit_queued")}
+      >{props.editing ? <Undo2 className="size-3.5" /> : <Pencil className="size-3.5" />}</Button>
+      <Button variant="ghost" size="icon-xs" className="hover:text-destructive" onClick={() => props.onRemove(message.id)} aria-label={t("composer.remove_queued")} title={t("composer.remove_queued")}>
+        <Trash2 className="size-3.5" />
+      </Button>
+    </Reorder.Item>
   );
 }

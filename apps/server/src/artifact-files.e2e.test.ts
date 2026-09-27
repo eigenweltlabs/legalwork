@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -199,6 +199,24 @@ describe("artifact file routes", () => {
     });
     expect(mdWrite.status).toBe(200);
     expect(await readFile(join(root, "reports", "artifact-eval.md"), "utf8")).toBe("# Updated\n");
+
+    // Changed on disk while open (a colleague's edit synced in): the editor's save merges with it.
+    const loaded: { updatedAt: number } = await mdWrite.json();
+    const notePath = join(root, "reports", "artifact-eval.md");
+    await writeFile(notePath, "# Updated\n\nFrom Ben.\n");
+    await utimes(notePath, new Date(), new Date(loaded.updatedAt + 5_000));
+    const save = (content: string) =>
+      fetch(`${base}/workspace/ws_1/files/content`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({ path: "reports/artifact-eval.md", content, baseUpdatedAt: loaded.updatedAt, baseContent: "# Updated\n" }),
+      });
+    expect(await (await save("# Updated by Anna\n")).json()).toMatchObject({ merged: true, content: "# Updated by Anna\n\nFrom Ben.\n" });
+    expect(await readFile(notePath, "utf8")).toBe("# Updated by Anna\n\nFrom Ben.\n");
+    // Changed in the same place: refused, with what is there now for the editor to offer.
+    const clash = await save("# Updated by Carla\n");
+    expect(clash.status).toBe(409);
+    expect(await clash.json()).toMatchObject({ details: { reason: "overlap", current: { content: "# Updated by Anna\n\nFrom Ben.\n" } } });
 
     const xlsxWrite = await fetch(`${base}/workspace/ws_1/files/raw`, {
       method: "POST",

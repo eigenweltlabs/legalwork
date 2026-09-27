@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import type * as React from "react";
 import {
-  ArrowLeft,
   Bell,
   Bug,
   ChevronDown,
@@ -28,7 +27,6 @@ import {
 } from "lucide-react";
 
 import {
-  Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
@@ -269,7 +267,6 @@ type SettingsPageProps = {
 };
 
 type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" | "developerMode"> & {
-  onClose: () => void;
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
   selectedWorkspaceColor: string;
@@ -282,16 +279,9 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
 
   return (
-    <Sidebar aria-label={t("settings.navigation")} className="mac:**:data-[sidebar=sidebar]:bg-transparent">
-      <div className="hidden h-10 mac:block mac:titlebar-drag" />
+    <nav aria-label={t("settings.navigation")} className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
       <SidebarHeader className="gap-3 border-b border-sidebar-border/60 px-3 pb-4 pt-3">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton type="button" onClick={props.onClose} className="mb-2 text-muted-foreground">
-              <ArrowLeft size={14} />
-              <span>{t("dashboard.back_to_app")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -392,7 +382,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-    </Sidebar>
+    </nav>
   );
 }
 

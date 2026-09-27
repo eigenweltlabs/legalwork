@@ -22,3 +22,9 @@ describe("OpenCode request timeouts", () => {
     expect(resolveRequestTimeoutMs(`${base}/provider/auth`, 10_000)).toBe(10_000);
   });
 });
+
+test("a queued prompt waits for the full turn while transcript reads stay bounded", () => {
+  const url = "http://localhost:5421/w/ws_1/opencode/session/ses_1/message?directory=%2Fproject";
+  expect(resolveRequestTimeoutMs(new Request(url, { method: "POST" }), 10_000)).toBe(0);
+  expect(resolveRequestTimeoutMs(new Request(url), 10_000)).toBe(10_000);
+});

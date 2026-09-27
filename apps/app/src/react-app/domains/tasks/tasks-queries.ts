@@ -14,6 +14,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
 
 import type {
@@ -25,7 +26,9 @@ import type {
   LegalworkTaskPatch,
   LegalworkTaskSyncStatus,
   LegalworkServerClient,
+  LegalworkTaskConflictChoice,
 } from "@/app/lib/legalwork-server";
+import { useSyncEventsLive } from "@/react-app/kernel/sync-events";
 import { useEigenweltEntitlements } from "../connections/eigenwelt-entitlements";
 
 export type TaskQueryContext = {
@@ -146,19 +149,31 @@ export function useTaskEndpoints(context: TaskQueryContext) {
 }
 
 /**
- * Where the store stands against the platform. Polled, so a round that ran
- * in the background (a push landing, a pull bringing a colleague's change)
- * shows without a click: whenever the last sync moment moves, the task
- * queries are re-read.
+ * Everything the tasks show, re-read: the server's sync events say the tasks
+ * changed on this computer (a round, another window, an agent, a reminder).
+ */
+export function refreshTaskQueries(queryClient: QueryClient): void {
+  for (const root of [TASKS_ROOT, TASK_ROOT, MEMBERS_ROOT, TAGS_ROOT, ENDPOINTS_ROOT, SYNC_ROOT]) {
+    void queryClient.invalidateQueries({ queryKey: [root] });
+  }
+}
+
+/**
+ * Where the store stands against the platform, so a round that ran in the
+ * background (a push landing, a pull bringing a colleague's change) shows
+ * without a click. The server's sync events re-read it and the tasks
+ * (`refreshTaskQueries`); without them it is polled, and whenever the last
+ * sync moment moves, the task queries are re-read.
  */
 export function useTaskSyncStatus(context: TaskQueryContext) {
   const { client, workspaceId } = context;
   const queryClient = useQueryClient();
+  const live = useSyncEventsLive((state) => state.live);
   const seenSyncAt = useRef<number | null | undefined>(undefined);
   const query = useQuery({
     queryKey: [SYNC_ROOT, workspaceId],
     enabled: Boolean(client && workspaceId),
-    refetchInterval: 30_000,
+    refetchInterval: live ? false : 30_000,
     queryFn: async (): Promise<LegalworkTaskSyncStatus | null> => {
       if (!client || !workspaceId) return null;
       return client.taskSyncStatus(workspaceId);
@@ -166,7 +181,8 @@ export function useTaskSyncStatus(context: TaskQueryContext) {
   });
   const lastSyncAt = query.data?.lastSyncAt ?? null;
   useEffect(() => {
-    if (seenSyncAt.current === undefined) {
+    // Sync events re-read the tasks along with this status.
+    if (seenSyncAt.current === undefined || live) {
       seenSyncAt.current = lastSyncAt;
       return;
     }
@@ -177,7 +193,7 @@ export function useTaskSyncStatus(context: TaskQueryContext) {
     void queryClient.invalidateQueries({ queryKey: [MEMBERS_ROOT, workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [TAGS_ROOT, workspaceId] });
     void queryClient.invalidateQueries({ queryKey: [ENDPOINTS_ROOT, workspaceId] });
-  }, [lastSyncAt, queryClient, workspaceId]);
+  }, [lastSyncAt, live, queryClient, workspaceId]);
   return query;
 }
 
@@ -236,6 +252,19 @@ export function useUpdateTask(context: TaskQueryContext) {
     mutationFn: async (input: { taskId: string; patch: LegalworkTaskPatch }) => {
       if (!client || !workspaceId) throw new Error("not connected");
       return client.patchTask(workspaceId, input.taskId, input.patch);
+    },
+    onSuccess: (_result, input) => invalidate(input.taskId),
+  });
+}
+
+/** Which version of a conflicting title or description stays. */
+export function useResolveTaskConflict(context: TaskQueryContext) {
+  const { client, workspaceId } = context;
+  const invalidate = useInvalidateTasks(context);
+  return useMutation({
+    mutationFn: async (input: { taskId: string; choice: LegalworkTaskConflictChoice }) => {
+      if (!client || !workspaceId) throw new Error("not connected");
+      return client.resolveTaskConflict(workspaceId, input.taskId, input.choice);
     },
     onSuccess: (_result, input) => invalidate(input.taskId),
   });

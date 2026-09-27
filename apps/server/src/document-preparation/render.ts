@@ -86,3 +86,36 @@ export async function openDocument(bytes: Uint8Array, kind: "pdf" | "image"): Pr
     close: () => loading.destroy(),
   };
 }
+
+/** Text-only extraction avoids image rendering and OCR for searchable PDFs. */
+export async function extractPdfText(bytes: Uint8Array, signal: AbortSignal): Promise<string[]> {
+  return (await inspectPdfText(bytes, signal)).map(page => page.text);
+}
+
+/** Native text is sufficient only when no visual additions need recognition.
+ * Images, drawn paths and annotations can carry handwritten amendments even on
+ * an otherwise searchable page. Text length alone cannot establish coverage. */
+export async function inspectPdfText(bytes: Uint8Array, signal: AbortSignal): Promise<Array<{ text: string; needsOcr: boolean }>> {
+  const { getDocument, OPS } = await loadRenderer();
+  const loading = getDocument({ data: new Uint8Array(bytes), verbosity: 0, stopAtErrors: true, useSystemFonts: true, useWorkerFetch: false, BinaryDataFactory });
+  const abort = () => { void loading.destroy(); };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    signal.throwIfAborted();
+    const pdf = await loading.promise;
+    if (pdf.numPages > 1000) throw new Error("PDFs must contain at most 1000 pages.");
+    const pages: Array<{ text: string; needsOcr: boolean }> = []; let size = 0;
+    for (let i = 1; i <= pdf.numPages; i++) {
+      signal.throwIfAborted();
+      const page = await pdf.getPage(i), content = await page.getTextContent();
+      const text = content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("");
+      size += text.length;
+      if (size > 2_000_000) throw new Error("PDF text exceeds 2 million characters.");
+      const [operators, annotations] = await Promise.all([page.getOperatorList(), page.getAnnotations()]);
+      const visual = operators.fnArray.some(op => [OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.constructPath, OPS.shadingFill].includes(op));
+      const additions = annotations.some(annotation => annotation.subtype !== "Link");
+      pages.push({ text, needsOcr: !text.trim() || visual || additions }); page.cleanup();
+    }
+    return pages;
+  } finally { signal.removeEventListener("abort", abort); await loading.destroy(); }
+}

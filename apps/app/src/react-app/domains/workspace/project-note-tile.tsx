@@ -54,7 +54,7 @@ export function ProjectNoteTile({ client, workspaceId, entry, onOpen }: {
     enabled: visible,
   });
   return (
-    <Button ref={tileRef} variant="outline" className="group/note h-32 w-full flex-col items-start justify-start gap-2 whitespace-normal rounded-xl border-border/70 bg-muted/15 p-3 text-left font-normal shadow-none hover:bg-muted/40" aria-label={title} title={title} onClick={onOpen}>
+    <Button ref={tileRef} variant="outline" className="group/note h-28 w-full flex-col items-start justify-start gap-1.5 whitespace-normal rounded-xl border-border/60 bg-amber-2/30 p-3 text-left font-normal shadow-none hover:bg-amber-3/35" aria-label={title} title={title} onClick={onOpen}>
       <span className="flex w-full items-center justify-between text-muted-foreground">
         <StickyNote className="size-3.5" />
         <ArrowUpRight className="size-3.5 opacity-0 group-hover/note:opacity-100 group-focus-visible/note:opacity-100" />

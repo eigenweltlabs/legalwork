@@ -177,7 +177,7 @@ function artifactTypeToPreview(type: ArtifactType, extension?: string): OpenTarg
 function artifactPathMatchesTarget(path: string, targetValue: string) {
   const normalized = normalizeArtifactPath(path).toLowerCase();
   const target = normalizeArtifactPath(targetValue).toLowerCase();
-  return normalized === target || normalized.endsWith(`/${target}`);
+  return normalized === target || normalized.endsWith(`/${target}`) || target.endsWith(`/${normalized}`);
 }
 
 function openTargetFromArtifactPath(
@@ -188,9 +188,11 @@ function openTargetFromArtifactPath(
 ): OpenTarget {
   const normalized = normalizeArtifactPath(path);
   const id = `file:${normalized.toLowerCase()}`;
-  const verified = verifiedTargets.find(
-    (target) => target.id === id || artifactPathMatchesTarget(normalized, target.value),
-  );
+  const openableTargets = verifiedTargets.filter(isOpenableFileTarget);
+  const exact = openableTargets.find((target) => target.id === id || normalizeArtifactPath(target.value).toLowerCase() === normalized.toLowerCase());
+  const matches = openableTargets.filter((target) => artifactPathMatchesTarget(normalized, target.value));
+  const uniqueMatches = new Map(matches.map((target) => [target.value, target]));
+  const verified = exact ?? (uniqueMatches.size === 1 ? matches[0] : undefined);
 
   return verified ?? {
     id,
@@ -292,9 +294,9 @@ function addArtifact(
   verifiedTarget?: OpenTarget,
 ) {
   const normalized = normalizeArtifactPath(path);
-  const key = normalized.toLowerCase();
   const type = getArtifactType(normalized);
   const legacyTarget = verifiedTarget ?? openTargetFromArtifactPath(normalized, getArtifactName(normalized), type, verifiedTargets);
+  const key = normalizeArtifactPath(legacyTarget.value).toLowerCase();
   const name = legacyTarget.name;
 
   artifacts.set(key, {

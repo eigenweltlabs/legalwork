@@ -32,29 +32,30 @@ test("preserves prose whitespace and splits at files and real prose", () => {
   expect(getAssistantRenderGroups(runs[1].message.parts, false)[0]).toEqual({ kind: "text", text: "Hello world" });
 });
 
-test("expanded compact groups never render shell text, descriptions, arguments or output", () => {
+test("expanded compact groups show activity labels without raw commands, arguments, output or reasoning", () => {
   let detailedRenders = 0;
   const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[bash, reasoning, appTool]} showDetails={false} renderTool={() => { detailedRenders++; return <pre>private details</pre>; }} />);
-  expect(html).toContain("Running commands");
-  expect(html).toContain("Ran command");
-  expect(html).toContain("Pptx read");
+  expect(html).toContain("Running inapp pptx read");
+  expect(html).toContain("A long generated description");
+  expect(html).toContain("lw-tool-shimmer");
   expect(html).not.toContain("private");
   expect(html).not.toContain("python");
-  expect(html).not.toContain("generated description");
   expect(detailedRenders).toBe(0);
 });
 
 test("reasoning enables details within the same collapsible group", () => {
   const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[bash, appTool]} showDetails renderTool={(part) => <pre>{JSON.stringify(part.input)}</pre>} />);
-  expect(html).toContain("Running commands");
+  expect(html).toContain("Running inapp pptx read");
   expect(html).toContain("python3");
   expect(html).toContain("private/matter.pptx");
 });
 
 test("completed groups remain collapsible and closed by default", () => {
   const html = renderToStaticMarkup(<ToolRun parts={[bash]} showDetails={false} renderTool={() => <pre>hidden</pre>} />);
-  expect(html).toContain("Ran commands");
+  expect(html).toContain("A long generated description");
   expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain("lw-tool-shimmer");
+  expect(html).not.toContain("<pre>");
 });
 test("a live command run stays active between calls and keeps its key when streamed markers arrive", () => {
   const before = groupAssistantToolRuns(messages([[bash]]), false);
@@ -62,8 +63,9 @@ test("a live command run stays active between calls and keeps its key when strea
   expect(after[0].message.id).toBe(before[0].message.id);
   expect(after[0].message.parts).toHaveLength(2);
   const between = renderToStaticMarkup(<ToolRun active parts={[bash]} showDetails={false} renderTool={() => null} />);
-  expect(between).toContain("Running commands");
-  expect(between).not.toContain("Ran commands");
+  expect(between).toContain("A long generated description");
+  expect(between).toContain("lw-tool-shimmer");
+  expect(between).toContain('aria-expanded="false"');
 });
 
 test("project widgets remain visible outside collapsed tool activity, also after reloading history", () => {

@@ -1,3 +1,4 @@
+import { readSystemOneSettings } from "./systemone.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
  * passed to the engine as OPENCODE_CONFIG.
@@ -99,8 +100,17 @@ Apply expert corrections without defensiveness or lengthy apologies, check affec
 - Be warm, attentive, and calm. Notice relevant details and explain why they matter to the user's objective. Keep simple answers short and difficult answers clear; use depth where it changes a decision. Build engagement through useful work, not flattery or forced enthusiasm.
 - Finish authorized work and verify the result before claiming success. A plan, progress update, or offer to help is not completion. If blocked, name the concrete blocker and what remains undone.
 - If required setup or credentials are missing, ask one targeted question and continue once provided.
+- A denied permission blocks that action or scope, not the whole conversation. Respect the denial: do not retry it through another tool, request the same access again, or bypass it. Continue any remaining work within the authorized project scope, or briefly explain the specific limitation if the answer requires the denied access.
 - If you change code, run the smallest meaningful test.
 - If steps repeat, factor them into a skill.
+
+## Project-local working files
+
+- Never use system temporary folders for agent work: no /tmp, /private/tmp, /var/tmp, macOS /var/folders, or the system TMPDIR. Do not create, read, search, or request access to scratch files there.
+- Keep all agent-created intermediate files inside the current project, in .legalwork/scratch/<task-specific-directory>. Use a distinct directory for each task to avoid collisions. If a command needs a temporary directory, explicitly point it at that project-local directory.
+- Keep shell commands rooted at the project. Use project-relative paths from that root, or an explicit workdir when needed; avoid combining cd with parent-relative (../) paths, which can be interpreted as access outside the project. Never request a parent folder merely to create project-local scratch files.
+- Prefer streaming extracted text directly from the source to the next operation without writing an intermediate file. For PDF text, pdftotext can write to stdout using - as its output argument.
+- When JEV returns matching filenames, answer from those results unless the user needs exact source wording. Any follow-up extraction must follow these same project-local rules.
 
 ## LegalWork Artifacts
 
@@ -117,8 +127,13 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 
 - To create or update reusable review prompts or sets, load \`author-review-prompts\` and use \`legalwork_review_library_save\`. These are structured library entries under Workflows > Tabular Review Prompts, not SKILL.md workflows. Preserve existing legacy workflows. Never create new tabular workflow skills.
 
-## Starting tabular reviews
+## Quick questions about a document corpus
 
+- A question such as "Which contracts in this folder contain a change-of-control provision?" is semantic file search, not a request to create or look up a tabular review. When available, call \`legalwork_jev_corpus_question\` directly with that folder and a per-document question. Do not first look up review settings, review lists, prompt sets or extension actions.
+- The same question is applied independently to EACH document: ask "Does this document contain X?", not "Which files contain X?" Classification also concerns one document and takes explicit answer options. Filter compact results, then open relevant files only. Extraction and OCR happen inside the tool; do not read the corpus into your context first. Unclear, errors and unsupported sources never mean No. This tool does not create a saved review.
+- Only call tools exposed in the current session. If Jev Search is unavailable, say so briefly and use available project-local tools where practical. Do not turn a search question into a saved review or try hidden tool names.
+
+## Starting tabular reviews
 - Load the bundled \`start-tabular-review\` skill for requests to start a tabular review. Read \`legalwork_review_settings\` before choosing columns. Reuse prompt-library sets where appropriate.
 - Use attached paths directly, or \`legalwork_review_files\` for source discovery. Do not show a project overview widget or load a PDF-reading skill for review setup. OCR and creation IDs are automatic.
 - The user's request to start a review is fulfilled when \`legalwork_review_start\` succeeds. The table runs independently; its live card tracks progress. Do not wait, poll, read results, or summarize answers unless the user explicitly asked for results too.
@@ -173,6 +188,9 @@ export async function buildLegalworkRuntimeConfigObject(
   const paidProvider = paidEntitled && paidManifest && paidManifest.models.length > 0
     ? buildEigenweltPaidProviderBlock(paidManifest)
     : null;
+  const jevSettings = config ? await readSystemOneSettings(config).catch(() => null) : null;
+  const jevSearchEnabled = process.env.LEGALWORK_DISABLE_JEV_SEARCH !== "1" && !!jevSettings?.providers.some(provider => provider.status === "ready" && provider.id === jevSettings.selection.providerId
+    && provider.models.some(model => model.id === jevSettings.selection.model && model.questionTypes.includes("noul") && model.questionTypes.includes("choice")));
   const disabledProviders = [
     ...runtimeDisabledProviderList(runtimeConfig),
     // The free tier is retired: the engine's anonymous OpenCode Zen provider
@@ -189,6 +207,10 @@ export async function buildLegalworkRuntimeConfigObject(
   };
   return {
     ...runtimeConfig,
+    // A refusal remains a tool error visible to the model. The engine should
+    // continue within the user's boundaries instead of silently ending the turn.
+    experimental: { continue_loop_on_deny: true },
+    tools: { legalwork_jev_corpus_question: jevSearchEnabled },
     ...(Object.keys(providerMap).length ? { provider: providerMap } : {}),
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {

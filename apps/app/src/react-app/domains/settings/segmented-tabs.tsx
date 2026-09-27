@@ -8,9 +8,9 @@ import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-export const segmentedTrackClass = "flex w-fit gap-0.5 rounded-full bg-dls-hover p-1";
+export const segmentedTrackClass = "flex w-fit max-w-full flex-wrap gap-0.5 rounded-full bg-dls-hover p-1";
 export const segmentedItemClass =
-  "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all duration-200";
+  "inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 [&_svg]:shrink-0";
 export const segmentedActiveClass = "bg-dls-surface text-dls-text shadow-[0_1px_2px_rgba(8,23,79,0.08)]";
 export const segmentedInactiveClass = "text-dls-secondary hover:text-dls-text";
 

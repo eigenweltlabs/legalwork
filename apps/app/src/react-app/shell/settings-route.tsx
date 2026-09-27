@@ -847,9 +847,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
   const [teamShareOpen, setTeamShareOpen] = useState(false);
   const [teamShareInitial, setTeamShareInitial] = useState<{
-    kind: "skill" | "workflow" | "mcp" | "plugin";
+    kind: "skill" | "workflow" | "mcp" | "plugin" | "review_set";
     ref: string;
   } | null>(null);
+  // The prompt library shares prompt sets only; every other entry point offers all kinds.
+  const [teamShareKinds, setTeamShareKinds] = useState<Array<"review_set"> | null>(null);
   // The recorder's premium gate + upsell challenge for the Settings surface (the
   // model-manager download list) is owned by <PremiumUpsellHost/>, mounted in the
   // JSX below with the same client + workspace.
@@ -861,6 +863,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return;
       }
       setTeamShareInitial({ kind, ref: skillName });
+      setTeamShareOpen(true);
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
+  const shareReviewSetWithFirm = useCallback(
+    (id: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      setTeamShareKinds(["review_set"]);
+      setTeamShareInitial({ kind: "review_set", ref: id });
       setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
@@ -2125,6 +2140,22 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             workspaceId={selectedWorkspaceId}
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
+            onShareReviewSet={shareReviewSetWithFirm}
+            onOpenReviewSetShare={canShareWithFirm ? () => {
+              setTeamShareKinds(["review_set"]);
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
+            firmReviewSetsView={
+              <HubDownloadSection
+                legalworkClient={legalworkClient}
+                workspaceId={hubWorkspaceId}
+                kind="review_set"
+                onConfigApplied={() => {
+                  void getReactQueryClient().invalidateQueries({ queryKey: ["review-library"] });
+                }}
+              />
+            }
             inlineEditor={props.singleView !== true}
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}
@@ -2424,16 +2455,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   return (
     <>
       {props.singleView ? (
-        // Standalone page (Skills / Integrations) hosted in the main app shell: render
-        // just the active view, no settings nav chrome. Matches SettingsContent's padding
-        // and centering so the view sits where it does inside Settings.
+        // Standalone pages use the same pane-relative gutters and content width.
+        // Workflows owns its frame so its list and editor can scroll independently.
         <div className={route.tab === "workflows"
           ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
-          : "min-w-0 min-h-0 flex-1 overflow-y-auto flex flex-col items-center gap-6 p-4 md:gap-8 md:p-6 lg:p-8 bg-background"}>
-          {settingsView}
+          : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
+          {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>
       ) : (
         <SettingsShell
+          accountClient={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
           activeTab={route.tab}
           onSelectTab={(tab) => navigateSettingsPath(tab)}
           developerMode={developerMode}
@@ -2583,10 +2614,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         workspaceId={hubWorkspaceId}
         open={teamShareOpen}
         initialSelection={teamShareInitial}
+        kinds={teamShareKinds}
         includeGlobalSkills={(selectedWorkspace?.workspaceType ?? "local") !== "remote"}
         onOpenChange={(open) => {
           setTeamShareOpen(open);
-          if (!open) setTeamShareInitial(null);
+          if (!open) {
+            setTeamShareInitial(null);
+            setTeamShareKinds(null);
+          }
         }}
         onShared={() => {
           void getReactQueryClient().invalidateQueries({ queryKey: ["eigenwelt-hub"] });

@@ -4,9 +4,11 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { syncEventStream } from "./app-sync-events.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import type { IntakeClient, IntakeTask, IntakeTaskPatch, IntakeTaskPullPage } from "./eigenwelt-intake.js";
 import { ApiError } from "./errors.js";
+import { projectSyncStore, type ProjectLink } from "./project-sync-store.js";
 import { taskStore, type TaskStore } from "./task-store.js";
 import { runTaskSync, signOutOfFirmTasks, startTaskSyncTimer, type TaskSyncPlatform } from "./task-sync.js";
 import type { ServerConfig } from "./types.js";
@@ -44,11 +46,22 @@ async function connect(config: ServerConfig): Promise<void> {
   await writeEigenweltConnection(config, { platformToken: "tok_test", account: ACCOUNT });
 }
 
+/** What an app window's sync event stream carried while `run` ran. */
+async function heard(config: ServerConfig, run: () => Promise<unknown>): Promise<string> {
+  const window = new AbortController();
+  const response = syncEventStream(config, window.signal);
+  await run();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  window.abort();
+  return response.text();
+}
+
 type Call = { method: string; taskId?: string; body?: unknown };
 
 function remoteTask(overrides: Partial<IntakeTask> & { id: string }): IntakeTask {
   return {
     origin: "desktop",
+    projectId: null,
     endpointId: null,
     endpointName: null,
     submissionId: null,
@@ -79,6 +92,8 @@ function fakePlatform(script: {
   pages?: IntakeTaskPullPage[];
   fail?: Partial<Record<keyof TaskSyncPlatform, unknown>>;
   members?: { userId: string; name: string | null; email: string | null; role: string }[];
+  /** What a colleague changed in the same words meanwhile, answered to a patch that sends `bases`. */
+  clash?: { field: "title" | "description"; theirs: string };
 } = {}) {
   const calls: Call[] = [];
   const clients: IntakeClient[] = [];
@@ -98,7 +113,12 @@ function fakePlatform(script: {
       clients.push(client);
       calls.push({ method: "patch", taskId, body: patch });
       failing("patchTask");
-      return remoteTask({ id: taskId, updatedAt: "2026-09-16T09:01:00.000Z" });
+      const clash = script.clash && patch.bases?.[script.clash.field] !== undefined ? script.clash : null;
+      const mine = clash ? patch[clash.field] : undefined;
+      return {
+        task: remoteTask({ id: taskId, updatedAt: "2026-09-16T09:01:00.000Z" }),
+        conflicts: clash && mine !== undefined ? [{ field: clash.field, mine, theirs: clash.theirs }] : [],
+      };
     },
     deleteTask: async (_client, taskId) => {
       calls.push({ method: "delete", taskId });
@@ -108,6 +128,10 @@ function fakePlatform(script: {
     restoreTask: async (_client, taskId) => {
       calls.push({ method: "restore", taskId });
       return remoteTask({ id: taskId });
+    },
+    withdrawTask: async (_client, taskId) => {
+      calls.push({ method: "withdraw", taskId });
+      failing("withdrawTask");
     },
     uploadAttachment: async (_client, taskId, file) => {
       calls.push({ method: "upload", taskId, body: { id: file.id, filename: file.filename, size: file.bytes.byteLength } });
@@ -168,6 +192,28 @@ describe("task-sync", () => {
     expect(store.outboxSize()).toBe(0);
     expect(store.getTask(task.id)?.sync).toMatchObject({ orgId: ORG, pending: false, error: null });
     expect(store.getSyncState(ORG).lastPushAt).not.toBeNull();
+  });
+
+  test("an edit sends the title it started from; one a colleague changed in the same words waits for this member to decide", async () => {
+    const { config, store } = await makeConfig();
+    await connect(config);
+    const task = store.createTask({ title: "Frist" }, ADA);
+    await runTaskSync(config, { platform: fakePlatform().platform });
+    store.patchTask(task.id, { title: "Frist Schmidt" }, ADA);
+    const { platform, calls } = fakePlatform({ clash: { field: "title", theirs: "Frist Müller" } });
+
+    await runTaskSync(config, { platform });
+
+    expect(calls.find((call) => call.method === "patch")?.body).toMatchObject({ title: "Frist Schmidt", bases: { title: "Frist" } });
+    expect(store.getDetail(task.id).conflicts).toMatchObject([{ field: "title", mine: "Frist Schmidt", theirs: "Frist Müller" }]);
+    expect(store.claimNotifications({ userId: ADA.userId, orgId: ORG }).map((note) => note.kind)).toContain("conflict");
+
+    // Keep mine: an edit from theirs, which goes up with the next round; kept in the history too.
+    const settled = store.resolveTextConflict(task.id, { field: "title", keep: "mine", note: "Meine Fassung: Frist Schmidt" }, ADA);
+    expect(settled.conflicts).toEqual([]);
+    expect(settled.task.title).toBe("Frist Schmidt");
+    expect(settled.notes.map((note) => note.body)).toContain("Meine Fassung: Frist Schmidt");
+    expect(() => store.resolveTextConflict(task.id, { field: "title", keep: "theirs" }, ADA)).toThrow();
   });
 
   test("takes the platform's tasks with history and message, and forgets the hidden ones", async () => {
@@ -344,6 +390,79 @@ describe("task-sync", () => {
     expect(claim()).toEqual(["Alt: assigned"]);
   });
 
+  test("a task follows its project: sent with the firm's project id, taken back into a local project, kept when hidden", async () => {
+    const { config, store } = await makeConfig();
+    await connect(config);
+    const projects = await projectSyncStore(config);
+    const link = (workspaceId: string, projectId: string, confirmed = true): ProjectLink => ({
+      workspaceId,
+      projectId,
+      orgId: ORG,
+      origin: "local",
+      role: "owner",
+      ownerUserId: "user_ada",
+      settings: { access: "members", memberIds: [], scope: { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: false } },
+      confirmed,
+      remoteUpdatedAt: null,
+      filesReconciledAt: null,
+      state: "active",
+      allowDeletions: false,
+      lastSyncAt: null,
+      lastError: null,
+      report: null,
+    });
+    projects.saveLink(link("ws_synced", "44444444-4444-4444-8444-444444444444"));
+    const task = store.createTask({ title: "Frist", projectId: "ws_synced" }, ADA);
+    const { platform, calls } = fakePlatform({
+      pages: [{ tasks: [], nextCursor: null, hidden: [] }, { tasks: [], nextCursor: null, hidden: [task.id] }],
+    });
+
+    await runTaskSync(config, { platform });
+    expect(calls[0]).toMatchObject({ method: "create", body: { id: task.id, projectId: "44444444-4444-4444-8444-444444444444" } });
+
+    // Into a project that stays on this machine: withdrawn from the firm, and
+    // the platform's later "hidden" for it does not take it away here.
+    store.patchTask(task.id, { projectId: "ws_local" }, ADA);
+    await runTaskSync(config, { platform });
+    expect(calls.filter((call) => call.method === "withdraw")).toEqual([{ method: "withdraw", taskId: task.id }]);
+    expect(store.getTask(task.id)).toMatchObject({ projectId: "ws_local", sync: { orgId: null, pending: false } });
+  });
+
+  test("a task never leaves without its project: it waits for the project's upload, and stays when the project no longer syncs", async () => {
+    const { config, store } = await makeConfig();
+    await connect(config);
+    const projects = await projectSyncStore(config);
+    projects.saveLink({
+      workspaceId: "ws_new",
+      projectId: "55555555-5555-4555-8555-555555555555",
+      orgId: ORG,
+      origin: "local",
+      role: "owner",
+      ownerUserId: "user_ada",
+      settings: { access: "members", memberIds: [], scope: { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: false } },
+      confirmed: false,
+      remoteUpdatedAt: null,
+      filesReconciledAt: null,
+      state: "active",
+      allowDeletions: false,
+      lastSyncAt: null,
+      lastError: null,
+      report: null,
+    });
+    const task = store.createTask({ title: "Frist", projectId: "ws_new" }, ADA);
+    const { platform, calls } = fakePlatform();
+
+    await runTaskSync(config, { platform });
+    expect(calls.map((call) => call.method)).not.toContain("create");
+    expect(store.getTask(task.id)?.sync.pending).toBe(true);
+
+    // The project stopped syncing before its upload: the task stays here, unsent.
+    projects.removeLink("ws_new");
+    await runTaskSync(config, { platform });
+    expect(calls.map((call) => call.method)).not.toContain("create");
+    expect(store.getTask(task.id)?.sync).toMatchObject({ orgId: null, pending: false });
+  });
+
   test("concurrent callers share the round in flight", async () => {
     const { config } = await makeConfig();
     await connect(config);
@@ -351,6 +470,17 @@ describe("task-sync", () => {
     const [a, b] = await Promise.all([runTaskSync(config, { platform }), runTaskSync(config, { platform })]);
     expect(a).toBe(b);
     expect(calls.filter((call) => call.method === "pull")).toHaveLength(1);
+  });
+
+  test("an open app window hears when a round changed the tasks here, not when it changed nothing", async () => {
+    const { config } = await makeConfig();
+    await connect(config);
+    const quiet = fakePlatform();
+    expect(await heard(config, () => runTaskSync(config, { platform: quiet.platform }))).not.toContain("tasks");
+    const busy = fakePlatform({
+      pages: [{ tasks: [{ ...remoteTask({ id: "44444444-4444-4444-8444-444444444444" }), notes: [], submission: null }], nextCursor: null, hidden: [] }],
+    });
+    expect(await heard(config, () => runTaskSync(config, { platform: busy.platform }))).toContain('{"tasks":true}');
   });
 });
 

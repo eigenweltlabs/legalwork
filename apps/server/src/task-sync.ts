@@ -1,3 +1,4 @@
+import { announceSyncChange } from "./app-sync-events.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
   intakeCreateTask,
@@ -8,6 +9,7 @@ import {
   intakePullTasks,
   intakeRestoreTask,
   intakeUploadAttachment,
+  intakeWithdrawTask,
   requireIntakeClient,
   type IntakeAttachment,
   type IntakeClient,
@@ -17,9 +19,11 @@ import {
   type IntakeTaskListParams,
   type IntakeTaskPatch,
   type IntakeTaskPullPage,
+  type IntakeTextConflict,
 } from "./eigenwelt-intake.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { ApiError } from "./errors.js";
+import { projectSyncStore, type ProjectSyncStore } from "./project-sync-store.js";
 import { arrivalNotification, noteArrival } from "./task-notifications.js";
 import { taskStore, type Task, type TaskOutboxEntry, type TaskStore } from "./task-store.js";
 import { connectedTaskOrgId } from "./tasks-api.js";
@@ -40,6 +44,10 @@ import type { ServerConfig } from "./types.js";
  * Conflicts are the platform's to settle, per field: a push carries when the
  * change was made, and the platform applies a field only when nothing newer
  * has set it since. Whatever it settled on comes back with the next pull.
+ * Title and description are text: a push says what it started from, and a
+ * colleague's change to it meanwhile is merged with it. What cannot be merged
+ * (both changed the same words) stays the colleague's, and this member is
+ * asked which version stays (task-store.ts `recordTextConflicts`).
  *
  * A pull also notes what the member should hear about — a task that arrived,
  * a task assigned to them (task-notifications.ts).
@@ -61,9 +69,10 @@ export type TaskSyncResult = {
 /** The platform calls a round makes; injectable so a test can stand in for the platform. */
 export type TaskSyncPlatform = {
   createTask: (client: IntakeClient, input: IntakeTaskCreate) => Promise<IntakeTask | null>;
-  patchTask: (client: IntakeClient, taskId: string, patch: IntakeTaskPatch) => Promise<IntakeTask | null>;
+  patchTask: (client: IntakeClient, taskId: string, patch: IntakeTaskPatch) => Promise<{ task: IntakeTask | null; conflicts: IntakeTextConflict[] }>;
   deleteTask: (client: IntakeClient, taskId: string) => Promise<IntakeTask | null>;
   restoreTask: (client: IntakeClient, taskId: string) => Promise<IntakeTask | null>;
+  withdrawTask: (client: IntakeClient, taskId: string) => Promise<void>;
   uploadAttachment: (
     client: IntakeClient,
     taskId: string,
@@ -79,6 +88,7 @@ const REAL_PLATFORM: TaskSyncPlatform = {
   patchTask: intakePatchTask,
   deleteTask: intakeDeleteTask,
   restoreTask: intakeRestoreTask,
+  withdrawTask: intakeWithdrawTask,
   uploadAttachment: intakeUploadAttachment,
   deleteAttachment: intakeDeleteAttachment,
   pullTasks: intakePullTasks,
@@ -113,11 +123,21 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The firm's id of a project of this machine, for a task in it — null when
+ * the project does not sync its tasks (the link then stays on this machine).
+ */
+function remoteProjectOf(projects: ProjectSyncStore, workspaceId: string | null | undefined): string | null {
+  const link = workspaceId ? projects.linkByWorkspace(workspaceId) : null;
+  return link && link.state === "active" && link.settings.scope.tasks ? link.projectId : null;
+}
+
 /** One op against the platform; resolves to the platform's `updatedAt` when it answered with the task. */
 async function pushOne(
   platform: TaskSyncPlatform,
   client: IntakeClient,
   store: TaskStore,
+  projects: ProjectSyncStore,
   task: Task,
   entry: TaskOutboxEntry,
 ): Promise<string | null> {
@@ -133,11 +153,28 @@ async function pushOne(
         dueDate: task.dueDate,
         assigneeUserId: task.assigneeUserId,
         createdAt: task.createdAt,
+        projectId: remoteProjectOf(projects, task.projectId),
       });
       return remote?.updatedAt ?? null;
     }
+    case "project": {
+      const { task: remote } = await platform.patchTask(client, task.id, {
+        projectId: remoteProjectOf(projects, op.projectId),
+        changedAt: op.changedAt,
+      });
+      return remote?.updatedAt ?? null;
+    }
+    case "withdraw":
+      await platform.withdrawTask(client, task.id);
+      return null;
     case "patch": {
-      const remote = await platform.patchTask(client, task.id, { ...op.fields, changedAt: op.changedAt });
+      const { task: remote, conflicts } = await platform.patchTask(client, task.id, {
+        ...op.fields,
+        changedAt: op.changedAt,
+        ...(op.bases === undefined ? {} : { bases: op.bases }),
+      });
+      // The colleague's text stayed; the pull brings it, and this member decides.
+      if (conflicts.length > 0) store.recordTextConflicts(task.id, conflicts);
       return remote?.updatedAt ?? null;
     }
     case "delete":
@@ -145,7 +182,7 @@ async function pushOne(
     case "restore":
       return (await platform.restoreTask(client, task.id))?.updatedAt ?? null;
     case "note": {
-      const remote = await platform.patchTask(client, task.id, {
+      const { task: remote } = await platform.patchTask(client, task.id, {
         note: op.body,
         noteSource: op.source,
         noteId: op.noteId,
@@ -172,7 +209,7 @@ async function pushOne(
       await platform.deleteAttachment(client, task.id, op.attachmentId);
       return null;
     case "run_marker": {
-      const remote = await platform.patchTask(client, task.id, { lastLocalRunAt: op.lastLocalRunAt });
+      const { task: remote } = await platform.patchTask(client, task.id, { lastLocalRunAt: op.lastLocalRunAt });
       return remote?.updatedAt ?? null;
     }
   }
@@ -182,6 +219,7 @@ async function pushOutbox(
   platform: TaskSyncPlatform,
   client: IntakeClient,
   store: TaskStore,
+  projects: ProjectSyncStore,
   orgId: string,
 ): Promise<{ pushed: number; failed: number; abort: unknown | null }> {
   let pushed = 0;
@@ -205,14 +243,44 @@ async function pushOutbox(
     }
     // Synced with another firm once: its writes are not this firm's to take.
     if (task.sync.orgId !== null && task.sync.orgId !== orgId) continue;
+    // Its project no longer syncs here (access ended, sync stopped) and the
+    // task never reached the firm: it stays on this machine, and nothing
+    // queued for it may reach the firm without its project.
+    if (!store.syncsWithFirm(task.id)) {
+      store.discardOutbox(task.id);
+      continue;
+    }
+    // Its project's first upload has not gone through yet, or the member has
+    // yet to decide about a project whose access ended: the task waits.
+    const link = task.projectId ? projects.linkByWorkspace(task.projectId) : null;
+    if (link && ((link.settings.scope.tasks && !link.confirmed) || link.state !== "active")) {
+      blocked.add(task.id);
+      continue;
+    }
     try {
-      const remoteUpdatedAt = await pushOne(platform, client, store, task, entry);
+      const remoteUpdatedAt = await pushOne(platform, client, store, projects, task, entry);
+      if (entry.op.kind === "withdraw") {
+        // Off the firm's list: from here on the task is this machine's alone.
+        store.markLocal(task.id);
+        pushed += 1;
+        continue;
+      }
       store.completeOutbox(entry.seq);
       store.markSynced(task.id, orgId, remoteUpdatedAt);
       pushed += 1;
     } catch (error) {
       failed += 1;
       const outcome = classify(error);
+      if (entry.op.kind === "withdraw" && (outcome === "gone" || (error instanceof ApiError && error.status === 403))) {
+        // Gone already: done. Refused (not this member's to take back): the
+        // task stays the firm's, and its changes keep going there.
+        if (outcome === "gone") store.markLocal(task.id);
+        else {
+          store.completeOutbox(entry.seq);
+          refused.set(task.id, messageOf(error));
+        }
+        continue;
+      }
       if (outcome === "abort") {
         // The platform is not answering (or not to us): nothing further will
         // go through this round. The op waits, and the pull is not attempted.
@@ -284,7 +352,8 @@ async function pullChanges(
   } while (pageCursor !== undefined);
 
   for (const id of hiddenIds) {
-    if (store.getTask(id)) await store.removeTask(id);
+    // A task this machine took back from the firm (or never gave it) is its own.
+    if (store.getTask(id)?.sync.orgId) await store.removeTask(id);
   }
   return { pulled, hidden: hiddenIds.size, cursor: newest === null ? since : justBefore(newest) };
 }
@@ -322,6 +391,7 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
   if (orgId === null) return result;
 
   const store = await taskStore(config);
+  const projects = await projectSyncStore(config);
   const state = store.getSyncState(orgId);
   // Signed in (again): a sign-out from before is history from here on.
   store.clearSignedOut();
@@ -338,7 +408,7 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
   let cursor = state.pullCursor;
   const now = Date.now();
   try {
-    const push = await pushOutbox(platform, client, store, orgId);
+    const push = await pushOutbox(platform, client, store, projects, orgId);
     result.pushed = push.pushed;
     result.failed = push.failed;
     state.lastPushAt = now;
@@ -359,6 +429,9 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
     result.error = messageOf(error);
   }
   store.setSyncState({ ...state, pullCursor: cursor, lastError: result.error });
+  if (result.pushed + result.failed + result.pulled + result.hidden > 0 || result.error !== state.lastError) {
+    announceSyncChange(config, "tasks");
+  }
   return result;
 }
 
@@ -387,6 +460,7 @@ export async function signOutOfFirmTasks(
   const pending = store.pendingFor(orgId);
   if (pending > 0 && !options.force) return { ok: false, pending };
   const { tasks } = await store.forgetFirm(orgId);
+  announceSyncChange(config, "tasks");
   return { ok: true, removed: tasks };
 }
 

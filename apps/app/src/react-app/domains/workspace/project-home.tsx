@@ -22,6 +22,7 @@ import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { t } from "@/i18n";
 import { projectErrorMessage } from "./project-errors";
+import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -76,42 +77,37 @@ export function ProjectHome(props: {
 
   return (
     <ProjectFilesDropzone projectId={props.projectId} workspaceId={workspaceId} isRemoteWorkspace={props.isRemoteWorkspace}>
-    <div className="@container/project min-h-0 flex-1 overflow-y-auto" data-testid="project-home">
-      <div className="mx-auto w-full max-w-4xl px-6 py-8 @min-[720px]/project:px-12 @min-[720px]/project:py-10">
-        <header className="mb-8">
-          <div className="flex items-start gap-2">
+    <div className="@container/project-page min-h-0 flex-1 overflow-y-auto" data-testid="project-home">
+      <div className="lw-project-page-content lw-project-page-top space-y-6 pb-8">
+        <div className="lw-project-home-header overflow-hidden rounded-2xl border border-border/60">
+        <header className="p-5 @min-[720px]/project-page:p-6">
+          <div className="flex items-start gap-1">
             <ProjectName name={props.name} onRename={props.onRename} />
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Star className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
+            {props.isRemoteWorkspace ? null : <ProjectShareButton client={client} workspaceId={workspaceId} projectName={props.name} />}
           </div>
-          <div className="mt-5 flex flex-wrap items-center gap-2">
+          <div className="mt-5 flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-xl shadow-xs">
-              <Button size="lg" className={cn("rounded-xl shadow-none", recordingActive && "rounded-r-none")} disabled={sessionStarting || recordingFinalizing} title={recordingActive ? t("projects.new_chat_recording_on") : undefined} onClick={() => { void newSession(recordingActive); }}>
+              <Button size="lg" className={cn("h-10 min-w-36 rounded-xl shadow-none", recordingActive && "rounded-r-none")} disabled={sessionStarting || recordingFinalizing} title={recordingActive ? t("projects.new_chat_recording_on") : undefined} onClick={() => { void newSession(recordingActive); }}>
                 {recordingActive ? <span aria-hidden="true" className="flex size-4 items-center justify-center"><span className="size-2.5 rounded-full bg-red-9" /></span> : <MessageSquare />}{t("projects.new_chat")}
                 {recordingActive ? <span className="sr-only">{t("projects.new_chat_recording_on")}</span> : null}
               </Button>
               {recordingActive ? <DropdownMenu>
-                <DropdownMenuTrigger render={<Button size="lg" className="rounded-l-none rounded-r-xl border-l-background/20 px-2.5 shadow-none" disabled={sessionStarting || recordingFinalizing} aria-label={t("projects.new_chat_options")}><ChevronDown className="size-3.5" /></Button>} />
+                <DropdownMenuTrigger render={<Button size="lg" className="h-10 rounded-l-none rounded-r-xl border-l-background/20 px-2.5 shadow-none" disabled={sessionStarting || recordingFinalizing} aria-label={t("projects.new_chat_options")}><ChevronDown className="size-3.5" /></Button>} />
                 <DropdownMenuContent align="end" className="w-auto">
                   <DropdownMenuItem onClick={() => { void newSession(false); }}><MessageSquare />{t("projects.new_chat_recording_off")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu> : null}
             </div>
-            <Button variant="outline" className="rounded-xl shadow-xs" onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</Button>
-            <Button variant="outline" className="rounded-xl shadow-xs" onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</Button>
-            <Button variant="outline" className="rounded-xl shadow-xs" disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}>{recordingActive ? <Square className="text-red-9" fill="currentColor" /> : <Mic />}{recordLabel}</Button>
+            <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</Button>
+            <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</Button>
+            <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}>{recordingActive ? <Square className="text-red-9" fill="currentColor" /> : <Mic />}{recordLabel}</Button>
           </div>
         </header>
 
-        {details.error || rootFiles.error ? <Surface className="mb-6 space-y-3 rounded-xl p-4">
-          <p role="alert" className="text-sm text-destructive">{projectErrorMessage(details.error ?? rootFiles.error)}</p>
-          <Button variant="outline" size="sm" disabled={details.isFetching || rootFiles.isFetching} onClick={() => {
-            void details.refetch();
-            void rootFiles.refetch();
-            void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
-          }}>{t("workspace_files.try_again")}</Button>
-        </Surface> : null}
+        {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} onOpenFile={props.onOpenFile} />}
 
-        <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="mb-8 border-y border-border/70 py-2">
+        <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="border-t border-border/60 bg-background/60 px-5 py-1.5 @min-[720px]/project-page:px-6">
           <div className="flex items-center gap-2">
             <CollapsibleTrigger render={<Button variant="ghost" className="min-w-0 flex-1 justify-start gap-2 px-0 text-sm font-normal hover:bg-transparent aria-expanded:bg-transparent" />}>
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
@@ -122,7 +118,7 @@ export function ProjectHome(props: {
           <CollapsibleContent>
             <div className="pb-3 pt-2">
               {details.isPending ? <Notice>{t("projects.loading")}</Notice> : details.error ? <Notice error>{t("projects.failed")}</Notice> : details.data?.fields.length ? (
-                <ProjectProperties className="grid gap-x-10 space-y-0 @min-[640px]/project:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
+                <ProjectProperties className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
                   if (!details.data) return;
                   try {
                     const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: details.data.fields.map((field) => field.id === id ? { ...field, value } : field) });
@@ -136,6 +132,16 @@ export function ProjectHome(props: {
             </div>
           </CollapsibleContent>
         </Collapsible>
+        </div>
+
+        {details.error || rootFiles.error ? <Surface className="space-y-3 rounded-xl p-4">
+          <p role="alert" className="text-sm text-destructive">{projectErrorMessage(details.error ?? rootFiles.error)}</p>
+          <Button variant="outline" size="sm" disabled={details.isFetching || rootFiles.isFetching} onClick={() => {
+            void details.refetch();
+            void rootFiles.refetch();
+            void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+          }}>{t("workspace_files.try_again")}</Button>
+        </Surface> : null}
 
         <section aria-label={t("projects.notes")}>
           <SectionHeading title={t("projects.notes")} action={<Button variant="ghost" size="icon-sm" aria-label={t("projects.add_note")} title={t("projects.add_note")} onClick={() => setNoteOpen(true)}><Plus className="size-4" /></Button>} />
@@ -145,22 +151,22 @@ export function ProjectHome(props: {
               : noteEntries.length ? (
                 <ul className="flex snap-x snap-proximity gap-3 overflow-x-auto overscroll-x-contain px-1 pb-3 pt-1" tabIndex={0} aria-label={t("projects.notes")}>
                   {noteEntries.map((entry) => (
-                    <li key={entry.path} className="w-52 shrink-0 snap-start">
+                    <li key={entry.path} className="w-44 shrink-0 snap-start">
                       <ProjectNoteTile client={client} workspaceId={workspaceId} entry={entry} onOpen={() => props.onOpenFile(entry)} />
                     </li>
                   ))}
                 </ul>
               ) : (
-                <Surface className="flex flex-col items-center rounded-xl px-6 py-10 text-center">
-                  <StickyNote className="mb-3 size-5 text-muted-foreground/70" />
-                  <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{t("projects.no_notes")}</p>
-                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setNoteOpen(true)}><Plus className="size-4" />{t("projects.add_note")}</Button>
+                <Surface className="flex min-h-24 flex-wrap items-center gap-3 rounded-xl border-border/60 px-4 py-4 shadow-none">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-3/40 text-amber-11"><StickyNote className="size-4" /></span>
+                  <p className="min-w-36 flex-1 text-xs leading-5 text-muted-foreground">{t("projects.no_notes")}</p>
+                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => setNoteOpen(true)}><Plus className="size-3.5" />{t("projects.add_note")}</Button>
                 </Surface>
               )}
           </div>
         </section>
 
-        <div className="mt-8">{props.tasksView}</div>
+        <div>{props.tasksView}</div>
 
         <ProjectRecordings projectId={props.projectId} />
       </div>

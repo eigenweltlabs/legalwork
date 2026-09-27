@@ -903,18 +903,17 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
 
   if (event.type === "message.updated") {
     const props = (event.properties ?? {}) as {
-      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; time?: { created?: number; completed?: number } };
+      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; finish?: string; error?: unknown; time?: { created?: number; completed?: number } };
     };
     const info = props.info;
     if (!info?.id || !info.sessionID || (info.role !== "user" && info.role !== "assistant" && info.role !== "system")) {
       return;
     }
     useSessionActivityStore.getState().markMessageRole(workspaceId, info.sessionID, info.id, info.role);
-    // A completed assistant turn means the run is finished. Treat it as a
-    // fallback idle signal so the sidebar spinner stops even when the
-    // `session.idle` event is dropped or never arrives — otherwise the run
-    // status stays "running" forever and the spinner spins on a done session.
-    if (info.role === "assistant" && typeof info.time?.completed === "number") {
+    // Each tool step is a completed assistant message, not a completed run.
+    // Only a terminal answer/error may substitute for a missing idle event.
+    if (info.role === "assistant" && typeof info.time?.completed === "number"
+      && (info.error || (info.finish && info.finish !== "tool-calls" && info.finish !== "unknown"))) {
       useSessionActivityStore.getState().setRunStatus(workspaceId, info.sessionID, idleStatus);
       if (isTrackedSession(entry, info.sessionID)) {
         queryClient.setQueryData(statusKey(workspaceId, info.sessionID), idleStatus);
@@ -994,13 +993,12 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       );
     }
     queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, part.sessionID), (current = []) => {
-      // If we already have this message, keep its role; otherwise infer
-      // from the alternation pattern. Only the newly-stubbed case needs
-      // the inference — upsertMessage preserves existing role when the
-      // stub's role matches what we'd write anyway, and any subsequent
-      // message.updated will overwrite both.
+      // Tools and reasoning belong to the assistant even when part events
+      // beat message.updated. Consecutive tool steps must not briefly split
+      // the assistant group with an incorrectly inferred user message.
       const existing = current.find((m) => m.id === part.messageID);
-      const role = existing?.role ?? inferStubRole(current);
+      const role = part.type === "tool" || part.type === "reasoning" || part.type === "step-start"
+        ? "assistant" : existing?.role ?? inferStubRole(current);
       const withMessage = upsertMessage(current, { id: part.messageID, role, parts: [] });
       const seededPartId = getPartMetadataId(seededPart) ?? part.id;
       let next = upsertPart(withMessage, part.messageID, seededPartId, seededPart);
@@ -1111,12 +1109,10 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
         const ensuredMessageIds = new Set<string>();
         for (const item of items) {
           if (!ensuredMessageIds.has(item.messageId)) {
-            // Preserve the existing role if the message is already in
-            // state; otherwise infer it from the alternation pattern
-            // so the brief "stub before message.updated" window doesn't
-            // mislabel the message's bubble style.
+            // Deltas are streamed assistant output; user messages arrive
+            // as complete parts. Tool steps do not alternate speaker roles.
             const existing = nextById.get(item.messageId);
-            const role = existing?.role ?? inferStubRole(next);
+            const role = existing?.role ?? "assistant";
             const ensuredMessage = { id: item.messageId, role, parts: existing?.parts ?? [] };
             next = upsertMessage(next, ensuredMessage);
             nextById.set(item.messageId, ensuredMessage);

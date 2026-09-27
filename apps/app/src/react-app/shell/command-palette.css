@@ -1,0 +1,257 @@
+/* Two independent glass layers let the actual workspace show through the gap.
+   Keep blur on the surfaces, not the full-screen backdrop or popup container. */
+.search-backdrop {
+  background: var(--lw-search-overlay);
+  /* The backdrop should never delay returning to the workspace. */
+  transition: none;
+}
+
+.search-viewport {
+  padding-block: clamp(24px, 12vh, 112px) 24px;
+}
+
+.search-dialog {
+  color-scheme: light;
+  width: 100%;
+  max-width: 560px;
+  max-height: min(600px, 100%);
+  gap: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--lw-search-glass-text);
+  box-shadow: none;
+  /* An opacity-animated ancestor isolates backdrop-filter from the workspace.
+     Animate geometry only so the glass has its final material on frame one. */
+  opacity: 1;
+  will-change: auto;
+  transition-property: scale, translate;
+  transition-duration: var(--lw-duration-slow);
+  transition-timing-function: var(--lw-ease-out);
+}
+
+.search-dialog::before { display: none; }
+.search-dialog[data-starting-style],
+.search-dialog[data-ending-style] { opacity: 1; scale: 0.99; translate: 0 -6px; }
+.search-dialog[data-ending-style] {
+  transition-duration: 60ms;
+  transition-timing-function: ease-in;
+}
+
+.search-capsule,
+.search-results-glass {
+  position: relative;
+  border: 0;
+  background: transparent;
+  box-shadow: var(--lw-search-glass-shadow);
+}
+
+/* Keep the frost below the sharp content. No ancestor opacity, masks or
+   filters: those would isolate the live backdrop and disable its blur. */
+.search-glass {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.search-glass-backdrop {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--lw-search-glass);
+  backdrop-filter: blur(var(--lw-search-glass-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--lw-search-glass-blur)) saturate(1.15);
+}
+.search-capsule > :not(.search-glass),
+.search-results-glass > :not(.search-glass) { position: relative; }
+
+/* The reference has a directional specular edge, not a uniform white border.
+   Reflect the -45deg light along the shoulder and the clear lower lip. */
+.search-capsule::after,
+.search-results-glass::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: inherit;
+  padding: 0.5px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.24) 28%, transparent 48%, transparent 70%, rgb(255 255 255 / 0.65));
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.search-capsule {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 72px;
+  padding: 0 22px 0 28px;
+  border-radius: var(--lw-radius-full);
+}
+.search-capsule .search-glass-backdrop { background: var(--lw-search-glass-input); }
+
+.search-capsule [data-slot="autocomplete-input-group"] { min-width: 0; }
+.search-capsule input {
+  height: 68px;
+  padding-inline: 0 12px;
+  color: var(--lw-search-glass-text);
+  caret-color: var(--lw-search-glass-text);
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+.search-capsule input::placeholder { color: var(--lw-search-glass-muted); }
+.search-capsule input::selection { background: rgb(42 70 120 / 0.16); }
+
+.search-dismiss {
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--lw-radius-full);
+  color: var(--lw-search-glass-muted);
+  background: transparent;
+}
+.search-dismiss kbd { font: inherit; font-size: 10px; }
+.search-dismiss svg { display: none; width: 14px; height: 14px; }
+.search-dismiss:hover { background: rgb(30 35 45 / 0.06); color: var(--lw-search-glass-text); }
+.search-dismiss:hover kbd { display: none; }
+.search-dismiss:hover svg { display: block; }
+.search-dismiss:focus-visible { outline: 2px solid var(--lw-search-glass-text); outline-offset: 3px; }
+
+.search-results-glass {
+  color: var(--lw-search-glass-text);
+  text-shadow: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 32px;
+}
+.search-scope { display: flex; align-items: center; gap: 12px; padding: 14px 20px 0; font-size: 12px; color: var(--lw-search-glass-muted); }
+.search-scope [data-slot="select-trigger"] { max-width: 100%; border: 0; background: rgb(30 35 45 / 0.05); color: var(--lw-search-glass-text); font-size: 12px; }
+.search-scope [data-slot="select-trigger"] svg { color: inherit; }
+.search-scope-menu {
+  --foreground: var(--lw-search-glass-text);
+  --accent-foreground: var(--lw-search-glass-text);
+  color-scheme: light;
+  width: min(320px, calc(100vw - 40px));
+  max-height: min(320px, var(--available-height));
+  padding: 5px;
+  border: 0.5px solid rgb(255 255 255 / 0.8);
+  border-radius: 20px;
+  color: var(--lw-search-glass-text);
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.92), rgb(248 249 252 / 0.8));
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: 0 12px 32px rgb(28 32 44 / 0.16), 0 0 0 0.5px rgb(28 32 44 / 0.08);
+}
+.search-scope-menu::before { display: none; }
+.search-scope-menu [data-slot="select-item"] { min-height: 34px; border-radius: 14px; padding: 8px 32px 8px 12px; font-size: 13px; color: var(--lw-search-glass-text); }
+.search-scope-menu [data-slot="select-item"][data-highlighted],
+.search-scope-menu [data-slot="select-item"][data-selected] { background: rgb(30 35 45 / 0.07); }
+.search-scope-menu [data-slot="select-item"] > span:first-child { display: block; min-width: 0; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
+.search-scope-menu [data-slot="select-scroll-up-button"],
+.search-scope-menu [data-slot="select-scroll-down-button"] { background: transparent; color: var(--lw-search-glass-text); }
+.search-filters { flex-shrink: 0; padding: 10px 20px 12px; }
+.search-retry { align-self: flex-start; margin-inline: 20px; color: var(--lw-search-glass-text); }
+.search-filters [data-slot="tabs-list"] {
+  max-width: 100%;
+  height: 30px;
+  padding: 0;
+  gap: 5px;
+  border-radius: 0;
+  border-color: transparent;
+  background: transparent;
+}
+.search-filters [data-slot="tabs-trigger"] {
+  padding-inline: 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--lw-search-glass-text);
+  background: rgb(30 35 45 / 0.035);
+}
+.search-filters [data-slot="tabs-trigger"]:hover { background: rgb(30 35 45 / 0.07); color: var(--lw-search-glass-text); }
+.search-filters [data-slot="tabs-trigger"][data-active] {
+  border-color: transparent;
+  color: var(--lw-search-glass-text);
+  background: rgb(30 35 45 / 0.11);
+  box-shadow: inset 0 0 0 1px rgb(30 35 45 / 0.09);
+  font-weight: 600;
+}
+
+.search-results-panel { display: flex; flex-direction: column; min-height: 0; }
+.search-results-panel [data-slot="scroll-area-viewport"] { --fade-size: 22px; }
+.search-results-panel [data-slot="command-list"] { padding: 0 10px 10px; scroll-padding-block: 10px; }
+.search-results-panel [data-slot="scroll-area-thumb"] { background: color-mix(in srgb, var(--lw-search-glass-text) 25%, transparent); }
+.search-result {
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 18px;
+  color: var(--lw-search-glass-text);
+  transition: background-color var(--lw-duration-fast);
+}
+.search-result[data-highlighted] {
+  color: var(--lw-search-glass-text);
+  background: rgb(30 35 45 / 0.11);
+  box-shadow: inset 0 0 0 1px rgb(30 35 45 / 0.07);
+}
+.search-result-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  border-radius: var(--lw-radius-xl);
+  background: transparent;
+}
+.search-result-icon svg { width: 20px; height: 20px; stroke-width: 1.5; }
+.search-result-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 19px; font-weight: 550; letter-spacing: -0.01em; }
+.search-result-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; font-size: 11px; line-height: 16px; color: var(--lw-search-glass-muted); }
+.search-result-excerpt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; font-size: 12px; line-height: 17px; color: var(--lw-search-glass-muted); }
+.search-highlight { border-radius: 3px; padding-block: 1px; background: rgb(42 70 120 / 0.09); color: var(--lw-search-glass-text); font-weight: 650; }
+.search-result-enter { width: 16px; height: 16px; flex-shrink: 0; margin-inline-start: 4px; opacity: 0; color: var(--lw-search-glass-muted); }
+.search-result[data-highlighted] .search-result-enter { opacity: 1; }
+.search-empty:not(:empty) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; min-height: 160px; padding: 24px; font-size: 13px; color: var(--lw-search-glass-muted); }
+.search-empty svg { width: 28px; height: 28px; stroke-width: 1.25; opacity: 0.7; }
+.search-dialog [data-slot="command-footer"] { flex-shrink: 0; flex-wrap: wrap; gap: 6px 12px; padding: 12px 22px; border: 0; color: var(--lw-search-glass-muted); text-shadow: none; font-size: 10px; }
+.search-shortcut { white-space: nowrap; }
+.search-footer-status { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.search-footer-status:empty { display: none; }
+.search-key-help { margin-left: auto; }
+.search-issues { padding: 10px 24px; border-top: 1px solid color-mix(in srgb, var(--lw-search-glass-text) 8%, transparent); color: var(--lw-search-glass-muted); font-size: 12px; }
+
+@media (max-width: 540px) {
+  .search-capsule { height: 64px; padding-inline-end: 14px; }
+  .search-capsule input { height: 60px; font-size: 16px; letter-spacing: -0.02em; }
+  .search-filters { padding: 12px; }
+  .search-filters [data-slot="tabs-list"] { width: 100%; }
+  .search-filters [data-slot="tabs-trigger"] { padding-inline: 8px; font-size: 11px; }
+  .search-result { gap: 10px; padding: 8px 10px; }
+  .search-dialog [data-slot="command-footer"] { flex-wrap: wrap; padding-inline: 20px; }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .search-capsule .search-glass-backdrop { background: var(--lw-search-glass-solid); }
+  .search-results-glass .search-glass-backdrop { background: var(--lw-search-glass-solid); }
+  .search-dialog [data-slot="command-footer"] { color: var(--lw-search-glass-text); }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .search-glass-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--lw-search-glass-solid); }
+  .search-capsule .search-glass-backdrop { background: var(--lw-search-glass-solid); }
+  .search-dialog, .search-results-glass { --lw-search-glass-muted: var(--lw-search-glass-text); }
+  .search-dialog [data-slot="command-footer"] { color: var(--lw-search-glass-text); }
+}
+@media (forced-colors: active) {
+  .search-dialog, .search-results-glass { --lw-search-glass-text: CanvasText; --lw-search-glass-muted: CanvasText; }
+  .search-glass-backdrop, .search-capsule .search-glass-backdrop { background: Canvas; backdrop-filter: none; }
+  .search-result[data-highlighted] { outline: 1px solid Highlight; outline-offset: -2px; }
+  .search-dialog [data-slot="command-footer"] { color: CanvasText; }
+  .search-capsule::after, .search-results-glass::after { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-dialog { transition: none; }
+}

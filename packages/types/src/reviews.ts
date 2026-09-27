@@ -76,7 +76,15 @@ export const SavedReviewSchema = z.object({
   documents: z.array(ReviewDocumentSchema).max(REVIEW_MAX_DOCUMENTS), cells: z.array(ReviewCellSchema),
   status: z.enum(["draft", "running", "complete", "needs_review", "cancelled", "interrupted"]),
   runId: z.string().uuid().nullable(), error: z.string().nullable().default(null),
+  /** Set on a synced review that a colleague's computer is running; `at` is its last sign of life there. */
+  runner: z.object({ userId: z.string(), name: z.string().nullable(), at: z.number() }).nullable().optional(),
 });
+/** How long a colleague's run counts as going on without a sign of life from their computer. */
+export const REVIEW_RUNNER_STALE_MS = 10 * 60_000;
+/** A colleague's computer is running this review: this one watches, and does not run or change it. */
+export function reviewRunningElsewhere(review: Pick<SavedReview, "status" | "runner">, now = Date.now()) {
+  return review.status === "running" && !!review.runner && now - review.runner.at < REVIEW_RUNNER_STALE_MS;
+}
 export const CreateReviewSchema = z.strictObject({
   name: z.string().trim().min(1).max(180),
   files: z.array(z.string().min(1).max(4096)).max(REVIEW_MAX_DOCUMENTS),
@@ -134,6 +142,8 @@ export const ReviewLibraryEntrySchema = z.object({
   description: z.string().max(1500).default(""), tags: z.array(z.string().max(60)).max(12).default([]),
   language: z.enum(["en", "de"]), source: z.enum(["builtin", "personal"]),
   columns: ReviewColumnsSchema.refine(columns => columns.length > 0, "Include at least one column."), updatedAt: z.number(),
+  /** A set installed from the firm's Team library: installing it again updates this copy. */
+  hubItemId: z.string().max(100).optional(),
 });
 export const SaveReviewLibrarySchema = ReviewLibraryEntrySchema.pick({ name: true, description: true, tags: true, language: true, columns: true, kind: true }).extend({
   id: z.string().uuid().optional(), version: z.number().int().positive().optional(),

@@ -121,7 +121,7 @@ const baseMarkedOptions = {
       return `<pre class="my-4 overflow-x-auto rounded-[18px] border border-dls-border/70 bg-gray-1/80 px-4 py-3 text-xs leading-6 text-muted-foreground"><code${codeLanguageClass(lang)}>${escapeHtml(text)}</code></pre>`;
     },
     codespan({ text }) {
-      return `<code class="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-sm text-foreground">${escapeHtml(text)}</code>`;
+      return `<code class="rounded-sm bg-foreground/4 px-1 py-0.5 [font:inherit] text-inherit">${escapeHtml(text)}</code>`;
     },
     del({ raw, tokens }) {
       if (!raw.startsWith("~~")) return escapeHtml(raw);

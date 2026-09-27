@@ -148,3 +148,30 @@ test("sets and All prompts preserve standalone prompts and include questions sto
   expect(reviewLibraryKind({ columns: standalone.columns })).toBe("prompt");
   expect(reviewLibraryKind({ columns: sets[0].columns })).toBe("set");
 });
+
+test("only prompt sets are shared with the firm, and a firm set is installed as the member's own copy, updated in place", async () => {
+  const root = await mkdtemp(join(tmpdir(), "review-library-"));
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  try {
+    const library = new ReviewLibrary(config);
+    const prompt = await library.save({ name: "Abtretung", language: "de", columns: [{ key: "assign", label: "Abtretung", question: "Ist eine Abtretung erlaubt?", kind: "yes_no" }] });
+    await expect(library.shareable(prompt.id)).rejects.toMatchObject({ code: "review_library_share_set" });
+    const set = await library.save({ name: "Kaufvertrag", kind: "set", language: "de", tags: ["M&A"], columns: [...prompt.columns, { key: "term", label: "Laufzeit", question: "Wie lange läuft der Vertrag?", kind: "text" }] });
+    const shared = await library.shareable(set.id);
+    // What goes to the firm names no id of this computer's library.
+    expect(JSON.stringify(shared)).not.toContain(set.id);
+    expect(shared).toMatchObject({ name: "Kaufvertrag", tags: ["M&A"], columns: [{ key: "assign" }, { key: "term" }] });
+
+    const colleague = new ReviewLibrary({ ...config, configPath: join(root, "colleague", "server.json") });
+    const installed = await colleague.installShared("hub_1", { set: shared });
+    expect(installed).toMatchObject({ kind: "set", source: "personal", hubItemId: "hub_1", version: 1 });
+    expect(installed.columns[0].libraryId).toBe(installed.id);
+    // Edited there, it stays the firm set's copy; installed again (an update), the same copy moves on.
+    const edited = await colleague.save({ id: installed.id, version: installed.version, name: "Kaufvertrag (angepasst)", language: "de", columns: installed.columns });
+    expect(edited.hubItemId).toBe("hub_1");
+    const updated = await colleague.installShared("hub_1", { set: { ...shared, name: "Kaufvertrag v2" } });
+    expect(updated).toMatchObject({ id: installed.id, version: 3, name: "Kaufvertrag v2" });
+    expect((await colleague.list("de")).filter(entry => entry.hubItemId === "hub_1")).toHaveLength(1);
+    await expect(colleague.installShared("hub_2", { set: { name: "Leer" } })).rejects.toMatchObject({ code: "invalid_review_set" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

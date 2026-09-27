@@ -39,7 +39,7 @@ export function ProjectRecordings(props: { projectId: string }) {
     }
   };
 
-  return <section className="mt-8" aria-label={t("recorder.recordings_title")}>
+  return <section aria-label={t("recorder.recordings_title")}>
     <SectionHeading title={t("recorder.recordings_title")} action={
       <Button variant="ghost" size="icon-sm" disabled={!desktop} aria-label={t("recorder.link_existing")} title={t("recorder.link_existing")} onClick={() => { setSearch(""); setLinkOpen(true); }}><Link2 className="size-4" /></Button>
     } />
@@ -52,8 +52,9 @@ export function ProjectRecordings(props: { projectId: string }) {
       {linked.map((recording) => <RecordingRow key={recording.id} recording={recording} workspaceTargets={[]} busy={pendingId !== null} onUnlink={() => { void setLink(recording.id, false); }} onOpen={() => {
         void useRecorderStore.getState().openRecording(recording.id).catch(() => toast.error(t("projects.failed")));
       }} />)}
-      {!linked.length && !active?.projectIds?.includes(props.projectId) ? <Surface className="rounded-xl px-5 py-5 text-sm text-muted-foreground">
-        {loading ? t("projects.loading") : desktop ? t("recorder.project_empty") : t("recorder.desktop_required_body")}
+      {!linked.length && !active?.projectIds?.includes(props.projectId) ? <Surface className="flex min-h-24 items-center gap-3 rounded-xl border-border/60 px-4 py-4 text-xs leading-5 text-muted-foreground shadow-none">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60"><FileAudio className="size-4" /></span>
+        <p>{loading ? t("projects.loading") : desktop ? t("recorder.project_empty") : t("recorder.desktop_required_body")}</p>
       </Surface> : null}
     </div>
     <Dialog open={linkOpen} onOpenChange={setLinkOpen}>

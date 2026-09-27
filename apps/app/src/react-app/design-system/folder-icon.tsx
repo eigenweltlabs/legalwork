@@ -4,10 +4,12 @@ import { cn } from "@/lib/utils";
 
 export type FolderIconProps = Omit<ComponentProps<"svg">, "children"> & {
   open?: boolean;
+  /** Shared with others: two people on its front. */
+  shared?: boolean;
 };
 
 /** A light-blue folder asset, drawn in layers so it stays crisp at any density. */
-export function FolderIcon({ open = false, className, ...props }: FolderIconProps) {
+export function FolderIcon({ open = false, shared = false, className, ...props }: FolderIconProps) {
   const id = useId();
 
   return (
@@ -47,6 +49,17 @@ export function FolderIcon({ open = false, className, ...props }: FolderIconProp
         strokeLinejoin="round"
       />
       <path d={open ? "M6 11h14.4" : "M4 11h16"} stroke="var(--lw-glass-highlight)" strokeLinecap="round" />
+      {shared ? (
+        <g fill="var(--lw-asset-edge)">
+          <circle cx="14.6" cy="12.9" r="1.3" />
+          <path d="M12.5 18.7a2.3 3.4 0 0 1 4.6 0z" />
+          {/* The front person, edged in the folder's colour so the two stay apart. */}
+          <g stroke="var(--lw-surface)" strokeWidth="0.9" paintOrder="stroke">
+            <circle cx="10.9" cy="13.6" r="1.65" />
+            <path d="M8.1 18.7a2.8 3 0 0 1 5.6 0z" />
+          </g>
+        </g>
+      ) : null}
     </svg>
   );
 }

@@ -100,3 +100,15 @@ test("agents can discuss saved JEV results without rerunning, and result tools r
   expect(JSON.parse(await plugin.tool.legalwork_review_results.execute({ reviewId: id, limit: 500 }, context)).ok).toBe(false);
   expect(calls).toHaveLength(0);
 });
+
+test("corpus questions preserve per-document wording, use project scope and carry retry identity", async () => {
+  const input = { paths: ["Contracts"], question: "Does this document contain an assignment clause?", answers: ["Yes"] };
+  const tool = plugin.tool.legalwork_jev_corpus_question;
+  expect(tool.description).toContain("EACH document");
+  expect(JSON.parse(await tool.execute(input, context)).ok).toBe(true);
+  const first = calls.at(-1); expect(first?.path).toBe("/workspace/project/reviews/corpus/query");
+  expect(first?.body).toMatchObject(input);
+  await tool.execute(input, context); expect(calls.at(-1)?.body).toEqual(first?.body);
+  const result = await tool.execute({ jobId: id, offset: 30 }, context); expect(JSON.parse(result).ok).toBe(true);
+  expect(calls.at(-1)?.body).toMatchObject({ jobId: id, offset: 30 });
+});

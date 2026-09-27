@@ -291,20 +291,20 @@ export function useSessionScrollController(
     [scrollToBottom],
   );
 
-  const jumpToStartOfMessage = useCallback(
-    (behavior: ScrollBehavior = "smooth") => {
-      const messageId = readScrollState(selectedSessionId).topClippedMessageId;
-      const container = options.containerRef.current;
-      if (!messageId || !container) return;
+  const jumpToMessage = useCallback((messageId: string, behavior: ScrollBehavior = "auto") => {
+    const container = options.containerRef.current;
+    if (!container) return false;
+    const target = messageElementById(container, messageId);
+    if (!target) return false;
+    setManualScroll(selectedSessionId, container.scrollTop, messageId);
+    target.scrollIntoView({ behavior, block: "start" });
+    return true;
+  }, [options.containerRef, selectedSessionId, setManualScroll]);
 
-      const target = messageElementById(container, messageId);
-      if (!target) return;
-
-      setManualScroll(selectedSessionId, container.scrollTop, messageId);
-      target.scrollIntoView({ behavior, block: "start" });
-    },
-    [options.containerRef, selectedSessionId, setManualScroll],
-  );
+  const jumpToStartOfMessage = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const messageId = readScrollState(selectedSessionId).topClippedMessageId;
+    if (messageId) jumpToMessage(messageId, behavior);
+  }, [selectedSessionId, jumpToMessage]);
 
   useEffect(() => {
     updateOverflowAnchor();
@@ -411,5 +411,6 @@ export function useSessionScrollController(
     scrollToBottom,
     jumpToLatest,
     jumpToStartOfMessage,
+    jumpToMessage,
   };
 }

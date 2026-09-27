@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -7,10 +7,20 @@ import { Input } from "@/components/ui/input";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
+import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey, type ChatSectionKey, type ProjectNavKey } from "../../../shell/shell-config";
 import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 
-const NAV_ITEMS = {
+export const SIDEBAR_ITEMS = {
+  navHome: { label: "sidebar.chats", icon: House },
+  navProjects: { label: "projects.plural", icon: LayoutGrid },
+  sectionPinned: { label: "sidebar.pinned_sessions", icon: Pin },
+  sectionProjects: { label: "projects.plural", icon: FolderOpen },
+  sectionRecent: { label: "sidebar.recent_sessions", icon: Clock },
+  projectHome: { label: "projects.home", icon: House },
+  projectReviews: { label: "projects.tab_review", icon: Table2 },
+  projectTasks: { label: "projects.tasks", icon: ListTodo },
+  projectFiles: { label: "projects.files", icon: Files },
+  projectSessions: { label: "sidebar.collapse_sessions", icon: MessageSquare },
   navNewChat: { label: "projects.new_chat", icon: PenLine },
   navTasks: { label: "sidebar.tasks", icon: Inbox },
   navWorkflows: { label: "sidebar.workflows", icon: Workflow },
@@ -20,40 +30,48 @@ const NAV_ITEMS = {
 
 export function SidebarCustomization({ onDone }: { onDone: () => void }) {
   const { config, update } = useShellConfig();
-  const move = (key: ShellNavKey, direction: number) => {
-    const navOrder = [...config.navOrder];
-    const index = navOrder.indexOf(key);
-    const target = index + direction;
-    if (target < 0 || target >= navOrder.length) return;
-    navOrder.splice(index, 1);
-    navOrder.splice(target, 0, key);
-    update({ navOrder });
-  };
+  const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string) => (
+    <div className="mt-3">
+      <h3 className="px-2 pb-1 text-xs text-muted-foreground">{label}</h3>
+      <Reorder.Group axis="y" values={keys} onReorder={change} aria-label={label}>
+        {keys.map(key => <NavigationOption key={key} navKey={key} checked={key === "projectSessions" ? config.collapseProjectSessions : config[key]} onCheckedChange={checked => update(key === "projectSessions" ? { collapseProjectSessions: checked } : { [key]: checked })} onMove={direction => {
+          const next = [...keys], index = next.indexOf(key), target = index + direction;
+          if (target < 0 || target >= next.length) return;
+          next.splice(index, 1); next.splice(target, 0, key); change(next);
+        }} />)}
+      </Reorder.Group>
+    </div>
+  );
 
   return (
-    <section aria-label={t("projects.customize_nav")} className="w-full rounded-xl border border-border bg-background p-2 shadow-sm" onKeyDown={(event) => {
+    <section aria-label={t("projects.customize_nav")} className="flex min-h-0 w-full flex-1 flex-col p-2 mac:titlebar-no-drag" onKeyDown={(event) => {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
         onDone();
       }
     }}>
-        <div className="flex items-center justify-between px-2 pb-1">
+      <div className="lw-sidebar-brand flex shrink-0 items-center gap-2.5 px-3 pb-3 pt-2">
+        <SidebarBrandEditor onDone={onDone} />
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background p-2 shadow-sm">
+        <div className="flex shrink-0 items-center justify-between px-2 pb-1">
           <h2 className="text-sm font-normal text-muted-foreground">{t("projects.customize")}</h2>
           <Button autoFocus variant="ghost" size="sm" className="h-8 px-2 font-normal text-blue-11 hover:text-blue-12" onClick={onDone}>{t("projects.customize_done")}</Button>
         </div>
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <LazyMotion features={domMax}>
-          <Reorder.Group axis="y" values={config.navOrder} onReorder={(navOrder) => update({ navOrder })} className="space-y-0.5" aria-label={t("projects.customize_nav")}>
-            {config.navOrder.map((key) => (
-              <NavigationOption key={key} navKey={key} checked={config[key]} onCheckedChange={(checked) => update({ [key]: checked })} onMove={(direction) => move(key, direction)} />
-            ))}
-          </Reorder.Group>
+          {options(config.navOrder, navOrder => update({ navOrder }), t("sidebar.main_actions"))}
+          {options(config.chatSectionOrder, chatSectionOrder => update({ chatSectionOrder }), t("sidebar.chat_sections"))}
+          {options(config.projectNavOrder, projectNavOrder => update({ projectNavOrder }), t("sidebar.project_items"))}
         </LazyMotion>
+        </div>
+      </div>
     </section>
   );
 }
 
-export function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
+function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
   const { config, update } = useShellConfig();
   const logoInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -95,13 +113,13 @@ export function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
 }
 
 function NavigationOption(props: {
-  navKey: ShellNavKey;
+  navKey: ShellNavKey | ChatSectionKey | ProjectNavKey;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
-  onMove: (direction: number) => void;
+  onMove?: (direction: number) => void;
 }) {
   const dragControls = useDragControls();
-  const { icon: Icon, label: labelKey } = NAV_ITEMS[props.navKey];
+  const { icon: Icon, label: labelKey } = SIDEBAR_ITEMS[props.navKey];
   const label = t(labelKey);
 
   return (
@@ -113,14 +131,14 @@ function NavigationOption(props: {
         <Icon className="size-[18px] shrink-0" strokeWidth={1.5} />
         <span className="truncate">{label}</span>
       </Button>
-      <Button variant="ghost" size="icon-xs" className="touch-none cursor-grab text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing" aria-label={t("projects.reorder_nav", { name: label })} title={t("projects.reorder_nav_hint")}
+      {props.onMove ? <Button variant="ghost" size="icon-xs" className="touch-none cursor-grab text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing" aria-label={t("projects.reorder_nav", { name: label })} title={t("projects.reorder_nav_hint")}
         onPointerDown={(event) => dragControls.start(event)}
         onKeyDown={(event) => {
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
           event.preventDefault();
-          props.onMove(event.key === "ArrowUp" ? -1 : 1);
+          props.onMove?.(event.key === "ArrowUp" ? -1 : 1);
         }}
-      ><GripVertical className="size-3.5" /></Button>
+      ><GripVertical className="size-3.5" /></Button> : null}
     </Reorder.Item>
   );
 }

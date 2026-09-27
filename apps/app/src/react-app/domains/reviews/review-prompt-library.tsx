@@ -1,10 +1,11 @@
 import { reviewColumnLabel } from "./review-labels";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Layers, List, Copy, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { BookOpen, Layers, List, Copy, MoreHorizontal, Pencil, Plus, Search, Share2, Trash2 } from "lucide-react";
 import { reviewLibraryKind, reviewLibraryPrompts, type ReviewLibraryEntry } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { SectionHeading } from "../../design-system/surface";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,7 +16,11 @@ import { HubTabs } from "../settings/segmented-tabs";
 import { ReviewLibraryEditor } from "./review-library-editor";
 
 type Editor = { kind: "prompt" | "set"; entry?: ReviewLibraryEntry; initialColumnKey?: string };
-export function ReviewPromptLibrary({ client, workspaceId }: { client: LegalworkServerClient; workspaceId: string }) {
+export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
+  client: LegalworkServerClient; workspaceId: string;
+  /** Share one of the user's own sets with the firm (Team); single prompts are not shared. */
+  onShareSet?: (entry: ReviewLibraryEntry) => void;
+}) {
   const language = currentLocale(), queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["review-library", workspaceId, language], queryFn: () => client.reviewLibrary(workspaceId, language) });
   const [view, setView] = useState<"sets" | "prompts">("sets");
@@ -34,20 +39,21 @@ export function ReviewPromptLibrary({ client, workspaceId }: { client: Legalwork
   const actions = (entry: ReviewLibraryEntry, initialColumnKey?: string) => <DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("workflows.actions", { name: entry.name })} onClick={event => event.stopPropagation()} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
     <DropdownMenuContent align="end"><DropdownMenuItem onClick={event => { event.stopPropagation(); edit(entry, initialColumnKey); }}>{entry.source === "personal" ? <Pencil /> : <Copy />}{t(entry.source === "personal" ? "common.edit" : "review.customize_copy")}</DropdownMenuItem>
+      {onShareSet && initialColumnKey === undefined && entry.source === "personal" && reviewLibraryKind(entry) === "set" && <DropdownMenuItem onClick={event => { event.stopPropagation(); onShareSet(entry); }}><Share2 />{t("workflows.share")}</DropdownMenuItem>}
       {entry.source === "personal" && <DropdownMenuItem variant="destructive" onClick={event => { event.stopPropagation(); setRemoveTarget(entry); }}><Trash2 />{t(reviewLibraryKind(entry) === "set" ? "review.delete_set" : "review.delete_prompt")}</DropdownMenuItem>}
     </DropdownMenuContent>
   </DropdownMenu>;
-  return <section className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-6 py-6" aria-label={t("review.prompts_title")}>
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-lg font-semibold tracking-tight">{t("review.prompts_title")}</h1><p className="mt-1 text-sm text-muted-foreground">{t("review.prompts_body")}</p></div>
-      <Button size="sm" onClick={() => setEditor({ kind: view === "sets" ? "set" : "prompt" })}><Plus className="size-4" />{t(view === "sets" ? "review.new_set" : "review.new_prompt")}</Button>
-    </header>
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+  return <section className="@container/library flex min-h-0 w-full flex-1 flex-col" aria-label={t("review.prompts_title")}>
+    <SectionHeading title={t("review.prompts_title")} description={t("review.prompts_body")} className="mb-5 shrink-0 flex-wrap" action={<Button onClick={() => setEditor({ kind: view === "sets" ? "set" : "prompt" })}><Plus className="size-4" />{t(view === "sets" ? "review.new_set" : "review.new_prompt")}</Button>} />
+    <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3">
       <HubTabs label={t("review.library")} value={view} onChange={setView} items={[
         { id: "sets", label: `${t("review.sets")} (${sets.length})`, icon: Layers },
         { id: "prompts", label: `${t("review.all_prompts")} (${prompts.length})`, icon: List },
       ]} />
-      <div className="relative ml-auto min-w-40 flex-1 sm:max-w-xs"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input className="h-9 pl-9" aria-label={t("review.search_library")} placeholder={t("review.search_library")} value={search} onChange={event => setSearch(event.target.value)} /></div>
-      <div className="w-36"><ReviewSelect value={source} onChange={setSource} label={t("review.library_source")} options={[{ value: "all", label: t("review.all") }, { value: "builtin", label: t("review.starters") }, { value: "personal", label: t("review.saved") }]} /></div>
+      <div className="flex w-full min-w-0 items-center gap-2 @min-[800px]/library:ml-auto @min-[800px]/library:w-auto @min-[800px]/library:flex-1 @min-[800px]/library:max-w-lg">
+        <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input className="h-9 pl-9" aria-label={t("review.search_library")} placeholder={t("review.search_library")} value={search} onChange={event => setSearch(event.target.value)} /></div>
+        <div className="w-32 shrink-0"><ReviewSelect value={source} onChange={setSource} label={t("review.library_source")} options={[{ value: "all", label: t("review.all") }, { value: "builtin", label: t("review.starters") }, { value: "personal", label: t("review.saved") }]} /></div>
+      </div>
     </div>
     <p className="mb-4 text-xs text-muted-foreground">{t(view === "sets" ? "review.sets_body" : "review.all_prompts_body")}</p>
     <ReviewError error={query.error || remove.error} />

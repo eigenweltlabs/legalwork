@@ -26,6 +26,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LegalworkTask, LegalworkTaskMember, LegalworkTaskPatch, LegalworkTaskStatus } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -65,6 +66,8 @@ export type TaskListProps = {
   onLoadMore: () => void;
   onRetry: () => void;
   onClearFilters: () => void;
+  onCreate?: () => void;
+  compactEmpty?: boolean;
 };
 
 export function TaskList(props: TaskListProps) {
@@ -73,6 +76,7 @@ export function TaskList(props: TaskListProps) {
   // Arrow keys walk the rows in visual order and select as they go.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    if (!(event.target instanceof HTMLButtonElement) || !event.target.hasAttribute("data-task-row")) return;
     const rows = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("[data-task-row]") ?? []);
     if (!rows.length) return;
     const focused = rows.findIndex((row) => row === document.activeElement);
@@ -125,6 +129,11 @@ export function TaskList(props: TaskListProps) {
       : signedOut
         ? props.emptyHint
         : t(props.filtered ? "tasks.empty_filtered_body" : "tasks.empty_body");
+    if (props.compactEmpty) return <div className="flex min-h-24 flex-wrap items-center gap-3 px-4 py-4">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground">{signedOut ? <CloudOff className="size-4" /> : <Inbox className="size-4" />}</span>
+      <div className="min-w-36 flex-1"><p className="text-sm font-medium">{title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{body}</p></div>
+      {!signedOut && props.onCreate && <Button variant="ghost" size="sm" className="text-xs" onClick={props.onCreate}>{t("tasks.new_task")}</Button>}
+    </div>;
     return (
       <Empty variant="ghost" className="mx-auto max-w-sm py-14">
         <EmptyHeader>
@@ -136,7 +145,7 @@ export function TaskList(props: TaskListProps) {
           <Button variant="outline" size="sm" onClick={props.onClearFilters}>
             {t("tasks.clear_filters")}
           </Button>
-        ) : null}
+        ) : !props.trash && !signedOut && props.onCreate ? <Button variant="outline" size="sm" onClick={props.onCreate}>{t("tasks.new_task")}</Button> : null}
       </Empty>
     );
   }
@@ -397,70 +406,102 @@ function TaskRow(props: {
       onDelete={() => props.onDelete(task)}
       onRestore={() => props.onRestore(task)}
     >
-      <button
-        type="button"
-        data-task-row={task.id}
-        aria-current={props.selected ? "true" : undefined}
-        className={cn(
-          "lw-sidebar-item flex w-full flex-col gap-1 rounded-lg px-3 py-3 text-start outline-none",
-          "hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/30",
-          props.selected && "bg-muted hover:bg-muted",
-        )}
-        onClick={() => props.onSelect(task.id)}
-      >
-        <span className="flex items-start gap-2">
-          <span className="shrink-0 pt-0.5" title={taskStatusLabel(task.status)}><StatusGlyph status={task.status} className="size-4" /><span className="sr-only">{taskStatusLabel(task.status)}</span></span>
-          <span className="min-w-0 flex-1 line-clamp-2 text-[13px] font-medium leading-5 text-foreground">{task.title}</span>
-          {task.priority !== 0 ? <PriorityMark priority={task.priority} className="mt-0.5 shrink-0" /> : null}
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5 ps-6 text-xs text-muted-foreground">
-          {task.deletedAt ? (
-            <span className="truncate">{t("tasks.deleted_on", { date: formatTaskDate(task.deletedAt) })}</span>
-          ) : (
-            <>
-              {task.tags.slice(0, 2).map((tag) => (
-                <span key={tag} className="max-w-24 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground/80">
-                  {tag}
-                </span>
-              ))}
-              {task.tags.length ? <span aria-hidden className="text-muted-foreground/50">·</span> : null}
-              <span className="truncate">{taskOriginLabel(task)}</span>
-              <span aria-hidden className="text-muted-foreground/50">·</span>
-              <span className={cn("truncate", !task.assigneeUserId && "text-muted-foreground/70")}>{assignee}</span>
-            </>
+      <div className="group/task-row relative">
+        <button
+          type="button"
+          data-task-row={task.id}
+          aria-current={props.selected ? "true" : undefined}
+          className={cn(
+            "lw-sidebar-item flex w-full flex-col gap-1 rounded-lg py-3 pe-3 ps-9 text-start outline-none",
+            "group-hover/task-row:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/30",
+            props.selected && "bg-muted group-hover/task-row:bg-muted",
           )}
-          <span className="ms-auto flex shrink-0 items-center gap-2 ps-2">
-            {task.dueDate ? (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 tabular-nums",
-                  dueTone === "overdue" && "font-medium text-red-9",
-                  dueTone === "today" && "font-medium text-amber-9",
-                )}
-                title={t("tasks.due_label", { date: formatTaskDueDate(task.dueDate) })}
-              >
-                <CalendarClock aria-hidden className="size-3" />
-                {formatTaskDueDate(task.dueDate)}
-              </span>
-            ) : null}
-            {task.attachments.length ? (
-              <span
-                className="inline-flex items-center gap-0.5 tabular-nums"
-                aria-label={t("tasks.attachments_count", { count: task.attachments.length })}
-              >
-                <Paperclip aria-hidden className="size-3" />
-                {task.attachments.length}
-              </span>
-            ) : null}
-            {task.cloudRunId ? (
-              <Cloud aria-label={t("tasks.cloud_run_running")} className="size-3" />
-            ) : task.lastLocalRunAt ? (
-              <Play aria-label={t("tasks.last_local_run")} className="size-3" />
-            ) : null}
-            <SyncMark sync={task.sync} />
+          onClick={() => props.onSelect(task.id)}
+        >
+          <span className="flex items-start gap-2">
+            <span className="min-w-0 flex-1 line-clamp-2 text-[13px] font-medium leading-5 text-foreground">{task.title}</span>
+            {task.priority !== 0 ? <PriorityMark priority={task.priority} className="mt-0.5 shrink-0" /> : null}
           </span>
-        </span>
-      </button>
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {task.deletedAt ? (
+              <span className="truncate">{t("tasks.deleted_on", { date: formatTaskDate(task.deletedAt) })}</span>
+            ) : (
+              <>
+                {task.tags.slice(0, 2).map((tag) => (
+                  <span key={tag} className="max-w-24 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground/80">
+                    {tag}
+                  </span>
+                ))}
+                {task.tags.length ? <span aria-hidden className="text-muted-foreground/50">·</span> : null}
+                <span className="truncate">{taskOriginLabel(task)}</span>
+                <span aria-hidden className="text-muted-foreground/50">·</span>
+                <span className={cn("truncate", !task.assigneeUserId && "text-muted-foreground/70")}>{assignee}</span>
+              </>
+            )}
+            <span className="ms-auto flex shrink-0 items-center gap-2 ps-2">
+              {task.dueDate ? (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 tabular-nums",
+                    dueTone === "overdue" && "font-medium text-red-9",
+                    dueTone === "today" && "font-medium text-amber-9",
+                  )}
+                  title={t("tasks.due_label", { date: formatTaskDueDate(task.dueDate) })}
+                >
+                  <CalendarClock aria-hidden className="size-3" />
+                  {formatTaskDueDate(task.dueDate)}
+                </span>
+              ) : null}
+              {task.attachments.length ? (
+                <span
+                  className="inline-flex items-center gap-0.5 tabular-nums"
+                  aria-label={t("tasks.attachments_count", { count: task.attachments.length })}
+                >
+                  <Paperclip aria-hidden className="size-3" />
+                  {task.attachments.length}
+                </span>
+              ) : null}
+              {task.cloudRunId ? (
+                <Cloud aria-label={t("tasks.cloud_run_running")} className="size-3" />
+              ) : task.lastLocalRunAt ? (
+                <Play aria-label={t("tasks.last_local_run")} className="size-3" />
+              ) : null}
+              <SyncMark sync={task.sync} />
+            </span>
+          </span>
+        </button>
+        {task.deletedAt ? (
+          <span className="absolute start-1.5 top-2 flex size-7 items-center justify-center" title={taskStatusLabel(task.status)}>
+            <StatusGlyph status={task.status} className="size-4" />
+            <span className="sr-only">{taskStatusLabel(task.status)}</span>
+          </span>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon" />}
+              className="absolute start-1.5 top-2 size-7 rounded-md hover:bg-muted data-popup-open:bg-muted"
+              aria-label={`${t("tasks.column_status")}: ${taskStatusLabel(task.status)} · ${task.title}`}
+              title={`${t("tasks.column_status")}: ${taskStatusLabel(task.status)}`}
+              disabled={props.busy}
+            >
+              <StatusGlyph status={task.status} className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuRadioGroup value={task.status} onValueChange={(value) => {
+                const status = TASK_STATUSES.find((candidate) => candidate === value);
+                if (status && status !== task.status) props.onPatch(task, { status });
+              }}>
+                {TASK_STATUSES.map((status) => (
+                  <DropdownMenuRadioItem key={status} value={status} closeOnClick disabled={props.busy}>
+                    <StatusGlyph status={status} />
+                    {taskStatusLabel(status)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
     </TaskRowMenu>
   );
 }

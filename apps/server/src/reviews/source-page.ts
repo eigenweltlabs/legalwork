@@ -10,7 +10,7 @@ import { sourceQuote } from "./citations.js";
 import { ocrQuoteRegions } from "../document-preparation/highlights.js";
 
 /** Locate the saved quotation on the unchanged original page, including old results. */
-export async function reviewSourcePage(workspace: string, file: string, result: ReviewResult, citationIndex: number, signal: AbortSignal, requestedPage?: number): Promise<ReviewSourcePage> {
+export async function reviewSourcePage(workspace: string, file: string, result: Pick<ReviewResult, "sourceHash" | "preparationPath" | "citations">, citationIndex: number, signal: AbortSignal, requestedPage?: number): Promise<ReviewSourcePage> {
   const citation = result.citations[citationIndex];
   if (!citation?.page || !/\.(pdf|png|jpe?g|webp)$/i.test(file)) throw new ApiError(400, "review_citation", "This citation has no page preview.");
   if (requestedPage !== undefined && (!Number.isInteger(requestedPage) || requestedPage < 1)) throw new ApiError(400, "review_citation", "Invalid source page.");

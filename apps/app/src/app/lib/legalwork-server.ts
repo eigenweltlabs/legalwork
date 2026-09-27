@@ -1,7 +1,19 @@
+import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
+import type { ContentSearchResponse } from "@legalwork/types/search";
+import type { JevSearchProgress } from "@legalwork/types/corpus";
 import { applyReviewUpdate, type ReviewUpdate, type QueryReviewResults, type CreateReview, type EditReview, type RunReview, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities, type ReviewLibraryEntry, type SaveReviewLibrary, type ReviewSourceReference, type ReviewSourcePage } from "@legalwork/types/reviews";
-import type { ProjectContents, ProjectContentKind, ProjectDetails, ProjectField } from "@legalwork/types/workspace";
+import type {
+  ProjectContents,
+  ProjectContentKind,
+  ProjectDetails,
+  ProjectField,
+  ProjectSyncOverview,
+  ProjectSyncSettings,
+  ProjectSyncStatus,
+} from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
+import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -258,7 +270,8 @@ export type EigenweltHubKind =
   | "mcp"
   | "plugin"
   | "integration"
-  | "preset";
+  | "preset"
+  | "review_set";
 
 /** One shared item in the firm hub (list view — no payload). */
 export type EigenweltHubItem = {
@@ -449,7 +462,10 @@ export type LegalworkTaskNote = {
   createdAt: string;
 };
 
-export type LegalworkTaskDetail = { task: LegalworkTask; submission: unknown; notes: LegalworkTaskNote[] };
+/** A title or description a colleague changed in the same words: theirs stayed, `mine` is what this member wrote. */
+export type LegalworkTaskTextConflict = { field: "title" | "description"; mine: string; theirs: string; at: string };
+export type LegalworkTaskConflictChoice = { field: "title" | "description"; keep: "mine" | "theirs"; note?: string };
+export type LegalworkTaskDetail = { task: LegalworkTask; submission: unknown; notes: LegalworkTaskNote[]; conflicts: LegalworkTaskTextConflict[] };
 
 /** Where the local store stands against the platform. */
 export type LegalworkTaskSyncStatus = {
@@ -465,7 +481,7 @@ export type LegalworkTaskSyncStatus = {
 };
 
 /** Something to announce about a task (the server's task-notifications.ts). */
-export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue" | "conflict";
 
 /**
  * Whose the task is, for the signed-in member: `mine` (assigned to them, or
@@ -599,6 +615,9 @@ export type LegalworkWorkspaceFileWriteResult = {
   bytes: number;
   updatedAt: number;
   revision?: string;
+  /** The file had changed since it was loaded, and was merged: `content` is what was written. */
+  merged?: boolean;
+  content?: string;
 };
 
 export type LegalworkWorkspaceFileDeleteResult = {
@@ -1682,6 +1701,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       const update = await requestJson<ReviewUpdate>(baseUrl, `${path}/updates${previous ? `?revision=${previous.revision}` : ""}`, { token, hostToken });
       return applyReviewUpdate(previous, update) ?? requestJson<SavedReview>(baseUrl, path, { token, hostToken });
     },
+    getJevSearchProgress: (workspaceId: string, jobId: string) => requestJson<JevSearchProgress>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}`, { token, hostToken }),
     queryReviewRows: (workspaceId: string, reviewId: string, input: Omit<QueryReviewResults, "cursor" | "limit" | "view">) => requestJson<{ revision: number; documentIds: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/rows/query`, { token, hostToken, method: "POST", body: input }),
     deleteReview: (workspaceId: string, reviewId: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "DELETE", body: { revision } }),
     createReview: (workspaceId: string, input: CreateReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken, method: "POST", body: input }),
@@ -1970,6 +1990,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken },
       );
     },
+    searchSourcePage: (workspaceId: string, source: SearchSourceReference) => requestJson<SearchSourcePage>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/search-source`, { method: "POST", body: source, token, hostToken }),
+    searchContents: (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal?: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) =>
+      requestJson<ContentSearchResponse>(baseUrl,
+        kind === "tasks" ? `/tasks/search?${new URLSearchParams({ q: query, ...(options?.projectOnly ? { projectId: workspaceId } : {}) })}` : `/workspace/${encodeURIComponent(workspaceId)}/search/${kind}?${new URLSearchParams({ q: query, ...(options?.retry ? { retry: "true" } : {}) })}`,
+        { token, hostToken, signal, timeoutMs: 60_000 }),
     getSession: (workspaceId: string, sessionId: string) =>
       requestJson<{ item: Session }>(
         baseUrl,
@@ -2468,6 +2494,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
+    resolveTaskConflict: (workspaceId: string, taskId: string, choice: LegalworkTaskConflictChoice) =>
+      requestJson<LegalworkTaskDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/conflicts`,
+        { token, hostToken, method: "POST", body: choice, timeoutMs: timeouts.config },
+      ),
     createTask: (workspaceId: string, payload: LegalworkTaskCreate) =>
       requestJson<{ ok: boolean; task: LegalworkTask }>(
         baseUrl,
@@ -2544,6 +2576,69 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/task-members`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
+    /** Every synced project's state, and a revision that moves when projects arrive, leave or are renamed. */
+    projectSyncOverview: () =>
+      requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, timeoutMs: timeouts.status }),
+    /**
+     * Hear this server's sync events (GET /sync/events), each handed to
+     * `onPoke` as it comes, until the stream ends or `signal` aborts.
+     */
+    syncEvents: async (onPoke: (poke: SyncPoke) => void, signal: AbortSignal) => {
+      const url = `${baseUrl}/sync/events`;
+      const response = await resolveFetch(url)(url, {
+        headers: buildAuthHeaders(token, hostToken, { Accept: "text/event-stream" }),
+        signal,
+      });
+      if (!response.ok || !response.body) throw new LegalworkServerError(response.status, "request_failed", response.statusText);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const feed = serverSentEvents((data) => {
+        const poke = syncPokeOf(data);
+        if (poke) onPoke(poke);
+      });
+      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        feed(decoder.decode(chunk.value, { stream: true }));
+      }
+    },
+    runProjectSync: () =>
+      requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
+    projectSyncStatus: (workspaceId: string) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    /** Turn sync on, or change who sees the project and what it syncs (its owner). */
+    saveProjectSync: (workspaceId: string, settings: ProjectSyncSettings) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: settings,
+        timeoutMs: timeouts.config,
+      }),
+    /** The owner stops syncing: the project stays here, and leaves the firm. */
+    stopProjectSync: (workspaceId: string) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        method: "DELETE",
+        timeoutMs: timeouts.config,
+      }),
+    resolveProjectSync: (
+      workspaceId: string,
+      input:
+        | { action: "keep_local" | "delete_files" | "restore_files" | "use_folder" | "keep_apart" }
+        | { action: "remove"; force?: boolean }
+        | { action: "dismiss_conflict" | "use_theirs" | "keep_mine"; copyPath: string },
+    ) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync/resolve`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: input,
+        timeoutMs: timeouts.config,
+      }),
     listTaskTags: (workspaceId: string) =>
       requestJson<{ tags: string[] }>(
         baseUrl,
@@ -2912,7 +3007,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     writeWorkspaceFile: (
       workspaceId: string,
-      payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean },
+      /** `baseContent`: the text as loaded, so a file changed since is merged with it rather than refused. */
+      payload: { path: string; content: string; baseUpdatedAt?: number | null; baseContent?: string; force?: boolean },
     ) =>
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,

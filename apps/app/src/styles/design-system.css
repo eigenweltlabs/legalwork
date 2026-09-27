@@ -55,13 +55,37 @@
     background: linear-gradient(180deg, var(--lw-surface-hover), var(--lw-sidebar));
   }
 
-  .lw-sidebar-new-chat {
-    background: var(--lw-glass-strong);
-    box-shadow: var(--lw-shadow-xs), inset 0 1px 0 var(--lw-glass-highlight);
-  }
-
   .lw-sidebar-brand {
     letter-spacing: -0.04em;
+  }
+
+  /* Page layouts share one content column, sized to the pane rather than the window. */
+  .lw-page-content,
+  .lw-project-page-content {
+    width: 100%;
+    min-width: 0;
+    max-width: 72rem;
+    margin-inline: auto;
+    padding-inline: 24px;
+  }
+
+  .lw-page-top,
+  .lw-project-page-top {
+    padding-top: 32px;
+  }
+
+  .lw-project-home-header {
+    background: radial-gradient(ellipse at top right, color-mix(in srgb, var(--lw-file-word) 9%, transparent), transparent 70%), var(--lw-surface);
+  }
+
+  @container (min-width: 720px) {
+    .lw-page-content { padding-inline: 32px; }
+    .lw-page-top { padding-top: 40px; }
+  }
+
+  @container project-page (min-width: 720px) {
+    .lw-project-page-content { padding-inline: 32px; }
+    .lw-project-page-top { padding-top: 40px; }
   }
 
   .lw-enter {
@@ -81,6 +105,26 @@
 @keyframes lw-opacity-enter {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+/* A quiet moving highlight on live activity text; static text in accessibility modes. */
+@keyframes lw-tool-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  @supports (background-clip: text) {
+    .lw-tool-shimmer {
+      color: transparent;
+      -webkit-text-fill-color: transparent;
+      background-image: linear-gradient(100deg, var(--muted-foreground) 35%, var(--foreground) 48%, var(--muted-foreground) 61%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      animation: lw-tool-shimmer 1.8s linear infinite;
+    }
+  }
 }
 
 /* Large surfaces and decorative effects never move for reduced-motion users.
@@ -137,3 +181,79 @@
 .lw-document-icon[data-file-kind="video"] { --lw-file-accent: var(--lw-file-media); }
 .lw-document-icon[data-file-kind="html"],
 .lw-document-icon[data-file-kind="markdown"] { --lw-file-accent: var(--lw-file-code); }
+
+/* One continuous window frame. Both icon rails stay outside the rounded workspace. */
+.lw-window-frame {
+  --lw-window-chrome: var(--lw-surface-hover);
+  --lw-window-bar-height: 44px;
+  --lw-window-left-rail-width: 48px;
+  --lw-window-right-rail-width: 44px;
+  --lw-window-curve: 18px;
+  background: var(--lw-window-chrome);
+}
+.lw-workspace-shell {
+  --lw-sidebar-transition-duration: 250ms;
+  padding-top: var(--lw-window-bar-height);
+  background: var(--lw-window-chrome);
+}
+.lw-window-topbar {
+  height: var(--lw-window-bar-height);
+  background: var(--lw-window-chrome);
+}
+.lw-window-navigation {
+  transition: width var(--lw-sidebar-transition-duration) var(--lw-ease-out);
+}
+.lw-workspace-shell [data-slot="sidebar-gap"],
+.lw-workspace-shell [data-slot="sidebar-container"] {
+  transition-duration: var(--lw-sidebar-transition-duration);
+}
+.lw-workspace-shell [data-slot="sidebar-container"] {
+  top: var(--lw-window-bar-height);
+  height: calc(100svh - var(--lw-window-bar-height));
+  border-right: none;
+}
+/* Keep the divider mounted while the inner sidebar is hidden. Reveal it only
+   after expansion, and hide it immediately before the panel collapses. */
+.lw-workspace-shell [data-slot="sidebar-container"][data-side="left"]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 1px;
+  pointer-events: none;
+  background: var(--lw-border);
+  opacity: 0;
+}
+.lw-workspace-shell[data-sidebar-visible="true"] [data-slot="sidebar-container"][data-side="left"]::after {
+  opacity: 1;
+  transition: opacity 80ms var(--lw-ease-out) var(--lw-sidebar-transition-duration);
+}
+.lw-workspace-shell .lw-sidebar,
+.lw-workspace-shell .lw-session-workspace,
+.lw-workspace-shell .lw-session-rail {
+  background: var(--lw-window-chrome);
+  backdrop-filter: none;
+}
+.lw-workspace-shell .lw-chat-sidebar {
+  overflow: hidden;
+  padding-top: 12px;
+  border-top-left-radius: var(--lw-window-curve);
+  border: 1px solid var(--lw-border);
+  border-right-color: transparent;
+  border-bottom: none;
+  background: color-mix(in srgb, var(--lw-canvas) 65%, var(--lw-sidebar));
+}
+.lw-workspace-surface {
+  overflow: hidden;
+  border-top-right-radius: var(--lw-window-curve);
+  border-top: 1px solid var(--lw-border);
+  border-right: 1px solid var(--lw-border);
+  background: var(--lw-canvas);
+}
+.lw-workspace-shell[data-sidebar-visible="false"] .lw-workspace-surface {
+  border-top-left-radius: var(--lw-window-curve);
+  border-left: 1px solid var(--lw-border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lw-window-navigation { transition: none; }
+}

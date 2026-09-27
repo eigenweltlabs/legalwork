@@ -1,10 +1,12 @@
+import { matchesSearch, searchExcerpt, type ContentSearchResult } from "./search-schema.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 import { ApiError } from "./errors.js";
+import { PROJECT_SYNC_SCHEMA } from "./project-sync-store.js";
+import { openSqlite, runtimeDbPath, type Row, type SqliteHandle, type SqlValue } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -126,7 +128,7 @@ export type TaskSessionLink = {
  * it arrived from the firm, it was assigned to the signed-in member, it is due
  * today, it is overdue.
  */
-export type TaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+export type TaskNotificationKind = "new" | "assigned" | "due_today" | "overdue" | "conflict";
 
 /**
  * Whose a task is, as the signed-in member sees it — what the app's "which
@@ -147,7 +149,26 @@ export type TaskNotification = {
   createdAt: string;
 };
 
-export type TaskDetail = { task: Task; submission: unknown; notes: TaskNote[] };
+/**
+ * A title or description this member changed while a colleague changed the
+ * same words (task-sync.ts): the colleague's text stayed, `mine` is what this
+ * member wrote, for them to decide which stays.
+ */
+export type TaskTextConflict = { field: "title" | "description"; mine: string; theirs: string; at: string };
+export type TaskDetail = { task: Task; submission: unknown; notes: TaskNote[]; conflicts: TaskTextConflict[] };
+
+/** Which version of a conflicting title or description stays; `note` keeps this member's in the history too. */
+export type TaskConflictChoice = { field: "title" | "description"; keep: "mine" | "theirs"; note?: string };
+
+export function parseTaskConflictChoice(value: unknown): TaskConflictChoice {
+  const field = typeof value === "object" && value !== null && "field" in value ? value.field : undefined;
+  const keep = typeof value === "object" && value !== null && "keep" in value ? value.keep : undefined;
+  const note = typeof value === "object" && value !== null && "note" in value ? value.note : undefined;
+  if ((field !== "title" && field !== "description") || (keep !== "mine" && keep !== "theirs") || (note !== undefined && typeof note !== "string")) {
+    throw new ApiError(400, "invalid_task_conflict_choice", "Choose which version stays: mine or theirs.");
+  }
+  return { field, keep, ...(note === undefined ? {} : { note }) };
+}
 
 export type TaskListParams = {
   projectId?: string;
@@ -228,13 +249,18 @@ const SCALAR_FIELDS: TaskScalarField[] = ["title", "description", "status", "pri
  */
 export type TaskSyncOp =
   | { kind: "create"; changedAt: string }
-  | { kind: "patch"; fields: Partial<Pick<Task, TaskScalarField>>; changedAt: string }
+  /** `bases`: the title and description this change started from, for the platform to merge against. */
+  | { kind: "patch"; fields: Partial<Pick<Task, TaskScalarField>>; changedAt: string; bases?: { title?: string; description?: string } }
   | { kind: "delete"; changedAt: string }
   | { kind: "restore"; changedAt: string }
   | { kind: "note"; noteId: string; body: string; source: TaskNoteSource; createdAt: string }
   | { kind: "attachment_add"; attachmentId: string }
   | { kind: "attachment_delete"; attachmentId: string }
-  | { kind: "run_marker"; lastLocalRunAt: string | null };
+  | { kind: "run_marker"; lastLocalRunAt: string | null }
+  /** Moved into another project (this machine's project id), or out of one. */
+  | { kind: "project"; projectId: string | null; changedAt: string }
+  /** Moved into a project that stays on this machine: the task leaves the firm. */
+  | { kind: "withdraw" };
 
 export type TaskOutboxEntry = {
   seq: number;
@@ -281,6 +307,8 @@ export type RemoteTask = {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** The firm's id of the synced project the task belongs to. */
+  projectId: string | null;
 };
 
 export const TASK_TITLE_MAX_CHARS = 500;
@@ -292,49 +320,8 @@ export const TASK_PAGE_DEFAULT = 50;
 export const TASK_PAGE_MAX = 200;
 
 // ---------------------------------------------------------------------------
-// SQLite, on either runtime
+// Schema
 // ---------------------------------------------------------------------------
-
-type SqlValue = string | number | null;
-type Row = Record<string, unknown>;
-
-/** The few statements the store needs, over bun:sqlite (bun) or node:sqlite
- *  (Node / Electron) — better-sqlite3 is not loadable under bun. */
-type SqliteHandle = {
-  run: (sql: string, params?: SqlValue[]) => void;
-  all: (sql: string, params?: SqlValue[]) => Row[];
-  get: (sql: string, params?: SqlValue[]) => Row | undefined;
-  exec: (sql: string) => void;
-};
-
-async function openSqlite(path: string): Promise<SqliteHandle> {
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const db = new Database(path, { create: true });
-    return {
-      run: (sql, params = []) => {
-        db.query(sql).run(...params);
-      },
-      all: (sql, params = []) => db.query(sql).all(...params) as Row[],
-      get: (sql, params = []) => (db.query(sql).get(...params) as Row | null) ?? undefined,
-      exec: (sql) => {
-        db.exec(sql);
-      },
-    };
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  const db = new DatabaseSync(path);
-  return {
-    run: (sql, params = []) => {
-      db.prepare(sql).run(...params);
-    },
-    all: (sql, params = []) => db.prepare(sql).all(...params) as Row[],
-    get: (sql, params = []) => db.prepare(sql).get(...params) as Row | undefined,
-    exec: (sql) => {
-      db.exec(sql);
-    },
-  };
-}
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS task_projects (task_id TEXT PRIMARY KEY NOT NULL, project_id TEXT NOT NULL)`,
@@ -437,6 +424,16 @@ const SCHEMA = [
   // What the app is to announce about the tasks: one row per task and
   // occasion (a due day, the moment of an assignment), so nothing is announced
   // twice. Ids only — the text is read from the task when the app claims it.
+  // Titles and descriptions a colleague changed in the same words: theirs
+  // stayed, and this member decides (task-sync.ts).
+  `CREATE TABLE IF NOT EXISTS task_text_conflicts (
+    task_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    mine TEXT NOT NULL,
+    theirs TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (task_id, field)
+  )`,
   `CREATE TABLE IF NOT EXISTS task_notifications (
     id TEXT PRIMARY KEY NOT NULL,
     task_id TEXT NOT NULL,
@@ -452,18 +449,15 @@ const SCHEMA = [
 // Columns added after the table's first release. SQLite has no ADD COLUMN IF
 // NOT EXISTS, so each ALTER runs best-effort (throws "duplicate column" once
 // the column exists — ignored). Empty for now; kept for the next one.
-const MIGRATION_COLUMNS: string[] = ["ALTER TABLE tasks ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"];
+const MIGRATION_COLUMNS: string[] = [
+  "ALTER TABLE tasks ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'",
+  // The firm's id of the task's project, as last pulled: the local link follows
+  // once this machine has that project.
+  "ALTER TABLE tasks ADD COLUMN remote_project_id TEXT",
+];
 
 /** The one flag the store keeps about the account: a sign-out happened, and no sign-in since. */
 const SIGNED_OUT_FLAG = "signed_out_at";
-
-function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
-}
 
 /** Attachment bytes live as files next to the DB, one directory per task. */
 function attachmentsDir(config: ServerConfig): string {
@@ -551,7 +545,7 @@ function toOrigin(value: unknown): TaskOrigin {
 }
 
 function toNotificationKind(value: unknown): TaskNotificationKind | null {
-  return value === "new" || value === "assigned" || value === "due_today" || value === "overdue" ? value : null;
+  return value === "new" || value === "assigned" || value === "due_today" || value === "overdue" || value === "conflict" ? value : null;
 }
 
 /** Open or in progress: the tasks someone still has to do. */
@@ -644,6 +638,8 @@ export class TaskStore {
     // write must wait for a sibling's rather than fail at once.
     db.exec("PRAGMA busy_timeout = 5000");
     for (const statement of SCHEMA) db.exec(statement);
+    // project_links tells a task of a local project from one of a synced project.
+    for (const statement of PROJECT_SYNC_SCHEMA) db.exec(statement);
     for (const statement of MIGRATION_COLUMNS) {
       try {
         db.exec(statement);
@@ -849,7 +845,41 @@ export class TaskStore {
 
   getDetail(id: string): TaskDetail {
     const task = this.requireTask(id);
-    return { task, submission: this.getSubmission(id), notes: this.listNotes(id) };
+    return { task, submission: this.getSubmission(id), notes: this.listNotes(id), conflicts: this.textConflicts(id) };
+  }
+
+  textConflicts(taskId: string): TaskTextConflict[] {
+    return this.db.all("SELECT * FROM task_text_conflicts WHERE task_id = ? ORDER BY field", [taskId]).flatMap((row) => {
+      const field = row.field;
+      if ((field !== "title" && field !== "description") || typeof row.mine !== "string" || typeof row.theirs !== "string") return [];
+      return [{ field, mine: row.mine, theirs: row.theirs, at: new Date(Number(row.created_at)).toISOString() }];
+    });
+  }
+
+  /** The platform kept a colleague's text over this member's: remember theirs for them to decide, and say so. */
+  recordTextConflicts(taskId: string, conflicts: Omit<TaskTextConflict, "at">[], now: number = Date.now()): void {
+    for (const conflict of conflicts) {
+      this.db.run(
+        `INSERT INTO task_text_conflicts (task_id, field, mine, theirs, created_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(task_id, field) DO UPDATE SET mine = excluded.mine, theirs = excluded.theirs, created_at = excluded.created_at`,
+        [taskId, conflict.field, conflict.mine, conflict.theirs, now],
+      );
+      this.recordNotification(taskId, "conflict", `${conflict.field}:${now}`, now);
+    }
+  }
+
+  /**
+   * Settle a conflicting title or description: theirs stays as it is, or
+   * mine replaces it (an edit like any other, which the next round sends);
+   * with `note`, mine is kept in the task's history as well.
+   */
+  resolveTextConflict(taskId: string, choice: TaskConflictChoice, actor: TaskActor, now: number = Date.now()): TaskDetail {
+    const conflict = this.textConflicts(taskId).find((entry) => entry.field === choice.field);
+    if (!conflict) throw new ApiError(404, "task_conflict_not_found", "There is nothing to decide for this task.");
+    if (choice.keep === "mine") this.patchTask(taskId, { [choice.field]: conflict.mine }, actor, now);
+    if (choice.note !== undefined && choice.note.trim()) this.patchTask(taskId, { note: choice.note }, actor, now);
+    this.db.run("DELETE FROM task_text_conflicts WHERE task_id = ? AND field = ?", [taskId, choice.field]);
+    return this.getDetail(taskId);
   }
 
   /**
@@ -933,6 +963,21 @@ export class TaskStore {
     };
   }
 
+  searchTasks(query: string, orgId: string | null, workspaceId: string, projectOnly = false): ContentSearchResult[] {
+    const rows = this.db.all(
+      `SELECT t.id, t.title, t.description, t.updated_at, t.status,
+        (SELECT p.project_id FROM task_projects p WHERE p.task_id = t.id LIMIT 1) AS project_id
+       FROM tasks t WHERE t.deleted_at IS NULL
+        AND (? IS NULL OR t.origin = 'desktop' OR t.remote_org_id IS NULL OR t.remote_org_id = ?)
+        AND (? = 0 OR EXISTS (SELECT 1 FROM task_projects p WHERE p.task_id = t.id AND p.project_id = ?))
+       ORDER BY (t.status = 'done') ASC, t.updated_at DESC`, [orgId, orgId, projectOnly ? 1 : 0, workspaceId]);
+    return rows.filter(row => matchesSearch(`${text(row.title)} ${text(row.description)}`, query)).slice(0, 61).map(row => ({
+      kind: "tasks", id: text(row.id), workspaceId: projectOnly ? workspaceId : nullableText(row.project_id) ?? "",
+      title: text(row.title), excerpt: searchExcerpt(text(row.description), query), updatedAt: Number(row.updated_at),
+      completed: row.status === "done",
+    }));
+  }
+
   /** Every endpoint the local tasks name, for the pane's filter. */
   listEndpoints(orgId: string | null = null): { id: string; name: string }[] {
     const rows = this.db.all(
@@ -963,12 +1008,95 @@ export class TaskStore {
 
   // --- Local writes (each one lands in the outbox) --------------------------
 
+  /**
+   * Record a write for the firm — unless the task stays on this machine: it
+   * belongs to a project that does not sync its tasks, and it is not (or no
+   * longer) the firm's.
+   */
   private enqueue(taskId: string, op: TaskSyncOp, now: number): void {
+    if (!this.syncsWithFirm(taskId)) return;
     this.db.run("INSERT INTO task_sync_outbox (task_id, op_json, created_at) VALUES (?, ?, ?)", [
       taskId,
       JSON.stringify(op),
       now,
     ]);
+  }
+
+  /** Whether a project of this machine syncs its tasks with the firm. */
+  private projectSyncsTasks(workspaceId: string): boolean {
+    return (
+      this.db.get(
+        `SELECT 1 AS syncs FROM project_links WHERE workspace_id = ? AND state = 'active'
+         AND json_extract(settings_json, '$.scope.tasks') = 1`,
+        [workspaceId],
+      ) !== undefined
+    );
+  }
+
+  /**
+   * Whether a task's writes go to the firm: it is in no project, or in one
+   * that syncs its tasks, or it is already the firm's.
+   */
+  syncsWithFirm(taskId: string): boolean {
+    const row = this.db.get(
+      "SELECT t.remote_org_id, p.project_id FROM tasks t LEFT JOIN task_projects p ON p.task_id = t.id WHERE t.id = ?",
+      [taskId],
+    );
+    if (!row) return false;
+    const projectId = nullableText(row.project_id);
+    // A task already the firm's keeps syncing wherever it is linked here; it
+    // leaves the firm only by being withdrawn.
+    return projectId === null || nullableText(row.remote_org_id) !== null || this.projectSyncsTasks(projectId);
+  }
+
+  /**
+   * A task that so far stayed on this machine goes to the firm whole: the
+   * task as it stands, its history and its files.
+   */
+  private publish(taskId: string, now: number): void {
+    this.db.run("DELETE FROM task_sync_outbox WHERE task_id = ?", [taskId]);
+    const task = this.requireTask(taskId);
+    const changedAt = new Date(now).toISOString();
+    this.enqueue(taskId, { kind: "create", changedAt }, now);
+    for (const note of this.listNotes(taskId)) {
+      this.enqueue(taskId, { kind: "note", noteId: note.id, body: note.body, source: note.source, createdAt: note.createdAt }, now);
+    }
+    for (const attachment of task.attachments) this.enqueue(taskId, { kind: "attachment_add", attachmentId: attachment.id }, now);
+    if (task.deletedAt) this.enqueue(taskId, { kind: "delete", changedAt }, now);
+  }
+
+  /**
+   * A task moved to another project follows that project: into a synced
+   * project (or none) it goes to the firm, into one that stays on this
+   * machine it leaves the firm. Only its creator can take a task off the
+   * firm's list; a task from the firm's inbox, or a colleague's, stays.
+   */
+  private moveProject(task: Task, projectId: string | null, wasSyncing: boolean, actor: TaskActor, now: number): void {
+    const syncsNow = projectId === null || this.projectSyncsTasks(projectId);
+    const changedAt = new Date(now).toISOString();
+    if (task.sync.orgId !== null) {
+      if (syncsNow) {
+        this.enqueue(task.id, { kind: "project", projectId, changedAt }, now);
+        return;
+      }
+      if (task.origin === "intake" || (task.createdByUserId !== null && task.createdByUserId !== actor.userId)) {
+        throw new ApiError(
+          409,
+          "task_shared_with_firm",
+          "This task belongs to your firm. Share the project with your firm first, or keep the task outside the project.",
+        );
+      }
+      // Leaving the firm: nothing else about it is sent any more.
+      this.db.run("DELETE FROM task_sync_outbox WHERE task_id = ?", [task.id]);
+      this.enqueue(task.id, { kind: "withdraw" }, now);
+    } else if (!syncsNow) {
+      // It never reached the firm, and now it never will.
+      this.db.run("DELETE FROM task_sync_outbox WHERE task_id = ?", [task.id]);
+    } else if (!wasSyncing) {
+      this.publish(task.id, now);
+    } else {
+      this.enqueue(task.id, { kind: "project", projectId, changedAt }, now);
+    }
   }
 
   createTask(input: TaskCreate, actor: TaskActor, now: number = Date.now()): Task {
@@ -1071,6 +1199,7 @@ export class TaskStore {
         sets.push("last_local_run_at = ?");
         values.push(patch.lastLocalRunAt);
       }
+      const wasSyncing = this.syncsWithFirm(id);
       if (patch.projectId !== undefined) {
         if (patch.projectId === null) this.db.run("DELETE FROM task_projects WHERE task_id = ?", [id]);
         else this.db.run("INSERT INTO task_projects (task_id, project_id) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET project_id = excluded.project_id", [id, patch.projectId]);
@@ -1084,12 +1213,22 @@ export class TaskStore {
         this.db.run(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
       }
       const changedAt = new Date(now).toISOString();
-      if (Object.keys(fields).length > 0) this.enqueue(id, { kind: "patch", fields, changedAt }, now);
+      // Text starts from what it was: a colleague's change to it meanwhile is merged, not overwritten.
+      const bases = {
+        ...(fields.title !== undefined && fields.title !== task.title ? { title: task.title } : {}),
+        ...(fields.description !== undefined && fields.description !== task.description ? { description: task.description } : {}),
+      };
+      if (Object.keys(fields).length > 0) {
+        this.enqueue(id, { kind: "patch", fields, changedAt, ...(Object.keys(bases).length > 0 ? { bases } : {}) }, now);
+      }
       if (patch.lastLocalRunAt !== undefined) {
         this.enqueue(id, { kind: "run_marker", lastLocalRunAt: patch.lastLocalRunAt }, now);
       }
       if (patch.note !== undefined) {
         this.appendNote(task.id, patch.note, patch.noteSource ?? "member", actor, now);
+      }
+      if (patch.projectId !== undefined && patch.projectId !== (task.projectId ?? null)) {
+        this.moveProject(task, patch.projectId, wasSyncing, actor, now);
       }
       const updated = this.requireTask(id);
       if (fields.dueDate !== undefined || fields.status !== undefined) this.acknowledgeDue(id, updated, now);
@@ -1369,7 +1508,11 @@ export class TaskStore {
         assigneeUserId: nullableText(row.assignee_user_id),
         createdByUserId: nullableText(row.created_by_user_id),
       };
-      if (task.deletedAt !== null || !isOpenStatus(task.status)) return [];
+      if (task.deletedAt !== null) return [];
+      // A version to choose is news on a closed task too, until it is chosen.
+      if (kind === "conflict") {
+        if (this.textConflicts(text(row.task_id)).length === 0) return [];
+      } else if (!isOpenStatus(task.status)) return [];
       if (kind === "due_today" || kind === "overdue") {
         const due = dueOccasion(task, now);
         if (!due || due.kind !== kind || due.occasion !== text(row.occasion)) return [];
@@ -1447,14 +1590,16 @@ export class TaskStore {
   }
 
   /** The scalar fields of a task with a push still pending — the pull must not overwrite them. */
-  private dirtyFields(taskId: string): { fields: Set<TaskScalarField>; deletion: boolean } {
+  private dirtyFields(taskId: string): { fields: Set<TaskScalarField>; deletion: boolean; project: boolean } {
     const fields = new Set<TaskScalarField>();
     let deletion = false;
+    let project = false;
     for (const entry of this.listOutboxFor(taskId)) {
       if (entry.op.kind === "patch") for (const field of Object.keys(entry.op.fields)) fields.add(field as TaskScalarField);
       if (entry.op.kind === "delete" || entry.op.kind === "restore") deletion = true;
+      if (entry.op.kind === "project") project = true;
     }
-    return { fields, deletion };
+    return { fields, deletion, project };
   }
 
   private listOutboxFor(taskId: string): TaskOutboxEntry[] {
@@ -1477,7 +1622,7 @@ export class TaskStore {
   applyRemoteTask(remote: RemoteTask, orgId: string, now: number = Date.now()): Task {
     return this.transaction(() => {
       const local = this.getTask(remote.id);
-      const dirty = local ? this.dirtyFields(remote.id) : { fields: new Set<TaskScalarField>(), deletion: false };
+      const dirty = local ? this.dirtyFields(remote.id) : { fields: new Set<TaskScalarField>(), deletion: false, project: false };
       const pick = <K extends TaskScalarField>(field: K, remoteValue: Task[K]): Task[K] =>
         local && dirty.fields.has(field) ? local[field] : remoteValue;
       const deletedAt = local && dirty.deletion ? epoch(local.deletedAt) : epoch(remote.deletedAt);
@@ -1539,6 +1684,9 @@ export class TaskStore {
         );
       }
 
+      this.db.run("UPDATE tasks SET remote_project_id = ? WHERE id = ?", [remote.projectId, remote.id]);
+      if (!dirty.project) this.followRemoteProject(remote.id, remote.projectId);
+
       const pendingUploads = new Set(
         this.listOutboxFor(remote.id).flatMap((entry) => (entry.op.kind === "attachment_add" ? [entry.op.attachmentId] : [])),
       );
@@ -1560,6 +1708,87 @@ export class TaskStore {
       }
       return this.requireTask(remote.id);
     });
+  }
+
+  /**
+   * The task's local project follows the firm's, once this machine has that
+   * project. Out of every synced project, a link to a synced project goes; a
+   * link to a project that stays on this machine is this machine's own, and stays.
+   */
+  private followRemoteProject(taskId: string, remoteProjectId: string | null): void {
+    if (remoteProjectId !== null) {
+      const row = this.db.get("SELECT workspace_id FROM project_links WHERE project_id = ?", [remoteProjectId]);
+      if (row) {
+        this.db.run(
+          "INSERT INTO task_projects (task_id, project_id) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET project_id = excluded.project_id",
+          [taskId, text(row.workspace_id)],
+        );
+      }
+      return;
+    }
+    this.db.run(
+      `DELETE FROM task_projects WHERE task_id = ? AND project_id IN (
+         SELECT workspace_id FROM project_links WHERE json_extract(settings_json, '$.scope.tasks') = 1)`,
+      [taskId],
+    );
+  }
+
+  /** A synced project arrived on this machine: tasks pulled before it are linked to it now. */
+  linkRemoteProjectTasks(remoteProjectId: string, workspaceId: string): void {
+    this.db.run(
+      `INSERT INTO task_projects (task_id, project_id) SELECT id, ? FROM tasks WHERE remote_project_id = ?
+       ON CONFLICT(task_id) DO UPDATE SET project_id = excluded.project_id`,
+      [workspaceId, remoteProjectId],
+    );
+  }
+
+  /**
+   * The project started syncing its tasks: every one of them that has not
+   * reached the firm goes now, whole. Returns how many.
+   */
+  publishProjectTasks(workspaceId: string, now: number = Date.now()): number {
+    return this.transaction(() => {
+      const ids = this.db
+        .all(
+          `SELECT t.id FROM tasks t JOIN task_projects p ON p.task_id = t.id
+           WHERE p.project_id = ? AND t.remote_org_id IS NULL
+             AND NOT EXISTS (SELECT 1 FROM task_sync_outbox o WHERE o.task_id = t.id)`,
+          [workspaceId],
+        )
+        .map((row) => text(row.id));
+      for (const id of ids) this.publish(id, now);
+      return ids.length;
+    });
+  }
+
+  /**
+   * The project stopped syncing its tasks (or stopped syncing): the tasks
+   * filed in LegalWork stay here as this machine's own, and nothing about them
+   * is sent any more — the platform takes its copies back itself. A task from
+   * the firm's inbox stays the firm's.
+   */
+  keepProjectTasksLocal(workspaceId: string): number {
+    return this.transaction(() => {
+      const ids = this.db
+        .all(
+          `SELECT t.id FROM tasks t JOIN task_projects p ON p.task_id = t.id
+           WHERE p.project_id = ? AND t.origin = 'desktop'`,
+          [workspaceId],
+        )
+        .map((row) => text(row.id));
+      for (const id of ids) this.markLocal(id);
+      return ids.length;
+    });
+  }
+
+  /** The firm no longer has the task: from here on it is this machine's alone. */
+  markLocal(taskId: string): void {
+    this.db.run("DELETE FROM task_sync_outbox WHERE task_id = ?", [taskId]);
+    this.db.run(
+      `UPDATE tasks SET remote_org_id = NULL, remote_updated_at = NULL, remote_project_id = NULL, synced_at = NULL,
+         sync_error = NULL WHERE id = ?`,
+      [taskId],
+    );
   }
 
   /** After a successful push of one op: the task is as the platform has it. */

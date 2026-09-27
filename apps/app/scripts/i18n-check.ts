@@ -38,6 +38,7 @@ const placeholders = (value: string): string[] =>
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "review.status", // Identical German and English noun.
+  "sidebar.project_name", "project_filters.title", // "Name" and "Filter" are identical German nouns.
   "review.mixed", // Product model names: JEV + LLM.
   "review.sets", "review.prompts", "workflows.workflow", // Established product terminology in both languages.
   "systemone.typesafe",

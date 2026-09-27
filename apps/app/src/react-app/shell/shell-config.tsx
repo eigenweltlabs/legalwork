@@ -5,11 +5,30 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navNewChat" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navNewChat", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+
+export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
+export type ProjectNavKey = "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
+const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionProjects", "sectionRecent"];
+const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
+  navHome: boolean;
+  navProjects: boolean;
+  chatSectionOrder: ChatSectionKey[];
+  sectionPinned: boolean;
+  sectionProjects: boolean;
+  sectionRecent: boolean;
+  projectNavOrder: ProjectNavKey[];
+  projectHome: boolean;
+  projectReviews: boolean;
+  projectTasks: boolean;
+  projectFiles: boolean;
+  /** Retained for saved config compatibility; sessions are always enabled. */
+  projectSessions: true;
+  collapseProjectSessions: boolean;
   navOrder: ShellNavKey[];
   navNewChat: boolean;
   navTasks: boolean;
@@ -50,6 +69,19 @@ export type ShellConfig = {
 
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navOrder: DEFAULT_NAV_ORDER,
+  navHome: true,
+  navProjects: true,
+  chatSectionOrder: DEFAULT_CHAT_ORDER,
+  sectionPinned: true,
+  sectionProjects: true,
+  sectionRecent: true,
+  projectNavOrder: DEFAULT_PROJECT_ORDER,
+  projectHome: true,
+  projectReviews: true,
+  projectTasks: true,
+  projectFiles: true,
+  projectSessions: true,
+  collapseProjectSessions: true,
   navNewChat: true,
   navTasks: true,
   navWorkflows: true,
@@ -77,11 +109,11 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
 export const SHELL_CONFIG_STORAGE_KEY = "legalwork.shell-config";
 const STORAGE_KEY = SHELL_CONFIG_STORAGE_KEY;
 
-function readNavOrder(value: unknown): ShellNavKey[] {
+function readOrder<K extends string>(value: unknown, defaults: K[]): K[] {
   const saved = Array.isArray(value)
-    ? value.filter((key): key is ShellNavKey => DEFAULT_NAV_ORDER.some((item) => item === key))
+    ? value.filter((key): key is K => defaults.some((item) => item === key))
     : [];
-  return [...new Set([...saved, ...DEFAULT_NAV_ORDER])];
+  return [...new Set([...saved, ...defaults])];
 }
 
 function readShellConfig(): ShellConfig {
@@ -93,7 +125,10 @@ function readShellConfig(): ShellConfig {
     const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
     return {
       ...next,
-      navOrder: readNavOrder(next.navOrder),
+      navOrder: readOrder(Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder, DEFAULT_NAV_ORDER),
+      chatSectionOrder: readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER),
+      projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
+      projectSessions: true,
       // The notifications bell has no UI toggle anymore, so force it off even if
       // an older persisted config had it enabled.
       notifications: false,
@@ -131,7 +166,7 @@ export function ShellConfigProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback((patch: Partial<ShellConfig>) => {
     setConfig((prev) => {
-      const next = { ...prev, ...patch };
+      const next: ShellConfig = { ...prev, ...patch, projectSessions: true };
       writeShellConfig(next);
       return next;
     });

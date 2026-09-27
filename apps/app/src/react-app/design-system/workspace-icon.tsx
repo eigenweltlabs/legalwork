@@ -6,10 +6,11 @@ export type WorkspaceIconProps = {
   /** CSS size class, e.g. "size-4", "size-5.5". Defaults to "size-4". */
   sizeClass?: string;
   open?: boolean;
+  shared?: boolean;
 };
 
-export function WorkspaceIcon({ workspaceId, sizeClass = "size-4", open = false }: WorkspaceIconProps) {
+export function WorkspaceIcon({ workspaceId, sizeClass = "size-4", open = false, shared = false }: WorkspaceIconProps) {
   return (
-    <FolderIcon data-workspace-icon={workspaceId} className={sizeClass} open={open} />
+    <FolderIcon data-workspace-icon={workspaceId} className={sizeClass} open={open} shared={shared} />
   );
 }

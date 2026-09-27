@@ -104,6 +104,7 @@ import {
   useTaskSyncStatus,
   useTaskTags,
   useTasks,
+  useResolveTaskConflict,
   useUpdateTask,
   useUploadTaskAttachments,
   type TaskQuery,
@@ -201,6 +202,7 @@ export function TasksPane(props: TasksPaneProps) {
   const runSync = useRunTaskSync(context);
   const createTask = useCreateTask(context);
   const updateTask = useUpdateTask(context);
+  const resolveConflict = useResolveTaskConflict(context);
   const deleteTask = useDeleteTask(context);
   const restoreTask = useRestoreTask(context);
   const uploadAttachments = useUploadTaskAttachments(context);
@@ -387,6 +389,8 @@ export function TasksPane(props: TasksPaneProps) {
     if (props.detailMode === "panel") requestOpenTask(id, tasks.find((task) => task.id === id)?.title ?? t("tasks.title"));
   };
 
+  const pageLayout = !props.embedded && !showingDetail;
+
   return (
     // Center the list at a readable width until a task is opened. Then the pane splits
     // at 880 px of its own width (a container query, not the window: side
@@ -400,7 +404,7 @@ export function TasksPane(props: TasksPaneProps) {
           "min-h-0 w-full flex-col",
           showingDetail
             ? "hidden @min-[880px]/tasks:flex @min-[880px]/tasks:w-[340px] @min-[880px]/tasks:shrink-0 @min-[880px]/tasks:border-e @min-[880px]/tasks:border-border @min-[1200px]/tasks:w-[380px]"
-            : "mx-auto flex max-w-4xl",
+            : props.embedded ? "flex" : "lw-page-content flex pb-8",
         )}
       >
         {props.embedded ? (
@@ -409,9 +413,9 @@ export function TasksPane(props: TasksPaneProps) {
             {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 className="size-4" /></Button> : null}
             <Button variant="ghost" size="icon-sm" aria-label={t("tasks.new_task")} title={t("tasks.new_task")} onClick={() => setCreating(true)}><Plus className="size-4" /></Button>
           </>} />
-        ) : <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 pb-3 pt-4">
-          <div className="flex items-center gap-2">
-            <h1 className="text-[15px] font-medium leading-6 tracking-[-0.02em] text-foreground">{t(inTrash ? "tasks.trash" : "tasks.title")}</h1>
+        ) : <header className={cn("flex shrink-0 flex-col", pageLayout ? "lw-page-top gap-5 border-b border-border/70 pb-4" : "gap-3 border-b border-border px-4 pb-3 pt-4")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className={cn("text-foreground", pageLayout ? "text-2xl font-semibold leading-tight tracking-[-0.035em]" : "text-[15px] font-medium leading-6 tracking-[-0.02em]")}>{t(inTrash ? "tasks.trash" : "tasks.title")}</h1>
             {countLabel ? <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span> : null}
             <div className="ms-auto flex items-center gap-0.5">
               {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 /></Button> : null}
@@ -419,8 +423,8 @@ export function TasksPane(props: TasksPaneProps) {
                 <TooltipTrigger
                   render={
                     <Button
-                      variant="ghost"
-                      size="icon-sm"
+                      variant={pageLayout ? "default" : "ghost"}
+                      size={pageLayout ? "default" : "icon-sm"}
                       aria-label={t("tasks.new_task")}
                       disabled={!props.client}
                       onClick={() => setCreating(true)}
@@ -428,6 +432,7 @@ export function TasksPane(props: TasksPaneProps) {
                   }
                 >
                   <Plus />
+                  {pageLayout ? t("tasks.new_task") : null}
                 </TooltipTrigger>
                 <TooltipContent>{t("tasks.new_task")}</TooltipContent>
               </Tooltip>
@@ -565,10 +570,12 @@ export function TasksPane(props: TasksPaneProps) {
             }}
             onDelete={remove}
             onRestore={restore}
-            busy={busy}
+            busy={busy || updateTask.isPending}
             onLoadMore={() => void tasksQuery.fetchNextPage()}
             onRetry={() => void tasksQuery.refetch()}
             onClearFilters={clearFilters}
+            onCreate={(pageLayout || props.embedded) && props.client ? () => setCreating(true) : undefined}
+            compactEmpty={props.embedded}
           />
           {props.embedded ? <ListPagination label={t("tasks.pagination")} page={currentPage} pageSize={HOME_PAGE_SIZE} total={tasks.length} hasMore={tasksQuery.hasNextPage} busy={tasksQuery.isFetchingNextPage} onPageChange={(next) => void changePage(next)} className="border-t border-border/60" /> : null}
         </div>
@@ -589,6 +596,8 @@ export function TasksPane(props: TasksPaneProps) {
             accountUserId={access.accountUserId}
             onBack={() => setSelectedTaskId(null)}
             onPatch={(patch) => updateTask.mutateAsync({ taskId: selectedTask.id, patch })}
+            conflicts={detailQuery.data?.conflicts}
+            onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
             onDelete={() => remove(selectedTask)}
             onRestore={() => restore(selectedTask)}
             onStartWorkflow={() => requestRun(selectedTask, "workflow")}

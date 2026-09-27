@@ -1,3 +1,4 @@
+import { JevSearchCard } from "./review/jev-search-card";
 import { ReviewToolCard } from "./review/review-card";
 "use memo";
 
@@ -17,10 +18,10 @@ import {
   Split,
   Undo2,
 } from "lucide-react"
-import { PaperGrainGradient } from "@legalwork/ui/react"
 import {
   DynamicToolUIPart,
   isFileUIPart,
+  isToolUIPart,
   ToolUIPart,
   type FileUIPart,
   type UIMessage,
@@ -320,23 +321,6 @@ function FileMessage({ part }: FileMessageProps) {
   return <div className={baseClassName}>{inner}</div>
 }
 
-function EmptyMessage({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
-  return (
-    <div
-      className={cn(
-        "mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10 text-muted-foreground",
-        className
-      )}
-      {...props}
-    >
-      {t("message_list.empty_message")}
-    </div>
-  )
-}
-
 interface CopyMessageButtonProps {
   messages: UIMessage[]
 }
@@ -394,7 +378,7 @@ const AssistantMessage = React.memo(
 
     return (
       <Message
-        className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10"
+        className="flex w-full min-w-0 flex-col items-start gap-2"
         data-message-id={message.id}
         data-message-role={message.role}
       >
@@ -426,6 +410,7 @@ const AssistantMessage = React.memo(
               )
             }
 
+            if (group.kind === "jev-search") return <JevSearchCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
 
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
@@ -439,7 +424,7 @@ const AssistantMessage = React.memo(
             }
 
             return (
-              <ToolRun key={`tools-${index}`} parts={group.parts} active={isStreaming && index === assistantRenderGroups.length - 1} showDetails={showThinking} renderTool={(part) => <ToolMessage part={part} />} />
+              <ToolRun key={group.parts.find(isToolUIPart)?.toolCallId ?? `tools-${index}`} parts={group.parts} active={isStreaming && index === assistantRenderGroups.length - 1} showDetails={showThinking} renderTool={(part) => <ToolMessage part={part} />} />
             )
           })}
         </div>
@@ -592,7 +577,7 @@ const UserMessage = React.memo(
 
     return (
       <Message
-        className="mx-auto flex w-full max-w-3xl flex-col items-end gap-2 px-2 md:px-10"
+        className="flex w-full min-w-0 flex-col items-end gap-2"
         data-message-id={message.id}
         data-message-role={message.role}
       >
@@ -699,14 +684,7 @@ const MessageComponent = React.memo(
       return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} />
     }
 
-    if (isEmptyMessage(message) && !isStreaming) {
-      return (
-        <EmptyMessage
-          data-message-id={message.id}
-          data-message-role={message.role}
-        />
-      )
-    }
+    if (isEmptyMessage(message) && !isStreaming) return null
 
     if (message.role === "assistant") {
       return (
@@ -731,22 +709,10 @@ const MessageComponent = React.memo(
 MessageComponent.displayName = "MessageComponent"
 
 const LoadingMessage = React.memo(({ label }: { label?: string }) => (
-  <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
+  <Message className="flex w-full min-w-0 flex-col items-start gap-2">
     <div className="group flex w-full flex-col gap-0">
       <div className="flex items-center gap-1.5 px-1 py-1 text-sm text-muted-foreground">
-        <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
-          <PaperGrainGradient
-            speed={12}
-            softness={0.1}
-            intensity={1}
-            noise={0.05}
-            shape="sphere"
-            colors={["#818cf8", "#fb7185", "#fbbf24", "#34d399"]}
-            colorBack="#ffffff00"
-            style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
-          />
-        </div>
-        <span>{label ?? t("session.thinking")}</span>
+        <span className="lw-tool-shimmer">{label ?? t("session.thinking")}</span>
       </div>
     </div>
   </Message>
@@ -764,7 +730,7 @@ function ErrorMessage({ error }: ErrorMessageProps) {
     return <BudgetExceededMessage plan={eigenweltPlan} />
   }
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className="not-prose flex w-full min-w-0 flex-col items-start gap-2">
       <div className="group flex w-full flex-col items-start gap-0">
         <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
@@ -783,7 +749,7 @@ function ErrorMessage({ error }: ErrorMessageProps) {
 function BudgetExceededMessage({ plan }: { plan: EigenweltBudgetPlan }) {
   const display = eigenweltBudgetLimitDisplay(plan)
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className="not-prose flex w-full min-w-0 flex-col items-start gap-2">
       <div className="flex w-full min-w-0 flex-col gap-2 rounded-lg border border-dls-border bg-dls-surface px-4 py-3">
         <div className="flex items-start gap-2">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
@@ -843,7 +809,7 @@ const RetryMessage = React.memo(({ status }: RetryMessageProps) => {
   const action = status.action
 
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className="not-prose flex w-full min-w-0 flex-col items-start gap-2">
       <div className="group flex w-full flex-col items-start gap-0">
         <div className="text-foreground flex min-w-0 flex-1 flex-col gap-2 rounded-lg border-2 border-amber-300 bg-amber-300/20 px-3 py-2">
           <div className="flex items-start gap-2">
@@ -941,13 +907,7 @@ function MessageGroup({
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
   const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
-  if (!lastItem || isMessageEmptyGroup(items)) {
-    if (isStreaming) {
-      return null;
-    }
-
-    return <EmptyMessage />
-  }
+  if (!lastItem || isMessageEmptyGroup(items)) return null
 
   const renderableItems = getRenderableMessages(items)
   const lastTextMessage = getLastTextPart(lastItem.message)
@@ -975,7 +935,7 @@ function MessageGroup({
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since
           the tool calls and the prose that follows them are separate messages. */}
-      <div className="mx-auto w-full max-w-3xl px-2 md:px-10">
+      <div className="w-full min-w-0">
         <LegalMemoryMatterGraph
           rootDocumentId={legalMemoryDocuments[0]?.documentId ?? null}
           streaming={isStreaming}
@@ -989,7 +949,7 @@ function MessageGroup({
         />
       </div>
       {lastTextMessage && !isStreaming && (
-        <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100">
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
             {lastRealItem ? (
@@ -1021,7 +981,6 @@ function MessageGroup({
           {/* <MessageSources messages={items.map((item) => item.message)} /> */}
         </div>
       )}
-      {renderableItems.length === 0 && !isStreaming ? <EmptyMessage /> : null}
       </div>
   )
 }
@@ -1038,9 +997,13 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
-  const liveActionLabel = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
-    ? t("tool_run.running")
-    : null
+  const hasLiveTool = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
+  const hasActivityTail = React.useMemo(() => {
+    const last = items.at(-1)
+    if (!last || !isMessageGroup(last)) return false
+    const tail = groupAssistantToolRuns(last.messages, false).at(-1)
+    return tail?.message.parts.some(isToolUIPart) ?? false
+  }, [items])
 
   return (
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
@@ -1077,7 +1040,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
         )
       })}
 
-      {status === "streaming" && <LoadingMessage label={liveActionLabel ?? undefined} />}
+      {status === "streaming" && !hasLiveTool && !hasActivityTail && <LoadingMessage />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>

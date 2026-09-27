@@ -42,7 +42,7 @@ OCR starts inside the review runner; separate OCR tools are not exposed to the a
 
 ## Prompt library
 
-The library contains English/German starters, individual saved columns and named sets. Personal names and prompts remain literal in either language. Users can inspect the complete questions/options, save and edit entries, and explicitly update copied columns. Each edit creates a new version; personal prompt snapshots stay unchanged until explicitly updated. The built-in fallback safety update automatically upgrades untouched version-2 decision columns in idle reviews. User-edited prompts remain unchanged; old executed prompts and answers are preserved in history and affected results are marked stale for rerun. Agent tools can discover, read, save and reuse the same definitions. Sharing across firms remains part of the existing sync/sharing work.
+The library contains English/German starters, individual saved columns and named sets. Personal names and prompts remain literal in either language. Users can inspect the complete questions/options, save and edit entries, and explicitly update copied columns. Each edit creates a new version; personal prompt snapshots stay unchanged until explicitly updated. The built-in fallback safety update automatically upgrades untouched version-2 decision columns in idle reviews. User-edited prompts remain unchanged; old executed prompts and answers are preserved in history and affected results are marked stale for rerun. Agent tools can discover, read, save and reuse the same definitions. Prompt sets are shared with the firm through the Team library (below).
 
 Add column uses the same Sets / All prompts tabs and form controls as Workflows. A compact list and scrollable preview expose questions and answer options before adding; additional instructions expand on demand. Selecting an individual prompt adds only that column, even when it comes from a set. Compatibility warnings appear only when the selected definition cannot run under the review's mode.
 
@@ -88,7 +88,9 @@ pnpm --filter @legalwork/app exec bun scripts/i18n-check.ts
 
 ### Reusable prompts in Workflows
 
-Workflows uses **Local / Team** as its top-level scope, with **Workflows / Tabular Review Prompts** underneath. Local → Tabular Review Prompts contains **Sets** and **All prompts**. Team prompt/set synchronization is future work tracked in EIG-208; the Team view does not expose local entries as shared. Sets store ordered column definitions; All prompts includes standalone entries and questions used in sets. Identical set questions link back to their sets. Personal copies remain distinct from built-ins. A set can contain just one prompt; the persisted `kind` distinguishes it from a standalone prompt. Entries saved before this field existed remain readable using their column count.
+Workflows uses **Local / Team** as its top-level scope, with **Workflows / Tabular Review Prompts** underneath. Local → Tabular Review Prompts contains **Sets** and **All prompts**.
+
+Team → Tabular Review Prompts lists the prompt sets the firm shares, through the same Team hub as workflows (hub kind `review_set`, payload `{ set }`). Only sets are shared, never single prompts: a set's menu offers **Share with firm** (the user's own sets; built-in ones everyone has already), and the Team view's **Share** picks several. **Add to my prompts** installs a set as the member's own copy (`hubItemId` links it); adding it again, or **Update** after the sharer changed it, updates that copy rather than adding a second. Removing it from the firm is the sharer's or an admin's, as for workflows. Sets store ordered column definitions; All prompts includes standalone entries and questions used in sets. Identical set questions link back to their sets. Personal copies remain distinct from built-ins. A set can contain just one prompt; the persisted `kind` distinguishes it from a standalone prompt. Entries saved before this field existed remain readable using their column count.
 
 Users can create, edit, copy built-ins, and remove personal library entries. Edits create a new version; existing reviews and other sets keep their stored snapshots. The bundled `author-review-prompts` skill directs agents to `legalwork_review_library_save`, including typed answers, JEV compatibility, and absence/uncertainty fallbacks. It is not a user workflow.
 
@@ -100,4 +102,8 @@ New tabular workflow creation is retired. Legacy `workflow-tabular-*` names and 
 
 After a server restart, running/queued cells and preparing documents return to an interrupted, resumable state. Recovery waits for the user to continue; it does not silently start paid requests. The table distinguishes document preparation, analysis and queued cells. Transient provider retries remain bounded and respect provider cooldowns.
 
-Measured OCR/document-review acceptance is tracked separately in EIG-216; team library sync remains EIG-208.
+Measured OCR/document-review acceptance is tracked separately in EIG-216.
+
+### With a synced project
+
+A synced project's owner shares its reviews with the **Tabular Reviews (with their documents)** switch (EIG-208, `docs/project-sync.md`): reviews and their earlier runs, and the documents they review even when documents are not shared otherwise. Reviews are merged per answer cell when two computers changed one, and a run on one computer is watched, not repeated, on the others.
