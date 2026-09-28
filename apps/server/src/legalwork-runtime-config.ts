@@ -15,9 +15,9 @@ import { readSystemOneSettings } from "./systemone.js";
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
@@ -149,7 +149,21 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 // absolute paths happen to import cleanly, which is why this only bit Windows.
 // Emit `file://` URLs so import() works on every platform — the same
 // convention used for directory plugins in plugins.ts.
-function bundledPluginSpec(absolutePath: string): string {
+async function bundledPluginSpec(absolutePath: string, config?: ServerConfig): Promise<string> {
+  if (config && absolutePath.endsWith(".js")) {
+    // Bundled plugins are standalone. Give changed code a new physical path:
+    // the engine can retain imported modules across workspace disposal, even
+    // when the file URL's query changes. Never relocate unbundled TS sources.
+    const content = await readFile(absolutePath);
+    const hash = createHash("sha256").update(content).digest("hex");
+    const directory = join(runtimeStorageDir(config), "bundled-plugins", hash);
+    const destination = join(directory, basename(absolutePath));
+    await mkdir(directory, { recursive: true });
+    const temporary = `${destination}.${randomUUID()}.tmp`;
+    await writeFile(temporary, content);
+    await rename(temporary, destination);
+    return pathToFileURL(destination).href;
+  }
   const url = pathToFileURL(absolutePath);
   // Disposing an OpenCode workspace does not clear the JS module cache.
   // A rebuilt bundled plugin must get a new import URL to expose its new tools.
@@ -230,29 +244,29 @@ export async function buildLegalworkRuntimeConfigObject(
           : LEGALWORK_AGENT_PROMPT,
       },
     },
-    plugin: [
+    plugin: (await Promise.all([
       "opencode-chrome-devtools",
       // Adds "Sign in with Anthropic" auth methods (Claude Pro/Max subscription
       // OAuth + "Create an API Key" console OAuth) to the provider list. Without
       // this plugin the engine only offers manual Anthropic API-key entry.
       "opencode-anthropic-auth",
-      bundledPluginSpec(legalworkExtensionsPreviewPluginPath()),
-      bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath()),
-      bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath()),
-      bundledPluginSpec(legalworkAnthropicAdaptiveThinkingPluginPath()),
-      bundledPluginSpec(legalworkAnthropicToolSchemaPluginPath()),
-      bundledPluginSpec(legalworkWordToolsPluginPath()),
-      bundledPluginSpec(legalworkExcelToolsPluginPath()),
-      bundledPluginSpec(legalworkPowerPointToolsPluginPath()),
-      bundledPluginSpec(legalworkBenchmarkToolsPluginPath()),
-      bundledPluginSpec(legalworkSkillToolsPluginPath()),
-      bundledPluginSpec(legalworkStorageToolsPluginPath()),
-      bundledPluginSpec(legalworkTaskToolsPluginPath()),
-      bundledPluginSpec(legalworkProjectToolsPluginPath()),
-      bundledPluginSpec(legalworkReviewToolsPluginPath()),
+      bundledPluginSpec(legalworkExtensionsPreviewPluginPath(), config),
+      bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath(), config),
+      bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath(), config),
+      bundledPluginSpec(legalworkAnthropicAdaptiveThinkingPluginPath(), config),
+      bundledPluginSpec(legalworkAnthropicToolSchemaPluginPath(), config),
+      bundledPluginSpec(legalworkWordToolsPluginPath(), config),
+      bundledPluginSpec(legalworkExcelToolsPluginPath(), config),
+      bundledPluginSpec(legalworkPowerPointToolsPluginPath(), config),
+      bundledPluginSpec(legalworkBenchmarkToolsPluginPath(), config),
+      bundledPluginSpec(legalworkSkillToolsPluginPath(), config),
+      bundledPluginSpec(legalworkStorageToolsPluginPath(), config),
+      bundledPluginSpec(legalworkTaskToolsPluginPath(), config),
+      bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
+      bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),
       ...runtimePluginList(runtimeConfig),
-    ].filter((item, index, list) => list.indexOf(item) === index),
+    ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };

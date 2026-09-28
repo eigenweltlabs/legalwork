@@ -11,10 +11,11 @@ function readElement(element: SlideElement, detail: boolean): Record<string, unk
     ...("text" in element ? {
       text: element.text,
       ...(detail ? {
-        textStyle: { fontSize: element.textStyle?.fontSize, fontFamily: element.textStyle?.fontFamily, bold: element.textStyle?.bold, align: element.textStyle?.align },
-        textRuns: element.textSegments?.map(segment => ({ text: segment.text, fontSize: segment.style?.fontSize, bold: segment.style?.bold })),
+        textStyle: { fontSize: element.textStyle?.fontSize, fontFamily: element.textStyle?.fontFamily, color: element.textStyle?.color, bold: element.textStyle?.bold, italic: element.textStyle?.italic, align: element.textStyle?.align },
+        textRuns: element.textSegments?.map(segment => ({ text: segment.text, fontSize: segment.style?.fontSize, fontFamily: segment.style?.fontFamily, color: segment.style?.color, bold: segment.style?.bold, italic: segment.style?.italic })),
       } : {}),
     } : {}),
+    ...(detail && "shapeStyle" in element ? { shapeStyle: { fillColor: element.shapeStyle?.fillColor, fillOpacity: element.shapeStyle?.fillOpacity, strokeColor: element.shapeStyle?.strokeColor, strokeWidth: element.shapeStyle?.strokeWidth } } : {}),
     ...("altText" in element ? { altText: element.altText } : {}),
     ...(element.type === "group" ? { children: element.children.map(child => readElement(child, detail)) } : {}),
     ...(element.type === "chart" ? { chart: {
@@ -37,6 +38,7 @@ export function readPptxContent(api: PresentationReader, slideIndex?: number) {
   };
   const content = (slide: typeof slides[number], index: number) => ({
     slideIndex: index, name: slide.name, hidden: slide.hidden,
+    ...(slideIndex !== undefined ? { layoutName: slide.layoutName, backgroundColor: slide.backgroundColor, backgroundGradient: slide.backgroundGradient } : {}),
     elements: slide.elements.map(element => readElement(element, slideIndex !== undefined)), notes: slide.notes,
   });
   if (slideIndex === undefined) return { ...context, slides: slides.map(content) };

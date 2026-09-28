@@ -453,6 +453,14 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         if (target.preview !== "word" && stringProperty(rawArgs, "path") !== target.value) return { ok: false, error: "The active file changed. Read the sidebar snapshot and select the intended file before retrying." };
         const api = target.preview === "word" ? docxApi.current : officeApi.current;
         if (!api) return { ok: false, error: "The in-app editor is still loading." };
+        if (toolName === "prepare_file_edit" && /\.pptx$/i.test(target.value)) {
+          if (!isEditableDocument) return { ok: false, error: "This presentation is read-only. Open an editable workspace copy first." };
+          if (!await api.save() || documentDirtyRef.current) return { ok: false, error: "The presentation still has unsaved changes. File editing is not ready; the draft remains open." };
+          // Release the live editor before a file pipeline writes, so a stale
+          // draft can never overwrite those changes. Opening again refetches it.
+          onClose();
+          return { ok: true, saved: true, path: target.value, nextStep: "Edit the saved file, then use inapp_documents_open to reopen it before continuing." };
+        }
         const result = await api.executeAgentTool(toolName, toolArgs);
         if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.` };
         return {
@@ -463,7 +471,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         };
       },
     } : null
-  ), [documentSurface, sessionId, target.name, target.preview, target.value]);
+  ), [documentSurface, sessionId, target.name, target.preview, target.value, isEditableDocument, onClose]);
   useControlAction(documentAgentControlAction);
 
   const saveDocument = async () => {

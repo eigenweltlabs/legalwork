@@ -835,7 +835,24 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const currentSnapshot = snapshotQuery.data?.session.id === props.sessionId ? snapshotQuery.data : null;
   const transcriptState = useSharedQueryState<UIMessage[]>(transcriptQueryKey, EMPTY_TRANSCRIPT);
-  const statusState = useSharedQueryState(statusQueryKey, currentSnapshot?.status ?? IDLE_STATUS);
+  // SSE can miss the initial busy event (especially after a workspace switch).
+  // Reconcile the visible session with the engine, independently of transcript snapshots.
+  const statusQuery = useQuery<SessionStatus>({
+    queryKey: statusQueryKey,
+    queryFn: async () => {
+      const startedAt = Date.now();
+      const statuses = unwrap(await opencodeClient.session.status({ directory: props.workspaceRoot.trim() || undefined }));
+      const activity = useSessionActivityStore.getState().recordsByWorkspaceId[props.workspaceId]?.[props.sessionId];
+      // A prompt submitted while this request was in flight supersedes its idle result.
+      if (activity?.runActive && activity.updatedAt > startedAt) return { type: "busy" };
+      const status = statuses[props.sessionId] ?? IDLE_STATUS;
+      useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, status);
+      return status;
+    },
+    refetchInterval: 2_000,
+    refetchOnWindowFocus: "always",
+  });
+  const statusState = statusQuery.data ?? currentSnapshot?.status ?? IDLE_STATUS;
 
   useEffect(() => {
     if (!currentSnapshot) return;
@@ -918,22 +935,21 @@ export function SessionSurface(props: SessionSurfaceProps) {
     cachedRendered: rendered,
   });
   const liveStatus = statusState ?? snapshot?.status ?? IDLE_STATUS;
-  const chatStreaming = sending || liveStatus.type === "busy" || liveStatus.type === "retry";
+  const activityRunning = sessionActivityStatus !== "idle" && sessionActivityStatus !== "error";
+  const chatStreaming = sending || activityRunning || liveStatus.type === "busy" || liveStatus.type === "retry";
   const status = useMemo((): ThreadStatus => {
     if (sending) {
       return "submitted";
-    }
-
-    if (liveStatus.type === "busy") {
-      return "streaming";
     }
 
     if (liveStatus.type === "retry") {
       return "retrying";
     }
 
+    if (chatStreaming) return "streaming";
+
     return "ready";
-  }, [liveStatus, sending]);
+  }, [liveStatus, sending, chatStreaming]);
 
   // --- Eigenwelt budget retries --------------------------------------------
   // Gateway budget errors (LiteLLM 429 "Budget has been exceeded" — the free
@@ -1334,6 +1350,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setError({ message: t("session.stop_failed") });
       return;
     }
+    setSending(false);
+    setAwaitingAssistantBaseline(null);
+    useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, IDLE_STATUS);
+    queryClient.setQueryData(statusQueryKey, IDLE_STATUS);
     // Take the run-start marker here so this stop is the run's single
     // terminal event. The engine may or may not follow an abort with
     // `session.idle` / `session.error` — on most stops it emitted neither,
@@ -1358,7 +1378,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       { duration_ms: runStartedAt === null ? null : Date.now() - runStartedAt },
       { refresh: false },
     );
-  }, [chatStreaming, setQueuePaused, opencodeClient, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch]);
+  }, [chatStreaming, setQueuePaused, opencodeClient, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch, statusQueryKey, queryClient]);
 
   const startVoiceJob = useCallback(async (request: string) => {
     const text = request.trim();

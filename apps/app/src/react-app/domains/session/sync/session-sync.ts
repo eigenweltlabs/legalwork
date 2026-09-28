@@ -1297,7 +1297,11 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
     snapshot.session.revert?.messageID ?? null,
   ));
 
-  queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
+  // An older idle snapshot must not overwrite a newer busy event / accepted prompt.
+  const activity = useSessionActivityStore.getState().recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];
+  if (isLiveStatus(snapshot.status) || !activity?.runActive) {
+    queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
+  }
   queryClient.setQueryData(todoKey(workspaceId, snapshot.session.id), snapshot.todos);
 }
 
