@@ -29,10 +29,43 @@ export type ProjectField = {
   options?: string[];
 };
 
+/** References only. Authentication and local connection bindings never travel with a project. */
+export const remoteFolderSchema = z.object({
+  id: z.string().uuid(),
+  connectionId: z.string().min(1).max(200),
+  connectionName: z.string().min(1).max(200),
+  organizationId: z.string().max(200).optional(),
+  connectionFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  folder: z.object({
+    path: z.string().max(4096),
+    name: z.string().min(1).max(255),
+    id: z.string().max(512).optional(),
+    namespace: z.string().max(512).optional(),
+  }).strict(),
+}).strict();
+export const projectRemoteSchema = z.object({
+  version: z.literal(1),
+  folders: z.array(remoteFolderSchema).max(30).refine((folders) => new Set(folders.map((folder) => folder.id)).size === folders.length),
+  context: z.string().max(24000),
+  initialization: z.enum(["none", "pending", "ready"]),
+}).strict();
+export type ProjectRemoteFolder = z.infer<typeof remoteFolderSchema>;
+export type ProjectRemote = z.infer<typeof projectRemoteSchema>;
+export type RemoteFolderSelection = { sourceWorkspaceId: string; connectionId: string; path: string };
+export type ProjectRemoteFolderStatus = {
+  location: ProjectRemoteFolder;
+  connectionId: string;
+  status: "available" | "disconnected" | "missing" | "denied";
+  path?: string;
+  error?: string;
+  limitations: string[];
+};
+
 export type ProjectDetails = {
   version: 1;
   revision: number;
   fields: ProjectField[];
+  remote?: ProjectRemote;
   /**
    * The firm's id for this project once it syncs. Kept with the folder, so a
    * folder added again (or found again after a reinstall) is recognised as the

@@ -4,6 +4,27 @@
  */
 
 export default {
+  "projects.remote.choose": "Choose a remote folder",
+  "projects.remote.reference_hint": "Links reference existing folders. No files are copied, indexed or deleted.",
+  "projects.remote.back": "Back",
+  "projects.remote.no_subfolders": "No subfolders on this page. You can link the current folder.",
+  "projects.remote.next_page": "Next page",
+  "projects.remote.use_folder": "Use this folder",
+  "projects.remote.linked": "Linked folders",
+  "projects.remote.sharing_hint": "Your team receives folder references and saved context, never credentials. Each member needs their own source access. Unlinking preserves remote content.",
+  "projects.remote.unlink": "Unlink folder",
+  "projects.remote.available": "Accessible with your connection",
+  "projects.remote.limitations": "Search limitations",
+  "projects.remote.context": "Saved project context",
+  "projects.remote.pending": "Initial exploration is pending. Start a session to explore the linked folders and establish project context.",
+  "projects.remote.refresh": "Refresh",
+  "projects.remote.link": "Link a remote folder",
+  "projects.remote.new_project": "New project",
+  "projects.remote.from_folder": "From remote folder",
+  "projects.remote.first_session": "Your first session will explore the folder, name the project and save its initial context.",
+  "projects.remote.initial_prompt": "Explore this project’s linked remote folders using the storage tools. Read relevant accessible documents, give the project an appropriate name, and save its initial context using legalwork_project_set_context. Explain briefly what you reviewed and any access or search limitations. Do not mirror or index the source.",
+  "projects.remote.session_failed": "Project created. Start a session to finish exploring its linked folders.",
+
   "projects.open": "Open",
   "projects.open_project": "Open project",
   "projects.days_ago": "{count}d ago",

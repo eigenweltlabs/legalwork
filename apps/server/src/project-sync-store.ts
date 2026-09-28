@@ -1,3 +1,4 @@
+import { projectRemoteSchema } from "./project-schema.js";
 import { dirname } from "node:path";
 import type { ProjectSyncConflict, ProjectSyncSettings, ProjectSyncSkipped } from "@legalwork/types/workspace";
 import { z } from "zod";
@@ -186,6 +187,7 @@ export type FieldChange = z.infer<typeof fieldChangeSchema>;
 
 const opSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("create") }),
+  z.object({ kind: z.literal("remote"), remote: projectRemoteSchema, changedAt: z.string() }),
   z.object({ kind: z.literal("rename"), name: z.string(), changedAt: z.string() }),
   z.object({
     kind: z.literal("fields"),

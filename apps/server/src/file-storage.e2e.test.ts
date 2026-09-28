@@ -934,3 +934,60 @@ describe.skipIf(process.env.LEGALWORK_STORAGE_INTEGRATION !== "1")("real storage
     120_000,
   );
 });
+
+test("remote-folder project creation, agent scope, saved context and unlink never modify remote content", async () => {
+  let missing = false;
+  let mutations = 0;
+  const accessed: string[] = [];
+  const dav = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    accessed.push(`${request.method} ${path}`);
+    if (request.method === "PROPFIND") {
+      const items = path === "/" ? (missing ? [] : [{ path: "/Matter/", folder: true }]) : [{ path: "/Matter/contract.txt", folder: false }];
+      return new Response(`<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">${items.map((item) => `<d:response><d:href>${item.path}</d:href><d:propstat><d:prop><d:resourcetype>${item.folder ? "<d:collection/>" : ""}</d:resourcetype><d:getcontentlength>8</d:getcontentlength><d:getetag>"one"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`).join("")}</d:multistatus>`, { status: 207, headers: { "content-type": "application/xml" } });
+    }
+    if (["PUT", "POST", "DELETE", "MKCOL", "MOVE", "COPY", "PROPPATCH"].includes(request.method)) mutations++;
+    return new Response("contract", { headers: { etag: '"one"' } });
+  } });
+  const call = (method: string, path: string, body?: unknown) => fetch(`${base}${path}`, { method, headers: { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const previousProjectsDirectory = config.projectsDirectory;
+  config.projectsDirectory = join(temporary, "created-projects");
+  try {
+    const id = await connect(storageInputSchema.parse({ name: "Linked source", config: { kind: "webdav", endpoint: dav.url.origin }, secrets: { password: "connection-secret" } }));
+    const sources = await call("GET", "/storage/project-sources");
+    expect(await sources.text()).toContain(id);
+    const created = await call("POST", "/workspaces/local", { name: "Matter", folderMode: "default", fromRemoteFolder: true, remoteFolders: [{ sourceWorkspaceId: "storage-test", connectionId: id, path: "Matter" }] });
+    expect(created.status).toBe(201);
+    const result = z.object({ activeId: z.string() }).parse(await created.json());
+    const workspaceId = result.activeId;
+    const projectPath = `/workspace/${workspaceId}/project`;
+    const state = z.object({ revision: z.number(), initialization: z.string(), folders: z.array(z.object({ connectionId: z.string(), status: z.string(), location: z.object({ id: z.string() }) })) }).parse(await (await call("GET", `${projectPath}/remote-folders`)).json());
+    expect(state.initialization).toBe("pending");
+    expect(state.folders[0]?.status).toBe("available");
+    const alias = state.folders[0]!.connectionId;
+    expect((await api("GET", `/${encodeURIComponent(alias)}/children`, undefined, "owner", workspaceId)).status).toBe(200);
+    const file = fileSchema.parse(await (await api("GET", `/${encodeURIComponent(alias)}/file?path=contract.txt`, undefined, "owner", workspaceId)).json());
+    expect(Buffer.from(file.dataBase64, "base64").toString()).toBe("contract");
+    expect(file.writable).toBe(false);
+    expect(accessed).toContain("GET /Matter/contract.txt");
+    expect((await api("GET", `/${encodeURIComponent(alias)}/file?path=../private.txt`, undefined, "owner", workspaceId)).status).toBe(400);
+    expect((await api("DELETE", `/${encodeURIComponent(alias)}/folders?path=child&recursive=true`, undefined, "owner", workspaceId)).status).toBe(403);
+    const saved = await call("PATCH", `${projectPath}/context`, { revision: state.revision, name: "Reviewed matter", context: "Reviewed contract.txt. A contract matter; no broader scan performed." });
+    expect(saved.status).toBe(200);
+    expect(config.workspaces.find((value) => value.id === workspaceId)?.name).toBe("Reviewed matter");
+    const context = await (await call("GET", `${projectPath}/context`)).text();
+    expect(context).toContain('"ready"');
+    expect(context).not.toContain("connection-secret");
+    expect(context).not.toContain("sourceWorkspaceId");
+    expect((await call("PATCH", `${projectPath}/context`, { revision: state.revision, context: "stale" })).status).toBe(409);
+    missing = true;
+    expect(await (await call("GET", `${projectPath}/remote-folders`)).text()).toContain('"status":"missing"');
+    await api("DELETE", `/${id}`);
+    expect(await (await call("GET", `${projectPath}/remote-folders`)).text()).toContain('"status":"disconnected"');
+    const details = z.object({ revision: z.number() }).parse(await (await call("GET", projectPath)).json());
+    expect((await call("DELETE", `${projectPath}/remote-folders/${state.folders[0]!.location.id}`, { revision: details.revision })).status).toBe(200);
+    expect((await api("GET", `/${encodeURIComponent(alias)}/children`, undefined, "owner", workspaceId)).status).toBe(404);
+    expect((await call("DELETE", `/workspaces/${workspaceId}`)).status).toBe(200);
+    expect(mutations).toBe(0);
+  } finally { config.projectsDirectory = previousProjectsDirectory; await dav.stop(true); }
+}, 30_000);

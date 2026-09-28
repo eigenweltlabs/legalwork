@@ -201,6 +201,7 @@ import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer }
 import {
   configureProjectSync,
   noteProjectDetailsSaved,
+  noteProjectFoldersChanged,
   noteProjectRemoved,
   noteProjectRenamed,
   projectSyncActionSchema,
@@ -1575,7 +1576,7 @@ function createRoutes(
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
-  registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });
+  const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
 
   registerCoreRoutes({
     routes,
@@ -1600,6 +1601,7 @@ function createRoutes(
   });
 
   registerWorkspaceRoutes({
+    projectFolders,
     routes,
     config,
     onWorkspacesChanged,

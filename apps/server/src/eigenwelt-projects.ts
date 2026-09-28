@@ -1,3 +1,5 @@
+import type { ProjectRemote } from "@legalwork/types/workspace";
+import { projectRemoteSchema } from "./project-schema.js";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { open } from "node:fs/promises";
@@ -49,6 +51,7 @@ const projectSchema = z.object({
   memberIds: z.array(z.string()),
   scope: scopeSchema,
   fields: z.array(fieldSchema),
+  remote: projectRemoteSchema.nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -96,6 +99,7 @@ export async function listRemoteProjects(
 }
 
 export type RemoteProjectCreate = {
+  remote?: ProjectRemote;
   id: string;
   name: string;
   fields: z.infer<typeof fieldSchema>[];
@@ -110,6 +114,7 @@ export async function createRemoteProject(client: IntakeClient, input: RemotePro
 }
 
 export type RemoteProjectPatch = {
+  remote?: ProjectRemote;
   name?: string;
   fieldChanges?: { id: string; field: z.infer<typeof fieldSchema> | null }[];
   fieldOrder?: string[];

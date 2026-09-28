@@ -7,7 +7,7 @@ import type { OAuthConfig, AccessToken, OAuthProvider } from "./providers.js";
 
 const metadata = z.object({
   ".tag": z.enum(["file", "folder", "deleted"]).default("file"), name: z.string(), path_display: z.string().optional(), path_lower: z.string().optional(),
-  size: z.number().optional(), rev: z.string().optional(), server_modified: z.string().optional(),
+  id: z.string().optional(), size: z.number().optional(), rev: z.string().optional(), server_modified: z.string().optional(),
 });
 const listing = z.object({ entries: z.array(metadata), cursor: z.string(), has_more: z.boolean() });
 const searchPage = z.object({ matches: z.array(z.object({ metadata: z.object({ metadata }) })), cursor: z.string().optional(), has_more: z.boolean() });
@@ -76,6 +76,25 @@ export async function dropboxAdapter(config: OAuthConfig, token: AccessToken): P
     return { entries: entries(result.matches.map((match) => match.metadata.metadata)), ...(result.has_more && result.cursor ? { nextCursor: result.cursor } : {}), scope: "subtree" as const, path: input.path };
   };
   return {
+    async folderReference(value) {
+      const namespace = user.root_info.root_namespace_id;
+      if (!path(value)) return { path: "", name: "Dropbox", namespace };
+      const folder = await jsonResponse(await rpc("files/get_metadata", { path: path(value) }), metadata);
+      if (folder[".tag"] !== "folder" || !folder.id) throw new ApiError(404, "storage_not_found", "Choose an accessible folder.");
+      return { path: value, name: folder.name, id: folder.id, namespace };
+    },
+    async resolveFolder(reference) {
+      if (!reference.id && reference.namespace !== user.root_info.root_namespace_id)
+        throw new ApiError(409, "storage_namespace_changed", "The connected account or namespace differs from this linked folder.");
+      if (!reference.id && !reference.path && !base) return "";
+      if (!reference.id) throw new ApiError(404, "storage_not_found", "The linked folder no longer has a stable identity.");
+      const folder = await jsonResponse(await rpc("files/get_metadata", { path: reference.id }), metadata);
+      if (folder[".tag"] !== "folder") throw new ApiError(404, "storage_not_found", "The linked folder is unavailable.");
+      if ((folder.path_display ?? folder.path_lower)?.toLowerCase() === base.toLowerCase()) return "";
+      const found = toEntry(folder);
+      if (!found) throw new ApiError(403, "storage_access_denied", "The linked folder is outside this connection's root.");
+      return found.path;
+    },
     async list(value, cursor) {
       const result = await jsonResponse(await rpc(cursor ? "files/list_folder/continue" : "files/list_folder", cursor ? { cursor } : { path: path(value), limit: 100, include_deleted: false }), listing);
       return { entries: entries(result.entries), ...(result.has_more ? { nextCursor: result.cursor } : {}) };

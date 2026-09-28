@@ -1,3 +1,5 @@
+import { RemoteFolderPicker, useRemoteFolderSources, type SelectedRemoteFolder } from "./remote-folder-picker";
+import type { RemoteFolderSelection } from "@legalwork/types/workspace";
 import { projectErrorMessage } from "./project-errors";
 import { useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
@@ -19,6 +21,8 @@ import { t } from "@/i18n";
 
 export type CreateProjectInput = {
   name: string;
+  remoteFolders?: RemoteFolderSelection[];
+  fromRemoteFolder?: boolean;
   folderMode: "default" | "selected";
   folderPath?: string;
 };
@@ -32,6 +36,10 @@ export function CreateProjectModal(props: {
   onPickFolder: () => Promise<string | null>;
   onConfirm: (input: CreateProjectInput) => Promise<void>;
 }) {
+  const sources = useRemoteFolderSources(props.client, props.open);
+  const [remoteFolders, setRemoteFolders] = useState<SelectedRemoteFolder[]>([]);
+  const [remoteMode, setRemoteMode] = useState(false);
+  const [remotePicker, setRemotePicker] = useState(false);
   const [name, setName] = useState("");
   const [showFolderInput, setShowFolderInput] = useState(false);
   const [folder, setFolder] = useState("");
@@ -40,6 +48,7 @@ export function CreateProjectModal(props: {
   useEffect(() => {
     if (props.open) {
       setName("");
+      setRemoteFolders([]); setRemoteMode(false); setRemotePicker(false);
       setShowFolderInput(false);
       setFolder("");
       setPickError(null);
@@ -60,6 +69,7 @@ export function CreateProjectModal(props: {
     }
   };
   return (
+    <>
     <Dialog
       open={props.open}
       onOpenChange={(open) => {
@@ -81,17 +91,20 @@ export function CreateProjectModal(props: {
           onSubmit={(event) => {
             event.preventDefault();
             void props.onConfirm({
-              name: name.trim(),
+              name: (remoteMode ? remoteFolders[0]?.name || "Project" : name.trim()).slice(0, 120),
+              fromRemoteFolder: remoteMode,
+              remoteFolders: remoteFolders.map(({ sourceWorkspaceId, connectionId, path }) => ({ sourceWorkspaceId, connectionId, path })),
               folderMode: folder.trim() ? "selected" : "default",
               ...(folder.trim() ? { folderPath: folder.trim() } : {}),
             });
           }}
         >
-          <InputGroup className="h-12 rounded-xl bg-background">
+          {Boolean(sources.data?.sources.length) && <div className="flex gap-2 rounded-xl bg-muted p-1"><Button type="button" className="flex-1" variant={remoteMode ? "ghost" : "secondary"} disabled={props.submitting} onClick={() => setRemoteMode(false)}>{t("projects.remote.new_project")}</Button><Button type="button" className="flex-1" variant={remoteMode ? "secondary" : "ghost"} disabled={props.submitting} onClick={() => { setRemoteMode(true); setFolder(""); }}>{t("projects.remote.from_folder")}</Button></div>}
+          {!remoteMode && <InputGroup className="h-12 rounded-xl bg-background">
             <InputGroupAddon className="h-full border-r border-border px-4 text-foreground"><Folder className="size-5" /></InputGroupAddon>
             <InputGroupInput autoFocus required maxLength={120} aria-label={t("projects.name")} placeholder={t("projects.name")} value={name} disabled={props.submitting} className="h-full px-4 text-base" onChange={(event) => setName(event.target.value)} />
-          </InputGroup>
-          <fieldset disabled={props.submitting || picking} className="space-y-3">
+          </InputGroup>}
+          {!remoteMode && <fieldset disabled={props.submitting || picking} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">{t("projects.source_folders")}</legend>
             <div className="flex min-h-36 flex-col items-center justify-center gap-4 rounded-xl border border-border px-5 py-6">
               {folder && isDesktopRuntime() ? <div className="flex w-full items-center gap-3">
@@ -107,7 +120,14 @@ export function CreateProjectModal(props: {
               </>}
             </div>
             <p className="text-xs text-muted-foreground">{t(folder ? "projects.selected_hint" : "projects.source_default_hint")}</p>
-          </fieldset>
+          </fieldset>}
+          {(Boolean(sources.data?.sources.length) || remoteFolders.length > 0) && <fieldset disabled={props.submitting} className="space-y-3">
+            <legend className="mb-2 text-sm font-medium">{t("projects.remote.linked")}</legend>
+            {remoteMode && <p className="text-sm text-muted-foreground">{t("projects.remote.first_session")}</p>}
+            {remoteFolders.map((item, index) => <div className="flex items-center gap-2 rounded-xl border p-3" key={`${item.connectionId}:${item.path}`}><Folder className="size-4 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm" title={`${item.connectionName}/${item.path}`}>{item.name}</span><Button type="button" variant="ghost" size="icon-sm" aria-label={t("projects.remote.unlink")} onClick={() => setRemoteFolders((items) => items.filter((_, i) => i !== index))}><X /></Button></div>)}
+            <Button type="button" variant="secondary" size="sm" disabled={remoteFolders.length >= 30} onClick={() => setRemotePicker(true)}><FolderPlus />{t("projects.remote.link")}</Button>
+            <p className="text-xs text-muted-foreground">{t("projects.remote.reference_hint")}</p>
+          </fieldset>}
           {props.error || pickError ? (
             <p role="alert" className="text-sm text-destructive">
               {props.error || pickError || t("projects.failed")}
@@ -126,7 +146,7 @@ export function CreateProjectModal(props: {
               type="submit"
               disabled={
                 props.submitting || picking ||
-                !name.trim() ||
+                (remoteMode ? remoteFolders.length === 0 : !name.trim()) ||
                 !props.client
               }
             >
@@ -136,5 +156,7 @@ export function CreateProjectModal(props: {
         </form>
       </DialogContent>
     </Dialog>
+    {remotePicker && props.client && <RemoteFolderPicker client={props.client} sources={sources.data?.sources ?? []} onClose={() => setRemotePicker(false)} onSelect={(item) => { setRemoteFolders((items) => items.some((value) => value.connectionId === item.connectionId && value.path === item.path) ? items : [...items, item]); setRemotePicker(false); }} />}
+    </>
   );
 }

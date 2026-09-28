@@ -14,6 +14,7 @@ async function fixture(
     outside: string;
     calls: Call[];
   }) => Promise<void>,
+  linked = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "storage-agent-"));
   const outside = await mkdtemp(join(tmpdir(), "storage-outside-"));
@@ -42,6 +43,7 @@ async function fixture(
         return Response.json({
           teamError: "Team connections could not sync.",
           roots: [
+            ...(linked ? [{ id: "project:linked-folder", name: "Project matter", kind: "linked", writable: false }] : []),
             { id: "one", name: "Same name", kind: "s3", writable: true },
             { id: "two", name: "Same name", kind: "webdav", writable: false },
           ],
@@ -295,4 +297,15 @@ test("confines uploads and downloads to the task workspace, including symlink ta
       JSON.parse(await plugin.tool.storage_read_file.execute({ ...source, path: "../outside" }, { directory })).code,
     ).toBe("invalid_storage_path");
   });
+});
+
+test("omitted search connections default exclusively to project folder aliases", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    const result = JSON.parse(await plugin.tool.storage_search.execute({ query: "agreement" }, { directory }));
+    expect(result.results.map((entry: { connection_id: string }) => entry.connection_id)).toEqual(["project:linked-folder"]);
+    const searches = calls.filter((call) => call.url.pathname.endsWith("/filename-search"));
+    expect(searches).toHaveLength(1);
+    expect(searches[0]?.url.pathname).toContain("project%3Alinked-folder");
+    expect(searches[0]?.body).toMatchObject({ path: "", query: "agreement" });
+  }, true);
 });

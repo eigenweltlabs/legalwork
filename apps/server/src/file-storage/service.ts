@@ -1,3 +1,4 @@
+import { projectFolderScopes, scopedFolderAdapter } from "./project-folders.js";
 import type { StorageInput } from "@legalwork/types/file-storage";
 import { oauthProvider } from "./oauth/providers.js";
 import { tokenBindings } from "./oauth/session.js";
@@ -45,7 +46,8 @@ export async function withStorage<T>(
         adapter = await ftpAdapter(input);
         break;
     }
-    return await operation(adapter);
+    const scope = projectFolderScopes.get(input);
+    return await operation(scope ? await scopedFolderAdapter(adapter, scope) : adapter);
   } catch (error) {
     throw providerError(error);
   } finally {

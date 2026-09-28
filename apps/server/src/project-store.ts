@@ -11,7 +11,8 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
-import type { ProjectDetails } from "@legalwork/types/workspace";
+import type { ProjectDetails, ProjectRemote } from "@legalwork/types/workspace";
+import { projectRemoteSchema } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 
 const fieldSchema = z
@@ -87,6 +88,7 @@ const detailsSchema = z.object({
   revision: z.number().int().nonnegative(),
   fields: fieldsSchema,
   syncProjectId: z.string().uuid().optional(),
+  remote: projectRemoteSchema.optional(),
 });
 const patchSchema = z.object({
   revision: z.number().int().nonnegative(),
@@ -180,7 +182,7 @@ export async function updateProjectDetails(
 /** Record (or clear) the firm's id for the project, beside its details. */
 export async function setProjectSyncId(root: string, syncProjectId: string | null): Promise<ProjectDetails> {
   return writeProjectDetails(root, (current) =>
-    syncProjectId === null ? { version: 1, revision: current.revision, fields: current.fields } : { ...current, syncProjectId },
+    syncProjectId === null ? { ...current, syncProjectId: undefined } : { ...current, syncProjectId },
   );
 }
 
@@ -255,4 +257,14 @@ export async function createDefaultProjectFolder(
     "project_folder_exists",
     "Choose another project name.",
   );
+}
+
+/** Folder references and agent context are project configuration, not documents or LegalMemory. */
+export async function updateProjectRemote(root: string, remote: ProjectRemote, revision?: number) {
+  const value = projectRemoteSchema.parse(remote);
+  return writeProjectDetails(root, (current) => {
+    if (revision !== undefined && current.revision !== revision)
+      throw new ApiError(409, "project_changed", "This project changed. Reload before saving.");
+    return { ...current, remote: value };
+  });
 }

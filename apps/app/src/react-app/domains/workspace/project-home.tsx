@@ -1,3 +1,4 @@
+import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck } from "lucide-react";
@@ -142,6 +143,7 @@ export function ProjectHome(props: {
 
         {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} onOpenFile={props.onOpenFile} />}
 
+        <ProjectRemoteFolders client={client} workspaceId={workspaceId} />
         <ContextMenu>
         <ContextMenuTrigger render={<div />}>
         <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="border-t border-border/60 bg-background/60 px-5 py-1.5 @min-[720px]/project-page:px-6">

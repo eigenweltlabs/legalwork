@@ -1,3 +1,4 @@
+import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { copyFile, readdir, rm, stat } from "node:fs/promises";
@@ -285,10 +286,16 @@ async function pushOne(
         id: link.projectId,
         name: nameOf(workspace),
         fields: link.settings.scope.metadata ? details.fields : [],
+        ...(details.remote ? { remote: details.remote } : {}),
         scope: link.settings.scope,
         access: link.settings.access,
         memberIds: link.settings.memberIds,
       });
+      if (details.remote && remote.remote === null) {
+        const repaired = await platform.patchProject(client, link.projectId, { remote: details.remote });
+        if (!repaired.project?.remote) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
+      }
+      if (details.remote && remote.remote === undefined) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
       store.updateLink(link.workspaceId, {
         confirmed: true,
         ownerUserId: remote.ownerUserId,
@@ -296,6 +303,11 @@ async function pushOne(
         remoteUpdatedAt: remote.updatedAt,
         lastError: null,
       });
+      return;
+    }
+    case "remote": {
+      const result = await platform.patchProject(client, projectId, { remote: op.remote, changedAt: op.changedAt });
+      if (result.project && result.project.remote == null) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
       return;
     }
     case "rename":
@@ -427,6 +439,7 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
   };
   store.saveLink(link);
   if (remote.scope.metadata) await applyRemoteFields(store, link, workspace, remote);
+  if (remote.remote) await updateProjectRemote(workspace.path, remote.remote);
   const tasks = await taskStore(config);
   tasks.linkRemoteProjectTasks(remote.id, workspace.id);
   if (remote.scope.tasks) tasks.publishProjectTasks(workspace.id);
@@ -463,6 +476,10 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
   if (!pending.some((op) => op.kind === "rename") && nameOf(workspace) !== remote.name) {
     await renameRegisteredWorkspace(config, workspace.id, remote.name);
     workspacesChanged(config);
+  }
+  if (remote.remote && !pending.some((op) => op.kind === "remote") && await folderAvailable(workspace.path)) {
+    const current = await readProjectDetails(workspace.path);
+    if (JSON.stringify(current.remote) !== JSON.stringify(remote.remote)) await updateProjectRemote(workspace.path, remote.remote, current.revision);
   }
   if (settings.scope.metadata && (await folderAvailable(workspace.path))) {
     await applyRemoteFields(store, { ...link, settings }, workspace, remote);
@@ -1148,6 +1165,7 @@ export async function noteProjectDetailsSaved(
 }
 
 export async function noteProjectRenamed(config: ServerConfig, workspaceId: string, name: string): Promise<void> {
+  workspacesChanged(config);
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link || link.state !== "active") return;
@@ -1198,4 +1216,15 @@ export async function signOutOfFirmProjects(
   store.forgetOrg(orgId);
   workspacesChanged(config);
   return { ok: true, removed: copies.length };
+}
+
+export async function noteProjectFoldersChanged(config: ServerConfig, workspaceId: string): Promise<void> {
+  const store = await projectSyncStore(config);
+  const link = store.linkByWorkspace(workspaceId);
+  const workspace = workspaceOf(config, workspaceId);
+  if (!link || link.state !== "active" || !workspace) return;
+  const details = await readProjectDetails(workspace.path);
+  if (!details.remote) return;
+  store.enqueue(link.projectId, { kind: "remote", remote: details.remote, changedAt: new Date().toISOString() });
+  scheduleProjectSync(config);
 }

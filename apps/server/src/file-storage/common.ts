@@ -17,7 +17,11 @@ export type FileInfo = { size: number; version: string; contentType?: string };
 export type FileData = FileInfo & { data: Buffer };
 export type DownloadedFile = FileInfo & { sha256: string };
 export type WriteCondition = { version?: string; createOnly?: boolean };
+export type FolderReference = { path: string; name: string; id?: string; namespace?: string };
 export interface StorageAdapter {
+  /** Native identity where supported; resolution must recheck permissions and the configured root. */
+  folderReference?(path: string): Promise<FolderReference>;
+  resolveFolder?(reference: FolderReference): Promise<string>;
   list(path: string, cursor?: string): Promise<StoragePage>;
   /** Flat metadata listing for object stores; avoids walking virtual folders. */
   listFiles?(path: string, cursor?: string, signal?: AbortSignal): Promise<StoragePage>;

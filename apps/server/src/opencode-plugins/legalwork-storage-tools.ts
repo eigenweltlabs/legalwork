@@ -10,7 +10,7 @@ import { serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-sh
 
 const RULES = `## Connected file storage
 Use storage_* tools for file storage connected in Settings and shown in Memory Drive. The same tools work across providers and multiple connections.
-- Questions about matters, clients, or "what did we do in matter ..." concern the firm's records, not previous chats. Use the source the user names; otherwise use live LegalMemory when connected, or these storage tools. Do not start with UI session actions, local glob/grep, Python, or shell commands to discover remote records.
+- Questions about matters, clients, or "what did we do in matter ..." concern the firm's records, not previous chats. Use the source the user names; otherwise search this project’s linked folders first when present. Only when no project folders are linked, use live LegalMemory when connected, or these storage tools. Do not start with UI session actions, local glob/grep, Python, or shell commands to discover remote records.
 - Start with storage_list_connections. Use the returned connection_id, never a display name as an identifier. Every path is relative to that connection's root. Preserve the connection ID and path when referring to results; equal filenames can belong to different sources.
 - For a matter/client identifier or an unknown folder location, call storage_search with mode=path (the default), query set to the identifier, and path='' unless a narrower folder is already known. This matches literal text anywhere in full file paths, including parent folder names, recursively on every provider. No capability check is needed for this mode. Use returned paths to select the exact matter; a substring match can also include similarly numbered matters. Do not guess a root path_prefix or use filename-only search for a folder identifier.
 - For a filename lookup, use storage_search_filenames. It matches only the filename, not parent folders. Both metadata searches read listings, not file contents or empty folders. Scope path to the relevant folder when known. A page can contain zero matches and still have nextCursor: continue only those connections with cursors, preserving query, mode and path. complete means this metadata scan finished, not that document contents were searched or the matter does not exist elsewhere.
@@ -143,6 +143,14 @@ async function textPage(path: string, offset: number, limit: number) {
   }
 }
 
+async function defaultSearchConnections(workspaceId: string) {
+  const { roots } = rootsSchema.parse(await request(`${base(workspaceId)}/roots`));
+  const linked = roots.filter((root) => root.id.startsWith("project:"));
+  const ids = (linked.length ? linked : roots).map((root) => root.id);
+  if (!ids.length) throw new ApiError(409, "storage_disconnected", "No connected storage is available for this project.");
+  return ids;
+}
+
 export const LegalWorkStorageTools = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     output.system.push(RULES);
@@ -155,6 +163,7 @@ export const LegalWorkStorageTools = async () => ({
         const current = await workspace(context);
         const { roots, teamError } = rootsSchema.parse(await request(`${base(current.id)}/roots`));
         return {
+          default_connection_ids: (roots.some((root) => root.id.startsWith("project:")) ? roots.filter((root) => root.id.startsWith("project:")) : roots).map((root) => root.id),
           connections: roots.map(({ id, ...metadata }) => ({ connection_id: id, ...metadata })),
           ...(teamError ? { team_sync_error: teamError } : {}),
         };
@@ -188,7 +197,7 @@ export const LegalWorkStorageTools = async () => ({
     storage_search: defineTool(
       "Find matter/client identifiers or text anywhere in full file paths across connected DMS/storage. Default mode=path recursively scans metadata on every provider, including parent folder names; no capability check needed. Use this for 'what did we do in matter ...', then read matching documents. Other modes require capabilities: path_prefix is a known relative prefix, name is native filename search, content is native text search. No RAG. Resume each source's nextCursor before reporting no matches.",
       z.object({
-        connection_ids: z.array(connectionId).min(1).max(10),
+        connection_ids: z.array(connectionId).min(1).max(30).optional().describe("Omit to search linked project folders by default; otherwise use explicit connection IDs."),
         mode: storageSearchModeSchema.or(z.literal("path")).default("path"),
         query: z.string().trim().min(1).max(512),
         path: z.string().max(4096).default(""),
@@ -201,7 +210,7 @@ export const LegalWorkStorageTools = async () => ({
         storagePath(args.path);
         const current = await workspace(context);
         const results = await Promise.all(
-          [...new Set(args.connection_ids)].map(async (id) => {
+          [...new Set(args.connection_ids ?? await defaultSearchConnections(current.id))].map(async (id) => {
             try {
               const cursor = args.cursors?.[id];
               if (args.mode === "path") {
@@ -237,7 +246,7 @@ export const LegalWorkStorageTools = async () => ({
     storage_search_filenames: defineTool(
       "Find literal, case-insensitive text in filenames across nested folders. Does NOT match parent folder names: use storage_search mode=path for matter/client identifiers or folder locations. Reads metadata only, no content or RAG. An empty page with nextCursor is unfinished. Continue only sources with cursors, preserving query and path.",
       z.object({
-        connection_ids: z.array(connectionId).min(1).max(10),
+        connection_ids: z.array(connectionId).min(1).max(30).optional().describe("Omit to search linked project folders by default; otherwise use explicit connection IDs."),
         query: z.string().trim().min(1).max(512),
         path: z.string().max(4096).default(""),
         cursors: z.record(z.string(), z.string().min(1).max(65_536)).optional(),
@@ -247,7 +256,7 @@ export const LegalWorkStorageTools = async () => ({
         const current = await workspace(context);
         return {
           results: await Promise.all(
-            [...new Set(args.connection_ids)].map(async (id) => {
+            [...new Set(args.connection_ids ?? await defaultSearchConnections(current.id))].map(async (id) => {
               try {
                 const page = await request(`${source(current.id, id)}/filename-search`, "POST", {
                   query: args.query,

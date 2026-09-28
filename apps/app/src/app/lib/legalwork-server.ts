@@ -1,3 +1,4 @@
+import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
 import type { JevSearchProgress } from "@legalwork/types/corpus";
@@ -1721,13 +1722,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
-    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; projectFields?: ProjectField[] }) =>
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
         method: "POST",
         body: payload,
-        timeoutMs: timeouts.activateWorkspace,
+        timeoutMs: payload.remoteFolders?.length ? 180_000 : timeouts.activateWorkspace,
       }),
     // Long timeout: the server shows a native dialog and waits for the human.
     pickWorkspaceFolder: (payload?: { title?: string; defaultPath?: string; returnFocusTo?: string }) =>
@@ -2345,6 +2346,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/team`, { token, hostToken, method: "POST", body: input, timeoutMs: 30_000 }),
     setTeamStorageInstalled: (workspaceId: string, id: string, installed: boolean) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/installation`, { token, hostToken, method: "POST", body: { installed }, timeoutMs: 30_000 }),
+    projectFolderSources: () => requestJson<{ sources: (Omit<RemoteFolderSelection, "path"> & { name: string })[]; error?: string }>(baseUrl, "/storage/project-sources", { token, hostToken, timeoutMs: 60_000 }),
+    projectRemoteFolders: (workspaceId: string) => requestJson<{ revision: number; context: string; initialization: string; folders: ProjectRemoteFolderStatus[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders`, { token, hostToken, timeoutMs: 120_000 }),
+    linkProjectFolders: (workspaceId: string, revision: number, folders: RemoteFolderSelection[]) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders`, { token, hostToken, method: "POST", body: { revision, folders }, timeoutMs: 120_000 }),
+    unlinkProjectFolder: (workspaceId: string, revision: number, folderId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders/${encodeURIComponent(folderId)}`, { token, hostToken, method: "DELETE", body: { revision }, timeoutMs: 30_000 }),
     storageRoots: (workspaceId: string) =>
       requestJson<{ roots: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
     storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>

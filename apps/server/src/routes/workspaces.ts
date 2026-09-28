@@ -1,3 +1,4 @@
+import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
@@ -16,6 +17,7 @@ type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
 type ParseOptionalBoolean = (value: string | null, name: string) => boolean | undefined;
 
 interface RegisterWorkspaceRoutesOptions {
+  projectFolders?: ReturnType<typeof registerProjectFolderRoutes>;
   routes: Route[];
   config: ServerConfig;
   onWorkspacesChanged: () => void;
@@ -372,6 +374,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
+    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders);
+    if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
     const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
@@ -391,6 +395,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     }
 
     const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields });
+    if (preparedFolders?.length) await options.projectFolders?.attach(workspace, preparedFolders, body.fromRemoteFolder === true);
     onWorkspacesChanged();
 
     await recordAudit(workspace.path, {

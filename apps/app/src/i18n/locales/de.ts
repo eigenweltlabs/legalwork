@@ -14,6 +14,27 @@
  */
 
 const de = {
+  "projects.remote.choose": "Remote-Ordner auswählen",
+  "projects.remote.reference_hint": "Verknüpfungen verweisen auf bestehende Ordner. Dateien werden weder kopiert noch indexiert oder gelöscht.",
+  "projects.remote.back": "Zurück",
+  "projects.remote.no_subfolders": "Keine Unterordner auf dieser Seite. Der aktuelle Ordner kann verknüpft werden.",
+  "projects.remote.next_page": "Nächste Seite",
+  "projects.remote.use_folder": "Diesen Ordner verwenden",
+  "projects.remote.linked": "Verknüpfte Ordner",
+  "projects.remote.sharing_hint": "Ihr Team erhält Ordnerverweise und gespeicherten Kontext, niemals Zugangsdaten. Jedes Mitglied benötigt eigenen Zugriff. Beim Trennen bleiben Remote-Inhalte erhalten.",
+  "projects.remote.unlink": "Ordner trennen",
+  "projects.remote.available": "Mit Ihrer Verbindung erreichbar",
+  "projects.remote.limitations": "Sucheinschränkungen",
+  "projects.remote.context": "Gespeicherter Projektkontext",
+  "projects.remote.pending": "Die Erkundung steht noch aus. Starten Sie eine Session, um die Ordner zu erkunden und Projektkontext zu erstellen.",
+  "projects.remote.refresh": "Aktualisieren",
+  "projects.remote.link": "Remote-Ordner verknüpfen",
+  "projects.remote.new_project": "Neues Projekt",
+  "projects.remote.from_folder": "Aus Remote-Ordner",
+  "projects.remote.first_session": "Die erste Session erkundet den Ordner, benennt das Projekt und speichert seinen initialen Kontext.",
+  "projects.remote.initial_prompt": "Erkunden Sie die verknüpften Remote-Ordner dieses Projekts mit den Storage-Tools. Lesen Sie relevante zugängliche Dokumente, benennen Sie das Projekt passend und speichern Sie den initialen Kontext mit legalwork_project_set_context. Erklären Sie kurz den Prüfumfang und bestehende Zugriffs- oder Sucheinschränkungen. Die Quelle darf weder gespiegelt noch indexiert werden.",
+  "projects.remote.session_failed": "Projekt erstellt. Starten Sie eine Session, um die verknüpften Ordner zu erkunden.",
+
   "projects.open": "Öffnen",
   "projects.open_project": "Projekt öffnen",
   "projects.days_ago": "vor {count} T.",

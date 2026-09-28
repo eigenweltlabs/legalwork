@@ -136,6 +136,24 @@ export async function boxAdapter(config: OAuthConfig, token: AccessToken): Promi
     }
   };
   return {
+    async folderReference(path) {
+      const folder = await resolve(path);
+      if (folder.type !== "folder") throw missing();
+      const namespace = folder.id === "0" ? `box:${(await jsonResponse(await get("users/me", { fields: "id" }), z.object({ id: z.string() }))).id}` : "box";
+      return { path, name: folder.name || "Box", id: folder.id, namespace };
+    },
+    async resolveFolder(reference) {
+      if (!reference.id || !/^\d+$/.test(reference.id)) throw missing();
+      const namespace = reference.id === "0" ? `box:${(await jsonResponse(await get("users/me", { fields: "id" }), z.object({ id: z.string() }))).id}` : "box";
+      if (reference.namespace !== namespace) throw new ApiError(409, "storage_namespace_changed", "This linked account root belongs to a different Box account.");
+      const folder = await jsonResponse(await get(`folders/${reference.id}`), item);
+      if (folder.type !== "folder") throw missing();
+      if (folder.id === root.id) return "";
+      const ancestors = folder.path_collection?.entries ?? [];
+      const index = ancestors.findIndex((value) => value.id === root.id);
+      if (index < 0) throw missing();
+      return storagePath([...ancestors.slice(index + 1).map((value) => value.name), folder.name].join("/"), false);
+    },
     async list(path, cursor) {
       const folder = await resolve(path);
       if (folder.type !== "folder") throw missing();

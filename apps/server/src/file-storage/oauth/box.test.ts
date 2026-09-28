@@ -132,3 +132,18 @@ test("Box folder deletion is recursive, version guarded, and cannot delete the c
   await adapter.deleteFolder!("Matter");
   expect(deleted).toBe(true);
 });
+
+test("Box links follow native folder IDs after renaming but reject moves outside the configured root", async () => {
+  let movedOutside = false;
+  requests((url) => {
+    if (url.pathname === "/2.0/folders/10") return Response.json(root);
+    if (url.pathname === "/2.0/folders/30") return Response.json({ id: "30", type: "folder", name: "Renamed", path_collection: { entries: movedOutside ? [{ id: "99", name: "Elsewhere" }] : [root] } });
+    return Response.json({ entries: [{ id: "30", type: "folder", name: "Original" }] });
+  });
+  const adapter = await boxAdapter({ kind: "oauth", provider: "box", root: "10" }, async () => "member-token");
+  const reference = await adapter.folderReference!("Original");
+  expect(reference.id).toBe("30");
+  expect(await adapter.resolveFolder!(reference)).toBe("Renamed");
+  movedOutside = true;
+  await expect(adapter.resolveFolder!(reference)).rejects.toMatchObject({ status: 404 });
+});

@@ -10,10 +10,11 @@ import type { IntakeClient } from "./eigenwelt-intake.js";
 import type { RemoteProject } from "./eigenwelt-projects.js";
 import { ApiError } from "./errors.js";
 import { checkCondition, conflict, entry, type StorageAdapter } from "./file-storage/common.js";
-import { readProjectDetails, updateProjectDetails } from "./project-store.js";
+import { readProjectDetails, updateProjectDetails, updateProjectRemote } from "./project-store.js";
 import {
   diffFields,
   noteProjectDetailsSaved,
+  noteProjectFoldersChanged,
   noteProjectRenamed,
   projectSyncOverview,
   projectSyncStatus,
@@ -113,6 +114,7 @@ function fakeFirm() {
       stored.record = {
         ...stored.record,
         name: patch.name ?? stored.record.name,
+        remote: patch.remote ?? stored.record.remote,
         fields,
         access: patch.access ?? stored.record.access,
         memberIds: patch.memberIds ?? stored.record.memberIds,
@@ -762,4 +764,25 @@ describe("diffFields", () => {
     expect(diffFields([a, b], [b])).toEqual({ changes: [{ id: "a", field: null }], order: null });
     expect(diffFields([a, b], [b, a])).toEqual({ changes: [], order: ["b", "a"] });
   });
+});
+
+test("team project configuration shares folder references and context even with document sync disabled", async () => {
+  const { platform } = fakeFirm();
+  const owner = await machine("user_anna", "Anna");
+  const member = await machine("user_ben", "Ben");
+  const akte = await localProject(owner.config, "Remote matter");
+  const remote = { version: 1 as const, context: "Reviewed the main agreement", initialization: "ready" as const, folders: [{ id: crypto.randomUUID(), connectionId: `team:${crypto.randomUUID()}`, connectionName: "Team drive", organizationId: ORG, connectionFingerprint: "a".repeat(64), folder: { id: "100", namespace: "box", path: "Matter", name: "Matter" } }] };
+  await updateProjectRemote(akte.path, remote);
+  await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId], scope: { documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false } }));
+  await runProjectSync(owner.config, { platform });
+  await runProjectSync(member.config, { platform });
+  const [copy] = projectsOf(member.config);
+  expect((await readProjectDetails(copy.path)).remote).toEqual(remote);
+  expect((await readProjectDetails(copy.path)).syncProjectId).toBe((await readProjectDetails(akte.path)).syncProjectId);
+  await updateProjectRemote(copy.path, { ...remote, folders: [], context: "Unlinked the source; kept its project context" });
+  await noteProjectFoldersChanged(member.config, copy.id);
+  await runProjectSync(member.config, { platform });
+  await runProjectSync(owner.config, { platform });
+  expect((await readProjectDetails(akte.path)).remote?.folders).toEqual([]);
+  expect((await readProjectDetails(akte.path)).remote?.context).toContain("Unlinked");
 });
