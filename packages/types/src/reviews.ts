@@ -214,6 +214,14 @@ export type ReviewSourcePage = {
   structure?: PageStructure;
   relatedPassages?: Array<{ relation: DocumentRelation; direction: "outgoing" | "incoming"; page: number; region: DocumentRegion }>;
 };
+/** One page of a review document as recognized, with every page's status for navigation. */
+export type ReviewRecognitionPage = {
+  name: string; path: string; engine: string; page: number; pageCount: number;
+  image: string; width: number; height: number;
+  /** `reasons` explain why a page needs review; `missing` pages were not prepared. */
+  pages: Array<{ page: number; status: "complete" | "needs-review" | "error" | "missing"; reasons: string[] }>;
+  text: string; structure?: PageStructure; error?: string;
+};
 export type ReviewCapabilities = {
   settings: ReviewSettings;
   models: Array<ReviewModel & { name: string; providerName: string; backend: "llm" | "systemone"; contextTokens?: number }>;

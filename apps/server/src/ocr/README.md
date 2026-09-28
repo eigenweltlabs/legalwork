@@ -55,7 +55,31 @@ result structure and do not need to know the model implementation.
 - Fast OCR includes normalized bounding rectangles (top-left origin, range 0–1).
   Map them to the exact rendered page using its width/height and the renderer's PDF
   transform, including crop/rotation. The module does not invent PDF coordinates.
-- The quality and custom API adapters return page-level text and no regions.
+- Given layout `blocks` (review preparation passes PP-DocLayoutV3 blocks and masks after
+  PaddleX layout post-processing), the quality model runs the PaddleOCR-VL block pipeline,
+  ported from PaddleX to TypeScript (`vl-blocks.ts`, `vl-outlines.ts`): layout outlines from
+  the masks, outline-aware overlap filtering and crops, block merging, per-label prompts
+  (`OCR:`, `Table Recognition:`, `Formula Recognition:`) and repetition truncation. The
+  OpenCV calls it relies on are ported with OpenCV's float32 rounding, so crops match
+  Paddle's pixel for pixel, except that figure tokens in tables are drawn in Liberation Sans
+  instead of OpenCV's Hershey font. Each crop is then resized exactly like Paddle's image
+  processor (smart_resize to multiples of 28 pixels, PIL's bicubic resampling), so the model
+  runtime does not resample it its own way; llama.cpp's own resampling dropped closing
+  quotation marks. The model reads the crops in llama.cpp's `llama-server`.
+  Settings are PaddleOCR-VL's defaults except `use_ocr_for_image_block`, which is on:
+  image blocks are read; chart and seal blocks are not. Pictures inside tables become `[image]` plus their text in the cell.
+  Tables carry their OTSL cell grid and appear in the text as plain `a | b | c` rows, so
+  quotes match without HTML.
+- Beyond PaddleOCR-VL, the fast model's text-line detector runs on the page (up to 2,000 px
+  on the longest side, so isolated page numbers are found); lines outside
+  every layout block are read one by one, so text the layout model missed is kept.
+  Blocks with layout confidence below 0.5 are only read when the detector found text in
+  them: the model cannot answer "nothing here" and invents text for scan noise. Output
+  that runs into the 4,096-token limit is dropped instead of trimmed (a loop or invented
+  text) and reported as truncated, so the page needs review.
+  Each region is one recognized block or line. Without layout the whole page is read;
+  when layout found no blocks, only the detected lines are read.
+  Custom API adapters return page-level text and no regions.
   `regions-unavailable` prevents consumers from implying exact regional citations.
 - Scores from fast OCR are engine scores, not calibrated correctness probabilities.
 - All runs warn `recognition-errors-possible`; fast runs additionally warn
@@ -68,7 +92,8 @@ result structure and do not need to know the model implementation.
 - Blank text and generation limits are explicitly flagged. Text is untrusted source
   material, never an instruction for the host or an assertion of legal correctness.
 
-Jobs/pages run sequentially within a service instance. Limits are 100 pages, 20 MiB
+Each engine reads as many pages at once as it declares: local models one, remote APIs two;
+a page's time limit starts when it gets its turn. Limits are 100 pages, 20 MiB
 per page, 64 MiB total image data, 40 million pixels per page and 4 MiB per engine
 response. Larger documents can be submitted as batches preserving page numbers.
 The default deadline is 120 seconds per page (configurable up to 600 seconds).
@@ -93,13 +118,14 @@ the official, revision-pinned detector/recognizer and dictionary configuration
 sample before reporting Ready. Downloads publish atomically; complete verified
 assets are reused on retry. Extraction uses explicit local paths and disables fetch.
 
-`native-worker.cjs` runs in a separate process using the desktop's bundled Node.
-Only the host's OS/locale variables and explicit module directory are forwarded;
-timeouts and cancellation kill the process. The worker returns normalized regions
-through the existing OCR interface. Existing Python-provisioned small-model
-manifests/weights are reused without needing the old Python environment. Existing
-Python files are retained because the optional quality model may still use them.
-Review evidence gets a new cache fingerprint when switching to native recognition.
+`native-worker.cjs` and `layout-worker.cjs` run in separate processes using the desktop's
+bundled Node. Only the host's OS/locale variables and explicit module directory are
+forwarded. They stay loaded between pages (one JSON request and reply per line), stop
+when the engine closes or after two idle minutes, and are killed on a timeout or
+cancellation. The worker returns normalized regions through the existing OCR interface.
+Existing Python-provisioned small-model manifests/weights are reused without needing the
+old Python environment. Review evidence gets a new cache fingerprint when switching to
+native recognition.
 
 Desktop builds unpack the worker's libraries outside ASAR and remove other
 platforms' ONNX binaries. ONNX Runtime 1.23.2 is pinned because later npm releases
@@ -108,10 +134,19 @@ Measured on macOS ARM64: approximately 39 MB additional installed libraries (11 
 archive), reusing existing Canvas and Node; the final installer delta depends on
 its compression. Windows/Linux sizes and native execution require separate checks.
 
-The optional higher-quality MLX model still uses Python on Apple Silicon. Its
-explicit setup reuses `uv` on PATH or downloads a pinned, checksum-verified helper,
-then installs Python 3.12 and the quality dependencies. `LEGALWORK_OCR_UV_BIN` can
-override that helper. This path is never invoked for the default small model.
+The optional higher-quality model needs no Python either. Its explicit setup downloads
+Paddle's official `PaddlePaddle/PaddleOCR-VL-1.6-GGUF` release (Apache-2.0, about 1.8 GB)
+and an official llama.cpp build (MIT, `b11234`, about 12 MB), both revision-pinned and
+checksum-verified, streamed to disk and published atomically. Only a macOS Apple Silicon
+build is pinned so far; other platforms report the model as unsupported. Installations
+from the earlier Python/MLX runtime are prepared again; their files are not reused.
+
+`llama-server` starts on the first page of a job, keeps the model loaded, and stops when
+the job ends or after two idle minutes. It listens on 127.0.0.1 behind a per-run API key,
+without its web UI or slot inspection. `llama-launcher.cjs` runs it and stops it when this
+process exits, even abruptly. Cancelling a page stops only that answer. The server has two
+reading slots and receives a page's crops two at a time: that answered 53 crops 21% faster
+than one slot with identical text, using about 2.9 GB of memory.
 
 Cancelling small-model setup is remembered across restarts; Download model clears
 that cancellation and retries. Failed setup retries on the next launch, or manually
@@ -139,25 +174,15 @@ Use the equivalent `Scripts/python.exe` path on Windows. The fast adapter uses
 ONNX Runtime CPU with four threads. This implementation was exercised on macOS
 Apple Silicon; Windows/Linux packaging and hardware testing remain separate work.
 
-For the optional quality engine on Apple Silicon:
+Setup pins detector/recognizer snapshot revisions. Model manifests reference the
+Hugging Face cache, so that cache must remain installed. The fast dictionary and
+unused-but-constructed orientation classifier are provisioned explicitly too. The Python
+worker uses local model paths and offline Hugging Face settings, validates the required
+assets before constructing RapidOCR, and starts once per page. Missing assets fail rather
+than trigger installation.
 
-```sh
-uv pip install --python /application-data/ocr/venv/bin/python -r resources/ocr/requirements-quality.txt
-/application-data/ocr/venv/bin/python resources/ocr/prepare.py --model paddleocr-vl-1.6 --model-dir /application-data/ocr/models
-```
-
-Setup pins detector/recognizer and VLM snapshot revisions. Model manifests reference
-the Hugging Face cache, so that cache must remain installed. The VLM is the BF16
-`matrixmaven/PaddleOCR-VL-1.6-bf16` MLX conversion used in the exploratory benchmark;
-it currently requires Apple Silicon. Other platforms return an explicit runtime
-error rather than silently changing the engine. The fast dictionary and unused-but-
-constructed orientation classifier are provisioned explicitly too.
-
-Workers use local model paths, offline Hugging Face/Transformers settings, and
-validate required fast-model assets before constructing RapidOCR. Missing assets
-fail rather than trigger installation. One worker is started per page, so measured
-job latency includes model startup and will exceed warm benchmark timings. A future
-persistent worker can implement the same engine interface without changing callers.
+Document preparation reads one page ahead: while the model reads a page, the next is
+rendered and laid out.
 
 ## Configure a server
 
@@ -241,8 +266,8 @@ test, not the handwriting benchmark). It downloads nothing:
 LEGALWORK_OCR_SMOKE_PYTHON=/application-data/ocr/venv/bin/python LEGALWORK_OCR_SMOKE_MODELS=/application-data/ocr/models pnpm --filter legalwork-server exec bun test src/ocr/ocr.test.ts
 ```
 
-On Apple Silicon the smoke test requires both models to have been prepared; on other
-platforms it exercises the fast model.
+It exercises the small model's Python fallback. The native smoke test above also reads the
+page with the quality model in llama.cpp when that model has been prepared in the root.
 
 ## Tabular Review integration
 
@@ -281,6 +306,10 @@ bytes still match. Cells can cite multiple pages and native/OCR passages. OCR re
 coordinates come from prepared regions, never from the agent. Without region output,
 citations show the page. Missing, failed or uncertain extraction cannot substantiate
 “Not found”. The artifact shows extraction errors and supports source-image previews.
+A page needs review when its recognition is uncertain (no text, output dropped at the
+limit, `[illegible]`, low line confidence) or its layout structure is incomplete. A page
+with no PDF text, no layout block and no recognized text is blank and counts as complete.
+Table cells inferred from line positions are marked uncertain on the table, not the page.
 
 JEV column routing, semantic linking of handwritten insertions and the contract-quality
 release benchmark remain separate work; OCR integration does not certify clause recall.

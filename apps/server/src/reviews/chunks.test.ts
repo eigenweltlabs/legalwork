@@ -88,7 +88,7 @@ test("inference evidence omits absent metadata without losing OCR, tables or lin
   const pages: EvidencePage[] = [{ page: null, text: "Unpaginated", source: undefined, status: undefined, blocks: undefined, tables: undefined, links: undefined }, {
     page: 1, text: "Main term", source: "ocr", status: "complete", regions: [{ text: "Duplicate OCR text" }],
     blocks: [{ id: "main", kind: "text", start: 0, end: 9, ocrRegionIds: undefined }, { id: "ocr", kind: "text", start: 0, end: 9, ocrRegionIds: [2] }],
-    tables: [{ regionId: "main", rows: 1, columns: 1, status: "parsed", cells: [{ row: 0, column: 0, start: 0, end: 9 }] }],
+    tables: [{ regionId: "main", rows: 1, columns: 1, status: "parsed", cells: [{ row: 0, column: 0, rowSpan: 1, columnSpan: 2, start: 0, end: 9 }] }],
     links: [{ kind: "annotates", status: "candidate", basis: "arrow", source: { page: 1, regionId: "main" }, target: { page: 1, regionId: "ocr" } }],
   }];
   const output = inferencePages(pages);

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -18,32 +19,56 @@ export const layoutModelAsset = {
   bytes: 130502049,
   sha256: "45bf71750b00739a41fc209f132eb104a4d6b5bb29483c9078164d8b87cf28ba",
 };
-const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+type Asset = { url: string; bytes: number; sha256: string };
 
-/** Bounded downloads, verified before atomic publication. Complete assets survive retries. */
-export async function downloadModelAsset(asset: typeof smallModelAssets[number], path: string, signal: AbortSignal) {
+/** Bounded streaming downloads, verified before atomic publication. Complete assets survive retries. */
+export async function downloadModelAsset(asset: Asset, path: string, signal: AbortSignal) {
   signal.throwIfAborted();
-  try { if (hash(await readFile(path)) === asset.sha256) return; } catch { /* Missing/incomplete asset. */ }
-  const response = await fetch(asset.url, { signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]) });
+  if (await assetReady(path, asset, signal)) return;
+  // Five minutes plus 1 MB/s, so large models also finish on slower connections. Node requires whole milliseconds.
+  const response = await fetch(asset.url, { signal: AbortSignal.any([signal, AbortSignal.timeout(300_000 + Math.ceil(asset.bytes / 1000))]) });
   if (!response.ok || !response.body || Number(response.headers.get("content-length")) > asset.bytes) throw new Error("Could not download OCR model");
-  const reader = response.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
+  const reader = response.body.getReader(), digest = createHash("sha256"), temporary = `${path}.${randomUUID()}.tmp`;
+  const file = await open(temporary, "wx", 0o600);
+  let size = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read(); if (done) break;
       size += value.byteLength;
       if (size > asset.bytes) throw new Error("OCR model exceeds download limit");
-      chunks.push(value);
+      digest.update(value);
+      await file.write(value);
     }
-  } finally { await reader.cancel().catch(() => undefined); }
-  const bytes = Buffer.concat(chunks);
-  if (size !== asset.bytes || hash(bytes) !== asset.sha256) throw new Error("OCR model checksum mismatch");
-  signal.throwIfAborted();
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, bytes, { mode: 0o600, flag: "wx" });
+    await file.close();
+    if (size !== asset.bytes || digest.digest("hex") !== asset.sha256) throw new Error("OCR model checksum mismatch");
     signal.throwIfAborted();
     await rename(temporary, path);
-  } finally { await rm(temporary, { force: true }); }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    await file.close().catch(() => undefined);
+    await rm(temporary, { force: true });
+  }
+}
+
+// Avoid hashing large assets on every settings poll; recheck whenever a file's metadata changes.
+const checkedAssets = new Map<string, { signature: string; ready: boolean }>();
+export async function assetReady(path: string, asset: Asset, signal?: AbortSignal): Promise<boolean> {
+  signal?.throwIfAborted();
+  try {
+    const file = await stat(path);
+    if (!file.isFile() || file.size !== asset.bytes) { checkedAssets.delete(path); return false; }
+    const signature = `${file.dev}:${file.ino}:${file.size}:${file.mtimeMs}:${file.ctimeMs}`;
+    const checked = checkedAssets.get(path);
+    if (checked?.signature === signature) return checked.ready;
+    const digest = createHash("sha256");
+    for await (const chunk of createReadStream(path)) { signal?.throwIfAborted(); digest.update(chunk); }
+    const ready = digest.digest("hex") === asset.sha256;
+    if (checkedAssets.size >= 32) checkedAssets.clear();
+    checkedAssets.set(path, { signature, ready });
+    return ready;
+  } catch {
+    signal?.throwIfAborted(); checkedAssets.delete(path); return false;
+  }
 }
 
 export async function prepareSmallModel(directory: string, signal: AbortSignal) {
@@ -71,23 +96,6 @@ export async function prepareLayoutModel(directory: string, signal: AbortSignal)
   await downloadModelAsset(layoutModelAsset, join(assets, layoutModelAsset.name), signal);
 }
 
-// Avoid hashing a 130 MB asset on every settings poll; recheck whenever its file metadata changes.
-const checkedLayouts = new Map<string, { signature: string; ready: boolean }>();
 export async function layoutModelReady(directory: string, signal?: AbortSignal): Promise<boolean> {
-  signal?.throwIfAborted();
-  const path = join(directory, "pp-doclayout-v3-onnx", layoutModelAsset.name);
-  try {
-    const file = await stat(path);
-    if (!file.isFile() || file.size !== layoutModelAsset.bytes) { checkedLayouts.delete(path); return false; }
-    const signature = `${file.dev}:${file.ino}:${file.size}:${file.mtimeMs}:${file.ctimeMs}`;
-    const checked = checkedLayouts.get(path);
-    if (checked?.signature === signature) return checked.ready;
-    const ready = hash(await readFile(path)) === layoutModelAsset.sha256;
-    signal?.throwIfAborted();
-    if (checkedLayouts.size >= 32) checkedLayouts.clear();
-    checkedLayouts.set(path, { signature, ready });
-    return ready;
-  } catch {
-    signal?.throwIfAborted(); checkedLayouts.delete(path); return false;
-  }
+  return assetReady(join(directory, "pp-doclayout-v3-onnx", layoutModelAsset.name), layoutModelAsset, signal);
 }

@@ -1,4 +1,5 @@
-// One whole page per process. The host prepares a pinned model; inference is offline.
+// Serves pages until stdin closes: one JSON request per line, one JSON reply per line; the model stays loaded.
+// The host prepares a pinned model; inference is offline.
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
@@ -46,14 +47,8 @@ function resizeRgb(pixels, width, height) {
   return output;
 }
 
-async function detect() {
-  const chunks = []; let size = 0;
-  for await (const chunk of process.stdin) {
-    size += chunk.length;
-    if (size > 28 * 1024 * 1024) throw new Error("Input too large");
-    chunks.push(chunk);
-  }
-  const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+let session;
+async function detect(request) {
   if (!Number.isInteger(request.width) || !Number.isInteger(request.height) || request.width < 1 || request.height < 1 ||
       request.width > 20000 || request.height > 20000 || request.width * request.height > 40000000 || typeof request.image !== "string") throw new Error("Invalid page");
   const bytes = Buffer.from(request.image, "base64");
@@ -70,38 +65,71 @@ async function detect() {
   context.drawImage(image, 0, 0);
   const pixels = context.getImageData(0, 0, image.width, image.height).data;
   const data = resizeRgb(pixels, image.width, image.height);
-  const directory = process.argv[process.argv.indexOf("--model-dir") + 1];
-  if (!directory) throw new Error("Missing model directory");
-  const model = readFileSync(join(directory, "pp-doclayout-v3-onnx", "inference.onnx"));
-  const session = await ort.InferenceSession.create(model, { executionProviders: ["cpu"], intraOpNumThreads: 4, interOpNumThreads: 1 });
-  try {
+  if (!session) {
+    const directory = process.argv[process.argv.indexOf("--model-dir") + 1];
+    if (!directory) throw new Error("Missing model directory");
+    const model = readFileSync(join(directory, "pp-doclayout-v3-onnx", "inference.onnx"));
+    session = await ort.InferenceSession.create(model, { executionProviders: ["cpu"], intraOpNumThreads: 4, interOpNumThreads: 1 });
+  }
+  {
     const feeds = {
       image: new ort.Tensor("float32", data, [1, 3, side, side]),
       scale_factor: new ort.Tensor("float32", Float32Array.from([side / image.height, side / image.width]), [1, 2]),
       im_shape: new ort.Tensor("float32", Float32Array.from([side, side]), [1, 2]),
     };
     const output = await session.run(Object.fromEntries(session.inputNames.map(name => [name, feeds[name]])));
-    const [detections, count] = session.outputNames.map(name => output[name].data);
+    const [detections, count, masks] = session.outputNames.map(name => output[name].data);
     const regionCount = Number(count[0]);
     if (!Number.isInteger(regionCount) || regionCount < 0 || regionCount > 1000 || regionCount * 7 > detections.length) throw new Error("Invalid region count");
+    // Per-region 200x200 masks give PaddleX's layout outlines; ship them bit-packed.
+    const maskCells = 200 * 200;
+    if (masks.length < regionCount * maskCells) throw new Error("Invalid region masks");
+    const packMask = index => {
+      const packed = Buffer.alloc(maskCells / 8);
+      for (let cell = 0; cell < maskCells; cell++) if (masks[index * maskCells + cell]) packed[cell >> 3] |= 128 >> (cell & 7);
+      return packed.toString("base64");
+    };
     const regions = [];
     for (let index = 0; index < regionCount; index++) {
       const row = Array.from(detections.slice(index * 7, index * 7 + 7), Number);
       if (row.some(value => !Number.isFinite(value))) throw new Error("Invalid region values");
       const [id, confidence, left, top, right, bottom, order] = row;
       if (!Number.isInteger(id) || id < 0 || id >= labels.length || confidence < 0 || confidence > 1 || !Number.isInteger(order) || order < 0) throw new Error("Invalid region");
-      if (confidence < 0.3) continue;
+      if (confidence <= 0.3) continue;
       const x0 = Math.max(0, Math.min(image.width, left)), y0 = Math.max(0, Math.min(image.height, top));
       const x1 = Math.max(0, Math.min(image.width, right)), y1 = Math.max(0, Math.min(image.height, bottom));
       if (x1 <= x0 || y1 <= y0) continue;
       regions.push({ label: labels[id], confidence, box: { x: x0 / image.width, y: y0 / image.height,
-        width: (x1 - x0) / image.width, height: (y1 - y0) / image.height }, order });
+        width: (x1 - x0) / image.width, height: (y1 - y0) / image.height }, order, mask: packMask(index) });
     }
     regions.sort((a, b) => a.order - b.order);
     const result = JSON.stringify({ model: "pp-doclayout-v3-onnx", regions });
-    if (Buffer.byteLength(result) > 4 * 1024 * 1024) throw new Error("Output too large");
-    process.stdout.write(result);
-  } finally { await session.release(); }
+    if (Buffer.byteLength(result) > 8 * 1024 * 1024) throw new Error("Output too large");
+    return result;
+  }
 }
 
-detect().catch(() => { process.stderr.write("Local layout processing failed\n"); process.exitCode = 4; });
+async function reply(line) {
+  let id = null;
+  try {
+    const request = JSON.parse(line);
+    id = request.id;
+    process.stdout.write(`{"id":${JSON.stringify(id)},"result":${await detect(request)}}\n`);
+  } catch { process.stdout.write(`${JSON.stringify({ id, error: "failed" })}\n`); }
+}
+
+let parts = [], size = 0, queue = Promise.resolve();
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", chunk => {
+  let start = 0;
+  for (let newline = chunk.indexOf("\n"); newline >= 0; newline = chunk.indexOf("\n", start)) {
+    parts.push(chunk.slice(start, newline));
+    const line = parts.join("");
+    parts = []; size = 0; start = newline + 1;
+    queue = queue.then(() => reply(line));
+  }
+  parts.push(chunk.slice(start));
+  size += chunk.length - start;
+  if (size > 30 * 1024 * 1024) process.exit(4);
+});
+process.stdin.on("end", () => { void queue.then(() => session?.release()).finally(() => process.exit(0)); });

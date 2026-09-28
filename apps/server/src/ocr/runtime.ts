@@ -6,9 +6,9 @@ import type { OcrSettingsView } from "@legalwork/types/ocr";
 import { createLocalOcrEngine, type LocalOcrRuntime } from "./local.js";
 import type { LocalEngineSettings } from "./settings.js";
 import { ApiError } from "../errors.js";
-import { OcrInstaller, runInstallerCommand } from "./installer.js";
 import { LayoutRuntime } from "../document-preparation/layout-runtime.js";
 import { prepareSmallModel, prepareLayoutModel, layoutModelReady } from "./models.js";
+import { llamaSupported, prepareQualityModel, qualityModelReady } from "./llama.js";
 
 const exists = async (path: string) => access(path).then(() => true, () => false);
 export const ocrResources = "resourcesPath" in process && typeof process.resourcesPath === "string" && existsSync(join(process.resourcesPath, "ocr", "worker.py"))
@@ -19,10 +19,8 @@ export class OcrRuntime {
   readonly local: LocalOcrRuntime;
   installation: OcrSettingsView["installation"] = null;
   private controller?: AbortController;
-  private readonly installer: OcrInstaller;
 
   constructor(readonly root: string) {
-    this.installer = new OcrInstaller(root);
     const resources = "resourcesPath" in process && typeof process.resourcesPath === "string" ? process.resourcesPath : undefined;
     const bundledNode = resources ? join(resources, "node", process.platform === "win32" ? "node.exe" : "node") : undefined;
     const packaged = resources && existsSync(join(resources, "app.asar"));
@@ -33,22 +31,26 @@ export class OcrRuntime {
       native: {
         executable: bundledNode && existsSync(bundledNode) ? bundledNode : process.versions.electron ? "node" : process.execPath,
         workerPath: join(ocrResources, "native-worker.cjs"),
+        launcherPath: join(ocrResources, "llama-launcher.cjs"),
         moduleDirectory: packaged ? join(resources, "app.asar.unpacked", "node_modules") : fileURLToPath(new URL("../../node_modules", import.meta.url)),
       },
     };
   }
   supported(model: LocalEngineSettings["model"]) {
-    return model === "pp-ocrv6-small" || (process.platform === "darwin" && process.arch === "arm64");
+    return model === "pp-ocrv6-small" || llamaSupported();
   }
   async available() { return existsSync(join(ocrResources, "native-worker.cjs")); }
   async ready(model: LocalEngineSettings["model"]) {
-    if (model === "paddleocr-vl-1.6" && !await exists(this.local.python)) return false;
-    if (!await exists(join(this.root, `${model}.ready`))) return false;
+    if (!await exists(join(this.root, `${model}.ready`)) || !await this.smallModelReady()) return false;
+    // The quality model uses the fast model's line detector to find text outside layout blocks.
+    // Earlier installs that ran it in Python have no llama.cpp files and are prepared again.
+    return model === "pp-ocrv6-small" || qualityModelReady(this.local.modelDirectory);
+  }
+  private async smallModelReady() {
     try {
-      const manifest: unknown = JSON.parse(await readFile(join(this.local.modelDirectory, `${model}.json`), "utf8"));
+      const manifest: unknown = JSON.parse(await readFile(join(this.local.modelDirectory, "pp-ocrv6-small.json"), "utf8"));
       if (!manifest || typeof manifest !== "object") return false;
-      const paths = model === "pp-ocrv6-small" ? ["det", "rec", "keys"] : ["path"];
-      for (const key of paths) {
+      for (const key of ["det", "rec", "keys"]) {
         const path = Reflect.get(manifest, key);
         if (typeof path !== "string" || !await exists(path)) return false;
       }
@@ -62,7 +64,8 @@ export class OcrRuntime {
     stage("models", "local-layout");
     await prepareLayoutModel(this.local.modelDirectory, signal);
     stage("checking");
-    const result = await new LayoutRuntime(this.local).detect(await ocrTestPage(), signal);
+    const layout = new LayoutRuntime(this.local);
+    const result = await layout.detect(await ocrTestPage(), signal).finally(() => layout.close());
     if (!result.regions.length) throw new Error("No layout regions in sample");
   }
   private startInstall(id: string, work: (signal: AbortSignal, stage: (value: NonNullable<OcrSettingsView["installation"]>["stage"], id?: string) => void) => Promise<void>) {
@@ -93,17 +96,15 @@ export class OcrRuntime {
         stage("models");
         await prepareSmallModel(this.local.modelDirectory, signal);
       } else {
-        const uv = await this.installer.ensure(signal);
-        if (!await exists(this.local.python)) await runInstallerCommand(uv, ["venv", "--python", "3.12", join(this.root, "venv")], signal);
-        stage("dependencies");
-        await runInstallerCommand(uv, ["pip", "install", "--python", this.local.python, "-r", join(ocrResources, "requirements-quality.txt")], signal);
         stage("models");
-        await runInstallerCommand(this.local.python, [join(ocrResources, "prepare.py"), "--model", engine.model, "--model-dir", this.local.modelDirectory], signal);
+        await prepareQualityModel(this.local.modelDirectory, signal);
+        await prepareSmallModel(this.local.modelDirectory, signal);
       }
       stage("checking");
-      const result = await createLocalOcrEngine(engine, this.local).recognize(await ocrTestPage(), {
+      const check = createLocalOcrEngine(engine, this.local);
+      const result = await check.recognize(await ocrTestPage(), {
         languages: ["en", "de"], signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
-      });
+      }).finally(() => check.close?.());
       if (!result.text.trim()) throw new Error("Empty test result");
       signal.throwIfAborted();
       await writeFile(join(this.root, `${engine.model}.ready`), "1\n", { mode: 0o600 });

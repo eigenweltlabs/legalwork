@@ -162,7 +162,8 @@ export class OcrManager {
       const service = await this.service();
       const engine = service.listEngines().find((item) => item.id === id);
       if (!engine) throw new ApiError(404, "ocr_not_found", "OCR model not found.");
-      const result = await service.extract({ sourceId: "ocr-settings-test", engineId: id, languages: engine.languages?.slice(0, 1) ?? ["en"], pages: [await ocrTestPage()] });
+      const result = await service.extract({ sourceId: "ocr-settings-test", engineId: id, languages: engine.languages?.slice(0, 1) ?? ["en"], pages: [await ocrTestPage()] })
+        .finally(() => service.close());
       if (!result.pages[0]?.text.trim()) throw new ApiError(502, "ocr_empty_test", "The model returned no text for the sample image.");
       return { ok: true };
     } finally { this.testing = false; }

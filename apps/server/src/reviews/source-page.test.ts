@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, writeFile, readFile, realpath, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { reviewSourcePage } from "./source-page.js";
+import { reviewRecognitionPage, reviewSourcePage } from "./source-page.js";
 import { ReviewResultSchema } from "./schema.js";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import { PageStructureSchema } from "@legalwork/types/document-structure";
@@ -85,5 +85,33 @@ test("native PDF quotations highlight only cited sentence spans, across lines, p
     }
     await expect(reviewSourcePage(root, "contract.pdf", { ...result, citations: [{ page: 2, source: "native", quote }] }, 0, new AbortController().signal)).rejects.toThrow("source page");
     await expect(reviewSourcePage(root, "contract.pdf", { ...result, citations: [{ page: 1, source: "native", quote: quote.replace("30", "60") }] }, 0, new AbortController().signal)).rejects.toThrow("source page");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("recognition pages list every page's status and open the first page that needs review", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "review-recognition-")));
+  try {
+    const pdf = await PDFDocument.create();
+    for (let page = 0; page < 3; page++) pdf.addPage([300, 400]);
+    const bytes = await pdf.save(), signal = new AbortController().signal;
+    await writeFile(join(root, "scan.pdf"), bytes);
+    const structure = PageStructureSchema.parse({ version: "document-structure-1", model: "fixture", status: "complete", readingOrder: ["b"], tables: [], marks: [], issues: [],
+      regions: [{ id: "b", kind: "text", label: "text", box: { x: .1, y: .1, width: .5, height: .1 }, text: "Clause 1", ocrRegionIds: [], order: 0, writing: "printed", source: "layout" }] });
+    // Page 1 is complete, page 2's output was dropped, page 3 was never prepared.
+    await writeFile(join(root, "prepared.json"), JSON.stringify({ version: "review-preparation-4", key: "fixture", file: "scan.pdf", fileAbs: join(root, "scan.pdf"),
+      sourceSha256: createHash("sha256").update(bytes).digest("hex"), engine: { id: "fixture", label: "Fixture", model: "fixture", execution: "local" },
+      pageCount: 3, status: "needs-review", pages: [
+        { page: 1, nativeText: "", ocr: { text: "Clause 1", regions: [], truncated: false }, width: 300, height: 400, status: "complete", structure },
+        { page: 2, nativeText: "", ocr: { text: "", regions: [], truncated: true }, width: 300, height: 400, status: "needs-review", structure },
+      ] }));
+    const flagged = await reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal);
+    expect(flagged.page).toBe(2);
+    expect(flagged.pages).toEqual([{ page: 1, status: "complete", reasons: [] }, { page: 2, status: "needs-review", reasons: ["no-text", "output-dropped"] },
+      { page: 3, status: "missing", reasons: [] }]);
+    const first = await reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal, 1);
+    expect([first.text, first.structure?.regions[0]?.text, first.image.startsWith("data:image/png;base64,")]).toEqual(["Clause 1", "Clause 1", true]);
+    await expect(reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal, 4)).rejects.toThrow("does not exist");
+    await writeFile(join(root, "scan.pdf"), "changed");
+    await expect(reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal)).rejects.toThrow("no longer matches");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

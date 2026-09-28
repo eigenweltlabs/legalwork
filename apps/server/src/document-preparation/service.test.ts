@@ -119,6 +119,61 @@ test("layout failure preserves OCR and retry recovers without another OCR reques
   expect((await read(second.documents[0]!.preparationPath!)).pages.every(page => page.structure?.regions[0]?.text === content.text)).toBe(true);
 }, 10_000);
 
+test("text-only OCR without line boxes still completes recognition", async () => {
+  const root = await fixture();
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout, snapshot: async () => ({ fingerprint: "text-only", service: new OcrService([{ info: { ...info, regions: false }, async recognize() {
+    return { text: content.text, regions: [], truncated: false };
+  } }], "test") }) });
+  const result = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
+  expect(result.status).toBe("complete");
+  expect(doc.pages.every(page => page.status === "complete" && page.structure?.issues.join() === "ocr-coordinates-unavailable")).toBe(true);
+}, 10_000);
+
+test("block-reading OCR receives layout blocks in reading order and fills the structure", async () => {
+  const root = await fixture(); const received: unknown[] = [];
+  const top = { x: 0.1, y: 0.1, width: 0.8, height: 0.2 }, bottom = { x: 0.1, y: 0.5, width: 0.8, height: 0.2 };
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), {
+    layout: { fingerprint: "blocks", async detect() { return { model: "test-layout", regions: [
+      { label: "text", box: bottom, confidence: 1, order: 1 }, { label: "doc_title", box: top, confidence: 1, order: 0 },
+    ] }; } },
+    snapshot: async () => ({ fingerprint: "blocks", service: new OcrService([{ info, async recognize(page) {
+      received.push(page.blocks);
+      return { text: "Title\nBody", regions: [{ text: "Title", box: top }, { text: "Body", box: bottom }], truncated: false };
+    } }], "test") }),
+  });
+  const result = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
+  const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
+  expect(received).toEqual(Array(2).fill([{ label: "doc_title", box: top, confidence: 1 }, { label: "text", box: bottom, confidence: 1 }]));
+  expect(result.status).toBe("complete");
+  expect(doc.pages[0]!.structure?.regions.map(region => [region.label, region.text])).toEqual([["doc_title", "Title"], ["text", "Body"]]);
+}, 10_000);
+
+test("blank pages and inferred table cells do not flag a page; text without layout blocks does", async () => {
+  const root = await mkdtemp(join(tmpdir(), "review-preparation-")); roots.push(root);
+  const pdf = await PDFDocument.create();
+  // Pages differ in width, so each rendered page can be told apart whatever order they are read in.
+  for (let page = 0; page < 3; page++) pdf.addPage([300 + 10 * page, 400]);
+  await writeFile(join(root, "pages.pdf"), await pdf.save());
+  const line = (text: string, x: number, y: number) => ({ text, box: { x, y, width: 0.2, height: 0.04 } });
+  const grid = [line("Fee", 0.1, 0.2), line("10", 0.5, 0.2), line("Tax", 0.1, 0.3), line("2", 0.5, 0.3), line("Total", 0.1, 0.4), line("12", 0.5, 0.4)];
+  const table = [{ label: "table", box: { x: 0.05, y: 0.15, width: 0.8, height: 0.35 }, confidence: 1, order: 0 }];
+  // Page 1 is blank, page 2 is a table whose cells are inferred from line positions, page 3 has text but no layout block.
+  const pages = [{ regions: [], ocr: [] }, { regions: table, ocr: grid }, { regions: [], ocr: [line("Stray line", 0.1, 0.1)] }];
+  const index = (page: { width: number }) => Math.round(page.width / 20) - 30;
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), {
+    layout: { fingerprint: "flags", async detect(page) { return { model: "test-layout", regions: pages[index(page)]!.regions }; } },
+    snapshot: async () => ({ fingerprint: "flags", service: new OcrService([{ info, async recognize(page) {
+      const regions = pages[index(page)]!.ocr;
+      return { text: regions.map(region => region.text).join("\n"), regions, truncated: false };
+    } }], "test") }),
+  });
+  const result = await done(service, root, (await service.start(root, { files: ["pages.pdf"] })).id);
+  const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
+  expect(doc.pages.map(page => page.status)).toEqual(["complete", "complete", "needs-review"]);
+  expect(doc.pages[1]!.structure?.tables[0]?.status).toBe("uncertain");
+}, 10_000);
+
 test("shared prepared-document reader rejects changed sources and escaped cache paths", async () => {
   const { readPreparedDocument } = await import("./read.js");
   const root = await fixture();
@@ -127,13 +182,13 @@ test("shared prepared-document reader rejects changed sources and escaped cache 
   });
   const run = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
   const path = run.documents[0]!.preparationPath!;
-  expect((await readPreparedDocument(root, "contract.pdf", path)).version).toBe("review-preparation-2");
+  expect((await readPreparedDocument(root, "contract.pdf", path)).version).toBe("review-preparation-4");
   await expect(readPreparedDocument(root, "contract.pdf", "../outside.json")).rejects.toThrow("Invalid prepared");
   await writeFile(join(root, "contract.pdf"), "changed source");
   await expect(readPreparedDocument(root, "contract.pdf", path)).rejects.toThrow("changed");
 }, 10_000);
 
-test("cancellation during layout resumes the already saved transcription", async () => {
+test("cancellation during layout resumes and completes the document", async () => {
   const root = await fixture(); let calls = 0, first = true;
   let entered!: () => void;
   const gate = new Promise<void>(resolve => { entered = resolve; });

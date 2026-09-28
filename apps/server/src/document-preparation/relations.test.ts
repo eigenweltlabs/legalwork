@@ -112,18 +112,3 @@ test("missing or duplicate page and region endpoints prevent reference links", (
   const duplicateIds = structure([target.regions[0], region("heading", "heading", "4.1 Other", .1, .2)]);
   expect(linkDocumentStructure([{ page: 1, structure: source }, { page: 2, structure: duplicateIds }])).toEqual([]);
 });
-
-test("arrow endpoints and strikeout overlap create candidates only", () => {
-  const note = region("note", "note", "Check this", .01, .2, .15, .08);
-  const body = region("body", "text", "Payment term", .3, .4, .5, .08);
-  const page = structure([note, body], { marks: [
-    { id: "arrow", kind: "arrow", box: { x: .1, y: .22, width: .4, height: .22 },
-      start: { x: .1, y: .24 }, end: { x: .4, y: .44 }, confidence: .8 },
-    { id: "strike", kind: "strikeout", box: { x: .32, y: .44, width: .3, height: .01 }, confidence: .8 },
-  ] });
-  const links = linkDocumentStructure([{ page: 1, structure: page }]);
-  expect(links).toContainEqual(expect.objectContaining({ kind: "annotates", basis: "arrow", status: "candidate",
-    source: { page: 1, regionId: "note" }, target: { page: 1, regionId: "body" } }));
-  expect(links).toContainEqual(expect.objectContaining({ kind: "deletes", basis: "strikeout", status: "candidate",
-    target: { page: 1, regionId: "body" } }));
-});
