@@ -5,6 +5,7 @@ import { AlertCircle, ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw,
 import { type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { writeStorageFileDrag } from "@/app/lib/storage-file-drag";
+import { readStorageDrop, storageUploadFiles, uploadStorageBatch, type StorageUploadBatch } from "@/app/lib/storage-upload";
 import { hasTaskAttachmentDrag, readTaskAttachmentDrag, type TaskAttachmentDragItem } from "@/app/lib/task-attachment-drag";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +41,7 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const uploadInput = useRef<HTMLInputElement>(null);
+  const uploading = useRef(false);
   const live = useRef(true);
   useEffect(() => {
     live.current = true;
@@ -49,33 +51,36 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
   }, []);
   const refreshFolder = (target: Location) =>
     queryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId, target.root.id, target.path] });
-  const upload = async (target: Location, files: File[]) => {
-    if (busy || !target.root.writable || !files.length) return;
+  const upload = async (target: Location, source: File[] | DataTransfer) => {
+    if (busy || uploading.current || !target.root.writable) return;
+    uploading.current = true;
     setSelected(target);
     setError("");
-    const failures: string[] = [];
-    for (const [index, file] of files.entries()) {
-      if (!live.current) return;
-      setBusy(t("storage.upload_progress", { current: index + 1, total: files.length, name: file.name }));
-      try {
-        await client.writeStorageFile(
-          workspaceId,
-          target.root.id,
-          target.path ? `${target.path}/${file.name}` : file.name,
-          file,
-          file.type || "application/octet-stream",
-        );
-      } catch (cause) {
-        failures.push(`${file.name}: ${cause instanceof Error ? cause.message : t("storage.failed")}`);
+    setBusy(t("storage.preparing_upload"));
+    let failures: StorageUploadBatch["failures"] = [];
+    try {
+      const batch = Array.isArray(source) ? storageUploadFiles(source) : await readStorageDrop(source);
+      failures = await uploadStorageBatch(client, workspaceId, target.root.id, target.path, batch,
+        (current, total, name) => setBusy(t("storage.upload_progress", { current, total, name })),
+        () => live.current,
+      );
+      // Nested folders may already be open, so invalidate the whole connection's tree.
+      await queryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId, target.root.id] });
+      await queryClient.invalidateQueries({ queryKey: ["storage-filename-search", workspaceId, target.root.id] });
+    } catch (cause) {
+      failures.push({ path: target.path, cause });
+    } finally {
+      uploading.current = false;
+      if (live.current) {
+        setBusy("");
+        setError(failures.map(({ path, cause }) =>
+          `${path ? `${path}: ` : ""}${cause instanceof Error ? cause.message : t("storage.failed")}`,
+        ).join("\n"));
       }
     }
-    if (!live.current) return;
-    await refreshFolder(target);
-    setBusy("");
-    setError(failures.join("\n"));
   };
   const copyTaskAttachment = async (target: Location, attachment: TaskAttachmentDragItem) => {
-    if (busy || !target.root.writable) return;
+    if (busy || uploading.current || !target.root.writable) return;
     setSelected(target);
     setError("");
     setBusy(t("storage.upload_progress", { current: 1, total: 1, name: attachment.filename }));
@@ -258,7 +263,7 @@ type FolderProps = Location & {
   selected: Location | null;
   onSelect: (target: Location) => void;
   onFile: (entry: StorageEntry) => void;
-  onUpload: (target: Location, files: File[]) => Promise<void>;
+  onUpload: (target: Location, source: File[] | DataTransfer) => Promise<void>;
   onTaskAttachmentDrop: (target: Location, attachment: TaskAttachmentDragItem) => Promise<void>;
   onChooseUpload: (target: Location) => void;
   onNewFolder: (target: Location) => void;
@@ -318,6 +323,7 @@ function StorageFolder(props: FolderProps) {
               (event.dataTransfer.types.includes("Files") || hasTaskAttachmentDrag(event.dataTransfer))
             ) {
               event.preventDefault();
+              event.stopPropagation();
               event.dataTransfer.dropEffect = "copy";
               setDragging(true);
             }
@@ -327,13 +333,14 @@ function StorageFolder(props: FolderProps) {
             setDragging(false);
             if (!root.writable || busy) return;
             event.preventDefault();
+            event.stopPropagation();
             setOpen(true);
             const attachment = readTaskAttachmentDrag(event.dataTransfer);
             if (attachment) {
               void props.onTaskAttachmentDrop({ root, path }, attachment);
               return;
             }
-            void onUpload({ root, path }, Array.from(event.dataTransfer.files));
+            void onUpload({ root, path }, event.dataTransfer);
           }}
         >
           <ChevronRight

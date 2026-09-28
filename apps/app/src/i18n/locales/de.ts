@@ -1097,6 +1097,7 @@ const de = {
   "storage.creating_folder": "Ordner wird erstellt…",
   "storage.invalid_name": "Geben Sie einen Ordnernamen ohne Schrägstriche oder Pfadwechsel an.",
   "storage.upload_progress": "Upload {current}/{total}: {name}",
+  "storage.preparing_upload": "Dateien und Ordner werden vorbereitet…",
   "storage.refresh_folder": "{name} aktualisieren",
   "storage.empty_folder": "Dieser Ordner ist leer.",
   "storage.load_more": "Weitere laden",
