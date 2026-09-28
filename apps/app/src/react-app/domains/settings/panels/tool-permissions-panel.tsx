@@ -66,7 +66,6 @@ export type ToolPermissionsPanelProps = {
 const QUICK_TOGGLES: QuickPermissionToggle[] = [
   "ask_before_edit",
   "ask_before_shell",
-  "block_internet",
 ];
 
 type PermissionLabels = { title: string; description: string };
