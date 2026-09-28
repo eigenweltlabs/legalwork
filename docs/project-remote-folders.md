@@ -4,7 +4,7 @@ A project stores references to existing storage folders. Creation optionally sel
 
 During setup the agent discovers the project's actual metadata schema and existing contents with `legalwork_project_get_details` and `legalwork_project_list`, then reads accessible documents with the existing storage/document tools. It fills supported values with `legalwork_project_set_metadata`, preserving custom field definitions and existing values. Concrete outstanding actions become tasks with `legalwork_task_create(linkToProject=true)`. Useful source notes can be added sparingly with `legalwork_project_create_note`, with attribution and duplicate checks. Unknown values stay empty; no generic checklist or guessed deadlines are needed. Finally the agent rereads the revision and calls `legalwork_project_complete_setup` to name the project and finish setup. No separate project summary is generated, saved or injected into later sessions. Renaming alone is not completion. `initialization: pending` survives an interrupted first session; a later session can finish it. Local-only setup records its completion status with an empty remote folder list.
 
-Project Home → **Linked folders** adds/removes references, checks access and displays search limitations. Source errors are not interpreted as empty results. Unlinking and project deletion make no remote mutation calls.
+Project Home → **Linked folders** adds/removes references and checks access. Source errors are not interpreted as empty results. Unlinking and project deletion make no remote mutation calls.
 
 ## Storage contract
 

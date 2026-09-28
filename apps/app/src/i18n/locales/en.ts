@@ -26,7 +26,6 @@ export default {
   "projects.remote.sharing_hint": "Each team member needs their own access to linked folders. Unlinking a folder leaves its files untouched.",
   "projects.remote.unlink": "Unlink folder",
   "projects.remote.available": "Accessible with your connection",
-  "projects.remote.limitations": "Search limitations",
   "projects.remote.pending": "Project setup is pending. Start a session to finish setting up from the linked folders.",
   "projects.remote.refresh": "Refresh",
   "projects.remote.link": "Link a remote folder",

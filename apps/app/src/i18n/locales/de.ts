@@ -36,7 +36,6 @@ const de = {
   "projects.remote.sharing_hint": "Jedes Teammitglied benötigt eigenen Zugriff auf verknüpfte Ordner. Beim Trennen eines Ordners bleiben seine Dateien unverändert.",
   "projects.remote.unlink": "Ordner trennen",
   "projects.remote.available": "Mit Ihrer Verbindung erreichbar",
-  "projects.remote.limitations": "Sucheinschränkungen",
   "projects.remote.pending": "Die Projekteinrichtung steht noch aus. Starten Sie eine Session, um das Projekt aus den verknüpften Ordnern fertig einzurichten.",
   "projects.remote.refresh": "Aktualisieren",
   "projects.remote.link": "Remote-Ordner verknüpfen",

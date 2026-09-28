@@ -35,7 +35,6 @@ export function ProjectRemoteFolders({ client, workspaceId }: { client: Legalwor
           <div className="flex items-center gap-2"><Folder className="size-4 shrink-0" /><span className="min-w-0 flex-1 truncate font-medium">{folder.location.folder.name}</span><Button variant="ghost" size="icon-sm" disabled={busy} aria-label={t("projects.remote.unlink")} title={t("projects.remote.unlink")} onClick={() => { void mutate(async () => { const current = await client.getProjectDetails(workspaceId); return client.unlinkProjectFolder(workspaceId, current.revision, folder.location.id); }); }}><Unlink /></Button></div>
           <p className="truncate text-xs text-muted-foreground" title={folder.location.folder.path}>{folder.location.connectionName} / {folder.location.folder.path || "/"}</p>
           {folder.error ? <p role="status" className="mt-2 text-sm text-destructive">{folder.error}</p> : <p className="mt-2 text-xs text-muted-foreground">{t("projects.remote.available")}</p>}
-          {folder.limitations.length > 0 && <details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{t("projects.remote.limitations")}</summary>{folder.limitations.map((value) => <p className="mt-1" key={value}>{value}</p>)}</details>}
         </div>)}
         {linked.data?.initialization === "pending" && <p className="text-sm text-muted-foreground">{t("projects.remote.pending")}</p>}
       </div>
