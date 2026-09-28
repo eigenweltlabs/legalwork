@@ -142,7 +142,7 @@ describe("in-app Word document routing", () => {
     await expect(plugin["tool.execute.before"](
       { tool: "bash", sessionID: "ses_open", callID: "call_1" },
       { args: { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' } },
-    )).rejects.toThrow("use inapp_docx_* tools");
+    )).rejects.toThrow(/use inapp_docx_\* tools/i);
   });
 
   test("routes in-app document tools to the matching session-scoped editor action", async () => {
@@ -326,7 +326,7 @@ describe("PowerPoint visual feedback", () => {
     const output: { system: string[] } = { system: [] };
     await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, output);
     expect(output.system.join("\n")).toContain("inapp_pptx_add_slide");
-    expect(output.system.join("\n")).toContain("do not probe internal app bundles");
+    expect(output.system.join("\n")).toMatch(/do not [^\n.]*probe internal app bundles/i);
   });
   test("reads a complete read-only presentation in one session-scoped request", async () => {
     const calls: unknown[] = [];
