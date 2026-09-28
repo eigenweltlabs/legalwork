@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, CalendarDays, Check, ChevronDown, Hash, ListFilter, Loader2, Plus, Search, Type, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, ChevronDown, Hash, ListFilter, Loader2, Plus, Search, Type, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -62,6 +62,8 @@ export function ProjectFilterBar(props: {
   fields: ProjectFilterField[];
   filters: ProjectFilter[];
   mode: ProjectFilterMode;
+  teamOnly: boolean;
+  onTeamOnlyChange: (teamOnly: boolean) => void;
   onChange: (filters: ProjectFilter[]) => void;
   onModeChange: (mode: ProjectFilterMode) => void;
   onClear: () => void;
@@ -75,6 +77,7 @@ export function ProjectFilterBar(props: {
   const [field, setField] = useState<ProjectFilterField | null>(null);
   const [search, setSearch] = useState("");
   const candidates = props.fields.filter(field => field.label.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  const filtered = props.teamOnly || props.filters.length > 0;
   return <div className="mb-4 space-y-2" aria-label={t("project_filters.title")}>
     <div className="flex min-h-8 flex-wrap items-center gap-2">
       <Popover open={adding} onOpenChange={open => { setAdding(open); if (!open) { setField(null); setSearch(""); } }}>
@@ -107,6 +110,9 @@ export function ProjectFilterBar(props: {
           </>}
         </PopoverContent>
       </Popover>
+      <Button variant="ghost" size="sm" aria-pressed={props.teamOnly} onClick={() => props.onTeamOnlyChange(!props.teamOnly)} className={cn("h-8 gap-1.5 px-2 text-xs font-medium", props.teamOnly ? "bg-muted text-foreground" : "text-muted-foreground")}>
+        <Users className="size-3.5" />{t("project_filters.team_projects")}{props.teamOnly && <Check className="size-3" />}
+      </Button>
       {props.filters.length > 0 && <>
         <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
         {props.filters.length > 1 && <DropdownMenu>
@@ -122,10 +128,10 @@ export function ProjectFilterBar(props: {
           onChange={updated => props.onChange(props.filters.map(item => item.id === filter.id ? updated : item))}
           onRemove={() => props.onChange(props.filters.filter(item => item.id !== filter.id))} />)}
         <Button variant="ghost" size="icon-xs" aria-label={t("project_filters.add")} title={t("project_filters.add")} className="text-muted-foreground" onClick={() => setAdding(true)}><Plus className="size-3.5" /></Button>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs font-normal text-muted-foreground" onClick={props.onClear}>{t("project_filters.clear")}</Button>
       </>}
+      {filtered && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs font-normal text-muted-foreground" onClick={props.onClear}>{t("project_filters.clear")}</Button>}
       <span className="ml-auto flex items-center gap-1.5 pl-2 text-xs tabular-nums text-muted-foreground" role="status">
-        {props.loading && props.filters.length > 0 ? <><Loader2 className="size-3 animate-spin" />{t("project_filters.loading")}</> : props.filters.length > 0 ? t("project_filters.result_count", { count: props.resultCount, total: props.totalCount }) : t("project_filters.project_count", { count: props.totalCount })}
+        {props.loading && props.filters.length > 0 ? <><Loader2 className="size-3 animate-spin" />{t("project_filters.loading")}</> : filtered ? t("project_filters.result_count", { count: props.resultCount, total: props.totalCount }) : t("project_filters.project_count", { count: props.totalCount })}
       </span>
     </div>
     {props.filters.length > 0 && props.unavailable > 0 && <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground" role="status">

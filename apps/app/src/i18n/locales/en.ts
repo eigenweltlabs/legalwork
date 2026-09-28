@@ -723,6 +723,7 @@ export default {
   "project_views.delete_title": "Delete “{name}”?",
   "project_views.delete_hint": "This removes the saved view. Your projects stay unchanged.",
   "project_filters.title": "Filter",
+  "project_filters.team_projects": "Team projects",
   "project_filters.add": "Add filter",
   "project_filters.apply": "Apply filter",
   "project_filters.clear": "Clear filters",

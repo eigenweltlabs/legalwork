@@ -732,6 +732,7 @@ const de = {
   "project_views.delete_title": "„{name}“ löschen?",
   "project_views.delete_hint": "Die gespeicherte Ansicht wird entfernt. Ihre Projekte bleiben unverändert.",
   "project_filters.title": "Filter",
+  "project_filters.team_projects": "Teamprojekte",
   "project_filters.add": "Filter hinzufügen",
   "project_filters.apply": "Filter anwenden",
   "project_filters.clear": "Filter zurücksetzen",

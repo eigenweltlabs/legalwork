@@ -17,7 +17,7 @@ export function ProjectViews({ onSelect }: { onSelect: () => void }) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const active = state.views.find(view => view.id === state.activeViewId);
   const changed = active ? projectViewHasChanges(active, state) : false;
-  const filtered = state.filters.length > 0 || !state.descending;
+  const filtered = state.teamOnly || state.filters.length > 0 || !state.descending;
   const name = editing?.name.trim() ?? "";
   const normalize = (value: string) => value.normalize("NFC").trim().toLowerCase();
   const duplicate = state.views.some(view => view.id !== editing?.id && normalize(view.name) === normalize(name));

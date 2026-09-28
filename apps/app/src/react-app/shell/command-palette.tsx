@@ -12,6 +12,7 @@ import { rankSearchResults } from "./search-ranking";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ProjectDetails } from "@legalwork/types/workspace";
 import { matchesProjectFilters, useProjectFilterStore } from "../domains/workspace/project-filters";
+import { useProjectSyncStore } from "../domains/workspace/project-sync-store";
 import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "../domains/workspace/project-defaults-store";
 import "./command-palette.css";
 
@@ -47,14 +48,17 @@ export function CommandPalette(props: {
   const [revision, setRevision] = useState(0);
   const [preparing, setPreparing] = useState(0);
   const filterState = useProjectFilterStore();
+  const syncStates = useProjectSyncStore(state => state.states);
   const savedDefaults = useProjectDefaultsStore(state => state.fields);
   const details = useQueries({ queries: props.workspaces.map(workspace => ({
     queryKey: ["search-project", workspace.id], queryFn: () => props.project(workspace.id),
-    enabled: props.open && scope === "__filtered__", staleTime: 0, retry: 1,
+    enabled: props.open && scope === "__filtered__" && filterState.filters.length > 0 && (!filterState.teamOnly || syncStates[workspace.id] !== undefined), staleTime: 0, retry: 1,
   })) });
   const eligibleIds = props.workspaces.filter((workspace, index) => {
     if (scope === "__all__") return true;
     if (scope !== "__filtered__") return workspace.id === scope;
+    if (filterState.teamOnly && syncStates[workspace.id] === undefined) return false;
+    if (!filterState.filters.length) return true;
     const detail = details[index].data;
     return detail && matchesProjectFilters(withInitialProjectFields(detail, savedDefaults ?? defaultAkteFields()).fields, filterState.filters, filterState.mode);
   }).map(workspace => workspace.id).join("\n");
@@ -155,11 +159,11 @@ export function CommandPalette(props: {
             <SelectTrigger size="sm" aria-label={t("content_search.scope")}><SelectValue>{scope === "__all__" ? t("content_search.all_projects") : scope === "__filtered__" ? t("content_search.filtered_projects") : props.workspaces.find(workspace => workspace.id === scope)?.title}</SelectValue></SelectTrigger>
             <SelectContent align="start" className="search-scope-menu">
               <SelectItem value="__all__">{t("content_search.all_projects")}</SelectItem>
-              {!!filterState.filters.length && <SelectItem value="__filtered__">{t("content_search.filtered_projects")}</SelectItem>}
+              {(filterState.teamOnly || filterState.filters.length > 0) && <SelectItem value="__filtered__">{t("content_search.filtered_projects")}</SelectItem>}
               {props.workspaces.map(workspace => <SelectItem key={workspace.id} value={workspace.id} title={workspace.title}>{workspace.title}</SelectItem>)}
             </SelectContent>
           </Select>
-          {scope === "__filtered__" && <span>{details.some(detail => detail.isFetching) ? t("content_search.searching") : details.some(detail => detail.isError) ? t("content_search.metadata_unavailable") : t("content_search.projects_count", { count: scopedWorkspaces.length })}</span>}
+          {scope === "__filtered__" && <span>{filterState.filters.length > 0 && details.some(detail => detail.isFetching) ? t("content_search.searching") : filterState.filters.length > 0 && details.some(detail => detail.isError) ? t("content_search.metadata_unavailable") : t("content_search.projects_count", { count: scopedWorkspaces.length })}</span>}
         </div>
         <Tabs value={filter} onValueChange={value => { if (value === "all" || value === "sessions" || value === "projects" || value === "tasks" || value === "files") setFilter(value); }} className="search-filters">
           <TabsList aria-label={t("content_search.filter")} aria-keyshortcuts="Tab Shift+Tab">

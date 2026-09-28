@@ -9,7 +9,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { WorkspaceIcon } from "../../design-system/workspace-icon";
+import { ProjectFolderIcon } from "./project-sync";
+import { useProjectSyncStore } from "./project-sync-store";
 import { SectionHeading } from "../../design-system/surface";
 import { allProjectSessions, SessionProjectHover } from "../session/sidebar/session-project-hover";
 import { workspaceLabel } from "../session/sidebar/utils";
@@ -51,6 +52,8 @@ export function ProjectsPage(props: Props) {
   const [page, setPage] = useState(0);
   const favoriteIds = useProjectFavoritesStore(state => state.favoriteIds);
   const filterState = useProjectFilterStore();
+  const syncStates = useProjectSyncStore(state => state.states);
+  const filtered = filterState.teamOnly || filterState.filters.length > 0;
   const { descending, setDescending } = filterState;
   const savedDefaults = useProjectDefaultsStore(state => state.fields);
   const defaults = savedDefaults ?? defaultAkteFields();
@@ -69,16 +72,19 @@ export function ProjectsPage(props: Props) {
   })) });
   const projectFields = details.map(result => result.data ? withInitialProjectFields(result.data, defaults).fields : null);
   const fields = collectProjectFilterFields([defaults, ...projectFields.filter(fields => fields !== null)]);
-  const metadataLoading = details.some((result, index) => endpoints[index] && !result.data && result.isPending);
-  const unavailable = details.filter((result, index) => !result.data && (result.isError || !endpoints[index])).length;
+  const inTeamScope = (index: number) => !filterState.teamOnly || syncStates[props.groups[index].workspace.id] !== undefined;
+  const metadataLoading = filterState.filters.length > 0 && details.some((result, index) => inTeamScope(index) && endpoints[index] && !result.data && result.isPending);
+  const unavailable = details.filter((result, index) => inTeamScope(index) && !result.data && (result.isError || !endpoints[index])).length;
   const sortedGroups = useMemo(() => props.groups
     .map(group => ({ group, updated: Math.max(0, ...group.sessions.map(session => session.time?.updated ?? session.time?.created ?? 0)) }))
     .sort((a, b) => Number(favoriteIds.includes(b.group.workspace.id)) - Number(favoriteIds.includes(a.group.workspace.id)) || (descending ? b.updated - a.updated : a.updated - b.updated)), [props.groups, descending, favoriteIds]);
   const fieldsByProject = new Map(props.groups.map((group, index) => [group.workspace.id, projectFields[index]]));
-  const groups = filterState.filters.length ? sortedGroups.filter(({ group }) => {
+  const groups = sortedGroups.filter(({ group }) => {
+    if (filterState.teamOnly && syncStates[group.workspace.id] === undefined) return false;
+    if (!filterState.filters.length) return true;
     const fields = fieldsByProject.get(group.workspace.id);
     return fields !== null && fields !== undefined && matchesProjectFilters(fields, filterState.filters, filterState.mode);
-  }) : sortedGroups;
+  });
   const pages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
   const current = Math.min(page, pages - 1);
   return <div className="@container/project-page h-full overflow-auto bg-background">
@@ -89,6 +95,7 @@ export function ProjectsPage(props: Props) {
       </>} />
       <ProjectViews onSelect={() => setPage(0)} />
       <ProjectFilterBar fields={fields} filters={filterState.filters} mode={filterState.mode}
+        teamOnly={filterState.teamOnly} onTeamOnlyChange={teamOnly => { filterState.setTeamOnly(teamOnly); setPage(0); }}
         onChange={filters => { filterState.setFilters(filters); setPage(0); }}
         onModeChange={mode => { filterState.setMode(mode); setPage(0); }}
         onClear={() => { filterState.clear(); setPage(0); }} resultCount={groups.length} totalCount={props.groups.length}
@@ -100,8 +107,8 @@ export function ProjectsPage(props: Props) {
       </div>
       {groups.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map(({ group, updated }) => <ProjectRow key={group.workspace.id} {...props} group={group} updated={updated} />)}
       {!groups.length && <div className="flex flex-col items-center gap-2 py-14 text-center text-sm text-muted-foreground" role="status">
-        <p>{t(filterState.filters.length ? metadataLoading ? "project_filters.loading" : "project_filters.no_matches" : "sidebar.no_projects")}</p>
-        {filterState.filters.length > 0 && !metadataLoading && <Button variant="outline" size="sm" onClick={() => { filterState.clear(); setPage(0); }}>{t("project_filters.clear")}</Button>}
+        <p>{t(filtered ? metadataLoading ? "project_filters.loading" : "project_filters.no_matches" : "sidebar.no_projects")}</p>
+        {filtered && !metadataLoading && <Button variant="outline" size="sm" onClick={() => { filterState.clear(); setPage(0); }}>{t("project_filters.clear")}</Button>}
       </div>}
       {pages > 1 && <Pagination current={current} pages={pages} onChange={setPage} />}
     </div>
@@ -134,7 +141,7 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
       <button type="button" className="absolute inset-0 cursor-pointer rounded-lg transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={name} aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)} />
       <div className="pointer-events-none relative flex min-w-0 items-center gap-2.5">
         <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-90")} />
-        <WorkspaceIcon workspaceId={id} sizeClass="size-5" open={expanded} />
+        <ProjectFolderIcon workspaceId={id} open={expanded} />
         <span className="truncate text-sm font-medium">{name}</span>
         {pinned && <Pin className="size-3 shrink-0 fill-current text-muted-foreground" />}
         {sessions.length > 0 && <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70" title={t("projects.sessions")}>{sessions.length}</span>}

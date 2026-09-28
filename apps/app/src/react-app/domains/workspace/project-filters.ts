@@ -147,11 +147,13 @@ type FilterStore = {
   filters: ProjectFilter[];
   mode: ProjectFilterMode;
   descending: boolean;
+  teamOnly: boolean;
   views: ProjectView[];
   activeViewId: string | null;
   setFilters: (filters: ProjectFilter[]) => void;
   setMode: (mode: ProjectFilterMode) => void;
   setDescending: (descending: boolean) => void;
+  setTeamOnly: (teamOnly: boolean) => void;
   selectView: (id: string | null) => void;
   saveView: (name: string) => void;
   updateView: () => void;
@@ -166,36 +168,39 @@ export type ProjectView = {
   filters: ProjectFilter[];
   mode: ProjectFilterMode;
   descending: boolean;
+  /** Older saved views include all projects. */
+  teamOnly?: boolean;
 };
 
-export function projectViewHasChanges(view: ProjectView, state: Pick<FilterStore, "filters" | "mode" | "descending">) {
+export function projectViewHasChanges(view: ProjectView, state: Pick<FilterStore, "filters" | "mode" | "descending" | "teamOnly">) {
   const conditions = (filters: ProjectFilter[]) => JSON.stringify(filters.map(({ field, operator, values }) => ({ key: field.key, operator, values })));
-  return view.mode !== state.mode || view.descending !== state.descending || conditions(view.filters) !== conditions(state.filters);
+  return Boolean(view.teamOnly) !== state.teamOnly || view.mode !== state.mode || view.descending !== state.descending || conditions(view.filters) !== conditions(state.filters);
 }
 
 export const useProjectFilterStore = create<FilterStore>()(persist((set, get) => ({
-  filters: [], mode: "all", descending: true, views: [], activeViewId: null,
+  filters: [], mode: "all", descending: true, teamOnly: false, views: [], activeViewId: null,
   setFilters: filters => set({ filters }),
   setMode: mode => set({ mode }),
   setDescending: descending => set({ descending }),
+  setTeamOnly: teamOnly => set({ teamOnly }),
   selectView: id => {
     const view = get().views.find(view => view.id === id);
     if (id && !view) return;
-    set(view ? { filters: view.filters, mode: view.mode, descending: view.descending, activeViewId: view.id } : { filters: [], mode: "all", descending: true, activeViewId: null });
+    set(view ? { filters: view.filters, mode: view.mode, descending: view.descending, teamOnly: Boolean(view.teamOnly), activeViewId: view.id } : { filters: [], mode: "all", descending: true, teamOnly: false, activeViewId: null });
   },
   saveView: name => {
     const state = get();
     const trimmed = name.trim();
     if (!trimmed || state.views.some(view => normalize(view.name) === normalize(trimmed))) return;
-    const view = { id: crypto.randomUUID(), name: trimmed, filters: state.filters, mode: state.mode, descending: state.descending };
+    const view = { id: crypto.randomUUID(), name: trimmed, filters: state.filters, mode: state.mode, descending: state.descending, teamOnly: state.teamOnly };
     set({ views: [...state.views, view], activeViewId: view.id });
   },
-  updateView: () => set(state => ({ views: state.views.map(view => view.id === state.activeViewId ? { ...view, filters: state.filters, mode: state.mode, descending: state.descending } : view) })),
+  updateView: () => set(state => ({ views: state.views.map(view => view.id === state.activeViewId ? { ...view, filters: state.filters, mode: state.mode, descending: state.descending, teamOnly: state.teamOnly } : view) })),
   renameView: (id, name) => set(state => {
     const trimmed = name.trim();
     if (!trimmed || state.views.some(view => view.id !== id && normalize(view.name) === normalize(trimmed))) return state;
     return { views: state.views.map(view => view.id === id ? { ...view, name: trimmed } : view) };
   }),
   deleteView: id => set(state => ({ views: state.views.filter(view => view.id !== id), activeViewId: state.activeViewId === id ? null : state.activeViewId })),
-  clear: () => set({ filters: [], mode: "all" }),
-}), { name: "legalwork.projectFilters.v1", partialize: ({ filters, mode, descending, views, activeViewId }) => ({ filters, mode, descending, views, activeViewId }) }));
+  clear: () => set({ filters: [], mode: "all", teamOnly: false }),
+}), { name: "legalwork.projectFilters.v1", partialize: ({ filters, mode, descending, teamOnly, views, activeViewId }) => ({ filters, mode, descending, teamOnly, views, activeViewId }) }));

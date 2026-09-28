@@ -73,7 +73,7 @@ function AttentionIcon(props: { state: ProjectSyncState; className?: string }) {
 }
 
 /**
- * A project's folder in the sidebar. A shared project's folder has a person
+ * A project's folder in the sidebar and Projects page. A shared folder has a person
  * on its front, as shared folders do in Drive and Finder, and a dot on its
  * corner when it needs someone (grey while offline).
  */
