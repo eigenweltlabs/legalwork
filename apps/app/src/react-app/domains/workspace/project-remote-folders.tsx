@@ -37,7 +37,6 @@ export function ProjectRemoteFolders({ client, workspaceId }: { client: Legalwor
           {folder.error ? <p role="status" className="mt-2 text-sm text-destructive">{folder.error}</p> : <p className="mt-2 text-xs text-muted-foreground">{t("projects.remote.available")}</p>}
           {folder.limitations.length > 0 && <details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{t("projects.remote.limitations")}</summary>{folder.limitations.map((value) => <p className="mt-1" key={value}>{value}</p>)}</details>}
         </div>)}
-        {linked.data?.context && <details className="rounded-xl border p-3 text-sm"><summary className="cursor-pointer font-medium">{t("projects.remote.context")}</summary><p className="mt-2 whitespace-pre-wrap text-muted-foreground">{linked.data.context}</p></details>}
         {linked.data?.initialization === "pending" && <p className="text-sm text-muted-foreground">{t("projects.remote.pending")}</p>}
       </div>
       <div className="flex justify-between"><Button variant="ghost" disabled={busy || linked.isFetching} onClick={() => { void linked.refetch(); void sources.refetch(); }}><RefreshCw />{t("projects.remote.refresh")}</Button><Button disabled={busy || !sources.data?.sources.length} onClick={() => setPicking(true)}><Plus />{t("projects.remote.link")}</Button></div>
