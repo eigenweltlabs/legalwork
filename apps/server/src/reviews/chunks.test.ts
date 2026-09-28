@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { splitReviewEvidence, combineReviewChunks, type EvidencePage } from "./chunks.js";
+import { splitReviewEvidence, combineReviewChunks, inferencePages, type EvidencePage } from "./chunks.js";
+import { SystemOneRequestSchema } from "../systemone-schema.js";
 import type { DocumentRelation } from "@legalwork/types/document-structure";
 import { structureOffsets } from "./evidence.js";
 test("splitting keeps every source character and overlapping context, including empty first pages", () => {
@@ -81,4 +82,22 @@ test("linked chains include every reachable passage within a bounded closure", (
     source: { page: index + 1, regionId: `r${index}` }, target: { page: index + 2, regionId: `r${index + 1}` },
     status: "candidate", basis: "page-boundary", explanation: "fixture" }));
   expect(combineReviewChunks([{ index: 0, start: 0, end: 1, pages: [longer[0]] }], longer, 100_000, chain)).toBeNull();
+});
+
+test("inference evidence omits absent metadata without losing OCR, tables or links", () => {
+  const pages: EvidencePage[] = [{ page: null, text: "Unpaginated", source: undefined, status: undefined, blocks: undefined, tables: undefined, links: undefined }, {
+    page: 1, text: "Main term", source: "ocr", status: "complete", regions: [{ text: "Duplicate OCR text" }],
+    blocks: [{ id: "main", kind: "text", start: 0, end: 9, ocrRegionIds: undefined }, { id: "ocr", kind: "text", start: 0, end: 9, ocrRegionIds: [2] }],
+    tables: [{ regionId: "main", rows: 1, columns: 1, status: "parsed", cells: [{ row: 0, column: 0, start: 0, end: 9 }] }],
+    links: [{ kind: "annotates", status: "candidate", basis: "arrow", source: { page: 1, regionId: "main" }, target: { page: 1, regionId: "ocr" } }],
+  }];
+  const output = inferencePages(pages);
+  expect(SystemOneRequestSchema.safeParse({ state: { pages: output }, questions: { relevant: { type: "noul", instructions: "Relevant?" } } }).success).toBe(true);
+  expect(output[0]).toEqual({ page: null, text: "Unpaginated" });
+  expect(output[1]).not.toHaveProperty("regions");
+  expect(output[1].blocks?.[0]).not.toHaveProperty("ocrRegionIds");
+  expect(output[1].blocks?.[1].ocrRegionIds).toEqual([2]);
+  expect(output[1].tables).toEqual(pages[1].tables);
+  expect(output[1].links).toEqual(pages[1].links);
+  expect(pages[1]).toHaveProperty("regions");
 });

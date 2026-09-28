@@ -15,7 +15,18 @@ type Interval = { start: number; end: number };
 
 /** OCR region text stays available for citation checks, but is never sent as duplicate inference context. */
 export function inferencePages(pages: EvidencePage[]): Omit<EvidencePage, "regions">[] {
-  return pages.map(({ regions: _regions, ...page }) => page);
+  // SystemOne validates structured content before JSON serialization. Omit absent
+  // metadata here so optional fields never become invalid undefined JSON values.
+  return pages.map(({ page, text, source, status, blocks, tables, links }) => ({
+    page, text,
+    ...(source !== undefined ? { source } : {}),
+    ...(status !== undefined ? { status } : {}),
+    ...(blocks !== undefined ? { blocks: blocks.map(({ ocrRegionIds, ...block }) => ({
+      ...block, ...(ocrRegionIds !== undefined ? { ocrRegionIds } : {}),
+    })) } : {}),
+    ...(tables !== undefined ? { tables } : {}),
+    ...(links !== undefined ? { links } : {}),
+  }));
 }
 export function serializedEvidenceLength(pages: EvidencePage[]): number {
   return JSON.stringify(inferencePages(pages)).length;

@@ -4,6 +4,7 @@ import { ReviewColumnSchema, SavedReviewSchema, type ReviewResult } from "./sche
 import { SystemOneProviderSchema, SystemOneResponseSchema, type SystemOneRequest, type SystemOneSettings } from "../systemone-schema.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
+import { callSystemOne } from "../systemone-client.js";
 import { ReviewRequests } from "./scheduler.js";
 import { builtinReviewLibrary } from "./builtin-library.js";
 const calls: Array<{ path: string; method: string; body: unknown }> = [];
@@ -252,4 +253,37 @@ test("a subscriber's explicit TypeSafe selection survives unavailability without
   const result = await discovery.models(workspace);
   expect(result.settings.jev).toEqual(selection);
   expect(result.models.some(model => model.model === "TypeSafeJev")).toBe(false);
+});
+
+
+test("review evidence reaches the SystemOne HTTP adapter for EU and US models, including chunk relevance", async () => {
+  const prompt = builtinReviewLibrary("de").find(entry => entry.id === "builtin-forum-country-de")!.columns[0];
+  const received: SystemOneRequest[] = [];
+  const gateway = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(httpRequest) {
+    const request: SystemOneRequest = await httpRequest.json();
+    received.push(request);
+    return Response.json({ model: request.model, answers: Object.fromEntries(Object.entries(request.questions).map(([key, question]) => [key,
+      question.type === "choice" ? { type: "choice", choice: "Deutschland", probabilities: Object.fromEntries(Object.keys(question.criteria).map(option => [option, option === "Deutschland" ? 1 : 0])) }
+        : { type: "noul", noul: received.length === 1 ? .99 : .01 },
+    ])) });
+  } });
+  try {
+    for (const model of ["EigenJev", "TypeSafeJev"]) for (const long of [false, true]) {
+      received.length = 0;
+      const selection = { providerId: "eigenwelt", model };
+      const runner = new ReviewExecutor(config, {
+        settings: async () => ({ selection, providers: [SystemOneProviderSchema.parse({ ...settings.providers[0], id: "eigenwelt", managed: true,
+          models: [{ id: model, name: model, source: "configured", questionTypes: ["noul", "choice"], status: "ready" }],
+        })] }),
+        infer: async (_config, request) => callSystemOne({ endpoint: `${gateway.url}v1/systemone`, apiKey: "fixture", model, questionTypes: ["noul", "choice"] }, request, { retry: false }),
+      });
+      const document = { ...evidence, pages: [{ page: 1, text: "Gerichtsstand ist Berlin, Deutschland. " + (long ? "A".repeat(120_000) : ""),
+        blocks: undefined, tables: undefined, links: undefined }] };
+      const result = await runner.execute(workspace, { ...review("mixed"), settings: { ...review("mixed").settings, jev: selection } }, prompt, document, new AbortController().signal);
+      expect(result.value).toBe("Deutschland");
+      expect(received.every(request => request.model === model)).toBe(true);
+      expect(received.some(request => "relevant" in request.questions)).toBe(long);
+      expect(received.at(-1)?.questions.answer.type).toBe("choice");
+    }
+  } finally { gateway.stop(true); }
 });
