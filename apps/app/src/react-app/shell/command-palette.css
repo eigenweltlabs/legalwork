@@ -153,7 +153,6 @@
 .search-scope-menu [data-slot="select-scroll-up-button"],
 .search-scope-menu [data-slot="select-scroll-down-button"] { background: transparent; color: var(--lw-search-glass-text); }
 .search-filters { flex-shrink: 0; padding: 10px 20px 12px; }
-.search-retry { align-self: flex-start; margin-inline: 20px; color: var(--lw-search-glass-text); }
 .search-filters [data-slot="tabs-list"] {
   max-width: 100%;
   height: 30px;
@@ -221,7 +220,6 @@
 .search-footer-status { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
 .search-footer-status:empty { display: none; }
 .search-key-help { margin-left: auto; }
-.search-issues { padding: 10px 24px; border-top: 1px solid color-mix(in srgb, var(--lw-search-glass-text) 8%, transparent); color: var(--lw-search-glass-muted); font-size: 12px; }
 
 @media (max-width: 540px) {
   .search-capsule { height: 64px; padding-inline-end: 14px; }

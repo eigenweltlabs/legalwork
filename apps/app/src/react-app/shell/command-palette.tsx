@@ -45,9 +45,7 @@ export function CommandPalette(props: {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState("__all__");
   const [revision, setRevision] = useState(0);
-  const retryRef = useRef(false);
   const [preparing, setPreparing] = useState(0);
-  const [retryable, setRetryable] = useState(false);
   const filterState = useProjectFilterStore();
   const savedDefaults = useProjectDefaultsStore(state => state.fields);
   const details = useQueries({ queries: props.workspaces.map(workspace => ({
@@ -67,7 +65,6 @@ export function CommandPalette(props: {
   const previousSearch = useRef("");
   const [results, setResults] = useState<ContentSearchResult[]>([]);
   const [pending, setPending] = useState(0);
-  const [issues, setIssues] = useState<string[]>([]);
   const [limited, setLimited] = useState(false);
   const [resultQuery, setResultQuery] = useState("");
   const trimmed = query.trim();
@@ -77,10 +74,9 @@ export function CommandPalette(props: {
   useEffect(() => {
     const key = JSON.stringify([trimmed, filter, eligibleIds, scope]);
     if (previousSearch.current !== key) { previousSearch.current = key; resultsByJob.current.clear(); setResults([]); }
-    setIssues([]); setLimited(false); setPending(0); setPreparing(0); setRetryable(false); setResultQuery(trimmed);
+    setLimited(false); setPending(0); setPreparing(0); setResultQuery(trimmed);
     if (!props.open || trimmed.length === 1 || (trimmed.length < 2 && filter !== "tasks" && filter !== "all") || filter === "projects") return;
     const controller = new AbortController();
-    const retry = retryRef.current; retryRef.current = false;
     const jobs: Array<{ workspace: SearchWorkspace; kind: "sessions" | "tasks" | "files" }> = [];
     const taskServers = new Set<string>();
     for (const workspace of scopedWorkspaces) {
@@ -94,18 +90,14 @@ export function CommandPalette(props: {
     const timer = window.setTimeout(() => {
       const run = async (job: typeof jobs[number]) => {
         try {
-          const response = await props.search(job.workspace.id, job.kind, trimmed, controller.signal, { projectOnly: scope !== "__all__", retry });
+          const response = await props.search(job.workspace.id, job.kind, trimmed, controller.signal, { projectOnly: scope !== "__all__" });
           if (controller.signal.aborted) return;
           resultsByJob.current.set(`${job.workspace.id}:${job.kind}`, response.items);
           setResults([...resultsByJob.current.values()].flat());
           if (response.limited) setLimited(true);
           if (response.preparing) setPreparing(current => current + (response.preparing ?? 0));
-          if (response.retryable) setRetryable(true);
-          if (response.skipped || response.incomplete) setIssues(current => [...current, t("content_search.files_incomplete", { project: job.workspace.title })]);
-          const fileIssues = response.issues;
-          if (fileIssues?.length) setIssues(current => [...current, ...fileIssues.map(issue => `${issue.path}: ${issue.reason}`)]);
         } catch {
-          if (!controller.signal.aborted) setIssues(current => [...current, t("content_search.failed", { kind: labels()[job.kind], project: job.workspace.title })]);
+          // Keep showing matches from the other search sources.
         } finally {
           if (!controller.signal.aborted) setPending(current => Math.max(0, current - 1));
         }
@@ -192,8 +184,6 @@ export function CommandPalette(props: {
             </CommandItem>;
           }}</CommandList>
         </CommandPanel>
-        {issues.length > 0 && <details className="search-issues"><summary>{t("content_search.incomplete_summary")}</summary><div className="max-h-28 overflow-auto">{[...new Set(issues)].map(issue => <p key={issue}>{issue}</p>)}</div></details>}
-        {retryable && <Button variant="ghost" size="sm" className="search-retry" onClick={() => { retryRef.current = true; setRevision(value => value + 1); }}>{t("content_search.retry")}</Button>}
         <CommandFooter>
           <span className="search-shortcut">{t("content_search.open_shortcut", { shortcut: isMacPlatform() ? "⌘ K" : "Ctrl + K" })}</span>
           <span aria-live="polite" className="search-footer-status">{(pending || preparing) ? <><Loader2 className="size-3 animate-spin" />{preparing ? t("content_search.preparing", { count: preparing }) : t("content_search.searching")}</> : limited || visible.length < items.length ? t("content_search.refine") : (trimmed || filter === "tasks") ? t("content_search.results", { count: visible.length }) : null}</span>
