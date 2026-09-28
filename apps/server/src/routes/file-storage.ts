@@ -1,6 +1,6 @@
 import { registerProjectFolderRoutes } from "./project-folders.js";
 import { readProjectDetails } from "../project-store.js";
-import { projectFolderScopes } from "../file-storage/project-folders.js";
+import { connectionFingerprint, projectFolderScopes } from "../file-storage/project-folders.js";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -197,13 +197,19 @@ export function registerStorageRoutes({
   addRoute(routes, "GET", `${base}/roots`, "client", async (ctx) => {
     const workspaceId = await workspace(ctx);
     const shared = await team.list(workspaceId);
-    const connections = [...(await store.list(workspaceId)), ...shared.connections];
+    const connections = [...(await store.list(workspaceId)), ...shared.connections]
+      .filter((item) => item.enabled && item.team?.installed !== false);
     const details = await readProjectDetails((await resolveWorkspace(config, workspaceId)).path);
-    const linkedRoots = (details.remote?.folders ?? []).map((folder) => ({ id: `project:${folder.id}`, name: folder.folder.name, kind: "linked", writable: false }));
+    const linkedRoots = (details.remote?.folders ?? []).map((folder) => {
+      const source = connections.find((item) => item.id === folder.connectionId && item.team?.orgId === folder.organizationId && connectionFingerprint(item) === folder.connectionFingerprint);
+      return {
+        id: `project:${folder.id}`, name: folder.folder.name, kind: "linked", writable: false,
+        ...(source ? { sourceConnectionId: source.id } : {}),
+      };
+    });
     return jsonResponse({
       ...(shared.status.error ? { teamError: shared.status.error } : {}),
       roots: [...linkedRoots, ...connections
-        .filter((item) => item.enabled && item.team?.installed !== false)
         .map((item) => ({
           id: item.id,
           name: item.name,

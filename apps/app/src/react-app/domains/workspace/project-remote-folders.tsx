@@ -16,7 +16,11 @@ export function ProjectRemoteFolders({ client, workspaceId }: { client: Legalwor
   const queries = useQueryClient();
   const details = useQuery({ queryKey: ["project", workspaceId], queryFn: () => client.getProjectDetails(workspaceId) });
   const linked = useQuery({ queryKey: ["project-remote-folders", workspaceId], queryFn: () => client.projectRemoteFolders(workspaceId), enabled: open, retry: false });
-  const refresh = async () => { await queries.invalidateQueries({ queryKey: ["project", workspaceId] }); await queries.invalidateQueries({ queryKey: ["project-remote-folders", workspaceId] }); };
+  const refresh = async () => { await Promise.all([
+    queries.invalidateQueries({ queryKey: ["project", workspaceId] }),
+    queries.invalidateQueries({ queryKey: ["project-remote-folders", workspaceId] }),
+    queries.invalidateQueries({ queryKey: ["storage-roots", workspaceId] }),
+  ]); };
   const mutate = async (operation: () => Promise<unknown>) => {
     setBusy(true);
     try { await operation(); await refresh(); }

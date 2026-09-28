@@ -116,9 +116,12 @@ export function LegalMemoryFilesPanel({
     window.addEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
     return () => window.removeEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
   }, [storageRoots.refetch, storageQueryClient, workspaceId]);
-  const storageCatalogRevision = JSON.stringify(storageRoots.data?.roots.map((root) => [root.id, root.revision, root.writable]));
+  const allStorageRoots = storageRoots.data?.roots ?? [];
+  // Linked folders scope the agent's tools; don't duplicate their source tree or search results.
+  const browserRoots = allStorageRoots.filter((root) => !root.sourceConnectionId || !allStorageRoots.some((source) => source.id === root.sourceConnectionId));
+  const storageCatalogRevision = JSON.stringify(browserRoots.map((root) => [root.id, root.revision, root.writable]));
   const storageRefreshKey = `${storageRevision}:${storageCatalogRevision}`;
-  const hasStorage = Boolean(storageRoots.data?.roots.length);
+  const hasStorage = browserRoots.length > 0;
 
   const rootsQuery = useQuery({
     queryKey: ["legalmemory-tree-roots", workspaceId] as const,
@@ -363,9 +366,9 @@ export function LegalMemoryFilesPanel({
 
         {client && workspaceId && hasStorage ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
-            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
+            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={browserRoots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
             <div hidden={Boolean(searchQuery)}>
-            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} onOpenFile={onOpenStorageFile} />
+            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={browserRoots} onOpenFile={onOpenStorageFile} />
             </div>
           </div>
         ) : null}

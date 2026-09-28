@@ -176,7 +176,15 @@ export type StorageConnection = Omit<StorageInput, "secrets"> & {
   team?: { orgId: string; version: number; installed: boolean };
 };
 export type StorageTeamStatus = { connected: boolean; canManage: boolean; error?: string };
-export type StorageRoot = { id: string; name: string; kind: StorageKind | "linked"; writable: boolean; revision?: string };
+export type StorageRoot = {
+  id: string;
+  name: string;
+  kind: StorageKind | "linked";
+  writable: boolean;
+  revision?: string;
+  /** A linked folder already contained in this available connection. Browsers show the source once; tools keep the scoped root. */
+  sourceConnectionId?: string;
+};
 export type StorageEntry = {
   path: string;
   name: string;

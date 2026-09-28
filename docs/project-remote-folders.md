@@ -14,6 +14,8 @@ The reference records a UUID, stable connection ID (`team:<UUID>` for team conne
 
 Project tools use read-only virtual connection roots named `project:<folder UUID>`. Relative paths, recursive filename search, native search, pagination and document reads reuse existing storage routes. The wrapper rejects traversal and filters provider results to the linked subtree. Omitted search connections default to linked project roots. Explicit other connections remain possible when the user asks. No LegalMemory dependency, semantic index, folder mirror or local-to-remote document synchronization is introduced.
 
+The storage browser shows a linked folder only in its original connection when that connection is already available, avoiding duplicate tree entries and filename-search results. Connection ID, organization and namespace fingerprint must match; names alone never establish identity. If the source connection is absent, the linked root remains visible. Agent tools retain all scoped roots regardless of this display choice.
+
 ## Sharing and permission boundaries
 
 Project configuration (`remote`) travels through project subscription sync separately from document/metadata scope. It contains only folder references and setup status. Previously saved summaries are discarded when old records are read. The platform compatibility field is sent empty, so no summary is uploaded. The stable team project identity is the existing `syncProjectId`. Folder configuration uses the existing timestamp conflict rule; a newer configuration wins as one unit.
