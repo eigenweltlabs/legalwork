@@ -146,15 +146,21 @@ export function registerProjectFolderRoutes(options: {
   addRoute(routes, "GET", "/workspace/:id/project/context", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const details = await readProjectDetails(workspace.path);
-    return jsonResponse({ revision: details.revision, remote: details.remote ?? null });
+    return jsonResponse({
+      projectId: workspace.id, name: workspace.displayName?.trim() || workspace.name,
+      revision: details.revision, fields: details.fields,
+      localFolder: workspace.path,
+      context: details.remote?.context ?? "", initialization: details.remote?.initialization ?? "none",
+      remote: details.remote ?? null,
+    });
   });
   addRoute(routes, "PATCH", "/workspace/:id/project/context", "client", async (ctx) => {
     options.ensureWritable(config); options.requireClientScope(ctx, "collaborator");
     const body = z.object({ revision: z.number().int().nonnegative(), context: z.string().trim().min(1).max(24000), name: z.string().trim().min(1).max(120).optional() }).strict().parse(await options.readJsonBodyLimited(ctx.request, 128 * 1024));
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const details = await readProjectDetails(workspace.path);
-    if (!details.remote?.folders.length) throw new ApiError(409, "project_folders_missing", "Link a remote folder before establishing its context.");
-    const saved = await updateProjectRemote(workspace.path, { ...details.remote, context: body.context, initialization: "ready" }, body.revision);
+    const remote = details.remote ?? { version: 1, folders: [], context: "", initialization: "none" };
+    const saved = await updateProjectRemote(workspace.path, { ...remote, context: body.context, initialization: "ready" }, body.revision);
     if (body.name) {
       await renameRegisteredWorkspace(config, workspace.id, body.name);
       await options.onRenamed?.(workspace.id, body.name);

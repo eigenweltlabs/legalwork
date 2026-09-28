@@ -43,6 +43,7 @@ export const remoteFolderSchema = z.object({
     namespace: z.string().max(512).optional(),
   }).strict(),
 }).strict();
+// The existing synced envelope also carries setup context for local-only projects (folders: []).
 export const projectRemoteSchema = z.object({
   version: z.literal(1),
   folders: z.array(remoteFolderSchema).max(30).refine((folders) => new Set(folders.map((folder) => folder.id)).size === folders.length),

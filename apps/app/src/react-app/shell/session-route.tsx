@@ -2097,7 +2097,7 @@ export function SessionRoute() {
       await refreshRouteState();
       setCreateWorkspaceOpen(false);
       navigate(workspaceProjectRoute(id));
-      if (input.fromRemoteFolder) {
+      if (input.initializeFromFolders) {
         try {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
           const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
@@ -2111,10 +2111,10 @@ export function SessionRoute() {
             return next;
           });
           navigateToWorkspaceSession(id, session.id, { replace: true });
-          const result = await firstClient.session.promptAsync({ sessionID: session.id, parts: [{ type: "text", text: t("projects.remote.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
+          const result = await firstClient.session.promptAsync({ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
           if (result.error) throw new Error(serializeSDKError(result.error));
         } catch (error) {
-          toast.error(t("projects.remote.session_failed"), { description: error instanceof Error ? error.message : String(error) });
+          toast.error(t("projects.setup.session_failed"), { description: error instanceof Error ? error.message : String(error) });
         }
       }
       captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });

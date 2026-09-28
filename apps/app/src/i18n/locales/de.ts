@@ -14,6 +14,18 @@
  */
 
 const de = {
+  "projects.setup.label": "Aus vorhandenen Dateien einrichten",
+  "projects.setup.hint": "Diese Ordner enthalten bereits Projektdaten. Eine Session benennt das Projekt, füllt Metadaten aus und ergänzt relevante Aufgaben und wenige hilfreiche Notizen.",
+  "projects.setup.choose_first": "Wählen Sie einen lokalen oder Remote-Ordner mit vorhandenen Projektdaten, um eine Einrichtungssession zu starten.",
+  "projects.setup.name_placeholder": "Projektname (optional)",
+  "projects.setup.add_folders": "Verbinden Sie die Ordner, mit denen Sie arbeiten möchten.",
+  "projects.setup.local_folder": "Lokaler Ordner",
+  "projects.setup.remote_folder": "Remote-Ordner",
+  "projects.setup.remote_hint": "Wählen Sie einen Ordner aus Ihrem verbundenen Speicher.",
+  "projects.setup.source_hint": "Dateien bleiben in ihren Ordnern. Verknüpfte Ordner können Sie später ändern.",
+  "projects.setup.create": "Erstellen und einrichten",
+  "projects.setup.initial_prompt": "Richte dieses Projekt aus seinen vorhandenen lokalen und/oder verknüpften Remote-Ordnern ein. Lies zuerst mit legalwork_project_get_context die tatsächlich konfigurierten Metadatenfelder, einschließlich meiner eigenen Felder, Typen, Auswahloptionen und vorhandenen Werte. Durchsuche die Ordner und lies relevante zugängliche Dokumente. Gib dem Projekt einen passenden Namen und fülle belegte Metadaten mit legalwork_project_set_metadata aus. Erhalte meine Felddefinitionen und vorhandenen Werte; lasse unbekannte Angaben leer. Prüfe vorhandene Projektaufgaben und Notizen, um Duplikate zu vermeiden. Lege mit legalwork_task_create(linkToProject=true) konkrete, durch die Dokumente belegte offene Aufgaben an, mit Quellenverweisen und nur belegten Terminen. Wenn hilfreiche Notizen in den Quellen vorhanden sind, ergänze sparsam kurze Notizen mit Quellenangabe über legalwork_project_create_note. Erzeuge nicht für jedes Dokument eine Notiz und dupliziere keine vorhandenen Einträge in Notes. Lies zum Schluss die aktuelle Revision und speichere den dauerhaften Kontext mit legalwork_project_set_context. Höre nicht nach dem Umbenennen auf. Erkläre kurz die Ergänzungen, nicht ableitbare Angaben und Zugriffs- oder Suchlücken. Spiegle oder indexiere die Quellordner nicht.",
+  "projects.setup.session_failed": "Projekt erstellt. Starten Sie eine Session, um die Einrichtung aus den Ordnern abzuschließen.",
   "projects.remote.choose": "Remote-Ordner auswählen",
   "projects.remote.reference_hint": "Verknüpfungen verweisen auf bestehende Ordner. Dateien werden weder kopiert noch indexiert oder gelöscht.",
   "projects.remote.back": "Zurück",

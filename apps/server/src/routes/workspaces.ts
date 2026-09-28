@@ -10,7 +10,7 @@ import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
-import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails } from "../project-store.js";
+import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -371,6 +371,16 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return jsonResponse(updated);
   });
 
+  addRoute(routes, "PATCH", "/workspace/:id/project/metadata", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const before = await readProjectDetails(workspace.path);
+    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024));
+    await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
+    return jsonResponse(updated);
+  });
+
   addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
@@ -378,6 +388,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
     const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
+    const initializeFromFolders = body.initializeFromFolders === true || body.fromRemoteFolder === true;
+    if (initializeFromFolders && !folderPath && !preparedFolders?.length)
+      throw new ApiError(400, "project_folder_required", "Choose a local or remote folder with existing project files first.");
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
 
@@ -395,7 +408,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     }
 
     const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields });
-    if (preparedFolders?.length) await options.projectFolders?.attach(workspace, preparedFolders, body.fromRemoteFolder === true);
+    if (preparedFolders?.length || initializeFromFolders)
+      await options.projectFolders?.attach(workspace, preparedFolders ?? [], initializeFromFolders);
     onWorkspacesChanged();
 
     await recordAudit(workspace.path, {

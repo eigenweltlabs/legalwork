@@ -532,6 +532,35 @@ test("selected-folder project preserves files, persists metadata and rejects sta
 });
 
 
+test("local folder setup discovers custom defaults, saves values and finishes context without a remote link", async () => {
+  const root = await createWorkspaceRoot();
+  const selected = join(root, "existing-matter");
+  await mkdir(selected);
+  await writeFile(join(selected, "brief.txt"), "Budget: 3500");
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [] });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
+  const created = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({
+    name: "Existing matter", folderPath: selected, folderMode: "selected", initializeFromFolders: true,
+    projectFields: [{ id: "budget", label: "Our budget", labelSource: "custom", type: "number", value: null }],
+  }) });
+  expect(created.status).toBe(201);
+  const { activeId } = await created.json();
+  const endpoint = `${base}/workspace/${activeId}/project`;
+  const context = await (await fetch(`${endpoint}/context`, { headers })).json();
+  expect(context).toMatchObject({ localFolder: selected, initialization: "pending", remote: { folders: [] }, fields: [{ id: "budget", label: "Our budget", value: null }] });
+  const metadata = await fetch(`${endpoint}/metadata`, { method: "PATCH", headers, body: JSON.stringify({ revision: context.revision, values: { budget: 3500 } }) });
+  expect(metadata.status).toBe(200);
+  const updated = await metadata.json();
+  expect(updated.fields[0]).toMatchObject({ id: "budget", label: "Our budget", type: "number", value: 3500 });
+  const completed = await fetch(`${endpoint}/context`, { method: "PATCH", headers, body: JSON.stringify({ revision: updated.revision, name: "Reviewed matter", context: "Budget from brief.txt. No tasks or notes identified." }) });
+  expect(completed.status).toBe(200);
+  expect((await completed.json()).remote).toMatchObject({ folders: [], initialization: "ready" });
+  expect(await readFile(join(selected, "brief.txt"), "utf8")).toBe("Budget: 3500");
+  const noSource = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ name: "Empty", folderMode: "default", initializeFromFolders: true }) });
+  expect(noSource.status).toBe(400);
+});
+
 test("new default projects use the native host root without relocating existing projects", async () => {
   const root = await createWorkspaceRoot();
   const projectsDirectory = join(root, "Redirected Documents", "LegalWork", "Projects");

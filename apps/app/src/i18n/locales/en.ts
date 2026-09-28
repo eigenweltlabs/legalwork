@@ -4,6 +4,18 @@
  */
 
 export default {
+  "projects.setup.label": "Set up from existing files",
+  "projects.setup.hint": "These folders already contain project data. Start a session to name the project, fill metadata, and add relevant tasks and a few useful notes.",
+  "projects.setup.choose_first": "Choose a local or remote folder that already contains project data to start a setup session.",
+  "projects.setup.name_placeholder": "Project name (optional)",
+  "projects.setup.add_folders": "Connect the folders you want to work with.",
+  "projects.setup.local_folder": "Local folder",
+  "projects.setup.remote_folder": "Remote folder",
+  "projects.setup.remote_hint": "Choose a folder from your connected storage.",
+  "projects.setup.source_hint": "Files stay in their current folders. You can change linked folders later.",
+  "projects.setup.create": "Create and set up",
+  "projects.setup.initial_prompt": "Set up this project from its existing local and/or linked remote folders. First use legalwork_project_get_context to discover the actual metadata fields, including my custom fields, types, allowed options and existing values. Browse the folders and read relevant accessible documents. Give the project an appropriate name and populate supported metadata with legalwork_project_set_metadata, preserving my field definitions and existing values and leaving unknown facts empty. Check existing project tasks and notes to avoid duplicates. Create concrete outstanding tasks supported by the documents with legalwork_task_create(linkToProject=true), including source references and only supported dates. If useful notes are present in the sources, add a few concise, attributed notes with legalwork_project_create_note; do not make a note for every document or duplicate notes already in Notes. Finish by rereading the current revision and saving durable context with legalwork_project_set_context. Do not stop after renaming. Briefly explain what you added, what could not be inferred, and any access or search gaps. Do not mirror or index the source folders.",
+  "projects.setup.session_failed": "Project created. Start a session to finish setting it up from its folders.",
   "projects.remote.choose": "Choose a remote folder",
   "projects.remote.reference_hint": "Links reference existing folders. No files are copied, indexed or deleted.",
   "projects.remote.back": "Back",

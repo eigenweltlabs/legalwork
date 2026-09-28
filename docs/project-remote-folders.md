@@ -1,6 +1,8 @@
 # Remote folders in projects
 
-A project stores references to existing storage folders. Creation optionally links several folders; **From remote folder** also starts the first session. The agent browses accessible sources with the existing storage/document tools, names the project and saves a bounded, evidence-based context. `initialization: pending` survives an interrupted first session; a later session can finish it. No exploration happens in the creation HTTP request.
+A project stores references to existing storage folders. Creation optionally selects a local folder and links several remote folders in the same source area. Remote choices are hidden when no storage source is connected. **Set up from existing files** is an opt-in toggle for either source type, or both: the user decides whether the chosen folders contain material to establish the project. With the toggle off, creation does not start an agent session. With it on, creation opens the first session; exploration does not happen in the creation HTTP request.
+
+During setup the agent discovers the project's actual metadata schema and existing contents with `legalwork_project_get_context` and `legalwork_project_list`, then reads accessible documents with the existing storage/document tools. It fills supported values with `legalwork_project_set_metadata`, preserving custom field definitions and existing values. Concrete outstanding actions become tasks with `legalwork_task_create(linkToProject=true)`. Useful source notes can be added sparingly with `legalwork_project_create_note`, with attribution and duplicate checks. Unknown values stay empty; no generic checklist or guessed deadlines are needed. Finally the agent rereads the revision and calls `legalwork_project_set_context` to name the project, save durable context and finish setup. Renaming alone is not completion. `initialization: pending` survives an interrupted first session; a later session can finish it. Local-only setup reuses the existing synced context envelope with an empty remote folder list.
 
 Project Home → **Linked folders** adds/removes references, checks access and displays search limitations and saved context. Source errors are not interpreted as empty results. Unlinking and project deletion make no remote mutation calls.
 
@@ -24,13 +26,15 @@ The companion platform migration `0028_project_remote_folders.sql` and API must 
 
 Tests cover creation, exact/paginated lookup, native-ID rename and out-of-root moves, account roots, source permissions, scoped reads/search, no remote mutation on unlink/delete, credential rejection, local grants, automatic agent context/default search scope, and two-machine configuration sync with document sync disabled. Platform integration tests exercise the migration, project visibility and stale-update handling against PostgreSQL.
 
-Manual desktop reproduction (requires restarting the desktop server after the build, a connected storage source, and a configured model):
+Manual desktop reproduction (requires restarting the desktop server after the build and a configured model; remote steps also need connected storage):
 
-1. Open Create project. With no connected sources, remote choices are hidden. With a connection, optionally link multiple folders to a normal project, or select **From remote folder**, browse a folder and create.
-2. Confirm the first session opens and runs. It should browse/read the accessible documents, save context with `legalwork_project_set_context` and update the project name. Open a later session and ask a document question without specifying a location.
+1. Configure a custom default metadata field. Open Create project. Choose an existing local folder, remote folders, or both. With no connected sources, remote choices are hidden. Enable **Set up from existing files** and create. Repeat with the toggle off to confirm that linking alone does not start setup.
+2. Confirm the first session opens and runs. It should discover custom metadata fields, read documents, fill supported values, attach concrete outstanding tasks to this project, and selectively add useful source notes. It should save context and update the project name last. Verify unknown values and existing source files remain unchanged. Open a later session and ask a document question without specifying a location.
 3. In Project Home → Linked folders, add/remove links and inspect availability. Disconnect the source or move a path-only folder; the agent and dialog should explain the limitation. Unlinking must leave the source files untouched.
 4. After deploying the platform migration/API, share the project with document sync off. Another member with the team connection and their own source authorization should receive the same references/context. A member without source access should see an access error.
 
 Live provider OAuth and the model-driven desktop flow were not exercised in this implementation pass; the automated end-to-end test uses a local WebDAV fixture, and native Box/Dropbox identity tests use provider responses. No UI recording is attached for those live flows.
+
+The local/remote setup revision adds regression coverage for custom-field validation, local-only initialization and task project linkage. App/server typechecks and the server build passed; these new tests and live setup were not executed at the user's request.
 
 Provider identity semantics: [Dropbox team files guide](https://developers.dropbox.com/en-us/dbx-team-files-guide), [Box folder metadata](https://developer.box.com/reference/get-folders-id/).

@@ -185,6 +185,7 @@ const attachArgs = z.object({
 });
 
 const createArgs = z.object({
+  linkToProject: z.boolean().optional().describe("Set true to attach this task to the current project, including when setting up a project from existing folders. The project identity is resolved automatically. Omit for the general work list."),
   title: z
     .string()
     .min(1)
@@ -695,6 +696,7 @@ const TASK_TOOLS = {
           method: "POST",
           body: {
             title: args.title,
+            ...(args.linkToProject ? { projectId: workspaceId } : {}),
             ...(args.description === undefined ? {} : { description: args.description }),
             ...(args.priority === undefined ? {} : { priority: args.priority }),
             ...(dueDate ? { dueDate } : {}),

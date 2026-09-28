@@ -179,6 +179,28 @@ export async function updateProjectDetails(
   });
 }
 
+/** Agents may fill discovered fields without replacing the user's schema. */
+export async function updateProjectFieldValues(root: string, input: unknown): Promise<ProjectDetails> {
+  const parsed = z.object({
+    revision: z.number().int().nonnegative(),
+    values: z.record(z.string(), z.union([z.string().max(4000), z.number().finite(), z.null()])),
+  }).strict().safeParse(input);
+  if (!parsed.success) throw new ApiError(400, "invalid_project_metadata", "Provide the current revision and values keyed by existing field IDs.");
+  return writeProjectDetails(root, (current) => {
+    if (parsed.data.revision !== current.revision)
+      throw new ApiError(409, "project_changed", "This project changed. Read its metadata again before saving.");
+    for (const id of Object.keys(parsed.data.values)) {
+      if (!current.fields.some((field) => field.id === id))
+        throw new ApiError(400, "unknown_project_field", `Unknown metadata field: ${id}. Read the project's fields first.`);
+    }
+    const fields = fieldsSchema.safeParse(current.fields.map((field) =>
+      Object.hasOwn(parsed.data.values, field.id) ? { ...field, value: parsed.data.values[field.id] } : field,
+    ));
+    if (!fields.success) throw new ApiError(400, "invalid_project_metadata", fields.error.issues[0]?.message ?? "Invalid field value.");
+    return { ...current, fields: fields.data };
+  });
+}
+
 /** Record (or clear) the firm's id for the project, beside its details. */
 export async function setProjectSyncId(root: string, syncProjectId: string | null): Promise<ProjectDetails> {
   return writeProjectDetails(root, (current) =>

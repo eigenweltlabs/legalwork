@@ -162,3 +162,22 @@ test("an explicitly empty default schema is saved and stays empty when defaults 
   expect(await initializeProjectFields(root, laterDefaults)).toEqual(created);
   expect(await readProjectDetails(root)).toEqual(created);
 });
+
+test("agent metadata updates preserve custom definitions and reject unknown, stale or wrongly typed values", async () => {
+  const { updateProjectFieldValues } = await import("./project-store.js");
+  const root = await folder();
+  const initial = await updateProjectDetails(root, { revision: 0, fields: [
+    { id: "custom_contact", label: "Our contact", labelSource: "custom", type: "text", value: "Keep me" },
+    { id: "custom_budget", label: "Agreed budget", type: "number", value: null },
+    { id: "phase", label: "Phase", type: "select", options: ["Diligence", "Closed"], value: null },
+    { id: "deadline", label: "Deadline", type: "date", value: null },
+  ] });
+  const values: Record<string, string | number> = { custom_budget: 3500, phase: "Diligence", deadline: "2026-10-01" };
+  const updated = await updateProjectFieldValues(root, { revision: initial.revision, values });
+  expect(updated.fields).toEqual(initial.fields.map((field) => ({ ...field, value: values[field.id] ?? field.value })));
+  await expect(updateProjectFieldValues(root, { revision: initial.revision, values: { custom_budget: 1 } })).rejects.toMatchObject({ status: 409 });
+  for (const values of [{ invented: "x" }, { phase: "Unknown" }, { custom_budget: "3500" }, { deadline: "2026-02-30" }]) {
+    await expect(updateProjectFieldValues(root, { revision: updated.revision, values })).rejects.toMatchObject({ status: 400 });
+    expect(await readProjectDetails(root)).toEqual(updated);
+  }
+});
