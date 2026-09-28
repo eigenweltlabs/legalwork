@@ -9,7 +9,7 @@ export const pageSchema = z.object({
   status: z.enum(["complete", "needs-review", "error"]), error: z.string().optional(),
 });
 export const preparedSchema = z.object({
-  version: z.enum(["review-preparation-1", "review-preparation-2"]), key: z.string(), file: z.string(), fileAbs: z.string(), sourceSha256: z.string(),
+  version: z.enum(["review-preparation-1", "review-preparation-2", "review-preparation-3", "review-preparation-4"]), key: z.string(), file: z.string(), fileAbs: z.string(), sourceSha256: z.string(),
   engine: z.object({ id: z.string(), label: z.string(), model: z.string(), execution: z.enum(["local", "remote"]) }),
   layoutFingerprint: z.string().optional(), relations: z.array(DocumentRelationSchema).default([]),
   pageCount: z.number().int().nonnegative(), pages: z.array(pageSchema),

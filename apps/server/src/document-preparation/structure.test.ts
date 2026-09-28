@@ -27,6 +27,20 @@ test("text-only providers retain layout boxes without fabricated text-to-positio
   expect(result.regions[0]).toMatchObject({ kind: "heading", text: "", source: "layout", ocrRegionIds: [] });
 });
 
+test("recognized table cells become a parsed table on the table's box", () => {
+  const box = { x: .1, y: .3, width: .8, height: .3 };
+  const table = { rows: 2, columns: 2, cells: [
+    { row: 0, column: 0, rowSpan: 1, columnSpan: 2, text: "Fees" },
+    { row: 1, column: 0, rowSpan: 1, columnSpan: 1, text: "Licence" }, { row: 1, column: 1, rowSpan: 1, columnSpan: 1, text: "48,000" },
+  ] };
+  const result = assemblePageStructure(1, { text: "Fees\nLicence | 48,000", truncated: false, regions: [{ text: "Fees\nLicence | 48,000", box, table }] },
+    { model: "test", regions: [{ label: "table", box, confidence: .9, order: 0 }] });
+  expect(PageStructureSchema.parse(result)).toEqual(result);
+  expect(result.status).toBe("complete");
+  expect(result.tables[0]).toMatchObject({ status: "parsed", method: "vl-table-recognition", rows: 2, columns: 2 });
+  expect(result.tables[0]!.cells.map(cell => [cell.id, cell.columnSpan, cell.text])).toEqual([["p1-r1-r0c0", 2, "Fees"], ["p1-r1-r1c0", 1, "Licence"], ["p1-r1-r1c1", 1, "48,000"]]);
+});
+
 test("unclassified lines retain OCR order when inserted beside the same layout block", () => {
   const result = assemblePageStructure(1, { text: "Body\nFirst\nSecond", truncated: false, regions: [
     { text: "Body", box: { x: .2, y: .2, width: .4, height: .1 } },

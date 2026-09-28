@@ -96,7 +96,7 @@ export function structureOffsets(text: string, structure: PageStructure | undefi
     return { regionId: table.regionId, rows: table.rows, columns: table.columns, status: table.status,
       cells: table.cells.flatMap(cell => {
         const match = uniqueRange(text, cell.text);
-        return match ? [{ row: cell.row, column: cell.column, ...match }] : [];
+        return match ? [{ row: cell.row, column: cell.column, rowSpan: cell.rowSpan, columnSpan: cell.columnSpan, ...match }] : [];
       }) };
   });
   for (const table of tables) {

@@ -1,6 +1,7 @@
 import type { DocumentBox, DocumentRegion, DocumentTable } from "@legalwork/types/document-structure";
+import type { OcrContent } from "../ocr/types.js";
 
-type OcrBox = { text: string; box: DocumentBox };
+type OcrBox = { text: string; box: DocumentBox; table?: OcrContent["regions"][number]["table"] };
 type Row = OcrBox[];
 
 function centerX(item: OcrBox): number { return item.box.x + item.box.width / 2; }
@@ -19,6 +20,10 @@ function detected(regionId: string, reason: string): DocumentTable {
 /** Builds only cells supported by OCR line boxes. It does not infer spanning or merged cells. */
 export function buildTableStructure(region: DocumentRegion, ocrRegions: OcrBox[]): DocumentTable {
   if (region.kind !== "table") return detected(region.id, "not-a-table-region");
+  // Table recognition (PaddleOCR-VL) returns the grid itself; its cells share the table's box.
+  const recognized = region.ocrRegionIds.map(id => ocrRegions[id]?.table).find(table => table?.cells.length);
+  if (recognized) return { regionId: region.id, rows: recognized.rows, columns: recognized.columns, status: "parsed", method: "vl-table-recognition",
+    cells: recognized.cells.map(cell => ({ id: `${region.id}-r${cell.row}c${cell.column}`, ...cell, box: region.box, regionIds: [] })) };
   const lines = ocrRegions.filter(item => item.text.trim()
     && centerX(item) >= region.box.x && centerX(item) <= region.box.x + region.box.width
     && centerY(item) >= region.box.y && centerY(item) <= region.box.y + region.box.height)

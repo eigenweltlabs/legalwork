@@ -3,13 +3,27 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { LayoutRuntime } from "./layout-runtime.js";
+import { LayoutRuntime, postprocessLayout } from "./layout-runtime.js";
 import type { OcrPage } from "../ocr/types.js";
 
 const fixture = resolve(import.meta.dir, "../../resources/ocr/test-page.png");
 const cached = join(process.env.HF_HOME ?? join(process.env.HOME ?? "", ".cache/huggingface"),
   "hub/models--PaddlePaddle--PP-DocLayoutV3_onnx/snapshots/46bbdf188bb0a772c08aed74882ce7e51a8f1ea6/inference.onnx");
 const page: OcrPage = { pageNumber: 1, mimeType: "image/png", width: 1000, height: 260, data: new Uint8Array() };
+
+test("layout post-processing follows the PaddleOCR-VL defaults", () => {
+  const box = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
+  const kept = postprocessLayout([
+    { label: "doc_title", box: box(.1, .1, .4, .03), confidence: .9, order: 0 },
+    { label: "paragraph_title", box: box(.1, .1, .4, .03), confidence: .5, order: 1 }, // same box, other label: NMS
+    { label: "text", box: box(.1, .2, .8, .1), confidence: .8, order: 2 },
+    { label: "text", box: box(.1, .21, .8, .1), confidence: .7, order: 3 }, // same label, IoU above 0.6: NMS
+    { label: "paragraph_title", box: box(.1, .4, .5, .05), confidence: .8, order: 4 },
+    { label: "text", box: box(.12, .41, .3, .03), confidence: .8, order: 5 }, // inside a "large" title
+    { label: "image", box: box(0, 0, 1, 1), confidence: .6, order: 6 }, // covers the whole portrait page
+  ], 1190, 1684);
+  expect(kept.map(region => region.order)).toEqual([0, 2, 4]);
+});
 
 describe("local PP-DocLayoutV3", () => {
   test("rejects invalid pages and cancelled requests before model access", async () => {

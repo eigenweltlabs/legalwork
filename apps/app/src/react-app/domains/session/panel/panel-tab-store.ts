@@ -37,6 +37,8 @@ export type ArtifactPanelTab = {
   sourcePage?: number;
   searchSources?: SearchSourceReference[];
   reviewCitation?: ReviewSourceReference;
+  /** A review document's recognized pages; without a page, the first page that needs review. */
+  reviewRecognition?: { reviewId: string; documentId: string; page?: number };
 }
 
 export type TaskPanelTab = {

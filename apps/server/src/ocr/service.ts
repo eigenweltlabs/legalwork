@@ -33,10 +33,25 @@ function abortable<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   });
 }
 
+/** Runs at most `limit` tasks at once, in the order they arrive. */
+class Slots {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+  constructor(private readonly limit: number) {}
+  async run<T>(task: () => Promise<T>) {
+    if (this.active < this.limit) this.active++;
+    else await new Promise<void>(resolve => this.waiting.push(resolve)); // A finishing task hands its slot over.
+    try { return await task(); } finally {
+      const next = this.waiting.shift();
+      if (next) next(); else this.active--;
+    }
+  }
+}
+
 /** Explicit engine selection only. Never detects handwriting, skips pages, or falls back to a server. */
 export class OcrService {
   private readonly engines = new Map<string, OcrEngine>();
-  private pending: Promise<unknown> = Promise.resolve();
+  private readonly slots = new Map<string, Slots>();
 
   constructor(engines: readonly OcrEngine[], readonly defaultEngineId = "local-fast", private readonly pageTimeoutMs = 120_000) {
     if (!Number.isInteger(pageTimeoutMs) || pageTimeoutMs < 1 || pageTimeoutMs > 600_000)
@@ -50,7 +65,11 @@ export class OcrService {
 
   listEngines(): OcrEngineInfo[] { return [...this.engines.values()].map((engine) => copyInfo(engine.info)); }
 
-  /** Serialize jobs per service instance to bound local model memory. Callers own persistence and file authorization. */
+  /** Stops processes the engines keep loaded between pages. */
+  close() { for (const engine of this.engines.values()) engine.close?.(); }
+
+  /** Each engine reads as many jobs at once as it declares; local models read one, which bounds model memory.
+   * A job's page time limit starts when it gets its turn. Callers own persistence and file authorization. */
   async extract(request: OcrRequest): Promise<OcrResult> {
     const parsed = requestSchema.safeParse(request);
     if (!parsed.success) throw new OcrError("invalid-input", "Invalid OCR pages, languages, or source identifier.");
@@ -61,7 +80,9 @@ export class OcrService {
       language.toLowerCase() === supported.toLowerCase() || language.toLowerCase().startsWith(`${supported.toLowerCase()}-`))))
       throw new OcrError("unsupported-language", "The selected OCR engine does not declare support for every requested language. Select another engine.");
 
-    const run = this.pending.catch(() => undefined).then(async () => {
+    let slots = this.slots.get(engine.info.id);
+    if (!slots) this.slots.set(engine.info.id, slots = new Slots(engine.info.concurrentPages ?? 1));
+    const run = slots.run(async () => {
       if (request.signal?.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
       const info = copyInfo(engine.info);
       const warnings: OcrWarning[] = [...new Set<OcrWarning>([
@@ -106,7 +127,6 @@ export class OcrService {
       notify("completed");
       return { sourceId: parsed.data.sourceId, engine: info, languages, warnings, pages };
     });
-    this.pending = run;
     return abortable(run, request.signal);
   }
 }

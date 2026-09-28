@@ -54,7 +54,7 @@ test("internal review preparation API enforces workspace authorization, pins the
       await new Promise(resolve => setTimeout(resolve, 10));
       status = statusSchema.parse(await (await fetch(`${endpoint}/${run.id}`, { headers: client })).json());
     }
-    expect(status.status).toBe("needs-review"); expect(models).toEqual(["first-model", "first-model"]);
+    expect(status.status).toBe("complete"); expect(models).toEqual(["first-model", "first-model"]);
     const prepared = preparedSchema.parse(JSON.parse(await readFile(join(workspace, status.documents[0]!.preparationPath!), "utf8")));
     const structureUrl = `${endpoint}/document?file=contract.pdf&preparationPath=${encodeURIComponent(status.documents[0]!.preparationPath!)}&page=2`;
     expect((await fetch(structureUrl)).status).toBe(401);

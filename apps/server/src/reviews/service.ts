@@ -8,7 +8,7 @@ import { ReviewDefaults, ReviewStore, serialized } from "./storage.js";
 import { prepareReviewEvidence, reviewSource, sourceHash } from "./evidence.js";
 import { columnBackend, validateAvailableModels, validateReviewPolicy } from "./policy.js";
 import type { ReviewExecutor } from "./executor.js";
-import { reviewSourcePage } from "./source-page.js";
+import { reviewRecognitionPage, reviewSourcePage } from "./source-page.js";
 import { ReviewScheduler } from "./scheduler.js";
 import { upgradeBuiltinReviewColumn } from "./builtin-fallback.js";
 import { enforceReviewDecisionThreshold } from "./decision-threshold.js";
@@ -361,6 +361,12 @@ export class ReviewService {
     if (!cell?.result || cell.result.completedAt !== completedAt) throw new ApiError(409, "review_conflict", "This answer has changed. Open its current source citation.");
     const source = await this.verifySource(workspace, id, documentId, cell.result.sourceHash);
     return reviewSourcePage(workspace.path, source.path, cell.result, citationIndex, signal, page);
+  }
+  async recognitionPage(workspace: WorkspaceInfo, id: string, documentId: string, signal: AbortSignal, page?: number) {
+    const preparationPath = (await this.get(workspace, id)).documents.find(document => document.id === documentId)?.preparationPath;
+    if (!preparationPath) throw new ApiError(409, "review_not_prepared", "This document has no recognized pages yet. Run the review first.");
+    const source = await this.verifySource(workspace, id, documentId);
+    return reviewRecognitionPage(workspace.path, source.path, preparationPath, signal, page);
   }
   async stop() { for (const controller of this.active.values()) controller.abort(); await Promise.allSettled(this.runs.values()); }
 }

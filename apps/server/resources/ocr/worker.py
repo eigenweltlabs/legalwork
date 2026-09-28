@@ -1,4 +1,5 @@
-"""One page per process. JSON stdin/stdout; no file reads from document-supplied paths."""
+"""Fallback for the small model where the bundled Node worker is missing. One page per process, JSON on
+stdin/stdout; no file reads from document-supplied paths."""
 import argparse
 import base64
 import contextlib
@@ -6,7 +7,6 @@ import io
 import json
 import os
 from pathlib import Path
-import platform
 import sys
 
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -60,23 +60,10 @@ def recognize(args):
                     regions.append(region)
         return {"text": "\n".join(texts), "regions": regions, "truncated": False}
 
-    if platform.system() != "Darwin" or platform.machine() != "arm64":
-        raise ModuleNotFoundError("Quality OCR requires Apple Silicon")
-    model_path = Path(manifest["path"])
-    if not model_path.is_dir():
-        raise FileNotFoundError("Missing quality model")
-    from mlx_vlm import load, generate
-    from mlx_vlm.prompt_utils import apply_chat_template
-    model, processor = load(str(model_path))
-    config = json.loads((model_path / "config.json").read_text())
-    prompt = apply_chat_template(processor, config, "OCR:", num_images=1)
-    result = generate(model, processor, prompt, image=image, max_tokens=4096, temperature=0, verbose=False)
-    return {"text": result.text, "regions": [], "truncated": result.finish_reason == "length"}
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["pp-ocrv6-small", "paddleocr-vl-1.6"], required=True)
+    parser.add_argument("--model", choices=["pp-ocrv6-small"], required=True)
     parser.add_argument("--model-dir", type=Path, required=True)
     arguments = parser.parse_args()
     try:

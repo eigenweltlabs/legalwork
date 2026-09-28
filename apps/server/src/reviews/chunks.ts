@@ -2,7 +2,7 @@ import type { DocumentRelation } from "@legalwork/types/document-structure";
 
 export type EvidenceBlock = { id: string; kind: string; start: number; end: number; ocrRegionIds?: number[] };
 export type EvidenceTable = { regionId: string; rows: number; columns: number; status: string;
-  cells: Array<{ row: number; column: number; start: number; end: number }> };
+  cells: Array<{ row: number; column: number; rowSpan: number; columnSpan: number; start: number; end: number }> };
 export type EvidenceLink = Pick<DocumentRelation, "kind" | "status" | "basis" | "source" | "target">;
 export type EvidencePage = {
   page: number | null; text: string; source?: "native" | "ocr";

@@ -4,13 +4,12 @@ import contextlib
 import json
 import os
 from pathlib import Path
-import platform
 import tempfile
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["pp-ocrv6-small", "paddleocr-vl-1.6"], required=True)
+    parser.add_argument("--model", choices=["pp-ocrv6-small"], required=True)
     parser.add_argument("--model-dir", type=Path, required=True)
     args = parser.parse_args()
     root = args.model_dir.resolve()
@@ -44,13 +43,6 @@ def main():
             if not classifier.is_file():
                 raise RuntimeError("RapidOCR classifier asset was not provisioned")
             manifest["cls"] = str(classifier)
-        else:
-            if platform.system() != "Darwin" or platform.machine() != "arm64":
-                raise RuntimeError("The quality runtime currently requires Apple Silicon; use fast OCR or a server on this host")
-            repo = "matrixmaven/PaddleOCR-VL-1.6-bf16"
-            revision = "7fb1845e6e3ca856ec7788c4ea700cef175ee8ba"
-            manifest.update(repo=repo, revision=revision, path=snapshot_download(
-                repo, revision=revision, allow_patterns=["*.safetensors", "*.json", "*.txt", "*.model", "*.jinja", "README.md"]))
     with tempfile.NamedTemporaryFile("w", dir=root, delete=False, encoding="utf8") as temporary:
         json.dump(manifest, temporary, indent=2)
         temporary_path = temporary.name

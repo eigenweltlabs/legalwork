@@ -1,11 +1,10 @@
-import type { DocumentBox, DocumentRegion, DocumentRelation, PageStructure } from "@legalwork/types/document-structure";
+import type { DocumentRegion, DocumentRelation, PageStructure } from "@legalwork/types/document-structure";
 
 type StructuredPage = { page: number; structure?: PageStructure | null };
 type LocatedRegion = { page: number; region: DocumentRegion };
 
 const bodyKinds = new Set<DocumentRegion["kind"]>(["text", "list"]);
 const referenceSources = new Set<DocumentRegion["kind"]>(["note", "text", "list", "footnote"]);
-const endpointKinds = new Set<DocumentRegion["kind"]>(["note", "text", "list", "heading", "table", "caption"]);
 const referencePattern = /\b(?:section|clause|article|paragraph|sec\.?|art\.?|ziffer|abschnitt|artikel|klausel|nummer|nr\.?)\s+(\d+(?:\.\d+){0,5}[a-z]?)\b|§\s*(\d+(?:\.\d+){0,5}[a-z]?)\b/giu;
 const namedHeadingPattern = /^\s*(?:§\s*|(?:section|clause|article|paragraph|sec\.?|art\.?|ziffer|abschnitt|artikel|klausel)\s+)(\d+(?:\.\d+){0,5}[a-z]?)\b/iu;
 const bareHeadingPattern = /^\s*(\d+(?:\.\d+){0,5}[a-z]?)[.)]?\s+\S/iu;
@@ -20,21 +19,6 @@ function headingId(region: DocumentRegion): string | undefined {
   return bare ? numberId(bare[1]) : undefined;
 }
 
-function intersects(a: DocumentBox, b: DocumentBox): boolean {
-  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-}
-function distanceToBox(point: { x: number; y: number }, box: DocumentBox): number {
-  return Math.hypot(Math.max(box.x - point.x, 0, point.x - box.x - box.width),
-    Math.max(box.y - point.y, 0, point.y - box.y - box.height));
-}
-function pointRegion(point: { x: number; y: number }, page: number, regions: DocumentRegion[]): LocatedRegion | undefined {
-  const ranked = regions.filter(region => endpointKinds.has(region.kind))
-    .map(region => ({ region, distance: distanceToBox(point, region.box) }))
-    .filter(item => item.distance <= .015)
-    .sort((a, b) => a.distance - b.distance || a.region.box.width * a.region.box.height - b.region.box.width * b.region.box.height);
-  if (!ranked[0] || (ranked[1] && Math.abs(ranked[0].distance - ranked[1].distance) < .002)) return;
-  return { page, region: ranked[0].region };
-}
 function relation(kind: DocumentRelation["kind"], source: LocatedRegion, target: LocatedRegion,
   status: DocumentRelation["status"], basis: DocumentRelation["basis"], explanation: string): DocumentRelation {
   return { id: `${kind}:${source.page}:${source.region.id}:${target.page}:${target.region.id}:${basis}`,
@@ -110,27 +94,6 @@ export function linkDocumentStructure(pages: StructuredPage[]): DocumentRelation
       for (const target of candidates) add(relation(kind, source, target,
         candidates.length === 1 && kind === "references" && target.region.kind === "heading" ? "supported" : "candidate", "text-reference",
         candidates.length === 1 ? `Text explicitly names ${match[0]}.` : `Text names ${match[0]}, which has multiple possible targets.`));
-    }
-  }
-
-  for (const page of unique) {
-    const structure = page.structure;
-    if (!structure) continue;
-    for (const mark of structure.marks) {
-      if (mark.kind === "arrow" && mark.start && mark.end) {
-        const source = pointRegion(mark.start, page.page, structure.regions);
-        const target = pointRegion(mark.end, page.page, structure.regions);
-        if (source && target && source.region.id !== target.region.id) {
-          add(relation("annotates", source, target, "candidate", "arrow", `Arrow ${mark.id} connects these regions; its meaning is unconfirmed.`));
-        }
-      }
-      if (mark.kind === "strikeout") {
-        const targets = structure.regions.filter(region => bodyKinds.has(region.kind) && intersects(mark.box, region.box));
-        if (targets.length !== 1) continue;
-        const target = { page: page.page, region: targets[0] };
-        add(relation("deletes", target, target, "candidate", "strikeout",
-          `Strikeout ${mark.id} overlaps this text; deletion is unconfirmed.`));
-      }
     }
   }
 

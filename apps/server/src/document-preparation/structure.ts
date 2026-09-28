@@ -4,11 +4,13 @@ import { buildTableStructure } from "./table-structure.js";
 
 export type LayoutDetection = {
   model: string;
-  regions: Array<{ label: string; box: DocumentBox; confidence: number; order: number }>;
+  regions: Array<{ label: string; box: DocumentBox; confidence: number; order: number; mask?: string }>;
 };
 export interface DocumentLayout {
   readonly fingerprint: string;
   detect(page: import("../ocr/types.js").OcrPage, signal: AbortSignal): Promise<LayoutDetection>;
+  /** Stops a layout process kept loaded between pages. */
+  close?(): void;
 }
 const kinds: Record<string, DocumentRegion["kind"]> = {
   text: "text", content: "text", abstract: "text", reference_content: "text", vertical_text: "text",
@@ -65,8 +67,8 @@ export function assemblePageStructure(page: number, ocr: OcrContent, detection: 
     ...buckets.get(`${region.id}:before`) ?? [], region, ...buckets.get(`${region.id}:after`) ?? [],
   ]) : unmatched;
   ordered.forEach((region, index) => { region.order = index; });
+  // Inferred or unparsed cells are marked on the table itself. The page text is read either way, so they do not flag the page.
   const tables = regions.filter(region => region.kind === "table").map(region => buildTableStructure(region, ocr.regions));
-  if (tables.some(table => table.status !== "parsed")) issues.push("table-cells-need-review");
   return { version: "document-structure-1", model: detection.model, status: issues.length ? "partial" : "complete",
     regions, readingOrder: ordered.map(region => region.id), tables, marks: [], issues: [...new Set(issues)] };
 }
@@ -74,4 +76,19 @@ export function assemblePageStructure(page: number, ocr: OcrContent, detection: 
 export function unavailableStructure(): PageStructure {
   return { version: "document-structure-1", model: "pp-doclayout-v3-onnx", status: "unavailable",
     regions: [], readingOrder: [], tables: [], marks: [], issues: ["layout-unavailable"] };
+}
+
+/** Why a prepared page needs review. Empty when the page is complete. */
+export function pageReviewReasons({ nativeText, ocr, structure }: { nativeText: string; ocr: Pick<OcrContent, "text" | "regions" | "truncated">; structure: PageStructure }) {
+  const text = ocr.text.trim();
+  // Nothing on the page: no PDF text, no layout block and no recognized text. A blank page is complete.
+  if (!text && !nativeText.trim() && structure.status !== "unavailable" && !structure.regions.length) return [];
+  return [
+    ...!text ? ["no-text"] : [],
+    ...ocr.truncated ? ["output-dropped"] : [],
+    .../\[illegible\]/i.test(ocr.text) ? ["illegible"] : [],
+    ...ocr.regions.some(region => region.confidence !== undefined && region.confidence < 0.5) ? ["low-confidence"] : [],
+    // Text-only engines (OCR APIs, or the quality model without layout) return no boxes. That limits highlighting, not recognition.
+    ...structure.issues.filter(issue => issue !== "ocr-coordinates-unavailable"),
+  ];
 }

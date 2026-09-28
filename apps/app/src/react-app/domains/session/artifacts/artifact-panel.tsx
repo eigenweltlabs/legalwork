@@ -43,6 +43,7 @@ const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 const StorageFilePanel = lazy(() => import("../panel/storage-file-panel").then((module) => ({ default: module.StorageFilePanel })));
 const SearchSourcePanel = lazy(() => import("../../../shell/search-source-panel").then(module => ({ default: module.SearchSourcePanel })));
 const ReviewSourcePanel = lazy(() => import("../../reviews/review-source-panel").then(module => ({ default: module.ReviewSourcePanel })));
+const ReviewRecognitionPanel = lazy(() => import("../../reviews/review-recognition-panel").then(module => ({ default: module.ReviewRecognitionPanel })));
 
 type ArtifactPanelProps = {
   sessionId: string;
@@ -135,6 +136,9 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   </Suspense></OfficeEditorBoundary>;
   if (tab.reviewCitation) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
     <ReviewSourcePanel client={client} workspaceId={workspaceId} citation={tab.reviewCitation} name={tab.label} onClose={onClose} />
+  </Suspense></OfficeEditorBoundary>;
+  if (tab.reviewRecognition) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
+    <ReviewRecognitionPanel client={client} workspaceId={workspaceId} reference={tab.reviewRecognition} name={tab.label} onClose={onClose} />
   </Suspense></OfficeEditorBoundary>;
 
   if (target.preview === "markdown") {

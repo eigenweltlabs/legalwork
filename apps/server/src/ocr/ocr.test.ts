@@ -203,12 +203,9 @@ test.skipIf(!smokePython || !smokeModels)("real local worker extracts English/Ge
     localRuntime: { python: smokePython, modelDirectory: smokeModels, workerPath: resolve(import.meta.dir, "../../resources/ocr/worker.py") },
     resolveApiKey: async () => undefined,
   });
-  for (const engineId of ["local-fast", "local-quality"]) {
-    if (engineId === "local-quality" && (process.platform !== "darwin" || process.arch !== "arm64")) continue;
-    const result = await service.extract({ sourceId: "synthetic-smoke-fixture", engineId, languages: ["en", "de"], pages: [{ ...page, width: 1000, height: 260, data }] });
-    expect(result.pages[0]?.text).toContain("Agreement");
-    expect(result.pages[0]?.text).toContain("Vertrag");
-    if (engineId === "local-fast") expect(result.pages[0]?.regions.length).toBeGreaterThan(0);
-    else expect(result.warnings).toContain("regions-unavailable");
-  }
+  // The Python worker is only the small model's fallback; the quality model runs in llama.cpp (native.test.ts).
+  const result = await service.extract({ sourceId: "synthetic-smoke-fixture", engineId: "local-fast", languages: ["en", "de"], pages: [{ ...page, width: 1000, height: 260, data }] });
+  expect(result.pages[0]?.text).toContain("Agreement");
+  expect(result.pages[0]?.text).toContain("Vertrag");
+  expect(result.pages[0]?.regions.length).toBeGreaterThan(0);
 }, 120000);
