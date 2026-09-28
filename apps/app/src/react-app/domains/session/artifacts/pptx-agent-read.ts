@@ -4,17 +4,19 @@ import { t } from "@/i18n";
 type PresentationReader = Pick<PowerPointViewerHandle, "getSlides" | "getActiveSlideIndex" | "getSelectedElementIds">;
 type SlideElement = ReturnType<PowerPointViewerHandle["getElements"]>[number];
 
-function readElement(element: SlideElement): Record<string, unknown> {
+function readElement(element: SlideElement, detail: boolean): Record<string, unknown> {
   return {
     id: element.id, name: element.name, type: element.type,
-    x: element.x, y: element.y, width: element.width, height: element.height,
+    ...(detail ? { x: element.x, y: element.y, width: element.width, height: element.height } : {}),
     ...("text" in element ? {
       text: element.text,
-      textStyle: { fontSize: element.textStyle?.fontSize, fontFamily: element.textStyle?.fontFamily, bold: element.textStyle?.bold, align: element.textStyle?.align },
-      textRuns: element.textSegments?.map(segment => ({ text: segment.text, fontSize: segment.style?.fontSize, bold: segment.style?.bold })),
+      ...(detail ? {
+        textStyle: { fontSize: element.textStyle?.fontSize, fontFamily: element.textStyle?.fontFamily, bold: element.textStyle?.bold, align: element.textStyle?.align },
+        textRuns: element.textSegments?.map(segment => ({ text: segment.text, fontSize: segment.style?.fontSize, bold: segment.style?.bold })),
+      } : {}),
     } : {}),
     ...("altText" in element ? { altText: element.altText } : {}),
-    ...(element.type === "group" ? { children: element.children.map(readElement) } : {}),
+    ...(element.type === "group" ? { children: element.children.map(child => readElement(child, detail)) } : {}),
     ...(element.type === "chart" ? { chart: {
       title: element.chartData?.title, type: element.chartData?.chartType, categories: element.chartData?.categories,
       series: element.chartData?.series.map(series => ({ name: series.name, values: series.values, xValues: series.xValues, bubbleSizes: series.bubbleSizes })),
@@ -35,7 +37,7 @@ export function readPptxContent(api: PresentationReader, slideIndex?: number) {
   };
   const content = (slide: typeof slides[number], index: number) => ({
     slideIndex: index, name: slide.name, hidden: slide.hidden,
-    elements: slide.elements.map(readElement), notes: slide.notes,
+    elements: slide.elements.map(element => readElement(element, slideIndex !== undefined)), notes: slide.notes,
   });
   if (slideIndex === undefined) return { ...context, slides: slides.map(content) };
   const slide = slides[slideIndex];

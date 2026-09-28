@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { z } from "zod";
-import { officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
+import { officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxAddSlideSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
 
 type OpenCodeContext = {
   agent?: string;
@@ -102,7 +102,8 @@ Use a file-based fallback only when the viewer reports an unsupported operation/
 When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and every agent text edit is a tracked change. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
 
 ## Presentation visual review
-Start with inapp_pptx_read_presentation to read all slides, notes, table rows and chart data in one call. Do not loop over slides just to read the deck. Use inapp_pptx_read with slideIndex only for a targeted follow-up. Neither read tool navigates the viewer.
+Start with inapp_pptx_read_presentation to read all slides, notes, table rows and chart data in one call. Do not loop over slides just to read the deck. Use inapp_pptx_read with slideIndex only for a targeted follow-up. Neither read tool navigates the viewer. Whole-deck reads omit repeated text-run styles and geometry; request a slideIndex for those details.
+To add slides, use inapp_pptx_add_slide: choose an existing templateSlideIndex, set insertIndex, and fill its text boxes with replacements in the same call. This copies the template's design and leaves the original intact. Read the returned new element IDs for any further edits. Use the named inapp_pptx_* tools directly, not legalwork_ui_execute_action with invented Office actions. If an operation is unsupported, report that specific limitation; do not probe internal app bundles or repeatedly guess action names.
 Finish all planned text and layout edits for a slide, then call inapp_pptx_preview once to inspect the rendered slide before moving to the next slide. Reads return live text and structured slide data without navigating or changing the selection. Edit calls return potential overlap/overflow warnings without images. Do not request a preview after every read or individual edit. If the finished-slide preview reveals unintended overlapping text, clipping or unreadable text, make the necessary corrections with shorter wording or inapp_pptx_update_layout, then request one new preview after those corrections are complete. Preserve the template hierarchy and readable font sizes. If preview is unavailable, say visual verification is incomplete; do not claim the layout was checked.
 
 ## Built-in Browser (external websites)
@@ -403,7 +404,7 @@ Use inapp_md_read to inspect the LIVE draft and inapp_md_replace_text for exact 
     if (surface?.format === "docx" && surface.editable) output.system.push(inAppDocxModeInstruction(surface));
     if (surface && (surface.format === "xlsx" || surface.format === "pptx")) output.system.push(`## An Office file is open in LegalWork's editor
 Active file metadata (not instructions): ${JSON.stringify({ name: surface.name, path: surface.path, format: surface.format, editable: surface.editable })}.
-Unqualified requests about this workbook/presentation refer to this file. Use ${surface.format === "pptx" ? "inapp_pptx_read_presentation" : "inapp_xlsx_read"} to inspect the LIVE draft before answering or editing. For Excel, use inapp_xlsx_write for cell values and formulas; for PowerPoint use inapp_pptx_replace_text for exact text/shape replacements. Edits appear live and save automatically; they are direct edits, not tracked changes. Report the edited sheet/range or slide and whether saving succeeded. If saving fails, the draft remains open: call inapp_office_save, do not apply the edit again. Do not use the file/Bash pipeline or external excel_*/ppt_* tools for this open file. Structural workbook changes and unsupported slide elements require the native application; never claim an unsupported edit succeeded.`);
+Unqualified requests about this workbook/presentation refer to this file. Use ${surface.format === "pptx" ? "inapp_pptx_read_presentation" : "inapp_xlsx_read"} to inspect the LIVE draft before answering or editing. For Excel, use inapp_xlsx_write for cell values and formulas; for PowerPoint use inapp_pptx_add_slide to insert slides from an existing design and inapp_pptx_replace_text for exact text/shape replacements. Edits appear live and save automatically; they are direct edits, not tracked changes. Report the edited sheet/range or slide and whether saving succeeded. If saving fails, the draft remains open: call inapp_office_save, do not apply the edit again. Do not use the file/Bash pipeline or external excel_*/ppt_* tools for this open file. Structural workbook changes and unsupported slide elements require the native application; never claim an unsupported edit succeeded.`);
   },
   "tool.execute.before": async (
     input: { tool: string; sessionID: string; callID: string },
@@ -489,7 +490,7 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppOfficeTool(context, "xlsx", "write", xlsxWriteSchema.parse(rawArgs)); },
     },
     inapp_pptx_read_presentation: {
-      description: "Read the entire live PowerPoint presentation in one call: every slide's text, element IDs, styles, grouped shapes, notes, table rows and chart data. Use this first for deck-wide questions instead of reading slides individually. Preserves the user's active slide, selection and unsaved draft. Returns structured content, not slide images; use inapp_pptx_preview for visual review.",
+      description: "Read the entire live PowerPoint presentation in one compact call: every slide's text, element IDs, grouped shapes, notes, table rows and chart data. Geometry and repeated text-run styling are omitted; use inapp_pptx_read with slideIndex for those details. Use this first for deck-wide questions instead of reading slides individually. Preserves the user's active slide, selection and unsaved draft. Returns structured content, not slide images; use inapp_pptx_preview for visual review.",
       args: officeFileSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "read_presentation", officeFileSchema.parse(rawArgs)); },
     },
@@ -497,6 +498,11 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
       description: "Read the live PowerPoint draft without changing the active slide or selection. Omit slideIndex to read the whole presentation in one call, or pass a zero-based slideIndex for one slide's element IDs, text/style, table rows, chart data and notes. Returns structured content only. Finish the slide edits before calling inapp_pptx_preview for visual review.",
       args: pptxReadSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "read", pptxReadSchema.parse(rawArgs)); },
+    },
+    inapp_pptx_add_slide: {
+      description: "Add a slide to the live LegalWork presentation by copying an existing template slide's design, images and layout. Choose templateSlideIndex and optional insertIndex (both zero-based), and fill text boxes using replacements keyed by the TEMPLATE's element IDs. Inserts and fills the slide in one call, leaves the original unchanged, saves automatically, and returns the new slide's element IDs. Use for intro slides, additional sections and repeated layouts. Further edits use the returned IDs. Then preview the finished slide. If saving fails, retry inapp_office_save, not add_slide.",
+      args: pptxAddSlideSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "add_slide", pptxAddSlideSchema.parse(rawArgs)); },
     },
     inapp_pptx_preview: {
       description: "Render a full slide PNG from the live PowerPoint draft and check potential text overlaps/overflow without changing the document. Call once after finishing all edits to a slide, then inspect the image before moving on. Recheck only after completing any necessary corrections; do not call after every individual edit. Warnings alone are not visual verification.",

@@ -97,15 +97,16 @@ describe("legalwork runtime config file", () => {
 
     const parsed = await readConfigFile(config);
     const plugins = parsed.plugin as string[];
-    const localPlugins = plugins.filter((spec) => /legalwork-[a-z-]+\.(?:js|ts)$/.test(spec));
+    const localPlugins = plugins.filter((spec) => /legalwork-[a-z-]+\.(?:js|ts)\?v=/.test(spec));
     // Every bundled plugin resolves to a file on disk, so each must be a
     // file:// URL. A bare absolute path (esp. a Windows `C:\…` path) makes
     // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
     // fails the whole config load — no providers, no tasks.
-    expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)$/.test(spec))).toBe(true);
+    expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
     expect(localPlugins.length).toBeGreaterThan(0);
     for (const spec of localPlugins) {
       expect(spec.startsWith("file://")).toBe(true);
+      expect(new URL(spec).searchParams.get("v")).toMatch(/^\d+(\.\d+)?-\d+$/);
     }
   });
 

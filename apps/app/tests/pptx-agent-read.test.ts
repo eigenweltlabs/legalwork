@@ -61,6 +61,18 @@ describe("PowerPoint content reads", () => {
     expect(api.selectElements).not.toHaveBeenCalled();
   });
 
+  test("whole-deck reads omit repeated formatting while targeted reads retain it", () => {
+    const api = presentation();
+    for (const slide of api.getSlides()) for (const element of slide.elements) {
+      if (element.type === "text") element.textSegments = [{ text: element.text ?? "", style: { fontSize: 32, bold: true } }];
+    }
+    const compact = JSON.stringify(readPptxContent(api));
+    expect(compact).not.toContain('"textRuns"');
+    expect(compact).not.toContain('"textStyle"');
+    expect(compact).not.toContain('"width"');
+    expect(readPptxContent(api, 0)).toMatchObject({ elements: [{ id: "title-0", width: 800, textStyle: { fontSize: 32 }, textRuns: [{ text: "Slide 1", fontSize: 32 }] }] });
+  });
+
   test("rejects missing slides and unloaded decks without navigating", () => {
     const api = presentation();
     expect(() => readPptxContent(api, 24)).toThrow();

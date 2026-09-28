@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { PowerPointViewer, type PowerPointViewerHandle } from "pptx-react-viewer/viewer";
 import { officeFileSchema, pptxReadSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
 import { readPptxContent } from "./pptx-agent-read";
+import { addPptxSlide } from "./pptx-agent-slides";
 import { pptxVisualFeedback } from "./pptx-visual-feedback";
 import { replaceTextSegments } from "./office-agent-text";
 import { translationsEn, keyToLabel } from "pptx-react-viewer/i18n";
@@ -50,7 +51,8 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
   state.agentTool.current = async (name, rawArgs) => {
     const api = editor.current;
     if (!api || !api.getSlideCount()) throw new Error(t("pptx.still_loading"));
-    if (!["read", "read_presentation", "preview", "replace_text", "update_layout"].includes(name)) throw new Error(t("pptx.unknown_tool"));
+    if (name === "add_slide") return addPptxSlide(() => editor.current!, rawArgs, () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    if (!["read", "read_presentation", "preview", "replace_text", "update_layout"].includes(name)) throw new Error(`${t("pptx.unknown_tool")} Supported tools: read_presentation, read, add_slide, replace_text, update_layout, preview, save. Use the named inapp_pptx_* tools and their schemas; do not guess UI actions.`);
     if (name === "read_presentation") {
       officeFileSchema.parse(rawArgs);
       return { data: readPptxContent(api) };

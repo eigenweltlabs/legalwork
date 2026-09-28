@@ -14,6 +14,7 @@ import { readSystemOneSettings } from "./systemone.js";
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -149,7 +150,12 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 // Emit `file://` URLs so import() works on every platform — the same
 // convention used for directory plugins in plugins.ts.
 function bundledPluginSpec(absolutePath: string): string {
-  return pathToFileURL(absolutePath).href;
+  const url = pathToFileURL(absolutePath);
+  // Disposing an OpenCode workspace does not clear the JS module cache.
+  // A rebuilt bundled plugin must get a new import URL to expose its new tools.
+  const { mtimeMs, size } = statSync(absolutePath);
+  url.searchParams.set("v", `${mtimeMs}-${size}`);
+  return url.href;
 }
 
 export async function buildLegalworkRuntimeConfigObject(
