@@ -32,7 +32,8 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
+import { PanelEmptyState, PanelHeaderPortal } from "@/react-app/design-system/panel-chrome";
+import { cn } from "@/lib/utils";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
@@ -60,6 +61,7 @@ import {
 } from "./utils";
 
 type SidePanelProps = {
+  headerTarget?: HTMLElement | null;
   projects?: { id: string; name: string }[];
   sessionId: string;
   client: LegalworkServerClient | null;
@@ -420,6 +422,7 @@ function BrowserPanelContent({
 }
 
 export function SidePanel({
+  headerTarget,
   projects,
   sessionId,
   client,
@@ -652,52 +655,54 @@ export function SidePanel({
             </motion.div>
           ) : null}
         </AnimatePresence>
-        <div className="shrink-0 bg-muted/35 backdrop-blur-xl">
-          <div className="flex h-11 items-center gap-1 border-b border-border/70 px-2">
-            <div className="no-scrollbar min-w-0 overflow-x-auto">
-              <PanelTabList
-                values={tabs.map((tab) => tab.id)}
-                onReorder={reorderTabs}
-              >
-                {tabs.map((tab) => (
-                  <SidePanelTab
-                    key={tab.id}
-                    tab={tab}
-                    active={tab.id === activeTab?.id}
-                    onSelect={selectTab}
-                    onClose={closeTab}
-                  />
-                ))}
-              </PanelTabList>
+        <PanelHeaderPortal target={headerTarget}>
+          <div className={cn("shrink-0 titlebar-no-drag", headerTarget ? "h-full" : "bg-muted/35 backdrop-blur-xl")}>
+            <div className={cn("flex h-11 items-center gap-1 border-b border-border/70 px-2", headerTarget && "h-full border-b-0")}>
+              <div className="no-scrollbar min-w-0 overflow-x-auto">
+                <PanelTabList
+                  values={tabs.map((tab) => tab.id)}
+                  onReorder={reorderTabs}
+                >
+                  {tabs.map((tab) => (
+                    <SidePanelTab
+                      key={tab.id}
+                      tab={tab}
+                      active={tab.id === activeTab?.id}
+                      onSelect={selectTab}
+                      onClose={closeTab}
+                    />
+                  ))}
+                </PanelTabList>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                aria-label={t("side_panel.open_in_viewer")}
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? []);
+                  event.currentTarget.value = "";
+                  void openFilesInViewer(files);
+                }}
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={!client || !workspaceId || Boolean(copyingFile)} onClick={() => fileInputRef.current?.click()}>
+                    <FolderInput /> {t("side_panel.files")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab()}>
+                    <Globe /> {t("side_panel.browser")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="ghost" size="icon-sm" className="ml-auto shrink-0" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}>
+                <X />
+              </Button>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              aria-label={t("side_panel.open_in_viewer")}
-              onChange={(event) => {
-                const files = Array.from(event.currentTarget.files ?? []);
-                event.currentTarget.value = "";
-                void openFilesInViewer(files);
-              }}
-            />
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem disabled={!client || !workspaceId || Boolean(copyingFile)} onClick={() => fileInputRef.current?.click()}>
-                  <FolderInput /> {t("side_panel.files")}
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab()}>
-                  <Globe /> {t("side_panel.browser")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button variant="ghost" size="icon-sm" className="ml-auto shrink-0" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}>
-              <X />
-            </Button>
           </div>
-        </div>
+        </PanelHeaderPortal>
         {!activeTab ? (
           <PanelEmpty />
         ) : null}

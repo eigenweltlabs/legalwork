@@ -12,6 +12,7 @@ export function FileSidebars(props: {
   active: FileSidebarItem | null;
   memory: ReactNode;
   files: ReactNode;
+  onResize?: (width: number) => void;
 }) {
   const panelRef = usePanelRef();
   const expandedWidth = useRef(300);
@@ -44,6 +45,7 @@ export function FileSidebars(props: {
         disabled={!props.active}
         onResize={(size) => {
           if (props.active && size.inPixels > 0) expandedWidth.current = size.inPixels;
+          props.onResize?.(size.inPixels);
         }}
         className="min-h-0 overflow-hidden"
       >

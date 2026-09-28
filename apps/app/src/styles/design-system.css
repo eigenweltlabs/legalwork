@@ -200,6 +200,26 @@
   height: var(--lw-window-bar-height);
   background: var(--lw-window-chrome);
 }
+/* Header widths follow their resizable panes. The short separators stay above
+   the continuous workspace arch; panel controls add no surface or border over it. */
+.lw-window-panel-header {
+  position: relative;
+  box-sizing: content-box;
+  height: 100%;
+  min-width: 0;
+  flex: none;
+  border-left: 1px solid transparent;
+}
+.lw-window-panel-header::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--lw-border);
+  pointer-events: none;
+}
 .lw-window-navigation {
   transition: width var(--lw-sidebar-transition-duration) var(--lw-ease-out);
 }

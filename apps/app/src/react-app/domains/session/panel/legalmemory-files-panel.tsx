@@ -52,6 +52,7 @@ type TreeRow =
 type LegalMemoryFilesPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
+  headerTarget?: HTMLElement | null;
   onOpenFile: (file: LegalMemoryTreeFile) => Promise<void> | void;
   onOpenStorageFile: (root: StorageRoot, file: StorageEntry) => void;
   onConnectStorage?: () => void;
@@ -63,6 +64,7 @@ const folderKey = (sourceId: string, path: string) => `${sourceId}:${path}`;
 export function LegalMemoryFilesPanel({
   client,
   workspaceId,
+  headerTarget,
   onOpenFile,
   onOpenStorageFile,
   onConnectStorage,
@@ -320,7 +322,7 @@ export function LegalMemoryFilesPanel({
   return (
     <TooltipProvider delay={800}>
       <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
-        <PanelHeader title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
+        <PanelHeader headerTarget={headerTarget} title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
           <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t("legalmemory.refresh_drive")} />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />

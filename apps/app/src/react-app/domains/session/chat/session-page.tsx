@@ -487,6 +487,10 @@ export function SessionPage(props: SessionPageProps) {
     minRightWidth: 320,
   });
   const [browserPanelDefaultWidth, setBrowserPanelDefaultWidth] = useState(browserPanelWidth);
+  const [viewerHeaderWidth, setViewerHeaderWidth] = useState(browserPanelWidth);
+  const [filesHeaderWidth, setFilesHeaderWidth] = useState(300);
+  const [viewerHeaderTarget, setViewerHeaderTarget] = useState<HTMLDivElement | null>(null);
+  const [filesHeaderTarget, setFilesHeaderTarget] = useState<HTMLDivElement | null>(null);
   const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
     "--sidebar-width-icon": "var(--lw-window-left-rail-width)",
     "--sidebar-width": `calc(${leftSidebarWidth}px + var(--lw-window-left-rail-width))`,
@@ -1007,6 +1011,7 @@ export function SessionPage(props: SessionPageProps) {
 
   const memoryDrivePanel = (
     <LegalMemoryFilesPanel
+      headerTarget={!mobile && driveOpen ? filesHeaderTarget : null}
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
       onOpenFile={openLegalMemoryFile}
@@ -1058,9 +1063,11 @@ export function SessionPage(props: SessionPageProps) {
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
       active={fileSidebar}
+      onResize={setFilesHeaderWidth}
       memory={memoryDrivePanel}
       files={(
         <WorkspaceFilesPanel
+          headerTarget={!mobile && filesRailActive ? filesHeaderTarget : null}
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
           workspaceRoot={props.selectedWorkspaceRoot}
@@ -1118,19 +1125,20 @@ export function SessionPage(props: SessionPageProps) {
         style={sidebarProviderStyle}
         data-sidebar-visible={sidebarVisible}
       >
-        <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center gap-2 pr-2 electron:titlebar-drag">
-          <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
-            {!props.detached && <>
-              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
-              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
-              {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
-            </>}
-          </div>
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
-            {props.developerMode && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
-            {props.busyHint && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.busyHint}</span>}
-          </div>
+        <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center electron:titlebar-drag">
+          <div className="flex h-full min-w-0 flex-1 items-center gap-2 pr-2">
+            <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
+              {!props.detached && <>
+                <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
+                <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
+                {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+              </>}
+            </div>
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
+              {props.developerMode && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
+              {props.busyHint && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.busyHint}</span>}
+            </div>
             <div className="flex items-center gap-1.5 text-gray-10 titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
               {!hasMainView && !props.detached && props.selectedSessionId && isElectronRuntime() ? (
@@ -1161,7 +1169,10 @@ export function SessionPage(props: SessionPageProps) {
                 </Button>
               ) : null}
             </div>
-
+          </div>
+          {!mobile && sidePanelOpen && <div ref={setViewerHeaderTarget} data-panel-header="viewer" className="lw-window-panel-header" style={{ width: viewerHeaderWidth }} />}
+          {!mobile && fileSidebar && <div ref={setFilesHeaderTarget} data-panel-header="files" className="lw-window-panel-header" style={{ width: filesHeaderWidth }} />}
+          {!mobile && (sidePanelOpen || fileSidebar) && <div aria-hidden className="shrink-0" style={{ width: shellConfig.panelRail ? "calc(var(--lw-window-right-rail-width) + 1px)" : 1 }} />}
         </header>
         {!props.detached ? <AppSidebar
           accountClient={props.environmentClient ?? props.legalworkServerClient ?? null}
@@ -1253,10 +1264,12 @@ export function SessionPage(props: SessionPageProps) {
                     defaultSize={workflowFocusMode ? "100%" : workflowsPage ? "60%" : "480px"}
                     minSize={workflowFocusMode ? "0px" : "320px"}
                     maxSize={workflowFocusMode ? "100%" : "70%"}
+                    onResize={size => setViewerHeaderWidth(size.inPixels)}
                     className="flex min-h-0 flex-col overflow-hidden"
                   >
                     {workflowFocusMode ? <div className="shrink-0 border-b border-border px-3 py-2"><Button variant="ghost" size="sm" onClick={() => setSidePanelState(panelStateSessionId, null)}>{t("workflows.back_to_library")}</Button></div> : null}
                     <div className="min-h-0 flex-1"><SidePanel
+                      headerTarget={!mobile ? viewerHeaderTarget : null}
                       sessionId={panelStateSessionId}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
@@ -1567,11 +1580,13 @@ export function SessionPage(props: SessionPageProps) {
                   minSize="320px"
                   maxSize="70%"
                   onResize={(size, _id, previous) => {
+                    setViewerHeaderWidth(size.inPixels);
                     if (previous && size.inPixels > 0) setBrowserPanelWidth(Math.round(size.inPixels));
                   }}
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
                   <SidePanel
+                    headerTarget={!mobile ? viewerHeaderTarget : null}
                     sessionId={panelStateSessionId}
                     client={props.legalworkServerClient}
                     workspaceId={props.runtimeWorkspaceId}
