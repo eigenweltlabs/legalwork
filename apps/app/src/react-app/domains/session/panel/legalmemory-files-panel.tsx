@@ -337,7 +337,7 @@ export function LegalMemoryFilesPanel({
           </Tooltip>
         </PanelHeader>
 
-        {!notConfigured || hasStorage ? <div className="flex h-12 shrink-0 items-center border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl">
+        {!notConfigured || hasStorage ? <div className="flex h-(--lw-panel-toolbar-height) shrink-0 items-center border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl">
           <div className="relative w-full">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input

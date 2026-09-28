@@ -159,7 +159,7 @@ export function WorkspaceFilesPanel({
         <nav
           ref={breadcrumbsRef}
           aria-label={t("workspace_files.current_folder")}
-          className="no-scrollbar flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-background/80 px-2.5 backdrop-blur-xl"
+          className="no-scrollbar flex h-(--lw-panel-toolbar-height) shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-background/80 px-2.5 backdrop-blur-xl"
         >
           {crumbs.map((crumb, index) => {
             const current = index === crumbs.length - 1;

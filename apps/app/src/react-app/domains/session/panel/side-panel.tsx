@@ -320,7 +320,7 @@ function BrowserPanelContent({
 
   return (
     <>
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 bg-background/80 px-2 backdrop-blur-xl">
+      <div className="flex h-(--lw-panel-toolbar-height) shrink-0 items-center gap-1 border-b border-border/70 bg-background/80 px-2 backdrop-blur-xl">
         {isAvailable ? (
           <>
             <Tooltip>

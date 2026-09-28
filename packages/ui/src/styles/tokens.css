@@ -132,6 +132,9 @@
   --lw-shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.14), 0 4px 10px rgba(16, 24, 40, 0.06);
   --lw-shadow-pop: 0 8px 28px rgba(16, 24, 40, 0.12);
 
+  /* ---- Panel geometry ---------------------------------------------------- */
+  --lw-panel-toolbar-height: 3rem;
+
   /* ---- Radius ------------------------------------------------------------ */
   --lw-radius-xs: 4px;
   --lw-radius-sm: 6px;
