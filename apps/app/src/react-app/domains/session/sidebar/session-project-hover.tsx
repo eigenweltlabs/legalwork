@@ -5,19 +5,19 @@ import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import { getRootSessions, isSessionArchived } from "./utils";
 
-export function allProjectSessions(groups: WorkspaceSessionGroup[], pinnedIds?: ReadonlySet<string>) {
+export function allProjectSessions(groups: WorkspaceSessionGroup[], pinnedIds?: ReadonlySet<string>, currentSessionId?: string | null) {
   const seen = new Set<string>();
   return groups.flatMap(group => {
     const active = group.sessions.filter(session => !isSessionArchived(session));
     const roots = new Set(getRootSessions(active).map(session => session.id));
     return active.filter(session => {
       // Explicit pins also surface child chats in the global pinned section.
-      if ((!roots.has(session.id) && !pinnedIds?.has(session.id)) || seen.has(session.id)) return false;
+      if ((!roots.has(session.id) && !pinnedIds?.has(session.id) && session.id !== currentSessionId) || seen.has(session.id)) return false;
       seen.add(session.id);
       return true;
     }).map(session => ({ session, workspace: group.workspace }));
   })
-    .sort((a, b) => (b.session.time?.updated ?? b.session.time?.created ?? 0) - (a.session.time?.updated ?? a.session.time?.created ?? 0));
+    .sort((a, b) => Number(b.session.id === currentSessionId) - Number(a.session.id === currentSessionId) || (b.session.time?.updated ?? b.session.time?.created ?? 0) - (a.session.time?.updated ?? a.session.time?.created ?? 0));
 }
 
 export function SessionProjectHover({ session, projectName, children }: {

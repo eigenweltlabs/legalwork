@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SidebarMenuSubButton } from "../src/components/ui/sidebar";
 import { FolderIcon } from "../src/react-app/design-system/folder-icon";
 
+import type { WorkspaceSessionGroup } from "../src/app/types";
+import { allProjectSessions } from "../src/react-app/domains/session/sidebar/session-project-hover";
 import { getRecentProjectSessions, type SessionListItem } from "../src/react-app/domains/session/sidebar/utils";
 
 describe("sidebar accessibility", () => {
@@ -55,5 +57,39 @@ describe("project recent sessions", () => {
     ]);
     expect(sessions.map((session) => session.id)).toEqual(originalOrder);
     expect(getRecentProjectSessions([])).toEqual([]);
+  });
+});
+
+
+describe("current conversation in the sidebar", () => {
+  const group: WorkspaceSessionGroup = {
+    workspace: { id: "project-a", name: "Project A", path: "/project-a" },
+    status: "ready",
+    sessions: Array.from({ length: 20 }, (_, index) => ({
+      id: `session-${index}`, title: `Chat ${index}`, time: { updated: index },
+    })),
+  };
+
+  test("puts the open conversation above both preview limits without mutating saved order", () => {
+    const otherGroup: WorkspaceSessionGroup = {
+      workspace: { id: "project-b", name: "Project B", path: "/project-b" },
+      status: "ready",
+      sessions: [{ id: "newer-elsewhere", time: { updated: 1000 } }],
+    };
+    const original = group.sessions.map(session => session.id);
+    const recent = allProjectSessions([otherGroup, group], undefined, "session-0").slice(0, 10);
+    const project = allProjectSessions([group], undefined, "session-0").slice(0, 5);
+    expect(recent[0].session.id).toBe("session-0");
+    expect(project[0].session.id).toBe("session-0");
+    expect(recent[1].session.id).toBe("newer-elsewhere");
+    expect(project[1].session.id).toBe("session-19");
+    expect(group.sessions.map(session => session.id)).toEqual(original);
+  });
+
+  test("also surfaces the current child conversation and follows a session switch", () => {
+    const withChild = { ...group, sessions: [...group.sessions, { id: "child", parentID: "session-0", time: { updated: 0 } }] };
+    expect(allProjectSessions([withChild], undefined, "child")[0].session.id).toBe("child");
+    expect(allProjectSessions([withChild], undefined, "session-2")[0].session.id).toBe("session-2");
+    expect(allProjectSessions([withChild]).some(({ session }) => session.id === "child")).toBe(false);
   });
 });

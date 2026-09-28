@@ -143,7 +143,35 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       [id]: Date.now(),
     };
   }, []);
+  const loadedSessionRef = useRef<{ workspaceId: string; session: RouteSession } | null>(null);
+  useEffect(() => {
+    const loaded = loadedSessionRef.current;
+    if (loaded?.workspaceId !== selectedWorkspaceId || loaded?.session.id !== selectedSessionId) {
+      loadedSessionRef.current = null;
+    }
+  }, [selectedWorkspaceId, selectedSessionId]);
+  const handleRuntimeSessionLoaded = useCallback((session: RouteSession) => {
+    if (!selectedWorkspaceId) return;
+    loadedSessionRef.current = { workspaceId: selectedWorkspaceId, session };
+    setSessionsByWorkspaceId(current => {
+      const list = current[selectedWorkspaceId] ?? [];
+      const existing = list.find(item => item.id === session.id);
+      if (existing && (existing.time.updated > session.time.updated || JSON.stringify(existing) === JSON.stringify(session))) return current;
+      const next = { ...current, [selectedWorkspaceId]: [session, ...list.filter(item => item.id !== session.id)] };
+      sessionsByWorkspaceIdRef.current = next;
+      return next;
+    });
+  }, [selectedWorkspaceId]);
   const mergeFetchedSessionsWithPending = useCallback((workspaceId: string, fetched: RouteSession[], current: RouteSession[]) => {
+    // A background list refresh must not lose the conversation already open
+    // in the chat or overwrite its newer title with an older list response.
+    const loaded = loadedSessionRef.current?.workspaceId === workspaceId ? loadedSessionRef.current.session : null;
+    if (loaded) {
+      const listed = fetched.find(session => session.id === loaded.id);
+      if (!listed || loaded.time.updated >= listed.time.updated) {
+        fetched = [loaded, ...fetched.filter(session => session.id !== loaded.id)];
+      }
+    }
     const pending = pendingCreatedSessionIdsRef.current[workspaceId];
     if (!pending) return fetched;
 
@@ -871,6 +899,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     refreshRouteState,
     loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
+    handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
     handleRemoteWorkspaceConnectionSaved,
     runRemoteWorkspaceConnectionCheck,

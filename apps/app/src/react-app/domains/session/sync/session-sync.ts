@@ -730,7 +730,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     const update = getSessionUpdatedInfo(event);
     if (!update) return;
     if (!isTrackedSession(entry, update.sessionId)) return;
-    // Keep the cached snapshot's revert cursor in sync with the server. The
+    // Keep metadata and the revert cursor in sync with the server. The
     // renderer derives the visible transcript from this cursor, so a revert
     // (or its cleanup on the next prompt) must reach the snapshot cache or
     // the transcript stays frozen on stale history.
@@ -739,7 +739,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       (current) => {
         if (!current) return current;
         const revert = (update.info as { revert?: LegalworkSessionSnapshot["session"]["revert"] }).revert;
-        return { ...current, session: { ...current.session, revert } };
+        return { ...current, session: { ...current.session, ...update.info, id: update.sessionId, revert } };
       },
     );
     for (const listener of entry.sessionUpdatedListeners) listener(update);

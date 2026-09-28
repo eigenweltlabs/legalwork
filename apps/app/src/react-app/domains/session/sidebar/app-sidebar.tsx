@@ -626,7 +626,7 @@ export function AppSidebar(props: AppSidebarProps) {
     const id = props.selectedWorkspaceId.trim();
     if (!id) return;
     expandWorkspace(id);
-  }, [props.selectedWorkspaceId, expandWorkspace]);
+  }, [props.selectedWorkspaceId, props.selectedSessionId, expandWorkspace]);
 
   React.useEffect(() => {
     const workspaceId = props.selectedWorkspaceId.trim();
@@ -678,10 +678,19 @@ export function AppSidebar(props: AppSidebarProps) {
             </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
           </SidebarMenuItem> : null;
   const pinned = usePinnedSessionIds();
-  const allSessions = React.useMemo(() => allProjectSessions(props.workspaceSessionGroups, pinned), [props.workspaceSessionGroups, pinned]);
+  const allSessions = React.useMemo(() => allProjectSessions(props.workspaceSessionGroups, pinned, props.selectedSessionId), [props.workspaceSessionGroups, pinned, props.selectedSessionId]);
   const [recentLimit, setRecentLimit] = React.useState(10);
   const [closedSections, setClosedSections] = React.useState<Set<string>>(() => new Set());
   const toggleSection = (key: string) => setClosedSections(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  React.useEffect(() => {
+    if (!props.selectedSessionId) return;
+    setClosedSections(current => {
+      const next = new Set(current);
+      next.delete("sectionProjects");
+      next.delete("sectionRecent");
+      return next;
+    });
+  }, [props.selectedWorkspaceId, props.selectedSessionId]);
   const projectsPage = location.pathname === "/projects";
   const actions: Record<ShellNavKey, { onClick: () => void; active: boolean; available?: boolean }> = {
     navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: !props.activeNav && !projectsPage },
@@ -692,7 +701,7 @@ export function AppSidebar(props: AppSidebarProps) {
     navEvaluations: { onClick: () => props.onShowEvals?.(), active: props.activeNav === "evals" },
   };
   const sessionSection = (key: "sectionPinned" | "sectionRecent") => {
-    const sessions = allSessions.filter(({ session }) => key === "sectionPinned" ? pinned.has(session.id) : !pinned.has(session.id));
+    const sessions = allSessions.filter(({ session }) => key === "sectionPinned" ? pinned.has(session.id) : session.id === props.selectedSessionId || !pinned.has(session.id));
     if (key === "sectionPinned" && !sessions.length) return null;
     const visible = key === "sectionRecent" ? sessions.slice(0, recentLimit) : sessions;
     return <section key={key} className="px-2.5 pb-3">
@@ -962,6 +971,9 @@ function WorkspaceSidebarGroup({
   const isSelected = ctx.selectedWorkspaceId === workspace.id;
   const [sessionsOpen, setSessionsOpen] = React.useState(false);
   const { config } = useShellConfig();
+  React.useEffect(() => {
+    if (isSelected && ctx.selectedSessionId) setSessionsOpen(true);
+  }, [isSelected, ctx.selectedSessionId]);
   const showSessions = !config.collapseProjectSessions || sessionsOpen;
   const projectNavItems = config.projectNavOrder.filter(key => key === "projectSessions" ? config.collapseProjectSessions : config[key]);
 
@@ -1655,11 +1667,14 @@ function WorkspaceSessions({ group, loading = false, showAll = false }: {
   const [archivedOpen, setArchivedOpen] = React.useState(false);
   const forcedExpandedSessionIds = new Set(ctx.selectedSessionId ? tree.ancestorIdsBySessionId.get(ctx.selectedSessionId) ?? [] : []);
   const { active, archived } = partitionArchivedSessions(group.sessions);
-  const rows = flattenSessionRows(group.sessions, showAll || groups.length ? Number.MAX_SAFE_INTEGER : limit, tree, ctx.expandedSessionIds, forcedExpandedSessionIds, pinnedIds, orderIds);
+  const currentSession = ctx.selectedWorkspaceId === workspaceId ? active.find(session => session.id === ctx.selectedSessionId) : undefined;
+  const rows = flattenSessionRows(group.sessions, showAll || groups.length ? Number.MAX_SAFE_INTEGER : limit, tree, ctx.expandedSessionIds, forcedExpandedSessionIds, pinnedIds, orderIds)
+    .filter(row => row.session.id !== currentSession?.id);
   const remaining = Math.max(0, getRootSessions(active).length - limit);
   const visibleRootIds = rows.filter((row) => row.depth === 0).map((row) => row.session.id);
   return (
     <SidebarMenuSub aria-label={t("projects.sessions")}>
+      {currentSession && <SessionMenuItem session={currentSession} depth={0} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} isPinned={pinnedIds.has(currentSession.id)} />}
       {loading || (group.status === "loading" && !group.sessions.length) ? <li className="px-3 py-2 text-xs text-muted-foreground">{t("workspace.loading_tasks")}</li> : groups.length ? (
         <GroupedSessionList sessionRows={rows} groups={groups} assignments={assignments} pinnedIds={pinnedIds} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} store={useSessionManagementStore} showAll={showAll} />
       ) : (
@@ -1685,7 +1700,7 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
   const status = ctx.sessionStatusById?.[session.id];
   return <SidebarMenuItem className="group/session-row">
     <SessionContextMenu sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false}>
-        <SidebarMenuButton className="h-8 pr-9 text-[13px]" isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
+        <SidebarMenuButton className="h-8 pr-9 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
           if (!ctx.onOpenSessionWindow) return;
           event.preventDefault();
           event.stopPropagation();
@@ -1701,7 +1716,8 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
 
 function RecentProjectSessions({ group, loading }: { group: WorkspaceSessionGroup; loading?: boolean }) {
   const [limit, setLimit] = React.useState(5);
-  const sessions = allProjectSessions([group]);
+  const ctx = useSidebarContext();
+  const sessions = allProjectSessions([group], undefined, ctx.selectedWorkspaceId === group.workspace.id ? ctx.selectedSessionId : null);
   return <SidebarMenu className="gap-0.5 py-1 pl-2">
     {sessions.slice(0, limit).map(({ session, workspace }) => <GlobalSessionRow key={session.id} session={session} workspace={workspace} />)}
     {!sessions.length && <li className="px-2 py-2 text-xs text-muted-foreground">{loading || group.status === "loading" ? t("workspace.loading_tasks") : group.status === "error" ? getWorkspaceTaskLoadErrorDisplay(group.workspace, group.error).message : t("projects.no_sessions")}</li>}
