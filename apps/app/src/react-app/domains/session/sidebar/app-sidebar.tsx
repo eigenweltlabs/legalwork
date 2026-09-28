@@ -991,6 +991,8 @@ function WorkspaceSidebarGroup({
             <div className="group/workspace-header relative">
               <WorkspaceHeader
                 workspace={workspace}
+                isActive={isSelected}
+                aria-current={isSelected ? "location" : undefined}
                 statusLabel={statusLabel}
                 isError={group.status === "error"}
                 isLoading={group.status === "loading" || isConnecting}
