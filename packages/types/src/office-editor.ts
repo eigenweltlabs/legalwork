@@ -14,7 +14,7 @@ export function officeRange(range: string) {
 const range = z.string().refine((value) => { try { officeRange(value); return true; } catch { return false; } }, "Invalid or oversized A1 range.");
 export const xlsxReadSchema = z.object({ path, sheet: z.string().optional().describe("Sheet name; defaults to the active sheet."), range: range.optional().describe("Bounded A1 range; defaults to A1:T50. Read in pages for larger workbooks.") });
 export const xlsxWriteSchema = z.object({ path, sheet: z.string().min(1), range, values: z.array(z.array(z.union([z.string().max(32767), z.number().finite(), z.boolean(), z.null()])).min(1)).min(1).max(5000).describe("Rectangular values matching the range. Strings beginning '=' are formulas. Null clears a cell. Formatting is retained.") });
-export const pptxReadSchema = z.object({ path, slideIndex: z.number().int().min(0).optional().describe("Zero-based slide index; defaults to active slide. Includes a slide inventory.") });
+export const pptxReadSchema = z.object({ path, slideIndex: z.number().int().min(0).optional().describe("Zero-based slide index. Omit to read the entire presentation. For previews, omit to use the active slide. Reads never change the active slide.") });
 export const pptxReplaceSchema = z.object({ path, slideIndex: z.number().int().min(0), elementId: z.string().min(1).describe("Text/shape ID from inapp_pptx_read."), search: z.string().min(1).max(32767).describe("Exact unique text within the element."), replaceWith: z.string().max(32767) });
 
 export const pptxLayoutSchema = z.object({
