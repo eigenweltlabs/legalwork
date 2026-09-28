@@ -337,8 +337,8 @@ export function LegalMemoryFilesPanel({
           </Tooltip>
         </PanelHeader>
 
-        {!notConfigured || hasStorage ? <div className="shrink-0 border-b border-border/50 bg-muted/20 p-3">
-          <div className="relative">
+        {!notConfigured || hasStorage ? <div className="flex h-12 shrink-0 items-center border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl">
+          <div className="relative w-full">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               maxLength={512}
@@ -346,7 +346,7 @@ export function LegalMemoryFilesPanel({
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={t("legalmemory.search_placeholder")}
               aria-label={t("legalmemory.search_aria")}
-              className="h-9 w-full rounded-xl border border-input/80 bg-background/90 pl-8 pr-8 text-[13px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring/50 focus:ring-2 focus:ring-ring/15"
+              className="h-8 w-full rounded-lg border border-input/80 bg-background/90 pl-8 pr-8 text-[13px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring/50 focus:ring-2 focus:ring-ring/15"
             />
             {query ? (
               <button

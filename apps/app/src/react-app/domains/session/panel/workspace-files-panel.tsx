@@ -111,7 +111,7 @@ export function WorkspaceFilesPanel({
     <TooltipProvider delay={1000}>
       <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
-        <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")} icon={<FolderIcon open />}>
+        <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")}>
           <Tooltip>
             <TooltipTrigger
               render={(
