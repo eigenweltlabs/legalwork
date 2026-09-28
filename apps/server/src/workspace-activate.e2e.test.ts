@@ -532,7 +532,7 @@ test("selected-folder project preserves files, persists metadata and rejects sta
 });
 
 
-test("local folder setup discovers custom defaults, saves values and finishes context without a remote link", async () => {
+test("local folder setup discovers custom defaults, saves values and finishes setup without a remote link", async () => {
   const root = await createWorkspaceRoot();
   const selected = join(root, "existing-matter");
   await mkdir(selected);
@@ -547,13 +547,15 @@ test("local folder setup discovers custom defaults, saves values and finishes co
   expect(created.status).toBe(201);
   const { activeId } = await created.json();
   const endpoint = `${base}/workspace/${activeId}/project`;
-  const context = await (await fetch(`${endpoint}/context`, { headers })).json();
+  const context = await (await fetch(`${endpoint}/setup`, { headers })).json();
+  expect(context).not.toHaveProperty("context");
+  expect((await fetch(`${endpoint}/context`, { headers })).status).toBe(404);
   expect(context).toMatchObject({ localFolder: selected, initialization: "pending", remote: { folders: [] }, fields: [{ id: "budget", label: "Our budget", value: null }] });
   const metadata = await fetch(`${endpoint}/metadata`, { method: "PATCH", headers, body: JSON.stringify({ revision: context.revision, values: { budget: 3500 } }) });
   expect(metadata.status).toBe(200);
   const updated = await metadata.json();
   expect(updated.fields[0]).toMatchObject({ id: "budget", label: "Our budget", type: "number", value: 3500 });
-  const completed = await fetch(`${endpoint}/context`, { method: "PATCH", headers, body: JSON.stringify({ revision: updated.revision, name: "Reviewed matter", context: "Budget from brief.txt. No tasks or notes identified." }) });
+  const completed = await fetch(`${endpoint}/setup`, { method: "PATCH", headers, body: JSON.stringify({ revision: updated.revision, name: "Reviewed matter" }) });
   expect(completed.status).toBe(200);
   expect((await completed.json()).remote).toMatchObject({ folders: [], initialization: "ready" });
   expect(await readFile(join(selected, "brief.txt"), "utf8")).toBe("Budget: 3500");

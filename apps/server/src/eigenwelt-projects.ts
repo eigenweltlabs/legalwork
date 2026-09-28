@@ -109,7 +109,8 @@ export type RemoteProjectCreate = {
 };
 
 export async function createRemoteProject(client: IntakeClient, input: RemoteProjectCreate): Promise<RemoteProject> {
-  const json = await intakeRequest(client, "POST", "/api/projects", input);
+  // Older platform versions require this retired field. Never transmit a summary.
+  const json = await intakeRequest(client, "POST", "/api/projects", { ...input, ...(input.remote ? { remote: { ...input.remote, context: "" } } : {}) });
   return parsed(z.object({ project: projectSchema }), json).project;
 }
 
@@ -129,7 +130,7 @@ export async function patchRemoteProject(
   projectId: string,
   patch: RemoteProjectPatch,
 ): Promise<{ project: RemoteProject | null; applied: string[] }> {
-  const json = await intakeRequest(client, "PATCH", base(projectId), patch);
+  const json = await intakeRequest(client, "PATCH", base(projectId), { ...patch, ...(patch.remote ? { remote: { ...patch.remote, context: "" } } : {}) });
   return parsed(z.object({ project: projectSchema.nullable(), applied: z.array(z.string()) }), json);
 }
 

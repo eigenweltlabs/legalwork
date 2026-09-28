@@ -766,12 +766,12 @@ describe("diffFields", () => {
   });
 });
 
-test("team project configuration shares folder references and context even with document sync disabled", async () => {
+test("team project configuration shares folder references and setup status even with document sync disabled", async () => {
   const { platform } = fakeFirm();
   const owner = await machine("user_anna", "Anna");
   const member = await machine("user_ben", "Ben");
   const akte = await localProject(owner.config, "Remote matter");
-  const remote = { version: 1 as const, context: "Reviewed the main agreement", initialization: "ready" as const, folders: [{ id: crypto.randomUUID(), connectionId: `team:${crypto.randomUUID()}`, connectionName: "Team drive", organizationId: ORG, connectionFingerprint: "a".repeat(64), folder: { id: "100", namespace: "box", path: "Matter", name: "Matter" } }] };
+  const remote = { version: 1 as const, initialization: "ready" as const, folders: [{ id: crypto.randomUUID(), connectionId: `team:${crypto.randomUUID()}`, connectionName: "Team drive", organizationId: ORG, connectionFingerprint: "a".repeat(64), folder: { id: "100", namespace: "box", path: "Matter", name: "Matter" } }] };
   await updateProjectRemote(akte.path, remote);
   await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId], scope: { documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false } }));
   await runProjectSync(owner.config, { platform });
@@ -779,10 +779,10 @@ test("team project configuration shares folder references and context even with 
   const [copy] = projectsOf(member.config);
   expect((await readProjectDetails(copy.path)).remote).toEqual(remote);
   expect((await readProjectDetails(copy.path)).syncProjectId).toBe((await readProjectDetails(akte.path)).syncProjectId);
-  await updateProjectRemote(copy.path, { ...remote, folders: [], context: "Unlinked the source; kept its project context" });
+  await updateProjectRemote(copy.path, { ...remote, folders: [] });
   await noteProjectFoldersChanged(member.config, copy.id);
   await runProjectSync(member.config, { platform });
   await runProjectSync(owner.config, { platform });
   expect((await readProjectDetails(akte.path)).remote?.folders).toEqual([]);
-  expect((await readProjectDetails(akte.path)).remote?.context).toContain("Unlinked");
+  expect((await readProjectDetails(akte.path)).remote).not.toHaveProperty("context");
 });

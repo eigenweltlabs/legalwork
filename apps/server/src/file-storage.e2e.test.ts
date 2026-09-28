@@ -935,7 +935,7 @@ describe.skipIf(process.env.LEGALWORK_STORAGE_INTEGRATION !== "1")("real storage
   );
 });
 
-test("remote-folder project creation, agent scope, saved context and unlink never modify remote content", async () => {
+test("remote-folder project creation, agent scope, setup completion and unlink never modify remote content", async () => {
   let missing = false;
   let mutations = 0;
   const accessed: string[] = [];
@@ -972,14 +972,15 @@ test("remote-folder project creation, agent scope, saved context and unlink neve
     expect(accessed).toContain("GET /Matter/contract.txt");
     expect((await api("GET", `/${encodeURIComponent(alias)}/file?path=../private.txt`, undefined, "owner", workspaceId)).status).toBe(400);
     expect((await api("DELETE", `/${encodeURIComponent(alias)}/folders?path=child&recursive=true`, undefined, "owner", workspaceId)).status).toBe(403);
-    const saved = await call("PATCH", `${projectPath}/context`, { revision: state.revision, name: "Reviewed matter", context: "Reviewed contract.txt. A contract matter; no broader scan performed." });
+    const saved = await call("PATCH", `${projectPath}/setup`, { revision: state.revision, name: "Reviewed matter" });
     expect(saved.status).toBe(200);
     expect(config.workspaces.find((value) => value.id === workspaceId)?.name).toBe("Reviewed matter");
-    const context = await (await call("GET", `${projectPath}/context`)).text();
+    const context = await (await call("GET", `${projectPath}/setup`)).text();
     expect(context).toContain('"ready"');
+    expect(context).not.toContain('"context"');
     expect(context).not.toContain("connection-secret");
     expect(context).not.toContain("sourceWorkspaceId");
-    expect((await call("PATCH", `${projectPath}/context`, { revision: state.revision, context: "stale" })).status).toBe(409);
+    expect((await call("PATCH", `${projectPath}/setup`, { revision: state.revision })).status).toBe(409);
     missing = true;
     expect(await (await call("GET", `${projectPath}/remote-folders`)).text()).toContain('"status":"missing"');
     await api("DELETE", `/${id}`);

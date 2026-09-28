@@ -281,7 +281,7 @@ export async function createDefaultProjectFolder(
   );
 }
 
-/** Folder references and agent context are project configuration, not documents or LegalMemory. */
+/** Folder references and setup status are project configuration, not documents or LegalMemory. */
 export async function updateProjectRemote(root: string, remote: ProjectRemote, revision?: number) {
   const value = projectRemoteSchema.parse(remote);
   return writeProjectDetails(root, (current) => {

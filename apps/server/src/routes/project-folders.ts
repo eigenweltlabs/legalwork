@@ -52,7 +52,7 @@ export function registerProjectFolderRoutes(options: {
   };
   const attach = async (workspace: WorkspaceInfo, prepared: PreparedProjectFolders, initialize = false, revision?: number) => {
     const details = await readProjectDetails(workspace.path);
-    const remote = details.remote ?? { version: 1, folders: [], context: "", initialization: "none" };
+    const remote = details.remote ?? { version: 1, folders: [], initialization: "none" };
     const folders = [...remote.folders];
     for (const value of prepared) {
       const existing = folders.find((folder) => folder.connectionId === value.location.connectionId && folder.connectionFingerprint === value.location.connectionFingerprint && (folder.folder.id ? folder.folder.id === value.location.folder.id : folder.folder.path === value.location.folder.path));
@@ -123,7 +123,7 @@ export function registerProjectFolderRoutes(options: {
   addRoute(routes, "GET", base, "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const details = await readProjectDetails(workspace.path);
-    return jsonResponse({ revision: details.revision, context: details.remote?.context ?? "", initialization: details.remote?.initialization ?? "none", folders: await statuses(workspace) });
+    return jsonResponse({ revision: details.revision, initialization: details.remote?.initialization ?? "none", folders: await statuses(workspace) });
   });
   addRoute(routes, "POST", base, "host", async (ctx) => {
     options.ensureWritable(config); options.requireClientScope(ctx, "collaborator");
@@ -143,24 +143,24 @@ export function registerProjectFolderRoutes(options: {
     await options.onChanged?.(workspace.id);
     return jsonResponse(saved);
   });
-  addRoute(routes, "GET", "/workspace/:id/project/context", "client", async (ctx) => {
+  addRoute(routes, "GET", "/workspace/:id/project/setup", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const details = await readProjectDetails(workspace.path);
     return jsonResponse({
       projectId: workspace.id, name: workspace.displayName?.trim() || workspace.name,
       revision: details.revision, fields: details.fields,
       localFolder: workspace.path,
-      context: details.remote?.context ?? "", initialization: details.remote?.initialization ?? "none",
+      initialization: details.remote?.initialization ?? "none",
       remote: details.remote ?? null,
     });
   });
-  addRoute(routes, "PATCH", "/workspace/:id/project/context", "client", async (ctx) => {
+  addRoute(routes, "PATCH", "/workspace/:id/project/setup", "client", async (ctx) => {
     options.ensureWritable(config); options.requireClientScope(ctx, "collaborator");
-    const body = z.object({ revision: z.number().int().nonnegative(), context: z.string().trim().min(1).max(24000), name: z.string().trim().min(1).max(120).optional() }).strict().parse(await options.readJsonBodyLimited(ctx.request, 128 * 1024));
+    const body = z.object({ revision: z.number().int().nonnegative(), name: z.string().trim().min(1).max(120).optional() }).strict().parse(await options.readJsonBodyLimited(ctx.request, 1024));
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const details = await readProjectDetails(workspace.path);
-    const remote = details.remote ?? { version: 1, folders: [], context: "", initialization: "none" };
-    const saved = await updateProjectRemote(workspace.path, { ...remote, context: body.context, initialization: "ready" }, body.revision);
+    const remote = details.remote ?? { version: 1, folders: [], initialization: "none" };
+    const saved = await updateProjectRemote(workspace.path, { ...remote, initialization: "ready" }, body.revision);
     if (body.name) {
       await renameRegisteredWorkspace(config, workspace.id, body.name);
       await options.onRenamed?.(workspace.id, body.name);

@@ -45,6 +45,7 @@ test("project references survive metadata and sync identity changes without carr
     expect(connectionFingerprint({ ...connection, config: { ...connection.config, kind: "s3", bucket: "other", region: "eu-central-1", prefix: "", accessKeyId: "", forcePathStyle: false } })).not.toBe(fingerprint);
     const location = { id: randomUUID(), connectionId: randomUUID(), connectionName: "Firm", connectionFingerprint: fingerprint, folder: { path: "Matter", name: "Matter" } };
     const remote = projectRemoteSchema.parse({ version: 1, context: "Reviewed contract.txt; further documents remain unread.", initialization: "ready", folders: [location] });
+    expect(remote).not.toHaveProperty("context");
     await updateProjectRemote(root, remote, 0);
     await setProjectSyncId(root, randomUUID());
     await setProjectSyncId(root, null);
@@ -55,6 +56,7 @@ test("project references survive metadata and sync identity changes without carr
     expect(await bindings.source("different-project", location)).toBeUndefined();
     expect(await bindings.source("local-project", { ...location, folder: { name: "Private", path: "Private" } })).toBeUndefined();
     const json = await readFile(join(root, ".legalwork/project.json"), "utf8");
+    expect(json).not.toContain("Reviewed contract.txt");
     expect(json).not.toContain("source-project");
     expect(json).not.toContain("secret-value");
     expect(projectRemoteSchema.safeParse({ ...remote, folders: [{ ...location, secrets: { token: "no" } }] }).success).toBe(false);

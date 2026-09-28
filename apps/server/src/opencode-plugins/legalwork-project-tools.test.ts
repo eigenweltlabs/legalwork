@@ -41,37 +41,37 @@ test("project tools resolve the closest project, carry pagination and reject unr
   }
 });
 
-test("every session receives saved remote context and initialization persists through the project tool", async () => {
+test("sessions receive folder configuration and can finish setup without storing a summary", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL;
   const oldToken = process.env.LEGALWORK_SERVER_TOKEN;
-  let context = "Initial project facts";
   let saved = false;
   const server = Bun.serve({ port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "mapped", path: "/mapped-project" }] });
-    expect(url.pathname).toBe("/workspace/mapped/project/context");
+    expect(url.pathname).toBe("/workspace/mapped/project/setup");
     if (request.method === "PATCH") {
       expect(request.headers.get("authorization")).toBe("Bearer fixture-token");
       const body = await request.json();
       expect(body.revision).toBe(2); expect(body.name).toBe("New matter name");
-      context = body.context; saved = true;
+      expect(body).not.toHaveProperty("context"); saved = true;
     }
-    return Response.json({ revision: 2, remote: { context, initialization: saved ? "ready" : "pending", folders: [{ id: "mapped-folder" }] } });
+    return Response.json({ revision: 2, remote: { initialization: saved ? "ready" : "pending", folders: [{ id: "mapped-folder" }] } });
   } });
   process.env.LEGALWORK_SERVER_URL = server.url.origin;
   process.env.LEGALWORK_SERVER_TOKEN = "fixture-token";
   try {
     const first = await LegalWorkProjectTools({ directory: "/mapped-project" });
-    const initial = { system: [] as string[] };
+    const initial: { system: string[] } = { system: [] };
     await first["experimental.chat.system.transform"]({}, initial);
-    expect(initial.system.join(" ")).toContain("Initial project facts");
+    expect(first.tool).not.toHaveProperty("legalwork_project_set_context");
+    expect(first.tool).not.toHaveProperty("legalwork_project_get_context");
     expect(initial.system.join(" ")).toContain("DEFAULT scope");
     expect(initial.system.join(" ")).toContain("independent of LegalMemory");
-    await first.tool.legalwork_project_set_context.execute({ revision: 2, context: "Facts established by reading the agreement", name: "New matter name" }, { directory: "/mapped-project" });
+    await first.tool.legalwork_project_complete_setup.execute({ revision: 2, name: "New matter name" }, { directory: "/mapped-project" });
     const next = await LegalWorkProjectTools({ directory: "/mapped-project" });
-    const subsequent = { system: [] as string[] };
+    const subsequent: { system: string[] } = { system: [] };
     await next["experimental.chat.system.transform"]({}, subsequent);
-    expect(subsequent.system.join(" ")).toContain("Facts established by reading the agreement");
+    expect(subsequent.system.join(" ")).not.toContain("saved context");
     expect(subsequent.system.join(" ")).toContain('"initialization":"ready"');
   } finally {
     server.stop(true);

@@ -43,13 +43,14 @@ export const remoteFolderSchema = z.object({
     namespace: z.string().max(512).optional(),
   }).strict(),
 }).strict();
-// The existing synced envelope also carries setup context for local-only projects (folders: []).
+// Setup status also applies to local-only projects (folders: []).
 export const projectRemoteSchema = z.object({
   version: z.literal(1),
   folders: z.array(remoteFolderSchema).max(30).refine((folders) => new Set(folders.map((folder) => folder.id)).size === folders.length),
-  context: z.string().max(24000),
+  // Discard the retired summary when reading older local records or platform responses.
+  context: z.string().max(24000).optional(),
   initialization: z.enum(["none", "pending", "ready"]),
-}).strict();
+}).strict().transform(({ context: _legacyContext, ...configuration }) => configuration);
 export type ProjectRemoteFolder = z.infer<typeof remoteFolderSchema>;
 export type ProjectRemote = z.infer<typeof projectRemoteSchema>;
 export type RemoteFolderSelection = { sourceWorkspaceId: string; connectionId: string; path: string };
