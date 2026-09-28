@@ -1051,6 +1051,15 @@ export function SessionPage(props: SessionPageProps) {
       onStartRecording={props.onStartProjectRecording}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
       onOpenFile={openWorkspaceFileEntry}
+      onBeforeDeleteNote={(entry) => {
+        const tabs = usePanelTabStore.getState().sessions[panelStateSessionId]?.tabs ?? [];
+        for (const tab of tabs) {
+          if (tab.type !== "artifact" || tab.storage || tab.value !== entry.path) continue;
+          closeTab(panelStateSessionId, tab.id);
+          if (usePanelTabStore.getState().sessions[panelStateSessionId]?.tabs.some((item) => item.id === tab.id)) return false;
+        }
+        return true;
+      }}
       onNewSession={(shareRecording) => props.onCreateProjectSession
         ? props.onCreateProjectSession(shareRecording)
         : props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}

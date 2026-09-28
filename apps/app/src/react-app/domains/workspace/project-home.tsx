@@ -1,12 +1,15 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, Settings2, Square, Star, StickyNote, SquareCheck } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog";
+import { toast } from "@/components/ui/sonner";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { cn } from "@/lib/utils";
 import { ProjectProperties } from "./project-properties";
@@ -23,6 +26,8 @@ import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } 
 import { t } from "@/i18n";
 import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
+import { deleteProjectNote } from "./delete-project-note";
+import { noteTitle } from "./project-note-title";
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -32,6 +37,7 @@ export function ProjectHome(props: {
   onStartRecording: () => void;
   name: string;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
+  onBeforeDeleteNote: (entry: LegalworkWorkspaceDirectoryEntry) => boolean;
   onNewSession: (shareRecording: boolean) => void | Promise<void>;
   tasksView: ReactNode;
   onRename?: (name: string) => Promise<boolean>;
@@ -47,6 +53,8 @@ export function ProjectHome(props: {
   const savedDefaults = useProjectDefaultsStore((state) => state.fields);
   const queryClient = useQueryClient();
   const [noteOpen, setNoteOpen] = useState(false);
+  const [deletingNote, setDeletingNote] = useState<LegalworkWorkspaceDirectoryEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editMetadata, setEditMetadata] = useState(false);
@@ -74,13 +82,31 @@ export function ProjectHome(props: {
   });
   const noteEntries = (notes.data?.entries.filter((entry) => entry.kind === "file" && /\.md$/i.test(entry.name)) ?? [])
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const refreshNotes = () => {
+    void queryClient.invalidateQueries({ queryKey: ["project-files", workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+  };
+  const deleteNote = async () => {
+    if (!deletingNote || deleting) return;
+    if (!props.onBeforeDeleteNote(deletingNote)) return;
+    setDeleting(true);
+    try {
+      await deleteProjectNote(client, queryClient, workspaceId, deletingNote.path);
+      setDeletingNote(null);
+      toast.success(t("projects.note_deleted"));
+    } catch {
+      toast.error(t("projects.note_delete_failed"));
+    } finally { setDeleting(false); }
+  };
 
   return (
     <ProjectFilesDropzone projectId={props.projectId} workspaceId={workspaceId} isRemoteWorkspace={props.isRemoteWorkspace}>
     <div className="@container/project-page min-h-0 flex-1 overflow-y-auto" data-testid="project-home">
       <div className="lw-project-page-content lw-project-page-top space-y-6 pb-8">
         <div className="lw-project-home-header overflow-hidden rounded-2xl border border-border/60">
-        <header className="p-5 @min-[720px]/project-page:p-6">
+        <ContextMenu>
+        <ContextMenuTrigger render={<header className="p-5 @min-[720px]/project-page:p-6" />}>
           <div className="flex items-start gap-1">
             <ProjectName name={props.name} onRename={props.onRename} />
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Star className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
@@ -103,10 +129,21 @@ export function ProjectHome(props: {
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</Button>
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}>{recordingActive ? <Square className="text-red-9" fill="currentColor" /> : <Mic />}{recordLabel}</Button>
           </div>
-        </header>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem disabled={sessionStarting || recordingFinalizing} onClick={() => { void newSession(recordingActive); }}><MessageSquare />{t("projects.new_chat")}</ContextMenuItem>
+          <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>
+          <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>
+          <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => toggleFavorite(workspaceId)}><Star />{favoriteLabel}</ContextMenuItem>
+        </ContextMenuContent>
+        </ContextMenu>
 
         {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} onOpenFile={props.onOpenFile} />}
 
+        <ContextMenu>
+        <ContextMenuTrigger render={<div />}>
         <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="border-t border-border/60 bg-background/60 px-5 py-1.5 @min-[720px]/project-page:px-6">
           <div className="flex items-center gap-2">
             <CollapsibleTrigger render={<Button variant="ghost" className="min-w-0 flex-1 justify-start gap-2 px-0 text-sm font-normal hover:bg-transparent aria-expanded:bg-transparent" />}>
@@ -132,6 +169,13 @@ export function ProjectHome(props: {
             </div>
           </CollapsibleContent>
         </Collapsible>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 />{t("projects.configure_fields")}</ContextMenuItem>
+          <ContextMenuItem onClick={() => setDetailsOpen(!detailsOpen)}><ChevronDown />{t(detailsOpen ? "projects.collapse_details" : "projects.expand_details")}</ContextMenuItem>
+          <ContextMenuItem disabled={details.isFetching} onClick={() => { void details.refetch(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
+        </ContextMenuContent>
+        </ContextMenu>
         </div>
 
         {details.error || rootFiles.error ? <Surface className="space-y-3 rounded-xl p-4">
@@ -143,7 +187,8 @@ export function ProjectHome(props: {
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
 
-        <section aria-label={t("projects.notes")}>
+        <ContextMenu>
+        <ContextMenuTrigger render={<section aria-label={t("projects.notes")} />}>
           <SectionHeading title={t("projects.notes")} action={<Button variant="ghost" size="icon-sm" aria-label={t("projects.add_note")} title={t("projects.add_note")} onClick={() => setNoteOpen(true)}><Plus className="size-4" /></Button>} />
           <div className="mt-3">
             {rootFiles.isPending || (hasNotes && notes.isPending) ? <Surface className="rounded-xl px-5"><Notice>{t("projects.loading")}</Notice></Surface>
@@ -152,7 +197,7 @@ export function ProjectHome(props: {
                 <ul className="flex snap-x snap-proximity gap-3 overflow-x-auto overscroll-x-contain px-1 pb-3 pt-1" tabIndex={0} aria-label={t("projects.notes")}>
                   {noteEntries.map((entry) => (
                     <li key={entry.path} className="w-44 shrink-0 snap-start">
-                      <ProjectNoteTile client={client} workspaceId={workspaceId} entry={entry} onOpen={() => props.onOpenFile(entry)} />
+                      <ProjectNoteTile client={client} workspaceId={workspaceId} entry={entry} onOpen={() => props.onOpenFile(entry)} onDelete={() => setDeletingNote(entry)} />
                     </li>
                   ))}
                 </ul>
@@ -164,18 +209,31 @@ export function ProjectHome(props: {
                 </Surface>
               )}
           </div>
-        </section>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => setNoteOpen(true)}><Plus />{t("projects.add_note")}</ContextMenuItem>
+          <ContextMenuItem disabled={rootFiles.isFetching || notes.isFetching} onClick={refreshNotes}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
+        </ContextMenuContent>
+        </ContextMenu>
 
         <div>{props.tasksView}</div>
 
-        <ProjectRecordings projectId={props.projectId} />
+        <ProjectRecordings projectId={props.projectId} onStartRecording={props.onStartRecording} />
       </div>
 
-      {noteOpen ? <ProjectNoteDialog client={client} workspaceId={workspaceId} onClose={() => setNoteOpen(false)} onSaved={() => {
-        void queryClient.invalidateQueries({ queryKey: ["project-files", workspaceId] });
-        void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
-        void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
-      }} /> : null}
+      {noteOpen ? <ProjectNoteDialog client={client} workspaceId={workspaceId} onClose={() => setNoteOpen(false)} onSaved={refreshNotes} /> : null}
+      <AlertDialog open={deletingNote !== null} onOpenChange={(open) => { if (!open && !deleting) setDeletingNote(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("projects.delete_note")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("projects.delete_note_confirm", { name: deletingNote ? noteTitle(deletingNote.name) : "" })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t("common.cancel")}</AlertDialogCancel>
+            <Button variant="destructive" disabled={deleting} onClick={() => { void deleteNote(); }}>{t("projects.delete_note")}</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {taskOpen ? <ProjectTaskDialog client={client} workspaceId={workspaceId} onClose={() => setTaskOpen(false)} /> : null}
       <Dialog open={editMetadata} onOpenChange={setEditMetadata}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">

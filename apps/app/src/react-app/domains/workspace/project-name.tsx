@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Check, Loader2, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
 import { t } from "@/i18n";
 
 export function ProjectName({ name, onRename }: {
@@ -31,12 +32,14 @@ export function ProjectName({ name, onRename }: {
     }
   };
 
-  return <div className="flex min-w-0 flex-1 items-start gap-2" onBlur={(event) => {
+  const rename = () => { cancelled.current = false; setDraft(name); };
+  return <ContextMenu disabled={draft !== null || !onRename}>
+  <ContextMenuTrigger onContextMenu={(event) => { if (onRename) event.stopPropagation(); }} render={<div className="flex min-w-0 flex-1 items-start gap-2" />} onBlur={(event) => {
     if (!event.currentTarget.contains(event.relatedTarget)) void save();
   }}>
     {draft === null ? <>
       <h1 className="min-w-0 flex-1 break-words text-2xl font-semibold leading-tight tracking-tight">{name}</h1>
-      {onRename ? <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={t("workspace.rename_title")} title={t("workspace.rename_title")} onClick={() => { cancelled.current = false; setDraft(name); }}><Pencil className="size-4" /></Button> : null}
+      {onRename ? <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={t("workspace.rename_title")} title={t("workspace.rename_title")} onClick={rename}><Pencil className="size-4" /></Button> : null}
     </> : <>
       <Input autoFocus aria-label={t("workspace.rename_label")} className="h-8 min-w-0 flex-1 px-1 text-2xl font-semibold leading-tight tracking-tight md:text-2xl" value={draft} readOnly={busy} aria-busy={busy}
         onFocus={(event) => event.currentTarget.select()}
@@ -49,5 +52,9 @@ export function ProjectName({ name, onRename }: {
       <Button variant="ghost" size="icon-sm" className="shrink-0" disabled={busy || !draft.trim()} aria-label={t("common.save")} title={t("common.save")} onMouseDown={(event) => event.preventDefault()} onClick={() => { void save(); }}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}</Button>
       <Button variant="ghost" size="icon-sm" className="shrink-0" disabled={busy} aria-label={t("common.cancel")} title={t("common.cancel")} onMouseDown={(event) => event.preventDefault()} onClick={cancel}><X className="size-4" /></Button>
     </>}
-  </div>;
+  </ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuItem onClick={rename}><Pencil />{t("sidebar.rename_project")}</ContextMenuItem>
+  </ContextMenuContent>
+  </ContextMenu>;
 }

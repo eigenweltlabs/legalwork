@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, StickyNote } from "lucide-react";
+import { ArrowUpRight, StickyNote, Trash2 } from "lucide-react";
 import { marked } from "marked";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { t } from "@/i18n";
 import { noteTitle } from "./project-note-title";
 
@@ -24,11 +25,12 @@ function notePreview(markdown: string, title: string) {
   return decoded.value.replace(/\s+/g, " ").trim().slice(0, 280);
 }
 
-export function ProjectNoteTile({ client, workspaceId, entry, onOpen }: {
+export function ProjectNoteTile({ client, workspaceId, entry, onOpen, onDelete }: {
   client: LegalworkServerClient;
   workspaceId: string;
   entry: LegalworkWorkspaceDirectoryEntry;
   onOpen: () => void;
+  onDelete: () => void;
 }) {
   const title = noteTitle(entry.name);
   const tileRef = useRef<HTMLButtonElement>(null);
@@ -54,13 +56,20 @@ export function ProjectNoteTile({ client, workspaceId, entry, onOpen }: {
     enabled: visible,
   });
   return (
-    <Button ref={tileRef} variant="outline" className="group/note h-28 w-full flex-col items-start justify-start gap-1.5 whitespace-normal rounded-xl border-border/60 bg-amber-2/30 p-3 text-left font-normal shadow-none hover:bg-amber-3/35" aria-label={title} title={title} onClick={onOpen}>
+    <ContextMenu>
+    <ContextMenuTrigger render={<Button ref={tileRef} variant="outline" className="group/note h-28 w-full flex-col items-start justify-start gap-1.5 whitespace-normal rounded-xl border-border/60 bg-amber-2/30 p-3 text-left font-normal shadow-none hover:bg-amber-3/35" aria-label={title} title={title} onClick={onOpen} />}>
       <span className="flex w-full items-center justify-between text-muted-foreground">
         <StickyNote className="size-3.5" />
         <ArrowUpRight className="size-3.5 opacity-0 group-hover/note:opacity-100 group-focus-visible/note:opacity-100" />
       </span>
       <span className="w-full truncate text-sm font-medium leading-5">{title}</span>
       {preview.isPending ? <Skeleton className="h-8 w-full" /> : <span className="line-clamp-2 w-full break-words text-xs leading-5 text-muted-foreground">{preview.isError ? t("projects.note_preview_failed") : preview.data || t("projects.note_empty")}</span>}
-    </Button>
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuItem onClick={onOpen}><ArrowUpRight />{t("mcp.open_file")}</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem variant="destructive" onClick={onDelete}><Trash2 />{t("projects.delete_note")}</ContextMenuItem>
+    </ContextMenuContent>
+    </ContextMenu>
   );
 }

@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
@@ -256,9 +257,12 @@ export function RecordingRow(props: {
     const next = draft.trim();
     if (next && next !== recording.title) void store.renameRecording(recording.id, next);
   };
+  const rename = () => { setDraft(recording.title); setEditing(true); };
+  const remove = () => props.onUnlink ? props.onUnlink() : void store.deleteRecording(recording.id);
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-subtle bg-surface px-3 py-2.5">
+    <ContextMenu disabled={editing}>
+    <ContextMenuTrigger onContextMenu={(event) => event.stopPropagation()} render={<div className="flex items-center gap-3 rounded-xl border border-subtle bg-surface px-3 py-2.5" />}>
       <RecordingPlayer recordingId={recording.id} compact />
       {editing ? (
         <div className="min-w-0 flex-1">
@@ -308,10 +312,7 @@ export function RecordingRow(props: {
               variant="ghost"
               size="icon-sm"
               aria-label={t("recorder.rename")}
-              onClick={() => {
-                setDraft(recording.title);
-                setEditing(true);
-              }}
+              onClick={rename}
             >
               <Pencil />
             </Button>
@@ -375,12 +376,22 @@ export function RecordingRow(props: {
           disabled={props.busy}
           aria-label={t(props.onUnlink ? "recorder.unlink_project" : "recorder.delete_recording")}
           title={t(props.onUnlink ? "recorder.unlink_project" : "recorder.delete_recording")}
-          onClick={() => props.onUnlink ? props.onUnlink() : void store.deleteRecording(recording.id)}
+          onClick={remove}
         >
           {props.onUnlink ? <Unlink /> : <Trash2 />}
         </Button>
       </div>
-    </div>
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuItem onClick={props.onOpen}><FileAudio />{t("projects.open")}</ContextMenuItem>
+      <ContextMenuItem disabled={props.busy} onClick={rename}><Pencil />{t("recorder.rename")}</ContextMenuItem>
+      <ContextMenuItem onClick={() => { void revealRecording(recording); }}><FolderOpen />{t("recorder.reveal")}</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem variant="destructive" disabled={props.busy} onClick={remove}>
+        {props.onUnlink ? <Unlink /> : <Trash2 />}{t(props.onUnlink ? "recorder.unlink_project" : "recorder.delete_recording")}
+      </ContextMenuItem>
+    </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

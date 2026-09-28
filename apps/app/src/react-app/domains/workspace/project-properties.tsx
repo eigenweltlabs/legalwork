@@ -1,9 +1,10 @@
 import { projectErrorMessage } from "./project-errors";
 import { useRef, useState } from "react";
-import { CalendarDays, Hash, ListFilter, Type } from "lucide-react";
+import { CalendarDays, Hash, ListFilter, Pencil, Type, X } from "lucide-react";
 import type { ProjectField } from "@legalwork/types/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
 import { currentLocale, t } from "@/i18n";
@@ -44,7 +45,9 @@ export function ProjectProperties({ fields, onSave, className }: {
       const label = projectFieldLabel(field);
       const Icon = fieldIcons[field.type];
       const empty = field.value === null || field.value === "";
-      return <div key={field.id} className="grid min-h-9 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-start gap-2 text-xs">
+      const edit = () => { cancelled.current = false; setEditing({ id: field.id, draft: String(field.value ?? "") }); };
+      return <ContextMenu key={field.id} disabled={editing?.id === field.id}>
+      <ContextMenuTrigger onContextMenu={(event) => event.stopPropagation()} render={<div className="grid min-h-9 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-start gap-2 text-xs" />}>
         <dt className="flex min-w-0 items-center gap-2 py-2 text-muted-foreground" title={label}><Icon className="size-3.5 shrink-0 opacity-70" /><span className="break-words leading-4">{label}</span></dt>
         <dd className="min-w-0">
           {editing?.id === field.id ? field.type === "select" ? (
@@ -60,9 +63,14 @@ export function ProjectProperties({ fields, onSave, className }: {
                 if (event.key === "Escape") { cancelled.current = true; setEditing(null); }
                 if (event.key === "Enter") { event.preventDefault(); if (event.currentTarget.reportValidity()) void save(field, event.currentTarget.value); }
               }} />
-          ) : <Button variant="ghost" disabled={busy} className={cn("h-auto min-h-8 w-full justify-start whitespace-normal break-words px-2 py-1.5 text-left text-xs font-normal text-foreground", empty && "text-muted-foreground/60")} title={empty ? t("projects.empty_value") : undefined} aria-label={t("projects.edit_value", { name: label })} onClick={() => { cancelled.current = false; setEditing({ id: field.id, draft: String(field.value ?? "") }); }}>{displayValue(field)}</Button>}
+          ) : <Button variant="ghost" disabled={busy} className={cn("h-auto min-h-8 w-full justify-start whitespace-normal break-words px-2 py-1.5 text-left text-xs font-normal text-foreground", empty && "text-muted-foreground/60")} title={empty ? t("projects.empty_value") : undefined} aria-label={t("projects.edit_value", { name: label })} onClick={edit}>{displayValue(field)}</Button>}
         </dd>
-      </div>;
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={busy} onClick={edit}><Pencil />{t("projects.edit_value", { name: label })}</ContextMenuItem>
+        <ContextMenuItem disabled={busy || empty} onClick={() => { cancelled.current = false; void save(field, ""); }}><X />{t("projects.clear_value")}</ContextMenuItem>
+      </ContextMenuContent>
+      </ContextMenu>;
     })}
   </dl>;
 }

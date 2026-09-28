@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
 import { ListPagination } from "@/components/list-pagination";
 import { SectionHeading } from "@/react-app/design-system/surface";
 import {
@@ -398,7 +399,8 @@ export function TasksPane(props: TasksPaneProps) {
     // detail takes over. task-detail.tsx uses the same breakpoint to swap its
     // back arrow for a close cross.
     <div className={cn("@container/tasks flex min-h-0", !props.embedded && "h-full flex-1")}>
-      <section
+      <ContextMenu disabled={!props.embedded}>
+      <ContextMenuTrigger render={<section />}
         aria-label={t(inTrash ? "tasks.trash" : "tasks.title")}
         className={cn(
           "min-h-0 w-full flex-col",
@@ -579,7 +581,14 @@ export function TasksPane(props: TasksPaneProps) {
           />
           {props.embedded ? <ListPagination label={t("tasks.pagination")} page={currentPage} pageSize={HOME_PAGE_SIZE} total={tasks.length} hasMore={tasksQuery.hasNextPage} busy={tasksQuery.isFetchingNextPage} onPageChange={(next) => void changePage(next)} className="border-t border-border/60" /> : null}
         </div>
-      </section>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={!props.client} onClick={() => setCreating(true)}><Plus />{t("tasks.new_task")}</ContextMenuItem>
+        {props.projectId ? <ContextMenuItem disabled={!props.client} onClick={() => setLinking(true)}><Link2 />{t("projects.link_task")}</ContextMenuItem> : null}
+        {props.onViewAll ? <ContextMenuItem onClick={props.onViewAll}><ArrowUpRight />{t("projects.view_all")}</ContextMenuItem> : null}
+        <ContextMenuItem disabled={syncing || refreshing || !props.client} onClick={refresh}><RefreshCw />{t("tasks.refresh")}</ContextMenuItem>
+      </ContextMenuContent>
+      </ContextMenu>
 
       {selectedTask && props.detailMode !== "panel" ? (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">

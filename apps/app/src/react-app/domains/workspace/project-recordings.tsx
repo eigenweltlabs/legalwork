@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { FileAudio, Link2, Loader2, Square } from "lucide-react";
+import { FileAudio, Link2, Loader2, Mic, RefreshCw, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
@@ -10,10 +11,11 @@ import { currentLocale, t } from "@/i18n";
 import { RecordingDetailDialog, RecordingRow } from "../recorder/recorder-pane";
 import { useRecorderStore } from "../recorder/recorder-store";
 
-export function ProjectRecordings(props: { projectId: string }) {
+export function ProjectRecordings(props: { projectId: string; onStartRecording: () => void }) {
   const recordings = useRecorderStore((state) => state.recordings);
   const active = useRecorderStore((state) => state.recording);
   const finalizing = useRecorderStore((state) => state.finalizing);
+  const starting = useRecorderStore((state) => state.starting || Boolean(state.importing) || Boolean(state.recording && state.recording.id === state.dictationRecordingId));
   const [linkOpen, setLinkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -38,17 +40,30 @@ export function ProjectRecordings(props: { projectId: string }) {
       setPendingId(null);
     }
   };
+  const linkExisting = () => { setSearch(""); setLinkOpen(true); };
+  const stop = () => { void useRecorderStore.getState().stopRecording().catch(() => toast.error(t("projects.failed"))); };
+  const refresh = async () => {
+    setLoading(true);
+    try { await useRecorderStore.getState().refreshRecordings(); }
+    catch { toast.error(t("projects.failed")); }
+    finally { setLoading(false); }
+  };
 
-  return <section aria-label={t("recorder.recordings_title")}>
+  return <>
+    <ContextMenu>
+    <ContextMenuTrigger render={<section aria-label={t("recorder.recordings_title")} />}>
     <SectionHeading title={t("recorder.recordings_title")} action={
-      <Button variant="ghost" size="icon-sm" disabled={!desktop} aria-label={t("recorder.link_existing")} title={t("recorder.link_existing")} onClick={() => { setSearch(""); setLinkOpen(true); }}><Link2 className="size-4" /></Button>
+      <Button variant="ghost" size="icon-sm" disabled={!desktop} aria-label={t("recorder.link_existing")} title={t("recorder.link_existing")} onClick={linkExisting}><Link2 className="size-4" /></Button>
     } />
     <div className="mt-3 space-y-2">
-      {active?.projectIds?.includes(props.projectId) ? <Surface className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3">
+      {active?.projectIds?.includes(props.projectId) ? <ContextMenu>
+      <ContextMenuTrigger render={<Surface className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3" />}>
         <span className="size-2 rounded-full bg-red-9" />
         <span className="min-w-0 flex-1 truncate text-sm">{active.title}</span>
-        <Button variant="outline" size="sm" disabled={finalizing} onClick={() => { void useRecorderStore.getState().stopRecording().catch(() => toast.error(t("projects.failed"))); }}><Square className="size-3 text-red-9" fill="currentColor" />{t(finalizing ? "recorder.finishing" : "recorder.stop_recording")}</Button>
-      </Surface> : null}
+        <Button variant="outline" size="sm" disabled={finalizing} onClick={stop}><Square className="size-3 text-red-9" fill="currentColor" />{t(finalizing ? "recorder.finishing" : "recorder.stop_recording")}</Button>
+      </ContextMenuTrigger>
+      <ContextMenuContent><ContextMenuItem disabled={finalizing} onClick={stop}><Square />{t("recorder.stop_recording")}</ContextMenuItem></ContextMenuContent>
+      </ContextMenu> : null}
       {linked.map((recording) => <RecordingRow key={recording.id} recording={recording} workspaceTargets={[]} busy={pendingId !== null} onUnlink={() => { void setLink(recording.id, false); }} onOpen={() => {
         void useRecorderStore.getState().openRecording(recording.id).catch(() => toast.error(t("projects.failed")));
       }} />)}
@@ -57,6 +72,13 @@ export function ProjectRecordings(props: { projectId: string }) {
         <p>{loading ? t("projects.loading") : desktop ? t("recorder.project_empty") : t("recorder.desktop_required_body")}</p>
       </Surface> : null}
     </div>
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuItem disabled={!desktop || starting || finalizing} onClick={props.onStartRecording}><Mic />{t(active ? "recorder.stop_recording" : "recorder.record")}</ContextMenuItem>
+      <ContextMenuItem disabled={!desktop} onClick={linkExisting}><Link2 />{t("recorder.link_existing")}</ContextMenuItem>
+      <ContextMenuItem disabled={!desktop || loading} onClick={() => { void refresh(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
+    </ContextMenuContent>
+    </ContextMenu>
     <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader><DialogTitle>{t("recorder.link_existing")}</DialogTitle><DialogDescription>{t("recorder.link_existing_hint")}</DialogDescription></DialogHeader>
@@ -75,5 +97,5 @@ export function ProjectRecordings(props: { projectId: string }) {
       </DialogContent>
     </Dialog>
     <RecordingDetailDialog />
-  </section>;
+  </>;
 }
