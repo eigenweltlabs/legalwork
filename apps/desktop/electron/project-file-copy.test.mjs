@@ -85,12 +85,12 @@ test("files already in the project stay put and unavailable sources do not stop 
   assert.equal(await readFile(existing, "utf8"), "Keep me");
 });
 
-test("folders and symlinks are rejected without copying their contents", async () => {
+test("folders cannot be copied into themselves and symlinks are not followed", async () => {
   const { root, project, source } = await fixture();
   const alias = path.join(root, "alias.txt");
   await symlink(source, alias);
   const result = await copyFilesIntoProject(project, [root, alias]);
-  assert.deepEqual(result.files.map((file) => file.error), ["file_only", "file_only"]);
+  assert.deepEqual(result.files.map((file) => file.error), ["recursive", "file_only"]);
   assert.deepEqual(await readdir(project), []);
   assert.equal(await readFile(source, "utf8"), "Original contract – unchanged");
 });
@@ -126,4 +126,50 @@ test("sidebar destination cannot escape the registered project", async () => {
     await assert.rejects(copyFilesIntoProject(project, [source], undefined, folder), /Invalid project folder/);
   }
   assert.equal(await readFile(source, "utf8"), "Original contract – unchanged");
+});
+
+
+test("folder drops copy all 500 documents, nested and empty folders, without changing originals", async () => {
+  const { root, project } = await fixture();
+  const source = path.join(root, "Corpus");
+  await mkdir(path.join(source, "nested", "empty"), { recursive: true });
+  for (let i = 0; i < 500; i++) await writeFile(path.join(source, "nested", `${i}.txt`), `Contract ${i}`);
+  const result = await copyFilesIntoProject(project, [source]);
+  assert.ok(result.files.every((file) => file.status === "copied"));
+  assert.equal((await readdir(path.join(project, "Corpus", "nested"))).length, 501);
+  assert.deepEqual(await readdir(path.join(project, "Corpus", "nested", "empty")), []);
+  for (let i = 0; i < 500; i++) {
+    assert.equal(await readFile(path.join(project, "Corpus", "nested", `${i}.txt`), "utf8"), `Contract ${i}`);
+  }
+  await writeFile(path.join(project, "Corpus", "nested", "0.txt"), "Edited copy");
+  assert.equal(await readFile(path.join(source, "nested", "0.txt"), "utf8"), "Contract 0");
+});
+
+test("folder collisions get a separate name in the selected destination", async () => {
+  const { root, project } = await fixture();
+  const source = path.join(root, "Agreements.v2");
+  await mkdir(source);
+  await writeFile(path.join(source, "contract.txt"), "New agreement");
+  await mkdir(path.join(project, "Documents", "Agreements.v2"), { recursive: true });
+  await writeFile(path.join(project, "Documents", "Agreements.v2", "contract.txt"), "Existing agreement");
+  await copyFilesIntoProject(project, [source], undefined, "Documents");
+  assert.equal(await readFile(path.join(project, "Documents", "Agreements.v2", "contract.txt"), "utf8"), "Existing agreement");
+  assert.equal(await readFile(path.join(project, "Documents", "Agreements.v2 (2)", "contract.txt"), "utf8"), "New agreement");
+  const alreadyHere = await copyFilesIntoProject(project, [path.join(project, "Documents", "Agreements.v2")], undefined, "Documents");
+  assert.equal(alreadyHere.files[0].status, "already_here");
+});
+
+test("a failed child is reported without stopping the remaining folder contents", async () => {
+  const { root, project } = await fixture();
+  const source = path.join(root, "Documents");
+  await mkdir(source);
+  await writeFile(path.join(source, "a.txt"), "Keep original");
+  await writeFile(path.join(source, "b.txt"), "Copy this");
+  const result = await copyFilesIntoProject(project, [source], async (...args) => {
+    if (args[0].endsWith("a.txt")) throw Object.assign(new Error("Permission denied"), { code: "EACCES" });
+    return copyFile(...args);
+  });
+  assert.ok(result.files.some((file) => file.name === path.join("Documents", "a.txt") && file.status === "failed"));
+  assert.equal(await readFile(path.join(source, "a.txt"), "utf8"), "Keep original");
+  assert.equal(await readFile(path.join(project, "Documents", "b.txt"), "utf8"), "Copy this");
 });

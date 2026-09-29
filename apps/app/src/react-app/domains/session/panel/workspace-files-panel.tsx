@@ -15,6 +15,8 @@ import { cn, formatFileSize } from "@/lib/utils";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-chrome";
 
+import { WorkspaceEntryMenu } from "./workspace-entry-menu";
+
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
@@ -185,6 +187,8 @@ export function WorkspaceFilesPanel({
           })}
         </nav>
 
+        <WorkspaceEntryMenu client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace}
+          folderPath={path} onRefresh={() => void refetch()} className="flex min-h-0 flex-1 flex-col">
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
           {isLoading ? (
             <div className="space-y-0.5">
@@ -222,8 +226,11 @@ export function WorkspaceFilesPanel({
               {visibleEntries.map((entry) => {
                 const displayName = entry.kind === "file" ? projectFileDisplayName(entry.path, entry.name) : entry.name;
                 return (
+                <WorkspaceEntryMenu key={entry.path} client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace}
+                  folderPath={path} entry={entry} onOpen={() => entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry)}
+                  onRefresh={() => void refetch()}>
                 <button
-                  key={entry.path}
+                  data-project-folder={entry.kind === "dir" ? entry.path : undefined}
                   type="button"
                   draggable={entry.kind === "file" && Boolean(workspaceId)}
                   onDragStart={(event) => {
@@ -248,6 +255,7 @@ export function WorkspaceFilesPanel({
                     </span>
                   ) : null}
                 </button>
+                </WorkspaceEntryMenu>
                 );
               })}
               {data?.truncated ? (
@@ -267,6 +275,7 @@ export function WorkspaceFilesPanel({
             </>
           )}
         </div>
+        </WorkspaceEntryMenu>
       </div>
       </ProjectFilesDropzone>
     </TooltipProvider>

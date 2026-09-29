@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, lstat, realpath, unlink, utimes } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readdir, realpath, unlink, utimes } from "node:fs/promises";
 import path from "node:path";
 
 /** Resolve only registered local projects, including projects created by the
@@ -29,7 +29,7 @@ export async function resolveProjectFolder(workspaceId, desktopWorkspaces, serve
   return workspace.path;
 }
 
-/** Copy regular files into a registered project without replacing existing files.
+/** Copy files and folders recursively into a registered project without replacing existing files.
  * Copies have independent contents; the original is never modified or removed.
  * @param {string} workspacePath
  * @param {string[]} sources
@@ -49,29 +49,47 @@ export async function copyFilesIntoProject(workspacePath, sources, copy = copyFi
   }
   /** @type {import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult} */
   const result = { files: [] };
-  for (const source of new Set(sources)) {
-    const name = path.basename(source);
+  async function copyEntry(source, parent, relativeParent, name = path.basename(source)) {
+    const basename = path.basename(source);
     try {
       const original = await lstat(source);
-      if (!original.isFile()) {
+      if (!original.isFile() && !original.isDirectory()) {
         result.files.push({ name, status: "failed", error: "file_only" });
-        continue;
+        return;
       }
-      if (await realpath(path.dirname(source)) === root) {
-        result.files.push({ name, path: path.join(folder, name), status: "already_here" });
-        continue;
+      if (await realpath(path.dirname(source)) === parent) {
+        result.files.push({ name, path: path.join(relativeParent, basename), status: "already_here" });
+        return;
       }
-      const extension = path.extname(name);
-      const stem = name.slice(0, name.length - extension.length);
+      if (original.isDirectory()) {
+        const descendant = path.relative(await realpath(source), parent);
+        if (!descendant || (!path.isAbsolute(descendant) && descendant !== ".." && !descendant.startsWith(`..${path.sep}`))) {
+          result.files.push({ name, status: "failed", error: "recursive" });
+          return;
+        }
+      }
+      const extension = original.isFile() ? path.extname(basename) : "";
+      const stem = basename.slice(0, basename.length - extension.length);
       let completed = false;
       for (let suffix = 1; suffix <= 10000; suffix += 1) {
-        const destinationName = suffix === 1 ? name : `${stem} (${suffix})${extension}`;
-        const destination = path.join(root, destinationName);
+        const destinationName = suffix === 1 ? basename : `${stem} (${suffix})${extension}`;
+        const destination = path.join(parent, destinationName);
+        const destinationPath = path.join(relativeParent, destinationName);
         try {
-          await copy(source, destination, constants.COPYFILE_EXCL);
+          if (original.isDirectory()) await mkdir(destination);
+          else await copy(source, destination, constants.COPYFILE_EXCL);
         } catch (error) {
           if (error.code === "EEXIST") continue;
           throw error;
+        }
+        if (original.isDirectory()) {
+          // Reserve a new folder before traversing; never merge into or overwrite an existing one.
+          result.files.push({ name, path: destinationPath, status: "copied" });
+          for (const child of await readdir(source)) {
+            await copyEntry(path.join(source, child), destination, destinationPath, path.join(name, child));
+          }
+          await utimes(destination, original.atime, original.mtime);
+          return;
         }
         try {
           const target = await lstat(destination);
@@ -92,7 +110,7 @@ export async function copyFilesIntoProject(workspacePath, sources, copy = copyFi
           await unlink(destination).catch(() => {});
           throw error;
         }
-        result.files.push({ name, path: path.join(folder, destinationName), status: "copied" });
+        result.files.push({ name, path: destinationPath, status: "copied" });
         completed = true;
         break;
       }
@@ -101,5 +119,6 @@ export async function copyFilesIntoProject(workspacePath, sources, copy = copyFi
       result.files.push({ name, status: "failed", error: error.code === "ENOENT" ? "unavailable" : "failed" });
     }
   }
+  for (const source of new Set(sources)) await copyEntry(source, root, folder);
   return result;
 }

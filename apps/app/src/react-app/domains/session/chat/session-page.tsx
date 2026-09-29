@@ -1267,7 +1267,7 @@ export function SessionPage(props: SessionPageProps) {
               </ResizablePanel>
               {sidePanelOpen ? (
                 <>
-                  <ResizableHandle withHandle className="hidden lg:flex" />
+                  <ResizableHandle withHandle />
                   <ResizablePanel
                     id="document-viewer"
                     defaultSize={workflowFocusMode ? "100%" : workflowsPage ? "60%" : "480px"}
@@ -1582,7 +1582,7 @@ export function SessionPage(props: SessionPageProps) {
             </ResizablePanel>
               {sidePanelOpen ? (
               <>
-                <ResizableHandle withHandle className="hidden lg:flex" />
+                <ResizableHandle withHandle />
                 <ResizablePanel
                   id="document-viewer"
                   defaultSize={`${browserPanelDefaultWidth}px`}
@@ -1592,7 +1592,7 @@ export function SessionPage(props: SessionPageProps) {
                     setViewerHeaderWidth(size.inPixels);
                     if (previous && size.inPixels > 0) setBrowserPanelWidth(Math.round(size.inPixels));
                   }}
-                  className="min-h-0 overflow-hidden lg:flex lg:flex-col"
+                  className="flex min-h-0 flex-col overflow-hidden"
                 >
                   <SidePanel
                     headerTarget={!mobile ? viewerHeaderTarget : null}

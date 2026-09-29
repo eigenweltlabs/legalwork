@@ -621,6 +621,11 @@ export type LegalworkWorkspaceFileWriteResult = {
   content?: string;
 };
 
+export type LegalworkWorkspaceFileOperation =
+  | { type: "mkdir"; path: string; exclusive?: boolean }
+  | { type: "rename"; from: string; to: string; overwrite?: boolean }
+  | { type: "delete"; path: string; recursive?: boolean };
+
 export type LegalworkWorkspaceFileDeleteResult = {
   ok: boolean;
   path: string;
@@ -1613,6 +1618,26 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     benchmark: 15_000,
     benchmarkCatalog: 45_000,
   };
+
+  async function applyWorkspaceFileOperations(workspaceId: string, operations: LegalworkWorkspaceFileOperation[]) {
+    if (!operations.length) return [];
+    const created = await requestJson<{ session: { id: string } }>(
+      baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/sessions`,
+      { token, hostToken, method: "POST", body: { write: true } },
+    );
+    const sessionPath = `/files/sessions/${encodeURIComponent(created.session.id)}`;
+    try {
+      const result = await requestJson<{ items: Array<{ ok?: boolean; path?: string; code?: string; message?: string }> }>(
+        baseUrl, `${sessionPath}/ops`,
+        { token, hostToken, method: "POST", body: { operations }, timeoutMs: 60_000 },
+      );
+      return result.items;
+    } finally {
+      await requestJson<{ ok: boolean }>(baseUrl, sessionPath, {
+        token, hostToken, method: "DELETE",
+      }).catch(() => undefined);
+    }
+  }
 
   return {
     baseUrl,
@@ -3030,46 +3055,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     copyWorkspaceFile: (workspaceId: string, path: string, targetPath: string) =>
       requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/copy`, { token, hostToken, method: "POST", body: { path, targetPath }, timeoutMs: 900_000 }),
 
+    applyWorkspaceFileOperations,
+
     deleteWorkspaceFiles: async (
       workspaceId: string,
       files: Array<{ path: string; recursive?: boolean }>,
     ): Promise<LegalworkWorkspaceFileDeleteResult[]> => {
-      if (files.length === 0) return [];
-      const created = await requestJson<{ session: { id: string } }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/files/sessions`,
-        { token, hostToken, method: "POST", body: { write: true } },
-      );
-      const sessionId = created.session.id;
-      try {
-        const result = await requestJson<{ items: Array<{ ok?: boolean; path?: string; code?: string }> }>(
-          baseUrl,
-          `/files/sessions/${encodeURIComponent(sessionId)}/ops`,
-          {
-            token,
-            hostToken,
-            method: "POST",
-            body: {
-              operations: files.map((file) => ({
-                type: "delete",
-                path: file.path,
-                recursive: file.recursive === true,
-              })),
-            },
-          },
-        );
-        return result.items.map((item, index) => ({
-          ok: item.ok === true,
-          path: typeof item.path === "string" ? item.path : files[index]?.path ?? "",
-          ...(typeof item.code === "string" ? { code: item.code } : {}),
-        }));
-      } finally {
-        await requestJson<{ ok: boolean }>(baseUrl, `/files/sessions/${encodeURIComponent(sessionId)}`, {
-          token,
-          hostToken,
-          method: "DELETE",
-        }).catch(() => undefined);
-      }
+      const items = await applyWorkspaceFileOperations(workspaceId, files.map((file) => ({
+        type: "delete", path: file.path, recursive: file.recursive === true,
+      })));
+      return items.map((item, index) => ({
+        ok: item.ok === true,
+        path: typeof item.path === "string" ? item.path : files[index]?.path ?? "",
+        ...(typeof item.code === "string" ? { code: item.code } : {}),
+      }));
     },
 
     writeWorkspaceBinaryFile: (

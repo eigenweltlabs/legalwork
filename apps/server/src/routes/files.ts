@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
@@ -1023,7 +1023,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         if (type === "mkdir") {
           const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
           const absPath = resolveSafeChildPath(workspace.path, path);
-          await ensureDir(absPath);
+          if (op.exclusive === true) await mkdir(absPath);
+          else await ensureDir(absPath);
           recordWorkspaceFileEvent(workspace.id, { type: "mkdir", path });
           items.push({ ok: true, type, path });
           continue;
@@ -1051,6 +1052,10 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
             items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
             continue;
           }
+          if (op.overwrite === false && from !== to && await exists(toAbs)) {
+            items.push({ ok: false, type, from, to, code: "file_exists", message: "An item with this name already exists" });
+            continue;
+          }
           await ensureDir(dirname(toAbs));
           await rename(fromAbs, toAbs);
           recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
@@ -1060,8 +1065,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
         items.push({ ok: false, type, code: "invalid_operation", message: `Unsupported operation type: ${type}` });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Operation failed";
-        items.push({ ok: false, type, code: "operation_failed", message });
+        const collision = error instanceof Error && "code" in error && error.code === "EEXIST";
+        const message = collision ? "An item with this name already exists" : error instanceof Error ? error.message : "Operation failed";
+        items.push({ ok: false, type, code: collision ? "file_exists" : "operation_failed", message });
       }
     }
 

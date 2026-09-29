@@ -33,7 +33,7 @@ export function FileSidebars(props: {
 
   return (
     <>
-      <ResizableHandle withHandle className={props.active ? "hidden lg:flex" : "hidden"} />
+      <ResizableHandle withHandle className={props.active ? undefined : "hidden"} />
       <ResizablePanel
         id="file-navigation"
         panelRef={panelRef}
