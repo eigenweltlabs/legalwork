@@ -3,7 +3,7 @@ import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/prom
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { PageStructure } from "@legalwork/types/document-structure";
-import { ReviewOcrSchema } from "@legalwork/types/reviews";
+import { ReviewOcrSchema } from "../reviews/schema.js";
 import { ApiError } from "../errors.js";
 import { createConfiguredOcrService } from "../ocr/index.js";
 import { OcrManager } from "../ocr/manager.js";
