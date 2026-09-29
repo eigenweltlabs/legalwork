@@ -3,7 +3,7 @@ import { setMaxListeners } from "node:events";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 import { ApiError } from "../errors.js";
 import type { WorkspaceInfo } from "../types.js";
-import { incompatibleJevQuestion, reviewDecisionThreshold, reviewRunningElsewhere, ReviewColumnKindSchema, CreateReviewSchema, EditReviewSchema, RunReviewSchema, ReviewSettingsSchema, type ReviewCell, type ReviewDocument, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities } from "./schema.js";
+import { incompatibleJevQuestion, reviewDecisionThreshold, reviewOcr, reviewRunningElsewhere, ReviewColumnKindSchema, CreateReviewSchema, EditReviewSchema, RunReviewSchema, ReviewSettingsSchema, type ReviewCell, type ReviewDocument, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities } from "./schema.js";
 import { ReviewDefaults, ReviewStore, serialized } from "./storage.js";
 import { prepareReviewEvidence, reviewSource, sourceHash } from "./evidence.js";
 import { columnBackend, validateAvailableModels, validateReviewPolicy } from "./policy.js";
@@ -51,6 +51,8 @@ export class ReviewService {
       const before = await this.get(workspace, id); this.editable(before); await store.archive(before);
       return store.update(id, review => {
       this.editable(review);
+      // Only PDF pages can bring their own text, so only their answers depend on the OCR setting.
+      const ocrChanged = reviewOcr(review.settings) !== reviewOcr(settings);
       for (const cell of review.cells) {
         const column = review.columns.find(column => column.key === cell.columnKey)!;
         // Existing LLM columns stay readable but cannot execute in Only JEV.
@@ -65,7 +67,8 @@ export class ReviewService {
         const previousModel = previousBackend === "systemone" ? review.settings.jev : review.settings.llm;
         const nextModel = nextBackend === "systemone" ? settings.jev : settings.llm;
         if (previousBackend !== nextBackend || JSON.stringify(previousModel) !== JSON.stringify(nextModel)
-          || (nextBackend === "systemone" && reviewDecisionThreshold(review.settings) !== reviewDecisionThreshold(settings))) cell.status = "stale";
+          || (nextBackend === "systemone" && reviewDecisionThreshold(review.settings) !== reviewDecisionThreshold(settings))
+          || (ocrChanged && /\.pdf$/i.test(review.documents.find(document => document.id === cell.documentId)?.path ?? ""))) cell.status = "stale";
       }
       review.settings = settings;
       review.status = "draft";
@@ -263,7 +266,7 @@ export class ReviewService {
       signal.throwIfAborted();
       const files = snapshot.documents.filter(document => /\.(pdf|png|jpe?g|webp)$/i.test(document.path)
         && snapshot.cells.some(cell => cell.documentId === document.id && cell.status === "queued")).map(document => document.path);
-      preparationJobId = (await this.preparation.start(workspace.path, { files, force: input.reprocess })).id;
+      preparationJobId = (await this.preparation.start(workspace.path, { files, force: input.reprocess, ocr: reviewOcr(snapshot.settings) })).id;
       if (signal.aborted) cancelPreparation();
       signal.throwIfAborted();
       return preparationJobId;

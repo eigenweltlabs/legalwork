@@ -11,11 +11,14 @@ export function isReviewFile(name: string) {
 
 export const ReviewModeSchema = z.enum(["jev", "mixed", "llm"]);
 export const ReviewModelSchema = z.strictObject({ providerId: z.string().min(1), model: z.string().min(1) });
+/** Which PDF pages are read with OCR: every page, or only pages without their own text. */
+export const ReviewOcrSchema = z.enum(["always", "missing-text"]);
 export const ReviewSettingsSchema = z.strictObject({
   mode: ReviewModeSchema,
   jev: ReviewModelSchema.nullable(),
   llm: ReviewModelSchema.nullable(),
   minDecisionProbability: z.number().min(0.5).max(1).optional(),
+  ocr: ReviewOcrSchema.optional(),
 });
 export const ReviewColumnKindSchema = z.enum(["yes_no", "classification", "text", "date", "number", "currency", "percentage", "multi_select"]);
 export function isJevColumnKind(kind: string) { return kind === "yes_no" || kind === "classification"; }
@@ -154,6 +157,9 @@ export const DEFAULT_REVIEW_DECISION_THRESHOLD = 0.8;
 export function reviewDecisionThreshold(settings: ReviewSettings) {
   return settings.minDecisionProbability ?? DEFAULT_REVIEW_DECISION_THRESHOLD;
 }
+export function reviewOcr(settings: ReviewSettings) {
+  return settings.ocr ?? "always";
+}
 export function reviewDecisionProbabilities(decision: z.infer<typeof SystemOneAnswerSchema>) {
   if (decision.type === "noul") return [{ label: "Yes", probability: decision.noul }, { label: "No", probability: 1 - decision.noul }];
   return Object.entries(decision.probabilities).map(([key, probability]) => ({ label: decision.type === "score" ? decision.legend[key] : key, probability }));
@@ -220,7 +226,8 @@ export type ReviewRecognitionPage = {
   image: string; width: number; height: number;
   /** `reasons` explain why a page needs review; `missing` pages were not prepared. */
   pages: Array<{ page: number; status: "complete" | "needs-review" | "error" | "missing"; reasons: string[] }>;
-  text: string; structure?: PageStructure; error?: string;
+  /** `native`: the page's own PDF text, which needed no OCR. */
+  text: string; textSource: "ocr" | "native"; structure?: PageStructure; error?: string;
 };
 export type ReviewCapabilities = {
   settings: ReviewSettings;

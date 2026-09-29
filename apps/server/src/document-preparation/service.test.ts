@@ -73,6 +73,30 @@ test("pages reach OCR in page order even when a later page is laid out first", a
   expect(calls).toEqual([1, 2]);
 });
 
+test("with OCR only for missing text, pages with their own text skip layout and OCR", async () => {
+  const root = await fixture(); const calls: number[] = []; let layoutCalls = 0;
+  const pdf = await PDFDocument.create();
+  const clause = "The supplier shall deliver the goods within thirty days of the order and bear the risk until delivery.";
+  pdf.addPage([600, 400]).drawText(`${clause}\n${clause}`, { x: 20, y: 350, size: 9 });
+  pdf.addPage([300, 400]).drawText("Page 2", { x: 20, y: 350, size: 12 });
+  const scan = await pdf.embedPng(await readFile(new URL("../ocr/fixtures/bilingual.png", import.meta.url)));
+  pdf.addPage([500, 130]).drawImage(scan, { x: 0, y: 0, width: 500, height: 130 });
+  await writeFile(join(root, "mixed.pdf"), await pdf.save());
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), {
+    layout: { fingerprint: "counted-layout", async detect(page, signal) { layoutCalls++; return layout.detect(page, signal); } },
+    snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize(page) { calls.push(page.pageNumber); return content; } }], "test") }),
+  });
+  const result = await done(service, root, (await service.start(root, { files: ["mixed.pdf"], ocr: "missing-text" })).id);
+  expect(result.status).toBe("complete");
+  // Only a page number of its own is not enough text: that page is read like the scan.
+  expect(calls).toEqual([2, 3]); expect(layoutCalls).toBe(2);
+  const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, result.documents[0]!.preparationPath!), "utf8")));
+  expect(doc.pages[0]).toMatchObject({ status: "complete", ocr: null }); expect(doc.pages[0]!.nativeText).toContain("thirty days");
+  // OCR on every page is prepared separately, so switching back reads the first page too.
+  await done(service, root, (await service.start(root, { files: ["mixed.pdf"] })).id);
+  expect(calls).toEqual([2, 3, 1, 2, 3]);
+});
+
 test("failed pages remain visible, keep native text, and retry without rerunning successful pages", async () => {
   const root = await fixture(); let fail = true; const calls: number[] = [];
   const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout, snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize(page) {

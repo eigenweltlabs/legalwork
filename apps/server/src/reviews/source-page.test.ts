@@ -109,7 +109,11 @@ test("recognition pages list every page's status and open the first page that ne
     expect(flagged.pages).toEqual([{ page: 1, status: "complete", reasons: [] }, { page: 2, status: "needs-review", reasons: ["no-text", "output-dropped"] },
       { page: 3, status: "missing", reasons: [] }]);
     const first = await reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal, 1);
-    expect([first.text, first.structure?.regions[0]?.text, first.image.startsWith("data:image/png;base64,")]).toEqual(["Clause 1", "Clause 1", true]);
+    expect([first.text, first.textSource, first.structure?.regions[0]?.text, first.image.startsWith("data:image/png;base64,")]).toEqual(["Clause 1", "ocr", "Clause 1", true]);
+    // A page with its own PDF text shows that text; it was not read with OCR.
+    await writeFile(join(root, "own-text.json"), JSON.stringify({ ...JSON.parse(await readFile(join(root, "prepared.json"), "utf8")),
+      pages: [{ page: 1, nativeText: "Own clause", ocr: null, width: 300, height: 400, status: "complete" }] }));
+    expect(await reviewRecognitionPage(root, "scan.pdf", "own-text.json", signal, 1)).toMatchObject({ text: "Own clause", textSource: "native" });
     await expect(reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal, 4)).rejects.toThrow("does not exist");
     await writeFile(join(root, "scan.pdf"), "changed");
     await expect(reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal)).rejects.toThrow("no longer matches");

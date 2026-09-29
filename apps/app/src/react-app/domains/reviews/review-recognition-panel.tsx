@@ -55,6 +55,7 @@ export function ReviewRecognitionPanel({ client, workspaceId, reference, name, o
         {current.reasons.map(reason => <li key={reason}>{reasonLabels[reason] ? t(reasonLabels[reason]) : t("review.reason_other", { reason })}</li>)}
       </ul>}
       <div className="max-h-[40%] shrink-0 overflow-auto border-b px-4 py-2" aria-label={t("review.recognized_text")}>
+        {data.textSource === "native" && <p className="pb-2 text-xs text-muted-foreground">{t("review.page_own_text")}</p>}
         {regions.length ? <ol className="space-y-1">{regions.map(region => <li key={region.id}>
           <button type="button" aria-pressed={selectedRegionId === region.id} className="w-full rounded px-2 py-1 text-left text-xs leading-relaxed hover:bg-muted aria-pressed:bg-muted" onClick={() => setSelectedRegionId(selectedRegionId === region.id ? undefined : region.id)}>
             <span className="font-medium">{regionKindLabel(region.kind)}</span>

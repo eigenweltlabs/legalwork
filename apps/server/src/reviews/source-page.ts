@@ -87,6 +87,7 @@ export async function reviewRecognitionPage(workspace: string, file: string, pre
     const image = (await document.page(number, signal)).image, page = prepared.pages.find(item => item.page === number);
     return { name: source.name, path: source.path, engine: prepared.engine.label, page: number, pageCount: document.pageCount,
       image: `data:image/png;base64,${Buffer.from(image.data).toString("base64")}`, width: image.width, height: image.height,
-      pages, text: page?.ocr?.text ?? "", structure: page?.structure, error: page?.error };
+      pages, ...page?.status === "complete" && !page.ocr ? { text: page.nativeText, textSource: "native" } : { text: page?.ocr?.text ?? "", textSource: "ocr" },
+      structure: page?.structure, error: page?.error };
   } finally { await document.close(); }
 }

@@ -3,6 +3,7 @@ import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/prom
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { PageStructure } from "@legalwork/types/document-structure";
+import { ReviewOcrSchema } from "@legalwork/types/reviews";
 import { ApiError } from "../errors.js";
 import { createConfiguredOcrService } from "../ocr/index.js";
 import { OcrManager } from "../ocr/manager.js";
@@ -24,7 +25,11 @@ export const prepareInput = z.strictObject({
   files: z.array(z.string().min(1).max(4096)).min(1).max(100),
   languages: z.array(languageSchema).max(32).default([]),
   force: z.boolean().default(false),
+  /** `missing-text` reads a PDF page with OCR only when it has no text of its own. */
+  ocr: ReviewOcrSchema.default("always"),
 });
+/** Own text that carries the page, not just a page number, stamp or header. */
+const hasOwnText = (text: string) => (text.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 100;
 
 type Entry = { file: string; status: "queued" | "running" | "complete" | "needs-review" | "error"; completedPages: number; pageCount: number; preparationPath?: string; error?: string };
 type Job = { id: string; workspace: string; engine: OcrEngineInfo; status: "queued" | "running" | "complete" | "needs-review" | "cancelled"; documents: Entry[]; controller: AbortController; createdAt: number };
@@ -111,7 +116,8 @@ export class DocumentPreparation {
         const bytes = await readFile(source.path);
         if (bytes.length > MAX_FILE_BYTES) throw new Error("Document is too large.");
         const sourceSha256 = digest(bytes);
-        const key = digest(JSON.stringify([VERSION, source.file, sourceSha256, selected.fingerprint, this.layout.fingerprint, input.languages]));
+        // Documents prepared with OCR on every page keep their earlier key.
+        const key = digest(JSON.stringify([VERSION, source.file, sourceSha256, selected.fingerprint, this.layout.fingerprint, input.languages, ...input.ocr === "always" ? [] : [input.ocr]]));
         const target = await this.outputPath(root, key);
         const prior = input.force ? undefined : await this.cached(target, key);
         const doc: PreparedDocument = prior ?? { version: VERSION, key, file: source.file, fileAbs: source.path, sourceSha256, engine, layoutFingerprint: this.layout.fingerprint, relations: [], pageCount: 0, pages: [], status: "needs-review" };
@@ -143,32 +149,37 @@ export class DocumentPreparation {
             try {
               const renderedPage = await document.page(page, signal);
               nativeText = renderedPage.nativeText; width = renderedPage.image.width; height = renderedPage.image.height;
-              // Layout comes first: the quality model reads each detected block so its text keeps coordinates.
-              let detected: LayoutDetection | undefined;
-              try {
-                if (!layoutUnavailable) detected = await this.layout.detect(renderedPage.image, signal);
-              } catch (error) {
-                if (signal.aborted) throw error;
-                if (error instanceof OcrError && error.code === "runtime-unavailable") layoutUnavailable = true;
+              if (input.ocr === "missing-text" && hasOwnText(nativeText)) {
+                // The page's own text is its evidence: no layout or OCR.
+                result = { page, nativeText, width, height, ocr: null, status: "complete" };
+              } else {
+                // Layout comes first: the quality model reads each detected block so its text keeps coordinates.
+                let detected: LayoutDetection | undefined;
+                try {
+                  if (!layoutUnavailable) detected = await this.layout.detect(renderedPage.image, signal);
+                } catch (error) {
+                  if (signal.aborted) throw error;
+                  if (error instanceof OcrError && error.code === "runtime-unavailable") layoutUnavailable = true;
+                }
+                const blocks = detected && [...detected.regions].sort((a, b) => a.order - b.order).map(({ label, box, confidence, mask }) => ({ label, box, confidence, mask }));
+                // A layout retry can reuse successful OCR without sending the document again.
+                await previous;
+                const extraction = existing?.ocr ? Promise.resolve(existing.ocr)
+                  : selected.service.extract({ sourceId: sourceSha256, pages: [{ ...renderedPage.image, blocks }], languages: input.languages, signal }).then(result => result.pages[0]!);
+                // The OCR service queues a request as soon as it is made, so the next page may ask now.
+                requested();
+                const ocr = await extraction;
+                // Persist transcription first so cancelling or restarting here does not repeat OCR.
+                const staged: z.infer<typeof pageSchema> = { page, nativeText, width, height, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
+                  structure: unavailableStructure(), status: "needs-review" };
+                if (evidenceBytes + Buffer.byteLength(JSON.stringify(staged)) - (existing ? Buffer.byteLength(JSON.stringify(existing)) : 0) > MAX_EVIDENCE_BYTES)
+                  throw new ApiError(400, "document_size", "Extracted evidence exceeds 64 MiB. Split this document into smaller files and retry.");
+                doc.pages = [...doc.pages.filter(item => item.page !== page), staged].sort((a, b) => a.page - b.page);
+                await save();
+                const structure: PageStructure = detected ? assemblePageStructure(page, ocr, detected) : unavailableStructure();
+                result = { page, nativeText, width, height, structure, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
+                  status: pageReviewReasons({ nativeText, ocr, structure }).length ? "needs-review" : "complete" };
               }
-              const blocks = detected && [...detected.regions].sort((a, b) => a.order - b.order).map(({ label, box, confidence, mask }) => ({ label, box, confidence, mask }));
-              // A layout retry can reuse successful OCR without sending the document again.
-              await previous;
-              const extraction = existing?.ocr ? Promise.resolve(existing.ocr)
-                : selected.service.extract({ sourceId: sourceSha256, pages: [{ ...renderedPage.image, blocks }], languages: input.languages, signal }).then(result => result.pages[0]!);
-              // The OCR service queues a request as soon as it is made, so the next page may ask now.
-              requested();
-              const ocr = await extraction;
-              // Persist transcription first so cancelling or restarting here does not repeat OCR.
-              const staged: z.infer<typeof pageSchema> = { page, nativeText, width, height, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
-                structure: unavailableStructure(), status: "needs-review" };
-              if (evidenceBytes + Buffer.byteLength(JSON.stringify(staged)) - (existing ? Buffer.byteLength(JSON.stringify(existing)) : 0) > MAX_EVIDENCE_BYTES)
-                throw new ApiError(400, "document_size", "Extracted evidence exceeds 64 MiB. Split this document into smaller files and retry.");
-              doc.pages = [...doc.pages.filter(item => item.page !== page), staged].sort((a, b) => a.page - b.page);
-              await save();
-              const structure: PageStructure = detected ? assemblePageStructure(page, ocr, detected) : unavailableStructure();
-              result = { page, nativeText, width, height, structure, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
-                status: pageReviewReasons({ nativeText, ocr, structure }).length ? "needs-review" : "complete" };
             } catch (error) {
               if (signal.aborted) throw error;
               result = { page, nativeText, width, height, ocr: null, status: "error", error: error instanceof OcrError ? error.message : "Could not read this page. Retry preparation or choose another OCR model." };

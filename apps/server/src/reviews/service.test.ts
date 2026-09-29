@@ -146,6 +146,23 @@ test("legacy low-probability results are flagged on load and raising the user th
   expect(review.cells[0].result!.decisionThreshold).toBe(.9);
 });
 
+test("changing which pages are read with OCR marks PDF answers stale and leaves other documents alone", async () => {
+  const f = await fixture(), store = new ReviewStore(f.root);
+  let review = await f.create();
+  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  review = await settled(f.service, f.workspace, review.id);
+  const answered = review.cells[0].status;
+  expect(answered).not.toBe("stale");
+  await f.service.saveSettings(f.workspace, { ...review.settings, ocr: "missing-text" }, review.id, review.revision);
+  review = await f.service.get(f.workspace, review.id);
+  expect(review.cells[0].status).toBe(answered);
+  // A PDF's evidence depends on which of its pages were read with OCR.
+  await store.update(review.id, current => { current.documents[0]!.path = "contract.pdf"; });
+  review = await f.service.get(f.workspace, review.id);
+  await f.service.saveSettings(f.workspace, { ...review.settings, ocr: "always" }, review.id, review.revision);
+  expect((await f.service.get(f.workspace, review.id)).cells[0].status).toBe("stale");
+});
+
 async function waitFor(condition: () => boolean) {
   for (let i = 0; i < 500 && !condition(); i++) await Bun.sleep(5);
   expect(condition()).toBe(true);

@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { LayoutSection, LayoutSectionItem } from "../settings/settings-layout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReviewSettings, SavedReview } from "@legalwork/types/reviews";
-import { incompatibleJevQuestion, reviewDecisionThreshold, ReviewModeSchema } from "@legalwork/types/reviews";
+import { incompatibleJevQuestion, reviewDecisionThreshold, reviewOcr, ReviewModeSchema, ReviewOcrSchema } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -82,6 +82,7 @@ export function ReviewSettingsForm({ client, workspaceId, review, onClose, onBus
             }} /><span className="text-sm text-muted-foreground">%</span></div>
           </div><p className="text-xs leading-relaxed text-muted-foreground">{t("review.minimum_probability_hint")}</p>
         </Section>}
+        <Section className="space-y-2"><Label>{t("review.ocr_pages")}</Label><ReviewSelect label={t("review.ocr_pages")} value={reviewOcr(settings)} onChange={value => change({ ...settings, ocr: ReviewOcrSchema.parse(value) })} options={ReviewOcrSchema.options.map(value => ({ value, label: t(value === "always" ? "review.ocr_always" : "review.ocr_missing_text") }))} /><p className="text-sm leading-relaxed text-muted-foreground">{t(reviewOcr(settings) === "always" ? "review.ocr_always_body" : "review.ocr_missing_text_body")}</p></Section>
         </Stack>
         <p className="border-t pt-4 text-xs leading-relaxed text-muted-foreground">{t("review.ocr_hint")}</p>
       </fieldset> : <p className="text-muted-foreground">{t("review.loading")}</p>}
