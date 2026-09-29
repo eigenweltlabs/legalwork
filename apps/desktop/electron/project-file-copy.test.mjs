@@ -166,7 +166,7 @@ test("a failed child is reported without stopping the remaining folder contents"
   await writeFile(path.join(source, "a.txt"), "Keep original");
   await writeFile(path.join(source, "b.txt"), "Copy this");
   const result = await copyFilesIntoProject(project, [source], async (...args) => {
-    if (args[0].endsWith("a.txt")) throw Object.assign(new Error("Permission denied"), { code: "EACCES" });
+    if (typeof args[0] === "string" && args[0].endsWith("a.txt")) throw Object.assign(new Error("Permission denied"), { code: "EACCES" });
     return copyFile(...args);
   });
   assert.ok(result.files.some((file) => file.name === path.join("Documents", "a.txt") && file.status === "failed"));
