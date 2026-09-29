@@ -1109,6 +1109,8 @@ export default {
   "tool_run.summary.agent": "Agent work",
   "tool_run.summary.question": "Asked a question",
   "tool_run.summary.credentials": "Requested access",
+  "tool_run.jev_search": "Jev Search",
+  "tool_activity.jev_search": "Searching with Jev",
   "tool_run.summary.review": "Tabular review",
   "tool_run.summary.browse": "Browsed files",
   "tool_run.summary.tool": "Used tools",

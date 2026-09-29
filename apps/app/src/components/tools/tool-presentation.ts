@@ -21,7 +21,8 @@ function categoryOf(part: ToolPart) {
   if (name === "todowrite") return "plan";
   if (name === "webfetch") return "web";
   if (name === "legalwork_review_settings" || name === "legalwork_review_library") return "read";
-  if (name === "legalwork_review_list") return "browse";
+  if (name === "legalwork_review_list" || name === "legalwork_review_files") return "browse";
+  if (name === "legalwork_jev_corpus_question") return "search";
   if (/(?:^|[_-])(?:search|grep|glob|find)(?:$|[_-])/.test(name)) return "search";
   if (name === "websearch") return "search";
   if (/(?:^|[_-])(?:read|get|results|inspect)(?:$|[_-])/.test(name) || name === "lsp") return "read";
@@ -78,6 +79,7 @@ export function getToolHistoryLabel(part: ToolPart): string {
     const description = part.input?.description?.trim();
     return description ? truncateText(description, 80) : t("tool_run.ran_command");
   }
+  if (nameOf(part) === "legalwork_jev_corpus_question") return t("tool_run.jev_search");
   if (nameOf(part) === "legalwork_review_results") return t("tool_run.review_results");
   if (nameOf(part) === "legalwork_review_settings") return t("tool_run.review_settings");
   if (nameOf(part) === "legalwork_review_list") return t("tool_run.review_list");

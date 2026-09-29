@@ -1117,6 +1117,8 @@ const de = {
   "tool_run.summary.agent": "Agent-Arbeit",
   "tool_run.summary.question": "Frage gestellt",
   "tool_run.summary.credentials": "Zugriff angefragt",
+  "tool_run.jev_search": "Jev-Suche",
+  "tool_activity.jev_search": "Suche mit Jev",
   "tool_run.summary.review": "Tabellarische Prüfung",
   "tool_run.summary.browse": "Dateien durchsucht",
   "tool_run.summary.tool": "Tools verwendet",

@@ -1,12 +1,14 @@
 import { z } from "zod";
 
+export const CORPUS_MAX_FILES = 1000;
+
 export const CorpusQuerySchema = z.strictObject({
-  paths: z.array(z.string().min(1).max(4096)).min(1).max(500).optional(),
+  paths: z.array(z.string().min(1).max(4096)).min(1).max(CORPUS_MAX_FILES).optional().describe("Exact project-relative files or folders requested by the user. Pass the named folder directly, e.g. ['Jev Search Corpus'], not the whole project. Folders recurse automatically in one job for up to 1,000 files; never enumerate their files or split into 250/500-file batches."),
   question: z.string().trim().min(3).max(2000).optional(),
   kind: z.enum(["yes_no", "classification"]).default("yes_no"),
   options: z.array(z.string().trim().min(1).max(100)).min(2).max(27).optional(),
   jobId: z.string().uuid().optional(),
-  answers: z.array(z.string().max(100)).max(30).optional(),
+  answers: z.array(z.string().max(100)).max(30).optional().describe("Result filter, not a restriction on which files run. For 'which files contain X', use ['Yes']. Counts still cover every processed file."),
   offset: z.number().int().min(0).default(0),
   limit: z.number().int().min(1).max(50).default(30),
   waitSeconds: z.number().int().min(0).max(25).default(20),
@@ -28,7 +30,7 @@ export type CorpusRow = z.infer<typeof CorpusRowSchema>;
 export const SavedCorpusJobSchema = z.object({
   id: z.string().uuid(), requestId: z.string().optional(), createdAt: z.number(),
   status: z.enum(["running", "complete", "cancelled", "interrupted"]),
-  rows: z.array(CorpusRowSchema).max(500), total: z.number().int().nonnegative().max(500), skipped: z.number().int().nonnegative(),
+  rows: z.array(CorpusRowSchema).max(CORPUS_MAX_FILES), total: z.number().int().nonnegative().max(CORPUS_MAX_FILES), skipped: z.number().int().nonnegative(),
   question: z.string(), kind: z.enum(["yes_no", "classification"]),
   selection: z.object({ providerId: z.string(), model: z.string() }),
 });

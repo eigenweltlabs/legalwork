@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, mkdir, symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CorpusService, discoverCorpus, validateDocumentQuestion } from "./service.js";
-import { CorpusQuerySchema } from "./schema.js";
+import { CORPUS_MAX_FILES, CorpusQuerySchema } from "./schema.js";
 import type { WorkspaceInfo } from "../types.js";
 import type { SystemOneRequest, SystemOneResponse } from "../systemone-schema.js";
 const roots: string[] = [];
@@ -88,4 +88,32 @@ test("large jobs return a reference and cancellation drains unfinished documents
   expect(start.status).toBe("running"); expect(start.results).toHaveLength(0);
   const cancelled = await service.query(f.workspace, { jobId: start.jobId, cancel: true });
   expect(cancelled.status).toBe("cancelled"); expect(cancelled.processed).toBe(20);
+});
+
+
+test("one named folder runs 1,000 files in one saved job; root overflow returns folder recovery without inference", async () => {
+  const f = await fixture(0);
+  const folder = "Jev Search Corpus";
+  await mkdir(join(f.root, folder));
+  for (let n = 0; n < CORPUS_MAX_FILES; n++) await writeFile(join(f.root, folder, `${n}.txt`), "Evidence");
+  await writeFile(join(f.root, "Unrelated deck.pptx"), "Not part of the requested corpus");
+  let calls = 0;
+  const backend = { selection, extract, infer: async () => { calls++; return binary(.99); } };
+  const service = new CorpusService(backend);
+  await expect(service.query(f.workspace, { paths: ["."], question: "Does this document contain X?" })).rejects.toMatchObject({
+    code: "corpus_scope", details: { maxFiles: 1000, requestedPaths: ["."], folders: [folder] },
+  });
+  expect(calls).toBe(0);
+  const result = await service.query(f.workspace, { paths: [folder], question: "Does this document contain X?", answers: ["Yes"] });
+  expect(result.status).toBe("complete"); expect(result.total).toBe(1000); expect(result.processed).toBe(1000);
+  expect(result.counts).toEqual({ Yes: 1000 }); expect(calls).toBe(1000);
+  const reloaded = await new CorpusService(backend).query(f.workspace, { jobId: result.jobId, answers: ["Yes"], offset: 990, limit: 50 });
+  expect(reloaded.total).toBe(1000); expect(reloaded.results).toHaveLength(10); expect(reloaded.nextOffset).toBeNull();
+  expect(calls).toBe(1000);
+});
+
+test("explicit paths share the 1,000-file request limit", () => {
+  const paths = Array.from({ length: 1000 }, (_, n) => `${n}.pdf`);
+  expect(CorpusQuerySchema.safeParse({ paths }).success).toBe(true);
+  expect(CorpusQuerySchema.safeParse({ paths: [...paths, "one-too-many.pdf"] }).success).toBe(false);
 });

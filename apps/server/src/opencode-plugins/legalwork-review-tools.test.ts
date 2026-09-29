@@ -112,3 +112,37 @@ test("corpus questions preserve per-document wording, use project scope and carr
   const result = await tool.execute({ jobId: id, offset: 30 }, context); expect(JSON.parse(result).ok).toBe(true);
   expect(calls.at(-1)?.body).toMatchObject({ jobId: id, offset: 30 });
 });
+
+
+test("Jev starts a whole named folder immediately and caps optional waits and page sizes", async () => {
+  const tool = plugin.tool.legalwork_jev_corpus_question;
+  const input = { paths: ["Jev Search Corpus"], question: "Does this document contain a change-of-control clause?", answers: ["Yes"], limit: 100, waitSeconds: 60 };
+  expect(z.object(tool.args).safeParse(input).success).toBe(true);
+  expect(JSON.parse(await tool.execute(input, context)).ok).toBe(true);
+  expect(calls.at(-1)).toMatchObject({ path: "/workspace/project/reviews/corpus/query", body: { ...input, limit: 50, waitSeconds: 0 } });
+  expect(calls.filter(call => call.method === "POST")).toHaveLength(1);
+  await tool.execute({ jobId: id, waitSeconds: 60, limit: 100 }, context);
+  expect(calls.at(-1)?.body).toMatchObject({ jobId: id, waitSeconds: 25, limit: 50 });
+  expect(calls.at(-1)?.body).not.toHaveProperty("paths");
+});
+
+test("file browsing accepts oversized pages and a quoted empty root without extra agent retries", async () => {
+  const result = JSON.parse(await plugin.tool.legalwork_review_files.execute({ path: '\"\"', limit: 100 }, context));
+  expect(result.ok).toBe(true);
+  const params = new URLSearchParams(calls.at(-1)?.search);
+  expect(params.get("path")).toBe(""); expect(params.get("limit")).toBe("50");
+});
+
+test("bounded folder hints let the model select a named subfolder without a discovery tool loop", async () => {
+  const scoped = await LegalWorkReviewTools(context);
+  const output: { system: string[] } = { system: [] };
+  await scoped["experimental.chat.system.transform"]({}, output);
+  const hints = output.system.find(value => value.startsWith("Available top-level project folders"));
+  expect(hints).toContain('"Contracts/Archive"');
+  expect(hints).not.toContain("a.pdf"); expect(hints).not.toContain("Private name");
+  expect(output.system.join(" ")).toContain("ONE job");
+  expect(output.system.join(" ")).toContain("not the project root");
+  expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
+  await scoped["experimental.chat.system.transform"]({}, { system: [] });
+  expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
+});

@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DynamicToolUIPart, UIMessage } from "ai";
 import { getAssistantRenderGroups, groupAssistantToolRuns } from "../src/components/chat/utils";
+import { getToolHistoryLabel, getToolRunSummary } from "../src/components/tools/tool-presentation";
 import { ToolRun } from "../src/components/chat/tool-run";
 
 const bash: DynamicToolUIPart = { type: "dynamic-tool", toolName: "bash", toolCallId: "shell-1", state: "output-available", input: { command: "python3 -c 'private code'", description: "A long generated description" }, output: "private output" };
@@ -121,4 +122,15 @@ test("review cards deduplicate across prose but keep different projects and fail
     expect(groups.filter(group => group.kind === "review").map(group => group.part.toolCallId)).toEqual(["start", "other-project", "failed"]);
     expect(groups.some(group => group.kind === "text" && group.text === "Starting it now.")).toBe(true);
   }
+});
+
+
+test("file discovery is browsing and Jev qualification is search, never tabular review", () => {
+  const files: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_files", input: { path: "Contracts" } };
+  const search: DynamicToolUIPart = { ...bash, toolName: "legalwork_jev_corpus_question", input: { paths: ["Contracts"] } };
+  expect(getToolHistoryLabel(files)).toBe("Browsed files");
+  expect(getToolHistoryLabel(search)).toBe("Jev Search");
+  const summary = getToolRunSummary([files, search]);
+  expect(summary).toContain("Browsed files"); expect(summary).toContain("Searched");
+  expect(summary).not.toContain("Tabular review"); expect(summary).not.toContain("Used tools");
 });
