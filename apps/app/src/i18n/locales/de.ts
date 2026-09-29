@@ -889,7 +889,7 @@ const de = {
   "ocr.fast_description": "Kleines CPU-Modell für gedruckten Text. Handschrift und schwierige Scans können mehr Fehler enthalten.",
   "ocr.quality_description": "Größeres Modell für komplexe Seiten und Handschrift. Benötigt mehr Arbeitsspeicher und einen größeren Download.",
   "ocr.remote_description": "Seitenbilder werden bei Verwendung dieses Modells an den konfigurierten Endpunkt gesendet.",
-  "ocr.apple_required": "Diese lokale Laufzeit benötigt derzeit einen Mac mit Apple Silicon.",
+  "ocr.apple_required": "Diese lokale Laufzeit benötigt derzeit einen Mac mit Apple Silicon oder einen Windows-PC mit 64 Bit.",
   "ocr.test_success": "Das Modell hat Text für das integrierte Beispiel geliefert.",
   "ocr.server_title": "Benutzerdefiniertes Modell",
   "ocr.server_description": "Verbinden Sie ein lokales oder entferntes OCR-Modell über dessen API.",
