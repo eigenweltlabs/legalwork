@@ -260,6 +260,18 @@ describe("project sync between computers", () => {
     expect((await projectSyncStatus(owner.config, akte)).state).toBe("synced");
   });
 
+  test("a round on a server that does not list a synced project leaves it synced", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const akte = await localProject(owner.config, "Akte");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+
+    // The same runtime DB and sign-in with another project list, as a test's server had.
+    await runProjectSync({ ...owner.config, workspaces: [] }, { platform });
+    expect((await projectSyncStatus(owner.config, akte)).mode).toBe("synced");
+  });
+
   test("a note edited on both computers in different places ends up with both edits, and no copy", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");

@@ -650,15 +650,10 @@ async function syncDocuments(
   runner: { userId: string; name: string | null },
 ): Promise<void> {
   const label = runner.name ?? "LegalWork";
+  // A project leaves sync only when it is removed from the list (noteProjectRemoved),
+  // never because a server with another project list does not know it.
   const workspace = workspaceOf(config, link.workspaceId);
-  if (!workspace) {
-    // Removed from the project list here: it does not come back by itself.
-    store.markRemoved(link.projectId, link.orgId);
-    store.discardOutbox(link.projectId);
-    store.removeLink(link.workspaceId);
-    return;
-  }
-  if (!(await folderAvailable(workspace.path))) return;
+  if (!workspace || !(await folderAvailable(workspace.path))) return;
   const scope = link.settings.scope;
   if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews) {
     store.updateLink(link.workspaceId, { lastSyncAt: Date.now(), lastError: null, report: null });
