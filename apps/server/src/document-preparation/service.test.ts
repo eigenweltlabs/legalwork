@@ -58,6 +58,21 @@ test("renders native and rotated scanned pages, OCRs both, pins model and caches
   await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id); expect(calls.length).toBe(7);
 }, 15_000);
 
+test("pages reach OCR in page order even when a later page is laid out first", async () => {
+  const root = await fixture(); const calls: number[] = [];
+  let laidOut!: () => void; const second = new Promise<void>(resolve => { laidOut = resolve; });
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), {
+    layout: { fingerprint: "ordered-layout", async detect(page, signal) {
+      const result = await layout.detect(page, signal);
+      if (page.pageNumber === 2) laidOut(); else await second;
+      return result;
+    } },
+    snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize(page) { calls.push(page.pageNumber); return content; } }], "test") }),
+  });
+  expect((await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id)).status).toBe("complete");
+  expect(calls).toEqual([1, 2]);
+});
+
 test("failed pages remain visible, keep native text, and retry without rerunning successful pages", async () => {
   const root = await fixture(); let fail = true; const calls: number[] = [];
   const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout, snapshot: async () => ({ fingerprint: "A", service: new OcrService([{ info, async recognize(page) {

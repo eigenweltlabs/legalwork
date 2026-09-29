@@ -131,7 +131,12 @@ export class DocumentPreparation {
           // A page that fails the whole document stops the pages still running.
           const stop = new AbortController(), signal = AbortSignal.any([job.controller.signal, stop.signal]);
           let fatal: unknown;
+          // Pages ask for OCR in page order; only rendering and layout run ahead.
+          let turn = Promise.resolve();
           const preparePage = async (page: number) => {
+            const previous = turn;
+            let requested!: () => void;
+            turn = new Promise(resolve => { requested = resolve; });
             const existing = doc.pages.find(item => item.page === page);
             let nativeText = "", width = 0, height = 0;
             let result: z.infer<typeof pageSchema>;
@@ -148,7 +153,12 @@ export class DocumentPreparation {
               }
               const blocks = detected && [...detected.regions].sort((a, b) => a.order - b.order).map(({ label, box, confidence, mask }) => ({ label, box, confidence, mask }));
               // A layout retry can reuse successful OCR without sending the document again.
-              const ocr = existing?.ocr ?? (await selected.service.extract({ sourceId: sourceSha256, pages: [{ ...renderedPage.image, blocks }], languages: input.languages, signal })).pages[0]!;
+              await previous;
+              const extraction = existing?.ocr ? Promise.resolve(existing.ocr)
+                : selected.service.extract({ sourceId: sourceSha256, pages: [{ ...renderedPage.image, blocks }], languages: input.languages, signal }).then(result => result.pages[0]!);
+              // The OCR service queues a request as soon as it is made, so the next page may ask now.
+              requested();
+              const ocr = await extraction;
               // Persist transcription first so cancelling or restarting here does not repeat OCR.
               const staged: z.infer<typeof pageSchema> = { page, nativeText, width, height, ocr: { text: ocr.text, regions: ocr.regions, truncated: ocr.truncated },
                 structure: unavailableStructure(), status: "needs-review" };
@@ -162,7 +172,7 @@ export class DocumentPreparation {
             } catch (error) {
               if (signal.aborted) throw error;
               result = { page, nativeText, width, height, ocr: null, status: "error", error: error instanceof OcrError ? error.message : "Could not read this page. Retry preparation or choose another OCR model." };
-            }
+            } finally { requested(); }
             evidenceBytes += Buffer.byteLength(JSON.stringify(result)) - (existing ? Buffer.byteLength(JSON.stringify(existing)) : 0);
             if (evidenceBytes > MAX_EVIDENCE_BYTES) throw new ApiError(400, "document_size", "Extracted evidence exceeds 64 MiB. Split this document into smaller files and retry.");
             doc.pages = [...doc.pages.filter(item => item.page !== page), result].sort((a, b) => a.page - b.page);
