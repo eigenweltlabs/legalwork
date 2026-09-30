@@ -1,4 +1,4 @@
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -28,7 +28,7 @@ import type {
 import { LegalworkServerError, type LegalworkServerClient, type LegalworkTaskMember, type LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogFooter } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -151,8 +151,7 @@ function Mark(props: { children: ReactNode; className?: string }) {
  * reads "Share" until someone else has the project, then "Shared" with their
  * faces; a warning takes their place only when sync needs someone.
  */
-export function ProjectShareButton(props: { client: LegalworkServerClient; workspaceId: string; projectName: string }) {
-  const [open, setOpen] = useState(false);
+export function ProjectShareButton(props: { client: LegalworkServerClient; workspaceId: string; onOpen: () => void }) {
   const status = useProjectSyncStatus(props.client, props.workspaceId);
   const data = status.data;
   const shared = data?.mode === "synced";
@@ -165,7 +164,6 @@ export function ProjectShareButton(props: { client: LegalworkServerClient; works
     : [];
   const attention = data && needsAttention(data.state) ? data.state : null;
   return (
-    <>
       <Button
         variant="ghost"
         size="sm"
@@ -173,7 +171,7 @@ export function ProjectShareButton(props: { client: LegalworkServerClient; works
         aria-haspopup="dialog"
         aria-label={shared ? t("project_sync.manage_sharing") : t("project_sync.share_project")}
         title={attention ? STATE_LABELS[attention]() : shared && data.settings.access === "org" ? t("project_sync.access_org") : others.join(", ") || undefined}
-        onClick={() => setOpen(true)}
+        onClick={props.onOpen}
       >
         {attention ? (
           <AttentionIcon state={attention} />
@@ -193,31 +191,6 @@ export function ProjectShareButton(props: { client: LegalworkServerClient; works
         )}
         {attention ? STATE_LABELS[attention]() : shared ? t("project_sync.shared_button") : t("project_sync.share")}
       </Button>
-      {open ? (
-        <ProjectShareDialog
-          client={props.client}
-          workspaceId={props.workspaceId}
-          projectName={props.projectName}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </>
-  );
-}
-
-/** The share dialog asked for outside a project's Home, such as from the sidebar's menu. */
-export function ProjectShareHost(props: { client: LegalworkServerClient }) {
-  const sharing = useProjectSyncStore((store) => store.sharing);
-  const share = useProjectSyncStore((store) => store.share);
-  if (!sharing) return null;
-  return (
-    <ProjectShareDialog
-      key={sharing.workspaceId}
-      client={props.client}
-      workspaceId={sharing.workspaceId}
-      projectName={sharing.name}
-      onClose={() => share(null)}
-    />
   );
 }
 
@@ -451,11 +424,12 @@ function PersonRow(props: { mark: ReactNode; name: string; detail?: string | nul
  * elsewhere: add people at the top, remove them on their row. Sharing is just
  * that list, so it ends when no one else is left; a colleague leaves instead.
  */
-function ProjectShareDialog(props: {
+export function ProjectSharingSection(props: {
   client: LegalworkServerClient;
   workspaceId: string;
   projectName: string;
   onClose: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const status = useProjectSyncStatus(props.client, props.workspaceId);
@@ -464,6 +438,8 @@ function ProjectShareDialog(props: {
   const [leaving, setLeaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { props.onBusyChange?.(busy); }, [busy, props.onBusyChange]);
 
   const data = status.data;
   const shared = data?.mode === "synced";
@@ -510,16 +486,15 @@ function ProjectShareDialog(props: {
     : "";
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && props.onClose()}>
-      <DialogContent className="max-h-[90vh] gap-6 overflow-y-auto rounded-3xl p-7 sm:max-w-lg sm:p-8 [&>*]:min-w-0" showCloseButton={!busy}>
-        <DialogHeader>
-          <DialogTitle className="text-2xl font-semibold tracking-tight">
-            {t(leaving ? "project_sync.leave_title" : "project_sync.share_title", { name: props.projectName })}
-          </DialogTitle>
-          <DialogDescription>
+    <div className="space-y-6 [&>*]:min-w-0">
+        <div className="space-y-1">
+          <h3 className="font-medium">
+            {leaving ? t("project_sync.leave_title", { name: props.projectName }) : t("project_settings.sharing")}
+          </h3>
+          <p className="text-sm text-muted-foreground">
             {t(leaving ? (data?.ownFolder ? "project_sync.leave_confirm_own" : "project_sync.leave_confirm") : "project_sync.share_description")}
-          </DialogDescription>
-        </DialogHeader>
+          </p>
+        </div>
 
         {!data || !settings ? (
           <p className="text-sm text-muted-foreground">{status.error ? t("project_sync.failed") : t("projects.loading")}</p>
@@ -694,7 +669,6 @@ function ProjectShareDialog(props: {
             </DialogFooter>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }
