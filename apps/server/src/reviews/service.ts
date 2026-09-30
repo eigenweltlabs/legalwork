@@ -20,7 +20,8 @@ import { queryCells } from "./result-query.js";
 import { QueryReviewResultsSchema, WaitReviewsSchema } from "./schema.js";
 
 function cellsFor(documents: ReviewDocument[], review: Pick<SavedReview, "columns" | "cells">): ReviewCell[] {
-  return documents.flatMap(document => review.columns.map(column => review.cells.find(cell => cell.documentId === document.id && cell.columnKey === column.key)
+  const existing = new Map(review.cells.map(cell => [`${cell.documentId}\0${cell.columnKey}`, cell]));
+  return documents.flatMap(document => review.columns.map(column => existing.get(`${document.id}\0${column.key}`)
     ?? { documentId: document.id, columnKey: column.key, status: "pending", result: null, error: null }));
 }
 function summary(review: SavedReview): ReviewSummary {
@@ -326,6 +327,10 @@ export class ReviewService {
             }
           });
           if (!current.cells.some(cell => selected(cell) && cell.status === "queued")) return;
+          // This document worker owns these cells until it settles. Edits are
+          // forbidden during a run and cancellation aborts each queued worker.
+          // Do not re-read the entire review snapshot for every cell start.
+          const queuedColumns = new Set(current.cells.filter(cell => selected(cell) && cell.status === "queued").map(cell => cell.columnKey));
           await store.update(snapshot.id, review => { const item = review.documents.find(item => item.id === document.id)!; item.status = "preparing"; item.error = null; });
           const jobId = /\.(pdf|png|jpe?g|webp)$/i.test(document.path) ? await prepare() : undefined;
           const evidence = await prepareReviewEvidence({ workspace: workspace.path, path: document.path, preparation: this.preparation, preparationJobId: jobId, signal, force: input.reprocess,
@@ -341,7 +346,7 @@ export class ReviewService {
             return this.scheduler.cells.run(group, `${backend}:${provider!.providerId}`, signal, async () => {
               signal.throwIfAborted();
               const predicate = (cell: ReviewCell) => cell.documentId === document.id && cell.columnKey === column.key;
-              if ((await store.read(snapshot.id)).cells.find(predicate)?.status !== "queued") return;
+              if (!queuedColumns.has(column.key)) return;
               await store.update(snapshot.id, review => { review.cells.find(predicate)!.status = "running"; });
               try {
                 const result = await this.executor.execute(workspace, snapshot, column, evidence, AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]));
