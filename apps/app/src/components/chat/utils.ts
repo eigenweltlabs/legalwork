@@ -87,6 +87,13 @@ export function isMessageGroup(item: MessageListItem): item is MessageGroup {
   return "messages" in item
 }
 
+export function isCompactionMessage(message: UIMessage) {
+  const metadata: unknown = message.metadata;
+  if (!metadata || typeof metadata !== "object" || !("opencode" in metadata)) return false;
+  const opencode: unknown = metadata.opencode;
+  return Boolean(opencode && typeof opencode === "object" && "summary" in opencode && opencode.summary === true);
+}
+
 export function groupMessages(messages: UIMessage[], status: ThreadStatus): MessageListItem[] {
   const items: MessageListItem[] = []
   let index = 0
@@ -103,11 +110,12 @@ export function groupMessages(messages: UIMessage[], status: ThreadStatus): Mess
     const assistantMessages: UIMessageWithIndex[] = []
 
     while (index < messages.length && messages[index].role === "assistant") {
-      assistantMessages.push({ message: messages[index], index });
+      // Compaction notes remain in engine history, not the user's answer.
+      if (!isCompactionMessage(messages[index])) assistantMessages.push({ message: messages[index], index });
       index++
     }
 
-    items.push({ messages: assistantMessages });
+    if (assistantMessages.length) items.push({ messages: assistantMessages });
   }
 
   return items

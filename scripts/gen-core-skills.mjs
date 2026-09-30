@@ -22,6 +22,8 @@ const FILES = [
   // docx-edit: agentic Word reading + editing (self-contained vendored OOXML engine).
   { source: "skills/docx-edit/SKILL.md", path: ".opencode/skills/docx-edit/SKILL.md" },
   { source: "skills/docx-edit/assets/docx-agent.mjs", path: ".opencode/skills/docx-edit/assets/docx-agent.mjs" },
+  { source: "skills/docx-edit/assets/populate-template.py", path: ".opencode/skills/docx-edit/assets/populate-template.py" },
+  { source: "skills/docx-edit/assets/verify-evidence.py", path: ".opencode/skills/docx-edit/assets/verify-evidence.py" },
   { source: "skills/docx-edit/assets/vendor/docx-engine.mjs", path: ".opencode/skills/docx-edit/assets/vendor/docx-engine.mjs" },
   { source: "agents/docx-redliner.md", path: ".opencode/agents/docx-redliner.md" },
   { source: "commands/edit-docx.md", path: ".opencode/commands/edit-docx.md" },

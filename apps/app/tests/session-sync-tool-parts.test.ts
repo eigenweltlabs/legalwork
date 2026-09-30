@@ -3,11 +3,13 @@ import type { Part } from "@opencode-ai/sdk/v2/client";
 import type { UIMessage } from "ai";
 
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
+import { groupMessages, isCompactionMessage } from "../src/components/chat/utils";
 import {
   __applySessionSyncEventForTest,
   __createWorkspaceSessionSyncForTest,
   trackWorkspaceSessionSync,
   transcriptKey,
+  statusKey,
 } from "../src/react-app/domains/session/sync/session-sync";
 import {
   parseDynamicToolUIPart,
@@ -16,6 +18,35 @@ import {
 
 afterEach(() => {
   getReactQueryClient().clear();
+});
+
+test("compaction summaries stay out of the rendered conversation", () => {
+  const summary: UIMessage = { id: "summary", role: "assistant", metadata: { opencode: { summary: true } }, parts: [{ type: "text", text: "Objective and internal tool IDs" }] };
+  const answer: UIMessage = { id: "answer", role: "assistant", parts: [{ type: "text", text: "The report is saved." }] };
+  expect(isCompactionMessage(summary)).toBe(true);
+  expect(groupMessages([summary, answer], "ready")).toEqual([{ messages: [{ index: 1, message: answer }] }]);
+  expect(groupMessages([summary], "ready")).toEqual([]);
+});
+
+test("live compaction metadata hides internal text without marking the agent idle", () => {
+  const input = { workspaceId: "summary-project", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
+  const cleanup = __createWorkspaceSessionSyncForTest(input);
+  const release = trackWorkspaceSessionSync(input, "summary-session");
+  const cache = getReactQueryClient();
+  cache.setQueryData(statusKey(input.workspaceId, "summary-session"), { type: "busy" });
+  try {
+    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: {
+      id: "internal-summary", role: "assistant", sessionID: "summary-session", summary: true,
+      finish: "stop", time: { created: 1, completed: 2 },
+    } } });
+    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part: {
+      id: "summary-text", messageID: "internal-summary", sessionID: "summary-session", type: "text", text: "Objective: internal handoff",
+    } } });
+    const transcript = cache.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "summary-session")) ?? [];
+    expect(isCompactionMessage(transcript[0])).toBe(true);
+    expect(groupMessages(transcript, "ready")).toEqual([]);
+    expect(cache.getQueryData(statusKey(input.workspaceId, "summary-session"))).toEqual({ type: "busy" });
+  } finally { release(); cleanup(); }
 });
 
 function writeToolPart(

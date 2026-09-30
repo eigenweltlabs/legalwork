@@ -132,6 +132,9 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
+      - name: Verify report source evidence checks
+        run: python3 apps/server/scripts/test-report-evidence.py
+
       - name: Run desktop unit tests
         run: pnpm --filter @legalwork/desktop test
 

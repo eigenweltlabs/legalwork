@@ -4405,6 +4405,7 @@ export default {
   "chat.error_output_limit": "The model reached its output limit before finishing",
   "chat.error_structured_output": "The model could not produce valid structured output",
   "chat.error_context_window": "The conversation is too large for the model context window",
+  "chat.error_request_size": "The conversation request is too large to send. Compact the conversation, then continue. Your saved work is preserved.",
   "chat.error_interrupted": "The message was interrupted",
   "system.config_changed_reload": "Config changed. Reload to apply.",
   "system.config_active": "Latest configuration changes are now active.",

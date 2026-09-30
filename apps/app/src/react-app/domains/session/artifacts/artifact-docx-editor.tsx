@@ -340,6 +340,15 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
 
   useControlActions([
     {
+      id: "document.read_metadata", label: "Read document status and page count", sideEffect: "none",
+      description: "Read the open DOCX name, revision, unsaved-edit status and rendered page count without serializing its text. pageCount is null while pagination is unavailable. Use for report delivery checks; wait for a stable revision/page count.",
+      execute: () => {
+        const pages = containerRef.current?.querySelectorAll(".layout-page").length ?? 0;
+        return { name, documentId, draftRevision: revision.current, saved: !dirty.current,
+          pageCount: ready.current && pages > 0 ? pages : null };
+      },
+    },
+    {
       id: "document.read_draft", label: "Read the open document draft", sideEffect: "none",
       description: "Read the live DOCX, including unsaved edits, rendered page count, paragraph handles, comments and redlines. pageCount is null while pagination is unavailable. Use this instead of reading the older workspace file.",
       execute: async () => {

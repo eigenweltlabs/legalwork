@@ -11,6 +11,7 @@ let launchFail = false;
 let launchUnreadable = false;
 let selectionFixture: { count: number; status: string; uncertain?: boolean; incomplete?: boolean } | undefined;
 let exportFixture = false;
+let exportDraft = false;
 const server = Bun.serve({ port: 0, async fetch(request) {
   if (request.headers.get("authorization") !== "Bearer fixture-relay") return new Response("", { status: 401 });
   const url = new URL(request.url), path = url.pathname;
@@ -18,14 +19,15 @@ const server = Bun.serve({ port: 0, async fetch(request) {
   if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: "/project" }, { id: "nested", path: "/project/nested" }] });
   if (denied) return Response.json({ code: "review_mode_conflict", message: "Only JEV accepts typed decisions." }, { status: 422 });
   if (selectionFixture && path.endsWith("/corpus/query")) {
-    const args = z.object({ jobId: z.string().optional(), offset: z.number().default(0), paths: z.array(z.string()).optional() }).parse(text ? JSON.parse(text) : {});
+    const args = z.object({ jobId: z.string().optional(), offset: z.number().default(0), paths: z.array(z.string()).optional(), evidencePath: z.string().optional(), evidenceOffset: z.number().default(0) }).parse(text ? JSON.parse(text) : {});
+    if (args.evidencePath) return Response.json({ sourceHash: `hash-${Number(args.evidencePath.match(/(\d+)\.pdf$/)?.[1])}`, passages: [{ page: args.evidenceOffset ? 2 : 1, text: args.evidenceOffset ? "Exact second-page passage." : "Project Demo | Fictional record\nCustomer Agreement\nExact first-page passage." }], nextEvidenceOffset: args.evidenceOffset ? null : 4 });
     if (!args.jobId) return Response.json({ selected: args.paths?.length });
     const f = selectionFixture, end = Math.min(args.offset + 50, f.count);
-    return Response.json({ jobId: id, question: "Which class?", kind: "classification", total: f.count, counts: { [f.uncertain ? "uncertain" : "Customer Agreements"]: f.count }, status: f.status, matching: f.count, results: Array.from({ length: end - args.offset }, (_, index) => ({ path: `room/${String(args.offset + index).padStart(5, "0")}.pdf`, status: f.uncertain ? "uncertain" : "complete", answer: "Customer Agreements", confidence: 1 })), nextOffset: f.incomplete || end === f.count ? null : end });
+    return Response.json({ jobId: id, question: "Which class?", kind: "classification", total: f.count, counts: { [f.uncertain ? "uncertain" : "Customer Agreements"]: f.count }, status: f.status, matching: f.count, results: Array.from({ length: end - args.offset }, (_, index) => ({ path: `room/${String(args.offset + index).padStart(5, "0")}.pdf`, sourceHash: `hash-${args.offset + index}`, chunks: 1, status: f.uncertain ? "uncertain" : "complete", answer: "Customer Agreements", confidence: 1 })), nextOffset: f.incomplete || end === f.count ? null : end });
   }
   if (exportFixture) {
     if (path.endsWith("/files/content")) return Response.json({ path: z.object({ path: z.string() }).parse(JSON.parse(text)).path });
-    return Response.json(SavedReviewSchema.parse({ id, name: "Export", revision: 8, createdAt: 1, updatedAt: 1, settings: { mode: "jev", jev: null, llm: null }, columns: [], documents: [], cells: [], status: "needs_review", runId: null }));
+    return Response.json(SavedReviewSchema.parse({ id, name: "Export", revision: 8, createdAt: 1, updatedAt: 1, settings: { mode: "jev", jev: null, llm: null }, columns: [{ key: "ip", label: "IP", kind: "classification", question: "Owns IP?", options: ["Yes", "No"] }], documents: exportDraft ? [] : [{ id: "source", path: "room/source.pdf", name: "Source", sourceHash: "hash", status: "ready" }], cells: exportDraft ? [] : [{ documentId: "source", columnKey: "ip", status: "needs_review", result: null }], status: exportDraft ? "draft" : "needs_review", runId: null }));
   }
   if (launchFixture) {
     if (path.endsWith("/library")) return Response.json({ entries: [{ id, version: 2, kind: "set", name: "DD", language: "en", source: "personal", updatedAt: 0,
@@ -39,7 +41,7 @@ const server = Bun.serve({ port: 0, async fetch(request) {
 } });
 process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture-relay";
 const plugin = await LegalWorkReviewTools();
-beforeEach(() => { calls.length = 0; denied = false; unavailable = false; launchFixture = false; launchFail = false; launchUnreadable = false; selectionFixture = undefined; exportFixture = false; });
+beforeEach(() => { calls.length = 0; denied = false; unavailable = false; launchFixture = false; launchFail = false; launchUnreadable = false; selectionFixture = undefined; exportFixture = false; exportDraft = false; });
 afterAll(() => { server.stop(true); if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = originalUrl; if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = originalToken; });
 const context = { directory: "/project", sessionID: "parent" };
 const id = "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911";
@@ -76,7 +78,30 @@ test("native export persists grid, unresolved register and pinned provenance wit
   expect(JSON.stringify(result)).not.toContain("content");
   const writes = calls.filter(call => call.path.endsWith("/files/content"));
   expect(writes).toHaveLength(3);
-  expect(writes[0].body).toMatchObject({ content: "document_id,document,source_hash\r\n" });
+  expect(writes[0].body).toMatchObject({ content: "document_id,document,source_hash,ip (IP),ip_status\r\nsource,room/source.pdf,hash,,needs_review\r\n" });
+});
+
+test("an absent class does not create a doomed review or export an empty draft as coverage", async () => {
+  launchFixture = true; selectionFixture = { count: 0, status: "complete" };
+  const result = JSON.parse(await plugin.tool.legalwork_review_launch.execute({ name: "Customer", sourceSelection: { jobId: id, answers: ["Customer Agreements"] }, libraryId: id, libraryVersion: 2, context: { target: "Aster", review_date: "today" } }, context));
+  expect(result).toMatchObject({ ok: false, error: { message: expect.stringContaining("No documents matched") } });
+  expect(calls.some(call => call.path.endsWith("/reviews") && call.method === "POST")).toBe(false);
+  launchFixture = false; selectionFixture = undefined; exportFixture = true; exportDraft = true; calls.length = 0;
+  expect(JSON.parse(await plugin.tool.legalwork_review_export.execute({ reviewId: id }, context))).toMatchObject({ ok: false, error: { message: expect.stringContaining("not processed") } });
+  expect(calls.some(call => call.path.endsWith("/files/content"))).toBe(false);
+});
+
+test("native evidence export preserves original pages on disk and returns only a compact index reference", async () => {
+  selectionFixture = { count: 3, status: "complete", uncertain: true }; exportFixture = true;
+  const result = JSON.parse(await plugin.tool.legalwork_jev_evidence_export.execute({ jobId: id, answers: ["uncertain"] }, context));
+  expect(result).toMatchObject({ ok: true, documents: 3, evidenceFiles: 6 });
+  expect(JSON.stringify(result)).not.toContain("Exact first-page");
+  const writes = calls.filter(call => call.path.endsWith("/files/content"));
+  expect(writes).toHaveLength(7);
+  const savedIndex = z.object({ content: z.string() }).parse(writes.at(-1)?.body);
+  expect(JSON.parse(savedIndex.content).documents[0]).toMatchObject({ title: "Customer Agreement", sourceHash: "hash-0", status: "uncertain", evidenceFiles: expect.any(Array) });
+  expect(z.object({ content: z.string() }).parse(writes[1].body).content).toContain('"page":2');
+  expect(calls.filter(call => call.path.endsWith("/corpus/query")).every(call => z.object({ jobId: z.string() }).parse(call.body).jobId === id)).toBe(true);
 });
 
 test("corpus export writes every source internally, including uncertainty, without returning file IDs", async () => {
@@ -88,7 +113,7 @@ test("corpus export writes every source internally, including uncertainty, witho
   const writes = calls.filter(call => call.path.endsWith("/files/content"));
   const grid = z.object({ content: z.string() }).parse(writes[0].body).content;
   expect(grid.split("\r\n")).toHaveLength(6003);
-  expect(grid).toContain('"room/06000.pdf","","Customer Agreements","uncertain"');
+  expect(grid.includes('"room/06000.pdf","hash-6000","Customer Agreements","uncertain"')).toBe(true);
 });
 
 test("launch copies pinned installed columns and starts immediately without repeating their text", async () => {

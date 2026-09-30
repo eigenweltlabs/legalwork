@@ -4761,6 +4761,7 @@ const de = {
   "chat.error_output_limit": "Das Modell hat sein Ausgabelimit erreicht, bevor es fertig war",
   "chat.error_structured_output": "Das Modell konnte keine gültige strukturierte Ausgabe erzeugen",
   "chat.error_context_window": "Die Konversation ist zu groß für das Kontextfenster des Modells",
+  "chat.error_request_size": "Die Anfrage ist zu groß zum Senden. Komprimieren Sie die Konversation und fahren Sie dann fort. Ihre gespeicherte Arbeit bleibt erhalten.",
   "chat.error_interrupted": "Die Nachricht wurde unterbrochen",
   "system.config_changed_reload": "Die Konfiguration hat sich geändert. Neu laden, um sie zu übernehmen.",
   "system.config_active": "Die neuesten Konfigurationsänderungen sind jetzt aktiv.",

@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient } from "@tanstack/react-query";
 import type { TodoItem } from "../src/app/types";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { hasUnfinishedTodos, TodoPanel } from "../src/react-app/domains/session/surface/todo-panel";
@@ -36,6 +37,35 @@ test("unfinished plans remain collapsible; completed and cancelled plans leave t
   done[1].status = "cancelled";
   expect(hasUnfinishedTodos(done)).toBe(false);
   expect(hasUnfinishedTodos([{ ...todos[1], content: " " }])).toBe(false);
+});
+
+test("a plan observed through the external cache subscription survives query garbage collection", async () => {
+  const cache = getReactQueryClient();
+  const key = todoKey("plan-project", "long-running-chat");
+  cache.setQueryData(key, todos);
+  const query = cache.getQueryCache().find({ queryKey: key });
+  expect(query?.getObserversCount()).toBe(0);
+  expect(query?.gcTime).toBe(Infinity);
+  // Wait beyond the old 15-second GC deadline with no query observers.
+  await Bun.sleep(15_050);
+  expect(cache.getQueryData(key)).toEqual(todos);
+  const done = todos.map(todo => ({ ...todo, status: "completed" }));
+  seedTodoState("plan-project", "long-running-chat", done, Date.now() + 1);
+  expect(hasUnfinishedTodos(cache.getQueryData<TodoItem[]>(key) ?? [])).toBe(false);
+}, 20_000);
+
+test("a hot update cancels the old plan GC timer while preserving the shared client", async () => {
+  const previous = getReactQueryClient();
+  const existing = new QueryClient({ defaultOptions: { queries: { gcTime: 30 } } });
+  const target = globalThis as typeof globalThis & { __owReactQueryClient?: QueryClient };
+  const key = todoKey("plan-project", "existing-plan");
+  existing.setQueryData(key, todos);
+  target.__owReactQueryClient = existing;
+  try {
+    expect(getReactQueryClient()).toBe(existing);
+    await Bun.sleep(60);
+    expect(existing.getQueryData(key)).toEqual(todos);
+  } finally { existing.clear(); target.__owReactQueryClient = previous; }
 });
 
 test("session metadata and idle transitions cannot replace a live plan with an old empty snapshot", () => {

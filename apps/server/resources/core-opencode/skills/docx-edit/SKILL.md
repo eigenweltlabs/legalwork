@@ -13,6 +13,24 @@ description: >-
 
 # Word (.docx) reading + editing
 
+For **creating a new report from a supplied template**, use the deterministic
+`assets/populate-template.py` helper instead of generating a Word-building script.
+`python3 <skill>/assets/populate-template.py inspect --template <template.docx>`
+returns the field keys and repeated-row tokens. Save the report content as JSON
+`{"fields": {"token": "text"}, "tables": [{"tokens": ["id", "issue"], "rows": [{"id": "F-01", "issue": "Finding"}]}]}`,
+then run `populate --template <template.docx> --data <content.json> --out <report.docx>`.
+This preserves formatted runs, artwork, headers and repeated-row designs, supports
+tokens split across runs, and fails on missing fields. Source/legal validation and
+the editor's actual page count still require separate checks. It is for new file
+creation; use the live editing backend for an already-open document.
+
+For source-cited reports from a native Jev evidence export, use
+`assets/verify-evidence.py --project <project> --index <evidence/index.json>
+--register <register.json> --out <checks.json>` before treating quotations or
+uncertainty dispositions as verified. It checks current source hashes and literal
+page support, requires one citation per affected source, writes diagnostics to disk
+and prints only counts. It does not verify legal conclusions or exhaustive scope.
+
 This skill is how this firm reads and edits Word documents with AI. It has **three
 backends**, and your FIRST step is always to pick the right one:
 
