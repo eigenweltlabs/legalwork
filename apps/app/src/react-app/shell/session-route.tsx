@@ -1013,7 +1013,7 @@ export function SessionRoute() {
   }, [disabledProviderIds, providerListQuery.data]);
   const aiAccess = aiAccessState({
     connectedProviders: accessProviders,
-    eigenwelt: eigenweltView ?? (eigenweltEntitlementsQuery.isError ? null : undefined),
+    eigenwelt: eigenweltView,
     signedInBefore: rememberedEigenweltAccount !== null,
   });
   const aiPlansVariant = isAiPlansVariant(aiAccess) ? aiAccess : null;

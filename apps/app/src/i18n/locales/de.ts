@@ -2947,6 +2947,8 @@ const de = {
   "account.connecting": "Warten auf die Anmeldung…",
   "account.server_required":
     "Verbindung zum LegalWork-Server wird aufgebaut, die Anmeldung ist gleich verfügbar.",
+  "account.reconnecting": "Verbindung wird wiederhergestellt…",
+  "account.reconnecting_description": "Ihr Konto ist gespeichert. Die Verbindung wird automatisch wiederhergestellt.",
   "account.connected_title": "Eigenwelt-Konto",
   "account.signed_in": "Angemeldet",
   "account.signed_out": "Abgemeldet",

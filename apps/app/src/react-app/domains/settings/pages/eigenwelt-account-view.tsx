@@ -315,6 +315,14 @@ export function EigenweltAccountView({
             {account?.userName && account.userEmail ? (
               <LayoutSectionItemDescription>{account.userEmail}</LayoutSectionItemDescription>
             ) : null}
+            {entitlementsQuery.data?.reconnecting ? (
+              <LayoutSectionItemDescription>
+                <span role="status" className="flex items-center gap-2">
+                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                  {t("account.reconnecting")} {t("account.reconnecting_description")}
+                </span>
+              </LayoutSectionItemDescription>
+            ) : null}
             <LayoutSectionItemHeaderActions>
               <Button variant="secondary" size="sm" disabled={disconnecting} onClick={() => void disconnect()}>
                 {disconnecting ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}

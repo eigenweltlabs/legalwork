@@ -58,7 +58,7 @@ export function useEigenweltEntitlements(input: {
     // off on the platform propagates without re-signing-in. Short staleness so
     // switching back to the app after a change on the platform picks it up.
     refetchOnWindowFocus: true,
-    refetchInterval: 5 * 60_000,
+    refetchInterval: (query) => query.state.data?.reconnecting ? 15_000 : 5 * 60_000,
     queryFn: async (): Promise<EigenweltEntitlementsView> => {
       if (!input.client || !input.workspaceId) {
         return { entitlements: null, account: null, platformURL: null, connected: false };

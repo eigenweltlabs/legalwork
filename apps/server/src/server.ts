@@ -149,7 +149,6 @@ import {
   waitForEigenweltSignIn,
 } from "./eigenwelt-auth.js";
 import {
-  clearCachedEigenweltPaidManifest,
   eigenweltPaidManifestRevision,
   parseManifestModels,
   readCachedEigenweltPaidManifest,
@@ -160,6 +159,7 @@ import {
   readEigenweltConnection,
   readEigenweltEntitlementsView,
   writeEigenweltConnection,
+  withEigenweltConnectionLock,
 } from "./eigenwelt-connection-store.js";
 import {
   ensureFreshPlatformToken,
@@ -2338,7 +2338,6 @@ function createRoutes(
       }
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
-      await clearCachedEigenweltPaidManifest(config);
       await rebuildEngineConfigFile(workspace);
       return jsonResponse(await readEigenweltEntitlementsView(config));
     }
@@ -2355,27 +2354,30 @@ function createRoutes(
         : typeof body.accessTokenExpiresAt === "number"
           ? body.accessTokenExpiresAt
           : null;
-    const view = await writeEigenweltConnection(config, {
-      entitlements,
-      account,
-      platformURL,
-      platformToken,
-      refreshToken,
-      accessTokenExpiresAt,
-    });
-
-    // Sign-in: cache the GLOBAL paid manifest {baseURL, apiKey, models} and
-    // rebuild the engine config so the eigenwelt provider is injected into
-    // EVERY workspace (an account provider, not a per-workspace one).
-    if (typeof body.baseURL === "string" && body.baseURL && typeof body.apiKey === "string" && body.apiKey) {
-      await writeCachedEigenweltPaidManifest(config, {
-        baseURL: body.baseURL,
-        apiKey: body.apiKey,
-        models: parseManifestModels(body.models),
-        ...(SystemOneConfigurationSchema.safeParse(body.systemOne).success ? { systemOne: SystemOneConfigurationSchema.parse(body.systemOne) } : {}),
+    const view = await withEigenweltConnectionLock(config, async () => {
+      const view = await writeEigenweltConnection(config, {
+        entitlements,
+        account,
+        platformURL,
+        platformToken,
+        refreshToken,
+        accessTokenExpiresAt,
       });
-      await rebuildEngineConfigFile(workspace);
-    }
+
+      // Sign-in: cache the GLOBAL paid manifest {baseURL, apiKey, models} and
+      // rebuild the engine config so the eigenwelt provider is injected into
+      // EVERY workspace (an account provider, not a per-workspace one).
+      if (typeof body.baseURL === "string" && body.baseURL && typeof body.apiKey === "string" && body.apiKey) {
+        await writeCachedEigenweltPaidManifest(config, {
+          baseURL: body.baseURL,
+          apiKey: body.apiKey,
+          models: parseManifestModels(body.models),
+          ...(SystemOneConfigurationSchema.safeParse(body.systemOne).success ? { systemOne: SystemOneConfigurationSchema.parse(body.systemOne) } : {}),
+        });
+        await rebuildEngineConfigFile(workspace);
+      }
+      return view;
+    });
     return jsonResponse(view);
   });
 
