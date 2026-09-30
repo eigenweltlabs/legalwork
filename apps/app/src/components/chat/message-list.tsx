@@ -1,5 +1,5 @@
 import { JevSearchCard } from "./review/jev-search-card";
-import { ReviewToolCard } from "./review/review-card";
+import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
 "use memo";
 
 import { ProjectContentsTool } from "./project/project-contents-card";
@@ -412,6 +412,7 @@ const AssistantMessage = React.memo(
 
             if (group.kind === "jev-search") return <JevSearchCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "reviews") return <ReviewToolGroup key={group.parts[0].toolCallId} parts={group.parts} />;
 
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
 

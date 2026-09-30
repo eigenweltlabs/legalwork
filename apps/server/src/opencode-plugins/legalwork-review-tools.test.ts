@@ -1,25 +1,61 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { LegalWorkReviewTools } from "./legalwork-review-tools.js";
 import { z } from "zod";
+import { SavedReviewSchema } from "@legalwork/types/reviews";
 const originalUrl = process.env.LEGALWORK_SERVER_URL, originalToken = process.env.LEGALWORK_SERVER_TOKEN;
 const calls: Array<{ path: string; search: string; method: string; body: unknown }> = [];
 let denied = false;
 let unavailable = false;
+let launchFixture = false;
+let launchFail = false;
+let launchUnreadable = false;
 const server = Bun.serve({ port: 0, async fetch(request) {
   if (request.headers.get("authorization") !== "Bearer fixture-relay") return new Response("", { status: 401 });
   const url = new URL(request.url), path = url.pathname;
   const text = await request.text(); calls.push({ path, search: url.search, method: request.method, body: text ? JSON.parse(text) : undefined });
   if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: "/project" }, { id: "nested", path: "/project/nested" }] });
   if (denied) return Response.json({ code: "review_mode_conflict", message: "Only JEV accepts typed decisions." }, { status: 422 });
+  if (launchFixture) {
+    if (path.endsWith("/library")) return Response.json({ entries: [{ id, version: 2, kind: "set", name: "DD", language: "en", source: "personal", updatedAt: 0,
+      columns: [{ key: "ip", label: "IP", kind: "classification", question: "Does {{target}} own the IP?", hint: "As of {{review_date}}", options: ["Yes", "No"] }] }] });
+    if (path.endsWith("/start") && launchFail) return Response.json({ code: "busy" }, { status: 409 });
+    if (path.endsWith("/start") && launchUnreadable) return new Response("unreadable response");
+    return Response.json(SavedReviewSchema.parse({ id, name: "DD", revision: 7, createdAt: 1, updatedAt: 1, settings: { mode: "jev", jev: null, llm: null }, columns: [], documents: [], cells: [], runId: null, status: path.endsWith("/start") ? "running" : "draft" }));
+  }
   if (path.endsWith("/project/contents")) return Response.json({ version: 1, project: { id: "project", name: "Private name", fields: [] }, sections: [{ kind: "files", path: "Contracts", unavailable, nextCursor: "page-2", items: [{ id: "Contracts/a.pdf", kind: "files", title: "a.pdf", directory: false }, { id: "Contracts/Archive", kind: "files", title: "Archive", directory: true }] }] });
   return Response.json({ fixture: true, settings: { mode: "jev" } });
 } });
 process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture-relay";
 const plugin = await LegalWorkReviewTools();
-beforeEach(() => { calls.length = 0; denied = false; unavailable = false; });
+beforeEach(() => { calls.length = 0; denied = false; unavailable = false; launchFixture = false; launchFail = false; launchUnreadable = false; });
 afterAll(() => { server.stop(true); if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = originalUrl; if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = originalToken; });
 const context = { directory: "/project", sessionID: "parent" };
 const id = "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911";
+
+test("launch copies pinned installed columns and starts immediately without repeating their text", async () => {
+  launchFixture = true;
+  const input = { name: "DD", files: Array.from({ length: 501 }, (_, index) => `room/${index}.pdf`), libraryId: id, libraryVersion: 2, context: { target: "Aster", review_date: "2026-09-30" } };
+  const result = JSON.parse(await plugin.tool.legalwork_review_launch.execute(input, context));
+  expect(result.review.status).toBe("running");
+  const writes = calls.filter(call => call.method === "POST");
+  expect(writes).toHaveLength(2);
+  expect(writes[0].body).toMatchObject({ files: input.files, columns: [{ question: "Does Aster own the IP?", hint: "As of 2026-09-30", libraryId: id, libraryVersion: 2, libraryColumnKey: "ip" }] });
+  expect(writes[1]).toMatchObject({ path: `/workspace/project/reviews/${id}/start`, body: { revision: 7, rerun: false, reprocess: false } });
+  await plugin.tool.legalwork_review_launch.execute(input, context);
+  expect(calls.filter(call => call.path.endsWith("/reviews") && call.method === "POST").map(call => z.object({ requestId: z.string() }).parse(call.body).requestId).every(value => value === z.object({ requestId: z.string() }).parse(writes[0].body).requestId)).toBe(true);
+});
+test("launch rejects changed sets or missing context before creating, and retains IDs after a failed start", async () => {
+  launchFixture = true;
+  const input = { name: "DD", files: ["room/a.pdf"], libraryId: id, libraryVersion: 2, context: { target: "Aster", review_date: "2026-09-30" } };
+  for (const bad of [{ ...input, libraryVersion: 1 }, { ...input, context: {} }]) {
+    expect(JSON.parse(await plugin.tool.legalwork_review_launch.execute(bad, context)).ok).toBe(false);
+    expect(calls.filter(call => call.method === "POST")).toHaveLength(0);
+  }
+  launchFail = true;
+  expect(JSON.parse(await plugin.tool.legalwork_review_launch.execute(input, context))).toMatchObject({ ok: false, createdReview: { review: { id } } });
+  launchFail = false; launchUnreadable = true;
+  expect(JSON.parse(await plugin.tool.legalwork_review_launch.execute(input, context))).toMatchObject({ ok: false, createdReview: { review: { id } }, nextAction: expect.stringContaining("inspect its status") });
+});
 
 test("old model/row tools are removed and the agent is instructed to read enforced settings", async () => {
   expect(Object.keys(plugin.tool)).not.toContain("tabular_review_row"); expect(Object.keys(plugin.tool)).not.toContain("tabular_review_models");

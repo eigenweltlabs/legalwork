@@ -17,6 +17,7 @@ import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-ch
 
 import { WorkspaceEntryMenu } from "./workspace-entry-menu";
 
+
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
@@ -32,6 +33,7 @@ type WorkspaceFilesPanelProps = {
   projectName?: string;
   headerTarget?: HTMLElement | null;
   isRemoteWorkspace: boolean;
+  active: boolean;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
   onClose?: () => void;
 };
@@ -54,6 +56,7 @@ export function WorkspaceFilesPanel({
   projectName,
   headerTarget,
   isRemoteWorkspace,
+  active,
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
@@ -76,9 +79,13 @@ export function WorkspaceFilesPanel({
       }
       return client.listWorkspaceDirectory(workspaceId, path);
     },
-    enabled: Boolean(client && workspaceId),
+    enabled: Boolean(active && client && workspaceId),
     staleTime: 15_000,
-    refetchOnWindowFocus: false,
+    // Agent scripts and external apps can add files without engine events.
+    // Poll only the visible folder; hidden/collapsed panes retain their state.
+    refetchInterval: active ? 2_000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
   });
 
   const crumbs = React.useMemo(() => {
@@ -187,7 +194,7 @@ export function WorkspaceFilesPanel({
           })}
         </nav>
 
-        <WorkspaceEntryMenu client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace}
+        <WorkspaceEntryMenu client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
           folderPath={path} onRefresh={() => void refetch()} className="flex min-h-0 flex-1 flex-col">
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
           {isLoading ? (
@@ -226,7 +233,7 @@ export function WorkspaceFilesPanel({
               {visibleEntries.map((entry) => {
                 const displayName = entry.kind === "file" ? projectFileDisplayName(entry.path, entry.name) : entry.name;
                 return (
-                <WorkspaceEntryMenu key={entry.path} client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace}
+                <WorkspaceEntryMenu key={entry.path} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
                   folderPath={path} entry={entry} onOpen={() => entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry)}
                   onRefresh={() => void refetch()}>
                 <button

@@ -1047,6 +1047,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // panel. Mark workspace previews stale so active files reload immediately
     // and closed files fetch fresh bytes the next time they are opened.
     void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     // Only emits for runs this client instrumented (markTaskRunStart in the
     // send path); also dedupes idle events from multiple workspace syncs.
     const runStartedAt = takeTaskRunStart(props.sessionID);
@@ -1272,6 +1273,21 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   }
 }
 
+export function seedTodoState(
+  workspaceId: string,
+  sessionId: string,
+  todos: Todo[],
+  snapshotStartedAt = 0,
+) {
+  const queryClient = getReactQueryClient();
+  const key = todoKey(workspaceId, sessionId);
+  const current = queryClient.getQueryState(key);
+  // Cached snapshots are replayed when session metadata changes. Only a
+  // fresh read may replace an existing plan, and never a newer live update.
+  if (current?.data !== undefined && current.dataUpdatedAt >= snapshotStartedAt) return;
+  queryClient.setQueryData(key, todos);
+}
+
 export function seedSessionState(workspaceId: string, snapshot: LegalworkSessionSnapshot) {
   const queryClient = getReactQueryClient();
   const key = transcriptKey(workspaceId, snapshot.session.id);
@@ -1302,7 +1318,7 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
   if (isLiveStatus(snapshot.status) || !activity?.runActive) {
     queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
   }
-  queryClient.setQueryData(todoKey(workspaceId, snapshot.session.id), snapshot.todos);
+  seedTodoState(workspaceId, snapshot.session.id, snapshot.todos);
 }
 
 /**

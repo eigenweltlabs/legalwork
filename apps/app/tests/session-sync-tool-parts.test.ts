@@ -173,3 +173,17 @@ describe("tool part mapper", () => {
     }
   });
 });
+
+test("finishing an agent run refreshes its project file list without invalidating another project", () => {
+  const syncInput = { workspaceId: "workspace-files-a", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
+  const cleanup = __createWorkspaceSessionSyncForTest(syncInput);
+  const cache = getReactQueryClient();
+  const own = ["workspace-files", syncInput.workspaceId, "reports"];
+  const other = ["workspace-files", "workspace-files-b", "reports"];
+  cache.setQueryData(own, { entries: [] }); cache.setQueryData(other, { entries: [] });
+  try {
+    __applySessionSyncEventForTest(syncInput, { type: "session.idle", properties: { sessionID: "session-files" } });
+    expect(cache.getQueryState(own)?.isInvalidated).toBe(true);
+    expect(cache.getQueryState(other)?.isInvalidated).toBe(false);
+  } finally { cleanup(); }
+});
