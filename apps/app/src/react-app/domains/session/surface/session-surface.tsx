@@ -2062,7 +2062,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="lw-session-typography flex h-full min-h-0 flex-col">
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">

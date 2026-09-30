@@ -767,7 +767,7 @@ export function AppSidebar(props: AppSidebarProps) {
         </MainActionRail>}
         <div className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
         {customizingNavigation ? <SidebarCustomization onDone={finishCustomizingNavigation} /> : <>
-        <div className="flex shrink-0 flex-col pb-1">
+        <div className="flex shrink-0 flex-col pb-1 mac:titlebar-no-drag">
         <div className="shrink-0 px-2 pb-1 mac:titlebar-no-drag">
           <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", showSidebarBrandName ? "items-center py-2" : "items-center py-0") }>
             <img
@@ -791,10 +791,10 @@ export function AppSidebar(props: AppSidebarProps) {
           </div>
         </div>
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
+        {newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>
         <div data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
-          {shellConfig.chatSectionOrder.filter(key => shellConfig[key]).map(key => {
-            if (key === "navNewChat") return <SidebarMenu key={key} className="px-2.5 pb-3">{newChatSection}</SidebarMenu>;
+          {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
             if (key !== "sectionProjects") return sessionSection(key);
             return <section key={key} className="pb-3">
               <div className="flex h-9 items-center gap-1 px-4">
