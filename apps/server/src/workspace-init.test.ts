@@ -16,6 +16,13 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
+  test("startup leaves a disconnected project folder missing", async () => {
+    await withWorkspace(async (root) => {
+      const disconnected = join(root, "Disconnected project");
+      expect(await ensureWorkspaceFiles(disconnected, "starter")).toEqual({ changed: false, reloadReasons: [] });
+      expect(await stat(disconnected).catch(() => null)).toBeNull();
+    });
+  });
   test("creates LegalWork workspace config and seeds bundled-core skills", async () => {
     await withWorkspace(async (root) => {
       const result = await ensureWorkspaceFiles(root, "starter");
@@ -23,12 +30,14 @@ describe("ensureWorkspaceFiles", () => {
       await expect(readFile(join(root, "opencode.jsonc"), "utf8")).rejects.toThrow();
       expect(legalwork).toContain('"authorizedRoots"');
 
-      // bundled-core: the tabular-review engine + its HTML template + the extractor agent
-      const skill = await readFile(join(root, ".opencode", "skills", "tabular-review", "SKILL.md"), "utf8");
-      expect(skill).toContain("name: tabular-review");
-      await expect(
-        stat(join(root, ".opencode", "skills", "tabular-review", "assets", "review-template.html")),
-      ).resolves.toBeDefined();
+      await expect(stat(join(root, ".opencode", "skills", "tabular-review"))).rejects.toThrow();
+      const reviewSkill = await readFile(join(root, ".opencode", "skills", "start-tabular-review", "SKILL.md"), "utf8");
+      expect(reviewSkill).toContain("name: start-tabular-review");
+      const authoring = await readFile(join(root, ".opencode", "skills", "author-review-prompts", "SKILL.md"), "utf8");
+      expect(authoring).toContain("legalwork_review_library_save");
+      expect(authoring).toContain('kind: "set"');
+      expect(reviewSkill).toContain("legalwork_review_start");
+      await expect(stat(join(root, ".opencode", "skills", "pdf-tools", "assets", "vendor", "pdf.min.js"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "document-extractor.md"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "fusion-candidate.md"))).resolves.toBeDefined();
       expect([...result.reloadReasons].sort()).toEqual(["agents", "commands", "skills"]);
@@ -89,14 +98,14 @@ describe("ensureWorkspaceFiles", () => {
 
   test("refreshes a stale bundled-core file (older copy, no stamp)", async () => {
     await withWorkspace(async (root) => {
-      const tpl = join(root, ".opencode", "skills", "tabular-review", "assets", "review-template.html");
+      const tpl = join(root, ".opencode", "skills", "pdf-tools", "SKILL.md");
       await mkdir(dirname(tpl), { recursive: true });
       await writeFile(tpl, "OLD UGLY TEMPLATE", "utf8");
 
       const result = await ensureWorkspaceFiles(root, "starter");
       const after = await readFile(tpl, "utf8");
       expect(after).not.toBe("OLD UGLY TEMPLATE");
-      expect(after).toContain("__REVIEW_DATA__"); // refreshed to the current bundled template
+      expect(after).toContain("pdf-tools");
       expect(result.reloadReasons).toContain("skills");
 
       // now stamped at the current bundle — a second ensure is a no-op

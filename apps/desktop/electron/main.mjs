@@ -56,6 +56,7 @@ import { createBrowserPanel } from "./browser-panel.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
+import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
 import { parseSkillFrontmatter } from "./skill-frontmatter.mjs";
@@ -1142,6 +1143,21 @@ const runtimeManager = createRuntimeManager({
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
+    listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
+      .filter((recording) => recording.projectIds?.includes(projectId))
+      .map(({ id, title, durationMs, status, segmentCount }) => ({ id, title, durationMs, status, segmentCount })),
+    readProjectRecording: async (projectId, id) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      if (!linked) return null;
+      const detail = await recorderService().getRecording(id);
+      return detail ? { segments: detail.segments } : null;
+    },
+    exportProjectRecording: async (projectId, id, projectRoot) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return false;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      return linked && (await recorderService().exportToProject(id, projectRoot)) !== null;
+    },
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },
@@ -1658,7 +1674,21 @@ async function openDetachedSessionWindow(event, input = {}) {
     throw new Error("A workspace and chat session are required to open a new window.");
   }
 
-  const key = `${workspaceId}:${sessionId}`;
+  return openDetachedWindow(event, `${workspaceId}:${sessionId}`, sessionWindowRoute(workspaceId, sessionId), input.title);
+}
+
+async function openDetachedProjectWindow(event, input) {
+  const workspaceId = String(input?.workspaceId ?? "").trim();
+  const page = input?.page;
+  if (!workspaceId || !["home", "reviews", "tasks", "files"].includes(page)) {
+    throw new Error("A workspace and valid project page are required to open a new window.");
+  }
+  const path = page === "home" || page === "files" ? "project" : page;
+  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
+  return openDetachedWindow(event, `project:${workspaceId}:${page}`, route, input.title);
+}
+
+async function openDetachedWindow(event, key, route, title) {
   const existing = detachedSessionWindows.get(key);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
@@ -1683,7 +1713,7 @@ async function openDetachedSessionWindow(event, input = {}) {
     height: 760,
     minWidth: 640,
     minHeight: 480,
-    title: detachedWindowTitle(input?.title),
+    title: detachedWindowTitle(title),
     show: false,
     ...windowAppearanceOptions,
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
@@ -1701,9 +1731,9 @@ async function openDetachedSessionWindow(event, input = {}) {
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
   logWindowErrors(sessionWindow.webContents);
 
-  sessionWindow.on("page-title-updated", (pageTitleEvent, title) => {
+  sessionWindow.on("page-title-updated", (pageTitleEvent, pageTitle) => {
     pageTitleEvent.preventDefault();
-    sessionWindow.setTitle(detachedWindowTitle(title || input?.title));
+    sessionWindow.setTitle(detachedWindowTitle(pageTitle || title));
   });
   sessionWindow.once("ready-to-show", () => {
     sessionWindow.show();
@@ -1734,7 +1764,7 @@ async function openDetachedSessionWindow(event, input = {}) {
 
   const sourceUrl = event.sender.getURL();
   const appDocumentUrl = sourceUrl.split("#", 1)[0];
-  await sessionWindow.loadURL(`${appDocumentUrl}#${sessionWindowRoute(workspaceId, sessionId)}`);
+  await sessionWindow.loadURL(`${appDocumentUrl}#${route}`);
   return true;
 }
 
@@ -1750,6 +1780,7 @@ const desktopCommandHandlers = {
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
+  "openProjectWindow": async (event, input) => openDetachedProjectWindow(event, input),
   "workspaceBootstrap": async (event, ...args) => {
       return workspaceStore.readWorkspaceState();
   },
@@ -1761,6 +1792,12 @@ const desktopCommandHandlers = {
   },
   "workspaceCreate": async (event, ...args) => {
       return workspaceStore.createWorkspace(args[0] ?? {});
+  },
+  "workspaceCopyFiles": async (event, ...args) => {
+      const input = args[0];
+      const state = await workspaceStore.readWorkspaceState();
+      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, await runtimeManager.legalworkServerInfo());
+      return copyFilesIntoProject(root, input.paths, undefined, input.folder);
   },
   "workspaceCreateRemote": async (event, ...args) => {
       return workspaceStore.createRemoteWorkspace(args[0] ?? {});
@@ -2429,6 +2466,9 @@ const desktopCommandHandlers = {
   },
   "audioRecordingRename": async (event, ...args) => {
       return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
+  },
+  "audioRecordingSetProject": async (event, ...args) => {
+      return recorderService().setRecordingProject(String(args[0] ?? ""), String(args[1] ?? ""), args[2] === true);
   },
   "audioRecordingRetain": async (event, ...args) => {
       return recorderService().retainRecording(String(args[0] ?? ""));

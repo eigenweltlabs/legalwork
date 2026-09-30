@@ -64,12 +64,16 @@ export function useOfficeEditor(props: OfficeEditorProps) {
       }
       if (!agentTool.current || !serialize.current) return { success: false, error: t("office_editor.still_loading") };
       if (busy.current) return { success: false, error: t("office_editor.busy_saving") };
-      if (latest.current.readOnly && toolName !== "read" && toolName !== "preview") return { success: false, error: t("office_editor.read_only") };
-      busy.current = true; setSaving(true); latest.current.onSavingChange?.(true);
+      const reading = toolName === "read" || toolName === "read_presentation";
+      if (latest.current.readOnly && !reading && toolName !== "preview") return { success: false, error: t("office_editor.read_only") };
+      busy.current = true;
+      if (!reading) { setSaving(true); latest.current.onSavingChange?.(true); }
       let mutated = false;
       try {
-        if (document.activeElement instanceof HTMLElement && host.current?.contains(document.activeElement)) document.activeElement.blur();
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        if (!reading) {
+          if (document.activeElement instanceof HTMLElement && host.current?.contains(document.activeElement)) document.activeElement.blur();
+          await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        }
         const result = await agentTool.current(toolName, args);
         mutated = result.mutated === true;
         if (!mutated) return { success: true, data: result.data, saved: false };
@@ -82,7 +86,10 @@ export function useOfficeEditor(props: OfficeEditorProps) {
         return { success: true, data: result.data, saved: true };
       } catch (cause) {
         return { success: false, saved: false, error: `${cause instanceof Error ? cause.message : t("office_editor.tool_failed")}${mutated ? " The edit remains in the open draft. Retry Save; do not repeat the edit." : ""}` };
-      } finally { busy.current = false; setSaving(false); latest.current.onSavingChange?.(false); }
+      } finally {
+        busy.current = false;
+        if (!reading) { setSaving(false); latest.current.onSavingChange?.(false); }
+      }
     };
     const api = { save, getBuffer, executeAgentTool };
     props.apiRef.current = api;

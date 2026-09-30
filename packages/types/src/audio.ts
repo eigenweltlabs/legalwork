@@ -198,6 +198,8 @@ export type AudioRecordingMeta = {
   ephemeral?: boolean;
   /** Number of distinct speakers identified, or null when not diarized. */
   speakerCount?: number | null;
+  /** Explicit project associations; global recordings may remain unassigned. */
+  projectIds?: string[];
 };
 
 export type AudioRecordingDetail = {
@@ -278,6 +280,7 @@ export type AudioSystemDictationPasteResult = {
 
 export type AudioRecordingStartInput = {
   title?: string;
+  projectId?: string;
   language: AudioTranscribeLanguage;
   modelId: string;
   sources: AudioCaptureSourceKind[];

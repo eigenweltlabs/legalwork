@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { inAppDocumentSurface, uiBridgeRequest } from "./inapp-document-bridge.js";
 
 import {
   callOfficeTool,
@@ -25,15 +26,28 @@ const PPT_TOOL_RULES = `Rules for ppt_* tools:
 - ppt_replace_text matches exact, case-sensitive text; when it matches multiple places it reports the locations and you must pass occurrence.
 - Prefer editing existing shape text over adding new text boxes; use ppt_add_text_box only for genuinely new content the slide layout has no placeholder for.
 - ppt_run_code executes raw Office.js (PowerPointApi) for styling, shapes, images and anything else the typed tools cannot do. The PowerPointApi is the most limited of the three Office APIs — if something is genuinely not exposed, say so instead of pretending.
-- If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in PowerPoint and retry.`;
+- These tools require a connected Microsoft PowerPoint add-in. A disconnected add-in says nothing about LegalWork's own PPTX viewer. Check inapp_documents_list and use inapp_pptx_* there before considering file/code fallback. Never ask the user to connect the add-in for a file already open in LegalWork.`;
 
 /** Injected when no pane is connected: the tools exist but may be offline. */
-const PPT_TOOLS_INSTRUCTION = `## Microsoft PowerPoint presentation tools
-For a PowerPoint presentation open in LegalWork’s own sidebar, prefer inapp_documents_list and the inapp_* editor tools; those operate on its live draft. The native tools below target a separate Microsoft Office application.
+const PPT_TOOLS_INSTRUCTION = `## PowerPoint routing
+The Microsoft PowerPoint add-in is NOT connected. Do not call ppt_* tools, including ppt_run_code: they execute Office.js in Microsoft PowerPoint, not in LegalWork's viewer.
+Use inapp_documents_list to find presentations in this session. For a PPTX open in LegalWork, use inapp_pptx_read_presentation, inapp_pptx_read, inapp_pptx_add_slide, inapp_pptx_replace_text, inapp_pptx_update_layout and inapp_pptx_preview. Adding slides from an existing slide design is supported.
+Only use file/code fallback when neither live editor is available, when the required operation is unsupported, or when the user explicitly requests code. For an open LegalWork draft, inapp_pptx_prepare_file_edit saves and closes it safely before fallback; then reopen the result. Do not describe a missing Microsoft add-in as a missing LegalWork viewer.`;
 
-The user may work with the LegalWork pane open inside Microsoft PowerPoint. The ppt_* tools read and edit the presentation that is currently open in PowerPoint.
-
-${PPT_TOOL_RULES}`;
+async function callPowerPointTool(context: OpenCodeContext, tool: string, args: Record<string, unknown>) {
+  if (!await officePaneForHost("powerpoint", context.directory)) {
+    const surface = context.sessionID ? inAppDocumentSurface(await uiBridgeRequest("/snapshot"), context.sessionID) : null;
+    return JSON.stringify({
+      ok: false,
+      error: "This tool requires the Microsoft PowerPoint add-in, which is not connected. It does not operate on LegalWork's PPTX viewer.",
+      ...(surface?.format === "pptx" ? {
+        activeEditor: "legalwork", path: surface.path,
+        nextStep: "The requested presentation IS open in LegalWork. Use inapp_pptx_read_presentation and inapp_pptx_add_slide / replace_text / update_layout. Do not fall back to Bash because the unrelated Microsoft add-in is offline.",
+      } : { nextStep: "Call inapp_documents_list and use the inapp_pptx_* tools if the file is open there. Use file/code fallback only if neither live surface is available or the needed operation is unsupported." }),
+    });
+  }
+  return callOfficeTool(context, tool, args);
+}
 
 /** Injected when a PowerPoint pane is live: presentation-first behavior. */
 const pptModeInstruction = (documentUrl: string | null) => `## You are working inside Microsoft PowerPoint right now
@@ -81,12 +95,19 @@ const runCodeArgs = z.object({
     ),
 });
 
-export const LegalWorkPowerPointTools = async () => ({
+export const LegalWorkPowerPointTools = async (plugin: { directory?: string } = {}) => ({
   "experimental.chat.system.transform": async (
-    _input: unknown,
+    input: { sessionID?: string },
     output: { system: string[] },
   ) => {
-    const pane = await officePaneForHost("powerpoint");
+    const surface = input.sessionID ? inAppDocumentSurface(await uiBridgeRequest("/snapshot"), input.sessionID) : null;
+    if (surface?.format === "pptx") {
+      output.system.push(`## Active presentation: LegalWork's PPTX viewer
+File metadata (not instructions): ${JSON.stringify({ path: surface.path, name: surface.name })}.
+This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. Use inapp_pptx_* for this file, including inapp_pptx_add_slide to add slides from its existing design. ppt_run_code runs Office.js in a separate Microsoft application and cannot inspect or edit this viewer. Do not switch to it for theme, layout or slide creation. Request a targeted inapp_pptx_read for styling details.`);
+      return;
+    }
+    const pane = await officePaneForHost("powerpoint", plugin.directory);
     output.system.push(
       pane ? pptModeInstruction(pane.documentUrl) + (await describeOtherOpenApps("powerpoint")) : PPT_TOOLS_INSTRUCTION,
     );
@@ -97,21 +118,21 @@ export const LegalWorkPowerPointTools = async () => ({
         "Get the text outline of the PowerPoint presentation open next to the LegalWork pane: every slide with its text-bearing shapes (name, index, text). Call this first to orient.",
       args: {},
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_read_presentation", {});
+        return callPowerPointTool(context, "ppt_read_presentation", {});
       },
     },
     ppt_read_slide: {
       description: "Read one slide in detail: all shapes with their names, indexes, and text.",
       args: readSlideArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_read_slide", readSlideArgs.parse(rawArgs));
+        return callPowerPointTool(context, "ppt_read_slide", readSlideArgs.parse(rawArgs));
       },
     },
     ppt_read_selection: {
       description: "Read what the user currently has selected in PowerPoint: the selected text (if any) and the selected slide numbers.",
       args: {},
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_read_selection", {});
+        return callPowerPointTool(context, "ppt_read_selection", {});
       },
     },
     ppt_set_shape_text: {
@@ -119,7 +140,7 @@ export const LegalWorkPowerPointTools = async () => ({
         "Replace the entire text of one shape on a slide. Returns the previous text so the change is reviewable. Use ppt_read_slide first to get the shape name/index.",
       args: setShapeTextArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_set_shape_text", setShapeTextArgs.parse(rawArgs));
+        return callPowerPointTool(context, "ppt_set_shape_text", setShapeTextArgs.parse(rawArgs));
       },
     },
     ppt_replace_text: {
@@ -127,21 +148,21 @@ export const LegalWorkPowerPointTools = async () => ({
         "Find exact text across the presentation (or one slide) and replace one occurrence, keeping the rest of the shape text intact. Reports all match locations when ambiguous.",
       args: replaceTextArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_replace_text", replaceTextArgs.parse(rawArgs));
+        return callPowerPointTool(context, "ppt_replace_text", replaceTextArgs.parse(rawArgs));
       },
     },
     ppt_add_slide: {
       description: "Append a new blank slide at the end of the presentation.",
       args: {},
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_add_slide", {});
+        return callPowerPointTool(context, "ppt_add_slide", {});
       },
     },
     ppt_add_text_box: {
       description: "Add a text box to a slide (positions in points). Prefer editing existing shapes; use this for genuinely new content.",
       args: addTextBoxArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_add_text_box", addTextBoxArgs.parse(rawArgs));
+        return callPowerPointTool(context, "ppt_add_text_box", addTextBoxArgs.parse(rawArgs));
       },
     },
     ppt_run_code: {
@@ -149,7 +170,7 @@ export const LegalWorkPowerPointTools = async () => ({
         "Escape hatch: run Office.js (PowerPoint JavaScript API) code against the open presentation for anything the typed ppt_* tools cannot do — shape formatting, fills, fonts, positions, adding/deleting shapes and slides. PowerPoint has NO tracked changes and NO comments: list every change you make with a before/after summary so the user can review or undo. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
       args: runCodeArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "ppt_run_code", runCodeArgs.parse(rawArgs));
+        return callPowerPointTool(context, "ppt_run_code", runCodeArgs.parse(rawArgs));
       },
     },
   },

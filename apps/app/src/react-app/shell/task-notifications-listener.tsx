@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useDetachedWindow } from "./use-detached-window";
 
 import { toast } from "@/components/ui/sonner";
 import { desktopNotificationShow } from "@/app/lib/desktop";
@@ -8,6 +8,7 @@ import { createLegalworkServerClient, type LegalworkTaskNotification } from "@/a
 import { isDesktopRuntime } from "@/app/utils";
 import { useNotificationStore, useUnreadTaskCount } from "@/react-app/kernel/notification-store";
 import { usePlatform, type Platform } from "@/react-app/kernel/platform";
+import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
 
 import { useTaskNotificationPreferences } from "../domains/tasks/task-notification-preferences";
 import {
@@ -25,7 +26,10 @@ import { resolveLegalworkConnection } from "./legalwork-connection";
 import { notifyEvent } from "./notifications";
 import { useShowTasksPane } from "./show-tasks-pane";
 
-/** How often the server is asked; its own checks run every minute or with a sync round. */
+/**
+ * How often the server is asked while it sends no sync events; with them, it
+ * is asked whenever the tasks changed (a round, a reminder come due).
+ */
 const POLL_MS = 30_000;
 /** The first ask after start: what came due, or arrived, while the app was closed. */
 const FIRST_POLL_MS = 4_000;
@@ -43,9 +47,10 @@ function nonce(): string {
 }
 
 /**
- * Headless: announces tasks while the app runs. Every half minute it claims
- * the task notifications the local server noted (task-notifications.ts on
- * the server), keeps what the user's settings ask for, and announces it: a
+ * Headless: announces tasks while the app runs. Whenever the tasks changed
+ * (the server's sync events; every half minute without them) it claims the
+ * task notifications the local server noted (task-notifications.ts on the
+ * server), keeps what the user's settings ask for, and announces it: a
  * toast while the window is in front, a system notification while it is not.
  * Each is also kept as a notification center entry, which is what the count
  * next to Tasks in the sidebar reads until the Tasks pane is opened (the bell
@@ -55,8 +60,7 @@ function nonce(): string {
  * the app icon, to the main one.
  */
 export function TaskNotificationsListener() {
-  const { search } = useLocation();
-  const detached = new URLSearchParams(search).get("detached") === "1";
+  const detached = useDetachedWindow();
   const platform = usePlatform();
   const showTasksPane = useShowTasksPane();
   const showTasksPaneRef = useRef(showTasksPane);
@@ -124,8 +128,10 @@ export function TaskNotificationsListener() {
       }
     };
 
-    const poll = async () => {
+    const poll = async (heard = false) => {
+      window.clearTimeout(timer);
       try {
+        if (!heard && useSyncEventsLive.getState().live) return;
         const connection = await resolveLegalworkConnection();
         const token = connection.resolvedToken || undefined;
         const hostToken = connection.resolvedHostToken || undefined;
@@ -138,13 +144,19 @@ export function TaskNotificationsListener() {
       } catch {
         // The server is still starting, or predates task notifications: ask again later.
       } finally {
+        // A claim for an event may overlap the clock's: one timer stays.
+        window.clearTimeout(timer);
         if (!stopped) timer = window.setTimeout(() => void poll(), POLL_MS);
       }
     };
 
     timer = window.setTimeout(() => void poll(), FIRST_POLL_MS);
+    const unsubscribe = onSyncPoke((poke) => {
+      if (poke.tasks || poke.resync) void poll(true);
+    });
     return () => {
       stopped = true;
+      unsubscribe();
       window.clearTimeout(timer);
     };
   }, [detached]);

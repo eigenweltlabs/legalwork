@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { PowerPointViewer, type PowerPointViewerHandle } from "pptx-react-viewer/viewer";
-import { pptxReadSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
+import { officeFileSchema, pptxReadSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
+import { readPptxContent } from "./pptx-agent-read";
+import { addPptxSlide } from "./pptx-agent-slides";
 import { pptxVisualFeedback } from "./pptx-visual-feedback";
 import { replaceTextSegments } from "./office-agent-text";
 import { translationsEn, keyToLabel } from "pptx-react-viewer/i18n";
@@ -49,22 +51,20 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
   state.agentTool.current = async (name, rawArgs) => {
     const api = editor.current;
     if (!api || !api.getSlideCount()) throw new Error(t("pptx.still_loading"));
-    if (!["read", "preview", "replace_text", "update_layout"].includes(name)) throw new Error(t("pptx.unknown_tool"));
+    if (name === "add_slide") return addPptxSlide(() => editor.current!, rawArgs, () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    if (!["read", "read_presentation", "preview", "replace_text", "update_layout"].includes(name)) throw new Error(`${t("pptx.unknown_tool")} Supported tools: read_presentation, read, add_slide, replace_text, update_layout, preview, save. Use the named inapp_pptx_* tools and their schemas; do not guess UI actions.`);
+    if (name === "read_presentation") {
+      officeFileSchema.parse(rawArgs);
+      return { data: readPptxContent(api) };
+    }
     const args = pptxReadSchema.parse(rawArgs);
+    if (name === "read") return { data: readPptxContent(api, args.slideIndex) };
     const slideIndex = args.slideIndex ?? api.getActiveSlideIndex();
     const slide = api.getSlide(slideIndex);
     if (!slide) throw new Error(t("pptx.slide_not_found"));
     api.setActiveSlideIndex(slideIndex);
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     if (name === "preview") return { data: { slideIndex, ...await pptxVisualFeedback(state.host.current, true) } };
-    if (name === "read") return { data: {
-      activeSlideIndex: api.getActiveSlideIndex(), slideIndex,
-      slides: api.getSlides().map((item, index) => ({ index, elementCount: item.elements.length })),
-      elements: api.getElements(slideIndex).map((element) => ({ id: element.id, type: element.type, x: element.x, y: element.y, width: element.width, height: element.height, ...("text" in element ? { text: element.text, textStyle: { fontSize: element.textStyle?.fontSize, fontFamily: element.textStyle?.fontFamily, bold: element.textStyle?.bold, align: element.textStyle?.align }, textRuns: element.textSegments?.map((segment) => ({ text: segment.text, fontSize: segment.style?.fontSize, bold: segment.style?.bold })) } : {}), ...(element.type === "chart" ? { chart: { type: element.chartData?.chartType, categories: element.chartData?.categories, series: element.chartData?.series.map((series) => ({ name: series.name, values: series.values })) } } : {}), ...(element.type === "table" ? { rows: element.tableData?.rows.map((row) => row.cells.map((cell) => cell.text)) } : {}) })),
-      notes: slide.notes,
-      ...await pptxVisualFeedback(state.host.current),
-      selectedElementIds: api.getSelectedElementIds(),
-    } };
     if (name === "update_layout") {
       const edit = pptxLayoutSchema.parse(rawArgs);
       const element = editor.current!.getElementById(edit.elementId, slideIndex);

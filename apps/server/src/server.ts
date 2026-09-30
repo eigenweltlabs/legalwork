@@ -1,6 +1,15 @@
 import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
+import { z } from "zod";
+import { reviewSourcePage } from "./reviews/source-page.js";
+import { searchSessionContents, searchFileContents } from "./content-search.js";
+import { CorpusService } from "./corpus/service.js";
+import { extractCorpusText } from "./corpus/extract.js";
+import { readSystemOneSettings, systemOne } from "./systemone.js";
+import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
+import { registerSystemOneRoutes } from "./routes/systemone.js";
+import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
@@ -20,6 +29,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import OpenAI from "openai";
 import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
+import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
@@ -83,6 +93,17 @@ import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runn
 import { openBenchmarkStore } from "./benchmarks/store.js";
 import { registerBenchmarkRoutes } from "./routes/benchmarks.js";
 import { registerStorageRoutes } from "./routes/file-storage.js";
+import { DocumentPreparation } from "./document-preparation/service.js";
+import { ReviewService } from "./reviews/service.js";
+import { ReviewExecutor } from "./reviews/executor.js";
+import { ReviewSessions } from "./reviews/sessions.js";
+import { registerReviewRoutes } from "./routes/reviews.js";
+import { ReviewDefaults } from "./reviews/storage.js";
+import { ReviewLibrary } from "./reviews/library.js";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
+import { registerOcrRoutes } from "./routes/ocr.js";
+import { OcrManager } from "./ocr/manager.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -164,8 +185,10 @@ import {
   EIGENWELT_HUB_MAX_BATCH_ITEMS,
   EIGENWELT_HUB_MAX_PAYLOAD_BYTES,
   EIGENWELT_HUB_MAX_SECRET_BYTES,
+  type EigenweltHubItemDetail,
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
+import { startSyncEvents } from "./eigenwelt-sync-events.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
   EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
@@ -173,9 +196,26 @@ import {
   intakeListMembers,
   requireIntakeClient,
 } from "./eigenwelt-intake.js";
-import { taskStore } from "./task-store.js";
+import { parseTaskConflictChoice, taskStore } from "./task-store.js";
 import { startTaskReminderTimer } from "./task-notifications.js";
 import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer } from "./task-sync.js";
+import {
+  configureProjectSync,
+  noteProjectDetailsSaved,
+  noteProjectFoldersChanged,
+  noteProjectRemoved,
+  noteProjectRenamed,
+  projectSyncActionSchema,
+  projectSyncOverview,
+  projectSyncStatus,
+  resolveProjectSync,
+  runProjectSync,
+  saveProjectSyncSettings,
+  signOutOfFirmProjects,
+  startProjectSyncTimer,
+  stopProjectSync,
+} from "./project-sync.js";
+import { projectSyncSettingsSchema } from "./project-sync-store.js";
 import {
   connectedTaskOrgId,
   parseTaskCreate,
@@ -722,7 +762,7 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
-export async function startServer(config: ServerConfig): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -740,6 +780,12 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   // Tasks push and pull with the firm's account in the background (a no-op
   // while no firm is connected); each local write also asks for a round.
   const stopTaskSync = startTaskSyncTimer(config);
+  // Synced projects (Akten) likewise; a project arriving from the firm is a
+  // new folder for the reload watchers too.
+  configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
+  const stopProjectSyncTimer = startProjectSyncTimer(config);
+  // The firm pokes this computer when something changed, so rounds start at once.
+  const stopSyncEvents = startSyncEvents(config);
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
@@ -750,7 +796,22 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner);
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
+  const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
+  const corpus = new CorpusService({
+    selection: async () => {
+      const settings = await readSystemOneSettings(config);
+      const provider = settings.providers.find(provider => provider.id === settings.selection.providerId);
+      const model = provider?.models.find(model => model.id === settings.selection.model);
+      if (provider?.status !== "ready" || !model?.questionTypes.includes("noul") || !model.questionTypes.includes("choice"))
+        throw new ApiError(409, "corpus_provider", "Select an available JEV provider supporting yes/no and classification in Settings.");
+      return settings.selection;
+    },
+    extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
+    infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
+  });
+  const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus);
 
   const serverOptions: {
     hostname: string;
@@ -921,6 +982,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     idleTimeout: 120,
   });
 
+  if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();
+
   // Optional HTTPS listener for the Word add-in. It shares the exact same
   // fetch handler (API, OpenCode proxy, and /word-addin static hosting), so
   // the task pane talks to a single same-origin base URL. Word requires
@@ -961,7 +1024,13 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       approvals.dispose();
+      await corpus.stop();
+      reviews.stop();
+      preparation.stop();
+      ocr.stop();
       stopTaskSync();
+      stopProjectSyncTimer();
+      stopSyncEvents();
       stopTaskReminders();
       benchmarkRunner.dispose();
       watcherHandle.close();
@@ -1471,9 +1540,44 @@ function createRoutes(
   officeTools: OfficeToolRelay,
   onWorkspacesChanged: () => void,
   benchmarkRunner: BenchmarkRunner,
+  ocr: OcrManager,
+  preparation: DocumentPreparation,
+  reviews: ReviewService,
+  corpus: CorpusService,
 ): Route[] {
   const routes: Route[] = [];
-  registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace });
+  registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
+    const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
+    if (primary) {
+      await writeLegalworkRuntimeConfigFile(config, primary.id);
+      idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+        for (const workspace of config.workspaces) {
+          if (workspace.workspaceType === "remote") continue;
+          try {
+            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace);
+          } catch { /* A stopped engine will read the updated configuration on startup. */ }
+        }
+      });
+    }
+  } });
+  const reviewSessions = new ReviewSessions(workspace => {
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    return {
+      get: async id => {
+        const result = await client.session.get({ sessionID: id });
+        if (result.response?.status === 404) return null;
+        return unwrapOpencodeResult(result, "/session");
+      },
+      list: async () => unwrapOpencodeResult(await client.session.list(), "/session"),
+      messages: async (id, limit) => unwrapOpencodeResult(await client.session.messages({ sessionID: id, limit }), "/session/message"),
+      create: async title => unwrapOpencodeResult(await client.session.create({ title }), "/session"),
+      unarchive: async id => unwrapOpencodeResult(await client.session.update({ sessionID: id, time: { archived: 0 } }), "/session"),
+    };
+  });
+  registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
+  const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
 
   registerCoreRoutes({
     routes,
@@ -1498,17 +1602,23 @@ function createRoutes(
   });
 
   registerWorkspaceRoutes({
+    projectFolders,
     routes,
     config,
     onWorkspacesChanged,
     jsonResponse,
     readJsonBody,
+    readJsonBodyLimited,
+    requireClientScope,
     readOptionalJsonBody,
     parseOptionalBoolean,
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
     reloadOpencodeEngine,
+    onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
+    onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
+    onProjectRemoved: (workspaceId) => noteProjectRemoved(config, workspaceId),
   });
 
   registerSessionRoutes({
@@ -2092,11 +2202,19 @@ function createRoutes(
   const parseHubKind = (value: string): EigenweltHubKind => {
     if (
       value === "skill" || value === "workflow" || value === "mcp" || value === "plugin" ||
-      value === "integration" || value === "preset"
+      value === "integration" || value === "preset" || value === "review_set"
     ) {
       return value;
     }
-    throw new ApiError(400, "invalid_hub_kind", "kind must be skill, workflow, mcp or plugin.");
+    throw new ApiError(400, "invalid_hub_kind", "kind must be skill, workflow, mcp, plugin or review_set.");
+  };
+
+  // A Tabular Review prompt set from the firm's Team library becomes the
+  // member's own copy; installed again, that copy is updated.
+  const installReviewSet = async (workspaceId: string, item: EigenweltHubItemDetail) => {
+    const entry = await new ReviewLibrary(config).installShared(item.id, item.payload);
+    await recordHubInstall(config, workspaceId, item.id, { version: item.version, kind: item.kind, name: entry.name, installedAt: Date.now() });
+    return entry;
   };
 
   const parseSharedMcpSecret = (secretJson: string): Record<string, unknown> => {
@@ -2205,15 +2323,21 @@ function createRoutes(
     // tasks leave this machine first (a last push, then the wipe); changes
     // that could not be pushed stop the sign-out until `force` says otherwise.
     if (body.disconnect === true) {
-      const tasks = await signOutOfFirmTasks(config, { force: body.force === true });
-      if (!tasks.ok) {
+      const force = body.force === true;
+      // Every check first, then anything leaves: synced project copies go
+      // only once the tasks may go too.
+      const projects = await signOutOfFirmProjects(config, { force, apply: false });
+      const tasks = await signOutOfFirmTasks(config, { force });
+      const pending = (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
+      if (pending > 0) {
         throw new ApiError(
           409,
           "tasks_pending",
-          `${tasks.pending} change(s) made on this computer have not reached the firm yet.`,
-          { pending: tasks.pending },
+          `${pending} change(s) made on this computer have not reached the firm yet.`,
+          { pending },
         );
       }
+      await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
       await clearCachedEigenweltPaidManifest(config);
       await rebuildEngineConfigFile(workspace);
@@ -2249,6 +2373,7 @@ function createRoutes(
         baseURL: body.baseURL,
         apiKey: body.apiKey,
         models: parseManifestModels(body.models),
+        ...(SystemOneConfigurationSchema.safeParse(body.systemOne).success ? { systemOne: SystemOneConfigurationSchema.parse(body.systemOne) } : {}),
       });
       await rebuildEngineConfigFile(workspace);
     }
@@ -2623,6 +2748,10 @@ function createRoutes(
     }
     const allowOverwrite = body.allowOverwrite === true;
     const item = await hubGet(client, ctx.params.itemId);
+    if (item.kind === "review_set") {
+      const entry = await installReviewSet(workspace.id, item);
+      return jsonResponse({ ok: true, kind: item.kind, name: entry.name, version: item.version });
+    }
     if (item.kind === "skill" || item.kind === "workflow") {
       const files =
         item.payload && typeof item.payload === "object"
@@ -2822,6 +2951,12 @@ function createRoutes(
           }
           const res = await hubCreate(client, { kind: "plugin", name, description, payload });
           results.push({ ref, kind, ok: true, id: res.id, version: res.version });
+        } else if (kind === "review_set") {
+          // Only sets, never single prompts, go to the firm (ReviewLibrary.shareable).
+          const set = await new ReviewLibrary(config).shareable(ref);
+          // The firm's list shows at most 100 characters of a name and 500 of a description; the set keeps both whole.
+          const res = await hubCreate(client, { kind: "review_set", name: set.name.slice(0, 100), description: (description ?? set.description).slice(0, 500) || undefined, payload: { set } });
+          results.push({ ref, kind, ok: true, id: res.id, version: res.version });
         } else {
           throw new ApiError(400, "unshareable_kind", `Cannot batch-share kind: ${kind}`);
         }
@@ -2866,7 +3001,10 @@ function createRoutes(
     for (const itemId of itemIds) {
       try {
         const item = await hubGet(client, itemId);
-        if (item.kind === "skill" || item.kind === "workflow") {
+        if (item.kind === "review_set") {
+          const entry = await installReviewSet(workspace.id, item);
+          results.push({ id: item.id, kind: item.kind, name: entry.name, ok: true });
+        } else if (item.kind === "skill" || item.kind === "workflow") {
           const files = item.payload && typeof item.payload === "object"
             ? (item.payload as { files?: unknown }).files
             : null;
@@ -2987,6 +3125,69 @@ function createRoutes(
     return localTaskConnection();
   };
 
+  const projectContentSources = async (workspaceId: string): Promise<ProjectContentSources> => {
+    const workspace = await resolveWorkspace(config, workspaceId);
+    const { orgId } = await localTaskConnection();
+    return {
+      workspace, orgId, tasks: await taskStore(config), recorder: config.recorder,
+      sessions: async (limit) => {
+        const result = await createWorkspaceOpencodeClient(config, workspace).session.list({ limit });
+        return unwrapOpencodeResult(result, "/session");
+      },
+    };
+  };
+  addRoute(routes, "GET", "/workspace/:id/project/contents", "client", async (ctx) => {
+    return jsonResponse(await listProjectContents(await projectContentSources(ctx.params.id), Object.fromEntries(ctx.url.searchParams)));
+  });
+  addRoute(routes, "GET", "/workspace/:id/project/content", "client", async (ctx) => {
+    return jsonResponse(await readProjectContent(await projectContentSources(ctx.params.id), Object.fromEntries(ctx.url.searchParams)));
+  });
+
+  // Task records live in the local database, independently of project folders.
+  // A disconnected drive must not disable the server-wide task search.
+  addRoute(routes, "GET", "/tasks/search", "client", async ctx => {
+    const query = (ctx.url.searchParams.get("q") ?? "").trim().slice(0, 300);
+    const projectId = ctx.url.searchParams.get("projectId");
+    const workspace = projectId ? config.workspaces.find(workspace => workspace.id === projectId || `rem_${workspace.id}` === projectId) : undefined;
+    if (projectId && !workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+    const { orgId } = await localTaskConnection();
+    const items = (await taskStore(config)).searchTasks(query, orgId, workspace?.id ?? "", Boolean(projectId));
+    return jsonResponse({ items: items.slice(0, 60), limited: items.length > 60 });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/search-source", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const source = z.object({
+      path: z.string().min(1).max(4096), hash: z.string().regex(/^[a-f0-9]{64}$/),
+      page: z.number().int().positive(), source: z.enum(["native", "ocr"]),
+      quote: z.string().min(1).max(4000), preparationPath: z.string().max(4096).optional(),
+    }).parse(await readJsonBodyLimited(ctx.request, 32 * 1024));
+    return jsonResponse(await reviewSourcePage(workspace.path, source.path, {
+      sourceHash: source.hash, preparationPath: source.preparationPath,
+      citations: [{ page: source.page, quote: source.quote, source: source.source }],
+    }, 0, ctx.request.signal));
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/search/:kind", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const query = (ctx.url.searchParams.get("q") ?? "").trim().slice(0, 300);
+    if (query.length < 2 && !(ctx.params.kind === "tasks" && !query)) return jsonResponse({ items: [] });
+    if (ctx.params.kind === "sessions") return jsonResponse(await searchSessionContents(config, workspace, query, ctx.request.signal));
+    if (ctx.params.kind === "files") return jsonResponse(await searchFileContents(workspace, query, ctx.request.signal, preparation, ctx.url.searchParams.get("retry") === "true"));
+    if (ctx.params.kind === "tasks") {
+      const { orgId } = await localTaskConnection();
+      const items = (await taskStore(config)).searchTasks(query, orgId, workspace.id, ctx.url.searchParams.get("scope") === "project");
+      return jsonResponse({ items: items.slice(0, 60), limited: items.length > 60 });
+    }
+    throw new ApiError(400, "invalid_search_kind", "Search sessions, tasks or files.");
+  });
+
+  // A task changed here: other windows show it now, and it goes to the firm.
+  const tasksChanged = () => {
+    announceSyncChange(config, "tasks");
+    scheduleTaskSync(config);
+  };
+
   addRoute(routes, "GET", "/workspace/:id/tasks", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
@@ -3016,8 +3217,10 @@ function createRoutes(
     const { actor } = await localTaskConnection();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     // An agent filing from a session names it; that link stays on this machine.
-    const task = store.createTask(parseTaskCreate(body, workspace.id), actor);
-    scheduleTaskSync(config);
+    const input = parseTaskCreate(body, workspace.id);
+    if (input.projectId) await resolveWorkspace(config, input.projectId);
+    const task = store.createTask(input, actor);
+    tasksChanged();
     return jsonResponse({ ok: true, task }, 201);
   });
 
@@ -3034,9 +3237,25 @@ function createRoutes(
     const store = await taskStore(config);
     const { actor } = await localTaskConnection();
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
-    const task = store.patchTask(ctx.params.taskId, parseTaskPatch(body), actor);
-    scheduleTaskSync(config);
+    const patch = parseTaskPatch(body);
+    if (patch.projectId) await resolveWorkspace(config, patch.projectId);
+    const task = store.patchTask(ctx.params.taskId, patch, actor);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
+  });
+
+  // A title or description a colleague changed in the same words: which
+  // version stays (task-store.ts resolveTextConflict).
+  addRoute(routes, "POST", "/workspace/:id/tasks/:taskId/conflicts", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const store = await taskStore(config);
+    const { actor } = await localTaskConnection();
+    const choice = parseTaskConflictChoice(await readJsonBodyLimited(ctx.request, 256 * 1024));
+    const detail = store.resolveTextConflict(ctx.params.taskId, choice, actor);
+    tasksChanged();
+    return jsonResponse(detail);
   });
 
   // Soft: the task goes to the trash and comes back with /restore. An agent
@@ -3047,7 +3266,7 @@ function createRoutes(
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
     const task = store.deleteTask(ctx.params.taskId);
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
   });
 
@@ -3068,7 +3287,7 @@ function createRoutes(
     await resolveWorkspace(config, ctx.params.id);
     const store = await taskStore(config);
     const task = store.restoreTask(ctx.params.taskId);
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
   });
 
@@ -3106,7 +3325,7 @@ function createRoutes(
         bytes: new Uint8Array(await file.arrayBuffer()),
       });
     }
-    scheduleTaskSync(config);
+    tasksChanged();
     return jsonResponse({ ok: true, task });
   });
 
@@ -3121,7 +3340,7 @@ function createRoutes(
       await resolveWorkspace(config, ctx.params.id);
       const store = await taskStore(config);
       const task = await store.deleteAttachment(ctx.params.taskId, ctx.params.attachmentId);
-      scheduleTaskSync(config);
+      tasksChanged();
       return jsonResponse({ ok: true, task });
     },
   );
@@ -3225,6 +3444,55 @@ function createRoutes(
     await resolveWorkspace(config, ctx.params.id);
     const round = await runTaskSync(config);
     return jsonResponse({ ...(await taskSyncStatus()), round });
+  });
+
+  // Synced projects (project-sync.ts). The status reads without the folder,
+  // so a project whose folder is missing can still say so.
+  const syncedWorkspace = (id: string): WorkspaceInfo => {
+    const workspace = config.workspaces.find((entry) => entry.id === id && entry.workspaceType !== "remote");
+    if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+    return workspace;
+  };
+
+  // What the app windows hear about sync (app-sync-events.ts): one stream each.
+  addRoute(routes, "GET", "/sync/events", "client", async (ctx) => syncEventStream(config, ctx.request.signal));
+
+  addRoute(routes, "GET", "/project-sync", "client", async () => {
+    return jsonResponse(await projectSyncOverview(config));
+  });
+
+  addRoute(routes, "POST", "/project-sync", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const round = await runProjectSync(config);
+    return jsonResponse({ ...(await projectSyncOverview(config)), round });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/project/sync", "client", async (ctx) => {
+    return jsonResponse(await projectSyncStatus(config, syncedWorkspace(ctx.params.id)));
+  });
+
+  addRoute(routes, "PUT", "/workspace/:id/project/sync", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = projectSyncSettingsSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_project_sync_settings", "Choose who sees the project and what it syncs.");
+    return jsonResponse(await saveProjectSyncSettings(config, workspace, parsed.data));
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/project/sync", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    return jsonResponse(await stopProjectSync(config, syncedWorkspace(ctx.params.id)));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/project/sync/resolve", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const parsed = projectSyncActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_project_sync_action", "Unknown project sync action.");
+    return jsonResponse(await resolveProjectSync(config, syncedWorkspace(ctx.params.id), parsed.data));
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {
@@ -4166,6 +4434,12 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
   const resolvedWorkspace = resolve(workspace.path);
+  // A disconnected/moved project must not be silently recreated by bootstrap.
+  try {
+    if (!(await stat(resolvedWorkspace)).isDirectory()) throw new Error("Not a directory");
+  } catch {
+    throw new ApiError(404, "project_folder_unavailable", "Reconnect the project drive or restore its folder to its original location, then retry.");
+  }
   const authorized = await isAuthorizedRoot(resolvedWorkspace, config.authorizedRoots);
   if (!authorized) {
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
@@ -4585,6 +4859,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   workspace: WorkspaceInfo,
   onlyNames?: string[],
 ): Promise<void> {
+  if (await localWorkspaceUnavailable(workspace)) return;
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
@@ -4702,6 +4977,9 @@ export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | nu
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
   for (const workspace of config.workspaces) {
+    // Constructing an engine instance runs plugins that create .opencode.
+    // A disconnected folder must stay missing until the user restores it.
+    if (await localWorkspaceUnavailable(workspace)) continue;
     // Right after start the engine is still building instances; registering
     // into a half-built one is recorded as a failure the UI then shows.
     const connection = resolveWorkspaceOpencodeConnection(config, workspace);
@@ -4710,6 +4988,10 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
     }
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
   }
+}
+
+async function localWorkspaceUnavailable(workspace: WorkspaceInfo): Promise<boolean> {
+  return workspace.workspaceType !== "remote" && !(await stat(workspace.path).catch(() => null))?.isDirectory();
 }
 
 function parseMcpScope(value: unknown): McpScope {
@@ -4764,6 +5046,7 @@ async function disconnectMcpFromOpencodeEngine(
   workspace: WorkspaceInfo,
   name: string,
 ): Promise<void> {
+  if (await localWorkspaceUnavailable(workspace)) return;
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;

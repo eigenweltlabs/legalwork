@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { marked } from "marked";
 import {
+  createWorkspaceAttachmentMention,
   parseWorkspaceAttachmentMention,
   parseWorkspaceAttachmentLink,
   WORKSPACE_ATTACHMENT_LINK_SOURCE,
@@ -11,6 +12,17 @@ import {
 import { decodeComposerMentionValue, encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
 
 describe("workspace attachments", () => {
+  test("local project references preserve original paths with spaces, Unicode and parentheses", () => {
+    const path = "Notes/Prüfung [A] (final) #1.md";
+    const mention = createWorkspaceAttachmentMention("Prüfung [A]", path);
+    const decoded = decodeComposerMentionValue(encodeComposerMentionValue(mention));
+    expect(parseWorkspaceAttachmentMention(decoded)).toEqual({ name: "Prüfung [A]", path });
+    const tokens = marked.Lexer.lexInline(workspaceAttachmentDisplayText(decoded));
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.type).toBe("link");
+    if (tokens[0]?.type === "link") expect(decodeURIComponent(tokens[0].href)).toBe(path);
+    expect(workspaceAttachmentInstruction(decoded)).toContain(JSON.stringify(path));
+  });
   for (const [name, type] of [
     ["contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
     ["schedule.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],

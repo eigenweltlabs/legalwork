@@ -559,6 +559,7 @@ export class RecorderService {
       status: "recording",
       error: null,
       ephemeral: input?.ephemeral === true,
+      projectIds: input?.ephemeral !== true && typeof input?.projectId === "string" && input.projectId.trim() ? [input.projectId.trim()] : [],
     };
 
     // Diarization is opt-in, needs the models, and only makes sense for a
@@ -953,6 +954,21 @@ export class RecorderService {
     return this.startTranscriber({ modelId: loaded.modelId, language: loaded.language });
   }
 
+  async setRecordingProject(recordingId, projectId, linked) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(recordingId) || !projectId.trim()) {
+      throw new Error("Invalid recording or project.");
+    }
+    const folder = path.join(this.recordingsDir, recordingId);
+    const meta = this.activeRecordings.get(recordingId)?.meta ?? await readMeta(folder);
+    if (!meta || meta.ephemeral) throw new Error("Recording not found.");
+    const ids = new Set(meta.projectIds ?? []);
+    if (linked) ids.add(projectId.trim());
+    else ids.delete(projectId.trim());
+    meta.projectIds = [...ids];
+    await writeMeta(folder, meta);
+    return this.listRecordings();
+  }
+
   async renameRecording(recordingId, title) {
     const raw = String(title ?? "").trim();
     const nextTitle = raw ? sanitizeTitle(raw) : "";
@@ -1001,6 +1017,30 @@ export class RecorderService {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * The shareable part of a finished recording (its audio and transcripts,
+   * never meta.json, which names this computer's paths) into a synced
+   * project's `recordings/` folder, where project sync takes it to the firm.
+   * Returns the folder written, or null when the recording is not finished.
+   */
+  async exportToProject(recordingId, projectRoot) {
+    const detail = await this.getRecording(recordingId);
+    const root = String(projectRoot ?? "").trim();
+    if (!detail || detail.meta.status !== "complete" || !root || !fs.existsSync(root)) return null;
+    const slug = `${formatDateSlug(detail.meta.createdAt)}-${detail.meta.title}`
+      .toLowerCase()
+      .replace(/[^a-z0-9äöüß]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+    const target = path.join(root, "recordings", slug || recordingId);
+    await fsp.mkdir(target, { recursive: true });
+    for (const name of await fsp.readdir(detail.meta.folderPath)) {
+      if (name === "meta.json" || name.startsWith(".")) continue;
+      await fsp.copyFile(path.join(detail.meta.folderPath, name), path.join(target, name));
+    }
+    return target;
   }
 
   dispose() {

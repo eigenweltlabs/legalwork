@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
@@ -8,6 +8,7 @@ import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import { mergeableText, mergeText } from "../text-merge.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
@@ -19,6 +20,14 @@ const FILE_SESSION_MAX_FILE_BYTES = 5_000_000;
 const FILE_SESSION_CATALOG_DEFAULT_LIMIT = 2000;
 const FILE_SESSION_CATALOG_MAX_LIMIT = 10000;
 const FILE_LIST_MAX_ENTRIES = 2000;
+
+function fileContentDisposition(type: "inline" | "attachment", filename: string): string {
+  // Headers are byte strings. Keep an ASCII fallback and the exact UTF-8 name
+  // in filename* (RFC 8187), including macOS decomposed Unicode filenames.
+  const fallback = filename.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^\x20-\x7e]|["\\%]/g, "_");
+  const encoded = encodeURIComponent(filename).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${type}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -197,10 +206,35 @@ function normalizeUrlTarget(value: string): string | null {
   }
 }
 
+// Replies often list only a basename below a folder heading. Resolve it only
+// when it names one file in the project; never choose between duplicate names.
+async function workspaceArtifactNames(workspaceRoot: string): Promise<Map<string, string | null>> {
+  const names = new Map<string, string | null>();
+  const pending = [workspaceRoot];
+  let visited = 0;
+  try {
+    for (const directory of pending) {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        // An incomplete scan cannot establish uniqueness.
+        if (++visited > 10_000) return new Map();
+        const path = join(directory, entry.name);
+        if (entry.isDirectory() && entry.name !== ".git" && entry.name !== "node_modules") pending.push(path);
+        if (!entry.isFile()) continue;
+        const name = entry.name.toLowerCase();
+        names.set(name, names.has(name) ? null : relative(workspaceRoot, path).replace(/\\/g, "/"));
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  return names;
+}
+
 export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown): Promise<Array<Record<string, unknown>>> {
   const targets = Array.isArray(input) ? input.slice(0, 80) : [];
   const results = new Map<string, Record<string, unknown>>();
   const workspaceResolved = resolve(workspaceRoot);
+  let artifactNames: Map<string, string | null> | undefined;
 
   for (const item of targets) {
     if (!item || typeof item !== "object") continue;
@@ -245,8 +279,16 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     } catch {
       continue;
     }
+    let absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+    if (!isAbsolute(rawValue) && !relativePath.includes("/") && !(await exists(absPath))) {
+      artifactNames ??= await workspaceArtifactNames(workspaceResolved);
+      const matchedPath = artifactNames.get(relativePath.toLowerCase());
+      if (matchedPath) {
+        relativePath = matchedPath;
+        absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+      }
+    }
     const key = `file:${relativePath.toLowerCase()}`;
-    const absPath = resolveSafeChildPath(workspaceRoot, relativePath);
     let existsFile = false;
     let size: number | undefined;
     let updatedAt: number | undefined;
@@ -571,7 +613,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `attachment; filename=\"${basename(relativePath)}\"`);
+    headers.set("Content-Disposition", fileContentDisposition("attachment", basename(relativePath)));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });
@@ -661,7 +703,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
+    headers.set("Content-Disposition", fileContentDisposition("attachment", basename(relativePath)));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });
@@ -981,7 +1023,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         if (type === "mkdir") {
           const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
           const absPath = resolveSafeChildPath(workspace.path, path);
-          await ensureDir(absPath);
+          if (op.exclusive === true) await mkdir(absPath);
+          else await ensureDir(absPath);
           recordWorkspaceFileEvent(workspace.id, { type: "mkdir", path });
           items.push({ ok: true, type, path });
           continue;
@@ -1009,6 +1052,10 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
             items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
             continue;
           }
+          if (op.overwrite === false && from !== to && await exists(toAbs)) {
+            items.push({ ok: false, type, from, to, code: "file_exists", message: "An item with this name already exists" });
+            continue;
+          }
           await ensureDir(dirname(toAbs));
           await rename(fromAbs, toAbs);
           recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
@@ -1018,8 +1065,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
         items.push({ ok: false, type, code: "invalid_operation", message: `Unsupported operation type: ${type}` });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Operation failed";
-        items.push({ ok: false, type, code: "operation_failed", message });
+        const collision = error instanceof Error && "code" in error && error.code === "EEXIST";
+        const message = collision ? "An item with this name already exists" : error instanceof Error ? error.message : "Operation failed";
+        items.push({ ok: false, type, code: collision ? "file_exists" : "operation_failed", message });
       }
     }
 
@@ -1138,7 +1186,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", contentTypeForPath(relativePath));
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `inline; filename="${basename(relativePath)}"`);
+    headers.set("Content-Disposition", fileContentDisposition("inline", basename(relativePath)));
     headers.set("X-LegalWork-Updated-At", String(info.mtimeMs));
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
@@ -1245,6 +1293,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const baseUpdatedAt =
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
+    // The text the editor loaded: a file changed since (a colleague's edit
+    // synced in, say) is merged with it, as project sync merges notes.
+    const baseContent = typeof body.baseContent === "string" ? body.baseContent : null;
 
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
 
@@ -1253,11 +1304,21 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       throw new ApiError(400, "invalid_path", "Path must point to a file");
     }
     const beforeUpdatedAt = before ? before.mtimeMs : null;
+    let written = content;
+    let merged = false;
     if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      throw new ApiError(409, "conflict", "File changed since it was loaded", {
-        baseUpdatedAt,
-        currentUpdatedAt: beforeUpdatedAt,
-      });
+      const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
+      const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
+      if (combined === null) {
+        throw new ApiError(409, "conflict", "File changed since it was loaded", {
+          baseUpdatedAt,
+          currentUpdatedAt: beforeUpdatedAt,
+          // Changed in the same place: the editor asks which version to keep.
+          ...(current === null ? {} : { reason: "overlap", current: { content: current, updatedAt: beforeUpdatedAt } }),
+        });
+      }
+      written = combined;
+      merged = combined !== content;
     }
 
     await requireApproval(ctx, {
@@ -1269,7 +1330,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, written, "utf8");
     await rename(tmp, absPath);
     const after = await stat(absPath);
     const revision = fileRevision(after);
@@ -1290,6 +1351,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       timestamp: Date.now(),
     });
 
-    return jsonResponse({ ok: true, path: relativePath, bytes, updatedAt: after.mtimeMs, revision });
+    return jsonResponse({
+      ok: true,
+      path: relativePath,
+      bytes: Buffer.byteLength(written, "utf8"),
+      updatedAt: after.mtimeMs,
+      revision,
+      ...(merged ? { merged: true, content: written } : {}),
+    });
   });
 }

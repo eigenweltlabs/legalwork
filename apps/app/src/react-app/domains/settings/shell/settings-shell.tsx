@@ -1,6 +1,8 @@
 /** @jsxImportSource react */
 import type * as React from "react";
-import { ChevronDown, X } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, ArrowRight, ChevronDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +18,8 @@ import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
+  Sidebar,
+  SidebarRail,
 } from "@/components/ui/sidebar";
 import { t } from "../../../../i18n";
 import { NotificationBell } from "../../../shell/notification-center";
@@ -29,10 +33,18 @@ import {
   getWorkspaceSettingsTabs,
 } from "./settings-page";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+import { MainActionRail, type MainRailActions } from "../../session/sidebar/main-action-rail";
+import { EigenweltAccountMenu } from "../../session/sidebar/eigenwelt-account-menu";
+import { useUnreadTaskCount } from "../../../kernel/notification-store";
+import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 
 type SettingsPageFrameProps = Omit<React.ComponentProps<typeof SettingsPage>, "children">;
 
 export type SettingsShellProps = SettingsPageFrameProps & {
+  accountClient: LegalworkServerClient | null;
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
   selectedWorkspaceColor: string;
@@ -50,6 +62,23 @@ export type SettingsShellProps = SettingsPageFrameProps & {
 
 export function SettingsShell(props: SettingsShellProps) {
   const title = getSettingsTabLabel(props.activeTab);
+  const navigate = useNavigate();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const mobile = useIsMobile();
+  const unreadTasks = useUnreadTaskCount();
+  const { leftSidebarWidth, leftSidebarResizing, startLeftSidebarResize } = useWorkspaceShellLayout({ expandedRightWidth: 520 });
+  const sidebarStyle: React.CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
+    "--sidebar-width": `calc(${leftSidebarWidth}px + var(--lw-window-left-rail-width))`,
+    "--sidebar-width-icon": "var(--lw-window-left-rail-width)",
+  };
+  const actions: MainRailActions = {
+    navHome: { onClick: props.onClose },
+    navProjects: { onClick: () => navigate("/projects") },
+    navTasks: { onClick: () => navigate("/tasks") },
+    navWorkflows: { onClick: () => navigate("/workflows") },
+    navRecorder: { onClick: () => navigate("/recorder") },
+    navEvaluations: { onClick: () => navigate("/evals") },
+  };
 
   if (props.compact) {
     return (
@@ -98,62 +127,46 @@ export function SettingsShell(props: SettingsShellProps) {
   }
 
   return (
-    <div className="flex h-dvh min-h-screen w-full overflow-hidden">
-      <SidebarProvider open={true} className="relative min-h-0 flex-1">
-        <SettingsSidebar
-          activeTab={props.activeTab}
-          onSelectTab={props.onSelectTab}
-          developerMode={props.developerMode}
-          onClose={props.onClose}
-          selectedWorkspaceId={props.selectedWorkspaceId}
-          selectedWorkspaceName={props.selectedWorkspaceName}
-          selectedWorkspaceColor={props.selectedWorkspaceColor}
-          workspaces={props.workspaces}
-          onSelectWorkspace={props.onSelectWorkspace}
-        />
-        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear motion-reduce:mac:[&_header]:transition-none mac:peer-data-[state=collapsed]:[&_header]:pl-16 [&_header]:pl-16 md:[&_header]:pl-6">
-          <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <header className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl md:px-6 mac:titlebar-drag">
-              <div className="flex min-w-0 items-center gap-3">
-                <SidebarTrigger className="mac:titlebar-no-drag md:hidden" />
-                {props.headerLeadingSlot}
-                <h1 className="truncate text-[13px] font-semibold tracking-[-0.01em] text-dls-text">{title}</h1>
-                <span className="hidden truncate border-l border-border pl-3 text-xs text-dls-secondary lg:inline">
-                  {props.selectedWorkspaceName}
-                </span>
-                {props.developerMode && props.headerStatus ? (
-                  <span className="hidden text-[12px] text-dls-secondary lg:inline">
-                    {props.headerStatus}
-                  </span>
-                ) : null}
-                {props.busyHint ? (
-                  <span className="hidden text-[12px] text-dls-secondary lg:inline">
-                    {props.busyHint}
-                  </span>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
-                <NotificationBell />
-                <Button
-                  variant="ghost"
-                  type="button"
-                  size="icon-sm"
-                  className="text-muted-foreground md:hidden"
-                  onClick={props.onClose}
-                  title={t("dashboard.close_settings")}
-                  aria-label={t("dashboard.close_settings")}
-                >
-                  <X size={18} />
-                </Button>
-              </div>
-            </header>
-
-            <div className="flex min-h-0 flex-1 flex-col">
-              <SettingsPage {...props}>{props.children}</SettingsPage>
-
-              {props.modalSlot}
-            </div>
-
+    <div className="lw-window-frame flex h-dvh min-h-0 flex-col text-dls-text">
+      <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} style={sidebarStyle} data-sidebar-visible={sidebarOpen && !mobile} className={cn("lw-workspace-shell relative min-h-0 flex-1", leftSidebarResizing && "**:data-[slot=sidebar-container]:transition-none **:data-[slot=sidebar-gap]:transition-none [&_.lw-window-navigation]:transition-none")}>
+        <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center gap-2 pr-2 electron:titlebar-drag">
+          <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarOpen && !mobile ? "var(--sidebar-width)" : undefined }}>
+            <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
+            <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
+            <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />
+          </div>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            {props.headerLeadingSlot}
+            <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{title}</h1>
+            {props.developerMode && props.headerStatus && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
+          </div>
+          <div className="flex items-center gap-1.5 titlebar-no-drag">
+            <NotificationBell />
+            <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={props.onClose} title={t("dashboard.close_settings")} aria-label={t("dashboard.close_settings")}><X className="size-4" /></Button>
+          </div>
+        </header>
+        <Sidebar collapsible="icon" className="mac:**:data-[sidebar=sidebar]:bg-transparent">
+          <div className="flex min-h-0 flex-1">
+            <MainActionRail actions={actions} unreadTasks={unreadTasks}>
+              <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
+            </MainActionRail>
+            <SettingsSidebar
+              activeTab={props.activeTab}
+              onSelectTab={props.onSelectTab}
+              developerMode={props.developerMode}
+              selectedWorkspaceId={props.selectedWorkspaceId}
+              selectedWorkspaceName={props.selectedWorkspaceName}
+              selectedWorkspaceColor={props.selectedWorkspaceColor}
+              workspaces={props.workspaces}
+              onSelectWorkspace={props.onSelectWorkspace}
+            />
+          </div>
+          {sidebarOpen && <SidebarRail aria-label={t("session.resize_workspace_column")} title={t("session.resize_workspace_column")} onClick={event => event.preventDefault()} onPointerDown={startLeftSidebarResize} />}
+        </Sidebar>
+        <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden pr-1.5">
+          <main className="lw-workspace-surface flex min-h-0 min-w-0 flex-1 flex-col">
+            <SettingsPage {...props}>{props.children}</SettingsPage>
+            {props.modalSlot}
             {props.footer}
           </main>
         </SidebarInset>

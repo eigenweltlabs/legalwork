@@ -32,6 +32,7 @@ export interface CliArgs {
 }
 
 interface FileConfig {
+  autoDownloadOcr?: boolean;
   host?: string;
   port?: number;
   token?: string;
@@ -400,6 +401,7 @@ export async function resolveServerConfig(
     workspaces,
     authorizedRoots,
     readOnly,
+    autoDownloadOcr: parseBoolean(process.env.LEGALWORK_OCR_AUTO_DOWNLOAD) ?? fileConfig.autoDownloadOcr ?? true,
     startedAt: Date.now(),
     tokenSource,
     hostTokenSource,

@@ -28,7 +28,8 @@ export type EigenweltHubKind =
   | "mcp"
   | "plugin"
   | "integration"
-  | "preset";
+  | "preset"
+  | "review_set";
 
 export type EigenweltHubItem = {
   id: string;
@@ -60,9 +61,17 @@ export const EIGENWELT_HUB_MAX_BATCH_ITEMS = 50;
 export const EIGENWELT_HUB_MAX_SECRET_BYTES = 64 * 1024;
 
 const HUB_NAME_REGEX = /^[a-z0-9][a-z0-9-_]*$/i;
+/** A prompt set keeps the name a person gave it; it never names a folder. */
+const HUB_TEXT_NAME_REGEX = /^[^\x00-\x1f\x7f]+$/;
 
-export function validateHubName(name: string): string {
+export function validateHubName(name: string, kind?: EigenweltHubKind): string {
   const trimmed = name.trim();
+  if (kind === "review_set") {
+    if (!trimmed || trimmed.length > 100 || !HUB_TEXT_NAME_REGEX.test(trimmed)) {
+      throw new ApiError(400, "invalid_hub_name", "A shared prompt set needs a name of at most 100 characters.");
+    }
+    return trimmed;
+  }
   if (!trimmed || trimmed.length > 100 || !HUB_NAME_REGEX.test(trimmed)) {
     throw new ApiError(
       400,
@@ -513,7 +522,7 @@ export async function hubCreate(
 ): Promise<{ id: string; version: number }> {
   const json = await hubRequest(client, "POST", "/api/hub", {
     kind: input.kind,
-    name: validateHubName(input.name),
+    name: validateHubName(input.name, input.kind),
     description: input.description ?? undefined,
     payload: input.payload,
     ...(input.secret === undefined ? {} : { secret: input.secret }),

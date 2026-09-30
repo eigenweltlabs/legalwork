@@ -142,7 +142,7 @@ describe("in-app Word document routing", () => {
     await expect(plugin["tool.execute.before"](
       { tool: "bash", sessionID: "ses_open", callID: "call_1" },
       { args: { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' } },
-    )).rejects.toThrow("use inapp_docx_* tools");
+    )).rejects.toThrow(/use inapp_docx_\* tools/i);
   });
 
   test("routes in-app document tools to the matching session-scoped editor action", async () => {
@@ -314,6 +314,42 @@ test("opens workspace and connected files in the engine session, then exposes li
 
 describe("PowerPoint visual feedback", () => {
   const snapshot = { activeSurface: { kind: "document", format: "pptx", sessionId: "ses_slides", name: "Deck.pptx", path: "Deck.pptx", editable: true } };
+  test("adds and fills a slide through a named, session-scoped tool", async () => {
+    const calls: unknown[] = [];
+    await withBridge(snapshot, body => { calls.push(body); return { ok: true, result: { saved: true, data: { slideIndex: 0 } } }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { path: "Deck.pptx", templateSlideIndex: 2, insertIndex: 0, replacements: [{ elementId: "title", text: "Introduction" }] };
+    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "ses_slides" });
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", toolName: "add_slide", args } }]);
+    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "other" });
+    expect(calls).toHaveLength(1);
+    const output: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, output);
+    expect(output.system.join("\n")).toContain("inapp_pptx_add_slide");
+    expect(output.system.join("\n")).toMatch(/do not [^\n.]*probe internal app bundles/i);
+  });
+  test("reads a complete read-only presentation in one session-scoped request", async () => {
+    const calls: unknown[] = [];
+    await withBridge({ activeSurface: { ...snapshot.activeSurface, editable: false } }, body => {
+      calls.push(body);
+      return { ok: true, result: { success: true, saved: false, data: { activeSlideIndex: 4, slideCount: 2, slides: [
+        { slideIndex: 0, elements: [{ id: "title", text: "Introduction" }], notes: "Opening notes" },
+        { slideIndex: 1, elements: [{ id: "body", text: "Conclusion" }], notes: "Closing notes" },
+      ] } } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    const result = await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Deck.pptx" }, { sessionID: "ses_slides" });
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", toolName: "read_presentation", args: { path: "Deck.pptx" } } }]);
+    if (typeof result !== "string") throw new Error("A read must not return image attachments");
+    expect(JSON.parse(result).result.data.slides).toHaveLength(2);
+    const instructions: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, instructions);
+    expect(instructions.system.join("\n")).toContain("inapp_pptx_read_presentation");
+    expect(instructions.system.join("\n")).toContain("Do not loop over slides just to read the deck");
+    await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Deck.pptx" }, { sessionID: "other-session" });
+    await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Other.pptx" }, { sessionID: "ses_slides" });
+    expect(calls).toHaveLength(1);
+  });
   test("only explicit previews send a slide image attachment", async () => {
     let request: unknown;
     await withBridge(snapshot, (body) => {

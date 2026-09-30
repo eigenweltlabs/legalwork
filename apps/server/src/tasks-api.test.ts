@@ -140,3 +140,11 @@ describe("tasks-api: create and patch bodies", () => {
     expect(parseTaskPatch({ dueDate: null })).toEqual({ dueDate: null });
   });
 });
+
+test("project assignment supports explicit unlinking and refuses malformed IDs", () => {
+  expect(parseTaskCreate({ title: "Review", projectId: " matter-a " }).projectId).toBe("matter-a");
+  expect(parseTaskPatch({ projectId: null })).toEqual({ projectId: null });
+  expect(parseTaskPatch({ projectId: "matter-b" })).toEqual({ projectId: "matter-b" });
+  expect(parseTaskListParams(new URLSearchParams("projectId=matter-a"))).toEqual({ projectId: "matter-a" });
+  for (const projectId of [42, "", " ", "x".repeat(201)]) expect(() => parseTaskPatch({ projectId })).toThrow(ApiError);
+});

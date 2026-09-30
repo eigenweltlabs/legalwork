@@ -1,4 +1,6 @@
+import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
+import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -32,6 +34,11 @@ export type ArtifactPanelTab = {
   size?: number;
   updatedAt?: number;
   storage?: StorageFileSource;
+  sourcePage?: number;
+  searchSources?: SearchSourceReference[];
+  reviewCitation?: ReviewSourceReference;
+  /** A review document's recognized pages; without a page, the first page that needs review. */
+  reviewRecognition?: { reviewId: string; documentId: string; page?: number };
 }
 
 export type TaskPanelTab = {

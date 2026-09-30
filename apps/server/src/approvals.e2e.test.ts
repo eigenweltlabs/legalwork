@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startEmbeddedServer } from "./embedded.js";
@@ -12,6 +12,7 @@ test("embedded manual mode gates client writes and keeps approval decisions host
   process.env.LEGALWORK_DATA_DIR = join(directory, "data");
   delete process.env.LEGALWORK_APPROVAL_MODE;
   const configPath = join(directory, "server.json");
+  await mkdir(join(directory, "workspace"));
   await writeFile(configPath, JSON.stringify({ approval: { mode: "manual", timeoutMs: 2000 } }));
   let decision: "allow" | "deny" = "deny";
   const requests: ApprovalRequest[] = [];

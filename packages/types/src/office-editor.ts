@@ -14,7 +14,16 @@ export function officeRange(range: string) {
 const range = z.string().refine((value) => { try { officeRange(value); return true; } catch { return false; } }, "Invalid or oversized A1 range.");
 export const xlsxReadSchema = z.object({ path, sheet: z.string().optional().describe("Sheet name; defaults to the active sheet."), range: range.optional().describe("Bounded A1 range; defaults to A1:T50. Read in pages for larger workbooks.") });
 export const xlsxWriteSchema = z.object({ path, sheet: z.string().min(1), range, values: z.array(z.array(z.union([z.string().max(32767), z.number().finite(), z.boolean(), z.null()])).min(1)).min(1).max(5000).describe("Rectangular values matching the range. Strings beginning '=' are formulas. Null clears a cell. Formatting is retained.") });
-export const pptxReadSchema = z.object({ path, slideIndex: z.number().int().min(0).optional().describe("Zero-based slide index; defaults to active slide. Includes a slide inventory.") });
+export const pptxReadSchema = z.object({ path, slideIndex: z.number().int().min(0).optional().describe("Zero-based slide index. Omit to read the entire presentation. For previews, omit to use the active slide. Reads never change the active slide.") });
+export const pptxAddSlideSchema = z.object({
+  path,
+  templateSlideIndex: z.number().int().min(0).describe("Existing slide to copy, preserving its design, images and layout. Read it first. Zero-based."),
+  insertIndex: z.number().int().min(0).optional().describe("Position of the new slide in the resulting deck (zero-based). Omit to insert immediately after the template. 0 prepends; slideCount appends."),
+  replacements: z.array(z.object({
+    elementId: z.string().min(1).describe("Text/shape ID on the TEMPLATE slide, from inapp_pptx_read."),
+    text: z.string().max(32767).describe("Complete replacement text for this element on the new slide. Empty clears it. Retains the template element's base text style."),
+  })).max(200).optional().describe("Fill the new slide's text in this same call. Omitted elements are copied unchanged. The template itself is never edited."),
+});
 export const pptxReplaceSchema = z.object({ path, slideIndex: z.number().int().min(0), elementId: z.string().min(1).describe("Text/shape ID from inapp_pptx_read."), search: z.string().min(1).max(32767).describe("Exact unique text within the element."), replaceWith: z.string().max(32767) });
 
 export const pptxLayoutSchema = z.object({

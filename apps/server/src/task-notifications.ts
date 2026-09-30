@@ -1,3 +1,4 @@
+import { announceSyncChange } from "./app-sync-events.js";
 import {
   localDayKey,
   taskStore,
@@ -75,6 +76,7 @@ export async function runTaskReminders(
   if (!taskStoreAvailable(config)) return 0;
   const store = await taskStore(config);
   const noted = store.recordDueNotifications(now);
+  if (noted > 0) announceSyncChange(config, "tasks");
   const today = localDayKey(now);
   if (state.prunedDay !== today) {
     store.pruneNotifications(now);

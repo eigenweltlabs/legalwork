@@ -433,6 +433,15 @@ describe("legalwork_task_attach", () => {
 });
 
 describe("legalwork_task_create", () => {
+  test("folder setup tasks attach to the current project", async () => {
+    const tools = await registeredTools();
+    await tools.legalwork_task_create.execute(
+      { title: "Review the open issues", linkToProject: true, priority: 0 },
+      { directory: WORKSPACE.path, sessionID: "session-setup" },
+    );
+    expect(taskRequests().at(-1)?.json).toMatchObject({ projectId: "ws-1", sessionId: "session-setup", priority: 0 });
+  });
+
   test("POSTs the title, description, priority and due date — no endpoint needed", async () => {
     const tools = await registeredTools();
     const raw = await tools.legalwork_task_create.execute(

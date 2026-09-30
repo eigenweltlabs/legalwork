@@ -1,3 +1,4 @@
+import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
 
 import { applyEdits, modify, parse } from "jsonc-parser";
@@ -1134,6 +1135,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
    * workspaces), store the API key in the engine auth store, then reload.
    */
   const finalizeEigenweltConnect = async (payload: {
+    systemOne?: SystemOneConfiguration;
     apiKey: string;
     baseURL: string;
     models: EigenweltManifestModel[];
@@ -1171,6 +1173,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       try {
         await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+          systemOne: payload.systemOne,
           account: payload.account ?? null,
           entitlements: payload.entitlements ?? null,
           platformURL: payload.platformURL ?? null,

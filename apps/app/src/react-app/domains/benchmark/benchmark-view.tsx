@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 
 import { t } from "@/i18n";
+import { SectionHeading } from "../../design-system/surface";
 import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
 import type { ProviderListItem } from "../../../app/types";
 import { HubTabs, type HubTab } from "../settings/segmented-tabs";
@@ -89,20 +90,11 @@ export function BenchmarkView(props: BenchmarkViewProps) {
   return (
     <>
       {props.showHeader ? (
-        <div className="w-full max-w-5xl space-y-3 pb-6">
-          <span className="lw-section-eyebrow uppercase text-dls-secondary">Model quality</span>
-          <h2 className="text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
-            {t("settings.tab_benchmark")}
-          </h2>
-          <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">
-            {t("settings.tab_description_benchmark")}
-          </p>
-        </div>
+        <SectionHeading size="page" title={t("settings.tab_benchmark")} description={t("settings.tab_description_benchmark")} />
       ) : null}
-      <div className="flex w-full max-w-5xl flex-col">
+      <div className="flex min-w-0 w-full flex-col">
         <HubTabs items={tabs} value={tab} onChange={setTab} />
-        {/* Matches the space-y-7 gap Integrations and Workflows leave under their tab row. */}
-        <div className="w-full pt-7">
+        <div className="min-w-0 w-full pt-5">
           {tab === "tasks" ? (
             <TaskTable
               onOpenTask={(task) => props.onOpenTask(task.id)}

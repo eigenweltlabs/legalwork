@@ -5,6 +5,29 @@ import type { OpenTarget } from "../src/react-app/domains/session/artifacts/open
 import { canOpenArtifact, canPreviewArtifact, getArtifactsFromMessages } from "../src/lib/artifacts";
 
 describe("getArtifactsFromMessages", () => {
+  it("connects basename badges to verified nested files without duplicate chips", () => {
+    const messages: UIMessage[] = [{ id: "reply", role: "assistant", parts: [{ type: "text", text: "Reviewed `Engagement.docx`." }] }];
+    const target: OpenTarget = {
+      id: "file:benchmark/sources/engagement.docx", kind: "file", value: "benchmark/sources/Engagement.docx",
+      name: "Engagement.docx", preview: "word", confidence: 65, reason: "message", exists: true,
+    };
+    const artifacts = getArtifactsFromMessages(messages, [
+      { ...target, id: "file:engagement.docx", value: "engagement.docx", exists: false }, target,
+    ]);
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.legacy_target.value).toBe(target.value);
+    expect(canOpenArtifact(artifacts[0]!)).toBe(true);
+  });
+
+  it("keeps unresolved and ambiguous filename mentions non-openable", () => {
+    const messages: UIMessage[] = [{ id: "reply", role: "assistant", parts: [{ type: "text", text: "Reviewed contract.docx and missing.pdf." }] }];
+    const targets: OpenTarget[] = ["a", "b"].map(folder => ({
+      id: `file:${folder}/contract.docx`, kind: "file", value: `${folder}/contract.docx`,
+      name: "contract.docx", preview: "word", confidence: 65, reason: "message", exists: true,
+    }));
+    expect(getArtifactsFromMessages(messages, targets, { includeTargetFallbacks: false }).filter(canOpenArtifact)).toHaveLength(0);
+  });
+
   it("includes verified slide deck targets mentioned in assistant summaries", () => {
     const messages: UIMessage[] = [{
       id: "msg_deck",

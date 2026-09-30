@@ -19,11 +19,13 @@ import {
   useTaskAccess,
   useTaskMembers,
   useTaskTags,
+  useResolveTaskConflict,
   useUpdateTask,
   useUploadTaskAttachments,
 } from "./tasks-queries";
 
 type TaskPanelProps = {
+  projects?: { id: string; name: string }[];
   sessionId: string;
   tab: TaskPanelTab;
   client: LegalworkServerClient | null;
@@ -39,6 +41,7 @@ export function TaskPanel(props: TaskPanelProps) {
   const tagsQuery = useTaskTags(context);
   const access = useTaskAccess(context);
   const updateTask = useUpdateTask(context);
+  const resolveConflict = useResolveTaskConflict(context);
   const deleteTask = useDeleteTask(context);
   const restoreTask = useRestoreTask(context);
   const uploadAttachments = useUploadTaskAttachments(context);
@@ -101,6 +104,8 @@ export function TaskPanel(props: TaskPanelProps) {
 
   return (
     <TaskDetail
+      inPanel
+      projects={props.projects}
       task={task}
       submission={detailQuery.data?.submission}
       notes={detailQuery.data?.notes ?? []}
@@ -111,6 +116,8 @@ export function TaskPanel(props: TaskPanelProps) {
       accountUserId={access.accountUserId}
       onBack={props.onClose}
       onPatch={(patch) => updateTask.mutateAsync({ taskId: task.id, patch })}
+      conflicts={detailQuery.data?.conflicts}
+      onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: task.id, choice })}
       onDelete={() => {
         deleteTask.mutate(task.id, {
           onSuccess: () => {

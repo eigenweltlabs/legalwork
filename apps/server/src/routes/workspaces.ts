@@ -1,30 +1,40 @@
+import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
-import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import type { ProjectField } from "@legalwork/types/workspace";
+import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
-import { addRoute, type Route } from "./registry.js";
+import { addRoute, type RequestContext, type Route } from "./registry.js";
+import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
 type ParseOptionalBoolean = (value: string | null, name: string) => boolean | undefined;
 
 interface RegisterWorkspaceRoutesOptions {
+  projectFolders?: ReturnType<typeof registerProjectFolderRoutes>;
   routes: Route[];
   config: ServerConfig;
   onWorkspacesChanged: () => void;
   jsonResponse: JsonResponse;
   readJsonBody: ReadJsonBody;
+  readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
+  requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   readOptionalJsonBody: ReadJsonBody;
   parseOptionalBoolean: ParseOptionalBoolean;
   ensureWritable: (config: ServerConfig) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
   reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<void>;
+  /** Project sync (project-sync.ts) hears about local edits it has to carry to the firm. */
+  onProjectDetailsSaved: (workspaceId: string, before: ProjectField[], after: ProjectField[]) => Promise<void>;
+  onProjectRenamed: (workspaceId: string, name: string) => Promise<void>;
+  onProjectRemoved: (workspaceId: string) => Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -232,6 +242,64 @@ async function persistServerWorkspaceState(config: ServerConfig): Promise<boolea
   }
 }
 
+/**
+ * Register a local project folder and persist the registry. New projects the
+ * user creates come first; projects arriving through sync are added last, so
+ * they never take over the active project.
+ */
+export async function registerLocalProject(
+  config: ServerConfig,
+  input: {
+    folderPath: string;
+    name: string;
+    preset: string;
+    projectFields?: ReturnType<typeof parseProjectFieldDefaults> | null;
+    position?: "first" | "last";
+  },
+): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
+  const workspacePath = resolve(input.folderPath);
+  await ensureDir(workspacePath);
+  await ensureWorkspaceFiles(workspacePath, input.preset);
+  if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
+
+  const workspace: WorkspaceInfo = {
+    id: workspaceIdForPath(workspacePath),
+    name: input.name,
+    path: workspacePath,
+    preset: input.preset,
+    workspaceType: "local",
+    ...inheritWorkspaceOpencodeConnection(config),
+  };
+  const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
+  config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
+  if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
+    config.authorizedRoots = [...config.authorizedRoots, workspacePath];
+  }
+  return { workspace, persisted: await persistServerWorkspaceState(config) };
+}
+
+/** Change a workspace's display name and persist the registry; false when there is no such workspace. */
+export async function renameRegisteredWorkspace(config: ServerConfig, id: string, displayName: string | undefined): Promise<boolean> {
+  if (!config.workspaces.some((entry) => entry.id === id)) return false;
+  config.workspaces = config.workspaces.map((entry) =>
+    entry.id === id ? { ...entry, displayName, name: displayName ?? entry.name } : entry,
+  );
+  await persistServerWorkspaceState(config);
+  return true;
+}
+
+/** Take a workspace out of the registry (its folder stays) and persist it. */
+export async function unregisterWorkspace(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ deleted: boolean; persisted: boolean }> {
+  const before = config.workspaces.length;
+  config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
+  const deleted = before !== config.workspaces.length;
+  if (deleted && workspace.workspaceType === "local") {
+    // Only remove exact matches; authorizedRoots can contain broader entries.
+    config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
+  }
+  return { deleted, persisted: await persistServerWorkspaceState(config) };
+}
+
 export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions): void {
   const {
     routes,
@@ -239,12 +307,17 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     onWorkspacesChanged,
     jsonResponse,
     readJsonBody,
+    readJsonBodyLimited,
+    requireClientScope,
     readOptionalJsonBody,
     parseOptionalBoolean,
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
     reloadOpencodeEngine,
+    onProjectDetailsSaved,
+    onProjectRenamed,
+    onProjectRemoved,
   } = options;
 
   const resolveWorkspaceForRegistry = async (id: string): Promise<WorkspaceInfo> => {
@@ -279,35 +352,64 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return jsonResponse({ supported: true, path: path ?? null });
   });
 
+  addRoute(routes, "GET", "/workspaces/project-defaults", "host", async () => {
+    return jsonResponse({ folderPath: defaultProjectRoot(config.projectsDirectory) });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await readProjectDetails(workspace.path));
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/project", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireClientScope(ctx, "collaborator");
+    const before = await readProjectDetails(workspace.path);
+    const updated = await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024));
+    await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
+    return jsonResponse(updated);
+  });
+
+  addRoute(routes, "PATCH", "/workspace/:id/project/metadata", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const before = await readProjectDetails(workspace.path);
+    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024));
+    await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
+    return jsonResponse(updated);
+  });
+
   addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
-    const folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
+    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders);
+    if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
+    const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
+    let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
+    const initializeFromFolders = body.initializeFromFolders === true || body.fromRemoteFolder === true;
+    if (initializeFromFolders && !folderPath && !preparedFolders?.length)
+      throw new ApiError(400, "project_folder_required", "Choose a local or remote folder with existing project files first.");
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
 
+    if (body.folderMode === "default") {
+      if (folderPath || !readStringField(body, "name")) throw new ApiError(400, "invalid_payload", "A default-folder project needs a name and no selected path.");
+      try {
+        folderPath = await createDefaultProjectFolder(name, defaultProjectRoot(config.projectsDirectory));
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(422, "project_folder_unavailable", "The project folder could not be created. Check folder access or choose your own folder.");
+      }
+    }
     if (!folderPath) {
       throw new ApiError(400, "invalid_payload", "folderPath is required");
     }
 
-    const workspacePath = resolve(folderPath);
-    await ensureDir(workspacePath);
-    await ensureWorkspaceFiles(workspacePath, preset);
-
-    const workspace: WorkspaceInfo = {
-      id: workspaceIdForPath(workspacePath),
-      name,
-      path: workspacePath,
-      preset,
-      workspaceType: "local",
-      ...inheritWorkspaceOpencodeConnection(config),
-    };
-
-    config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
-    if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
-      config.authorizedRoots = [...config.authorizedRoots, workspacePath];
-    }
-    const persisted = await persistServerWorkspaceState(config);
+    const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields });
+    if (preparedFolders?.length || initializeFromFolders)
+      await options.projectFolders?.attach(workspace, preparedFolders ?? [], initializeFromFolders);
     onWorkspacesChanged();
 
     await recordAudit(workspace.path, {
@@ -427,18 +529,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       ? body.displayName.trim()
       : undefined;
 
-    config.workspaces = config.workspaces.map((entry) =>
-      entry.id === workspace.id
-        ? {
-            ...entry,
-            displayName: nextDisplayName,
-            name: nextDisplayName ?? entry.name,
-          }
-        : entry,
-    );
-
-    const persisted = await persistServerWorkspaceState(config);
+    const persisted = await renameRegisteredWorkspace(config, workspace.id, nextDisplayName);
     onWorkspacesChanged();
+    if (nextDisplayName) await onProjectRenamed(workspace.id, nextDisplayName);
 
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -459,6 +552,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
     const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
+    // Engine activation can create its state directory. Validate the original
+    // local folder first, so a disconnected project is not replaced by an empty one.
+    if (workspace.workspaceType === "local") await resolveWorkspace(config, workspace.id);
     const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
     const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
     const persist = queryPersist ?? (body.persist === true);
@@ -489,16 +585,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
     const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
 
-    const before = config.workspaces.length;
-    config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
-    const deleted = before !== config.workspaces.length;
-
-    if (deleted && workspace.workspaceType === "local") {
-      // Only remove exact matches; authorizedRoots can contain broader entries.
-      config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
-    }
-    const persisted = await persistServerWorkspaceState(config);
+    const { deleted, persisted } = await unregisterWorkspace(config, workspace);
     onWorkspacesChanged();
+    if (deleted) await onProjectRemoved(workspace.id);
 
     await recordAudit(workspace.path, {
       id: shortId(),

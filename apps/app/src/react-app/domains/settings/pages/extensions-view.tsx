@@ -4,6 +4,7 @@ import { Blocks, Cpu, Download, HardDrive, Package, Plug, type LucideIcon } from
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { SectionHeading } from "@/react-app/design-system/surface";
 
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
@@ -77,8 +78,6 @@ const tabs = (): Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; sub
   { id: "plugins", label: "Plugins", icon: Package, subtitle: t("extensions.plugins_subtitle") },
 ];
 
-const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
-
 // Neutral segmented control matching the reference: a soft gray track with a
 // white active pill (no accent fill). Shared by the tab switcher.
 
@@ -109,9 +108,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const activeTab = TABS.find((entry) => entry.id === tab) ?? TABS[0];
 
   return (
-    <section className="space-y-7 max-w-5xl w-full animate-in fade-in duration-300">
+    <section className="w-full min-w-0 space-y-6">
+      {props.showHeader !== false ? <SectionHeading size="page" title={t("extensions.eyebrow_integrations")} description={tab !== "storage" ? activeTab.subtitle : undefined} action={teamHub || tab === "storage" ? <>
+        <HubScopeToggle scope={hubScope} onChange={setHubScope} />
+        {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? <Button variant="outline" onClick={props.onOpenTeamShare}>{t("extensions.share_with_firm")}</Button> : null}
+      </> : undefined} /> : null}
       {/* Local | Team is the page-level toggle; Connectors/Skills/Plugins sit inside it. */}
-      {teamHub || tab === "storage" ? (
+      {(teamHub || tab === "storage") && props.showHeader === false ? (
         <div className="flex items-center justify-between gap-3">
           <HubScopeToggle scope={hubScope} onChange={setHubScope} />
           {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? (
@@ -138,14 +141,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           </Button>
         </div>
       </div>
-
-      {props.showHeader !== false && tab !== "storage" ? (
-        <div className="space-y-3">
-          <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("extensions.eyebrow_integrations")}</span>
-          <h2 className={pageTitleClass}>{activeTab.label}</h2>
-          <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">{activeTab.subtitle}</p>
-        </div>
-      ) : null}
 
       <HubScopeContext.Provider value={hubScope}>
       {tab === "connectors" ? props.mcpView : null}

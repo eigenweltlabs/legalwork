@@ -16,6 +16,7 @@ import {
   seedPermissionState,
   seedQuestionState,
   seedSessionState,
+  snapshotKey,
   trackWorkspaceSessionSync,
   transcriptKey,
 } from "../src/react-app/domains/session/sync/session-sync";
@@ -397,6 +398,30 @@ describe("session transcript sync", () => {
       expect(transcript?.[0]?.parts[0]).toMatchObject({ text: "stream survived settings route" });
     } finally {
       __disposeWorkspaceSessionSyncForTest(syncInput);
+    }
+  });
+});
+
+
+describe("session metadata sync", () => {
+  test("keeps the loaded session title and recency current for sidebar consumers", () => {
+    const input = { workspaceId: "workspace-a", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
+    const cleanup = __createWorkspaceSessionSyncForTest(input);
+    const release = trackWorkspaceSessionSync(input, "session-a");
+    const client = getReactQueryClient();
+    const key = snapshotKey("workspace-a", "session-a");
+    client.setQueryData(key, snapshotWithMessages([]));
+    try {
+      __applySessionSyncEventForTest(input, {
+        type: "session.updated",
+        properties: { info: { id: "session-a", title: "Eigenwelt Labs Intro Slides Addition", time: { created: 1, updated: 500 } } },
+      });
+      expect(client.getQueryData<LegalworkSessionSnapshot>(key)?.session).toMatchObject({
+        id: "session-a", title: "Eigenwelt Labs Intro Slides Addition", time: { updated: 500 },
+      });
+    } finally {
+      release();
+      cleanup();
     }
   });
 });

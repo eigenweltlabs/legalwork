@@ -1,0 +1,4 @@
+rapidocr==3.9.2
+onnxruntime==1.30.0
+pillow==12.3.0
+huggingface-hub==1.33.0

@@ -2,7 +2,7 @@ name: Desktop Package Smoke Tests
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [dev, codex/projects-akte-workspace]
   push:
     branches: [dev]
 

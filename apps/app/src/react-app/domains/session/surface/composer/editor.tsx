@@ -39,6 +39,7 @@ import {
   parseLegalMemoryComposerMention,
   parseLegalMemoryFolderComposerMention,
   parseStorageComposerMention,
+  parseReviewComposerMention,
   parseTaskComposerMention,
   type ComposerMentionKind,
 } from "./mention-encoding";
@@ -103,6 +104,7 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
   storage: "inline-flex items-center rounded-full border border-indigo-6/60 bg-indigo-2/40 px-2.5 py-1 text-xs font-medium text-indigo-11",
   agent: "inline-flex items-center rounded-full border border-sky-6/35 bg-sky-3/20 px-2.5 py-1 text-xs font-medium text-sky-11",
   app: "inline-flex items-center rounded-full border border-cyan-6/35 bg-cyan-3/20 px-2.5 py-1 text-xs font-medium text-cyan-11",
+  review: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   task: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
 };
 
@@ -118,6 +120,7 @@ function mentionPillText(value: string, kind: ComposerMentionKind) {
     const storage = parseStorageComposerMention(value);
     if (storage) return `@${storage.label}`;
   }
+  if (kind === "review") return `@${parseReviewComposerMention(value)?.label ?? value}`;
   if (kind === "task") {
     const task = parseTaskComposerMention(value);
     if (task) {
@@ -657,9 +660,8 @@ function SubmitPlugin(props: { onSubmit: (options: { queue: boolean }) => void |
         if (event?.shiftKey) return false;
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return false;
-        // Plain Enter submits. Cmd/Ctrl+Enter submits with the queue
-        // modifier — while the agent is busy this queues the message to
-        // send once the current task finishes.
+        // Enter and Cmd/Ctrl+Enter submit. The session queues either
+        // form while busy; Shift+Enter above remains a newline.
         event?.preventDefault();
         void onSubmitRef.current({ queue: event?.metaKey === true || event?.ctrlKey === true });
         return true;

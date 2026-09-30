@@ -157,3 +157,27 @@ test("normalizes recovered remote LegalWork entries before persisting", async ()
     else process.env.LEGALWORK_SERVER_CONFIG = previous;
   }
 });
+
+test("selecting a server-created project persists it across desktop restart without replacing project metadata", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-project-register-"));
+  const userData = path.join(root, "userData"), serverConfig = path.join(root, "server.json");
+  const project = path.join(root, "New project"), metadata = path.join(project, ".opencode/legalwork.json");
+  await mkdir(path.dirname(metadata), { recursive: true });
+  await mkdir(userData, { recursive: true });
+  await writeFile(metadata, JSON.stringify({ project: { fields: [{ name: "Matter", value: "42" }] } }));
+  await writeFile(serverConfig, JSON.stringify({ workspaces: [{ id: "ws_new", path: project, name: "New project", projectOrder: 0 }] }));
+  await writeFile(path.join(userData, "legalwork-workspaces.json"), JSON.stringify({ workspaces: [{ id: "ws_old", path: root, name: "Existing", workspaceType: "local" }], selectedId: "ws_old" }));
+  const previous = process.env.LEGALWORK_SERVER_CONFIG;
+  process.env.LEGALWORK_SERVER_CONFIG = serverConfig;
+  try {
+    const options = { app: { getPath: (name) => name === "userData" ? userData : root }, defaultDenBaseUrl: "https://example.test", defaultRequireSignin: false, forceRequireSignin: false };
+    await createWorkspaceStore(options).setSelectedWorkspace("ws_new");
+    const reloaded = await createWorkspaceStore(options).readWorkspaceState();
+    assert.equal(reloaded.selectedId, "ws_new");
+    assert.deepEqual(reloaded.workspaces.map(item => item.id), ["ws_new", "ws_old"]);
+    assert.equal(JSON.parse(await readFile(metadata, "utf8")).project.fields[0].value, "42");
+  } finally {
+    if (previous === undefined) delete process.env.LEGALWORK_SERVER_CONFIG;
+    else process.env.LEGALWORK_SERVER_CONFIG = previous;
+  }
+});

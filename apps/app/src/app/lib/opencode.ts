@@ -76,7 +76,7 @@ function getRequestUrl(input: RequestInfo | URL): string {
 
 export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number): number {
   const url = getRequestUrl(input);
-  if (SESSION_LONG_RUNNING_URL_RE.test(url)) {
+  if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
     return 0;
   }
   // The OAuth callback long-polls until the user finishes signing in. Cut
@@ -362,10 +362,33 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
     }
   }
 
-  const fetchImpl = isDesktopRuntime()
+  const transportFetch = isDesktopRuntime()
     ? createDesktopFetch(auth)
     : (input: RequestInfo | URL, init?: RequestInit) =>
         fetchWithTimeout(globalThis.fetch, input, init, DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS);
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request && !init ? input : new Request(input, init);
+    const url = new URL(request.url);
+    const messagePath = url.pathname.match(/^(.*\/session\/[^/]+)\/(?:message|prompt_async|command|shell)$/);
+    if (request.method === "POST" && messagePath) {
+      // Resuming a conversation restores it before sending, including queued
+      // prompts, steering, commands and direct OpenCode connections. Reads and
+      // opening an archived chat must leave its archive state unchanged.
+      url.pathname = messagePath[1];
+      const restoreHeaders = new Headers(request.headers);
+      restoreHeaders.set("Content-Type", "application/json");
+      restoreHeaders.delete("Content-Length");
+      const restored = await transportFetch(new Request(url, {
+        method: "PATCH",
+        headers: restoreHeaders,
+        body: JSON.stringify({ time: { archived: 0 } }),
+        signal: request.signal,
+      }));
+      if (!restored.ok) return restored;
+      await restored.body?.cancel();
+    }
+    return transportFetch(input, init);
+  };
   const client = createOpencodeClient({
     baseUrl,
     directory,

@@ -41,6 +41,9 @@ const ArtifactMarkdownPanel = lazy(() => import("./artifact-markdown-panel").the
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 const StorageFilePanel = lazy(() => import("../panel/storage-file-panel").then((module) => ({ default: module.StorageFilePanel })));
+const SearchSourcePanel = lazy(() => import("../../../shell/search-source-panel").then(module => ({ default: module.SearchSourcePanel })));
+const ReviewSourcePanel = lazy(() => import("../../reviews/review-source-panel").then(module => ({ default: module.ReviewSourcePanel })));
+const ReviewRecognitionPanel = lazy(() => import("../../reviews/review-recognition-panel").then(module => ({ default: module.ReviewRecognitionPanel })));
 
 type ArtifactPanelProps = {
   sessionId: string;
@@ -59,6 +62,7 @@ type ArtifactPanelViewProps = {
   workspaceRoot: string;
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
+  sourcePage?: number;
   localReadOnly?: boolean;
   saveActions?: (persist: () => Promise<boolean>, busy: boolean) => ReactNode;
   onClose: () => void;
@@ -127,6 +131,16 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
     return null;
   }
 
+  if (tab.searchSources?.length) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
+    <SearchSourcePanel client={client} workspaceId={workspaceId} sources={tab.searchSources} name={tab.label} onClose={onClose} />
+  </Suspense></OfficeEditorBoundary>;
+  if (tab.reviewCitation) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
+    <ReviewSourcePanel client={client} workspaceId={workspaceId} citation={tab.reviewCitation} name={tab.label} onClose={onClose} />
+  </Suspense></OfficeEditorBoundary>;
+  if (tab.reviewRecognition) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
+    <ReviewRecognitionPanel client={client} workspaceId={workspaceId} reference={tab.reviewRecognition} name={tab.label} onClose={onClose} />
+  </Suspense></OfficeEditorBoundary>;
+
   if (target.preview === "markdown") {
     return <OfficeEditorBoundary key={`${workspaceId}:${target.id}`}><Suspense fallback={<PreviewLoading />}>
       <ArtifactMarkdownPanel sessionId={sessionId} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} target={target} onClose={onClose} />
@@ -142,6 +156,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
       workspaceRoot={workspaceRoot}
       isRemoteWorkspace={isRemoteWorkspace}
       target={target}
+      sourcePage={tab.sourcePage}
       onClose={onClose}
     />
   );
@@ -156,7 +171,7 @@ function stringProperty(value: Record<string, unknown>, key: string) {
   return typeof property === "string" ? property : "";
 }
 
-export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -442,6 +457,14 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
         if (target.preview !== "word" && stringProperty(rawArgs, "path") !== target.value) return { ok: false, error: "The active file changed. Read the sidebar snapshot and select the intended file before retrying." };
         const api = target.preview === "word" ? docxApi.current : officeApi.current;
         if (!api) return { ok: false, error: "The in-app editor is still loading." };
+        if (toolName === "prepare_file_edit" && /\.pptx$/i.test(target.value)) {
+          if (!isEditableDocument) return { ok: false, error: "This presentation is read-only. Open an editable workspace copy first." };
+          if (!await api.save() || documentDirtyRef.current) return { ok: false, error: "The presentation still has unsaved changes. File editing is not ready; the draft remains open." };
+          // Release the live editor before a file pipeline writes, so a stale
+          // draft can never overwrite those changes. Opening again refetches it.
+          onClose();
+          return { ok: true, saved: true, path: target.value, nextStep: "Edit the saved file, then use inapp_documents_open to reopen it before continuing." };
+        }
         const result = await api.executeAgentTool(toolName, toolArgs);
         if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.` };
         return {
@@ -452,7 +475,7 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
         };
       },
     } : null
-  ), [documentSurface, sessionId, target.name, target.preview, target.value]);
+  ), [documentSurface, sessionId, target.name, target.preview, target.value, isEditableDocument, onClose]);
   useControlAction(documentAgentControlAction);
 
   const saveDocument = async () => {
@@ -673,7 +696,7 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
           <ImagePreview src={binaryObjectUrl} alt={target.name} />
         ) : target.preview === "pdf" && data?.kind === "binary" && binaryObjectUrl ? (
-          <PdfPreview url={binaryObjectUrl} title={target.name} />
+          <PdfPreview url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name} />
         ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
           <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
         ) : data?.kind === "text" ? (

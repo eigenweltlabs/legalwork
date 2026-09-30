@@ -1,0 +1,59 @@
+name: Storage OAuth review builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        default: all
+        options: [all, macos-15, windows-2022, ubuntu-24.04]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-review-${{ github.ref }}-${{ inputs.platform || 'all' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.platform == 'all' && '["macos-15","windows-2022","ubuntu-24.04"]' || format('["{0}"]', inputs.platform)) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      MACOS_NOTARIZE: 'false'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.11.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check OAuth session lifecycle
+        run: bun test apps/server/src/file-storage/oauth/session.test.ts
+      - name: Build desktop application
+        run: pnpm --filter @legalwork/desktop build:electron
+      - name: Package for review recording
+        shell: bash
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml ${{ matrix.os == 'macos-15' && '--mac zip --arm64 -c.mac.identity=-' || matrix.os == 'windows-2022' && '--win zip --x64' || '--linux tar.gz --x64' }} --publish never
+      - name: Save review build
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-review-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            apps/desktop/dist-electron/legalwork-*.zip
+            apps/desktop/dist-electron/legalwork-*.tar.gz
+          if-no-files-found: error
+          retention-days: 14

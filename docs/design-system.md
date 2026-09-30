@@ -49,6 +49,8 @@ Open `http://localhost:4173/design-system.html` after preview starts. The output
 5. **Make every interaction feel related.** Controls share corners, focus treatment, press feedback, and transition timing. Base UI owns keyboard behavior, dismissal, focus management, and popup positioning.
 6. **Give motion a job.** A greeting can arrive gently; a menu can reveal its origin; a selected row can respond immediately. Avoid decorative loops, repeated entrances during streaming, and layout animation on large file lists.
 
+Global search uses two white frosted-glass surfaces: a compact search capsule and a rounded results panel. `--lw-search-glass-*` tokens define the white tint, charcoal text, 18px frost and soft shadow; the tint gradually clears toward the bottom. `SearchGlass` puts native CSS backdrop blur on its own layer under the sharp content, with one faint directional edge. The earlier SVG refraction is removed because it interfered with Chromium backdrop blur. No workspace screenshot or canvas is generated. Project scopes use the same light material. Compact rows show title and metadata; a query adds one line of context. The footer and search-button tooltips display the platform search shortcut. The gap and full-screen backdrop stay clear. Entrance motion changes geometry rather than ancestor opacity, preventing the initial material flash; dismissal remains 60ms. Reduced transparency, increased contrast and missing backdrop-filter support use a solid light surface.
+
 ## Ownership and source of truth
 
 | Layer | Location | Owns |
@@ -84,6 +86,8 @@ Use semantic utilities (`bg-background`, `text-muted-foreground`, `border-border
 The neutral ramp is for assets and exceptional low-level styling. New screen code should not choose a raw gray based on its appearance in one screenshot. Existing dark-theme compatibility remains at the token layer; the default design direction is light.
 
 ## Component contracts
+
+Top-level pages share `.lw-page-content` and `.lw-page-top` inside a pane container: a centered 72rem content column, 24px side gutters and 32px top spacing, increasing to 32px and 40px when the pane reaches 720px. Use `SectionHeading size="page"` for the 24px title and wrapping action group. Keep headings, toolbars, lists, and empty states on the same content edges. Layouts must respond to the available pane width when the viewer is open. Compact task details and embedded settings keep their own smaller chrome; do not apply the page gutters twice.
 
 ```tsx
 import { Button } from "@/components/ui/button";

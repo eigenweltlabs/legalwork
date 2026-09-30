@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,6 +55,42 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("previews and downloads preserve Unicode filenames in safe response headers", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const filenames = [
+      "SH-Lu\u0308beck_HRB_26773_HL+Liste_der_Gesellschafter-20260925162201.pdf",
+      "Vertrag-München.pdf",
+      "契約書-📄.pdf",
+      "Client's \"draft\" (100%)*.pdf",
+      "contract.pdf",
+    ];
+    const bytes = Buffer.from("%PDF-1.7\n% filename regression fixture\n");
+    for (const filename of filenames) {
+      for (const area of ["reports", ".opencode/legalwork/inbox", ".opencode/legalwork/outbox"]) {
+        await mkdir(join(root, area), { recursive: true });
+        await writeFile(join(root, area, filename), bytes);
+      }
+      const id = Buffer.from(filename).toString("base64url");
+      for (const [path, disposition] of [
+        [`files/raw?path=${encodeURIComponent(`reports/${filename}`)}`, "inline"],
+        [`inbox/${id}`, "attachment"],
+        [`artifacts/${id}`, "attachment"],
+      ]) {
+        const response = await fetch(`${base}/workspace/ws_1/${path}`, { headers: auth(token) });
+        expect(response.status).toBe(200);
+        const header = response.headers.get("content-disposition") ?? "";
+        expect(header).toMatch(/^[\x20-\x7e]+$/);
+        expect(header.startsWith(`${disposition}; filename="`)).toBe(true);
+        const encoded = header.match(/; filename\*=UTF-8''([^;]+)$/)?.[1];
+        expect(encoded).toBeDefined();
+        expect(encoded).not.toMatch(/['()*]/);
+        expect(decodeURIComponent(encoded ?? "")).toBe(filename);
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+      }
+    }
+  });
+
   test("template copies preserve the source and reject overwrites, traversal and symlink escapes", async () => {
     const root = await createWorkspaceRoot();
     const outside = await createWorkspaceRoot();
@@ -163,6 +199,24 @@ describe("artifact file routes", () => {
     });
     expect(mdWrite.status).toBe(200);
     expect(await readFile(join(root, "reports", "artifact-eval.md"), "utf8")).toBe("# Updated\n");
+
+    // Changed on disk while open (a colleague's edit synced in): the editor's save merges with it.
+    const loaded: { updatedAt: number } = await mdWrite.json();
+    const notePath = join(root, "reports", "artifact-eval.md");
+    await writeFile(notePath, "# Updated\n\nFrom Ben.\n");
+    await utimes(notePath, new Date(), new Date(loaded.updatedAt + 5_000));
+    const save = (content: string) =>
+      fetch(`${base}/workspace/ws_1/files/content`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({ path: "reports/artifact-eval.md", content, baseUpdatedAt: loaded.updatedAt, baseContent: "# Updated\n" }),
+      });
+    expect(await (await save("# Updated by Anna\n")).json()).toMatchObject({ merged: true, content: "# Updated by Anna\n\nFrom Ben.\n" });
+    expect(await readFile(notePath, "utf8")).toBe("# Updated by Anna\n\nFrom Ben.\n");
+    // Changed in the same place: refused, with what is there now for the editor to offer.
+    const clash = await save("# Updated by Carla\n");
+    expect(clash.status).toBe(409);
+    expect(await clash.json()).toMatchObject({ details: { reason: "overlap", current: { content: "# Updated by Anna\n\nFrom Ben.\n" } } });
 
     const xlsxWrite = await fetch(`${base}/workspace/ws_1/files/raw`, {
       method: "POST",

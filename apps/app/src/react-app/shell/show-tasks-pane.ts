@@ -6,7 +6,7 @@ import { readActiveWorkspaceId, readLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
 
 /** The paths the session route renders: where the Tasks pane lives. */
-const SESSION_VIEW_PATH = /^\/(?:session|tasks|evals)(?:\/|$)|^\/workspace\/[^/]+\/(?:session|evals)(?:\/|$)/;
+const SESSION_VIEW_PATH = /^\/(?:session|tasks|evals)(?:\/|$)|^\/workspace\/[^/]+\/(?:session|evals|project)(?:\/|$)/;
 
 /** Whether a path shows the session view (and so can open the Tasks pane in place). */
 export function isSessionViewPath(pathname: string): boolean {

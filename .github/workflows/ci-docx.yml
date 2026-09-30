@@ -1,7 +1,7 @@
 name: DOCX interoperability
 on:
   pull_request:
-    branches: [dev]
+    branches: [dev, codex/projects-akte-workspace]
     paths:
       - 'apps/app/src/react-app/domains/session/artifacts/**'
       - 'apps/app/tests/docx-*.test.ts'

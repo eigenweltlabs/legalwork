@@ -37,46 +37,6 @@ const PERMISSION_POLL_MS = 4000;
 /** Fallback size shown in demo mode when the real catalog is unavailable. */
 const DEMO_MODEL_BYTES = 466 * 1024 * 1024;
 
-/** The panel shows the result: a live transcript with labeled speakers. */
-function TranscriptMock() {
-  const bars = [6, 11, 18, 10, 22, 14, 8, 17, 26, 12, 6, 15, 21, 9, 13, 20, 8, 12, 17, 10, 15, 23, 9, 14];
-  return (
-    <div className="mx-auto w-full max-w-[360px]">
-      <div className="flex h-8 items-end justify-center gap-[3px]">
-        {bars.map((height, index) => (
-          <span
-            key={index}
-            className="w-[3px] rounded-full bg-white/70"
-            style={{ height: `${height}px` }}
-          />
-        ))}
-      </div>
-      <div className="mt-5 space-y-3.5 rounded-xl border border-white/10 bg-[#0b1322]/90 p-5 shadow-[0_18px_50px_-18px_rgba(0,0,0,0.8)] backdrop-blur">
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8ab4ff]">
-            {t("onboarding_audio.sample_speaker1")}
-          </span>
-          <p className="mt-1 text-[13px] leading-snug text-white/80">
-            {t("onboarding_audio.sample_line1")}
-          </p>
-        </div>
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6ee7b7]">
-            {t("onboarding_audio.sample_speaker2")}
-          </span>
-          <p className="mt-1 text-[13px] leading-snug text-white/80">
-            {t("onboarding_audio.sample_line2")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 border-t border-white/10 pt-3">
-          <span className="size-1.5 animate-pulse rounded-full bg-[#f87171]" />
-          <span className="text-[11px] text-white/50">{t("onboarding_audio.sample_status")}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 type SimState = {
   mic: AudioPermissionState;
   micBusy: boolean;
@@ -281,23 +241,6 @@ export function AudioStep(props: {
 
   return (
     <OnboardingCover
-      panelColors={["#0a1633", "#18498B", "#2352DE", "#05080f"]}
-      panel={
-        <>
-          <div>
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">
-              {t("onboarding_audio.panel_eyebrow")}
-            </span>
-            <h2 className="mt-4 max-w-[16ch] text-[28px] font-medium leading-[1.08] tracking-[-0.035em] text-white">
-              {t("onboarding_audio.panel_title")}
-            </h2>
-          </div>
-          <TranscriptMock />
-          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
-            {t("onboarding_audio.panel_footer")}
-          </p>
-        </>
-      }
       footerLeft={<CoverBackButton label={t("onboarding.back")} onClick={props.onBack} />}
       footerRight={
         allDone ? (
@@ -316,7 +259,7 @@ export function AudioStep(props: {
       <div className="flex w-full max-w-md flex-col gap-7">
         <div>
           <StepDots step={3} total={5} />
-          <h1 className="text-[36px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text">
+          <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">
             {t("onboarding_audio.title")}
           </h1>
           <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">

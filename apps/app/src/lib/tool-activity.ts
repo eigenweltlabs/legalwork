@@ -18,11 +18,41 @@ import {
 } from "@/lib/build-in-tools"
 import { parseFilename, truncateText } from "@/components/tools/path"
 import { t } from "@/i18n";
+import { legalMemoryActivityLabel } from "@/lib/legalmemory-activity";
 
 type AnyToolPart = ToolUIPart | DynamicToolUIPart
 
+const productActivityLabels: Record<string, string> = {
+  legalwork_review_results: "tool_activity.reading_review_results",
+  legalwork_review_get: "tool_activity.reading_review_results",
+  legalwork_review_settings: "tool_activity.review_settings",
+  legalwork_review_files: "tool_activity.browsing_folder",
+  legalwork_jev_corpus_question: "tool_activity.jev_search",
+  legalwork_review_list: "tool_activity.finding_reviews",
+  legalwork_review_create: "tool_activity.creating_review",
+  legalwork_review_start: "tool_activity.starting_review",
+  legalwork_review_edit: "tool_activity.editing_review",
+  legalwork_review_library: "tool_activity.reading_prompt_library",
+  legalwork_review_library_save: "tool_activity.saving_prompts",
+  legalwork_project_list: "tool_activity.browsing_project",
+  legalwork_project_read: "tool_activity.reading_project_content",
+  legalwork_task_list: "tool_activity.finding_tasks",
+  legalwork_task_get: "tool_activity.reading_task",
+  legalwork_task_create: "tool_activity.creating_task",
+  legalwork_task_update: "tool_activity.updating_task",
+  storage_search: "tool_activity.searching_cloud_files",
+  storage_search_filenames: "tool_activity.searching_cloud_files",
+  storage_list_folder: "tool_activity.browsing_folder",
+  storage_read_file: "tool_activity.reading_cloud_file",
+  storage_write_file: "tool_activity.saving_cloud_file",
+};
+
 export function isToolPartInFlight(part: AnyToolPart): boolean {
   return part.state === "input-streaming" || part.state === "input-available"
+}
+
+export function isToolPermissionDenied(part: AnyToolPart): boolean {
+  return part.state === "output-error" && part.errorText.includes("The user rejected permission to use this specific tool call");
 }
 
 export function collectToolParts(messages: UIMessage[]): DynamicToolUIPart[] {
@@ -49,6 +79,11 @@ function hostnameOf(url: string | undefined): string | undefined {
  * streamed input (fields may be missing despite the type contract).
  */
 export function getToolActivityLabel(part: AnyToolPart): string {
+  const name = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
+  const productLabel = productActivityLabels[name];
+  if (productLabel) return t(productLabel);
+  const memoryLabel = legalMemoryActivityLabel(name, part.input);
+  if (memoryLabel) return memoryLabel;
   if (isBashToolPart(part)) {
     const description = part.input?.description?.trim()
     return description ? truncateText(description, 64) : t("tool_activity.running_command")
@@ -120,4 +155,3 @@ export function getActiveToolLabel(parts: DynamicToolUIPart[]): string | null {
   }
   return null
 }
-

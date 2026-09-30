@@ -15,16 +15,25 @@ import { cn, formatFileSize } from "@/lib/utils";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-chrome";
 
+import { WorkspaceEntryMenu } from "./workspace-entry-menu";
+
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
+import { projectFileDisplayName } from "../../workspace/project-note-title";
+import { writeWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
 import { t } from "@/i18n";
+import { projectErrorMessage } from "../../workspace/project-errors";
+import { ProjectFilesDropzone } from "../../workspace/project-files-dropzone";
 
 type WorkspaceFilesPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
+  projectName?: string;
+  headerTarget?: HTMLElement | null;
+  isRemoteWorkspace: boolean;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
-  onClose: () => void;
+  onClose?: () => void;
 };
 
 const SKELETON_ROW_WIDTHS = ["56%", "72%", "44%", "64%", "38%", "52%"];
@@ -42,6 +51,9 @@ export function WorkspaceFilesPanel({
   client,
   workspaceId,
   workspaceRoot,
+  projectName,
+  headerTarget,
+  isRemoteWorkspace,
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
@@ -72,13 +84,13 @@ export function WorkspaceFilesPanel({
   const crumbs = React.useMemo(() => {
     const segments = path.split("/").filter(Boolean);
     return [
-      { label: workspaceDisplayName(workspaceRoot), path: "" },
+      { label: projectName || workspaceDisplayName(workspaceRoot), path: "" },
       ...segments.map((segment, index) => ({
         label: segment,
         path: segments.slice(0, index + 1).join("/"),
       })),
     ];
-  }, [path, workspaceRoot]);
+  }, [path, workspaceRoot, projectName]);
 
   const visibleEntries = React.useMemo(() => {
     const entries = data?.entries ?? [];
@@ -99,8 +111,9 @@ export function WorkspaceFilesPanel({
 
   return (
     <TooltipProvider delay={1000}>
+      <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
-        <PanelHeader title={t("workspace_files.files")} icon={<FolderIcon open />}>
+        <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")}>
           <Tooltip>
             <TooltipTrigger
               render={(
@@ -131,9 +144,9 @@ export function WorkspaceFilesPanel({
                 </Button>
               )}
             />
-            <TooltipContent>Refresh</TooltipContent>
+            <TooltipContent>{t("workspace_files.refresh_folder")}</TooltipContent>
           </Tooltip>
-          <Tooltip>
+          {onClose ? <Tooltip>
             <TooltipTrigger
               render={(
                 <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("workspace_files.close_panel")}>
@@ -141,14 +154,14 @@ export function WorkspaceFilesPanel({
                 </Button>
               )}
             />
-            <TooltipContent>Close</TooltipContent>
-          </Tooltip>
+            <TooltipContent>{t("workspace_files.close_panel")}</TooltipContent>
+          </Tooltip> : null}
         </PanelHeader>
 
         <nav
           ref={breadcrumbsRef}
           aria-label={t("workspace_files.current_folder")}
-          className="no-scrollbar flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border/50 bg-muted/20 px-2.5"
+          className="no-scrollbar flex h-(--lw-panel-toolbar-height) shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-background/80 px-2.5 backdrop-blur-xl"
         >
           {crumbs.map((crumb, index) => {
             const current = index === crumbs.length - 1;
@@ -174,6 +187,8 @@ export function WorkspaceFilesPanel({
           })}
         </nav>
 
+        <WorkspaceEntryMenu client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace}
+          folderPath={path} onRefresh={() => void refetch()} className="flex min-h-0 flex-1 flex-col">
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
           {isLoading ? (
             <div className="space-y-0.5">
@@ -188,7 +203,7 @@ export function WorkspaceFilesPanel({
             <PanelEmptyState
               icon={<AlertCircle />}
               title={t("workspace_files.open_failed_title")}
-              description={error instanceof Error ? error.message : t("workspace_files.load_failed")}
+              description={projectErrorMessage(error)}
             >
               <Button variant="outline" size="sm" onClick={() => void refetch()}>
                 {t("workspace_files.try_again")}
@@ -202,18 +217,28 @@ export function WorkspaceFilesPanel({
                   className="rounded-md px-2 py-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                   onClick={() => setShowHidden(true)}
                 >
-                  Show {hiddenCount} hidden {hiddenCount === 1 ? "item" : "items"}
+                  {t("workspace_files.show_hidden_count", { count: hiddenCount })}
                 </button>
               ) : null}
             </PanelEmptyState>
           ) : (
             <>
-              {visibleEntries.map((entry) => (
+              {visibleEntries.map((entry) => {
+                const displayName = entry.kind === "file" ? projectFileDisplayName(entry.path, entry.name) : entry.name;
+                return (
+                <WorkspaceEntryMenu key={entry.path} client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace}
+                  folderPath={path} entry={entry} onOpen={() => entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry)}
+                  onRefresh={() => void refetch()}>
                 <button
-                  key={entry.path}
+                  data-project-folder={entry.kind === "dir" ? entry.path : undefined}
                   type="button"
+                  draggable={entry.kind === "file" && Boolean(workspaceId)}
+                  onDragStart={(event) => {
+                    if (entry.kind !== "file" || !workspaceId) { event.preventDefault(); return; }
+                    writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: entry.path, name: displayName });
+                  }}
                   onClick={() => (entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry))}
-                  title={entry.name}
+                  title={displayName}
                   className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/50 hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                 >
                   {entry.kind === "dir" ? (
@@ -221,7 +246,7 @@ export function WorkspaceFilesPanel({
                   ) : (
                     <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />
                   )}
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{entry.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{displayName}</span>
                   {entry.kind === "dir" ? (
                     <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
                   ) : entry.size !== undefined ? (
@@ -230,7 +255,9 @@ export function WorkspaceFilesPanel({
                     </span>
                   ) : null}
                 </button>
-              ))}
+                </WorkspaceEntryMenu>
+                );
+              })}
               {data?.truncated ? (
                 <p className="px-2.5 py-2 text-center text-[11px] text-muted-foreground/70">
                   {t("workspace_files.more_entries")}
@@ -242,13 +269,15 @@ export function WorkspaceFilesPanel({
                   className="w-full rounded-md px-2.5 py-2 text-center text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                   onClick={() => setShowHidden(true)}
                 >
-                  {hiddenCount} hidden {hiddenCount === 1 ? "item" : "items"}
+                  {t("workspace_files.show_hidden_count", { count: hiddenCount })}
                 </button>
               ) : null}
             </>
           )}
         </div>
+        </WorkspaceEntryMenu>
       </div>
+      </ProjectFilesDropzone>
     </TooltipProvider>
   );
 }

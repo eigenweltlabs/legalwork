@@ -40,7 +40,7 @@ try {
   const { extractFile } = libRequire("@electron/asar");
   const core = extractFile(path.join(resources, "app.asar"), path.join("server", "dist", "core-skills.js"));
   const { CORE_OPENCODE_FILES } = await import(`data:text/javascript;base64,${core.toString("base64")}`);
-  for (const file of CORE_OPENCODE_FILES.filter((entry) => /\/skills\/(docx-edit|pdf-tools|tabular-review)\//.test(entry.path))) {
+  for (const file of CORE_OPENCODE_FILES.filter((entry) => /\/skills\/(docx-edit|pdf-tools)\//.test(entry.path))) {
     const destination = path.join(temporary, file.path);
     await mkdir(path.dirname(destination), { recursive: true });
     await writeFile(destination, file.content);

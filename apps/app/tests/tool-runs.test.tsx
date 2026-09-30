@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DynamicToolUIPart, UIMessage } from "ai";
 import { getAssistantRenderGroups, groupAssistantToolRuns } from "../src/components/chat/utils";
+import { getToolHistoryLabel, getToolRunSummary } from "../src/components/tools/tool-presentation";
 import { ToolRun } from "../src/components/chat/tool-run";
 
 const bash: DynamicToolUIPart = { type: "dynamic-tool", toolName: "bash", toolCallId: "shell-1", state: "output-available", input: { command: "python3 -c 'private code'", description: "A long generated description" }, output: "private output" };
@@ -32,29 +33,30 @@ test("preserves prose whitespace and splits at files and real prose", () => {
   expect(getAssistantRenderGroups(runs[1].message.parts, false)[0]).toEqual({ kind: "text", text: "Hello world" });
 });
 
-test("expanded compact groups never render shell text, descriptions, arguments or output", () => {
+test("expanded compact groups show activity labels without raw commands, arguments, output or reasoning", () => {
   let detailedRenders = 0;
   const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[bash, reasoning, appTool]} showDetails={false} renderTool={() => { detailedRenders++; return <pre>private details</pre>; }} />);
-  expect(html).toContain("Running commands");
-  expect(html).toContain("Ran command");
-  expect(html).toContain("Pptx read");
+  expect(html).toContain("Running inapp pptx read");
+  expect(html).toContain("A long generated description");
+  expect(html).toContain("lw-tool-shimmer");
   expect(html).not.toContain("private");
   expect(html).not.toContain("python");
-  expect(html).not.toContain("generated description");
   expect(detailedRenders).toBe(0);
 });
 
 test("reasoning enables details within the same collapsible group", () => {
   const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[bash, appTool]} showDetails renderTool={(part) => <pre>{JSON.stringify(part.input)}</pre>} />);
-  expect(html).toContain("Running commands");
+  expect(html).toContain("Running inapp pptx read");
   expect(html).toContain("python3");
   expect(html).toContain("private/matter.pptx");
 });
 
 test("completed groups remain collapsible and closed by default", () => {
   const html = renderToStaticMarkup(<ToolRun parts={[bash]} showDetails={false} renderTool={() => <pre>hidden</pre>} />);
-  expect(html).toContain("Ran commands");
+  expect(html).toContain("A long generated description");
   expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain("lw-tool-shimmer");
+  expect(html).not.toContain("<pre>");
 });
 test("a live command run stays active between calls and keeps its key when streamed markers arrive", () => {
   const before = groupAssistantToolRuns(messages([[bash]]), false);
@@ -62,6 +64,73 @@ test("a live command run stays active between calls and keeps its key when strea
   expect(after[0].message.id).toBe(before[0].message.id);
   expect(after[0].message.parts).toHaveLength(2);
   const between = renderToStaticMarkup(<ToolRun active parts={[bash]} showDetails={false} renderTool={() => null} />);
-  expect(between).toContain("Running commands");
-  expect(between).not.toContain("Ran commands");
+  expect(between).toContain("A long generated description");
+  expect(between).toContain("lw-tool-shimmer");
+  expect(between).toContain('aria-expanded="false"');
+});
+
+test("project widgets remain visible outside collapsed tool activity, also after reloading history", () => {
+  const project: DynamicToolUIPart = { ...bash, toolName: "legalwork_project_list", toolCallId: "project-1", output: "{}" };
+  for (const thinking of [false, true]) {
+    const runs = groupAssistantToolRuns(messages([[bash], [reasoning, project], [appTool]]), thinking);
+    const groups = runs.flatMap((run) => getAssistantRenderGroups(run.message.parts, thinking));
+    expect(groups.map((group) => group.kind)).toEqual(["tools", "project", "tools"]);
+    expect(groups[1]).toEqual({ kind: "project", part: project });
+  }
+});
+
+test("review creation and start share one visible card while unrelated commands stay collapsed", () => {
+  const output = { ok: true, workspaceId: "project-1", review: { id: "101ec043-4ef0-4df7-88b6-4690869e8830", name: "NDA review", status: "draft", completed: 0, total: 2, documents: 2, columns: 1 } };
+  const created: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_create", toolCallId: "review-create", output };
+  const started: DynamicToolUIPart = { ...created, toolName: "legalwork_review_start", toolCallId: "review-start", output: JSON.stringify({ ...output, review: { ...output.review, status: "running" } }) };
+  for (const thinking of [false, true]) {
+    const runs = groupAssistantToolRuns(messages([[bash, created], [reasoning, started], [appTool]]), thinking);
+    const groups = runs.flatMap(run => getAssistantRenderGroups(run.message.parts, thinking));
+    expect(groups.filter(group => group.kind === "review")).toEqual([{ kind: "review", part: started }]);
+    expect(groups.filter(group => group.kind === "tools").flatMap(group => group.parts).filter(part => part.type !== "reasoning")).toEqual([bash, appTool]);
+  }
+});
+
+test("a pending or failed review action remains visible instead of disappearing into command activity", () => {
+  const pending: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_review_create", toolCallId: "review-create", state: "input-available", input: {} };
+  const failed: DynamicToolUIPart = { ...pending, state: "output-error", errorText: "Choose compatible columns." };
+  for (const part of [pending, failed]) expect(getAssistantRenderGroups([bash, part], false).at(-1)).toEqual({ kind: "review", part });
+});
+
+test("review setup hides incidental project cards across prose without changing stored tool results", () => {
+  const project: DynamicToolUIPart = { ...bash, toolName: "legalwork_project_list", toolCallId: "project", output: "original inventory" };
+  const review: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_start", toolCallId: "review" };
+  for (const thinking of [false, true]) {
+    const groups = groupAssistantToolRuns(messages([[project], [{ type: "text", text: "Starting." }], [reasoning, review]]), thinking).flatMap(item => getAssistantRenderGroups(item.message.parts, thinking));
+    expect(groups.some(group => group.kind === "project")).toBe(false);
+    expect(groups.some(group => group.kind === "review")).toBe(true);
+    expect(project).not.toHaveProperty("projectCardSuppressed");
+    expect(project.output).toBe("original inventory");
+  }
+  expect(getAssistantRenderGroups([project], false)[0].kind).toBe("project");
+});
+
+test("review cards deduplicate across prose but keep different projects and failures distinct", () => {
+  const review = { id: "101ec043-4ef0-4df7-88b6-4690869e8830", name: "NDA review", status: "draft", completed: 0, total: 2, documents: 2, columns: 1 };
+  const created: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_create", toolCallId: "create", output: { ok: true, workspaceId: "project", review } };
+  const started: DynamicToolUIPart = { ...created, toolName: "legalwork_review_start", toolCallId: "start", output: { ok: true, workspaceId: "project", review: { ...review, status: "running" } } };
+  const other: DynamicToolUIPart = { ...created, toolCallId: "other-project", output: { ok: true, workspaceId: "other", review } };
+  const failed: DynamicToolUIPart = { ...started, toolCallId: "failed", state: "output-error", errorText: "Unavailable" };
+  for (const thinking of [false, true]) {
+    const groups = groupAssistantToolRuns(messages([[created], [{ type: "text", text: "Starting it now." }], [started, other, failed]]), thinking)
+      .flatMap(item => getAssistantRenderGroups(item.message.parts, thinking));
+    expect(groups.filter(group => group.kind === "review").map(group => group.part.toolCallId)).toEqual(["start", "other-project", "failed"]);
+    expect(groups.some(group => group.kind === "text" && group.text === "Starting it now.")).toBe(true);
+  }
+});
+
+
+test("file discovery is browsing and Jev qualification is search, never tabular review", () => {
+  const files: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_files", input: { path: "Contracts" } };
+  const search: DynamicToolUIPart = { ...bash, toolName: "legalwork_jev_corpus_question", input: { paths: ["Contracts"] } };
+  expect(getToolHistoryLabel(files)).toBe("Browsed files");
+  expect(getToolHistoryLabel(search)).toBe("Jev Search");
+  const summary = getToolRunSummary([files, search]);
+  expect(summary).toContain("Browsed files"); expect(summary).toContain("Searched");
+  expect(summary).not.toContain("Tabular review"); expect(summary).not.toContain("Used tools");
 });

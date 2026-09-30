@@ -1,6 +1,6 @@
 import { afterEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { newWorkflowContent, readWorkflowDocument, workflowName, writeWorkflowDocument } from "../src/react-app/domains/settings/state/workflow-document";
+import { isWorkflowCard, workflowType, newWorkflowContent, readWorkflowDocument, workflowName, writeWorkflowDocument } from "../src/react-app/domains/settings/state/workflow-document";
 import { bindWorkflowServices, createWorkflow, discardWorkflow, editWorkflow, saveWorkflow, useWorkflowEditorStore, workflowDirty, type WorkflowDraft, type WorkflowServices } from "../src/react-app/domains/settings/state/workflow-editor-store";
 import { confirmDiscardDocuments, registerUnsavedDocument } from "../src/react-app/domains/session/artifacts/docx-document-state";
 import { discardWorkflowResource, editWorkflowResource, openWorkflowResource, resourceBase64, resourceBuffer, resourceDirty, saveWorkflowResource, useWorkflowResourceStore } from "../src/react-app/domains/settings/state/workflow-resource-store";
@@ -10,6 +10,11 @@ const original = '---\nname: workflow-assistant-review\ndescription: "Review agr
 const resources = '\n<!-- legalwork:resources:start -->\nUse resources/playbook.md\n<!-- legalwork:resources:end -->\n';
 
 describe("workflow document preservation", () => {
+  test("bundled review guidance stays out of Workflows while existing tabular workflows remain", () => {
+    assert.equal(isWorkflowCard({ name: "start-tabular-review" }), false);
+    assert.equal(isWorkflowCard({ name: "author-review-prompts" }), false);
+    assert.equal(isWorkflowCard({ name: "workflow-tabular-commercial" }), true);
+  });
   test("instructions edits preserve unknown metadata and managed attachments", () => {
     const baseline = original + resources;
     const parsed = readWorkflowDocument(baseline);
@@ -26,12 +31,12 @@ describe("workflow document preservation", () => {
     assert.ok(!next.includes('  agreement.'));
   });
 
-  test("new tabular workflows retain their executable skill instruction", () => {
-    const name = workflowName('Prüfung Verträge', 'tabular');
-    assert.equal(name, 'workflow-tabular-prufung-vertrage');
-    const content = newWorkflowContent(name, 'Review the documents', '# Review\n\nUse the `tabular-review` skill.');
+  test("legacy tabular workflows retain their names and instructions but use the normal editor", () => {
+    const name = "workflow-tabular-prufung-vertrage";
+    assert.equal(workflowType({ name, description: "Review", path: "SKILL.md", workflowType: "tabular" }), "assistant");
+    const content = newWorkflowContent(name, 'Review the documents', '# Review\n\nUse legalwork_review_settings and legalwork_review_start.');
     assert.ok(content.includes('name: workflow-tabular-prufung-vertrage'));
-    assert.ok(content.includes('`tabular-review`'));
+    assert.ok(content.includes('legalwork_review_start'));
     assert.ok(!content.includes('workflow_type:'));
   });
 });
@@ -259,11 +264,11 @@ describe("workflow setup dialog creation", () => {
     assert.equal(fixture.disk(), original);
   });
 
-  test("tabular creation includes its execution instruction without requiring sidebar edits", async () => {
+  test("new workflows use the normal instruction template", async () => {
     const fixture = setup();
-    const created = await createWorkflow(fixture.draft.workspaceId, "tabular", { title: "Contract comparison", description: "Compare contracts" });
-    assert.equal(created.name, "workflow-tabular-contract-comparison");
-    assert.ok(created.body.includes("`tabular-review`"));
+    const created = await createWorkflow(fixture.draft.workspaceId, "assistant", { title: "Contract comparison", description: "Compare contracts" });
+    assert.equal(created.name, "workflow-assistant-contract-comparison");
+    assert.ok(!created.body.includes("legalwork_review_start"));
     assert.equal(workflowDirty(created), false);
   });
 });

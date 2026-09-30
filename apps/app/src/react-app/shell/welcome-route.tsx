@@ -1,363 +1,114 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { t } from "../../i18n";
-import {
-  pickDirectory,
-  resolveWorkspaceListSelectedId,
-  workspaceSetRuntimeActive,
-  workspaceSetSelected,
-  type WorkspaceInfo,
-  type WorkspaceList,
-} from "../../app/lib/desktop";
+import { pickDirectory, resolveWorkspaceListSelectedId, workspaceSetRuntimeActive, workspaceSetSelected } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
-import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
-import { usePlatform } from "../kernel/platform";
-import { WelcomePage } from "../domains/onboarding/welcome-page";
-import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
+import { WelcomePage, type ProjectCreatePhase } from "../domains/onboarding/welcome-page";
+import type { CreateProjectInput } from "../domains/workspace/create-project-modal";
+import { newProjectFields } from "../domains/workspace/project-defaults-store";
+import { projectErrorMessage } from "../domains/workspace/project-errors";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import {
-  analyticsSurface,
-  captureAnalyticsEvent,
-  discardPendingAnalytics,
-  getStoredAnalyticsConsent,
-} from "../../app/lib/analytics";
+import { analyticsSurface, captureAnalyticsEvent, discardPendingAnalytics, getStoredAnalyticsConsent } from "../../app/lib/analytics";
 import { captureAppError } from "../../app/lib/app-error";
-import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../../app/lib/legalwork-server";
-import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
-import { workspaceSessionRoute } from "./workspace-routes";
+import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
+import { writeActiveWorkspaceId } from "./session-memory";
+import { workspaceProjectRoute } from "./workspace-routes";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { markTranscriptionIntroSeen } from "./transcription-intro";
 import { markAllWhatsNewSeen } from "./whats-new";
 
-function folderNameFromPath(path: string) {
-  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const parts = normalized.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? "workspace";
-}
-
-function focusPromptSoon() {
-  if (typeof window === "undefined") return;
-  const focus = () => window.dispatchEvent(new Event("legalwork:focusPrompt"));
-  [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
-}
-
-type WelcomeState = {
-  modalOpen: boolean;
-  createBusy: boolean;
-  createError: string | null;
-  remoteBusy: boolean;
-  remoteError: string | null;
-};
-
-type WelcomeAction =
-  | { type: "open" }
-  | { type: "close" }
-  | { type: "create:start" }
-  | { type: "create:error"; error: string }
-  | { type: "create:finish" }
-  | { type: "remote:start" }
-  | { type: "remote:error"; error: string }
-  | { type: "remote:finish" };
-
-const initialWelcomeState: WelcomeState = {
-  modalOpen: false,
-  createBusy: false,
-  createError: null,
-  remoteBusy: false,
-  remoteError: null,
-};
-
-function welcomeReducer(state: WelcomeState, action: WelcomeAction): WelcomeState {
-  switch (action.type) {
-    case "open":
-      return { ...state, modalOpen: true };
-    case "close":
-      return { ...state, modalOpen: false, createError: null, remoteError: null };
-    case "create:start":
-      return { ...state, createBusy: true, createError: null };
-    case "create:error":
-      return { ...state, createError: action.error };
-    case "create:finish":
-      return { ...state, createBusy: false };
-    case "remote:start":
-      return { ...state, remoteBusy: true, remoteError: null };
-    case "remote:error":
-      return { ...state, remoteError: action.error };
-    case "remote:finish":
-      return { ...state, remoteBusy: false };
-  }
-}
-
-/**
- * WelcomeRoute: full-screen welcome page shown on first launch when
- * the user has no workspaces and has not completed onboarding.
- *
- * Clicking "Get started" opens the CreateWorkspaceModal. Once a
- * workspace is created, hasCompletedOnboarding is set and the user
- * is redirected to /session.
- */
+/** First launch creates a named project, then continues the in-app setup. */
 export function WelcomeRoute() {
   const navigate = useNavigate();
   const local = useLocal();
-  const platform = usePlatform();
-  const [state, dispatch] = useReducer(welcomeReducer, initialWelcomeState);
-  const [manualFolder, setManualFolder] = useState("");
-  // Pending usage-analytics choice; committed when the user leaves the welcome
-  // screen (see handleCreateWorkspace). Seeded from any previously recorded
-  // choice so re-entering the screen never overrides an opt-out.
+  const creating = useRef(false);
+  const createdProjectId = useRef<string | null>(null);
+  const [createPhase, setCreatePhase] = useState<ProjectCreatePhase | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Commit consent only after creation succeeds; preserve a previous opt-out.
   const [analyticsEnabled, setAnalyticsEnabled] = useState(() => getStoredAnalyticsConsent() ?? true);
 
-  // If the user already completed the welcome step, redirect away immediately;
-  // the in-session covers (onboardingStage) carry the rest of onboarding.
   useEffect(() => {
-    if (local.prefs.hasCompletedOnboarding) {
+    // React Router may commit navigation after the preferences update. Do not
+    // replace the new project's destination with the returning-user redirect.
+    if (local.prefs.hasCompletedOnboarding && !createdProjectId.current) {
       navigate("/session", { replace: true });
     }
   }, [local.prefs.hasCompletedOnboarding, navigate]);
 
-  // Funnel entry: the welcome screen was actually seen. Held, like every event
-  // before the consent choice commits, and sent only if the toggle stays on.
   useEffect(() => {
     if (local.prefs.hasCompletedOnboarding) return;
     captureAnalyticsEvent("onboarding_welcome_viewed", { surface: analyticsSurface() });
-    // Mount-only by design: one view event per visit to the screen.
+    // Mount-only: one view event per visit to the screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const markOnboardingComplete = useCallback(() => {
-    if (!analyticsEnabled) discardPendingAnalytics();
-    local.setPrefs((prev) => ({
-      ...prev,
-      analyticsEnabled,
-      hasCompletedOnboarding: true,
-      onboardingStage: isDesktopRuntime() ? "office" : "permissions",
-    }));
-    // New users see these steps in onboarding instead of post-update prompts.
-    markAllWhatsNewSeen();
-    markTranscriptionIntroSeen();
-  }, [analyticsEnabled, local]);
-
-  // Which creation phase the loading overlay shows (null = not creating).
-  const [createPhase, setCreatePhase] = useState<"workspace" | "engine" | "session" | null>(null);
-  const handleCreateWorkspace = useCallback(
-    async (_preset: string, folder: string | null) => {
-      if (!folder) return;
-      dispatch({ type: "create:start" });
-      // Funnel intent: the user committed to creating a workspace. Fired here
-      // rather than after creation succeeds, so a failed create (reported as
-      // app_error{source:"workspace_create"}) stays distinguishable from a
-      // user who simply never started.
-      captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
-      setCreatePhase("workspace");
-      try {
-        const workspaceName = folderNameFromPath(folder);
-        let list: WorkspaceList | null = null;
-        let serverBaseUrl = "";
-        let serverToken = "";
-        try {
-          const { normalizedBaseUrl, resolvedToken, resolvedHostToken } =
-            await resolveLegalworkConnection();
-          if (normalizedBaseUrl && (resolvedToken || resolvedHostToken)) {
-            const legalworkClient = createLegalworkServerClient({
-              baseUrl: normalizedBaseUrl,
-              token: resolvedToken || undefined,
-              hostToken: resolvedHostToken || undefined,
-            });
-            list = await legalworkClient.createLocalWorkspace({
-              folderPath: folder,
-              name: workspaceName,
-              preset: "starter",
-            });
-            serverBaseUrl = normalizedBaseUrl;
-            serverToken = resolvedToken;
-          }
-        } catch {
-          list = null;
-        }
-        if (!list) {
-          throw new Error(t("session_route.create_server_unavailable"));
-        }
+  const handleCreateProject = useCallback(async (input: CreateProjectInput) => {
+    if (creating.current || !input.name.trim()) return;
+    creating.current = true;
+    setError(null);
+    setCreatePhase("project");
+    captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
+    try {
+      const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
+      if (!normalizedBaseUrl || !(resolvedToken || resolvedHostToken)) {
+        setError(t("welcome.project_server_unavailable"));
+        return;
+      }
+      const client = createLegalworkServerClient({
+        baseUrl: normalizedBaseUrl,
+        token: resolvedToken || undefined,
+        hostToken: resolvedHostToken || undefined,
+      });
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
+      const createdId = resolveWorkspaceListSelectedId(list);
+      const workspace = list.workspaces.find((item) => item.id === createdId);
+      if (!createdId || !workspace) throw new Error("Created project missing from server response");
+      writeActiveWorkspaceId(createdId);
+      if (isDesktopRuntime()) {
         setCreatePhase("engine");
-        const createdId =
-          resolveWorkspaceListSelectedId(list) ||
-          list.workspaces[list.workspaces.length - 1]?.id ||
-          "";
-        let targetWorkspaceId = createdId;
-        let targetWorkspace = list.workspaces.find((workspace: WorkspaceInfo) => workspace.id === createdId) ?? null;
-        let targetSessionId: string | null = null;
-        if (createdId) {
-          await workspaceSetSelected(createdId).catch(() => undefined);
-          await workspaceSetRuntimeActive(createdId).catch(() => undefined);
-          writeActiveWorkspaceId(createdId);
-        }
-        if (targetWorkspace) {
-          await ensureDesktopLocalLegalworkConnection({
-            route: "session",
-            workspace: targetWorkspace,
-            allWorkspaces: list.workspaces,
-          }).catch(() => undefined);
-        }
-        setCreatePhase("session");
-        if (targetWorkspaceId && serverBaseUrl && serverToken) {
-          try {
-            const workspacePath = targetWorkspace?.path?.trim() || folder;
-            const session = unwrap(await createClient(
-              `${(buildLegalworkWorkspaceBaseUrl(serverBaseUrl, targetWorkspaceId) ?? serverBaseUrl).replace(/\/+$/, "")}/opencode`,
-              workspacePath || undefined,
-              { token: serverToken, mode: "legalwork" },
-            ).session.create({ directory: workspacePath || undefined }));
-            targetSessionId = session.id;
-            captureAnalyticsEvent("task_created", { source: "onboarding", surface: analyticsSurface() });
-          } catch {
-            // Best-effort first task creation.
-          }
-        }
-        if (targetWorkspaceId) {
-          writeActiveWorkspaceId(targetWorkspaceId);
-          if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
-        }
-        dispatch({ type: "close" });
-        captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
-        // Commit the choice before leaving welcome. The persisted in-session
-        // onboarding stage survives reloads after this screen.
-        markOnboardingComplete();
-        const target = targetWorkspaceId
-          ? workspaceSessionRoute(targetWorkspaceId, targetSessionId)
-          : "/session";
-        navigate(target, { replace: true });
-      } catch (error) {
-        captureAppError("workspace_create", error);
-        dispatch({
-          type: "create:error",
-          error: error instanceof Error ? error.message : t("welcome_route.create_failed"),
-        });
-      } finally {
-        dispatch({ type: "create:finish" });
-        setCreatePhase(null);
+        await workspaceSetSelected(createdId).catch(() => undefined);
+        await workspaceSetRuntimeActive(createdId).catch(() => undefined);
+        // The project is already saved; startup can be retried by the session route.
+        await ensureDesktopLocalLegalworkConnection({ route: "session", workspace, allWorkspaces: list.workspaces }).catch(() => undefined);
       }
-    },
-    [navigate, markOnboardingComplete],
-  );
-
-  const handleCreateRemote = useCallback(
-    async (input: {
-      legalworkHostUrl?: string | null;
-      legalworkToken?: string | null;
-      directory?: string | null;
-      displayName?: string | null;
-    }) => {
-      const baseUrlValue = input.legalworkHostUrl?.trim() ?? "";
-      if (!baseUrlValue) return false;
-      dispatch({ type: "remote:start" });
-      captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
-      try {
-        const remoteType: "legalwork" = "legalwork";
-        const payload = {
-          baseUrl: baseUrlValue,
-          legalworkHostUrl: baseUrlValue,
-          legalworkToken: input.legalworkToken?.trim() || null,
-          displayName: input.displayName?.trim() || null,
-          directory: input.directory?.trim() || null,
-          remoteType,
-        };
-        let list: WorkspaceList | null = null;
-        try {
-          const { normalizedBaseUrl, resolvedToken, resolvedHostToken } =
-            await resolveLegalworkConnection();
-          if (normalizedBaseUrl && (resolvedToken || resolvedHostToken)) {
-            list = await createLegalworkServerClient({
-              baseUrl: normalizedBaseUrl,
-              token: resolvedToken || undefined,
-              hostToken: resolvedHostToken || undefined,
-            }).createRemoteWorkspace(payload);
-          }
-        } catch {
-          list = null;
-        }
-        if (!list) {
-          throw new Error(t("welcome_route.server_unavailable_connect"));
-        }
-        const createdId =
-          resolveWorkspaceListSelectedId(list) ||
-          list.workspaces[list.workspaces.length - 1]?.id ||
-          "";
-        if (createdId) {
-          await workspaceSetSelected(createdId).catch(() => undefined);
-          await workspaceSetRuntimeActive(createdId).catch(() => undefined);
-          writeActiveWorkspaceId(createdId);
-        }
-        captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
-        markOnboardingComplete();
-        dispatch({ type: "close" });
-        navigate(createdId ? workspaceSessionRoute(createdId) : "/session", { replace: true });
-        return true;
-      } catch (error) {
-        dispatch({
-          type: "remote:error",
-          error: error instanceof Error ? error.message : t("welcome_route.connection_failed"),
-        });
-        return false;
-      } finally {
-        dispatch({ type: "remote:finish" });
-      }
-    },
-    [markOnboardingComplete, navigate],
-  );
-
-  const handleGetStarted = useCallback(async () => {
-    if (!isDesktopRuntime()) {
-      // Non-desktop: fall back to the modal for remote workspace creation.
-      dispatch({ type: "open" });
-      return;
+      captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
+      if (!analyticsEnabled) discardPendingAnalytics();
+      createdProjectId.current = createdId;
+      local.setPrefs((prev) => ({
+        ...prev,
+        analyticsEnabled,
+        hasCompletedOnboarding: true,
+        onboardingStage: isDesktopRuntime() ? "office" : "permissions",
+      }));
+      markAllWhatsNewSeen();
+      markTranscriptionIntroSeen();
+      navigate(workspaceProjectRoute(createdId), { replace: true });
+    } catch (error) {
+      captureAppError("workspace_create", error);
+      setError(projectErrorMessage(error, true));
+    } finally {
+      creating.current = false;
+      setCreatePhase(null);
     }
-    const picked = await pickDirectory({ title: t("onboarding.authorize_folder") });
-    const folder = typeof picked === "string" ? picked : null;
-    if (!folder) return;
-    await handleCreateWorkspace("starter", folder);
-  }, [handleCreateWorkspace]);
-
-  const handleUseManualFolder = useCallback(async () => {
-    const folder = manualFolder.trim();
-    if (!folder) return;
-    await handleCreateWorkspace("starter", folder);
-  }, [handleCreateWorkspace, manualFolder]);
+  }, [analyticsEnabled, local, navigate]);
 
   return (
-    <>
-      <WelcomePage
-          onGetStarted={handleGetStarted}
-          getStartedLabel={t("welcome.pick_folder")}
-          busy={state.createBusy}
-          busyPhase={createPhase}
-          error={state.createError}
-          manualFolder={manualFolder}
-          onManualFolderChange={setManualFolder}
-          onUseManualFolder={handleUseManualFolder}
-          showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
-          analyticsEnabled={analyticsEnabled}
-          onAnalyticsChange={setAnalyticsEnabled}
-        />
-      <CreateWorkspaceModal
-        open={state.modalOpen}
-        onClose={() => dispatch({ type: "close" })}
-        onConfirm={handleCreateWorkspace}
-        onPickFolder={() =>
-          pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<
-            string | null
-          >
-        }
-        submitting={state.createBusy}
-        localError={state.createError}
-        localDisabled={!isDesktopRuntime()}
-        localDisabledReason={
-          isDesktopRuntime()
-            ? undefined
-            : t("app.local_disabled_reason")
-        }
-      />
-    </>
+    <WelcomePage
+      onCreateProject={handleCreateProject}
+      onPickFolder={isDesktopRuntime() ? async () => {
+        const picked = await pickDirectory({ title: t("projects.location") });
+        return typeof picked === "string" ? picked : null;
+      } : undefined}
+      busy={createPhase !== null}
+      busyPhase={createPhase}
+      error={error}
+      totalSteps={isDesktopRuntime() ? 5 : 3}
+      analyticsEnabled={analyticsEnabled}
+      onAnalyticsChange={setAnalyticsEnabled}
+    />
   );
 }

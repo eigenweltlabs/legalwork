@@ -54,6 +54,8 @@ export type IntakeTask = {
   updatedAt: string;
   /** Set while the task is in the platform's trash. */
   deletedAt: string | null;
+  /** The synced project (Akte) it belongs to — the platform's project id. */
+  projectId: string | null;
 };
 
 export type IntakeMember = {
@@ -121,6 +123,9 @@ export type IntakeTaskPatch = {
   /** When the client made the change; the platform applies each field only
    *  if nothing newer has set it since (last-writer-wins per field). */
   changedAt?: string;
+  /** The title and description the change started from: a colleague's change
+   *  since is merged with it, and what cannot be comes back as a conflict. */
+  bases?: { title?: string; description?: string };
   /** Appended to the task's history; it never replaces triage's note. */
   note?: string;
   noteSource?: IntakeTaskNoteSource;
@@ -128,6 +133,8 @@ export type IntakeTaskPatch = {
   noteId?: string;
   noteCreatedAt?: string;
   lastLocalRunAt?: string | null;
+  /** Moves the task into a synced project (the platform's id), or out with null. */
+  projectId?: string | null;
 };
 
 export type IntakeTaskCreate = {
@@ -143,6 +150,8 @@ export type IntakeTaskCreate = {
   tags?: string[];
   /** When the client filed it, for a task created offline and pushed later. */
   createdAt?: string;
+  /** The synced project it belongs to (the platform's id). */
+  projectId?: string | null;
 };
 
 /** Feature key the platform grants on plans that include Intake. */
@@ -214,7 +223,7 @@ type IntakeFetchInit = {
   contentType?: string;
 };
 
-async function intakeFetch(
+export async function intakeFetch(
   client: IntakeClient,
   method: string,
   path: string,
@@ -249,7 +258,7 @@ async function intakeFetch(
   return response;
 }
 
-async function intakeRequest(
+export async function intakeRequest(
   client: IntakeClient,
   method: string,
   path: string,
@@ -305,6 +314,7 @@ async function intakeFailure(response: Response): Promise<ApiError> {
     // A truncated error body still maps by status below.
   }
   const { code, message } = errorFrom(text);
+  const json = text ? safeParseJson(text) : null;
   // Checked before the status switch: the plan gate is the one 403 the app
   // renders differently (an upsell rather than "you can't do that").
   if (code === "not_entitled") {
@@ -320,7 +330,14 @@ async function intakeFailure(response: Response): Promise<ApiError> {
     case 404:
       return new ApiError(404, "intake_not_found", message || "That intake task no longer exists.");
     case 409:
-      return new ApiError(409, "intake_conflict", message || "That intake task changed since you loaded it.");
+      // The body says what conflicted (a document's newer version, the upload
+      // chunks still missing); the sync reads it from the details.
+      return new ApiError(
+        409,
+        "intake_conflict",
+        message || "That intake task changed since you loaded it.",
+        isRecord(json) ? json : undefined,
+      );
     case 413:
       return new ApiError(413, "intake_too_large", message || "That attachment is larger than this endpoint allows.");
     case 429:
@@ -405,6 +422,7 @@ export function parseIntakeTask(value: unknown): IntakeTask | null {
     createdAt: toText(value.createdAt),
     updatedAt: toText(value.updatedAt),
     deletedAt: toNullableText(value.deletedAt),
+    projectId: toNullableText(value.projectId),
   };
 }
 
@@ -524,6 +542,15 @@ export async function intakeRestoreTask(client: IntakeClient, taskId: string): P
 }
 
 /**
+ * Take a task this member filed back off the platform: it moved into a project
+ * that stays on this machine. Its content leaves the platform, and the other
+ * machines forget it. A create with the same id brings it back.
+ */
+export async function intakeWithdrawTask(client: IntakeClient, taskId: string): Promise<void> {
+  await intakeRequest(client, "POST", `/api/intake/tasks/${encodeURIComponent(taskId)}/withdraw`);
+}
+
+/**
  * Upload ONE attachment under the client's own id. The platform keeps the id,
  * and the same upload sent again (a retry after a lost answer) comes back as
  * the attachment that already exists, so a push can never store a file twice.
@@ -572,13 +599,24 @@ export async function intakeGetTask(client: IntakeClient, taskId: string): Promi
   };
 }
 
+/** A title or description a colleague changed in the same words meanwhile: theirs stayed, this is what was sent. */
+export type IntakeTextConflict = { field: "title" | "description"; mine: string; theirs: string };
+
+function parseTextConflicts(json: unknown): IntakeTextConflict[] {
+  if (!isRecord(json) || !Array.isArray(json.conflicts)) return [];
+  return json.conflicts.flatMap((entry): IntakeTextConflict[] => {
+    if (!isRecord(entry) || (entry.field !== "title" && entry.field !== "description")) return [];
+    return typeof entry.mine === "string" && typeof entry.theirs === "string" ? [{ field: entry.field, mine: entry.mine, theirs: entry.theirs }] : [];
+  });
+}
+
 export async function intakePatchTask(
   client: IntakeClient,
   taskId: string,
   patch: IntakeTaskPatch,
-): Promise<IntakeTask | null> {
+): Promise<{ task: IntakeTask | null; conflicts: IntakeTextConflict[] }> {
   const json = await intakeRequest(client, "PATCH", `/api/intake/tasks/${encodeURIComponent(taskId)}`, patch);
-  return parseWrittenTask(json);
+  return { task: parseWrittenTask(json), conflicts: parseTextConflicts(json) };
 }
 
 export async function intakeCreateTask(

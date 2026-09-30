@@ -38,3 +38,6 @@ export const legalworkSkillToolsPluginPath = () => legalworkPluginPath("legalwor
 
 export const legalworkStorageToolsPluginPath = () => legalworkPluginPath("legalwork-storage-tools");
 export const legalworkTaskToolsPluginPath = () => legalworkPluginPath("legalwork-task-tools");
+
+export const legalworkProjectToolsPluginPath = () => legalworkPluginPath("legalwork-project-tools");
+export const legalworkReviewToolsPluginPath = () => legalworkPluginPath("legalwork-review-tools");

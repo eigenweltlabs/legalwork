@@ -1,13 +1,13 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { resolveBrandIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { IconTile } from "@/react-app/design-system/surface";
 import "@/components/chat/session-surfaces.css";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LEGALWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "@/app/constants";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
 import {
@@ -23,8 +23,9 @@ import {
   readStorageFileDrag,
   type StorageFileDragItem,
 } from "@/app/lib/storage-file-drag";
+import { hasWorkspaceFileDrag, readWorkspaceFileDrag, type WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
-import { formatBytes, isMacPlatform } from "@/app/utils";
+import { formatBytes } from "@/app/utils";
 import { t } from "@/i18n";
 import { isLegalWorkExtensionEnabled, isLegalWorkExtensionHidden, LEGALWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
 import { FusionModelMultiSelect } from "@/components/fusion-model-multi-select";
@@ -65,8 +66,6 @@ type ComposerProps = {
   mentions: Record<string, ComposerMentionKind>;
   onDraftChange: (value: string) => void;
   onSend: () => void | Promise<void>;
-  onSteer: () => void | Promise<void>;
-  onQueue: () => void | Promise<void>;
   onStop: () => void | Promise<void>;
   busy: boolean;
   queuedCount: number;
@@ -115,6 +114,7 @@ type ComposerProps = {
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
   onDropLegalMemoryFolder: (folder: LegalMemoryFolderDragItem) => void | Promise<void>;
   onDropStorageFile: (file: StorageFileDragItem) => void | Promise<void>;
+  onDropWorkspaceFile: (file: WorkspaceFileDragItem) => void | Promise<void>;
   pastedText: PastedTextChip[];
   onExpandPastedText: (id: string) => void;
   onRemovePastedText: (id: string) => void;
@@ -124,6 +124,7 @@ type ComposerProps = {
   draftScopeKey?: string;
   compactTopSpacing?: boolean;
   topAccessory?: ReactNode;
+  queueAccessory?: ReactNode;
   /** Fusion mode: fan tasks out to the selected candidate models; the session model fuses their outputs. */
   fusionEnabled?: boolean;
   onToggleFusion?: () => void;
@@ -307,7 +308,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
   const [, setExtensionStateVersion] = useState(0);
-  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | null>(null);
+  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | "workspace" | null>(null);
   const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<LexicalPromptEditorHandle | null>(null);
@@ -339,8 +340,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [props.fusionEnabled, props.onToggleFusion]);
 
   // Follow-up message UX (only relevant while the agent is busy):
-  // - Enter sends immediately (the agent adjusts mid-task, aka "steer").
-  // - Cmd/Ctrl+Enter queues the message to send once the agent finishes.
+  // - Enter submits to the session queue while the agent is busy.
   // - Escape arms a "Hit Escape again to stop the agent" prompt for 3s;
   //   a second Escape within that window stops the agent.
   const [escapeArmed, setEscapeArmed] = useState(false);
@@ -379,20 +379,12 @@ export function ReactSessionComposer(props: ComposerProps) {
     if (escapeTimerRef.current) clearTimeout(escapeTimerRef.current);
   }, []);
 
-  // Editor submit (Enter). While idle this sends normally; while busy
-  // Enter sends immediately (steer) and Cmd/Ctrl+Enter queues the
-  // message to send once the agent finishes the current task.
-  const handleEditorSubmit = useCallback((options: { queue: boolean }) => {
-    if (props.uploading) return;
-    const hasContent = props.draft.trim().length > 0 || props.attachments.length > 0;
-    if (!hasContent) return;
-    if (props.busy) {
-      if (options.queue) void props.onQueue();
-      else void props.onSteer();
-      return;
-    }
+  // The session owns the queue decision so keyboard and button sends agree.
+  const handleEditorSubmit = useCallback(() => {
+    if (props.uploading || props.disabled) return;
+    if (!props.draft.trim() && !props.attachments.length) return;
     void props.onSend();
-  }, [props.busy, props.uploading, props.draft, props.attachments, props.onSend, props.onSteer, props.onQueue]);
+  }, [props.uploading, props.disabled, props.draft, props.attachments, props.onSend]);
 
   const slashCommandQuery = getSlashCommandQuery(props.draft);
   const slashOpenNext = slashCommandQuery !== null;
@@ -814,6 +806,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [props.onDraftChange]);
 
   const handleKeyDownCapture: React.KeyboardEventHandler<HTMLDivElement> = (event) => {
+    if (event.target instanceof Element && event.target.closest("[data-message-queue]")) return;
     // IME composition guard — block Enter while IME is mid-character.
     const imeActive =
       imeComposingRef.current ||
@@ -1045,7 +1038,8 @@ export function ReactSessionComposer(props: ComposerProps) {
         imeComposingRef.current = false;
       }}
     >
-      <div className="max-w-[800px] mx-auto">
+      <div className="lw-session-column">
+        {props.queueAccessory}
         {/* Main composer panel */}
         <div
           className={`lw-composer relative overflow-visible rounded-[22px] border ${
@@ -1102,14 +1096,18 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">
-                  {dropzoneKind === "memory-folder"
+                  {dropzoneKind === "workspace"
+                    ? t("composer.reference_workspace_file")
+                    : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder")
                     : dropzoneKind === "memory"
                       ? t("composer.download_memory_file")
                       : t("composer.attach_files")}
                 </div>
                 <div className="mt-1 text-xs text-dls-secondary">
-                  {dropzoneKind === "memory-folder"
+                  {dropzoneKind === "workspace"
+                    ? t("composer.reference_workspace_file_hint")
+                    : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder_hint")
                     : dropzoneKind === "memory"
                       ? t("composer.download_memory_file_hint")
@@ -1186,6 +1184,12 @@ export function ReactSessionComposer(props: ComposerProps) {
                 }
               }}
               onDragOver={(event) => {
+                if (event.dataTransfer && hasWorkspaceFileDrag(event.dataTransfer)) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  if (dropzoneKind !== "workspace") setDropzoneKind("workspace");
+                  return;
+                }
                 if (event.dataTransfer && hasLegalMemoryFolderDrag(event.dataTransfer)) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "copy";
@@ -1212,10 +1216,16 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneKind(null);
               }}
               onDrop={(event) => {
+                const workspaceFile = event.dataTransfer ? readWorkspaceFileDrag(event.dataTransfer) : null;
                 const memoryFolder = event.dataTransfer ? readLegalMemoryFolderDrag(event.dataTransfer) : null;
                 const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;
                 const storageFile = event.dataTransfer ? readStorageFileDrag(event.dataTransfer) : null;
                 setDropzoneKind(null);
+                if (workspaceFile) {
+                  event.preventDefault();
+                  void props.onDropWorkspaceFile(workspaceFile);
+                  return;
+                }
                 if (memoryFolder) {
                   event.preventDefault();
                   void props.onDropLegalMemoryFolder(memoryFolder);
@@ -1563,17 +1573,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 ) : null}
               </div>
 
-              {/*
-                Action area.
-                - Idle: single "Run task" button (sends immediately).
-                - Busy: an outline "Stop" on the left (kept apart from the
-                  send cluster), then a split send button — the primary
-                  segment sends now (the agent adjusts mid-task, aka
-                  "steer"; Enter does the same), and the chevron opens a
-                  menu with "Send when agent finishes" (queue, ⌘⏎). A badge
-                  on the chevron shows how many messages are queued.
-                  Escape arms a "Hit Escape again to stop the agent" prompt.
-              */}
+              {/* Busy-session sends enter the queue; Stop pauses pending messages. */}
               <div className="ml-auto flex shrink-0 items-end gap-1.5">
                 {props.realtimeVoiceSupported && props.onToggleRealtimeVoice ? (
                   <button
@@ -1604,59 +1604,18 @@ export function ReactSessionComposer(props: ComposerProps) {
                       <Square size={12} fill="currentColor" />
                       <span>{t("composer.stop")}</span>
                     </button>
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        onClick={canSend ? props.onSteer : undefined}
-                        disabled={!canSend}
-                        className={`lw-composer-send inline-flex h-9 max-h-9 items-center gap-2 rounded-l-xl pl-4 pr-3 text-[13px] font-medium ${
-                          canSend
-                            ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                            : "bg-gray-4 text-gray-10"
-                        }`}
-                        title={t("composer.steer_hint")}
-                      >
-                        <Zap size={14} />
-                        <span>{t("composer.steer")}</span>
-                      </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <button
-                              type="button"
-                              aria-label={t("composer.send_options")}
-                              className={`lw-composer-send relative inline-flex h-9 max-h-9 items-center rounded-r-xl border-l pl-1.5 pr-2.5 ${
-                                canSend
-                                  ? "border-[color-mix(in_srgb,var(--dls-accent-fg)_25%,transparent)] bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                                  : "border-gray-6 bg-gray-4 text-gray-10"
-                              }`}
-                            >
-                              <ChevronDown size={14} />
-                              {props.queuedCount > 0 ? (
-                                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gray-12 px-1 text-[10px] font-semibold text-gray-1">
-                                  {props.queuedCount}
-                                </span>
-                              ) : null}
-                            </button>
-                          }
-                        />
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            disabled={!canSend}
-                            onClick={() => void props.onQueue()}
-                            title={t("composer.queue_hint")}
-                          >
-                            <ListPlus size={14} />
-                            <span>
-                              {props.queuedCount > 0
-                                ? `${t("composer.queue")} · ${t("composer.queued_count", { count: props.queuedCount })}`
-                                : t("composer.queue")}
-                            </span>
-                            <DropdownMenuShortcut>{isMacPlatform() ? "⌘⏎" : "Ctrl+⏎"}</DropdownMenuShortcut>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={canSend ? props.onSend : undefined}
+                      disabled={!canSend || props.disabled}
+                      className={`lw-composer-send inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[13px] font-medium ${
+                        canSend ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]" : "bg-gray-4 text-gray-10"
+                      }`}
+                      title={t("composer.queue_hint")}
+                    >
+                      <ArrowUp size={15} />
+                      <span>{t("composer.add_to_queue")}</span>
+                    </button>
                   </>
                 ) : (
                   <button

@@ -52,6 +52,7 @@ type TreeRow =
 type LegalMemoryFilesPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
+  headerTarget?: HTMLElement | null;
   onOpenFile: (file: LegalMemoryTreeFile) => Promise<void> | void;
   onOpenStorageFile: (root: StorageRoot, file: StorageEntry) => void;
   onConnectStorage?: () => void;
@@ -63,6 +64,7 @@ const folderKey = (sourceId: string, path: string) => `${sourceId}:${path}`;
 export function LegalMemoryFilesPanel({
   client,
   workspaceId,
+  headerTarget,
   onOpenFile,
   onOpenStorageFile,
   onConnectStorage,
@@ -114,9 +116,12 @@ export function LegalMemoryFilesPanel({
     window.addEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
     return () => window.removeEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
   }, [storageRoots.refetch, storageQueryClient, workspaceId]);
-  const storageCatalogRevision = JSON.stringify(storageRoots.data?.roots.map((root) => [root.id, root.revision, root.writable]));
+  const allStorageRoots = storageRoots.data?.roots ?? [];
+  // Linked folders scope the agent's tools; don't duplicate their source tree or search results.
+  const browserRoots = allStorageRoots.filter((root) => !root.sourceConnectionId || !allStorageRoots.some((source) => source.id === root.sourceConnectionId));
+  const storageCatalogRevision = JSON.stringify(browserRoots.map((root) => [root.id, root.revision, root.writable]));
   const storageRefreshKey = `${storageRevision}:${storageCatalogRevision}`;
-  const hasStorage = Boolean(storageRoots.data?.roots.length);
+  const hasStorage = browserRoots.length > 0;
 
   const rootsQuery = useQuery({
     queryKey: ["legalmemory-tree-roots", workspaceId] as const,
@@ -320,7 +325,7 @@ export function LegalMemoryFilesPanel({
   return (
     <TooltipProvider delay={800}>
       <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
-        <PanelHeader title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
+        <PanelHeader headerTarget={headerTarget} title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
           <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t("legalmemory.refresh_drive")} />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />
@@ -335,8 +340,8 @@ export function LegalMemoryFilesPanel({
           </Tooltip>
         </PanelHeader>
 
-        {!notConfigured || hasStorage ? <div className="shrink-0 border-b border-border/50 bg-muted/20 p-3">
-          <div className="relative">
+        {!notConfigured || hasStorage ? <div className="flex h-(--lw-panel-toolbar-height) shrink-0 items-center border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl">
+          <div className="relative w-full">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               maxLength={512}
@@ -344,7 +349,7 @@ export function LegalMemoryFilesPanel({
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={t("legalmemory.search_placeholder")}
               aria-label={t("legalmemory.search_aria")}
-              className="h-9 w-full rounded-xl border border-input/80 bg-background/90 pl-8 pr-8 text-[13px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring/50 focus:ring-2 focus:ring-ring/15"
+              className="h-8 w-full rounded-lg border border-input/80 bg-background/90 pl-8 pr-8 text-[13px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring/50 focus:ring-2 focus:ring-ring/15"
             />
             {query ? (
               <button
@@ -361,9 +366,9 @@ export function LegalMemoryFilesPanel({
 
         {client && workspaceId && hasStorage ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
-            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
+            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={browserRoots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
             <div hidden={Boolean(searchQuery)}>
-            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} onOpenFile={onOpenStorageFile} />
+            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={browserRoots} onOpenFile={onOpenStorageFile} />
             </div>
           </div>
         ) : null}

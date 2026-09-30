@@ -1,13 +1,13 @@
 import type { SkillCard } from "@/app/types";
 
-export type WorkflowType = "assistant" | "tabular";
+export type WorkflowType = "assistant";
 
 export function isWorkflowCard(card: Pick<SkillCard, "name" | "kind">) {
   return card.kind === "workflow" || card.name.startsWith("workflow-");
 }
 
-export function workflowType(card: SkillCard): WorkflowType {
-  return card.workflowType === "tabular" || card.name.startsWith("workflow-tabular-") ? "tabular" : "assistant";
+export function workflowType(_card: SkillCard): WorkflowType {
+  return "assistant";
 }
 
 export function workflowDisplayName(name: string) {

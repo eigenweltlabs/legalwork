@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, ChevronDown, Download, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Table2, Trash2, Wand2, Workflow } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Bot, BookOpen, HardDrive, Users, ChevronDown, Download, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, Wand2, Workflow } from "lucide-react";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { ReviewPromptLibrary } from "../../reviews/review-prompt-library";
 import type { SkillCard } from "@/app/types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SectionHeading } from "@/react-app/design-system/surface";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -15,10 +19,11 @@ import { confirmDiscardDocuments } from "../../session/artifacts/docx-document-s
 import { useUiStateStore } from "@/react-app/shell/ui-state-store";
 import { dismissTemplateWorkflowRun, retryTemplateWorkflowImport, useTemplateWorkflowRun } from "../state/template-workflow-generation";
 import { bindWorkflowServices, discardWorkflow, openWorkflow, showWorkflow, useWorkflowEditorStore, workflowDirty, type WorkflowDraft } from "../state/workflow-editor-store";
-import { isWorkflowCard, workflowDisplayName, workflowType, type WorkflowType } from "../state/workflow-document";
+import { isWorkflowCard, workflowDisplayName, type WorkflowType } from "../state/workflow-document";
 import { ImportSkillsButton, TemplateGenerationRow, type SkillsViewProps } from "./skills-view";
 import { LegalQuantsImportButton } from "./legalquants-import";
 import { WorkflowEditorPanel } from "./workflow-editor-panel";
+import { HubTabs } from "../segmented-tabs";
 import { NewWorkflowDialog } from "./new-workflow-dialog";
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
 import { useWorkflowResourceStore } from "../state/workflow-resource-store";
@@ -26,15 +31,21 @@ import { WorkflowResourceEditorPanel } from "./workflow-resource-editor-panel";
 
 export type WorkflowsViewProps = SkillsViewProps & {
   workspaceId: string;
+  reviewClient?: LegalworkServerClient | null;
+  reviewWorkspaceId?: string | null;
+  /** Team → Tabular Review Prompts: the prompt sets the firm shares. */
+  firmReviewSetsView?: ReactNode;
+  /** Share one of the user's own prompt sets, or pick some, with the firm. */
+  onShareReviewSet?: (id: string) => void;
+  onOpenReviewSetShare?: () => void;
   /** Settings routes have no app viewer, so host the same editor beside the list. */
   inlineEditor?: boolean;
   extensions: SkillsViewProps["extensions"] & { workspaceContextKey: () => string };
 };
 
-const scopes: ("local" | "team")[] = ["local", "team"];
-
 export function WorkflowsView(props: WorkflowsViewProps) {
   const { extensions, workspaceId } = props;
+  const [section, setSection] = useState<"workflows" | "prompts">("workflows");
   const [scope, setScope] = useState<"local" | "team">("local");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -130,8 +141,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const row = (skill: SkillCard | null, draft: WorkflowDraft | undefined) => {
     const name = draft?.title || (skill ? workflowDisplayName(skill.name) : t("skills.new_workflow"));
     const description = draft?.description ?? skill?.description ?? "";
-    const type = draft?.type ?? (skill ? workflowType(skill) : "assistant");
-    const Icon = type === "tabular" ? Table2 : Workflow;
+    const Icon = Workflow;
     const selected = props.inlineEditor ? inlineId === draft?.id : panelOpen && activeTab?.type === "workflow" && activeTab.id === draft?.id;
     const open = () => skill ? void openWorkflow(workspaceId, skill) : draft && showWorkflow(draft);
     const menuItems = (context: boolean) => {
@@ -156,7 +166,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
         <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[13px] font-medium"><span className="truncate">{name}</span>{draft && workflowDirty(draft) ? <span aria-label={t("common.unsaved_changes")} className="size-1.5 shrink-0 rounded-full bg-foreground/60" /> : null}</span>
           {description ? <span className="mt-1 line-clamp-2 block text-xs leading-5 text-muted-foreground">{description}</span> : null}
-          <span className="mt-1.5 block text-[11px] text-muted-foreground">{type === "tabular" ? t("skills.tabular_workflow") : t("skills.assistant_workflow")}{draft?.isNew ? ` · ${t("workflows.draft")}` : ""}</span>
+          <span className="mt-1.5 block text-[11px] text-muted-foreground">{t("workflows.workflow")}{draft?.isNew ? ` · ${t("workflows.draft")}` : ""}</span>
         </span>
       </button>
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="mr-1 mt-2 shrink-0 text-muted-foreground" aria-label={t("workflows.actions", { name })} />}><MoreHorizontal /></DropdownMenuTrigger>
@@ -167,42 +177,34 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     </ContextMenu>;
   };
 
-  const library = <section aria-label={t("skills.workflows_title")} className={cn(
-    "@container/workflows flex h-full min-h-0 w-full flex-1 flex-col bg-background",
-    !(props.inlineEditor ? inlineId !== null : panelOpen) && "mx-auto max-w-4xl pt-4",
-  )}>
-    <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-      <h1 className="sr-only text-[13px] font-semibold @min-[360px]/workflows:not-sr-only">{t("skills.workflows_title")}</h1><span className="hidden text-[11px] tabular-nums text-muted-foreground @min-[480px]/workflows:inline">{workflowSkills.length}</span>
-      <div className="flex shrink-0 items-center gap-3 @min-[360px]/workflows:ml-2 @min-[360px]/workflows:border-l @min-[360px]/workflows:border-border @min-[360px]/workflows:pl-3">
-        {scopes.filter((value) => value === "local" || props.firmDownloadView).map((value) => <button key={value} type="button" aria-pressed={scope === value} onClick={() => { setScope(value); setPage(0); }} className={cn("text-xs", scope === value ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}>{value === "local" ? t("firm_hub.scope_local") : t("firm_hub.scope_team")}</button>)}
-      </div>
+  const library = <section aria-label={t("skills.workflows_title")} className="@container/workflows flex min-h-0 w-full flex-1 flex-col bg-background">
+    <header className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
+      {scope === "local" ? <label className="relative min-w-0 flex-1 basis-52 @min-[600px]/workflows:max-w-sm"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(0); }} aria-label={t("workflows.search")} placeholder={t("workflows.search")} className="pl-9" /></label> : null}
       <span className="flex-1" />
       {scope === "team" && props.onOpenTeamShare ? <Button variant="ghost" size="icon-sm" aria-label={t("workflows.share")} onClick={props.onOpenTeamShare}><Share2 /></Button> : null}
-      <Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={props.busy || refreshing} onClick={() => { setRefreshing(true); void Promise.resolve(extensions.refreshSkills({ force: true })).finally(() => setRefreshing(false)); }}><RefreshCw className={refreshing ? "animate-spin" : ""} /></Button>
+      {scope === "local" && <><Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={props.busy || refreshing} onClick={() => { setRefreshing(true); void Promise.resolve(extensions.refreshSkills({ force: true })).finally(() => setRefreshing(false)); }}><RefreshCw className={refreshing ? "animate-spin" : ""} /></Button>
       <div className="flex shrink-0 items-center gap-0.5">
-        <Button size="sm" className="w-8 rounded-r-sm px-0 @min-[480px]/workflows:w-auto @min-[480px]/workflows:px-2.5" aria-label={t("skills.new_workflow")} disabled={props.busy || !canEdit} onClick={() => start("assistant")}><Plus /><span className="hidden @min-[480px]/workflows:inline">{t("skills.new_workflow")}</span></Button>
-        <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" className="rounded-l-sm" aria-label={t("workflows.new_options")} disabled={props.busy} />}><ChevronDown /></DropdownMenuTrigger>
+        <Button className="rounded-r-sm" aria-label={t("skills.new_workflow")} disabled={props.busy || !canEdit} onClick={() => start("assistant")}><Plus />{t("skills.new_workflow")}</Button>
+        <DropdownMenu><DropdownMenuTrigger render={<Button size="icon" className="rounded-l-sm" aria-label={t("workflows.new_options")} disabled={props.busy} />}><ChevronDown /></DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem disabled={!canEdit} onClick={() => start("assistant")}><Bot />{t("skills.new_assistant_workflow")}</DropdownMenuItem>
-            <DropdownMenuItem disabled={!canEdit} onClick={() => start("tabular")}><Table2 />{t("skills.new_tabular_workflow")}</DropdownMenuItem>
             {props.onGenerateFromTemplates ? <DropdownMenuItem disabled={!canEdit || !props.canUseDesktopTools || templateRun?.status === "running"} onClick={() => void generate()}><Wand2 />{t("skills.generate_from_templates")}</DropdownMenuItem> : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={!canEdit} onClick={() => setImportOpen(true)}><Download />{t("skills.import")}</DropdownMenuItem>
             <DropdownMenuItem disabled={!canEdit} onClick={() => setLegalQuantsOpen(true)}><Download />LegalQuants</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+      </div></>}
     </header>
-    {props.accessHint ? <p className="px-4 py-3 text-xs text-muted-foreground">{props.accessHint}</p> : null}
+    {props.accessHint ? <p className="mb-4 text-xs text-muted-foreground">{props.accessHint}</p> : null}
     {scope === "local" ? <>
-      <label className="relative mx-4 my-3 block shrink-0"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" /><input value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(0); }} aria-label={t("workflows.search")} placeholder={t("workflows.search")} className="h-9 w-full rounded-lg border border-input bg-transparent pl-8 pr-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/30" /></label>
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto border-t border-border/70 pt-2 pb-4">
         {templateRun ? <div className="mb-2 px-2"><TemplateGenerationRow status={templateRun.status} templatesDir={templateRun.templatesDir} error={templateRun.error} summary={templateRun.summary} onOpen={props.onOpenTemplateGenerationSession} onRetry={retryTemplateWorkflowImport} onDismiss={dismissTemplateWorkflowRun} /></div> : null}
         {visibleEntries.map(({ skill, draft }) => row(skill, draft))}
         {!filtered.length && !filteredDrafts.length ? <div className="flex flex-col items-center gap-3 px-6 py-12 text-center text-xs text-muted-foreground">{refreshing ? <Loader2 className="size-5 animate-spin" /> : <Workflow className="size-5" />}<p>{refreshing ? t("skills.loading") : query ? t("workflows.no_matches") : t("skills.no_workflows")}</p>{!query && !refreshing ? <Button variant="outline" size="sm" disabled={!canEdit} onClick={() => start("assistant")}><Plus />{t("skills.new_workflow")}</Button> : null}</div> : null}
       </div>
       <WorkflowPagination page={currentPage} total={entries.length} onPageChange={setPage} />
-    </> : <div className="min-h-0 flex-1 overflow-y-auto p-4">{props.firmDownloadView}</div>}
+    </> : <div className="min-h-0 flex-1 overflow-y-auto">{props.firmDownloadView}</div>}
     {newType ? <NewWorkflowDialog key={`${workspaceId}-${newType}`} workspaceId={workspaceId} type={newType} busy={props.busy || !canEdit} onClose={() => setNewType(null)} onCreated={(draft) => {
       setNewType(null);
       setScope("local");
@@ -223,11 +225,28 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     }} />
   </section>;
 
-  if (!props.inlineEditor) return library;
-  return <ResizablePanelGroup orientation="horizontal" className="min-h-[600px] w-full flex-1 overflow-hidden rounded-xl border border-border">
+  const workflows = !props.inlineEditor || scope === "team" ? library : <ResizablePanelGroup orientation="horizontal" className="min-h-[600px] w-full flex-1 overflow-hidden rounded-xl border border-border">
     <ResizablePanel minSize="240px" defaultSize={inlineId ? "40%" : "100%"}>{library}</ResizablePanel>
     {inlineId ? <><ResizableHandle withHandle /><ResizablePanel minSize="320px" defaultSize="60%">{inlineResource
       ? <WorkflowResourceEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(inlineResource.workflowId); }} />
       : <WorkflowEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(null); }} />}</ResizablePanel></> : null}
   </ResizablePanelGroup>;
+  return <div className="@container/page flex h-full min-h-0 w-full flex-1 flex-col bg-background">
+    <div className={cn("flex min-h-0 flex-1 flex-col", !props.inlineEditor && "lw-page-content lw-page-top pb-8")}>
+    <div className="mb-6 flex shrink-0 flex-col items-start gap-5">
+      <SectionHeading size="page" title={t("skills.workflows_title")} className="w-full" action={<HubTabs label={t("workflows.library_scope")} value={scope} onChange={value => { setScope(value); setPage(0); }} items={[
+        { id: "local", label: t("firm_hub.scope_local"), icon: HardDrive },
+        { id: "team", label: t("firm_hub.scope_team"), icon: Users },
+      ]} />} />
+      <HubTabs label={t("skills.workflows_title")} value={section} onChange={setSection} items={[
+        { id: "workflows", label: t("skills.workflows_title"), icon: Workflow },
+        { id: "prompts", label: t("review.prompts_title"), icon: BookOpen },
+      ]} />
+    </div>
+    {section === "workflows" ? workflows : scope === "team" ? <section aria-label={t("review.prompts_title")} className="flex min-h-0 w-full flex-1 flex-col">
+      {props.onOpenReviewSetShare ? <header className="mb-4 flex shrink-0 justify-end"><Button variant="ghost" size="icon-sm" aria-label={t("workflows.share")} onClick={props.onOpenReviewSetShare}><Share2 /></Button></header> : null}
+      <div className="min-h-0 flex-1 overflow-y-auto">{props.firmReviewSetsView}</div>
+    </section> : props.reviewClient && props.reviewWorkspaceId ? <ReviewPromptLibrary key={props.reviewWorkspaceId} client={props.reviewClient} workspaceId={props.reviewWorkspaceId} onShareSet={props.canShareWithFirm && props.onShareReviewSet ? entry => props.onShareReviewSet?.(entry.id) : undefined} /> : <p className="text-sm text-muted-foreground">{t("projects.connecting")}</p>}
+    </div>
+  </div>;
 }

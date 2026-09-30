@@ -86,8 +86,8 @@ describe("skill naming", () => {
     expect(resolveSkillName({ name: "NDA review", kind: "workflow", workflowType: "assistant" })).toBe(
       "workflow-assistant-nda-review",
     );
-    expect(resolveSkillName({ name: "Lease terms", kind: "workflow", workflowType: "tabular" })).toBe(
-      "workflow-tabular-lease-terms",
+    expect(resolveSkillName({ name: "workflow-tabular-lease-terms", kind: "workflow", workflowType: "assistant" })).toBe(
+      "workflow-assistant-lease-terms",
     );
     expect(resolveSkillName({ name: "NDA review", kind: "skill", workflowType: "assistant" })).toBe("nda-review");
   });
@@ -113,17 +113,14 @@ describe("SKILL.md content", () => {
     expect(md).toContain("Do the review.");
   });
 
-  test("routes a tabular workflow through the tabular-review skill", () => {
-    const md = buildSkillMarkdown({
-      fullName: "workflow-tabular-lease-terms",
-      description: "Use when comparing lease terms.",
-      instructions: "Rent, term, break clause",
-      kind: "workflow",
-      workflowType: "tabular",
-    });
-    expect(md).toContain("# Lease Terms");
-    expect(md).toContain("`tabular-review`");
-    expect(md).toContain("Rent, term, break clause");
+  test("rejects retired tabular workflow creation and points authors to the prompt library", async () => {
+    await expect(createSkill({ name: "Lease terms", description: "Reusable questions", instructions: "Rent, term, break clause", kind: "workflow", workflowType: "tabular" })).rejects.toThrow();
+    expect(requests).toHaveLength(0);
+    const plugin = await LegalWorkSkillTools();
+    const guidance: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, guidance);
+    expect(guidance.system.join(" ")).toContain("author-review-prompts");
+    expect(guidance.system.join(" ")).toContain("legalwork_review_library_save");
   });
 });
 
@@ -192,4 +189,11 @@ describe("system prompt", () => {
     await plugin["experimental.chat.system.transform"](null, output);
     expect(output.system.join("\n")).toContain("legalwork_skill_create");
   });
+});
+
+test("editing an existing tabular workflow keeps its original callable name", async () => {
+  installedNames.push("workflow-tabular-lease-terms");
+  const result = await createSkill({ name: "workflow-tabular-lease-terms", description: "Use when reviewing leases.", instructions: "Keep these exact existing instructions.", kind: "workflow", overwrite: true });
+  expect(result).toMatchObject({ ok: true, name: "workflow-tabular-lease-terms", workflowType: "assistant" });
+  expect(requests.find(request => request.method === "POST")?.body).toMatchObject({ name: "workflow-tabular-lease-terms" });
 });

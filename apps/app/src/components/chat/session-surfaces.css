@@ -1,3 +1,16 @@
+  .lw-session-column {
+    width: 100%;
+    max-width: 800px;
+    margin-inline: auto;
+  }
+
+  .lw-session-transcript {
+    /* Keep the fade fixed at the viewport edge while messages scroll through it. */
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px);
+    mask-image: linear-gradient(to bottom, transparent, #000 24px);
+    scroll-padding-top: 24px;
+  }
+
   .lw-session-welcome {
     width: 100%;
     padding: clamp(28px, 8vh, 88px) 12px 24px;

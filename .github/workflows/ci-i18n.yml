@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - dev
+      - codex/projects-akte-workspace
   push:
     branches:
       - dev

@@ -1,10 +1,15 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import type { WorkspaceConnectionState } from "../../../../app/types";
+import type { WorkspaceConnectionState, WorkspaceSessionGroup } from "../../../../app/types";
 
 export type SidebarContextValue = {
+  workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
+  activeProjectFeature: "home" | "tasks" | "reviews" | "sessions" | null;
+  onOpenProjectPage: (workspaceId: string, page: "home" | "tasks" | "reviews") => Promise<void>;
+  onOpenProjectFiles: (workspaceId: string) => void;
+  onOpenProjectWindow?: (workspaceId: string, page: "home" | "reviews" | "tasks" | "files") => void;
   developerMode: boolean;
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;

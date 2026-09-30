@@ -74,6 +74,16 @@
   --lw-glass-strong: rgba(255, 255, 255, 0.94);
   --lw-glass-highlight: rgba(255, 255, 255, 0.90);
   --lw-glass-blur: 16px;
+  /* White frost: a soft tint clears toward the bottom, while blur keeps
+     underlying text from competing with the results. */
+  --lw-search-glass: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(250, 251, 253, 0.64) 55%, rgba(249, 250, 252, 0.48));
+  --lw-search-glass-input: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(251, 252, 254, 0.66));
+  --lw-search-glass-solid: #f5f6f8;
+  --lw-search-glass-text: #18191d;
+  --lw-search-glass-muted: #4b4f58;
+  --lw-search-glass-blur: 18px;
+  --lw-search-glass-shadow: 0 18px 52px rgba(28, 32, 44, 0.16), 0 2px 8px rgba(28, 32, 44, 0.04), 0 0 0 0.5px rgba(28, 32, 44, 0.08);
+  --lw-search-overlay: rgb(22 28 40 / 0.18);
   --lw-asset-back: #d6d6da;
   --lw-asset-front: #f7f7f8;
   --lw-asset-edge: #b6b6bd;
@@ -121,6 +131,9 @@
   --lw-shadow-md: 0 6px 16px rgba(16, 24, 40, 0.10), 0 2px 5px rgba(16, 24, 40, 0.05);
   --lw-shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.14), 0 4px 10px rgba(16, 24, 40, 0.06);
   --lw-shadow-pop: 0 8px 28px rgba(16, 24, 40, 0.12);
+
+  /* ---- Panel geometry ---------------------------------------------------- */
+  --lw-panel-toolbar-height: 3rem;
 
   /* ---- Radius ------------------------------------------------------------ */
   --lw-radius-xs: 4px;

@@ -1,10 +1,6 @@
 // pdf-text.mjs — per-page text extraction for pdf-agent's `text` command.
 //
-// pdf-lib (the vendored engine behind annotate/fill/sign) cannot read page
-// text, so this loads the pdf.js build vendored with the tabular-review skill.
-// Both skills ship in the same bundled-core seed (see core-skills.ts /
-// gen-core-skills.mjs) and are refreshed together, so the relative vendor path
-// below always exists in a seeded workspace.
+// The PDF text reader owns its vendored PDF.js dependencies.
 
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,7 +8,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PDFJS_VENDOR_DIR = join(HERE, "..", "..", "tabular-review", "assets", "vendor");
+const PDFJS_VENDOR_DIR = join(HERE, "vendor");
 
 export class PdfTextError extends Error {}
 
@@ -29,7 +25,7 @@ function loadPdfjs() {
     if (!existsSync(libPath) || !existsSync(workerPath)) {
       throw new PdfTextError(
         `the vendored pdf.js build is missing (expected ${libPath}). ` +
-          "It ships with the tabular-review skill in the same core bundle — reload the workspace to re-seed it.",
+          "It ships with the PDF tools skill — reload the workspace to re-seed it.",
       );
     }
     const require = createRequire(import.meta.url);

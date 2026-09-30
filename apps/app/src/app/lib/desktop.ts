@@ -54,6 +54,9 @@ declare global {
         command: C,
         ...args: DesktopCommandArgs<C>
       ) => Promise<DesktopCommandResult<C>>;
+      files?: {
+        copyIntoProject?: (workspaceId: string, files: File[], folder?: string) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>;
+      };
       shell?: {
         openExternal?: (url: string) => Promise<void>;
         relaunch?: () => Promise<void>;
@@ -506,6 +509,7 @@ const {
   audioRecordingGet,
   audioRecordingDelete,
   audioRecordingRename,
+  audioRecordingSetProject,
   audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioLiveTranscriptStart,
@@ -618,6 +622,7 @@ export {
   audioRecordingGet,
   audioRecordingDelete,
   audioRecordingRename,
+  audioRecordingSetProject,
   audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioLiveTranscriptStart,

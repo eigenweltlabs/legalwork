@@ -19,7 +19,7 @@ import {
   type EigenweltEntitlementsView,
 } from "./eigenwelt-connection-store.js";
 import { readEigenweltEntitlementsView } from "./eigenwelt-connection-store.js";
-import { applyEigenweltPaidManifestModels, parseManifestModels } from "./eigenwelt-paid-manifest.js";
+import { applyEigenweltPaidManifestModels, applyEigenweltSystemOne, parseManifestModels } from "./eigenwelt-paid-manifest.js";
 import type { ServerConfig } from "./types.js";
 
 /** Refresh once fewer than this many ms of access-token life remain. */
@@ -139,6 +139,8 @@ async function doRefresh(config: ServerConfig): Promise<string | null> {
       () => undefined,
     );
   }
+  // Optional capability metadata must not turn a successful token rotation into an auth failure.
+  await applyEigenweltSystemOne(config, payload.systemOne).catch(() => undefined);
   return payload.platformToken;
 }
 

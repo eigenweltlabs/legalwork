@@ -16,22 +16,21 @@ import type { ServerConfig } from "./types.js";
  */
 
 const previousPlatformUrl = process.env.EIGENWELT_PLATFORM_URL;
-const previousRuntimeDb = process.env.LEGALWORK_RUNTIME_DB;
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()?.();
   if (previousPlatformUrl === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
   else process.env.EIGENWELT_PLATFORM_URL = previousPlatformUrl;
-  if (previousRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
-  else process.env.LEGALWORK_RUNTIME_DB = previousRuntimeDb;
 });
 
 async function signedInFirm(): Promise<ServerConfig> {
   const root = await mkdtemp(join(tmpdir(), "legalwork-eigenwelt-refresh-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
-  process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  // Its own runtime DB through the config, not the process environment: a server another
+  // test left running must not read this account and refresh it against another platform.
   const config: ServerConfig = {
+    configPath: join(root, "server.json"),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",

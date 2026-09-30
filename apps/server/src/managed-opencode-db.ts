@@ -45,17 +45,19 @@ export type SharedOpencodeDbCompatibility = "compatible" | "foreign" | "unreadab
 // Electron). Same dual-driver approach as runtime-opencode-config-store.ts —
 // better-sqlite3 is not loadable under bun.
 type SqliteReader = {
-  all: (sql: string) => Array<Record<string, unknown>>;
+  all: (sql: string, params?: string[]) => Array<Record<string, unknown>>;
+  iterate: (sql: string, params?: string[]) => Iterable<Record<string, unknown>>;
   run: (sql: string, params: string[]) => void;
   close: () => void;
 };
 
-async function openSqliteReadonly(path: string): Promise<SqliteReader> {
+export async function openSqliteReadonly(path: string): Promise<SqliteReader> {
   if (typeof process.versions.bun === "string") {
     const { Database } = await import("bun:sqlite");
     const db = new Database(path, { readonly: true });
     return {
-      all: (sql) => db.query(sql).all() as Array<Record<string, unknown>>,
+      all: (sql, params = []) => db.query(sql).all(...params) as Array<Record<string, unknown>>,
+      iterate: (sql, params = []) => db.query(sql).iterate(...params) as Iterable<Record<string, unknown>>,
       run: (sql, params) => {
         db.query(sql).run(...params);
       },
@@ -65,7 +67,8 @@ async function openSqliteReadonly(path: string): Promise<SqliteReader> {
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(path, { readOnly: true });
   return {
-    all: (sql) => db.prepare(sql).all() as Array<Record<string, unknown>>,
+    all: (sql, params = []) => db.prepare(sql).all(...params) as Array<Record<string, unknown>>,
+    iterate: (sql, params = []) => db.prepare(sql).iterate(...params),
     run: (sql, params) => {
       db.prepare(sql).run(...params);
     },

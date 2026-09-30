@@ -37,6 +37,7 @@ import {
   audioRecordingDelete,
   audioRecordingGet,
   audioRecordingRename,
+  audioRecordingSetProject,
   audioRecordingSaveToWorkspace,
   audioRecordingStart,
   audioRecordingStop,
@@ -145,6 +146,7 @@ export type RecorderState = {
    * slow finalize never looks like a dead Stop button.
    */
   finalizing: boolean;
+  starting: boolean;
   /**
    * Testing-only: model ids whose premium/device gate the user dismissed this
    * session, so they can be exercised before auth exists. Per-model (not a
@@ -188,7 +190,7 @@ type RecorderActions = {
   deleteModel: (modelId: string) => Promise<void>;
   startRecording: (
     title?: string,
-    options?: { sources?: AudioCaptureSourceKind[]; systemDictation?: boolean; diarize?: boolean },
+    options?: { sources?: AudioCaptureSourceKind[]; systemDictation?: boolean; diarize?: boolean; projectId?: string },
   ) => Promise<void>;
   stopRecording: () => Promise<void>;
   cancelRecording: () => Promise<void>;
@@ -209,6 +211,7 @@ type RecorderActions = {
   importAudioFile: (file: File) => Promise<void>;
   deleteRecording: (recordingId: string) => Promise<void>;
   renameRecording: (recordingId: string, title: string) => Promise<void>;
+  setRecordingProject: (recordingId: string, projectId: string, linked: boolean) => Promise<void>;
   openRecording: (recordingId: string) => Promise<void>;
   closeOpenedRecording: () => void;
   saveRecordingToWorkspace: (recordingId: string, workspacePath: string) => Promise<string | null>;
@@ -219,7 +222,7 @@ type RecorderActions = {
    * no-reply message) that a growing transcript file exists to check. Returns
    * true when armed. Stops automatically when the recording ends.
    */
-  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string) => Promise<boolean>;
+  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string, sessionClient?: Client) => Promise<boolean>;
   stopLiveTranscriptShare: () => Promise<void>;
   setOverlayVisible: (visible: boolean) => Promise<void>;
   ask: (question: string) => Promise<void>;
@@ -636,6 +639,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     sources: readSourcesPref(),
     diarizing: false,
     finalizing: false,
+    starting: false,
     unlockedModels: [],
 
     init: async () => {
@@ -970,7 +974,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 
     startRecording: async (title, options) => {
       const { modelId, language, recording, bootstrap } = get();
-      if (recording) return;
+      if (recording || get().starting || get().importing) return;
       // A persisted "system" pref may predate running on a platform that
       // can't capture it (e.g. macOS 12) — drop unsupported sources.
       let sources = options?.sources ?? get().sources;
@@ -993,7 +997,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         return;
       }
 
-      set({ error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [], diarizing: false });
+      if (get().recording || get().starting || get().importing) return;
+      set({ starting: true, error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [], diarizing: false });
       let startedMetaId: string | null = null;
       // Speaker identification is always on for retained recordings once the
       // models are present; never a one-shot dictation.
@@ -1015,6 +1020,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           modelId,
           sources,
           ephemeral: options?.systemDictation === true,
+          projectId: options?.projectId,
           diarize,
         });
         startedMetaId = meta.id;
@@ -1080,6 +1086,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         if (options?.systemDictation) {
           await audioSystemDictationSetState("error", message).catch(() => {});
         }
+      } finally {
+        set({ starting: false });
       }
     },
 
@@ -1277,6 +1285,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
     },
 
+    setRecordingProject: async (recordingId, projectId, linked) => {
+      const recordings = await audioRecordingSetProject(recordingId, projectId, linked);
+      set((state) => {
+        const updated = recordings.find((item) => item.id === recordingId);
+        return {
+          recordings,
+          openedRecording: updated && state.openedRecording?.meta.id === recordingId ? { ...state.openedRecording, meta: updated } : state.openedRecording,
+          recording: updated && state.recording?.id === recordingId ? updated : state.recording,
+        };
+      });
+    },
+
     openRecording: async (recordingId) => {
       const detail = await audioRecordingGet(recordingId);
       set({ openedRecording: detail });
@@ -1299,7 +1319,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       return transcriptText(source, 100_000).trim();
     },
 
-    startLiveTranscriptShare: async (sessionId, workspacePath, directory) => {
+    startLiveTranscriptShare: async (sessionId, workspacePath, directory, sessionClient) => {
       const root = workspacePath?.trim();
       if (!root) {
         set({ error: t("recorder.context_inject_no_session") });
@@ -1320,7 +1340,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 
       // Tell the agent — once, invisibly (synthetic + noReply) — that a growing
       // transcript file exists to read on demand. No repeated pasting.
-      const client = copilotContext?.getClient();
+      const client = sessionClient ?? copilotContext?.getClient();
       if (client) {
         const body = t("recorder.live_share_notice").replace("{file}", fileName);
         try {
