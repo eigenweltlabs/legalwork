@@ -369,6 +369,9 @@ importers:
       gray-matter:
         specifier: 4.0.3
         version: 4.0.3
+      ical.js:
+        specifier: 2.2.1
+        version: 2.2.1
       image-size:
         specifier: 2.0.4
         version: 2.0.4

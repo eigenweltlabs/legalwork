@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CalendarItemSchema } from "@legalwork/types/calendar";
+import { CalendarItemSchema } from "./schema.js";
 import type { ServerConfig } from "../types.js";
 import type { ProjectLink } from "../project-sync-store.js";
 import { intakeRequest, type IntakeClient } from "../eigenwelt-intake.js";
