@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
+import { ProjectMenu, ProjectContextMenu } from "../../workspace/project-menu";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 import {
   Search,
@@ -25,13 +26,9 @@ import {
   PinOff,
   Plus,
   Trash2,
-  FolderOpen,
   LayoutGrid,
   AppWindowMac,
   Tag,
-  UserPlus,
-  Users,
-  Sparkles,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -45,7 +42,6 @@ import type {
 import {
   getWorkspaceTaskLoadErrorDisplay,
   isRemoteConnectionWorkspace,
-  isWindowsPlatform,
   isMacPlatform,
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
@@ -129,7 +125,6 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
-import { useProjectSyncStore } from "../../workspace/project-sync-store";
 
 interface SessionStatusIndicatorProps {
   className?: string;
@@ -425,73 +420,6 @@ function SessionContextMenu({ children, sessionId, workspaceId, isPinned, isArch
         />
       </ContextMenuContent>
     </ContextMenu>
-  );
-}
-
-type WorkspaceActionsMenuProps = {
-  workspace: WorkspaceInfo;
-  className: string;
-};
-
-function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProps) {
-  const ctx = useSidebarContext();
-  const shared = useProjectSyncStore((store) => store.states[workspace.id] !== undefined);
-  const share = useProjectSyncStore((store) => store.share);
-  const navigate = useNavigate();
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn("size-6", className)}
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-            aria-label={t("workspace_list.workspace_options")}
-          >
-            <MoreHorizontal className="size-4" />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="w-56">
-        <DropdownMenuItem onClick={() => ctx.onOpenRenameWorkspace(workspace.id)}>
-          <Pencil className="size-4" />
-          {t("workspace_list.edit_name")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => navigate(`/workspace/${encodeURIComponent(workspace.id)}/settings/personalisation`)}>
-          <Sparkles className="size-4" />
-          {t("personalisation.project_prompt_menu")}
-        </DropdownMenuItem>
-        {workspace.workspaceType === "local" ? (
-          <DropdownMenuItem onClick={() => share({ workspaceId: workspace.id, name: workspaceLabel(workspace) })}>
-            {shared ? <Users className="size-4" /> : <UserPlus className="size-4" />}
-            {shared ? t("project_sync.manage_sharing") : t("project_sync.share_project")}
-          </DropdownMenuItem>
-        ) : null}
-        {workspace.workspaceType === "local" ? (
-          <DropdownMenuItem onClick={() => ctx.onRevealWorkspace(workspace.id)}>
-            <FolderOpen className="size-4" />
-            {isWindowsPlatform() ? t("workspace_list.reveal_explorer") : t("workspace_list.reveal_finder")}
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}>
-          <FolderPlus className="size-4" />
-          {t("session_management.new_group")}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          onClick={() => ctx.onForgetWorkspace(workspace.id)}
-        >
-          <Trash2 className="size-4" />
-          {t("workspace_list.remove_workspace")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -1006,7 +934,7 @@ function WorkspaceSidebarGroup({
             onOpenChange={() => ctx.toggleWorkspaceExpanded(workspace.id)}
             className="group/collapsible"
           >
-            <div className="group/workspace-header relative">
+            <ProjectContextMenu workspace={workspace}><div className="group/workspace-header relative">
               <WorkspaceHeader
                 workspace={workspace}
                 isActive={isSelected}
@@ -1032,7 +960,7 @@ function WorkspaceSidebarGroup({
                 >
                   <MessageSquare className="size-3.5" strokeWidth={1.5} />
                 </Button>
-                <WorkspaceActionsMenu
+                <ProjectMenu
                   workspace={workspace}
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100 data-popup-open:opacity-100"
                 />
@@ -1050,7 +978,7 @@ function WorkspaceSidebarGroup({
               >
                 <ChevronRight className={cn("size-4 transition-transform duration-200 text-muted-foreground group-hover/expand-collapse-button:text-foreground", isExpanded && "rotate-90")} />
               </Button>
-            </div>
+            </div></ProjectContextMenu>
 
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
