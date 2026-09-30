@@ -1,3 +1,5 @@
+import { syncProjectCalendar } from "./calendar/sync.js";
+import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
@@ -93,6 +95,7 @@ const REAL_PLATFORM: ProjectSyncPlatform = {
 };
 
 export const DEFAULT_PROJECT_SCOPE: ProjectSyncScope = {
+  calendar: true,
   documents: true,
   notes: true,
   tasks: true,
@@ -287,7 +290,7 @@ async function pushOne(
         name: nameOf(workspace),
         fields: link.settings.scope.metadata ? details.fields : [],
         ...(details.remote ? { remote: details.remote } : {}),
-        scope: link.settings.scope,
+        scope: { ...link.settings.scope, calendar: link.settings.scope.calendar !== false },
         access: link.settings.access,
         memberIds: link.settings.memberIds,
       });
@@ -487,7 +490,7 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
 }
 
 /** Files here that differ from what both sides last agreed on, without reading their content. */
-async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
+async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
   const base = store.fileBase(link.projectId).entries();
   const reviewed = await reviewedDocuments(link.settings.scope, root);
   const seen = new Set<string>();
@@ -512,13 +515,14 @@ async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: st
   }
   for (const key of base.keys()) if (!seen.has(key)) changed += 1;
   if (link.settings.scope.reviews) changed += await pendingReviewChanges(root, store.reviewBase(link.projectId));
-  return changed + store.pendingOps(link.projectId).length;
+  return changed + store.pendingOps(link.projectId).length + (await calendarStore(config)).pending(link.workspaceId).length;
 }
 
 /** The project stays here as a local project: nothing about it syncs any more. */
 async function keepAsLocal(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink): Promise<void> {
   const workspace = workspaceOf(config, link.workspaceId);
   (await taskStore(config)).keepProjectTasksLocal(link.workspaceId);
+  (await calendarStore(config)).withdraw(link.workspaceId, true);
   // A member's own folder may be the owner's too (a shared drive): its id is not the member's to clear.
   const ownFolder = link.origin === "local" && link.role !== "owner";
   if (workspace && !ownFolder && (await folderAvailable(workspace.path))) await setProjectSyncId(workspace.path, null);
@@ -538,6 +542,7 @@ async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: P
     return;
   }
   const workspace = workspaceOf(config, link.workspaceId);
+  (await calendarStore(config)).withdraw(link.workspaceId, false);
   store.discardOutbox(link.projectId);
   store.removeLink(link.workspaceId);
   if (workspace) {
@@ -566,7 +571,7 @@ async function onHidden(config: ServerConfig, store: ProjectSyncStore, link: Pro
     return true;
   }
   const workspace = workspaceOf(config, link.workspaceId);
-  if (workspace && (await folderAvailable(workspace.path)) && (await localChanges(store, link, workspace.path)) > 0) {
+  if (workspace && (await folderAvailable(workspace.path)) && (await localChanges(config, store, link, workspace.path)) > 0) {
     store.updateLink(link.workspaceId, { state: "revoked" });
     workspacesChanged(config);
     return false;
@@ -764,6 +769,13 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     for (const link of store.links(orgId)) {
       if (link.state !== "active" || !link.confirmed) continue;
       await syncDocuments(config, platform, client, store, link, runner);
+      if (platform === REAL_PLATFORM) {
+        try { await syncProjectCalendar(config, client, link); }
+        catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; /* An older platform may not have the calendar API yet. Keep the outbox and continue document sync. */ }
+        const pendingCalendar = (await calendarStore(config)).pending(link.workspaceId).length;
+        const report = store.linkByWorkspace(link.workspaceId)?.report;
+        if (pendingCalendar > 0) store.updateLink(link.workspaceId, { report: { pending: (report?.pending ?? 0) + pendingCalendar, skipped: report?.skipped ?? [], heldDeletions: report?.heldDeletions ?? 0 } });
+      }
     }
     roundStates.set(key, { offline: false, error: null, at: Date.now() });
     // Tasks published this round go up with the task sync (which waits for a
@@ -907,7 +919,7 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
   // A copy held back no longer syncs, so no round reports on it: count what it is held for.
   const pendingChanges =
     link.state === "revoked" && available
-      ? await localChanges(store, link, workspace.path)
+      ? await localChanges(config, store, link, workspace.path)
       : store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
   return {
     workspaceId: workspace.id,
@@ -1013,7 +1025,7 @@ export async function saveProjectSyncSettings(
     if (settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   } else {
     store.updateLink(workspace.id, { settings, lastError: null });
-    store.enqueue(link.projectId, { kind: "settings", settings });
+    store.enqueue(link.projectId, { kind: "settings", settings: { ...settings, scope: { ...settings.scope, calendar: settings.scope.calendar !== false } } });
     if (link.settings.scope.tasks && !settings.scope.tasks) tasks.keepProjectTasksLocal(workspace.id);
     if (!link.settings.scope.tasks && settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   }
@@ -1086,7 +1098,7 @@ export async function resolveProjectSync(
       await keepAsLocal(config, store, link);
       break;
     case "remove": {
-      const changes = (await folderAvailable(workspace.path)) ? await localChanges(store, link, workspace.path) : 0;
+      const changes = (await folderAvailable(workspace.path)) ? await localChanges(config, store, link, workspace.path) : 0;
       if (changes > 0 && input.force !== true) {
         throw new ApiError(409, "project_changes_pending", `${changes} change(s) made on this computer have not reached the firm yet.`, {
           pending: changes,
@@ -1202,7 +1214,7 @@ export async function signOutOfFirmProjects(
   let pending = 0;
   for (const link of copies) {
     const workspace = workspaceOf(config, link.workspaceId);
-    if (workspace && (await folderAvailable(workspace.path))) pending += await localChanges(store, link, workspace.path);
+    if (workspace && (await folderAvailable(workspace.path))) pending += await localChanges(config, store, link, workspace.path);
   }
   if (pending > 0 && !options.force) return { ok: false, pending };
   // Checked only: the caller has more to check before anything leaves.

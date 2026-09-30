@@ -1,3 +1,4 @@
+import { projectSyncStore } from "./project-sync-store.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
 import { searchSessionContents, searchFileContents } from "./content-search.js";
@@ -96,6 +97,7 @@ import { DocumentPreparation } from "./document-preparation/service.js";
 import { ReviewService } from "./reviews/service.js";
 import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
+import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 import { ReviewLibrary } from "./reviews/library.js";
@@ -1574,6 +1576,7 @@ function createRoutes(
     };
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerCalendarRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
@@ -3460,8 +3463,13 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const parsed = projectSyncSettingsSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024));
+    const rawSettings = await readJsonBodyLimited(ctx.request, 64 * 1024);
+    const parsed = projectSyncSettingsSchema.safeParse(rawSettings);
     if (!parsed.success) throw new ApiError(400, "invalid_project_sync_settings", "Choose who sees the project and what it syncs.");
+    const originalScope = rawSettings.scope;
+    if (typeof originalScope === "object" && originalScope !== null && !("calendar" in originalScope)) {
+      parsed.data.scope.calendar = (await projectSyncStore(config)).linkByWorkspace(workspace.id)?.settings.scope.calendar !== false;
+    }
     return jsonResponse(await saveProjectSyncSettings(config, workspace, parsed.data));
   });
 

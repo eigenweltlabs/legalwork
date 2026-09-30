@@ -96,7 +96,7 @@ import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
 import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
-import { workspaceProjectRoute, workspaceSessionRoute, workspaceTasksRoute, workspaceReviewsRoute } from "@/react-app/shell/workspace-routes";
+import { workspaceProjectRoute, workspaceSessionRoute, workspaceTasksRoute, workspaceReviewsRoute, workspaceCalendarRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
   flattenSessionRows,
@@ -719,12 +719,12 @@ export function AppSidebar(props: AppSidebarProps) {
   const contextValue: SidebarContextValue = {
     workspaceSessionGroups: props.workspaceSessionGroups,
     selectedWorkspaceId: props.selectedWorkspaceId,
-    selectedSessionId: props.activeNav || projectsPage || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") ? null : props.selectedSessionId,
-    activeProjectFeature: props.activeNav || projectsPage ? null : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
+    selectedSessionId: props.activeNav || projectsPage || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar") || location.pathname === "/home" ? null : props.selectedSessionId,
+    activeProjectFeature: props.activeNav || projectsPage || location.pathname === "/home" ? null : location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
       : location.pathname.endsWith("/project") ? "home" : props.selectedSessionId ? "sessions" : null,
     onOpenProjectPage: async (workspaceId, page) => {
       if (await props.onSelectWorkspace(workspaceId) === false) return;
-      navigate(page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
+      navigate(page === "calendar" ? workspaceCalendarRoute(workspaceId) : page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
     },
     onOpenProjectFiles: props.onOpenProjectFiles,
     onOpenProjectWindow: props.onOpenProjectWindow,
@@ -1050,6 +1050,7 @@ function WorkspaceSidebarGroup({
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
                 {projectNavItems.length > 0 && <SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
                   {projectNavItems.map(key => ({
+                  projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectHome: <SidebarMenuSubItem key="projectHome">
                     <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "home"); }}>
                       <House className="size-4" strokeWidth={1.5} />

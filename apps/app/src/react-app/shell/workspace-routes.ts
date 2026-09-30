@@ -40,3 +40,5 @@ export function workspaceTasksRoute(workspaceId: string) {
 export function workspaceReviewsRoute(workspaceId: string, reviewId?: string) {
   return `/workspace/${encodeURIComponent(workspaceId.trim())}/reviews${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ""}`;
 }
+
+export function workspaceCalendarRoute(workspaceId: string) { return `/workspace/${encodeURIComponent(workspaceId.trim())}/calendar`; }

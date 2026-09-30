@@ -10,9 +10,9 @@ export type ShellNavKey = "navHome" | "navProjects" | "navTasks" | "navWorkflows
 const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
-export type ProjectNavKey = "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
+export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
 const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionProjects", "sectionRecent"];
-const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
+const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
   navHome: boolean;
@@ -22,6 +22,7 @@ export type ShellConfig = {
   sectionProjects: boolean;
   sectionRecent: boolean;
   projectNavOrder: ProjectNavKey[];
+  projectCalendar: boolean;
   projectHome: boolean;
   projectReviews: boolean;
   projectTasks: boolean;
@@ -76,6 +77,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   sectionProjects: true,
   sectionRecent: true,
   projectNavOrder: DEFAULT_PROJECT_ORDER,
+  projectCalendar: true,
   projectHome: true,
   projectReviews: true,
   projectTasks: true,
