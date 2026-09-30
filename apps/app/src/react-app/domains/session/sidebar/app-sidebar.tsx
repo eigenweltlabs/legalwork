@@ -31,6 +31,7 @@ import {
   Tag,
   UserPlus,
   Users,
+  Sparkles,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -436,6 +437,7 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
   const ctx = useSidebarContext();
   const shared = useProjectSyncStore((store) => store.states[workspace.id] !== undefined);
   const share = useProjectSyncStore((store) => store.share);
+  const navigate = useNavigate();
 
   return (
     <DropdownMenu>
@@ -458,6 +460,10 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
         <DropdownMenuItem onClick={() => ctx.onOpenRenameWorkspace(workspace.id)}>
           <Pencil className="size-4" />
           {t("workspace_list.edit_name")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate(`/workspace/${encodeURIComponent(workspace.id)}/settings/personalisation`)}>
+          <Sparkles className="size-4" />
+          {t("personalisation.project_prompt_menu")}
         </DropdownMenuItem>
         {workspace.workspaceType === "local" ? (
           <DropdownMenuItem onClick={() => share({ workspaceId: workspace.id, name: workspaceLabel(workspace) })}>

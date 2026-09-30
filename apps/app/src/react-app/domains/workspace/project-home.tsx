@@ -1,7 +1,7 @@
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Sparkles, Square, Star, StickyNote, SquareCheck } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -29,6 +29,7 @@ import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
 import { noteTitle } from "./project-note-title";
+import { ProjectPersonalisationSection } from "../settings/pages/project-personalisation-section";
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -59,6 +60,7 @@ export function ProjectHome(props: {
   const [taskOpen, setTaskOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editMetadata, setEditMetadata] = useState(false);
+  const [editPrompt, setEditPrompt] = useState(false);
   const [sessionStarting, setSessionStarting] = useState(false);
   const newSession = async (shareRecording: boolean) => {
     if (sessionStarting) return;
@@ -128,6 +130,7 @@ export function ProjectHome(props: {
             </div>
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</Button>
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</Button>
+            <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" onClick={() => setEditPrompt(true)}><Sparkles />{t("personalisation.project_prompt_menu")}</Button>
             <Button variant="ghost" className="h-10 gap-1.5 rounded-xl px-3 text-xs" disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}>{recordingActive ? <Square className="text-red-9" fill="currentColor" /> : <Mic />}{recordLabel}</Button>
           </div>
         </ContextMenuTrigger>
@@ -135,6 +138,7 @@ export function ProjectHome(props: {
           <ContextMenuItem disabled={sessionStarting || recordingFinalizing} onClick={() => { void newSession(recordingActive); }}><MessageSquare />{t("projects.new_chat")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>
+          <ContextMenuItem onClick={() => setEditPrompt(true)}><Sparkles />{t("personalisation.project_prompt_menu")}</ContextMenuItem>
           <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => toggleFavorite(workspaceId)}><Star />{favoriteLabel}</ContextMenuItem>
@@ -237,6 +241,15 @@ export function ProjectHome(props: {
         </AlertDialogContent>
       </AlertDialog>
       {taskOpen ? <ProjectTaskDialog client={client} workspaceId={workspaceId} onClose={() => setTaskOpen(false)} /> : null}
+      <Dialog open={editPrompt} onOpenChange={(open) => {
+        setEditPrompt(open);
+        if (!open) void queryClient.invalidateQueries({ queryKey: ["project", workspaceId] });
+      }}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader><DialogTitle>{t("personalisation.project_prompt_menu")}</DialogTitle></DialogHeader>
+          {editPrompt ? <ProjectPersonalisationSection key={`${client.baseUrl}:${workspaceId}`} client={client} workspaceId={workspaceId} projectName={props.name} /> : null}
+        </DialogContent>
+      </Dialog>
       <Dialog open={editMetadata} onOpenChange={setEditMetadata}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader><DialogTitle>{t("projects.metadata")}</DialogTitle><DialogDescription>{t("projects.metadata_hint")}</DialogDescription></DialogHeader>
