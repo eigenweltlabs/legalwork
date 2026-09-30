@@ -192,7 +192,7 @@ export type EigenweltUsage = {
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
   /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
-  plan: "plus" | "pro" | null;
+  plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -240,6 +240,7 @@ export type EigenweltEntitlementsView = {
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
 export type EigenweltSignInPayload = {
+  preferredAiProvider?: "openai" | "other";
   systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
@@ -2040,6 +2041,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
+    recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string) =>
+      requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
+        token, hostToken, method: "POST", body: { messageId },
+      }),
     getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
       const query = new URLSearchParams();
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));

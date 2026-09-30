@@ -1221,7 +1221,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   async function completeEigenweltSignIn(
     sessionId: string,
     opts?: { cancelled?: () => boolean },
-  ): Promise<{ connected: boolean; cancelled?: boolean; message?: string }> {
+  ): Promise<{ connected: boolean; cancelled?: boolean; message?: string; preferredAiProvider?: "openai" | "other" }> {
     setStateField("providerAuthError", null);
     try {
       const legalworkClient = requireEigenweltServerClient();
@@ -1235,7 +1235,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         }
         if (opts?.cancelled?.()) return { connected: false, cancelled: true };
         await finalizeEigenweltConnect(result as EigenweltSignInPayload);
-        return { connected: true, message: `${t("status.connected")} Eigenwelt Subscription` };
+        return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: `${t("status.connected")} Eigenwelt Subscription` };
       }
       throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {

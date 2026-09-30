@@ -163,6 +163,7 @@ describe("the remembered account", () => {
 describe("the plan catalog", () => {
   test("mirrors the platform's prices and included usage", () => {
     expect(EIGENWELT_PLANS.map((plan) => [plan.id, plan.yearlyPerMonthCents, plan.monthlyCents, plan.includedMonthlyUsageCents])).toEqual([
+      ["sync", 1500, 2000, 0],
       ["plus", 2900, 3900, 3000],
       ["pro", 6900, 8900, 7000],
     ]);

@@ -27,14 +27,14 @@ function requestKind(value: FormDataEntryValue | null): UsageRequestKind {
   if (value === "temporary" || value === "recurring" || value === "upgrade") return value;
   throw new Error("kind");
 }
-function responseUrl(value: unknown) {
+export function responseUrl(value: unknown) {
   if (typeof value !== "object" || value === null || !("url" in value) || typeof value.url !== "string") throw new Error("response");
   const url = new URL(value.url);
   if (url.protocol !== "https:" || url.hostname !== "checkout.stripe.com") throw new Error("checkout");
   return url.toString();
 }
 const fieldClass = "h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground";
-export function UsageControlPanel({ transport, t }: { transport: UsageTransport; t: (key: UsageTextKey) => string }) {
+export function UsageControlPanel({ transport, t, showHeading = true }: { transport: UsageTransport; t: (key: UsageTextKey) => string; showHeading?: boolean }) {
   const [view, setView] = useState<UsageControlView | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [requestOpen, setRequestOpen] = useState(false);
@@ -67,8 +67,8 @@ export function UsageControlPanel({ transport, t }: { transport: UsageTransport;
   }
   const call = (action: UsageControlAction) => { void run(action).catch(() => {}); };
   return <div className="min-w-0 space-y-5" aria-busy={busy}>
-    <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold tracking-tight">{t("limits.title")}</h2>
-      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void refresh().catch(() => setError(t("limits.load_error")))}><RefreshCw className="size-4" />{t("limits.refresh")}</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3">{showHeading && <h2 className="text-lg font-semibold tracking-tight">{t("limits.title")}</h2>}
+      <Button variant="ghost" size="sm" className="ml-auto" disabled={busy} onClick={() => void refresh().catch(() => setError(t("limits.load_error")))}><RefreshCw className="size-4" />{t("limits.refresh")}</Button></div>
     {error && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</p>}
     {!view ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("limits.loading")}</p> : !view.enabled ? <p className="rounded-lg border p-3 text-sm text-muted-foreground">{t("limits.not_enabled")}</p> : <>
       <Card className="gap-0 space-y-4 p-5">
@@ -111,7 +111,7 @@ export function UsageControlPanel({ transport, t }: { transport: UsageTransport;
           </form>
         </Card>
         <PaymentMethods refreshSignal={view} transport={transport} t={t} run={run} busy={busy}/>
-        <Card className="gap-0 space-y-4 p-5"><h3 className="flex items-center gap-2 font-medium"><Users className="size-4" />{t("limits.members")}</h3><p className="text-sm text-muted-foreground">Plus: {view.seats.plus} · Pro: {view.seats.pro}</p>
+        <Card className="gap-0 space-y-4 p-5"><h3 className="flex items-center gap-2 font-medium"><Users className="size-4" />{t("limits.members")}</h3><p className="text-sm text-muted-foreground">Sync: {view.seats.sync ?? 0} · Plus: {view.seats.plus} · Pro: {view.seats.pro}</p>
           {view.pendingMemberChanges?.map(op=><div key={op.quoteId} className="space-y-2 rounded-lg border p-3 text-sm"><p>{t("limits.pending_change_hint")}</p><Button variant="outline" disabled={busy} onClick={()=>call({action:"memberChange",target:op.target,preview:false,quoteId:op.quoteId,expectedAmountCents:op.amountCents})}>{t("limits.retry_change")}</Button></div>)}
           {view.invitations?.map(invite=><div key={invite.id} className="space-y-1 border-t pt-3 text-sm"><p className="break-all">{invite.email}</p><p className="text-muted-foreground">{t("limits.invitation_pending")} · {invite.plan}</p></div>)}
           {view.members.map(member => <MemberEditor key={member.userId} member={member} busy={busy} t={t} submit={submit} call={call} transport={transport} refresh={refresh} />)}

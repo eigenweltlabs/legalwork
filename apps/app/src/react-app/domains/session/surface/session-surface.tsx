@@ -1,6 +1,7 @@
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
-import { UsageLimitAction } from "@/react-app/domains/connections/usage-control/desktop-panel";
+import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
+import { isProviderUsageLimitError, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
@@ -14,13 +15,8 @@ import { cn } from "@/lib/utils";
 import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import {
-  EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
   eigenweltBudgetLimitDisplay,
-  eigenweltBudgetRetryAction,
-  isEigenweltBudgetError,
   isEigenweltBudgetExceededErrorText,
-  markEigenweltBudgetStop,
-  shouldStopEigenweltBudgetRetry,
 } from "@/app/lib/eigenwelt-budget";
 import {
   eigenweltBillingUrl,
@@ -170,6 +166,8 @@ export type SessionSurfaceProps = {
   selectedModel: ModelRef;
   /** Open the connect-AI flow from the notice above the composer. */
   onConnectAi?: (action: ConnectAiAction) => void;
+  onChooseAiPlan?: (plan: "plus" | "pro") => Promise<void>;
+  onChooseLegalworkModel?: () => void;
   /**
    * The route lays the plan screen over the app whenever no model is usable,
    * so the notice above the composer only covers what that screen leaves
@@ -810,10 +808,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
   const initializedAutoOpenSessionRef = useRef<string | null>(null);
-  // One daily-limit / budget-exceeded stop per failing run (re-armed by
-  // session switch, a new busy attempt, or a failed abort).
-  const budgetStopFiredRef = useRef(false);
-  const [usageLimitReached, setUsageLimitReached] = useState(false);
   const snapshotQueryKey = useMemo(
     () => reactSnapshotKey(props.workspaceId, props.sessionId),
     [props.workspaceId, props.sessionId],
@@ -872,7 +866,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // switching sessions preserves each session's own in-progress composer.
     autoOpenedTargetRef.current = null;
     initializedAutoOpenSessionRef.current = null;
-    budgetStopFiredRef.current = false;
     setVerifiedOpenTargets([]);
   }, [props.sessionId]);
 
@@ -954,77 +947,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     return "ready";
   }, [liveStatus, sending, chatStreaming]);
 
-  // --- Eigenwelt budget retries --------------------------------------------
-  // Gateway budget errors (LiteLLM 429 "Budget has been exceeded" — the free
-  // key's daily budget or the paid org budget) never resolve on their own, so
-  // the engine's endless retry/backoff loop is pointless. Policy: let it
-  // retry up to 3 attempts (with an upgrade / top-up action on the banner),
-  // then abort the run and surface the matching terminal card. Gated on the
-  // session's selected provider being `eigenwelt` (org budget); every
-  // other provider/error keeps the engine's
-  // default retry behavior.
-  const paidBudgetRetryActive =
-    liveStatus.type === "retry" &&
-    isEigenweltBudgetError(props.selectedModel.providerID, liveStatus.message);
-  const retryStatusForDisplay = useMemo(() => {
-    if (liveStatus.type !== "retry") return null;
-    if (liveStatus.action) return liveStatus;
-    if (paidBudgetRetryActive) {
-      return {
-        ...liveStatus,
-        action: eigenweltBudgetRetryAction(eigenweltBillingUrl(eigenweltPremiumPlatformUrl())),
-      };
-    }
-    return liveStatus;
-  }, [eigenweltPlan, paidBudgetRetryActive, liveStatus]);
-  useEffect(() => {
-    // A fresh attempt (busy) re-arms the guard so a later prompt that hits
-    // the limit / budget wall again is stopped again.
-    if (liveStatus.type === "busy") { budgetStopFiredRef.current = false; setUsageLimitReached(false); }
-  }, [liveStatus.type]);
-  useEffect(() => {
-    if (liveStatus.type !== "retry") return;
-    const stopPaid = shouldStopEigenweltBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt);
-    if (!stopPaid) return;
-    if (budgetStopFiredRef.current) return;
-    budgetStopFiredRef.current = true;
-    setUsageLimitReached(true);
-    const attempt = liveStatus.attempt;
-    // Pause follow-ups before stopping; keep their contents available to edit.
-    setQueuePaused(props.sessionId, true);
-    // Render the terminal card immediately; the engine's abort error for the
-    // same turn reconciles into this message (see session-sync's
-    // budget-stop substitution).
-    injectSessionErrorMessage(
-      props.workspaceId,
-      props.sessionId,
-      EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
-    );
-    markEigenweltBudgetStop(props.sessionId);
-    void (async () => {
-      const aborted = await abortSessionSafe(
-        opencodeClient,
-        props.sessionId,
-        props.workspaceRoot.trim() || undefined,
-      );
-      if (!aborted) {
-        // Engine unreachable or scope mismatch — re-arm so the next retry
-        // event tries the abort again instead of backing off forever.
-        budgetStopFiredRef.current = false;
-        return;
-      }
-      captureAnalyticsEvent("task_run_budget_stopped", { attempts: attempt });
-      await snapshotQuery.refetch();
-    })();
-  }, [setQueuePaused, liveStatus, opencodeClient, props.selectedModel.providerID, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch]);
+  // A quota failure requires user action. Stop on its first retry event.
+  const paidBudgetRetryActive = liveStatus.type === "retry" && isProviderUsageLimitError(liveStatus.message);
+  const retryStatusForDisplay = liveStatus.type === "retry" && !paidBudgetRetryActive ? liveStatus : null;
   const renderedMessages = useMemo(
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
-  const lastMessage = renderedMessages.at(-1);
-  const storedBudgetError = lastMessage?.role === "assistant" && lastMessage.parts.some(part =>
-    part.type === "text" && (isEigenweltBudgetError(props.selectedModel.providerID,part.text) || isEigenweltBudgetExceededErrorText(part.text)));
-  const budgetActionVisible = usageLimitReached || paidBudgetRetryActive || (liveStatus.type === "idle" && (storedBudgetError || isEigenweltBudgetError(props.selectedModel.providerID,sessionActivityError)));
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -2163,6 +2092,19 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     >
                       <MessageList
                         eigenweltPlan={eigenweltPlan}
+                        renderUsageLimit={error => {
+                          const provider = providerFromUsageLimitError(error);
+                          const legacyBudget = isEigenweltBudgetExceededErrorText(error);
+                          if (!isProviderUsageLimitError(error) && provider === null && !legacyBudget) return null;
+                          return <ProviderLimitMessage
+                            client={props.client}
+                            workspaceId={props.workspaceId}
+                            plan={eigenweltPlan}
+                            providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
+                            onChoosePlan={props.onChooseAiPlan}
+                            onChooseModel={props.onChooseLegalworkModel ?? props.onModelClick}
+                          />;
+                        }}
                         messages={renderedMessages}
                         status={status}
                         retryStatus={retryStatusForDisplay}
@@ -2281,11 +2223,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           queueAccessory={queuedDrafts.length > 0 ? (
             <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked} />
           ) : null}
-          compactTopSpacing={Boolean(budgetActionVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedDrafts.length > 0)}
+          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
-            budgetActionVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission ? (
+            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission ? (
               <div>
-                {budgetActionVisible ? <UsageLimitAction client={props.client} workspaceId={props.workspaceId} /> : null}
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
                   <NoModelNotice

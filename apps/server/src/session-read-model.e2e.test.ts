@@ -99,6 +99,10 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
         ]);
       }
 
+      if (url.pathname === "/session/ses_1/message/msg_1") {
+        return Response.json({ info: { id: "msg_1", sessionID: "ses_1", role: "assistant", providerID: "openai" }, parts: [] });
+      }
+
       if (url.pathname === "/session/ses_1/todo") {
         return Response.json([
           {
@@ -121,8 +125,9 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
   return { server, requests };
 }
 
-async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string }) {
+async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean }) {
   const config: ServerConfig = {
+    configPath: join(input.workspaceRoot, "server.json"),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -140,7 +145,7 @@ async function startLegalworkServer(input: { workspaceRoot: string; opencodeBase
       },
     ],
     authorizedRoots: [input.workspaceRoot],
-    readOnly: true,
+    readOnly: input.readOnly ?? true,
     startedAt: Date.now(),
     tokenSource: "cli",
     hostTokenSource: "cli",
@@ -169,6 +174,21 @@ async function waitUntil(predicate: () => boolean) {
 }
 
 describe("workspace session read APIs", () => {
+  test("a stopped quota turn stays actionable in subsequent snapshots and message reads", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1`;
+    const response = await fetch(`${base}/usage-limit`, { method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ messageId: "msg_1" }) });
+    expect(response.status).toBe(200);
+    const snapshot = await fetch(`${base}/snapshot`, { headers: auth(legalwork.token) }).then(response => response.json());
+    expect(snapshot.item.messages[0].info.error.data.message).toBe("LegalWork provider usage limit: openai");
+    const messages = await fetch(`${base}/messages`, { headers: auth(legalwork.token) }).then(response => response.json());
+    expect(messages.items[0].info.error).toEqual(snapshot.item.messages[0].info.error);
+    const wrongTurn = await fetch(`${base}/usage-limit`, { method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ messageId: "does-not-exist" }) });
+    expect(wrongTurn.status).not.toBe(200);
+  });
+
   test("lists sessions and returns session details, messages, and snapshot", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();

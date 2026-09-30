@@ -1,22 +1,6 @@
 import { t } from "@/i18n";
-/**
- * Eigenwelt gateway budget-exceeded handling.
- *
- * The Eigenwelt gateway (LiteLLM) answers HTTP 429 with error type
- * `budget_exceeded` and a message containing "Budget has been exceeded" once a
- * seat's weekly usage is used up. The engine treats that like any transient
- * provider error and retries with backoff forever. These helpers implement the
- * LegalWork policy on top of the engine's retry loop:
- *
- * - detection is gated on the failing request's provider being `eigenwelt`
- *   (all other providers and all other error kinds keep the default retry
- *   behavior),
- * - the engine gets at most {@link EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS}
- *   attempts, after which the app aborts the run and renders a terminal
- *   "weekly usage used up" card pointing at the platform's billing page.
- *
- * Everything in here is pure/registry state so it can be unit tested without
- * React or the engine.
+/** Legacy Eigenwelt budget helpers and terminal markers retained for saved chats.
+ * New provider quota failures are stopped on their first retry by session-sync.
  */
 
 export const EIGENWELT_PROVIDER_ID = "eigenwelt";
@@ -30,7 +14,7 @@ export const EIGENWELT_PROVIDER_ID = "eigenwelt";
 export const EIGENWELT_BILLING_URL_DEFAULT = "https://platform.eigenweltlabs.com/billing";
 
 /** Stop the engine's retry loop after this many budget-exceeded attempts. */
-export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 3;
+export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 1;
 
 // Functions, not consts: a module-scope t() would freeze the English copy at
 // import time, before initLocale() has picked the language.
@@ -38,7 +22,7 @@ export const eigenweltBudgetExceededTitle = () => t("budget.exceeded_title");
 export const eigenweltBudgetExceededBody = () => t("budget.exceeded_body");
 export const eigenweltBudgetUpgradeLabel = () => t("budget.upgrade_label");
 
-export type EigenweltBudgetPlan = "plus" | "pro" | null;
+export type EigenweltBudgetPlan = "sync" | "plus" | "pro" | null;
 
 /** Terminal-card copy when the weekly allowance is used up. Plus and Pro
  *  see the same copy (the plan param is kept for callers and future use). */
@@ -58,8 +42,7 @@ export function eigenweltBudgetLimitDisplay(_plan: EigenweltBudgetPlan): {
  * Text of the synthetic terminal error message injected into the transcript
  * when the app stops a budget-exceeded retry loop. The chat renderer detects
  * this exact copy (via {@link isEigenweltBudgetExceededErrorText}) and swaps
- * the plain error block for the dedicated upgrade card, so only stops the app
- * itself gated on the eigenwelt provider ever render the card.
+ * the plain error block for the dedicated upgrade card, for previously stored Eigenwelt failures.
  */
 // Deliberately NOT translated. This string is written into a session's stored
 // error text and matched back later to swap in the localized upgrade card. A
@@ -146,10 +129,15 @@ export function eigenweltBudgetRetryAction(billingUrl: string = EIGENWELT_BILLIN
 // message in the chat is the top-up card instead of the generic interrupt.
 
 const PENDING_STOP_TTL_MS = 60_000;
-const pendingStops = new Map<string, number>();
+const pendingStops = new Map<string, { markedAt: number; errorText: string }>();
 
-export function markEigenweltBudgetStop(sessionId: string, now: number = Date.now()): void {
-  pendingStops.set(sessionId, now);
+export function markEigenweltBudgetStop(sessionId: string, now: number = Date.now(), errorText: string = EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT): void {
+  pendingStops.set(sessionId, { markedAt: now, errorText });
+}
+
+export function updateProviderUsageLimitStop(sessionId: string, errorText: string): void {
+  const stop = pendingStops.get(sessionId);
+  if (stop) stop.errorText = errorText;
 }
 
 /**
@@ -158,8 +146,12 @@ export function markEigenweltBudgetStop(sessionId: string, now: number = Date.no
  * not mislabeled.
  */
 export function consumeEigenweltBudgetStop(sessionId: string, now: number = Date.now()): boolean {
-  const markedAt = pendingStops.get(sessionId);
-  if (markedAt === undefined) return false;
+  return consumeProviderUsageLimitStop(sessionId, now) !== null;
+}
+
+export function consumeProviderUsageLimitStop(sessionId: string, now: number = Date.now()): string | null {
+  const stop = pendingStops.get(sessionId);
+  if (!stop) return null;
   pendingStops.delete(sessionId);
-  return now - markedAt <= PENDING_STOP_TTL_MS;
+  return now - stop.markedAt <= PENDING_STOP_TTL_MS ? stop.errorText : null;
 }

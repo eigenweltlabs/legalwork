@@ -2,8 +2,8 @@
 /**
  * The plan screen. LegalWork has no free model tier, so while no model is
  * usable (see aiAccessState) this screen lies over the blurred app, and it is
- * the last onboarding step. Three cards: "own model" on the left, then the
- * same Plus and Pro cards as the platform's plan comparison.
+ * the last onboarding step. Three cards: a free own-model option, Sync, and
+ * a combined Plus/Pro card with the same tiers as the platform.
  *
  *  - Own model is free and opens the provider connection. Closing that
  *    without connecting lands back here: the route keeps the screen up until
@@ -19,7 +19,7 @@
  * Analytics (in memory only, like every other app event): the route sends
  * ai_plans_viewed, ai_plans_own_model_closed and ai_plans_completed; this
  * screen sends what happens on it. Every event carries `mode` and `variant`.
- *   ai_plans_option_selected     { choice, previous_choice } own_model | plus | pro | sign_in;
+ *   ai_plans_option_selected     { choice, previous_choice } own_model | sync | plus | pro | sign_in;
  *                                previous_choice is the earlier choice on this
  *                                screen, e.g. own_model before plus
  *   ai_plans_sign_in_started     { choice } the browser opened
@@ -31,10 +31,25 @@
  *   ai_plans_updates_opened                 "Check for updates"
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, KeyRound, Loader2, RefreshCcw, Sparkles, type LucideIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  KeyRound,
+  Loader2,
+  RefreshCcw,
+  type LucideIcon,
+} from "lucide-react";
 
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
@@ -49,7 +64,12 @@ import { useLocale } from "@/i18n/use-locale";
 import { cn } from "@/lib/utils";
 import { StepDots } from "./onboarding-cover";
 
-type SignInResult = { connected: boolean; cancelled?: boolean; message?: string };
+type SignInResult = {
+  connected: boolean;
+  cancelled?: boolean;
+  message?: string;
+  preferredAiProvider?: "openai" | "other";
+};
 
 export type AiPlansAccount = { email: string | null; firmName: string | null };
 
@@ -70,11 +90,14 @@ export type AiPlansOverlayProps = {
     plan?: EigenweltPlanId;
   }) => Promise<{ authorizeUrl: string; sessionId: string }>;
   /** Long-poll until the browser flow completes. */
-  onWaitSignIn: (sessionId: string, opts: { cancelled: () => boolean }) => Promise<SignInResult>;
+  onWaitSignIn: (
+    sessionId: string,
+    opts: { cancelled: () => boolean },
+  ) => Promise<SignInResult>;
   /** The browser flow finished and the app is connected. */
   onSignedIn: (plan: EigenweltPlanId | null) => void;
   /** "I bring my own model": open the provider connection. */
-  onBringOwnModel: () => void;
+  onBringOwnModel: (preferredProviderId?: string) => void;
   /** "no-models": open the firm's billing page. */
   onOpenBilling: () => void;
   /** "no-models": re-read the plan now; true once it includes the models. */
@@ -105,12 +128,23 @@ const UPGRADE_TIMEOUT_MS = 10 * 60_000;
 const CONNECTING_TIMEOUT_MS = 20_000;
 
 const TAGLINE: Record<EigenweltPlanId, string> = {
+  sync: "ai_plans.tagline_sync",
   plus: "ai_plans.tagline_plus",
   pro: "ai_plans.tagline_pro",
 };
 
-/** What each plan lists, in order; "usage" is the included amount. Pro only adds to Plus. */
+/** What each plan lists, in order; "usage" is the included amount. */
 const FEATURES: Record<EigenweltPlanId, string[]> = {
+  sync: [
+    "ai_plans.sync_no_usage",
+    "ai_plans.sync_own_ai",
+    "ai_plans.sync_openai",
+    "ai_plans.sync_topups",
+    "ai_plans.feature_hub",
+    "ai_plans.feature_admin",
+    "ai_plans.feature_hosting_retention",
+    "ai_plans.feature_priority_support",
+  ],
   plus: [
     "ai_plans.feature_models",
     "usage",
@@ -118,7 +152,14 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
     "ai_plans.feature_admin",
     "ai_plans.feature_hosting_retention",
   ],
-  pro: ["usage", "ai_plans.feature_pro_headroom", "ai_plans.feature_priority_support"],
+  pro: [
+    "ai_plans.feature_models",
+    "usage",
+    "ai_plans.feature_hub",
+    "ai_plans.feature_admin",
+    "ai_plans.feature_hosting_retention",
+    "ai_plans.feature_priority_support",
+  ],
 };
 
 // Side by side, each card spans the row's five tracks (name, tagline, price,
@@ -126,7 +167,8 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
 // length of the text above them.
 const cardClass =
   "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 shadow-[0_24px_60px_-34px_rgba(15,23,42,0.45)] md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
-const planButtonClass = "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
+const planButtonClass =
+  "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
 const textLinkClass =
   "font-medium text-dls-text underline underline-offset-2 transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-45";
 
@@ -147,15 +189,26 @@ function BrandMark(props: { size: number; className?: string }) {
 
 function accountLabel(account: AiPlansAccount | null): string | null {
   if (!account) return null;
-  if (account.email && account.firmName) return `${account.email} (${account.firmName})`;
+  if (account.email && account.firmName)
+    return `${account.email} (${account.firmName})`;
   return account.email ?? account.firmName ?? null;
 }
 
 /** One line of a card's list. The first line of a list can be `strong`, with its own icon. */
-function FeatureRow(props: { children: ReactNode; strong?: boolean; icon?: LucideIcon }) {
+function FeatureRow(props: {
+  children: ReactNode;
+  strong?: boolean;
+  icon?: LucideIcon;
+}) {
   const Icon = props.icon ?? Check;
   return (
-    <li className={props.strong ? "flex items-start gap-2.5 font-medium" : "flex items-start gap-2.5"}>
+    <li
+      className={
+        props.strong
+          ? "flex items-start gap-2.5 font-medium"
+          : "flex items-start gap-2.5"
+      }
+    >
       <Icon
         className={
           props.strong
@@ -178,17 +231,25 @@ function CardFrame(props: {
   action: ReactNode;
   features: ReactNode;
   testId: string;
+  switcher?: ReactNode;
+  priceNote?: string;
 }) {
   return (
     <article className={cardClass} data-testid={props.testId}>
-      <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]">
-        {props.icon ? (
-          <span aria-hidden className="flex size-6 shrink-0 items-center justify-center roomy:size-7">
-            {props.icon}
-          </span>
-        ) : null}
-        {props.name}
-      </h2>
+      <div className="flex min-h-9 items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]">
+          {props.icon ? (
+            <span
+              aria-hidden
+              className="flex size-6 shrink-0 items-center justify-center roomy:size-7"
+            >
+              {props.icon}
+            </span>
+          ) : null}
+          {props.name}
+        </h2>
+        {props.switcher}
+      </div>
       <p className="mt-2 text-[13.5px] leading-5 text-dls-secondary roomy:mt-2.5 roomy:text-[14.5px] roomy:leading-[22px]">
         {props.tagline}
       </p>
@@ -199,6 +260,9 @@ function CardFrame(props: {
         <div className="mt-1.5 text-[13px] leading-[18px] text-dls-secondary roomy:mt-2 roomy:text-[15px] roomy:leading-[22px]">
           {props.priceSuffix}
         </div>
+        {props.priceNote && (
+          <p className="mt-1 text-xs text-dls-secondary">{props.priceNote}</p>
+        )}
       </div>
       <div className="mt-5 roomy:mt-6">{props.action}</div>
       <ul className="mt-5 space-y-2 border-t border-dls-border pt-5 text-[13px] leading-[18px] text-dls-text roomy:mt-6 roomy:space-y-2.5 roomy:pt-6 roomy:text-[14px] roomy:leading-5">
@@ -214,33 +278,41 @@ function PlanCard(props: {
   label: string;
   disabled: boolean;
   onChoose: () => void;
+  switcher?: ReactNode;
 }) {
   const { plan, locale } = props;
   return (
     <CardFrame
       testId={`ai-plan-${plan.id}`}
+      switcher={props.switcher}
+      priceNote={t("ai_plans.price_note", {
+        amount: formatEuroCents(plan.monthlyCents, locale),
+      })}
       icon={<BrandMark size={28} className="size-6 roomy:size-7" />}
       name={plan.name}
       tagline={t(TAGLINE[plan.id])}
       price={formatEuroCents(plan.yearlyPerMonthCents, locale)}
       priceSuffix={t("ai_plans.per_seat_month")}
       action={
-        <Button size="lg" className={planButtonClass} disabled={props.disabled} onClick={props.onChoose}>
+        <Button
+          size="lg"
+          className={planButtonClass}
+          disabled={props.disabled}
+          onClick={props.onChoose}
+        >
           {props.label}
         </Button>
       }
       features={
         <>
-          {plan.id === "pro" ? (
-            <FeatureRow strong icon={Sparkles}>
-              {t("ai_plans.everything_in_plus")}
-            </FeatureRow>
-          ) : null}
           {FEATURES[plan.id].map((key) => (
             <FeatureRow key={key}>
               {key === "usage"
                 ? t("ai_plans.feature_usage", {
-                    amount: formatEuroCents(plan.includedMonthlyUsageCents, locale),
+                    amount: formatEuroCents(
+                      plan.includedMonthlyUsageCents,
+                      locale,
+                    ),
                   })
                 : t(key)}
             </FeatureRow>
@@ -324,6 +396,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const [phase, setPhase] = useState<Phase>({ kind: "choose" });
   // "signed-out" starts on the sign-in card; this shows the cards instead.
   const [showPlans, setShowPlans] = useState(false);
+  const [aiTier, setAiTier] = useState("plus");
+  const [syncProviderOpen, setSyncProviderOpen] = useState(false);
+  const syncProviderRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   // Bumping cancels whatever flow is running (a sign-in wait, the upgrade poll).
@@ -353,12 +428,17 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     if (variantRef.current === variant) return;
     variantRef.current = variant;
     setShowPlans(false);
-    setPhase((current) => (current.kind === "connecting" ? { kind: "choose" } : current));
+    setPhase((current) =>
+      current.kind === "connecting" ? { kind: "choose" } : current,
+    );
   }, [variant]);
 
   useEffect(() => {
     if (phase.kind !== "connecting") return;
-    const timer = window.setTimeout(() => setPhase({ kind: "choose" }), CONNECTING_TIMEOUT_MS);
+    const timer = window.setTimeout(
+      () => setPhase({ kind: "choose" }),
+      CONNECTING_TIMEOUT_MS,
+    );
     return () => window.clearTimeout(timer);
   }, [phase.kind]);
 
@@ -389,7 +469,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       });
       if (flowRef.current !== flow) return;
       setPhase({ kind: "browser", plan, authorizeUrl });
-      captureAnalyticsEvent("ai_plans_sign_in_started", { choice, mode, variant });
+      captureAnalyticsEvent("ai_plans_sign_in_started", {
+        choice,
+        mode,
+        variant,
+      });
       await openDesktopUrl(authorizeUrl);
       const result = await props.onWaitSignIn(sessionId, {
         cancelled: () => flowRef.current !== flow,
@@ -399,6 +483,12 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         captureAnalyticsEvent("ai_plans_connected", { choice, mode, variant });
         setPhase({ kind: "connecting" });
         props.onSignedIn(plan);
+        if (plan === "sync")
+          props.onBringOwnModel(
+            result.preferredAiProvider === "other"
+              ? undefined
+              : (result.preferredAiProvider ?? syncProviderRef.current),
+          );
         return;
       }
       setPhase({ kind: "choose" });
@@ -406,8 +496,16 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     } catch (signInError) {
       if (flowRef.current !== flow) return;
       setPhase({ kind: "choose" });
-      setError(signInError instanceof Error ? signInError.message : String(signInError));
-      captureAnalyticsEvent("ai_plans_sign_in_failed", { choice, mode, variant });
+      setError(
+        signInError instanceof Error
+          ? signInError.message
+          : String(signInError),
+      );
+      captureAnalyticsEvent("ai_plans_sign_in_failed", {
+        choice,
+        mode,
+        variant,
+      });
     }
   };
 
@@ -437,6 +535,10 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   };
 
   const choosePlan = (plan: EigenweltPlanId) => {
+    if (plan === "sync") {
+      setSyncProviderOpen(true);
+      return;
+    }
     if (variant === "no-models") upgrade(plan);
     else void signIn(plan);
   };
@@ -469,7 +571,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     try {
       await props.onUseOtherAccount();
     } catch (switchError) {
-      setError(switchError instanceof Error ? switchError.message : String(switchError));
+      setError(
+        switchError instanceof Error
+          ? switchError.message
+          : String(switchError),
+      );
     } finally {
       setSwitchingAccount(false);
     }
@@ -509,7 +615,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       {error}
     </p>
   ) : !props.serverReady ? (
-    <p className="text-[12.5px] leading-relaxed text-dls-secondary">{t("ai_plans.server_starting")}</p>
+    <p className="text-[12.5px] leading-relaxed text-dls-secondary">
+      {t("ai_plans.server_starting")}
+    </p>
   ) : null;
 
   const stepDots =
@@ -520,7 +628,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     ) : null;
 
   const backRow =
-    mode === "onboarding" && props.onBack ? <BackButton onClick={props.onBack} /> : null;
+    mode === "onboarding" && props.onBack ? (
+      <BackButton onClick={props.onBack} />
+    ) : null;
   const onOpenUpdates = props.onOpenUpdates;
   const updatesLink = onOpenUpdates ? (
     <UpdatesLink
@@ -535,12 +645,18 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   // Pinned to the bottom of the window: Back on the left, the account line in
   // the middle, the update check on the right.
   let footerCenter: ReactNode = null;
-  if (phase.kind === "browser" || phase.kind === "upgrade" || phase.kind === "connecting") {
+  if (
+    phase.kind === "browser" ||
+    phase.kind === "upgrade" ||
+    phase.kind === "connecting"
+  ) {
     const waitingBody =
       phase.kind === "browser"
         ? phase.plan
           ? t("ai_plans.waiting_body_plan", {
-              plan: EIGENWELT_PLANS.find((plan) => plan.id === phase.plan)?.name ?? phase.plan,
+              plan:
+                EIGENWELT_PLANS.find((plan) => plan.id === phase.plan)?.name ??
+                phase.plan,
             })
           : t("ai_plans.waiting_body_sign_in")
         : phase.kind === "upgrade"
@@ -556,11 +672,18 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         ) : (
           <BrandMark size={36} className="mx-auto" />
         )}
-        <h1 id={titleId} className="mt-5 text-[22px] font-medium tracking-[-0.02em] text-dls-text">
-          {phase.kind === "connecting" ? t("ai_plans.connecting") : t("ai_plans.waiting_title")}
+        <h1
+          id={titleId}
+          className="mt-5 text-[22px] font-medium tracking-[-0.02em] text-dls-text"
+        >
+          {phase.kind === "connecting"
+            ? t("ai_plans.connecting")
+            : t("ai_plans.waiting_title")}
         </h1>
         {waitingBody ? (
-          <p className="mt-2 text-[13.5px] leading-[1.6] text-dls-secondary">{waitingBody}</p>
+          <p className="mt-2 text-[13.5px] leading-[1.6] text-dls-secondary">
+            {waitingBody}
+          </p>
         ) : null}
         {phase.kind === "browser" ? (
           <Button
@@ -605,7 +728,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           >
             {t("ai_plans.welcome_title")}
           </h1>
-          <p className="mt-2.5 text-[14px] leading-[1.6] text-dls-secondary">{t("ai_plans.welcome_body")}</p>
+          <p className="mt-2.5 text-[14px] leading-[1.6] text-dls-secondary">
+            {t("ai_plans.welcome_body")}
+          </p>
           {account ? (
             <p className="mt-3 break-words text-[13px] text-dls-text">
               {t("ai_plans.welcome_account", { account })}
@@ -624,7 +749,10 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             type="button"
             className="mt-4 text-[13px] text-dls-secondary underline underline-offset-2 transition-colors hover:text-dls-text"
             onClick={() => {
-              captureAnalyticsEvent("ai_plans_other_options_clicked", { mode, variant });
+              captureAnalyticsEvent("ai_plans_other_options_clicked", {
+                mode,
+                variant,
+              });
               setError(null);
               setShowPlans(true);
             }}
@@ -652,7 +780,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         </header>
         <div className="mt-10 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-14 roomy:gap-x-7">
           <OwnModelCard disabled={disabled} onChoose={bringOwnModel} />
-          {EIGENWELT_PLANS.map((plan) => (
+          {EIGENWELT_PLANS.filter(
+            (plan) => plan.id === "sync" || plan.id === aiTier,
+          ).map((plan) => (
             <PlanCard
               key={plan.id}
               plan={plan}
@@ -660,6 +790,34 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
               label={planLabel(plan)}
               disabled={disabled}
               onChoose={() => choosePlan(plan.id)}
+              switcher={
+                plan.id === "sync" ? undefined : (
+                  <Tabs
+                    value={aiTier}
+                    onValueChange={(value) => {
+                      if (value === "plus" || value === "pro") setAiTier(value);
+                    }}
+                  >
+                    <TabsList
+                      className="h-8 rounded-full"
+                      aria-label={t("ai_plans.ai_tier")}
+                    >
+                      <TabsTrigger
+                        className="rounded-full px-3 text-xs"
+                        value="plus"
+                      >
+                        Plus
+                      </TabsTrigger>
+                      <TabsTrigger
+                        className="rounded-full px-3 text-xs"
+                        value="pro"
+                      >
+                        Pro
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                )
+              }
             />
           ))}
         </div>
@@ -680,7 +838,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             </button>
           </>
         ) : variant === "signed-out" ? (
-          <button type="button" className={textLinkClass} onClick={() => setShowPlans(false)}>
+          <button
+            type="button"
+            className={textLinkClass}
+            onClick={() => setShowPlans(false)}
+          >
             {t("ai_plans.back_to_sign_in")}
           </button>
         ) : (
@@ -720,6 +882,47 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         props.mode === "gate" && "duration-300 animate-in fade-in-0",
       )}
     >
+      <Dialog open={syncProviderOpen} onOpenChange={setSyncProviderOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("ai_plans.provider_title")}</DialogTitle>
+            <DialogDescription>
+              {t("ai_plans.provider_description")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+              <p className="font-medium">ChatGPT</p>
+              <p className="text-sm text-muted-foreground">
+                {t("ai_plans.provider_openai_hint")}
+              </p>
+              <Button
+                className="w-full"
+                disabled={disabled}
+                onClick={() => {
+                  syncProviderRef.current = "openai";
+                  setSyncProviderOpen(false);
+                  void signIn("sync");
+                }}
+              >
+                {t("ai_plans.provider_openai")}
+              </Button>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={disabled}
+              onClick={() => {
+                syncProviderRef.current = undefined;
+                setSyncProviderOpen(false);
+                void signIn("sync");
+              }}
+            >
+              {t("ai_plans.provider_other")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {/* The window stays draggable by its top edge while the screen covers
           it (macOS app only, like the onboarding covers' titlebar region). */}
       <div
@@ -728,7 +931,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
-          <div className="flex flex-1 flex-col justify-center py-8 roomy:py-10">{body}</div>
+          <div className="flex flex-1 flex-col justify-center py-8 roomy:py-10">
+            {body}
+          </div>
           {backRow || footerCenter || updatesLink ? (
             <footer className="flex flex-col items-center gap-3 pb-6 pt-2 md:grid md:grid-cols-[1fr_auto_1fr] roomy:pb-8">
               <div className="justify-self-start">{backRow}</div>

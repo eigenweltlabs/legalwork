@@ -141,7 +141,7 @@ export type EigenweltUsage = {
  */
 export type EigenweltEntitlements = {
   /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
-  plan: "plus" | "pro" | null;
+  plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -176,6 +176,7 @@ export function eigenweltHasPremiumModels(
 }
 
 export type EigenweltSignInPayload = {
+  preferredAiProvider?: "openai" | "other";
   systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
@@ -270,7 +271,7 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
 export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlements | undefined {
   if (!isRecord(value)) return undefined;
   const plan =
-    value.plan === "plus" || value.plan === "pro" ? value.plan : null;
+    value.plan === "sync" || value.plan === "plus" || value.plan === "pro" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
   const trialEndsAt =
     typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))
@@ -378,10 +379,10 @@ async function bindLoopback(handler: LoopbackHandler): Promise<{ server: Server;
 }
 
 /** The plans the platform's checkout sells (model-api's PlanId). */
-export type EigenweltSignInPlan = "plus" | "pro";
+export type EigenweltSignInPlan = "sync" | "plus" | "pro";
 
 export function isEigenweltSignInPlan(value: unknown): value is EigenweltSignInPlan {
-  return value === "plus" || value === "pro";
+  return value === "sync" || value === "plus" || value === "pro";
 }
 
 /**
@@ -467,6 +468,7 @@ export async function startEigenweltSignIn(opts?: {
       // is delivered byte-for-byte, and the optional subscription fields are
       // normalized (never partially-formed) when the platform does send them.
       const delivered: EigenweltSignInPayload = {
+        ...(payload.preferredAiProvider === "openai" || payload.preferredAiProvider === "other" ? {preferredAiProvider: payload.preferredAiProvider} : {}),
         apiKey: payload.apiKey,
         baseURL: payload.baseURL,
         models: payload.models,

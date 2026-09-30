@@ -1114,7 +1114,7 @@ export function SessionRoute() {
     }
     setProviderModalFromPlans(false);
   }, [providerConnectedIds, providerModalOpen]);
-  const openProvidersFromPlans = useCallback(() => {
+  const openProvidersFromPlans = useCallback((preferredProviderId?: string) => {
     aiPlansPathRef.current = "own_model";
     providersAtOwnModelOpenRef.current = {
       ids: providerConnectedIds,
@@ -1122,7 +1122,7 @@ export function SessionRoute() {
       variant: aiPlansVariant ?? "new",
     };
     setProviderModalFromPlans(true);
-    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none" }).catch(() => {
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none", preferredProviderId }).catch(() => {
       providersAtOwnModelOpenRef.current = null;
       setProviderModalFromPlans(false);
       toast.error(t("providers.load_failed"));
@@ -1342,6 +1342,18 @@ export function SessionRoute() {
           return;
         }
         void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
+      },
+      onChooseAiPlan: async (plan: "plus" | "pro") => {
+        const started = await sessionProviderAuthStore.startEigenweltSignIn({ plan });
+        await openDesktopUrl(started.authorizeUrl);
+        const result = await sessionProviderAuthStore.completeEigenweltSignIn(started.sessionId);
+        if (!result.connected) throw new Error(result.message ?? t("providers.connect_failed"));
+        modelPicker.setQuery("eigenwelt");
+        modelPicker.setOpen(true);
+      },
+      onChooseLegalworkModel: () => {
+        modelPicker.setQuery("eigenwelt");
+        modelPicker.setOpen(true);
       },
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
@@ -2225,10 +2237,10 @@ export function SessionRoute() {
         serverReady={Boolean(selectedWorkspaceEndpoint)}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onSignedIn={() => {
+        onSignedIn={(plan) => {
           // Connected: refetch the entitlements so the screen closes (and the
           // models are live) the moment the account shows up.
-          aiPlansPathRef.current = "eigenwelt";
+          aiPlansPathRef.current = plan === "sync" ? "own_model" : "eigenwelt";
           invalidateEigenweltEntitlements();
         }}
         onBringOwnModel={openProvidersFromPlans}

@@ -18,7 +18,7 @@ export type MemberUsageView = {
   name: string;
   email: string | null;
   role: string;
-  plan: "plus" | "pro" | "none";
+  plan: "sync" | "plus" | "pro" | "none";
   allowanceCents: number;
   remainingCents: number;
   baseExtraLimitCents: number;
@@ -34,13 +34,13 @@ export type MemberPlanTarget =
   | {
       kind: "invite";
       email: string;
-      plan: "plus" | "pro";
+      plan: "sync" | "plus" | "pro";
       role: "org:member" | "org:admin";
     }
   | {
       kind: "plan";
       userId: string;
-      plan: "plus" | "pro" | "none";
+      plan: "sync" | "plus" | "pro" | "none";
       limitCents?: number | null;
       requestId?: string;
       note?: string;
@@ -58,7 +58,7 @@ export type UsageControlView = {
     id: string;
     email: string;
     role: string;
-    plan: "plus" | "pro" | "none";
+    plan: "sync" | "plus" | "pro" | "none";
     createdAt: string;
   }[];
   pendingMemberChanges?: (MemberPlanQuote & { target: MemberPlanTarget })[];
@@ -73,7 +73,7 @@ export type UsageControlView = {
   orgExtraLimitCents: number | null;
   extraEnabled: boolean;
   defaultExtraLimitCents: number;
-  seats: { plus: number; pro: number };
+  seats: { sync?: number; plus: number; pro: number };
   billingInterval: "month" | "year";
 };
 export type UsageControlAction =
@@ -109,7 +109,7 @@ export type UsageControlAction =
       note: string;
     }
   | { action: "budget"; userId: string; limitCents: number | null }
-  | { action: "seat"; userId: string; plan: "plus" | "pro" | "none" }
+  | { action: "seat"; userId: string; plan: "sync" | "plus" | "pro" | "none" }
   | {
       action: "settings";
       enabled: boolean;
@@ -119,7 +119,7 @@ export type UsageControlAction =
   | { action: "checkout"; amountCents: number }
   | {
       action: "purchaseSeats";
-      plan: "plus" | "pro";
+      plan: "sync" | "plus" | "pro";
       quantity: number;
       preview: boolean;
       expectedAmountCents?: number;

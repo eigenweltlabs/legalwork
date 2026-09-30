@@ -1311,6 +1311,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     </div>
   );
 
+  const featuredOpenAI = entries.find(entry => isOpenAiProvider(entry.id, entry.name) && entry.methods.some(method => method.type === "oauth"));
   const selectedEntryHasClaudeSubscription = Boolean(
     selectedEntry &&
       isAnthropicProvider(selectedEntry.id, selectedEntry.name) &&
@@ -1350,6 +1351,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
             <div className="-mr-1 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {resolvedView === "list" ? (
                 <div className="space-y-1.5" role="presentation" onKeyDown={handleListKeyDown}>
+                  {!searchQuery && featuredOpenAI && <div className="mb-4 space-y-3 rounded-xl border border-dls-border bg-dls-hover p-4">
+                    <div className="flex items-center gap-2"><ProviderIcon providerId="openai" size={20} /><p className="text-sm font-medium">ChatGPT</p></div>
+                    <p className="text-xs leading-relaxed text-dls-secondary">{t("ai_plans.provider_openai_hint")}</p>
+                    <Button className="w-full" disabled={actionDisabled} onClick={() => handleEntrySelect(featuredOpenAI)}>{t("ai_plans.provider_openai")}</Button>
+                  </div>}
                   <div className="relative mb-2">
                     <Search
                       size={16}
