@@ -28,6 +28,7 @@ import {
 } from "../settings-layout";
 import { SettingsNotice } from "../settings-section";
 import { t } from "@/i18n";
+import { ProjectPersonalisationSection } from "./project-personalisation-section";
 
 const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   customInstructions: "",
@@ -53,6 +54,9 @@ function describeError(error: unknown): string {
 
 export type PersonalisationViewProps = {
   client: LegalworkServerClient | null;
+  projectClient: LegalworkServerClient | null;
+  workspaceId: string | null;
+  projectName: string;
   onSettingsApplied: () => void;
 };
 
@@ -140,6 +144,14 @@ export function PersonalisationView(props: PersonalisationViewProps) {
   return (
     <>
       <LayoutStack>
+        {props.workspaceId ? (
+          <ProjectPersonalisationSection
+            key={`${props.projectClient?.baseUrl}:${props.workspaceId}`}
+            client={props.projectClient}
+            workspaceId={props.workspaceId}
+            projectName={props.projectName}
+          />
+        ) : null}
         {!props.client ? (
           <SettingsNotice tone="warning">
             {t("personalisation.server_required")}
