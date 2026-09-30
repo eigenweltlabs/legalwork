@@ -3762,8 +3762,6 @@ const de = {
   "provider_limit.external_body": "Das Nutzungs- oder Abrechnungslimit von {provider} ist erreicht. Arbeiten Sie mit LegalWork-KI weiter.",
   "provider_limit.choose_ai": "KI-Tarif auswählen",
   "provider_limit.upgrade_pro": "Auf Pro upgraden",
-  "provider_limit.switch": "LegalWork-KI-Modell auswählen",
-  "provider_limit.credit_hint": "Guthaben gilt für LegalWork-KI und erhöht nicht das Kontingent Ihres anderen Anbieters. Wählen Sie vor einem erneuten Versuch ein LegalWork-KI-Modell.",
   "provider_limit.request": "Admin fragen",
   "provider_limit.plans_title": "KI-Tarif auswählen",
   "provider_limit.plans_body": "Plus und Pro enthalten KI-Nutzung und alle LegalWork-Teamfunktionen.",
@@ -3779,9 +3777,11 @@ const de = {
   "ai_plans.upgrade": "Zu {plan} wechseln",
   "ai_plans.everything_in_plus": "Alles aus Plus und:",
   "ai_plans.feature_usage": "{amount} KI-Nutzung pro Platz und Monat inklusive",
-  "ai_plans.feature_models": "Premium-Modelle in LegalWork: Chat, Entwürfe, Prüfung und Redlining",
+  "ai_plans.feature_models": "Premium-Modelle: DeepSeek V4.1 Flash, GLM 5.3 Flash und Gemini 3.8 Flash",
+  "ai_plans.feature_ai_tasks": "Chat, Entwürfe, Prüfung und Redlining",
+  "ai_plans.feature_model_controls": "Als Admin festlegen, welche Modelle Ihr Team nutzen darf",
   "ai_plans.feature_hub": "Zusammenarbeit im Team: Workflows, Integrationen, Einstellungen und Aufgaben teilen",
-  "ai_plans.feature_admin": "Admin-Dashboard: Modelle festlegen, Speicher für alle verbinden, Nutzung zuteilen",
+  "ai_plans.feature_admin": "Admin-Dashboard: Speicher für alle verbinden, Nutzung zuteilen",
   "ai_plans.feature_hosting_retention":
     "Hosting in der EU oder den USA, keine Datenspeicherung, niemals für Training verwendet",
   "ai_plans.feature_pro_headroom":

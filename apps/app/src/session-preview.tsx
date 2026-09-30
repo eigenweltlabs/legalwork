@@ -312,7 +312,7 @@ function SessionPreview() {
           }}
           surface={{
             workspaceRoot: workspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
-            onChooseAiPlan: async () => previewNotice(), onChooseLegalworkModel: previewNotice,
+            onChooseAiPlan: async () => previewNotice(),
             modelPickerOpen: false, modelSelectorLocked: true, selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,

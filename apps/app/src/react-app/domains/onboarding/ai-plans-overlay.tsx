@@ -140,18 +140,23 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
     "ai_plans.sync_own_ai",
     "ai_plans.feature_hub",
     "ai_plans.feature_admin",
-    "ai_plans.feature_hosting_retention",
     "ai_plans.feature_priority_support",
   ],
   plus: [
     "ai_plans.everything_in_sync",
-    "ai_plans.feature_models",
     "usage",
+    "ai_plans.feature_models",
+    "ai_plans.feature_ai_tasks",
+    "ai_plans.feature_model_controls",
+    "ai_plans.feature_hosting_retention",
   ],
   pro: [
     "ai_plans.everything_in_sync",
-    "ai_plans.feature_models",
     "usage",
+    "ai_plans.feature_models",
+    "ai_plans.feature_ai_tasks",
+    "ai_plans.feature_model_controls",
+    "ai_plans.feature_hosting_retention",
   ],
 };
 

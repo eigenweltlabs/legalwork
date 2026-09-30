@@ -1351,10 +1351,6 @@ export function SessionRoute() {
         modelPicker.setQuery("eigenwelt");
         modelPicker.setOpen(true);
       },
-      onChooseLegalworkModel: () => {
-        modelPicker.setQuery("eigenwelt");
-        modelPicker.setOpen(true);
-      },
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
         local.setPrefs((previous) => ({

@@ -167,7 +167,6 @@ export type SessionSurfaceProps = {
   /** Open the connect-AI flow from the notice above the composer. */
   onConnectAi?: (action: ConnectAiAction) => void;
   onChooseAiPlan?: (plan: "plus" | "pro") => Promise<void>;
-  onChooseLegalworkModel?: () => void;
   /**
    * The route lays the plan screen over the app whenever no model is usable,
    * so the notice above the composer only covers what that screen leaves
@@ -2102,7 +2101,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             plan={eigenweltPlan}
                             providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
                             onChoosePlan={props.onChooseAiPlan}
-                            onChooseModel={props.onChooseLegalworkModel ?? props.onModelClick}
                           />;
                         }}
                         messages={renderedMessages}

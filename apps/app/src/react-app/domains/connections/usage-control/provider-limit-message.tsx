@@ -39,14 +39,12 @@ export function ProviderLimitMessage({
   plan,
   providerId,
   onChoosePlan,
-  onChooseModel,
 }: {
   client: LegalworkServerClient;
   workspaceId: string;
   plan: EigenweltBudgetPlan;
   providerId: string;
   onChoosePlan?: (plan: "plus" | "pro") => Promise<void>;
-  onChooseModel: () => void;
 }) {
   const transport = useDesktopUsageTransport(client, workspaceId);
   const locale = useLocale();
@@ -140,17 +138,7 @@ export function ProviderLimitMessage({
             {t("limits.topup")}
           </Button>
         )}
-        {plan && providerId !== "eigenwelt" && (
-          <Button size="sm" variant="ghost" onClick={onChooseModel}>
-            {t("provider_limit.switch")}
-          </Button>
-        )}
       </div>
-      {options.topUp && providerId !== "eigenwelt" && (
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {t("provider_limit.credit_hint")}
-        </p>
-      )}
       {error && (
         <p role="alert" className="text-destructive">
           {error}
