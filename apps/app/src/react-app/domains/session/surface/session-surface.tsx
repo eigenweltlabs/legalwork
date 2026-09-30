@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { UsageLimitAction } from "@/react-app/domains/connections/usage-control/desktop-panel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +16,7 @@ import {
   eigenweltBudgetLimitDisplay,
   eigenweltBudgetRetryAction,
   isEigenweltBudgetError,
+  isEigenweltBudgetExceededErrorText,
   markEigenweltBudgetStop,
   shouldStopEigenweltBudgetRetry,
 } from "@/app/lib/eigenwelt-budget";
@@ -849,6 +851,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // One daily-limit / budget-exceeded stop per failing run (re-armed by
   // session switch, a new busy attempt, or a failed abort).
   const budgetStopFiredRef = useRef(false);
+  const [usageLimitReached, setUsageLimitReached] = useState(false);
   const snapshotQueryKey = useMemo(
     () => reactSnapshotKey(props.workspaceId, props.sessionId),
     [props.workspaceId, props.sessionId],
@@ -995,7 +998,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     // A fresh attempt (busy) re-arms the guard so a later prompt that hits
     // the limit / budget wall again is stopped again.
-    if (liveStatus.type === "busy") budgetStopFiredRef.current = false;
+    if (liveStatus.type === "busy") { budgetStopFiredRef.current = false; setUsageLimitReached(false); }
   }, [liveStatus.type]);
   useEffect(() => {
     if (liveStatus.type !== "retry") return;
@@ -1003,6 +1006,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (!stopPaid) return;
     if (budgetStopFiredRef.current) return;
     budgetStopFiredRef.current = true;
+    setUsageLimitReached(true);
     const attempt = liveStatus.attempt;
     // Stop means stop (mirrors handleAbort): drop queued follow-ups so the
     // queue-drain effect doesn't re-prompt straight into the same wall.
@@ -1036,6 +1040,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  const lastMessage = renderedMessages.at(-1);
+  const storedBudgetError = lastMessage?.role === "assistant" && lastMessage.parts.some(part =>
+    part.type === "text" && (isEigenweltBudgetError(props.selectedModel.providerID,part.text) || isEigenweltBudgetExceededErrorText(part.text)));
+  const budgetActionVisible = usageLimitReached || paidBudgetRetryActive || (liveStatus.type === "idle" && (storedBudgetError || isEigenweltBudgetError(props.selectedModel.providerID,sessionActivityError)));
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -2220,10 +2228,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           realtimeVoiceActive={props.realtimeVoiceActive}
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
+          compactTopSpacing={Boolean(budgetActionVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0)}
           topAccessory={
-            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
+            budgetActionVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedMessages.length > 0 ? (
               <div>
+                {budgetActionVisible ? <UsageLimitAction client={props.client} workspaceId={props.workspaceId} /> : null}
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
                   <NoModelNotice

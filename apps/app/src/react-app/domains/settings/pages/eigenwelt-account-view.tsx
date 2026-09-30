@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { DesktopUsagePanel } from "@/react-app/domains/connections/usage-control/desktop-panel";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -425,6 +426,8 @@ export function EigenweltAccountView({
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
       </LayoutSection>
+
+      {legalworkClient && workspaceId && entitlements ? <DesktopUsagePanel client={legalworkClient} workspaceId={workspaceId} /> : null}
 
       {/* Trial lapsed: the paid models are gone until they subscribe. */}
       {trial.kind === "ended" ? (

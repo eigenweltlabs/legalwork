@@ -1,3 +1,4 @@
+import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -2176,6 +2177,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // platform NOW (bypassing the access-token skew short-circuit) — used by the
     // post-checkout "waiting for your subscription" poll so a fresh sub shows up
     // within seconds instead of on the next lazy token refresh.
+    eigenweltUsage: (workspaceId: string) => requestJson<UsageControlView>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken }),
+    eigenweltUsageAction: (workspaceId: string, action: UsageControlAction) => requestJson<unknown>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken, method: "POST", body: action }),
     eigenweltEntitlements: (workspaceId: string, opts?: { refresh?: boolean }) =>
       requestJson<EigenweltEntitlementsView>(
         baseUrl,
