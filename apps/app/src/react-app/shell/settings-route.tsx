@@ -2066,9 +2066,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <PersonalisationView
             client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
-            projectClient={selectedWorkspaceEndpoint?.client ?? legalworkClient}
-            workspaceId={runtimeWorkspaceId}
-            projectName={selectedWorkspaceDisplay.name}
             onSettingsApplied={() => {
               reloadCoordinator.markReloadRequired("config", {
                 type: "config",

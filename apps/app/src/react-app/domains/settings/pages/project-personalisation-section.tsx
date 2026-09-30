@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,9 +17,12 @@ type Props = {
   client: LegalworkServerClient | null;
   workspaceId: string;
   projectName: string;
+  active: boolean;
 };
 
-export function ProjectPersonalisationSection({ client, workspaceId, projectName }: Props) {
+export function ProjectPersonalisationSection({ client, workspaceId, projectName, active }: Props) {
+  const queryClient = useQueryClient();
+  const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState("");
   const [draft, setDraft] = useState("");
   const [revision, setRevision] = useState(0);
@@ -27,17 +31,31 @@ export function ProjectPersonalisationSection({ client, workspaceId, projectName
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const receiveLatest = useEffectEvent((customInstructions: string, revision: number) => {
+    if (!loaded || draft.trim() === saved) {
+      setSaved(customInstructions);
+      setDraft(customInstructions);
+      setConflict(false);
+      setRevision(revision);
+    } else if (customInstructions === saved) {
+      // Other sections share the revision. Refresh it without losing this draft.
+      setRevision(revision);
+      setConflict(false);
+    } else {
+      setConflict(true);
+    }
+    setLoaded(true);
+  });
+
   useEffect(() => {
+    if (!active || !client) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    if (!client) return;
     void client.getProjectPersonalization(workspaceId)
       .then(({ customInstructions, revision }) => {
         if (cancelled) return;
-        setSaved(customInstructions);
-        setDraft(customInstructions);
-        setRevision(revision);
+        receiveLatest(customInstructions, revision);
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : t("personalisation.update_failed"));
@@ -46,7 +64,7 @@ export function ProjectPersonalisationSection({ client, workspaceId, projectName
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [client, workspaceId]);
+  }, [client, workspaceId, active]);
 
   const persist = async () => {
     if (!client || busy) return;
@@ -56,6 +74,7 @@ export function ProjectPersonalisationSection({ client, workspaceId, projectName
       setSaved(result.customInstructions);
       setDraft(result.customInstructions);
       setRevision(result.revision);
+      void queryClient.invalidateQueries({ queryKey: ["project", workspaceId] });
       toast.success(t("personalisation.project_prompt_saved"));
     } catch (saveError) {
       if (saveError instanceof LegalworkServerError && saveError.code === "project_changed") setConflict(true);
@@ -71,12 +90,9 @@ export function ProjectPersonalisationSection({ client, workspaceId, projectName
       <LayoutSectionHeader>
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <LayoutSectionTitle>{t("personalisation.project_prompt_title", { name: projectName })}</LayoutSectionTitle>
+            <LayoutSectionTitle>{t("project_settings.writing")}</LayoutSectionTitle>
             <LayoutSectionDescription>{t("personalisation.project_prompt_desc")}</LayoutSectionDescription>
           </div>
-          <Button size="sm" disabled={disabled || conflict || draft.trim() === saved || draft.length > 12_000} onClick={() => void persist()}>
-            {t("common.save")}
-          </Button>
         </div>
       </LayoutSectionHeader>
       {!client ? <SettingsNotice tone="warning">{t("personalisation.server_required")}</SettingsNotice> : null}
@@ -109,6 +125,10 @@ export function ProjectPersonalisationSection({ client, workspaceId, projectName
         <div className="text-right text-xs text-muted-foreground">
           {t("personalisation.characters_remaining", { count: (12_000 - draft.length).toLocaleString() })}
         </div>
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" disabled={disabled || conflict || !draft} onClick={() => setDraft("")}>{t("project_settings.global_defaults")}</Button>
+        <Button disabled={disabled || conflict || draft.trim() === saved || draft.length > 12_000} onClick={() => void persist()}>{t("common.save")}</Button>
       </div>
     </LayoutSection>
   );

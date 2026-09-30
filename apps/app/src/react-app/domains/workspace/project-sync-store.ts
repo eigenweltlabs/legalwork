@@ -10,15 +10,10 @@ export const useProjectSyncStore = create<{
   setOverview: (overview: ProjectSyncOverview) => void;
   /** Ask the poller for the overview now, after a change made here. */
   refresh: () => void;
-  /** The project whose share dialog is open from outside its Home (the sidebar's menu), shown by `ProjectShareHost`. */
-  sharing: { workspaceId: string; name: string } | null;
-  share: (sharing: { workspaceId: string; name: string } | null) => void;
 }>()((set) => ({
   states: {},
   setOverview: (overview) => set({ states: overview.states }),
   refresh: () => {},
-  sharing: null,
-  share: (sharing) => set({ sharing }),
 }));
 
 /**
