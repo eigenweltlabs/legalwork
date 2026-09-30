@@ -1672,6 +1672,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
+    getProjectPersonalization: (workspaceId: string) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    setProjectPersonalization: (workspaceId: string, customInstructions: string, revision: number) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: { customInstructions, revision },
+        timeoutMs: timeouts.config,
+      }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,

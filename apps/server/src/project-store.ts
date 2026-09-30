@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { ProjectDetails, ProjectRemote } from "@legalwork/types/workspace";
 import { projectRemoteSchema } from "./project-schema.js";
 import { ApiError } from "./errors.js";
+import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
 
 const fieldSchema = z
   .object({
@@ -87,6 +88,7 @@ const detailsSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
   fields: fieldsSchema,
+  personalizationPrompt: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH).optional(),
   syncProjectId: z.string().uuid().optional(),
   remote: projectRemoteSchema.optional(),
 });
@@ -176,6 +178,19 @@ export async function updateProjectDetails(
       );
     }
     return { ...current, fields: parsed.data.fields };
+  });
+}
+
+export async function updateProjectPersonalization(root: string, input: unknown): Promise<ProjectDetails> {
+  const parsed = z.object({
+    revision: z.number().int().nonnegative(),
+    customInstructions: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH),
+  }).strict().safeParse(input);
+  if (!parsed.success) throw new ApiError(400, "invalid_personalization", "Provide the current revision and a prompt of 12000 characters or fewer.");
+  return writeProjectDetails(root, (current) => {
+    if (parsed.data.revision !== current.revision)
+      throw new ApiError(409, "project_changed", "This project changed. Reload before saving.");
+    return { ...current, personalizationPrompt: parsed.data.customInstructions.trim() };
   });
 }
 
