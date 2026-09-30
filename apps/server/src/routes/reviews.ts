@@ -32,8 +32,17 @@ export function registerReviewRoutes(options: {
   };
   route("GET", "/corpus/:job", async (ctx, workspace) => {
     if (!options.corpus) throw new ApiError(503, "corpus_unavailable", "Corpus questions are unavailable.");
-    const { jobId, status, total, processed, counts } = await options.corpus.query(workspace, { jobId: ctx.params.job, waitSeconds: 0 });
-    return { jobId, status, total, processed, counts };
+    const { jobId, status, question, kind, total, processed, counts } = await options.corpus.query(workspace, { jobId: ctx.params.job, waitSeconds: 0 });
+    return { jobId, status, question, kind, total, processed, counts };
+  });
+  route("GET", "/corpus/:job/results", async (ctx, workspace) => {
+    if (!options.corpus) throw new ApiError(503, "corpus_unavailable", "Corpus questions are unavailable.");
+    return options.corpus.query(workspace, {
+      jobId: ctx.params.job, waitSeconds: 0,
+      ...(ctx.url.searchParams.has("answer") ? { answers: ctx.url.searchParams.getAll("answer") } : {}),
+      offset: z.coerce.number().int().nonnegative().parse(ctx.url.searchParams.get("offset") ?? 0),
+      limit: z.coerce.number().int().min(1).max(50).parse(ctx.url.searchParams.get("limit") ?? 20),
+    });
   });
   route("POST", "/corpus/query", async (ctx, workspace) => {
     if (!options.corpus) throw new ApiError(503, "corpus_unavailable", "Corpus questions are unavailable.");
@@ -51,6 +60,7 @@ export function registerReviewRoutes(options: {
   route("POST", "/library", async ctx => library.save(await body(ctx)));
   route("DELETE", "/library/:entry", async ctx => { await library.remove(ctx.params.entry); return { ok: true }; });
   route("GET", "", async (_ctx, workspace) => ({ reviews: await reviews.list(workspace) }));
+  route("POST", "/wait", async (ctx, workspace) => reviews.wait(workspace, await body(ctx), ctx.request.signal), true);
   route("POST", "", async (ctx, workspace) => reviews.create(workspace, await body(ctx)));
   route("GET", "/:review", (ctx, workspace) => reviews.get(workspace, ctx.params.review));
   route("GET", "/:review/updates", (ctx, workspace) => reviews.changes(workspace, ctx.params.review,

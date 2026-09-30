@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { importReviewFile, importReviewFiles, type ReviewFileClient, type ReviewFileSource } from "../src/react-app/domains/reviews/review-file-import";
-import { REVIEW_MAX_DOCUMENTS } from "@legalwork/types/reviews";
 
 function fixture() {
   const files = new Map<string, ArrayBuffer>(), calls: string[] = [];
@@ -56,10 +55,11 @@ describe("review file intake", () => {
     const result = await importReviewFiles({ client: f.client, workspaceId: "ws", existing: [], sources: [cloud, upload(), upload("bad.exe")] });
     expect(result.paths).toHaveLength(1); expect(result.failures).toHaveLength(2); expect(result.failures[0]).toContain("Cloud offline");
   });
-  test("enforces limits and handles cancellation before writing", async () => {
+  test("accepts additional files after 100 and keeps per-file limits and cancellation", async () => {
     const f = fixture();
-    const result = await importReviewFiles({ client: f.client, workspaceId: "ws", existing: Array.from({ length: REVIEW_MAX_DOCUMENTS }, (_, i) => `${i}.txt`), sources: [upload()] });
-    expect(result.paths).toEqual([]); expect(result.failures).toHaveLength(1);
+    const result = await importReviewFiles({ client: f.client, workspaceId: "ws", existing: Array.from({ length: 100 }, (_, i) => `${i}.txt`), sources: [upload()] });
+    expect(result.paths).toHaveLength(1); expect(result.failures).toEqual([]);
+    f.calls.length = 0;
     const controller = new AbortController(); controller.abort();
     await expect(importReviewFiles({ client: f.client, workspaceId: "ws", existing: [], sources: [upload()], signal: controller.signal })).rejects.toThrow();
     const large = new File([], "large.pdf"); Object.defineProperty(large, "size", { value: 65 * 1024 * 1024 });

@@ -4,7 +4,6 @@ import type { DocumentRegion, DocumentRelation, PageStructure } from "./document
 
 export const REVIEW_FILE_EXTENSIONS = ["pdf", "docx", "png", "jpg", "jpeg", "webp", "txt", "md", "markdown"];
 export const REVIEW_MAX_FILE_BYTES = 64 * 1024 * 1024;
-export const REVIEW_MAX_DOCUMENTS = 100;
 export function isReviewFile(name: string) {
   return name.includes(".") && REVIEW_FILE_EXTENSIONS.includes(name.split(".").at(-1)?.toLowerCase() ?? "");
 }
@@ -76,7 +75,7 @@ export const SavedReviewSchema = z.object({
   sessionCreatedForReview: z.boolean().optional(),
   revision: z.number().int().nonnegative(), createdAt: z.number(), updatedAt: z.number(),
   settings: ReviewSettingsSchema, columns: ReviewColumnsSchema,
-  documents: z.array(ReviewDocumentSchema).max(REVIEW_MAX_DOCUMENTS), cells: z.array(ReviewCellSchema),
+  documents: z.array(ReviewDocumentSchema), cells: z.array(ReviewCellSchema),
   status: z.enum(["draft", "running", "complete", "needs_review", "cancelled", "interrupted"]),
   runId: z.string().uuid().nullable(), error: z.string().nullable().default(null),
   /** Set on a synced review that a colleague's computer is running; `at` is its last sign of life there. */
@@ -90,7 +89,7 @@ export function reviewRunningElsewhere(review: Pick<SavedReview, "status" | "run
 }
 export const CreateReviewSchema = z.strictObject({
   name: z.string().trim().min(1).max(180),
-  files: z.array(z.string().min(1).max(4096)).max(REVIEW_MAX_DOCUMENTS),
+  files: z.array(z.string().min(1).max(4096)),
   columns: ReviewColumnsSchema,
   requestId: z.string().uuid(),
   sessionId: z.string().min(1).max(200).optional(),
@@ -99,7 +98,7 @@ export const EditReviewSchema = z.strictObject({
   revision: z.number().int().nonnegative(),
   name: z.string().trim().min(1).max(180).optional(),
   columns: ReviewColumnsSchema.optional(),
-  files: z.array(z.string().min(1).max(4096)).max(REVIEW_MAX_DOCUMENTS).optional(),
+  files: z.array(z.string().min(1).max(4096)).optional(),
 });
 export const RunReviewSchema = z.strictObject({
   sessionId: z.string().min(1).max(200).optional(),
@@ -108,9 +107,13 @@ export const RunReviewSchema = z.strictObject({
   rerun: z.boolean().default(false), reprocess: z.boolean().default(false),
   retryFailed: z.boolean().optional(),
 });
+export const WaitReviewsSchema = z.strictObject({
+  reviewIds: z.array(z.string().uuid()).min(1).max(20),
+  waitSeconds: z.number().int().min(0).max(25).default(20),
+});
 export const ReadReviewResultsSchema = z.strictObject({
   revision: z.number().int().nonnegative().optional(),
-  documentIds: z.array(z.string().min(1)).min(1).max(REVIEW_MAX_DOCUMENTS).optional(),
+  documentIds: z.array(z.string().min(1)).min(1).optional(),
   columnKeys: z.array(z.string().min(1)).min(1).max(60).optional(),
   statuses: z.array(ReviewCellSchema.shape.status).min(1).max(8).optional(),
   values: z.array(z.string().min(1).max(2000)).min(1).max(30).optional(),
@@ -122,7 +125,7 @@ export const ReadReviewResultsSchema = z.strictObject({
 export const QueryReviewResultsSchema = z.strictObject({
   cursor: z.string().max(200).optional().describe("Continue with the returned nextCursor; omit every other query option."),
   view: z.enum(["overview", "answers", "evidence"]).optional().describe("Default overview: full-scope counts and distributions. answers: matching cells. evidence: exact quotes, explanations and every outcome probability."),
-  documentIds: z.array(z.string().min(1).max(160)).min(1).max(REVIEW_MAX_DOCUMENTS).optional(),
+  documentIds: z.array(z.string().min(1).max(160)).min(1).optional(),
   columnKeys: z.array(z.string().min(1).max(80)).min(1).max(60).optional(),
   statuses: z.array(ReviewCellSchema.shape.status).min(1).max(8).optional(),
   evidence: z.array(ReviewResultSchema.shape.evidence).min(1).max(4).optional(),

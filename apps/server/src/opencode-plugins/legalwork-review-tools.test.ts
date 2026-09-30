@@ -72,7 +72,8 @@ test("review file discovery is paginated, scoped and excludes project widget dat
 test("start preserves cell selection and revision; library discovery forwards the search", async () => {
   const result = JSON.parse(await plugin.tool.legalwork_review_start.execute({ reviewId: id, revision: 8, documentIds: ["doc"], columnKeys: ["law"], rerun: true }, context));
   expect(calls.at(-1)).toMatchObject({ path: `/workspace/project/reviews/${id}/start`, body: { sessionId: context.sessionID, revision: 8, documentIds: ["doc"], columnKeys: ["law"], rerun: true, reprocess: false } });
-  expect(result.nextAction).toContain("End this turn");
+  expect(result.nextAction).toContain("For start-only requests");
+  expect(result.nextAction).toContain("legalwork_review_wait");
   denied = true;
   expect(JSON.parse(await plugin.tool.legalwork_review_start.execute({ reviewId: id, revision: 8 }, context))).not.toHaveProperty("nextAction");
 });
@@ -145,4 +146,15 @@ test("bounded folder hints let the model select a named subfolder without a disc
   expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
   await scoped["experimental.chat.system.transform"]({}, { system: [] });
   expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
+});
+
+test("agents can wait for multiple reviews in their project without model or execution overrides", async () => {
+  const input = { reviewIds: [id, "81a622ba-fc55-40fd-a965-846596122258"], waitSeconds: 0 };
+  expect(JSON.parse(await plugin.tool.legalwork_review_wait.execute(input, context)).ok).toBe(true);
+  expect(calls.at(-1)).toMatchObject({ path: "/workspace/project/reviews/wait", method: "POST", body: input });
+  calls.length = 0;
+  expect(JSON.parse(await plugin.tool.legalwork_review_wait.execute(input, { directory: "/project-elsewhere" })).ok).toBe(false);
+  expect(calls).toHaveLength(0);
+  const output: { system: string[] } = { system: [] }; await plugin["experimental.chat.system.transform"]({}, output);
+  expect(output.system.join(" ")).toContain("start all requested reviews and use legalwork_review_wait");
 });

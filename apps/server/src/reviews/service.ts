@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { setMaxListeners } from "node:events";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 import { ApiError } from "../errors.js";
@@ -16,7 +17,7 @@ import { readReviewResults } from "./results.js";
 import { ReviewResultQueries } from "./result-query-pages.js";
 import { ReviewUpdates } from "./updates.js";
 import { queryCells } from "./result-query.js";
-import { QueryReviewResultsSchema } from "./schema.js";
+import { QueryReviewResultsSchema, WaitReviewsSchema } from "./schema.js";
 
 function cellsFor(documents: ReviewDocument[], review: Pick<SavedReview, "columns" | "cells">): ReviewCell[] {
   return documents.flatMap(document => review.columns.map(column => review.cells.find(cell => cell.documentId === document.id && cell.columnKey === column.key)
@@ -165,6 +166,43 @@ export class ReviewService {
   }
   async queryResults(workspace: WorkspaceInfo, id: string, input: unknown) {
     return this.resultQueries.read(workspace.path, id, input, () => this.get(workspace, id));
+  }
+  /** Wait on local run promises; remote runs refresh at a bounded interval. Never starts inference. */
+  async wait(workspace: WorkspaceInfo, raw: unknown, signal?: AbortSignal) {
+    const input = WaitReviewsSchema.parse(raw), ids = [...new Set(input.reviewIds)];
+    const deadline = Date.now() + input.waitSeconds * 1000;
+    const read = async () => {
+      const reviews: ReviewSummary[] = [], errors: Array<{ reviewId: string; message: string }> = [];
+      for (const id of ids) {
+        try { reviews.push(summary(await this.get(workspace, id))); }
+        catch (error) {
+          if (!(error instanceof ApiError) || error.code !== "review_not_found") throw error;
+          errors.push({ reviewId: id, message: error.message });
+        }
+      }
+      return { reviews, errors };
+    };
+    let snapshot = await read();
+    while (snapshot.reviews.some(review => review.status === "running") && Date.now() < deadline) {
+      signal?.throwIfAborted();
+      const running = snapshot.reviews.filter(review => review.status === "running");
+      const local = running.flatMap(review => {
+        const run = this.runs.get(this.key(workspace, review.id));
+        return run ? [run] : [];
+      });
+      const timeout = new AbortController();
+      try {
+        await Promise.race([
+          ...(local.length ? [Promise.allSettled(local)] : []),
+          delay(Math.min(deadline - Date.now(), local.length === running.length ? 25_000 : 2000),
+            undefined, { signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal }),
+        ]);
+      } finally { timeout.abort(); }
+      snapshot = await read();
+    }
+    return { ...snapshot, settled: snapshot.reviews.every(review => review.status !== "running"),
+      timedOut: snapshot.reviews.some(review => review.status === "running"),
+      guidance: "Read every requested review status and error. Draft reviews have not started; needs_review, cancelled and interrupted are not cleared results. When settled, query each review's complete result coverage before reporting." };
   }
   async changes(workspace: WorkspaceInfo, id: string, revision?: number) {
     return this.updates.read(workspace.path, await this.get(workspace, id), revision);
