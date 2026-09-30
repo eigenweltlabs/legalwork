@@ -1,5 +1,6 @@
 // The standard skills carry the same executable that the rule tests exercise.
-const result = await Bun.build({ entrypoints: [new URL("../src/calendar/calculator-entry.ts", import.meta.url).pathname], target: "node", format: "esm", minify: true });
+import { fileURLToPath } from "node:url";
+const result = await Bun.build({ entrypoints: [fileURLToPath(new URL("../src/calendar/calculator-entry.ts", import.meta.url))], target: "node", format: "esm", minify: true });
 if (!result.success) throw new Error(result.logs.join("\n"));
 const zodLicense = await Bun.file(new URL("./LICENSE", import.meta.resolve("zod/package.json"))).text();
 const code = `/*! Bundled dependency: Zod (https://github.com/colinhacks/zod)\n${zodLicense}\n*/\n${await result.outputs[0].text()}`;
