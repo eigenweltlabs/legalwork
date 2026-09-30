@@ -42,7 +42,7 @@ const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
 const limitParam = previewParams.get("limit");
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
-const model = { providerID: previewParams.get("provider") === "eigenwelt" ? "eigenwelt" : "openai", modelID: "Preview model" };
+const model = { providerID: previewParams.get("provider") ?? "openai", modelID: "Preview model" };
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
 const workspace: WorkspaceInfo = {
   id: "visual-workspace", name: "Northstar Legal", displayName: "Northstar Legal",

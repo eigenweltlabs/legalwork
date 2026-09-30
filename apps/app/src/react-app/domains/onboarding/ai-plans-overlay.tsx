@@ -144,14 +144,14 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
     "ai_plans.feature_priority_support",
   ],
   plus: [
+    "ai_plans.everything_in_sync",
     "ai_plans.feature_models",
     "usage",
-    "ai_plans.everything_in_sync",
   ],
   pro: [
+    "ai_plans.everything_in_sync",
     "ai_plans.feature_models",
     "usage",
-    "ai_plans.everything_in_sync",
   ],
 };
 

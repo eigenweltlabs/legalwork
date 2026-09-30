@@ -17,6 +17,8 @@ describe("provider quota recovery", () => {
       "Budget has been exceeded. Request more usage from your admin.",
       "insufficient_quota",
       "Your credit balance is too low to access the Anthropic API",
+      "Your account or API key has insufficient credits.",
+      "insufficient_credits",
       "You've hit your usage limit",
       "subscription_sharing_usage_limit_exceeded",
       "subscription_sharing_usage_unavailable",
@@ -29,6 +31,8 @@ describe("provider quota recovery", () => {
       "rate_limit_exceeded",
       "Too many requests. Retry in 20 seconds.",
       "HTTP 429",
+      "RESOURCE_EXHAUSTED: Rate limit exceeded",
+      "Quota exceeded for metric requests_per_minute",
       "Context length exceeded",
       "Connection reset",
       "Invalid API key",
@@ -57,5 +61,10 @@ describe("provider quota recovery", () => {
     updateProviderUsageLimitStop("quota-turn", text);
     expect(consumeProviderUsageLimitStop("quota-turn", 103)).toBeNull();
     expect(providerFromUsageLimitError("Unrelated provider error")).toBeNull();
+  });
+  test("quota recovery retains the originating provider for built-in and custom providers", () => {
+    for (const provider of ["openai", "anthropic", "google", "openrouter", "custom-provider"]) {
+      expect(providerFromUsageLimitError(providerUsageLimitErrorText(provider))).toBe(provider);
+    }
   });
 });

@@ -205,7 +205,7 @@ export function PaymentMethods(props: Props & { refreshSignal?: unknown }) {
     </div>
   );
 }
-export function CardTopUp(props: Props) {
+export function CardTopUp(props: Props & { triggerSize?: "default" | "sm" }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog
@@ -214,7 +214,7 @@ export function CardTopUp(props: Props) {
         if (!props.busy) setOpen(value);
       }}
     >
-      <DialogTrigger render={<Button className="self-start" />}>
+      <DialogTrigger render={<Button size={props.triggerSize} className="self-start" />}>
         <Plus />
         {props.t("limits.topup")}
       </DialogTrigger>

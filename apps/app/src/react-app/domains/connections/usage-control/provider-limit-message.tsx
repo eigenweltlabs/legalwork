@@ -26,6 +26,13 @@ import { DesktopUsagePanel, useDesktopUsageTransport } from "./desktop-panel";
 import { CardTopUp } from "./payment-components";
 import { MemberPlanChange } from "./member-actions";
 
+const PROVIDER_NAMES: Record<string, string> = {
+  openai: "ChatGPT / OpenAI",
+  anthropic: "Claude / Anthropic",
+  google: "Gemini / Google",
+  openrouter: "OpenRouter",
+};
+
 export function ProviderLimitMessage({
   client,
   workspaceId,
@@ -65,7 +72,7 @@ export function ProviderLimitMessage({
     };
   }, [transport]);
   const managed = view?.enabled ? view : null;
-  const provider = providerId === "openai" ? "ChatGPT / OpenAI" : providerId;
+  const provider = PROVIDER_NAMES[providerId] ?? providerId;
   async function run(action: Parameters<typeof transport.write>[0]) {
     setBusy(true);
     setError("");
@@ -99,20 +106,9 @@ export function ProviderLimitMessage({
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        {providerId === "openai" && (
-          <Button
-            size="sm"
-            onClick={() =>
-              void openDesktopUrl("https://chatgpt.com/settings/usage")
-            }
-          >
-            {t("provider_limit.manage")}
-          </Button>
-        )}
         {options.plans.length > 0 && (
           <Button
             size="sm"
-            variant={providerId === "openai" ? "outline" : "default"}
             onClick={() => setOpen("plans")}
           >
             {t(
@@ -123,7 +119,7 @@ export function ProviderLimitMessage({
           </Button>
         )}
         {options.topUp && managed?.isAdmin && (
-          <CardTopUp transport={transport} run={run} busy={busy} t={t} />
+          <CardTopUp transport={transport} run={run} busy={busy} t={t} triggerSize="sm" />
         )}
         {options.topUp && managed && !managed.isAdmin && (
           <Button size="sm" variant="outline" onClick={() => setOpen("admin")}>
