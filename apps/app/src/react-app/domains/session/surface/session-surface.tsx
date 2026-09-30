@@ -1173,7 +1173,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // the actual pasted content instead of "[pasted text <label>]".
     let resolved = text;
     for (const part of pasteParts) {
-      resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
+      resolved = resolved.replace(`[pasted text ${part.label}]`, () => part.text);
     }
     resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
     for (const [value, kind] of Object.entries(mentions)) {
@@ -1711,16 +1711,21 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const handlePasteText = (text: string) => {
     const id = `paste-${Math.random().toString(36).slice(2)}`;
-    const label = `${id.slice(-4)} · ${text.split(/\r?\n/).length} lines`;
-    setComposerPasteParts(props.sessionId, [...pasteParts, { id, label, text, lines: text.split(/\r?\n/).length }]);
-    setComposerDraft(props.sessionId, `${draft}[pasted text ${label}]`);
+    const lines = text.split(/\r?\n/).length;
+    const part = { id, label: `${id.slice(-4)} · ${lines} lines`, text, lines };
+    const current = getComposerPasteParts(useComposerStateStore.getState(), props.sessionId);
+    setComposerPasteParts(props.sessionId, [...current, part]);
+    return part;
   };
 
   const handleExpandPastedText = (id: string) => {
-    const part = pasteParts.find((item) => item.id === id);
+    const state = useComposerStateStore.getState();
+    const currentParts = getComposerPasteParts(state, props.sessionId);
+    const part = currentParts.find((item) => item.id === id);
     if (!part) return;
-    setComposerDraft(props.sessionId, draft.replace(`[pasted text ${part.label}]`, part.text));
-    setComposerPasteParts(props.sessionId, pasteParts.filter((item) => item.id !== id));
+    const currentDraft = getComposerDraft(state, props.sessionId);
+    setComposerDraft(props.sessionId, currentDraft.replace(`[pasted text ${part.label}]`, () => part.text));
+    setComposerPasteParts(props.sessionId, currentParts.filter((item) => item.id !== id));
   };
 
   const handleRemovePastedText = (id: string) => {
