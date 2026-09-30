@@ -113,7 +113,16 @@ describe("the Eigenwelt account when the platform cannot be reached", () => {
 /** Regression tests use real HTTP and SQLite, including a fresh runtime process. */
 describe("interrupted and delayed refresh recovery", () => {
   async function serve(handler: RequestListener): Promise<string> {
-    const server = createServer(handler);
+    const server = createServer((req, res) => {
+      // Other server fixtures can still be fetching their model lists. Only
+      // refresh/revoke requests belong to this test's scripted auth exchange.
+      if (req.method !== "POST" || (req.url !== "/api/desktop/refresh" && req.url !== "/api/desktop/revoke")) {
+        req.resume();
+        res.writeHead(404).end();
+        return;
+      }
+      handler(req, res);
+    });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     cleanups.push(() => { server.closeAllConnections(); return new Promise<void>((resolve) => server.close(() => resolve())); });
     const address = server.address();
@@ -140,6 +149,9 @@ describe("interrupted and delayed refresh recovery", () => {
         else res.writeHead(401).end();
       });
     });
+    const unrelated = await fetch(`${process.env.EIGENWELT_PLATFORM_URL}/api/public/models`);
+    expect(unrelated.status).toBe(404);
+    expect(requestIds).toEqual([]);
     const first = await readFreshEntitlementsView(config);
     expect(first.connected).toBe(true);
     expect(first.reconnecting).toBe(true);
