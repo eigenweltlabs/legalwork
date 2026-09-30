@@ -138,8 +138,6 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
   sync: [
     "ai_plans.sync_no_usage",
     "ai_plans.sync_own_ai",
-    "ai_plans.sync_openai",
-    "ai_plans.sync_topups",
     "ai_plans.feature_hub",
     "ai_plans.feature_admin",
     "ai_plans.feature_hosting_retention",
@@ -148,17 +146,12 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
   plus: [
     "ai_plans.feature_models",
     "usage",
-    "ai_plans.feature_hub",
-    "ai_plans.feature_admin",
-    "ai_plans.feature_hosting_retention",
+    "ai_plans.everything_in_sync",
   ],
   pro: [
     "ai_plans.feature_models",
     "usage",
-    "ai_plans.feature_hub",
-    "ai_plans.feature_admin",
-    "ai_plans.feature_hosting_retention",
-    "ai_plans.feature_priority_support",
+    "ai_plans.everything_in_sync",
   ],
 };
 
@@ -306,7 +299,7 @@ function PlanCard(props: {
       features={
         <>
           {FEATURES[plan.id].map((key) => (
-            <FeatureRow key={key}>
+            <FeatureRow key={key} icon={key === "ai_plans.everything_in_sync" ? RefreshCcw : undefined}>
               {key === "usage"
                 ? t("ai_plans.feature_usage", {
                     amount: formatEuroCents(

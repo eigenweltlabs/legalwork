@@ -32,12 +32,18 @@ import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator"
 import { WorkspaceProvider } from "@/react-app/shell/workspace-provider";
 import "./app/index.css";
 import { WorkflowsPreview } from "./workflows-preview";
+import { providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
+import { usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
 
 if (!import.meta.env.DEV) throw new Error("The session fixture is available only in development.");
 initLocale();
 
 const now = Date.now();
-const model = { providerID: "openai", modelID: "Preview model" };
+const previewParams = new URLSearchParams(window.location.search);
+const limitParam = previewParams.get("limit");
+const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
+const model = { providerID: previewParams.get("provider") === "eigenwelt" ? "eigenwelt" : "openai", modelID: "Preview model" };
+const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
 const workspace: WorkspaceInfo = {
   id: "visual-workspace", name: "Northstar Legal", displayName: "Northstar Legal",
   path: "/workspaces/northstar-legal", preset: "starter", workspaceType: "local",
@@ -86,6 +92,15 @@ saveSnapshot(snapshot(welcomeId, "New task"));
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
+if (limitParam) {
+  const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
+  saveSnapshot({
+    ...item,
+    messages: item.messages.map(message => message.info.role === "assistant" ? {
+      ...message, parts: [], info: { ...message.info, error: { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID) } } },
+    } : message),
+  });
+}
 
 const files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Contracts", path: "Contracts", kind: "dir" },
@@ -101,7 +116,7 @@ const memoryFiles: LegalMemoryTreeFile[] = files.filter((file) => file.kind === 
   source_object_id: file.path, source_id: "visual-drive", name: file.name, path: file.path,
   mime_type: null, size_bytes: file.size ?? null, mtime: new Date(now).toISOString(), document_id: file.path,
 }));
-const previewNotice = () => toast("Visual preview", { description: "This action needs the running desktop app or a connected service." });
+const previewNotice = () => { toast("Visual preview", { description: "This action needs the running desktop app or a connected service." }); };
 
 // `?plans=new|signed-out|ended|no-models|onboarding` lays the plan screen over
 // the session. Sign-in and upgrades are simulated: nothing leaves the page
@@ -199,6 +214,17 @@ function PlansPreview() {
 // existing server connection or provider credential is used by this fixture.
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  eigenweltEntitlements: async () => limitFixture.entitlements,
+  eigenweltUsage: async () => limitFixture.usage,
+  eigenweltUsageAction: async (_workspaceId, action) => {
+    if (action.action === "paymentDetails") return {
+      card: { id: "visual-card", brand: "visa", last4: "4242", expMonth: 9, expYear: 2027 }, pendingTopUps: [],
+    };
+    if (action.action === "memberChange" && action.preview) return {
+      quoteId: "visual-quote", amountCents: 1500, recurringAmountCents: 12800, billingInterval: "month",
+    };
+    throw new Error("Billing changes and payments are disabled in this visual preview.");
+  },
   getSessionSnapshot: async (_workspaceId, sessionId) => {
     const item = snapshots.get(sessionId);
     if (!item) throw new Error("Unknown preview session");
@@ -208,7 +234,7 @@ const fixtureClient: LegalworkServerClient = {
   getVoiceRealtimeCapability: async () => ({ supported: false, providerId: null, model: null, reason: "Voice is unavailable in the visual fixture." }),
   getUserEnvStatus: async () => ({ runtimeKey: "visual-fixture", pendingChanges: false }),
   listUserEnv: async () => ({ items: [] }),
-  listSkills: async () => ({ items: [] }),
+  listSkills: async () => ({ items: [], skipped: [] }),
   listMcp: async () => ({ items: [] }),
   resolveArtifacts: async () => ({ items: [] }),
   listWorkspaceDirectory: async (_workspaceId, path) => ({
@@ -235,7 +261,7 @@ const fixtureClient: LegalworkServerClient = {
 function SessionPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState(welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState(limitParam ? "visual-limit" : welcomeId);
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   const groups: WorkspaceSessionGroup[] = [
@@ -263,12 +289,12 @@ function SessionPreview() {
       <div className="min-h-0 flex-1">
         <SessionPage
           mainView={showWorkflows ? <WorkflowsPreview /> : undefined}
-          selectedSessionId={selectedSessionId} selectedWorkspaceId={workspace.id} selectedWorkspaceDisplay={workspace}
+          selectedSessionId={selectedSessionId} selectedWorkspaceId={workspace.id} selectedWorkspaceDisplay={{ ...workspace, displayName: "Northstar Legal" }}
           selectedWorkspaceRoot={workspace.path} runtimeWorkspaceId={workspace.id} workspaces={[workspace, otherWorkspace]}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
-          hasUsableModel mcpConnectedCount={0} onOpenSettings={previewNotice} todos={[]} sessionLoadingById={() => false}
+          mcpConnectedCount={0} onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
           onRenameSession={(id, title) => {
             const item = snapshots.get(id);
             if (item) saveSnapshot({ ...item, session: { ...item.session, title } });
@@ -285,7 +311,8 @@ function SessionPreview() {
             activeNav: showWorkflows ? "workflows" : null,
           }}
           surface={{
-            workspaceRoot: workspace.path, developerMode: false, modelLabel: "Preview model", onModelClick: previewNotice,
+            workspaceRoot: workspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
+            onChooseAiPlan: async () => previewNotice(), onChooseLegalworkModel: previewNotice,
             modelPickerOpen: false, modelSelectorLocked: true, selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,

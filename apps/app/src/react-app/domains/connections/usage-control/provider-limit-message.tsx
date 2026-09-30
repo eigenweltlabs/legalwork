@@ -93,7 +93,7 @@ export function ProviderLimitMessage({
           <p className="font-medium">{t("provider_limit.title")}</p>
           <p className="text-muted-foreground">
             {providerId === "eigenwelt"
-              ? t("provider_limit.eigenwelt_body")
+              ? t(managed?.isAdmin ? "provider_limit.eigenwelt_admin_body" : "provider_limit.eigenwelt_body")
               : t("provider_limit.external_body", { provider })}
           </p>
         </div>
