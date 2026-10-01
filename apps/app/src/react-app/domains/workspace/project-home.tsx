@@ -18,6 +18,7 @@ import { ProjectName } from "./project-name";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
+import { UpcomingDeadlines } from "../calendar/upcoming-deadlines";
 import { ProjectRecordings } from "./project-recordings";
 import { ProjectFilesDropzone } from "./project-files-dropzone";
 import { useRecorderStore } from "../recorder/recorder-store";
@@ -188,6 +189,8 @@ export function ProjectHome(props: {
             void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
+
+        <UpcomingDeadlines client={client} workspaceId={workspaceId} projectId={props.projectId} />
 
         <ContextMenu>
         <ContextMenuTrigger render={<section aria-label={t("projects.notes")} />}>

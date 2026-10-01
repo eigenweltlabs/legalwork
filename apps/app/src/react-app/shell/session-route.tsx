@@ -2502,7 +2502,7 @@ export function SessionRoute() {
         calendarPage ? (
           <CalendarView client={client}
             remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
-            onOpenProject={id => navigate(workspaceCalendarRoute(id))} onOpenTask={(id, projectId) => { setOpenTask({ id, at: Date.now() }); if (projectId) navigate(workspaceTasksRoute(projectId)); else showTasksPane(); }} />
+            onOpenTask={(id, projectId) => { setOpenTask({ id, at: Date.now() }); if (projectId) navigate(workspaceTasksRoute(projectId)); else showTasksPane(); }} />
         ) : homePage ? (
           <AppHome
             workspaces={sidebarWorkspaces}

@@ -41,14 +41,7 @@ import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
 import { ListPagination } from "@/components/list-pagination";
 import { SectionHeading } from "@/react-app/design-system/surface";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FilterSelect as SortFilterChip } from "@/components/filter-select";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -653,42 +646,6 @@ export function TasksPane(props: TasksPaneProps) {
         />
       ) : null}
     </div>
-  );
-}
-
-/** A filter as a chip: its icon says which, its value says what. */
-function SortFilterChip(props: {
-  icon: LucideIcon;
-  compact?: boolean;
-  label: string;
-  value: string;
-  options: FilterOption[];
-  onChange: (value: string) => void;
-}) {
-  const Icon = props.icon;
-  return (
-    <Select value={props.value} items={props.options} onValueChange={(value) => props.onChange(value ?? "")}>
-      <SelectTrigger
-        size="sm"
-        aria-label={props.label}
-        title={props.options.find((option) => option.value === props.value)?.label}
-        className="h-7 min-w-0 max-w-full gap-1.5 rounded-lg border-transparent bg-transparent px-2 text-xs text-foreground hover:bg-muted/60 data-[size=sm]:h-7"
-      >
-        <Icon aria-hidden className="size-3.5 text-muted-foreground" />
-        <SelectValue className={props.compact ? "sr-only" : "min-w-0 truncate"} />
-      </SelectTrigger>
-      {/* As wide as the entries need rather than as the chip, which may only
-          say "All". */}
-      <SelectContent align="start" className="w-auto min-w-(--anchor-width) max-w-80">
-        <SelectGroup>
-          {props.options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              <OptionText primary={option.primary ?? option.label} detail={option.detail} />
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
   );
 }
 
