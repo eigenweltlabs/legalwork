@@ -163,7 +163,7 @@
     background: var(--lw-surface);
     color: var(--lw-text-primary);
   }
-  @container (max-width: 31.99rem) {
+  @container (max-width: 35.99rem) {
     .lw-task-card { min-height: 92px; flex-direction: row; align-items: center; gap: 12px; padding: 10px; }
     .lw-task-card-art { width: 100px; height: 70px; }
     .lw-task-illustration { width: 110px; height: 66px; }

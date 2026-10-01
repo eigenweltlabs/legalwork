@@ -76,7 +76,7 @@ export function AppHome(props: AppHomeProps) {
               event.preventDefault();
               addFiles(Array.from(event.dataTransfer.files));
             }}>
-              <textarea ref={promptInput} autoFocus aria-label={t("home.prompt_label")} placeholder={t("home.placeholder")} value={text} disabled={busy} rows={3} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
+              <textarea ref={promptInput} autoFocus aria-label={t("home.prompt_label")} placeholder={t("home.placeholder")} value={text} disabled={busy} rows={2} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   void send();
