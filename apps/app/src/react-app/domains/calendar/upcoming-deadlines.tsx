@@ -12,10 +12,12 @@ import { workspaceCalendarRoute } from "../../shell/workspace-routes";
 import { t } from "@/i18n";
 import { deadlineReviewLabel, calendarDay, calendarError, formatCalendarDay, isActive, occurrenceDay, shiftDay } from "./calendar-format";
 import { useCalendarOccurrences, useCalendarRefresh } from "./calendar-queries";
+import { calendarProjectColor } from "./calendar-colors";
 import { DeadlineDialog } from "./deadline-dialog";
 
 export function UpcomingDeadlines(props: { client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string }) {
   const navigate = useNavigate(), refresh = useCalendarRefresh();
+  const color = calendarProjectColor(props.projectId);
   const today = new Date(), from = calendarDay(today), to = calendarDay(shiftDay(today, 90));
   const query = useCalendarOccurrences(props, from, to);
   const items = (query.data?.occurrences ?? []).filter(item => item.kind === "deadline" && isActive(item) && occurrenceDay(item) >= from).slice(0, 5);
@@ -35,8 +37,8 @@ export function UpcomingDeadlines(props: { client: LegalworkServerClient; worksp
       {query.isPending ? <p role="status" className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("calendar.loading")}</p>
         : query.isError ? <div role="alert" className="flex items-center justify-between gap-3 p-4 text-xs"><span>{calendarError(query.error)}</span><Button variant="ghost" size="sm" onClick={refresh}>{t("workspace_files.try_again")}</Button></div>
         : items.length ? <div className="space-y-1 p-2">{items.map(item => <Button key={item.id} variant="ghost" className="group h-auto w-full min-w-0 justify-start gap-3 rounded-lg px-2 py-3 text-left font-normal" disabled={opening} onClick={() => void open(item)}>
-          <time dateTime={occurrenceDay(item)} aria-label={formatCalendarDay(occurrenceDay(item), { dateStyle: "full" })} className={cn("flex size-11 shrink-0 flex-col items-center justify-center rounded-lg bg-muted/60 text-foreground tabular-nums", occurrenceDay(item) === from && "bg-amber-3/50 text-amber-11")}>
-            <span className="text-[10px] leading-3 font-medium uppercase text-muted-foreground">{formatCalendarDay(occurrenceDay(item), { month: "short" })}</span>
+          <time dateTime={occurrenceDay(item)} aria-label={formatCalendarDay(occurrenceDay(item), { dateStyle: "full" })} className={cn("flex size-11 shrink-0 flex-col items-center justify-center rounded-lg border tabular-nums", color.card, color.accent)}>
+            <span className="text-[10px] leading-3 font-medium uppercase">{formatCalendarDay(occurrenceDay(item), { month: "short" })}</span>
             <span className="text-lg leading-6 font-semibold">{formatCalendarDay(occurrenceDay(item), { day: "numeric" })}</span>
           </time>
           <span className="min-w-0 flex-1"><span className="block truncate text-[13px] leading-5 font-medium text-foreground">{item.title}</span><span className="mt-0.5 block text-xs text-muted-foreground">{occurrenceDay(item) === from ? `${t("calendar.today")} · ` : ""}{deadlineReviewLabel(item)}</span></span>

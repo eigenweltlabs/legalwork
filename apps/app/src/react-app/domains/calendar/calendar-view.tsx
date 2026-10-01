@@ -104,9 +104,9 @@ export function CalendarView(props: CalendarViewProps) {
         {query.data?.unavailable.length ? <p role="status" className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">{t("calendar.unavailable_projects", { projects: query.data.unavailable.join(", ") })}</p> : null}
         {query.isError || records.isError ? <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-destructive/20 p-4 text-sm"><span>{calendarError(query.error ?? records.error)}</span><Button size="sm" variant="outline" onClick={refresh}>{t("workspace_files.try_again")}</Button></div> : null}
         {query.isPending ? <div role="status" className="flex min-h-72 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("calendar.loading")}</div> : <>
-          <TabsContent value="week"><CalendarGrid view="week" anchor={anchor} start={range.start} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>
-          <TabsContent value="month"><CalendarGrid view="month" anchor={anchor} start={range.start} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>
-          <TabsContent value="agenda"><CalendarAgenda from={range.from} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} /></TabsContent>
+          <TabsContent value="week"><CalendarGrid view="week" anchor={anchor} start={range.start} items={items} projectId={props.projectId ?? props.workspaceId} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>
+          <TabsContent value="month"><CalendarGrid view="month" anchor={anchor} start={range.start} items={items} projectId={props.projectId ?? props.workspaceId} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>
+          <TabsContent value="agenda"><CalendarAgenda from={range.from} items={items} projectId={props.projectId ?? props.workspaceId} showProjects={!props.workspaceId} onOpen={item => void open(item)} /></TabsContent>
         </>}
       </Tabs>
       {trashOpen && props.client && props.workspaceId && <CalendarTrash client={props.client} workspaceId={props.workspaceId} items={records.data?.items.filter(item => item.deletedAt) ?? []} onClose={() => setTrashOpen(false)} onChanged={refresh} />}
@@ -116,7 +116,7 @@ export function CalendarView(props: CalendarViewProps) {
   </div>;
 }
 
-function CalendarGrid(props: { view: "week" | "month"; anchor: Date; start: Date; items: CalendarOccurrence[]; showProjects: boolean; onOpen: (item: CalendarOccurrence) => void; onCreate?: (day: string) => void }) {
+function CalendarGrid(props: { view: "week" | "month"; anchor: Date; start: Date; items: CalendarOccurrence[]; projectId?: string; showProjects: boolean; onOpen: (item: CalendarOccurrence) => void; onCreate?: (day: string) => void }) {
   const week = props.view === "week", today = calendarDay(new Date());
   return <div className="overflow-x-auto rounded-xl border border-border/70">
     <div className="grid min-w-[700px] grid-cols-7">
@@ -134,9 +134,9 @@ function CalendarGrid(props: { view: "week" | "month"; anchor: Date; start: Date
           {!week && <div className="mb-1.5 flex items-center justify-between"><span className={cn("flex size-6 items-center justify-center rounded-full text-xs tabular-nums", key === today && "bg-foreground text-background")}>{day.getDate()}</span>{props.onCreate && <DayAdd day={key} onCreate={props.onCreate} />}</div>}
           <div className="space-y-1.5">
             {week && allDay.length > 0 && <p className="px-1 pb-1 text-[10px] text-muted-foreground">{t("calendar.all_day")}</p>}
-            {allDay.map(item => <CalendarEntry key={item.id} item={item} compact={!week} showProject={props.showProjects} onOpen={() => props.onOpen(item)} />)}
+            {allDay.map(item => <CalendarEntry key={item.id} item={item} projectId={props.projectId} compact={!week} showProject={props.showProjects} onOpen={() => props.onOpen(item)} />)}
             {week && timed.length > 0 && <p className={cn("px-1 pb-1 text-[10px] text-muted-foreground", allDay.length > 0 && "pt-3")}>{t("calendar.scheduled")}</p>}
-            {timed.map(item => <CalendarEntry key={item.id} item={item} compact={!week} showProject={props.showProjects} onOpen={() => props.onOpen(item)} />)}
+            {timed.map(item => <CalendarEntry key={item.id} item={item} projectId={props.projectId} compact={!week} showProject={props.showProjects} onOpen={() => props.onOpen(item)} />)}
           </div>
           {week && props.onCreate && <div className="mt-3 flex justify-center"><DayAdd day={key} onCreate={props.onCreate} /></div>}
         </div>;
@@ -149,12 +149,12 @@ function DayAdd({ day, onCreate }: { day: string; onCreate: (day: string) => voi
   return <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground opacity-0 group-hover/day:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("calendar.add_on_day", { date: formatCalendarDay(day, { dateStyle: "full" }) })} onClick={() => onCreate(day)} />}><Plus className="size-3" /></TooltipTrigger><TooltipContent>{t("calendar.add")}</TooltipContent></Tooltip>;
 }
 
-function CalendarAgenda({ from, items, showProjects, onOpen }: { from: string; items: CalendarOccurrence[]; showProjects: boolean; onOpen: (item: CalendarOccurrence) => void }) {
+function CalendarAgenda({ from, items, projectId, showProjects, onOpen }: { from: string; items: CalendarOccurrence[]; projectId?: string; showProjects: boolean; onOpen: (item: CalendarOccurrence) => void }) {
   const visibleDay = (item: CalendarOccurrence) => occurrenceDay(item) < from ? from : occurrenceDay(item);
   const days = [...new Set(items.map(visibleDay))].sort();
   if (!days.length) return <Empty className="min-h-64"><EmptyHeader><EmptyMedia variant="icon"><CalendarDays /></EmptyMedia><EmptyTitle>{t("calendar.empty_title")}</EmptyTitle><EmptyDescription>{t("calendar.empty")}</EmptyDescription></EmptyHeader></Empty>;
   return <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70">{days.map(day => <section key={day} className="grid gap-3 p-4 @min-[640px]/calendar:grid-cols-[140px_1fr]">
     <h3 className="pt-2 text-xs font-medium"><time dateTime={day}>{formatCalendarDay(day, { weekday: "short", day: "numeric", month: "short" })}</time></h3>
-    <div className="min-w-0 space-y-1.5">{items.filter(item => visibleDay(item) === day).map(item => <CalendarEntry key={item.id} item={item} showProject={showProjects} onOpen={() => onOpen(item)} />)}</div>
+    <div className="min-w-0 space-y-1.5">{items.filter(item => visibleDay(item) === day).map(item => <CalendarEntry key={item.id} item={item} projectId={projectId} showProject={showProjects} onOpen={() => onOpen(item)} />)}</div>
   </section>)}</div>;
 }
