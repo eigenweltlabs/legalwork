@@ -24,6 +24,7 @@ const FILES = [
   { source: "skills/docx-edit/assets/docx-agent.mjs", path: ".opencode/skills/docx-edit/assets/docx-agent.mjs" },
   { source: "skills/docx-edit/assets/populate-template.py", path: ".opencode/skills/docx-edit/assets/populate-template.py" },
   { source: "skills/docx-edit/assets/verify-evidence.py", path: ".opencode/skills/docx-edit/assets/verify-evidence.py" },
+  { source: "skills/docx-edit/assets/report-from-reviews.py", path: ".opencode/skills/docx-edit/assets/report-from-reviews.py" },
   { source: "skills/docx-edit/assets/vendor/docx-engine.mjs", path: ".opencode/skills/docx-edit/assets/vendor/docx-engine.mjs" },
   { source: "agents/docx-redliner.md", path: ".opencode/agents/docx-redliner.md" },
   { source: "commands/edit-docx.md", path: ".opencode/commands/edit-docx.md" },

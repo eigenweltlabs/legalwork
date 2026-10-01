@@ -13,6 +13,19 @@ description: >-
 
 # Word (.docx) reading + editing
 
+For an **Eigenwelt SaaS DD report from settled reviews**, call
+`legalwork_review_report_prepare` with the saved review IDs and original evidence
+indexes. Read its bounded class files, write legal prose directly into the draft
+JSON, and run `assets/report-from-reviews.py --project <project> --packet
+<packet.json> --data <draft.json> --template <template.docx> --out
+<reports/report.docx>`. The helper expands source references, verifies quotations,
+builds the report tables and preserves the template in one operation. Findings use
+`citations: [{sourceRef, page, quote}]`; a shared quotation can use
+`citationGroups: [{reviewId, column, values, page, quote}]` to expand a saved answer
+group internally. Each expanded citation is still checked. Open decisions remain
+open. Do not generate assembly scripts, read all source documents again, inspect
+the template repeatedly, or turn routine report drafting into a second full review.
+
 For **creating a new report from a supplied template**, use the deterministic
 `assets/populate-template.py` helper instead of generating a Word-building script.
 `python3 <skill>/assets/populate-template.py inspect --template <template.docx>`
