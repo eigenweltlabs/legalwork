@@ -1,5 +1,6 @@
 import ICAL from "ical.js";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
+import { CalendarAttachmentPathSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
 import { addDays, dayInZone, zonedInstant, zoneValid } from "./dates.js";
 
@@ -54,7 +55,23 @@ function reminderAlarm(item: Pick<CalendarItem, "title" | "provenance">, minutes
   } else alarm.addPropertyWithValue("trigger", ICAL.Duration.fromSeconds(-minutes * 60));
   return alarm;
 }
-export function itemCalendar(item: Pick<CalendarItem, "uid" | "title" | "description" | "kind" | "start" | "end" | "timeZone" | "revision" | "updatedAt" | "status" | "reminders" | "provenance">): string {
+const attachmentUri = (path: string) => `legalwork-file:${encodeURIComponent(path)}`;
+export function calendarAttachmentPaths(component: ICAL.Component): string[] {
+  return component.getAllProperties("attach").flatMap(property => {
+    const value = property.getFirstValue();
+    if (typeof value !== "string" || !value.startsWith("legalwork-file:")) return [];
+    try { const path = CalendarAttachmentPathSchema.safeParse(decodeURIComponent(value.slice(15))); return path.success ? [path.data] : []; }
+    catch { return []; }
+  });
+}
+function updateAttachments(component: ICAL.Component, paths: string[]) {
+  for (const property of component.getAllProperties("attach")) {
+    const value = property.getFirstValue();
+    if (typeof value === "string" && value.startsWith("legalwork-file:")) component.removeProperty(property);
+  }
+  for (const path of paths) component.addPropertyWithValue("attach", attachmentUri(path));
+}
+export function itemCalendar(item: Pick<CalendarItem, "uid" | "title" | "description" | "kind" | "start" | "end" | "timeZone" | "revision" | "updatedAt" | "status" | "reminders" | "provenance"> & { attachmentPaths?: string[] }): string {
   const root = emptyCalendar(), event = new ICAL.Component("vevent");
   event.addPropertyWithValue("uid", item.uid); event.addPropertyWithValue("summary", item.title);
   event.addPropertyWithValue("description", item.description); event.addPropertyWithValue("sequence", item.revision);
@@ -70,6 +87,7 @@ export function itemCalendar(item: Pick<CalendarItem, "uid" | "title" | "descrip
   for (const minutes of item.reminders) {
     event.addSubcomponent(reminderAlarm(item, minutes));
   }
+  updateAttachments(event, item.attachmentPaths ?? []);
   root.addSubcomponent(event); return serializeCalendar(root);
 }
 /** Patch only exposed properties; retain recurrence, participants, alarms and extensions. */
@@ -77,6 +95,7 @@ export function updateCalendar(item: CalendarItem, changed: Set<string>): string
   const root = parseCalendar(item.ical);
   const master = root.getAllSubcomponents().find(c => components.has(c.name) && !c.hasProperty("recurrence-id"));
   if (!master) throw new ApiError(400, "calendar_master_missing", "Calendar has no master component.");
+  if (changed.has("attachmentPaths")) updateAttachments(master, item.attachmentPaths);
   if (changed.has("title")) master.updatePropertyWithValue("summary", item.title);
   if (changed.has("description")) master.updatePropertyWithValue("description", item.description);
   if (changed.has("start") || changed.has("timeZone")) {

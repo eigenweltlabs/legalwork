@@ -3,6 +3,9 @@ import { requireIntakeClient, intakeRequest } from "../eigenwelt-intake.js";
 import { projectSyncStore } from "../project-sync-store.js";
 import { connectedTaskOrgId } from "../tasks-api.js";
 import { z } from "zod";
+import { resolve } from "node:path";
+import { CalendarCreateSchema, CalendarPatchSchema } from "../calendar/schema.js";
+import { validateCalendarLinks } from "../calendar/links.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addDays, dayInZone } from "../calendar/dates.js";
 import { ApiError } from "../errors.js";
@@ -19,6 +22,8 @@ export function registerCalendarRoutes(options: {
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void; requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  listSessions: (workspace: WorkspaceInfo, search?: string) => Promise<{ id: string; title: string; directory: string }[]>;
+  getSession: (workspace: WorkspaceInfo, id: string) => Promise<{ directory: string } | null>;
 }) {
   const { config } = options;
   void ensureDeadlineSkills().catch(error => console.warn("[calendar] Skill installation failed", error));
@@ -43,12 +48,15 @@ export function registerCalendarRoutes(options: {
   route("GET", "/occurrences", async (ctx, workspace) => { const { from, to } = range(ctx); return { occurrences: await calendarOccurrences(config, workspace, from, to) }; });
   route("GET", "/export", async (ctx, workspace) => new Response(await calendarExport(config, workspace, ctx.url.searchParams.get("profile") === "native" ? "native" : "calendar"), { headers: { "Content-Type": "text/calendar; charset=utf-8", "Cache-Control": "no-store" } }));
   route("GET", "/rules", async () => ({ skills: DEADLINE_SKILLS, codeHash: DEADLINE_CODE_HASH }));
+  route("GET", "/links", async (ctx, workspace) => ({ projectName: workspace.displayName?.trim() || workspace.name,
+    sessions: (await options.listSessions(workspace, ctx.url.searchParams.get("search")?.slice(0, 255))).filter(session => resolve(session.directory) === resolve(workspace.path)).map(({ id, title }) => ({ id, title })) }));
   route("POST", "/calculate", async (ctx, workspace) => {
     const input = z.strictObject({ skill: z.string(), input: z.unknown() }).parse(await body(ctx));
     return { calculation: (await calendarStore(config)).recordCalculation(workspace.id, await calculateWithSkill(workspace.path, input.skill, input.input), DEADLINE_CODE_HASH) };
   });
   route("POST", "", async (ctx, workspace) => {
     const { calculationId, ...input } = await body(ctx);
+    await validateCalendarLinks(workspace, CalendarCreateSchema.parse(input), undefined, options.getSession);
     if (Array.isArray(input.taskIds)) { const tasks = await datedTasks(config, workspace.id); if (input.taskIds.some(id => !tasks.some(task => task.id === id))) throw new ApiError(400, "calendar_task_link", "Link only tasks in this project."); }
     return { item: (await calendarStore(config)).create(workspace.id, input, z.uuid().optional().parse(calculationId)) };
   });
@@ -65,6 +73,7 @@ export function registerCalendarRoutes(options: {
   route("GET", "/:item/history", async (ctx, workspace) => ({ history: (await calendarStore(config)).history(workspace.id, ctx.params.item) }));
   route("PATCH", "/:item", async (ctx, workspace) => {
     const input = await body(ctx);
+    await validateCalendarLinks(workspace, CalendarPatchSchema.parse(input), (await calendarStore(config)).get(workspace.id, ctx.params.item), options.getSession);
     if (Array.isArray(input.taskIds)) { const tasks = await datedTasks(config, workspace.id); if (input.taskIds.some(id => !tasks.some(task => task.id === id))) throw new ApiError(400, "calendar_task_link", "Link only tasks in this project."); }
     return { item: (await calendarStore(config)).patch(workspace.id, ctx.params.item, input) };
   });

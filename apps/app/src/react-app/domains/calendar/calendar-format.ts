@@ -67,3 +67,9 @@ export function provenanceLabel(kind: CalendarItem["provenance"]["kind"] | "task
   const labels = { manual: t("calendar.manual"), calculated: t("calendar.calculated"), imported: t("calendar.imported"), task: t("calendar.task") };
   return labels[kind];
 }
+
+export function deadlineReviewLabel(item: Pick<CalendarOccurrence, "verified" | "provenance">) {
+  if (item.verified) return t("calendar.verified");
+  if (item.provenance?.kind === "manual" && !item.provenance.reason) return t("calendar.entered_manually");
+  return t("calendar.unverified");
+}

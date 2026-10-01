@@ -1,7 +1,11 @@
 import { useId, useState } from "react";
-import { Bell, ChevronRight, ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { ArrowUpRight, FolderOpen, Bell, ChevronRight, ExternalLink, Loader2, Trash2 } from "lucide-react";
 import type { CalendarItem } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { useNavigate } from "react-router-dom";
+import { workspaceProjectRoute } from "../../shell/workspace-routes";
+import { DeadlineLinks } from "./deadline-links";
+import type { CalendarSource } from "./calendar-queries";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -34,8 +38,12 @@ export function CalculationDetails({ item }: { item: CalendarItem }) {
   </Collapsible>;
 }
 
-export function DeadlineDialog(props: { client: LegalworkServerClient; workspaceId: string; item: CalendarItem | null; day: string; onClose: () => void; onSaved: () => void }) {
-  const item = props.item;
+export function DeadlineDialog(props: { client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string; projects?: CalendarSource[]; item: CalendarItem | null; day: string; onClose: () => void; onSaved: () => void }) {
+  const item = props.item, navigate = useNavigate();
+  const [project, setProject] = useState<CalendarSource>({ id: props.projectId, name: props.projectName, workspaceId: props.workspaceId, client: props.client });
+  const { client, workspaceId } = project;
+  const [attachmentPaths, setAttachmentPaths] = useState(item?.attachmentPaths ?? []), [sessionIds, setSessionIds] = useState(item?.sessionIds ?? []);
+  const [uploading, setUploading] = useState(false);
   const ids = { title: useId(), description: useId(), day: useId(), source: useId(), timeZone: useId(), reason: useId(), reminder: useId(), assignee: useId(), status: useId(), reviewed: useId() };
   const [title, setTitle] = useState(item?.title ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
@@ -47,7 +55,7 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
   const [status, setStatus] = useState(item?.status ?? "active"), [verified, setVerified] = useState(item?.verified ?? false);
   const originalReminder = item ? item.reminders.length ? String(item.reminders[0]) : "none" : "1440";
   const [reminder, setReminder] = useState(originalReminder), [assignee, setAssignee] = useState(item?.assigneeUserId ?? UNASSIGNED);
-  const members = useTaskMembers({ client: props.client, workspaceId: props.workspaceId });
+  const members = useTaskMembers({ client, workspaceId });
   const assigneeItems = [{ value: UNASSIGNED, label: t("calendar.unassigned"), primary: t("calendar.unassigned"), detail: undefined }, ...taskMemberOptions(members.data ?? [])];
   if (assignee !== UNASSIGNED && !assigneeItems.some(option => option.value === assignee)) {
     assigneeItems.push({ value: assignee, label: t("calendar.assigned_member"), primary: t("calendar.assigned_member"), detail: undefined });
@@ -56,7 +64,7 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
   const advanced = Boolean(item && (item.start?.length !== 10 || /(?:RRULE|RDATE)[;:]/i.test(item.ical)));
   const dateChanged = Boolean(item && (day !== item.start?.slice(0, 10) || timeZone !== item.timeZone));
   const needsReason = item?.provenance.kind === "calculated" && dateChanged;
-  const busy = saving || deleting;
+  const busy = saving || deleting || uploading;
   const reminderItems = [
     { value: "none", label: t("calendar.reminder_none") }, { value: "0", label: t("calendar.at_start") },
     { value: "60", label: t("calendar.reminder_hour") }, { value: "1440", label: t("calendar.reminder_day") }, { value: "10080", label: t("calendar.reminder_week") },
@@ -69,13 +77,13 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
     setSaving(true);
     try {
       const reminders = reminder === "none" ? [] : [Number(reminder)];
-      const body = item ? { revision: item.revision, title: title.trim(), description, status, verified, assigneeUserId: assignee === UNASSIGNED ? null : assignee,
+      const body = item ? { attachmentPaths, sessionIds, revision: item.revision, title: title.trim(), description, status, verified, assigneeUserId: assignee === UNASSIGNED ? null : assignee,
         ...(day !== item.start?.slice(0, 10) ? { start: day, end: null } : {}), ...(timeZone !== item.timeZone ? { timeZone } : {}),
         ...(needsReason ? { reason: reason.trim() } : {}),
         ...(item.provenance.kind === "manual" && source !== originalSource ? { source } : {}),
         ...(reminder !== originalReminder ? { reminders } : {}) }
-        : { title: title.trim(), description, start: day, timeZone, kind: "deadline", source, assigneeUserId: assignee === UNASSIGNED ? null : assignee, reminders };
-      await props.client.calendarWrite(props.workspaceId, item ? `/${item.id}` : "", body, item ? "PATCH" : "POST");
+        : { attachmentPaths, sessionIds, title: title.trim(), description, start: day, timeZone, kind: "deadline", source, assigneeUserId: assignee === UNASSIGNED ? null : assignee, reminders };
+      await client.calendarWrite(workspaceId, item ? `/${item.id}` : "", body, item ? "PATCH" : "POST");
       toast.success(t(item ? "calendar.saved" : "calendar.created"));
       props.onSaved();
     } catch (error) { toast.error(calendarError(error)); } finally { setSaving(false); }
@@ -84,7 +92,7 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
     if (!item || busy) return;
     setDeleting(true);
     try {
-      await props.client.calendarWrite(props.workspaceId, `/${item.id}/delete`, { revision: item.revision });
+      await client.calendarWrite(workspaceId, `/${item.id}/delete`, { revision: item.revision });
       toast.success(t("calendar.deleted")); props.onSaved();
     } catch (error) { toast.error(calendarError(error)); } finally { setDeleting(false); }
   };
@@ -92,7 +100,15 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
     <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
       <form className="contents" onSubmit={event => { event.preventDefault(); void save(); }}>
         <DialogHeader><DialogTitle>{t(item ? "calendar.edit" : "calendar.add")}</DialogTitle><DialogDescription>{t("calendar.manual_hint")}</DialogDescription></DialogHeader>
-        <fieldset disabled={busy} className="flex min-w-0 flex-col gap-4 py-2">
+        <fieldset disabled={saving || deleting} className="flex min-w-0 flex-col gap-4 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+            {!item && props.projects?.length ? <Select value={project.id} items={props.projects.map(value => ({ value: value.id, label: value.name }))} disabled={busy} onValueChange={value => {
+              const next = props.projects?.find(entry => entry.id === value);
+              if (next) { setProject(next); setAttachmentPaths([]); setSessionIds([]); setAssignee(UNASSIGNED); }
+            }}><SelectTrigger aria-label={t("calendar.project")} className="min-w-0 flex-1"><SelectValue className="truncate" /></SelectTrigger><SelectContent className="max-w-96"><SelectGroup>{props.projects.map(value => <SelectItem key={value.id} value={value.id}><span className="truncate">{value.name}</span></SelectItem>)}</SelectGroup></SelectContent></Select>
+            : <Button type="button" variant="ghost" className="h-auto min-w-0 flex-1 justify-start px-0 text-xs font-normal text-muted-foreground" title={project.name} disabled={busy} onClick={() => { props.onClose(); navigate(workspaceProjectRoute(project.id)); }}><span className="truncate">{project.name}</span><ArrowUpRight className="size-3.5 shrink-0" /></Button>}
+          </div>
           <div className="flex flex-col gap-1.5"><Label htmlFor={ids.title}>{t("calendar.name")}</Label><Input id={ids.title} autoFocus required maxLength={1000} placeholder={t("calendar.title_placeholder")} value={title} onChange={event => setTitle(event.target.value)} /></div>
           <div className="flex flex-col gap-1.5"><Label htmlFor={ids.description}>{t("tasks.field_description")}</Label><Textarea id={ids.description} rows={3} maxLength={20000} placeholder={t("calendar.description_placeholder")} value={description} onChange={event => setDescription(event.target.value)} /></div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -104,6 +120,9 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
             <Select value={assignee} items={assigneeItems} onValueChange={value => setAssignee(value ?? UNASSIGNED)}><SelectTrigger id={ids.assignee} className="w-full"><AssigneeMark name={assignee === UNASSIGNED ? null : chosenAssignee?.primary ?? null} /><SelectValue /></SelectTrigger><SelectContent className="w-auto min-w-(--anchor-width) max-w-80"><SelectGroup>{assigneeItems.map(option => <SelectItem key={option.value} value={option.value}><AssigneeMark name={option.value === UNASSIGNED ? null : option.primary} /><OptionText primary={option.primary} detail={option.detail} /></SelectItem>)}</SelectGroup></SelectContent></Select>
           </div> : null}
           {item && <div className="grid items-center gap-4 sm:grid-cols-2"><div className="flex flex-col gap-1.5"><Label htmlFor={ids.status}>{t("calendar.status")}</Label><Select value={status} items={statusItems} onValueChange={value => { if (value === "active" || value === "completed" || value === "cancelled") setStatus(value); }}><SelectTrigger id={ids.status} className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{statusItems.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select></div><div className="flex items-center gap-2 sm:pt-5"><Checkbox id={ids.reviewed} checked={verified} onCheckedChange={setVerified} /><Label htmlFor={ids.reviewed}>{t("calendar.verified")}</Label></div></div>}
+          {item && <p className="-mt-2 text-xs leading-5 text-muted-foreground">{t("calendar.review_hint")}</p>}
+          <DeadlineLinks key={project.id} client={client} workspaceId={workspaceId} projectId={project.id} attachmentPaths={attachmentPaths} sessionIds={sessionIds} disabled={saving || deleting}
+            onAttachments={setAttachmentPaths} onSessions={setSessionIds} onBusy={setUploading} onClose={props.onClose} />
           <Collapsible className="border-t border-border/60 pt-1">
             <CollapsibleTrigger render={<Button type="button" variant="ghost" className="h-8 justify-start gap-2 px-0 text-xs font-normal text-muted-foreground" />}><ChevronRight className="size-3.5" />{t("calendar.more_details")}</CollapsibleTrigger>
             <CollapsibleContent className="space-y-4 pb-1 pt-3">

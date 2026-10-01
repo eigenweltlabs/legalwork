@@ -2639,6 +2639,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
+    calendarLinks: (workspaceId: string, search = "") => requestJson<{ projectName: string; sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/links?search=${encodeURIComponent(search)}`, { token, hostToken }),
     calendarItems: (workspaceId: string, includeDeleted = false) => requestJson<{ items: CalendarItem[]; conflicts: CalendarItem[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${includeDeleted ? "?deleted=include" : ""}`, { token, hostToken }),
     calendarItem: (workspaceId: string, itemId: string) => requestJson<{ item: CalendarItem }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/${encodeURIComponent(itemId)}`, { token, hostToken }),
     calendarWrite: (workspaceId: string, path: string, body: unknown, method = "POST") => requestJson<{ item?: CalendarItem; items?: CalendarItem[]; calculation?: DeadlineCalculation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${path}`, { token, hostToken, method, body }),

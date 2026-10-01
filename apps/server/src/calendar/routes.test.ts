@@ -7,12 +7,13 @@ test("calendar HTTP auth, receipt creation, aggregation, override history and re
   const root = await mkdtemp(join(tmpdir(), "calendar-http-")), script = join(root, "check.mjs");
   const serverSource = new URL("../server.ts", import.meta.url).href;
   await writeFile(script, `
-    import { mkdir } from "node:fs/promises";
+    import { mkdir, writeFile } from "node:fs/promises";
     import { join } from "node:path";
     import assert from "node:assert/strict";
     const { startServer } = await import(${JSON.stringify(serverSource)});
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "project");
     await mkdir(join(folder, ".git"), { recursive: true });
+    await writeFile(join(folder, "Order.pdf"), "Synthetic court order");
     const config = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"),
       approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
       workspaces: [{ id: "project", name: "Test", path: folder, preset: "starter", workspaceType: "local" }, { id: "other", name: "Other", path: folder, preset: "starter", workspaceType: "local" }],
@@ -30,9 +31,14 @@ test("calendar HTTP auth, receipt creation, aggregation, override history and re
       assert.equal((await call(path, "POST", { title: "Invalid", start: "2026-02-30" })).status, 400);
       const result = await call(path + "/calculate", "POST", { skill: "de-civil-deadlines", input: { rule: "de-zpo-period", region: "NW", triggerDate: "2026-01-31", duration: 1, unit: "months", source: "Synthetic court service record" } });
       assert.equal(result.status, 200); const receipt = (await result.json()).calculation;
-      const saved = await call(path, "POST", { title: "Appeal", start: receipt.deadlineDay, timeZone: receipt.timeZone, calculationId: receipt.id });
+      const saved = await call(path, "POST", { title: "Appeal", start: receipt.deadlineDay, timeZone: receipt.timeZone, calculationId: receipt.id, attachmentPaths: ["Order.pdf"] });
       assert.equal(saved.status, 200); const item = (await saved.json()).item;
       assert.equal(item.provenance.kind, "calculated");
+      assert.deepEqual(item.attachmentPaths, ["Order.pdf"]);
+      assert.deepEqual(item.sessionIds, []);
+      assert.equal(await (await call("/workspace/project/files/raw?path=Order.pdf")).text(), "Synthetic court order");
+      assert.equal((await call(path, "POST", { title: "Bad file", start: "2026-10-01", attachmentPaths: ["../outside.pdf"] })).status, 400);
+      assert.equal((await call(path, "POST", { title: "Missing file", start: "2026-10-01", attachmentPaths: ["missing.pdf"] })).status, 400);
       assert.equal((await call("/workspace/other/calendar/" + item.id)).status, 404);
       const all = await (await call("/calendar/occurrences?from=2026-03-01&to=2026-04-01")).json();
       assert.equal(all.occurrences.length, 1); assert.equal(all.occurrences[0].itemId, item.id);

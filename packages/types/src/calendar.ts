@@ -16,6 +16,13 @@ export const CalendarProvenanceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("imported"), source: z.string().max(4000).default("") }),
   z.object({ kind: z.literal("calculated"), calculation: DeadlineCalculationSchema }),
 ]);
+// Portable project-relative files only; attachments use the existing project file sync.
+export const CalendarAttachmentPathSchema = z.string().min(1).max(2000).refine(path =>
+  !/[\\:\x00-\x1f\x7f]/.test(path) && path.split("/").every(part => part.length > 0 && !part.startsWith(".")),
+  "Use a visible project-relative file path.");
+const attachmentPaths = z.array(CalendarAttachmentPathSchema).max(50);
+const sessionIds = z.array(z.string().min(1).max(255)).max(50);
+
 export const CalendarItemSchema = z.object({
   id: z.uuid(), uid: z.string().min(1).max(255), projectId: z.string().min(1),
   kind: z.enum(["event", "deadline", "journal", "freebusy"]),
@@ -23,6 +30,7 @@ export const CalendarItemSchema = z.object({
   start: CalendarValueSchema.nullable(), end: CalendarValueSchema.nullable(), timeZone: z.string(),
   status: z.enum(["active", "completed", "cancelled"]), verified: z.boolean(),
   assigneeUserId: z.string().nullable(), taskIds: z.array(z.string()).max(100),
+  attachmentPaths: attachmentPaths.default([]), sessionIds: sessionIds.default([]),
   reminders: z.array(z.number().int().min(0).max(525600)).max(20),
   provenance: CalendarProvenanceSchema, ical: z.string().max(2_000_000),
   revision: z.number().int().nonnegative(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
@@ -43,6 +51,7 @@ export const CalendarCreateSchema = z.strictObject({
   timeZone: z.string().min(1).max(100).default("Europe/Berlin"),
   source: z.string().max(4000).default(""), reason: z.string().max(4000).default(""),
   assigneeUserId: z.string().nullable().default(null), taskIds: z.array(z.string()).max(100).default([]),
+  attachmentPaths: attachmentPaths.default([]), sessionIds: sessionIds.default([]),
   reminders: z.array(z.number().int().min(0).max(525600)).max(20).default([1440]),
 });
 export const CalendarPatchSchema = z.strictObject({
@@ -53,6 +62,7 @@ export const CalendarPatchSchema = z.strictObject({
   source: CalendarCreateSchema.shape.source.unwrap().optional(), reason: CalendarCreateSchema.shape.reason.unwrap().optional(),
   assigneeUserId: CalendarCreateSchema.shape.assigneeUserId.unwrap().optional(),
   taskIds: CalendarCreateSchema.shape.taskIds.unwrap().optional(), reminders: CalendarCreateSchema.shape.reminders.unwrap().optional(),
+  attachmentPaths: attachmentPaths.optional(), sessionIds: sessionIds.optional(),
   revision: z.number().int().nonnegative(), status: z.enum(["active", "completed", "cancelled"]).optional(), verified: z.boolean().optional(),
 });
 export const CalendarSyncDocumentSchema = z.object({

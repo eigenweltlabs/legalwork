@@ -3,7 +3,7 @@ import type { CalendarOccurrence } from "@legalwork/types/calendar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
-import { calendarKindLabel, isCompleted, occurrenceTime } from "./calendar-format";
+import { deadlineReviewLabel, calendarKindLabel, isCompleted, occurrenceTime } from "./calendar-format";
 
 export function CalendarEntry({ item, compact, showProject, onOpen }: {
   item: CalendarOccurrence; compact?: boolean; showProject?: boolean; onOpen: () => void;
@@ -18,7 +18,7 @@ export function CalendarEntry({ item, compact, showProject, onOpen }: {
         {showProject && <span className="truncate">{item.projectName}</span>}
         {!item.allDay && <span>{occurrenceTime(item)}</span>}
         {item.recurring && <Repeat2 className="size-3" aria-label={t("calendar.recurring")} />}
-        {item.kind === "deadline" && !item.verified && <span>{t("calendar.unverified")}</span>}
+        {item.kind === "deadline" && !item.verified && <span>{deadlineReviewLabel(item)}</span>}
         {isCompleted(item) && <CircleCheck className="size-3" aria-label={t("calendar.completed")} />}
       </span>}
     </span>

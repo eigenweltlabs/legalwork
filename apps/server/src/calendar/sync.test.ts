@@ -24,7 +24,7 @@ test("calendar HTTP sync survives offline edits, maps project IDs, resolves conc
     const body = z.object({ items: z.array(z.object({ data: CalendarItemSchema, baseRevision: z.number() })) }).parse(await request.json());
     const items = [], conflicts = [];
     for (const entry of body.items) {
-      expect(entry.data.projectId).toBe(canonical); expect(entry.data.taskIds).toEqual([]); writes.push(entry.data);
+      expect(entry.data.projectId).toBe(canonical); expect(entry.data.taskIds).toEqual([]); expect(entry.data.sessionIds).toEqual([]); writes.push(entry.data);
       const current = remote.get(entry.data.id);
       if ((current?.revision ?? 0) !== entry.baseRevision) { if (current) conflicts.push(current); continue; }
       const next = { ...entry.data, revision: (current?.revision ?? 0) + 1 }; remote.set(next.id, next); items.push(next);
@@ -35,12 +35,15 @@ test("calendar HTTP sync survives offline edits, maps project IDs, resolves conc
   try {
     const alice = config("alice"), bob = config("bob"), a = await calendarStore(alice), b = await calendarStore(bob);
     const aliceLink = link("alice-local", "owner"), bobLink = link("bob-local", "member");
-    const original = a.create(aliceLink.workspaceId, { title: "Deadline", start: "2026-09-30", taskIds: [randomUUID()] });
+    const original = a.create(aliceLink.workspaceId, { title: "Deadline", start: "2026-09-30", sessionIds: ["ses_alice"], attachmentPaths: ["Order.pdf"], taskIds: [randomUUID()] });
     await expect(syncProjectCalendar(alice, client, aliceLink)).rejects.toThrow();
     expect(a.pending(aliceLink.workspaceId)).toHaveLength(1);
     offline = false; await syncProjectCalendar(alice, client, aliceLink); await syncProjectCalendar(bob, client, bobLink);
     expect(a.pending(aliceLink.workspaceId)).toHaveLength(0);
     expect(b.get(bobLink.workspaceId, original.id).projectId).toBe(bobLink.workspaceId);
+    expect(a.get(aliceLink.workspaceId, original.id).sessionIds).toEqual(["ses_alice"]);
+    expect(b.get(bobLink.workspaceId, original.id).sessionIds).toEqual([]);
+    expect(b.get(bobLink.workspaceId, original.id).attachmentPaths).toEqual(["Order.pdf"]);
     const beforeA = a.get(aliceLink.workspaceId, original.id), beforeB = b.get(bobLink.workspaceId, original.id);
     a.patch(aliceLink.workspaceId, original.id, { revision: beforeA.revision, start: "2026-10-01" });
     const mine = b.patch(bobLink.workspaceId, original.id, { revision: beforeB.revision, start: "2026-10-02" });

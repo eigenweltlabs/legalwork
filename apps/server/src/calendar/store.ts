@@ -9,7 +9,7 @@ import { ApiError } from "../errors.js";
 import { openSqlite, runtimeDbPath, type SqliteHandle } from "../runtime-db.js";
 import type { ServerConfig } from "../types.js";
 import { zonedInstant, zoneValid } from "./dates.js";
-import { emptyCalendar, itemCalendar, parseCalendar, serializeCalendar, updateCalendar } from "./ical.js";
+import { emptyCalendar, itemCalendar, parseCalendar, serializeCalendar, updateCalendar, calendarAttachmentPaths } from "./ical.js";
 import type { DeadlineResult } from "./deadline-rules.js";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -119,6 +119,7 @@ export class CalendarStore {
         title: String(master.getFirstPropertyValue("summary") ?? "Calendar entry"), description: String(master.getFirstPropertyValue("description") ?? ""),
         start: start instanceof ICAL.Time ? start.toString() : null, end: end instanceof ICAL.Time ? end.toString() : null,
         timeZone: zone, status: localStatus === "cancelled" || status === "CANCELLED" ? "cancelled" : localStatus === "completed" || status === "COMPLETED" ? "completed" : "active", verified: false,
+        attachmentPaths: (previous?.attachmentPaths ?? []).filter(path => calendarAttachmentPaths(master).includes(path)), sessionIds: previous?.sessionIds ?? [],
         assigneeUserId: previous?.assigneeUserId ?? null, taskIds: previous?.taskIds ?? [], reminders: [], provenance: { kind: "imported", source },
         ical: serializeCalendar(calendar), revision: (previous?.revision ?? 0) + 1, createdAt: previous?.createdAt ?? now, updatedAt: now, deletedAt: null };
       return { item, expected: previous?.revision };
@@ -138,8 +139,9 @@ export class CalendarStore {
       .map(row => ({ data: CalendarItemSchema.parse(JSON.parse(String(row.data))), baseRevision: Number(row.remote_revision) }));
   }
   receive(projectId: string, remote: CalendarItem, sentRevision?: number) {
-    const item = { ...remote, projectId }, row = this.db.get("SELECT data, dirty, remote_revision FROM calendar_items WHERE id = ?", [item.id]);
+    const row = this.db.get("SELECT data, dirty, remote_revision FROM calendar_items WHERE id = ?", [remote.id]);
     const current = row ? CalendarItemSchema.parse(JSON.parse(String(row.data))) : null;
+    const item = { ...remote, projectId, sessionIds: current?.sessionIds ?? [] };
     if (current && row?.dirty === 1 && current.revision !== sentRevision) {
       if (item.revision > Number(row.remote_revision)) this.db.run("INSERT OR REPLACE INTO calendar_conflicts (item_id, remote) VALUES (?, ?)", [item.id, JSON.stringify(item)]);
       return;

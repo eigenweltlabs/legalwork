@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CalendarOccurrence } from "@legalwork/types/calendar";
-import { calendarDay, calendarRange, moveCalendar, occurrenceDay, occursOnDay } from "../src/react-app/domains/calendar/calendar-format";
+import { deadlineReviewLabel, calendarDay, calendarRange, moveCalendar, occurrenceDay, occursOnDay } from "../src/react-app/domains/calendar/calendar-format";
 
 function event(overrides: Partial<CalendarOccurrence> = {}): CalendarOccurrence {
   return { id: "entry", itemId: "entry", uid: "entry", projectId: "project", projectName: "Project", kind: "event", title: "Meeting", start: "2026-10-01", end: null, allDay: true, timeZone: "Europe/Berlin", status: "active", assigneeUserId: null, provenance: null, verified: true, recurring: false, ...overrides };
@@ -48,4 +48,11 @@ describe("calendar day placement", () => {
   test("zero-length events remain visible on their start date", () => {
     expect(occursOnDay(event({ end: "2026-10-01" }), "2026-10-01")).toBe(true);
   });
+});
+
+test("manual entry is distinguished from an unreviewed calculation or override", () => {
+  expect(deadlineReviewLabel(event({ verified: false, provenance: { kind: "manual", source: "", reason: "" } }))).toBe("Entered manually");
+  expect(deadlineReviewLabel(event({ verified: false, provenance: { kind: "manual", source: "", reason: "Changed calculated date" } }))).toBe("Needs review");
+  expect(deadlineReviewLabel(event({ verified: false, provenance: { kind: "imported", source: "calendar.ics" } }))).toBe("Needs review");
+  expect(deadlineReviewLabel(event({ verified: true }))).toBe("Deadline reviewed");
 });

@@ -179,7 +179,8 @@ function roundStopper(error: unknown): boolean {
  * folder. A document also goes with the reviews when they are shared and one
  * of them reviews it (`reviewed`: file keys, see reviewDocumentKeys).
  */
-export function scopeIncludes(scope: ProjectSyncScope, path: string, reviewed?: Set<string>): boolean {
+export function scopeIncludes(scope: ProjectSyncScope, path: string, reviewed?: Set<string>, attached?: Set<string>): boolean {
+  if (scope.calendar !== false && attached?.has(fileKey(path))) return true;
   const top = path.split("/")[0].toLowerCase();
   if (top === "notes") return scope.notes;
   if (top === "recordings") return scope.recordings;
@@ -493,6 +494,7 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
 async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
   const base = store.fileBase(link.projectId).entries();
   const reviewed = await reviewedDocuments(link.settings.scope, root);
+  const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
   const seen = new Set<string>();
   let changed = 0;
   const folders = [root];
@@ -504,7 +506,7 @@ async function localChanges(config: ServerConfig, store: ProjectSyncStore, link:
       if (item.isDirectory()) folders.push(abs);
       if (!item.isFile()) continue;
       const path = abs.slice(root.length + 1).split(sep).join("/").normalize("NFC");
-      if (!scopeIncludes(link.settings.scope, path, reviewed)) continue;
+      if (!scopeIncludes(link.settings.scope, path, reviewed, attached)) continue;
       const key = fileKey(path);
       seen.add(key);
       const info = await stat(abs);
@@ -660,7 +662,7 @@ async function syncDocuments(
   const workspace = workspaceOf(config, link.workspaceId);
   if (!workspace || !(await folderAvailable(workspace.path))) return;
   const scope = link.settings.scope;
-  if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews) {
+  if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews && scope.calendar === false) {
     store.updateLink(link.workspaceId, { lastSyncAt: Date.now(), lastError: null, report: null });
     return;
   }
@@ -683,11 +685,12 @@ async function syncDocuments(
         })
       : null;
     const reviewed = await reviewedDocuments(scope, workspace.path);
+    const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
     const files = await syncProjectFiles({
       root: resolve(workspace.path),
       remote,
       base: store.fileBase(link.projectId),
-      includes: (path) => scopeIncludes(scope, path, reviewed),
+      includes: (path) => scopeIncludes(scope, path, reviewed, attached),
       reconcile,
       allowDeletions: link.allowDeletions,
       label,
@@ -768,10 +771,12 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     };
     for (const link of store.links(orgId)) {
       if (link.state !== "active" || !link.confirmed) continue;
-      await syncDocuments(config, platform, client, store, link, runner);
       if (platform === REAL_PLATFORM) {
         try { await syncProjectCalendar(config, client, link); }
         catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; /* An older platform may not have the calendar API yet. Keep the outbox and continue document sync. */ }
+      }
+      await syncDocuments(config, platform, client, store, link, runner);
+      if (platform === REAL_PLATFORM) {
         const pendingCalendar = (await calendarStore(config)).pending(link.workspaceId).length;
         const report = store.linkByWorkspace(link.workspaceId)?.report;
         if (pendingCalendar > 0) store.updateLink(link.workspaceId, { report: { pending: (report?.pending ?? 0) + pendingCalendar, skipped: report?.skipped ?? [], heldDeletions: report?.heldDeletions ?? 0 } });

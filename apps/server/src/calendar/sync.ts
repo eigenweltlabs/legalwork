@@ -13,7 +13,7 @@ export async function syncProjectCalendar(config: ServerConfig, client: IntakeCl
   for (let offset = 0; offset < pending.length; offset += 100) {
     const batch = pending.slice(offset, offset + 100);
     const response = z.object({ items: z.array(CalendarItemSchema), conflicts: z.array(CalendarItemSchema) }).parse(await intakeRequest(client, "POST", path, {
-      items: batch.map(entry => ({ baseRevision: entry.baseRevision, data: { ...entry.data, projectId: link.projectId, taskIds: link.settings.scope.tasks ? entry.data.taskIds : [] } })),
+      items: batch.map(entry => ({ baseRevision: entry.baseRevision, data: { ...entry.data, projectId: link.projectId, sessionIds: [], taskIds: link.settings.scope.tasks ? entry.data.taskIds : [] } })),
     }));
     for (const item of response.items) {
       const sent = batch.find(entry => entry.data.id === item.id);

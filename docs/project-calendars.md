@@ -54,3 +54,13 @@ pnpm --dir apps/desktop electron
 ```
 
 The standard Electron dev command rebuilds native modules and macOS helpers. On this machine the unaccepted Xcode license blocks that rebuild; the current development launch reuses compatible existing native binaries and does not accept the license.
+
+## Deadline context and attachments
+
+Every deadline belongs to its project calendar. The aggregate calendar can create a deadline in a selected project; the editor links back to that project. `attachmentPaths` names up to 50 visible project-relative files. Users can upload files (up to 20 MB each), choose a project file, or drop a project file into the editor. Removing an attachment removes the link, not the project file. The API validates newly linked files, including their real paths, and rejects traversal and escaping symbolic links.
+
+Attachments accompany calendar sharing even when general document sharing is disabled. The existing project storage, membership checks and file synchronization carry only the referenced documents. iCalendar represents these references as URI-valued `ATTACH:legalwork-file:…` properties and retains other imported attachments. Imported attachment URIs do not automatically link files from the receiving project; linking a local source requires explicit selection.
+
+`sessionIds` links sessions in the same project. The editor opens linked sessions, and agent-created deadlines automatically link the creating session. As with Tasks, session links remain on the originating computer and are stripped from cloud synchronization; syncing revisions or accepting a remote conflict preserves local links.
+
+An unreviewed manual date is labelled “Entered manually”; an unreviewed calculation, imported date or calculated-date override shows “Needs review”. The editor exposes explicit review confirmation; changing the date or source clears it. This display distinction does not automatically verify user-entered dates.

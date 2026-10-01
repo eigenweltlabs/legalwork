@@ -48,7 +48,7 @@ export async function calendarExport(config: ServerConfig, workspace: WorkspaceI
     if (!task.dueDate || task.status === "cancelled") continue;
     const item: CalendarItem = { id: task.id, uid: `task-${task.id}@legalwork`, projectId: workspace.id, title: task.title, description: task.description,
       kind: "deadline", start: task.dueDate, end: null, timeZone: "Europe/Berlin", status: task.status === "done" ? "completed" : "active", verified: true,
-      assigneeUserId: task.assigneeUserId, taskIds: [], reminders: [], provenance: { kind: "manual", source: "Task due date", reason: "" },
+      assigneeUserId: task.assigneeUserId, taskIds: [], attachmentPaths: [], sessionIds: [], reminders: [], provenance: { kind: "manual", source: "Task due date", reason: "" },
       revision: 0, createdAt: task.createdAt, updatedAt: task.updatedAt, deletedAt: null, ical: "" };
     item.ical = itemCalendar(item); items.push(item);
   }

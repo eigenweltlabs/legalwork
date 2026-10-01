@@ -15,12 +15,13 @@ import { cn } from "@/lib/utils";
 import { useTaskMembers } from "../tasks/tasks-queries";
 import { taskMemberOptions } from "../tasks/task-format";
 import { calendarDay, calendarError, calendarKindLabel, calendarRange, formatCalendarDay, isActive, isCompleted, moveCalendar, occurrenceDay, occursOnDay, shiftDay, type CalendarViewMode } from "./calendar-format";
-import { useCalendarOccurrences, useCalendarRecords, useCalendarRefresh, type CalendarContext } from "./calendar-queries";
+import { useCalendarOccurrences, useCalendarRecords, useCalendarRefresh, type CalendarContext, type CalendarSource } from "./calendar-queries";
 import { CalendarEntry } from "./calendar-entries";
 import { CalendarConflict, CalendarTrash } from "./calendar-management";
 import { DeadlineDialog } from "./deadline-dialog";
 
 type CalendarViewProps = CalendarContext & {
+  projectId?: string; projectName?: string; projects?: CalendarSource[];
   onOpenTask?: (id: string, projectId: string | null) => void;
 };
 
@@ -29,7 +30,7 @@ export function CalendarView(props: CalendarViewProps) {
   const [view, setView] = useState<CalendarViewMode>("week");
   const [kind, setKind] = useState("all"), [status, setStatus] = useState("active"), [project, setProject] = useState("all"), [assignee, setAssignee] = useState("all");
   const [trashOpen, setTrashOpen] = useState(false);
-  const [editing, setEditing] = useState<{ item: CalendarItem | null; day: string; client: LegalworkServerClient; workspaceId: string } | null>(null);
+  const [editing, setEditing] = useState<{ item: CalendarItem | null; day: string; client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string } | null>(null);
   const [opening, setOpening] = useState(false);
   const range = calendarRange(anchor, view);
   const query = useCalendarOccurrences(props, range.from, range.to), records = useCalendarRecords(props), refresh = useCalendarRefresh();
@@ -40,14 +41,19 @@ export function CalendarView(props: CalendarViewProps) {
   const items = all.filter(item => (kind === "all" || kind === item.kind) && (project === "all" || project === (item.projectId ?? "inbox")) &&
     (assignee === "all" || assignee === (item.assigneeUserId ?? "unassigned")) && (status === "all" || (status === "active" ? isActive(item) : status === "completed" ? isCompleted(item) : item.status === "cancelled")));
   const filtered = kind !== "all" || status !== "active" || project !== "all" || assignee !== "all";
-  const create = (day = calendarDay(new Date())) => { if (props.client && props.workspaceId) setEditing({ item: null, day, client: props.client, workspaceId: props.workspaceId }); };
+  const create = (day = calendarDay(new Date())) => {
+    const target = props.workspaceId && props.client ? { client: props.client, workspaceId: props.workspaceId, projectId: props.projectId ?? props.workspaceId, projectName: props.projectName ?? "" }
+      : (() => { const source = props.projects?.find(value => value.id === project) ?? props.projects?.[0]; return source ? { ...source, projectId: source.id, projectName: source.name } : null; })();
+    if (target) setEditing({ ...target, item: null, day });
+  };
+  const canCreate = Boolean(props.workspaceId || props.projects?.length);
   const open = async (item: CalendarOccurrence) => {
     if (item.kind === "task") { props.onOpenTask?.(item.itemId, item.projectId); return; }
     const source = props.workspaceId ? undefined : props.remoteSources?.find(source => source.id === item.projectId);
     const client = source?.client ?? props.client, workspaceId = source?.workspaceId ?? props.workspaceId ?? item.projectId;
     if (!client || !workspaceId || opening) return;
     setOpening(true);
-    try { setEditing({ item: (await client.calendarItem(workspaceId, item.itemId)).item, day: occurrenceDay(item), client, workspaceId }); }
+    try { setEditing({ item: (await client.calendarItem(workspaceId, item.itemId)).item, day: occurrenceDay(item), client, workspaceId, projectId: props.projectId ?? source?.id ?? workspaceId, projectName: item.projectName }); }
     catch (error) { toast.error(calendarError(error)); } finally { setOpening(false); }
   };
   const title = view === "week"
@@ -62,7 +68,7 @@ export function CalendarView(props: CalendarViewProps) {
   return <div className="@container/calendar h-full min-h-0 overflow-y-auto bg-background">
     <div className="lw-page-content lw-page-top space-y-5 pb-8">
       <SectionHeading size="page" title={t("calendar.title")} description={!props.workspaceId ? t("calendar.all_projects_short") : undefined} action={<>
-        {props.workspaceId && <Button disabled={!props.client} onClick={() => create()}><Plus />{t("calendar.add")}</Button>}
+        {canCreate && <Button disabled={!props.client} onClick={() => create()}><Plus />{t("calendar.add")}</Button>}
         <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={query.isFetching} onClick={refresh} />}><RefreshCw className={cn(query.isFetching && "animate-spin")} /></TooltipTrigger><TooltipContent>{t("common.refresh")}</TooltipContent></Tooltip>
         {props.workspaceId && <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("calendar.more_actions")} />}><MoreHorizontal /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={records.isPending || records.isError} onClick={() => setTrashOpen(true)}><Trash2 />{t("calendar.trash")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}
       </>} />
@@ -95,13 +101,13 @@ export function CalendarView(props: CalendarViewProps) {
         {query.data?.unavailable.length ? <p role="status" className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">{t("calendar.unavailable_projects", { projects: query.data.unavailable.join(", ") })}</p> : null}
         {query.isError || records.isError ? <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-destructive/20 p-4 text-sm"><span>{calendarError(query.error ?? records.error)}</span><Button size="sm" variant="outline" onClick={refresh}>{t("workspace_files.try_again")}</Button></div> : null}
         {query.isPending ? <div role="status" className="flex min-h-72 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("calendar.loading")}</div> : <>
-          <TabsContent value="week"><CalendarGrid view="week" anchor={anchor} start={range.start} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={props.workspaceId ? create : undefined} /></TabsContent>
-          <TabsContent value="month"><CalendarGrid view="month" anchor={anchor} start={range.start} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={props.workspaceId ? create : undefined} /></TabsContent>
+          <TabsContent value="week"><CalendarGrid view="week" anchor={anchor} start={range.start} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>
+          <TabsContent value="month"><CalendarGrid view="month" anchor={anchor} start={range.start} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>
           <TabsContent value="agenda"><CalendarAgenda from={range.from} items={items} showProjects={!props.workspaceId} onOpen={item => void open(item)} /></TabsContent>
         </>}
       </Tabs>
       {trashOpen && props.client && props.workspaceId && <CalendarTrash client={props.client} workspaceId={props.workspaceId} items={records.data?.items.filter(item => item.deletedAt) ?? []} onClose={() => setTrashOpen(false)} onChanged={refresh} />}
-      {editing && <DeadlineDialog key={editing.item?.id ?? editing.day} client={editing.client} workspaceId={editing.workspaceId} item={editing.item} day={editing.day} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
+      {editing && <DeadlineDialog key={editing.item?.id ?? editing.day} client={editing.client} workspaceId={editing.workspaceId} projectId={editing.projectId} projectName={editing.projectName} projects={props.projects} item={editing.item} day={editing.day} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
     </div>
   </div>;
 }
