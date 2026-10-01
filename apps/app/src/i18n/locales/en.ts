@@ -4,6 +4,20 @@
  */
 
 export default {
+  "home.nav_label": "Home",
+  "home.placeholder": "Work with LegalWork",
+  "home.prompt_label": "Message LegalWork",
+  "home.start_chat": "Start a new chat",
+  "home.choose_project": "Choose project",
+  "home.new_project": "New project",
+  "home.new_project_hint": "A new project will be created when you send.",
+  "home.existing_project_hint": "Files will be copied into this project.",
+  "home.files": "Files",
+  "home.add_files": "Add files",
+  "home.attached_files": "Attached files",
+  "home.remove_file": "Remove {name}",
+  "home.send": "Send message",
+  "home.send_failed": "Could not start the chat. Please try again.",
   "projects.setup.label": "Set up from existing files",
   "projects.setup.hint": "These folders already contain project data. Start a session to name the project, fill metadata, and add relevant tasks and a few useful notes.",
   "projects.setup.choose_first": "Choose a local or remote folder that already contains project data to start a setup session.",

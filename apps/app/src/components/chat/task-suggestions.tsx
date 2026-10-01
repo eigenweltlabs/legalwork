@@ -64,10 +64,10 @@ export function TaskSuggestionCards({ className, providerConnectedCount, onConne
       <div className="grid min-w-0 grid-cols-1 gap-3 @lg:grid-cols-3">
         {suggestions().map((suggestion) => (
           <motion.div key={suggestion.kind} variants={entrance} className="min-w-0">
-            <Button variant="ghost" className="lw-task-card" onClick={() => onSelect(suggestion.prompt)}>
+            <Button variant="ghost" className="lw-task-card" data-task-kind={suggestion.kind} onClick={() => onSelect(suggestion.prompt)}>
               <span className="lw-task-card-art">
                 <TaskIllustration kind={suggestion.kind} />
-                <ArrowUpRight className="lw-task-card-arrow" size={15} aria-hidden="true" />
+                <span className="lw-task-card-action" aria-hidden="true"><ArrowUpRight className="lw-task-card-arrow" size={14} /></span>
               </span>
               <span className="lw-task-card-copy">
                 <span className="lw-task-card-title">{suggestion.title}</span>

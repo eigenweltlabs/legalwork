@@ -512,9 +512,9 @@ export function LegalworkRouteControlActions() {
     {
       id: "route.session",
       label: t("control.open_sessions"),
-      description: "Navigate to the main session view.",
+      description: "Navigate to Home to start a chat.",
       sideEffect: "navigation",
-      execute: () => navigate("/session"),
+      execute: () => navigate("/home"),
     },
     {
       id: "route.settings.general",

@@ -110,6 +110,8 @@ import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
+import { AppHome } from "@/react-app/domains/session/home/app-home";
+import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -192,7 +194,7 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { legacySessionRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
+import { homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
@@ -857,8 +859,9 @@ export function SessionRoute() {
     (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
+      navigate(homeRoute(homeProjectIdFromSearch(location.search) || selectedWorkspaceId), { replace: true });
     },
-    [setOnboardingStage],
+    [location.search, navigate, selectedWorkspaceId, setOnboardingStage],
   );
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
@@ -1654,7 +1657,7 @@ export function SessionRoute() {
       if (selectedWorkspaceId === workspaceId) {
         setLegacySelectedWorkspaceId("");
         writeActiveWorkspaceId(null);
-        navigate(legacySessionRoute());
+        navigate("/home");
       }
       forgetWorkspaceMemory(workspaceId);
       sessionManagementStore.getState().forgetWorkspace(workspaceId);
@@ -1796,9 +1799,11 @@ export function SessionRoute() {
     terminalOpen,
     setTerminalOpen,
   } = useShellShortcuts({
-    canCreateChat,
-    workspaceId: selectedWorkspaceId,
-    onCreateChat: handleCreateChatInWorkspace,
+    onCreateChat: () => {
+      const openProjectId = routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null);
+      if (openProjectId) void handleCreateChatInWorkspace(openProjectId);
+      else navigate("/home");
+    },
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
   });
@@ -1820,8 +1825,8 @@ export function SessionRoute() {
   }, [navigateToWorkspaceSession, selectedWorkspaceId, sessionsByWorkspaceId]);
 
   const navigateToSessionRootForControl = useCallback(() => {
-    navigateToWorkspaceSession(selectedWorkspaceId);
-  }, [navigateToWorkspaceSession, selectedWorkspaceId]);
+    navigate("/home");
+  }, [navigate]);
 
   const openModelPickerForControl = useCallback(() => {
     modelPicker.setOpen(true);
@@ -2130,6 +2135,98 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
+  const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
+  const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
+  const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
+  const homeSending = useRef(false);
+  const pendingHomeMessage = useRef<PendingHomeMessage & { workspaceId: string } | null>(null);
+  useEffect(() => {
+    if (!homePage) return;
+    setHomeProjectId(homeEntryProjectId);
+    pendingHomeMessage.current = null;
+  }, [homePage, homeEntryProjectId]);
+
+  const handleHomeSend = async (text: string, files: File[]) => {
+    if (homeSending.current) return;
+    if (!client) throw new Error(t("session_route.create_server_unavailable"));
+    const model = local.prefs.defaultModel;
+    if (!model) throw new Error(t("session_route.no_model"));
+    if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+    homeSending.current = true;
+    try {
+      let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
+      if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
+      if (!workspace) {
+        const name = text.trim().split(/\r?\n/)[0].slice(0, 80) || files[0]?.name || t("home.new_project");
+        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", projectFields: newProjectFields() });
+        const createdId = resolveWorkspaceListSelectedId(list);
+        const created = list.workspaces.find((item) => item.id === createdId);
+        if (!created) throw new Error(t("session_route.create_server_unavailable"));
+        const createdWorkspace = mapDesktopWorkspace(created);
+        workspace = createdWorkspace;
+        // Expose the saved project immediately, even if copying a file fails.
+        setHomeProjectId(created.id);
+        setWorkspaces((current) => [createdWorkspace, ...current.filter((item) => item.id !== created.id)]);
+        captureAnalyticsEvent("workspace_created", { source: "home", surface: analyticsSurface() });
+      }
+      const targetWorkspace = workspace;
+      const endpoint = resolveWorkspaceEndpoint(targetWorkspace, { baseUrl, token });
+      if (!endpoint?.token) throw new Error(t("session_route.create_server_unavailable"));
+      await endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true });
+      if (isDesktopRuntime() && !endpoint.isRemote) {
+        await workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
+        await workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
+      }
+      const workspaceClient = createClient(endpoint.opencodeBaseUrl, targetWorkspace.path || undefined, { token: endpoint.token, mode: "legalwork" });
+      let pending = pendingHomeMessage.current;
+      if (!pending || pending.workspaceId !== targetWorkspace.id) {
+        pending = { workspaceId: targetWorkspace.id, sessionId: null, uploads: new Map() };
+        pendingHomeMessage.current = pending;
+      }
+      const sessionId = await submitHomeMessage({
+        workspaceId: endpoint.workspaceId,
+        text,
+        files,
+        pending,
+        client: endpoint.client,
+        createSession: async () => {
+          const session = unwrap(await workspaceClient.session.create({ directory: targetWorkspace.path || undefined }));
+          rememberPendingCreatedSession(targetWorkspace.id, session.id);
+          setSessionsByWorkspaceId((current) => {
+            const next = { ...current, [targetWorkspace.id]: [session, ...(current[targetWorkspace.id] ?? [])] };
+            sessionsByWorkspaceIdRef.current = next;
+            return next;
+          });
+          captureAnalyticsEvent("task_created", { source: "home", surface: analyticsSurface() });
+          return session;
+        },
+        sendPrompt: async (sessionId, prompt, fileContext) => {
+          const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
+          const system = [environmentContext, fileContext].filter(Boolean).join("\n\n");
+          const result = await workspaceClient.session.promptAsync({
+            sessionID: sessionId,
+            parts: [{ type: "text", text: prompt }],
+            model,
+            agent: selectedAgent ?? undefined,
+            ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+            ...(system ? { system } : {}),
+          });
+          if (result.error) throw new Error(serializeSDKError(result.error));
+          markTaskRunStart(sessionId);
+          captureAnalyticsEvent("task_message_sent", { session_id: sessionId, provider_id: model.providerID, model_id: model.modelID, surface: analyticsSurface() });
+        },
+      });
+      pendingHomeMessage.current = null;
+      setLegacySelectedWorkspaceId(targetWorkspace.id);
+      writeActiveWorkspaceId(targetWorkspace.id);
+      writeLastSessionFor(targetWorkspace.id, sessionId);
+      navigateToWorkspaceSession(targetWorkspace.id, sessionId);
+      void refreshRouteState();
+    } finally {
+      homeSending.current = false;
+    }
+  };
+
   // Main pages can also be reached from Settings or browser history.
   // Keep the selected pane in step with the route after workspace hydration.
   useEffect(() => {
@@ -2261,6 +2358,7 @@ export function SessionRoute() {
     </Dialog>
     <SessionPage
       detached={detached}
+      homePage={homePage}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
       selectedWorkspaceDisplay={selectedWorkspace ? {
@@ -2380,7 +2478,30 @@ export function SessionRoute() {
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
-        showWorkflows ? (
+        homePage ? (
+          <AppHome
+            workspaces={sidebarWorkspaces}
+            projectId={homeProjectId}
+            onProjectChange={(id) => {
+              if (id === homeProjectId) return;
+              setHomeProjectId(id);
+              pendingHomeMessage.current = null;
+              if (id) setLegacySelectedWorkspaceId(id);
+              if (location.pathname === "/home") navigate(homeRoute(id), { replace: true });
+            }}
+            onSend={handleHomeSend}
+            disabled={effectiveLoading || createWorkspaceBusy || !client}
+            providerConnectedCount={usableProviderCount}
+            onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+            selectedModel={local.prefs.defaultModel}
+            modelLocked={soloEigenweltModel}
+            onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
+            modelVariant={modelVariantValue}
+            modelVariantLabel={modelVariantLabel}
+            modelBehaviorOptions={modelBehaviorOptions}
+            onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
+          />
+        ) : showWorkflows ? (
           // onClose drops the pane so actions that navigate to a session (e.g.
           // opening the workflow-generation session) always reveal the chat —
           // even when the target session is already the selected one and the
@@ -2447,7 +2568,7 @@ export function SessionRoute() {
         onOpenSearch: () => setCommandPaletteOpen(true),
         onShowChats: () => {
           setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
-          navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
+          navigate("/home");
         },
         onShowProjects: () => {
           setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
@@ -2610,7 +2731,8 @@ export function SessionRoute() {
               await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
               await loadWorkspaceSessionsInBackground([workspace]);
               if (selectedSessionId === sessionId) {
-                navigateToWorkspaceSession(selectedWorkspaceId);
+                writeLastSessionFor(selectedWorkspaceId, null);
+                navigate("/home");
               }
               await refreshRouteState();
             }

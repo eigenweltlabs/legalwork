@@ -14,6 +14,20 @@
  */
 
 const de = {
+  "home.nav_label": "Startseite",
+  "home.placeholder": "Arbeiten Sie mit LegalWork",
+  "home.prompt_label": "Nachricht an LegalWork",
+  "home.start_chat": "Neuen Chat starten",
+  "home.choose_project": "Projekt auswählen",
+  "home.new_project": "Neues Projekt",
+  "home.new_project_hint": "Beim Senden wird ein neues Projekt erstellt.",
+  "home.existing_project_hint": "Dateien werden in dieses Projekt kopiert.",
+  "home.files": "Dateien",
+  "home.add_files": "Dateien hinzufügen",
+  "home.attached_files": "Angehängte Dateien",
+  "home.remove_file": "{name} entfernen",
+  "home.send": "Nachricht senden",
+  "home.send_failed": "Der Chat konnte nicht gestartet werden. Bitte versuchen Sie es erneut.",
   "projects.setup.label": "Aus vorhandenen Dateien einrichten",
   "projects.setup.hint": "Diese Ordner enthalten bereits Projektdaten. Eine Session benennt das Projekt, füllt Metadaten aus und ergänzt relevante Aufgaben und wenige hilfreiche Notizen.",
   "projects.setup.choose_first": "Wählen Sie einen lokalen oder Remote-Ordner mit vorhandenen Projektdaten, um eine Einrichtungssession zu starten.",

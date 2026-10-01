@@ -33,7 +33,7 @@ import {
   Users,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
@@ -122,7 +122,6 @@ import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../st
 import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { allProjectSessions, SessionProjectHover } from "./session-project-hover";
 import { SidebarCustomization, SIDEBAR_ITEMS } from "./sidebar-customization";
-import { NewChatDialog } from "./new-chat-dialog";
 import { startSessionDrag, acceptsSessionDrag, readSessionDrag } from "./session-drag";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
@@ -560,7 +559,6 @@ export function AppSidebar(props: AppSidebarProps) {
   const { open, isMobile, setOpen } = useSidebar();
   const collapsed = !isMobile && !open;
   const [customizingNavigation, setCustomizingNavigation] = React.useState(false);
-  const [newChatOpen, setNewChatOpen] = React.useState(false);
   const customizationButtonRef = React.useRef<HTMLButtonElement>(null);
   const finishCustomizingNavigation = () => {
     setCustomizingNavigation(false);
@@ -568,6 +566,8 @@ export function AppSidebar(props: AppSidebarProps) {
   };
   const location = useLocation();
   const navigate = useNavigate();
+  const { workspaceId: routeWorkspaceId } = useParams();
+  const openProjectId = routeWorkspaceId || (props.selectedSessionId ? props.selectedWorkspaceId : null);
   const unreadTasks = useUnreadTaskCount();
   const goSettings = React.useCallback(
     (tab: string) => {
@@ -666,9 +666,10 @@ export function AppSidebar(props: AppSidebarProps) {
   const sidebarBrandAlt = sidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName;
 
   const newChatSection = shellConfig.navNewChat ? <SidebarMenuItem key="navNewChat" className="mb-1 flex items-center gap-1">
-            <SidebarMenuButton className="min-w-0 flex-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]" onClick={() => {
-              if (props.workspaceSessionGroups.length) setNewChatOpen(true);
-              else props.onOpenCreateWorkspace();
+            <SidebarMenuButton className="min-w-0 flex-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]" disabled={Boolean(openProjectId) && props.newChatDisabled} onClick={() => {
+              if (openProjectId) props.onCreateChatInWorkspace(openProjectId);
+              else if (props.onShowChats) props.onShowChats();
+              else navigate("/home");
             }}>
               <PenLine className="size-[18px]" strokeWidth={1.5} />
               <span>{t("projects.new_chat")}</span>
@@ -693,7 +694,7 @@ export function AppSidebar(props: AppSidebarProps) {
   }, [props.selectedWorkspaceId, props.selectedSessionId]);
   const projectsPage = location.pathname === "/projects";
   const actions: Record<ShellNavKey, { onClick: () => void; active: boolean; available?: boolean }> = {
-    navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: !props.activeNav && !projectsPage },
+    navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: location.pathname === "/home" },
     navProjects: { onClick: () => props.onShowProjects?.(), active: projectsPage },
     navTasks: { onClick: () => props.onShowTasks?.(), active: props.activeNav === "tasks", available: !!props.onShowTasks },
     navWorkflows: { onClick: () => props.onShowWorkflows?.(), active: props.activeNav === "workflows" },
@@ -823,13 +824,6 @@ export function AppSidebar(props: AppSidebarProps) {
           onPointerDown={props.onStartResize}
         />}
       </Sidebar>
-      {newChatOpen && <NewChatDialog
-        groups={props.workspaceSessionGroups}
-        disabled={props.newChatDisabled}
-        onClose={() => setNewChatOpen(false)}
-        onSelectProject={props.onCreateChatInWorkspace}
-        onCreateProject={props.onOpenCreateWorkspace}
-      />}
     </SidebarContext.Provider>
   );
 }

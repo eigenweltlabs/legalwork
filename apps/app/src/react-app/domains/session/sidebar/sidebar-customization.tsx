@@ -11,7 +11,7 @@ import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey, type ChatSectio
 import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 
 export const SIDEBAR_ITEMS = {
-  navHome: { label: "sidebar.chats", icon: House },
+  navHome: { label: "home.nav_label", icon: House },
   navProjects: { label: "projects.plural", icon: LayoutGrid },
   sectionPinned: { label: "sidebar.pinned_sessions", icon: Pin },
   sectionProjects: { label: "projects.plural", icon: FolderOpen },
