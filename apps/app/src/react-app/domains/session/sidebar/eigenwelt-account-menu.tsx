@@ -17,12 +17,12 @@ export function EigenweltAccountMenu({ client, workspaceId }: {
   const navigate = useNavigate();
   const location = useLocation();
   const query = useEigenweltEntitlements({ client, workspaceId });
-  const { account, entitlements, connected } = query.data ?? {};
+  const { account, entitlements, connected, reconnecting } = query.data ?? {};
   const name = connected ? account?.userName?.trim() || account?.userEmail || t("account.connected_title") : t("account.connected_title");
   const initials = connected && (account?.userName || account?.userEmail)
     ? (account.userName?.trim() || account.userEmail || "").split(/[\s@]+/).filter(Boolean).slice(0, 2).map(word => Array.from(word)[0]).join("").toLocaleUpperCase()
     : null;
-  const status = query.isError ? t("account.status_unavailable") : !query.data ? t("firm_hub.loading") : connected ? t("account.signed_in") : t("account.signed_out");
+  const status = query.isError ? t("account.status_unavailable") : !query.data ? t("firm_hub.loading") : reconnecting ? t("account.reconnecting") : connected ? t("account.signed_in") : t("account.signed_out");
   const plan = connected && entitlements?.plan && isEigenweltEntitledStatus(entitlements.subscriptionStatus)
     ? entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
     : null;
@@ -45,7 +45,7 @@ export function EigenweltAccountMenu({ client, workspaceId }: {
         <DropdownMenuTrigger render={<TooltipTrigger render={
           <Button variant="ghost" size="icon" className="relative size-10 rounded-xl hover:bg-foreground/10 data-[popup-open]:bg-foreground/10" aria-label={`${name} · ${status}`}>
             {avatar()}
-            <span aria-hidden="true" className={cn("absolute bottom-1 right-1 size-2 rounded-full border-2 border-[var(--lw-window-chrome)]", query.isError ? "bg-amber-9" : connected ? "bg-green-9" : "bg-muted-foreground/50")} />
+            <span aria-hidden="true" className={cn("absolute bottom-1 right-1 size-2 rounded-full border-2 border-[var(--lw-window-chrome)]", query.isError || reconnecting ? "bg-amber-9" : connected ? "bg-green-9" : "bg-muted-foreground/50")} />
           </Button>
         } />} />
         <TooltipContent side="right" sideOffset={10}>{name} · {status}</TooltipContent>

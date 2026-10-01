@@ -2735,6 +2735,8 @@ export default {
   "account.sign_in": "Sign in with Eigenwelt",
   "account.connecting": "Waiting for sign-in…",
   "account.server_required": "Connecting to the LegalWork server… sign-in will be available in a moment.",
+  "account.reconnecting": "Reconnecting…",
+  "account.reconnecting_description": "Your account is saved. We’ll reconnect automatically.",
   "account.connected_title": "Eigenwelt account",
   "account.signed_in": "Signed in",
   "account.signed_out": "Signed out",
