@@ -33,7 +33,7 @@ import {
   Users,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
@@ -122,7 +122,6 @@ import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../st
 import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { allProjectSessions, SessionProjectHover } from "./session-project-hover";
 import { SidebarCustomization, SIDEBAR_ITEMS } from "./sidebar-customization";
-import { NewChatDialog } from "./new-chat-dialog";
 import { startSessionDrag, acceptsSessionDrag, readSessionDrag } from "./session-drag";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
@@ -560,7 +559,6 @@ export function AppSidebar(props: AppSidebarProps) {
   const { open, isMobile, setOpen } = useSidebar();
   const collapsed = !isMobile && !open;
   const [customizingNavigation, setCustomizingNavigation] = React.useState(false);
-  const [newChatOpen, setNewChatOpen] = React.useState(false);
   const customizationButtonRef = React.useRef<HTMLButtonElement>(null);
   const finishCustomizingNavigation = () => {
     setCustomizingNavigation(false);
@@ -568,6 +566,8 @@ export function AppSidebar(props: AppSidebarProps) {
   };
   const location = useLocation();
   const navigate = useNavigate();
+  const { workspaceId: routeWorkspaceId } = useParams();
+  const openProjectId = routeWorkspaceId || (props.selectedSessionId ? props.selectedWorkspaceId : null);
   const unreadTasks = useUnreadTaskCount();
   const goSettings = React.useCallback(
     (tab: string) => {
@@ -666,9 +666,10 @@ export function AppSidebar(props: AppSidebarProps) {
   const sidebarBrandAlt = sidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName;
 
   const newChatSection = shellConfig.navNewChat ? <SidebarMenuItem key="navNewChat" className="mb-1 flex items-center gap-1">
-            <SidebarMenuButton className="min-w-0 flex-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]" onClick={() => {
-              if (props.workspaceSessionGroups.length) setNewChatOpen(true);
-              else props.onOpenCreateWorkspace();
+            <SidebarMenuButton className="min-w-0 flex-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]" disabled={Boolean(openProjectId) && props.newChatDisabled} onClick={() => {
+              if (openProjectId) props.onCreateChatInWorkspace(openProjectId);
+              else if (props.onShowChats) props.onShowChats();
+              else navigate("/home");
             }}>
               <PenLine className="size-[18px]" strokeWidth={1.5} />
               <span>{t("projects.new_chat")}</span>
@@ -693,7 +694,7 @@ export function AppSidebar(props: AppSidebarProps) {
   }, [props.selectedWorkspaceId, props.selectedSessionId]);
   const projectsPage = location.pathname === "/projects";
   const actions: Record<ShellNavKey, { onClick: () => void; active: boolean; available?: boolean }> = {
-    navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: !props.activeNav && !projectsPage },
+    navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: location.pathname === "/home" },
     navProjects: { onClick: () => props.onShowProjects?.(), active: projectsPage },
     navTasks: { onClick: () => props.onShowTasks?.(), active: props.activeNav === "tasks", available: !!props.onShowTasks },
     navWorkflows: { onClick: () => props.onShowWorkflows?.(), active: props.activeNav === "workflows" },
@@ -767,7 +768,7 @@ export function AppSidebar(props: AppSidebarProps) {
         </MainActionRail>}
         <div className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
         {customizingNavigation ? <SidebarCustomization onDone={finishCustomizingNavigation} /> : <>
-        <div className="flex shrink-0 flex-col pb-1">
+        <div className="flex shrink-0 flex-col pb-1 mac:titlebar-no-drag">
         <div className="shrink-0 px-2 pb-1 mac:titlebar-no-drag">
           <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", showSidebarBrandName ? "items-center py-2" : "items-center py-0") }>
             <img
@@ -791,10 +792,10 @@ export function AppSidebar(props: AppSidebarProps) {
           </div>
         </div>
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
+        {newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>
         <div data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
-          {shellConfig.chatSectionOrder.filter(key => shellConfig[key]).map(key => {
-            if (key === "navNewChat") return <SidebarMenu key={key} className="px-2.5 pb-3">{newChatSection}</SidebarMenu>;
+          {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
             if (key !== "sectionProjects") return sessionSection(key);
             return <section key={key} className="pb-3">
               <div className="flex h-9 items-center gap-1 px-4">
@@ -823,13 +824,6 @@ export function AppSidebar(props: AppSidebarProps) {
           onPointerDown={props.onStartResize}
         />}
       </Sidebar>
-      {newChatOpen && <NewChatDialog
-        groups={props.workspaceSessionGroups}
-        disabled={props.newChatDisabled}
-        onClose={() => setNewChatOpen(false)}
-        onSelectProject={props.onCreateChatInWorkspace}
-        onCreateProject={props.onOpenCreateWorkspace}
-      />}
     </SidebarContext.Provider>
   );
 }

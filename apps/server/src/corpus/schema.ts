@@ -1,9 +1,7 @@
 import { z } from "zod";
 
-export const CORPUS_MAX_FILES = 1000;
-
 export const CorpusQuerySchema = z.strictObject({
-  paths: z.array(z.string().min(1).max(4096)).min(1).max(CORPUS_MAX_FILES).optional().describe("Exact project-relative files or folders requested by the user. Pass the named folder directly, e.g. ['Jev Search Corpus'], not the whole project. Folders recurse automatically in one job for up to 1,000 files; never enumerate their files or split into 250/500-file batches."),
+  paths: z.array(z.string().min(1).max(4096)).min(1).optional().describe("Exact project-relative files or folders requested by the user. Pass the named folder directly, e.g. ['Jev Search Corpus'], not the whole project. Folders recurse automatically in one job. The service batches work internally; never enumerate files or split the selected folder into arbitrary jobs."),
   question: z.string().trim().min(3).max(2000).optional(),
   kind: z.enum(["yes_no", "classification"]).default("yes_no"),
   options: z.array(z.string().trim().min(1).max(100)).min(2).max(27).optional(),
@@ -30,8 +28,8 @@ export type CorpusRow = z.infer<typeof CorpusRowSchema>;
 export const SavedCorpusJobSchema = z.object({
   id: z.string().uuid(), requestId: z.string().optional(), createdAt: z.number(),
   status: z.enum(["running", "complete", "cancelled", "interrupted"]),
-  rows: z.array(CorpusRowSchema).max(CORPUS_MAX_FILES), total: z.number().int().nonnegative().max(CORPUS_MAX_FILES), skipped: z.number().int().nonnegative(),
-  question: z.string(), kind: z.enum(["yes_no", "classification"]),
+  rows: z.array(CorpusRowSchema), total: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(),
+  question: z.string(), kind: z.enum(["yes_no", "classification"]), options: z.array(z.string()).max(30).optional(),
   selection: z.object({ providerId: z.string(), model: z.string() }),
 });
 export type SavedCorpusJob = z.infer<typeof SavedCorpusJobSchema>;

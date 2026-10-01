@@ -8,6 +8,8 @@ import { resolveBrandIconSrc } from "@/react-app/design-system/extension-icon-sr
 import { IconTile } from "@/react-app/design-system/surface";
 import "@/components/chat/session-surfaces.css";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { LEGALWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "@/app/constants";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
 import {
@@ -109,7 +111,7 @@ type ComposerProps = {
   onInsertMention: (kind: ComposerMentionKind, value: string) => void;
   /** Sent-prompt history (oldest first) recalled with ArrowUp/ArrowDown (#2012). */
   inputHistory?: string[];
-  onPasteText: (text: string) => void;
+  onPasteText: (text: string) => PastedTextChip;
   onUnsupportedFileLinks: (links: string[]) => void;
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
   onDropLegalMemoryFolder: (folder: LegalMemoryFolderDragItem) => void | Promise<void>;
@@ -310,6 +312,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [, setExtensionStateVersion] = useState(0);
   const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | "workspace" | null>(null);
   const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
+  const [previewPastedLabel, setPreviewPastedLabel] = useState<string | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<LexicalPromptEditorHandle | null>(null);
   // IME composition guard: while an IME composition is active, we must not
@@ -661,10 +664,16 @@ export function ReactSessionComposer(props: ComposerProps) {
     () => props.pastedText.map((item) => ({ label: item.label, lines: item.lines })),
     [props.pastedText],
   );
+  const previewPastedText = props.pastedText.find((item) => item.label === previewPastedLabel);
+
+  useEffect(() => {
+    setPreviewPastedLabel(null);
+  }, [props.draftScopeKey]);
 
   const handleExpandPastedText = useCallback((label: string) => {
     const target = props.pastedText.find((item) => item.label === label);
     if (!target) return;
+    editorRef.current?.expandPastedText(target.label, target.text);
     props.onExpandPastedText(target.id);
   }, [props.onExpandPastedText, props.pastedText]);
 
@@ -1129,6 +1138,7 @@ export function ReactSessionComposer(props: ComposerProps) {
               onChange={props.onDraftChange}
               onSubmit={handleEditorSubmit}
               onExpandPastedText={handleExpandPastedText}
+              onPreviewPastedText={setPreviewPastedLabel}
               onPasteText={props.onPasteText}
               onPaste={(event) => {
                 // Paste policy:
@@ -1158,7 +1168,7 @@ export function ReactSessionComposer(props: ComposerProps) {
 
                 const text = event.clipboardData?.getData("text/plain") ?? "";
 
-                // Long pastes (3+ lines / 200+ chars) are collapsed into
+                // Long pastes (10+ lines / 1,000+ chars) are collapsed into
                 // an inline chip by PasteChipPlugin inside the Lexical
                 // editor. Do NOT duplicate that here — calling onPasteText
                 // from both the React onPaste handler and the Lexical
@@ -1639,6 +1649,23 @@ export function ReactSessionComposer(props: ComposerProps) {
         </div>
 
       </div>
+      <Dialog open={Boolean(previewPastedText)} onOpenChange={(open) => { if (!open) setPreviewPastedLabel(null); }}>
+        <DialogContent aria-describedby={undefined} className="max-h-[min(70dvh,32rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-2xl p-4 sm:max-w-lg">
+          <DialogTitle className="pr-9 text-sm leading-8 text-gray-11">{t("artifact.pasted_text")}</DialogTitle>
+          <pre className="min-h-0 overflow-auto whitespace-pre-wrap break-words pr-1 font-sans text-sm leading-relaxed text-dls-text select-text">
+            {previewPastedText?.text}
+          </pre>
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={props.disabled} onClick={() => {
+              if (!previewPastedText) return;
+              handleExpandPastedText(previewPastedText.label);
+              setPreviewPastedLabel(null);
+            }}>
+              {t("artifact.expand_pasted")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

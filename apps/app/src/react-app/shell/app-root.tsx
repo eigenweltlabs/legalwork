@@ -100,6 +100,7 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/home" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/session/:sessionId"
                 element={
@@ -148,10 +149,8 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
-              {/* Default + fallback: land on the session view. Users open
-                  settings deliberately via the sidebar or command palette. */}
-              <Route path="/" element={<Navigate to="/session" replace />} />
-              <Route path="*" element={<Navigate to="/session" replace />} />
+              <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="*" element={<Navigate to="/home" replace />} />
           </Routes>
         </LegalworkControlProvider>
         </AppMenuProvider>

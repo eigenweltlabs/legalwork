@@ -4,20 +4,18 @@
 import { useEffect, useEffectEvent, useState } from "react";
 
 export type UseShellShortcutsInput = {
-  canCreateChat: boolean;
-  workspaceId: string;
-  onCreateChat: (workspaceId: string) => void | Promise<void>;
+  onCreateChat: () => void;
   onNextSessionTab?: () => void;
   onPrevSessionTab?: () => void;
 };
 
 export function useShellShortcuts(input: UseShellShortcutsInput) {
-  const { canCreateChat, workspaceId, onCreateChat, onNextSessionTab, onPrevSessionTab } = input;
+  const { onCreateChat, onNextSessionTab, onPrevSessionTab } = input;
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
 
   // Global shortcuts:
-  //   Cmd/Ctrl+N        -> new chat in selected workspace
+  //   Cmd/Ctrl+N        -> new chat in the open project, otherwise Home
   //   Cmd/Ctrl+K        -> toggle command palette
   //   Cmd/Ctrl+J        -> toggle terminal panel (matches VS Code)
   //   Cmd/Ctrl+Shift+F  -> search every session (titles + messages)
@@ -49,9 +47,7 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
     const key = event.key?.toLowerCase();
     if (key === "n" && !inEditable) {
       event.preventDefault();
-      if (canCreateChat && workspaceId) {
-        void onCreateChat(workspaceId);
-      }
+      onCreateChat();
       return;
     }
     if (key === "k") {

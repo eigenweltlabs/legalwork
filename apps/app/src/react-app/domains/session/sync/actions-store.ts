@@ -830,7 +830,7 @@ export function createSessionActionsStore(options: {
     try {
       const path = options.locationPath().toLowerCase();
       if (path === `/session/${trimmed.toLowerCase()}` || path.endsWith(`/session/${trimmed.toLowerCase()}`)) {
-        options.navigate(workspaceSessionRoute(options.selectedWorkspaceId()), { replace: true });
+        options.navigate("/home", { replace: true });
       }
     } catch {
       // ignore

@@ -1,5 +1,14 @@
 import type { SettingsTab } from "../../app/types";
 
+export function homeRoute(projectId?: string | null) {
+  const project = projectId?.trim();
+  return project ? `/home?project=${encodeURIComponent(project)}` : "/home";
+}
+
+export function homeProjectIdFromSearch(search: string) {
+  return new URLSearchParams(search).get("project")?.trim() || null;
+}
+
 export function workspaceSessionRoute(workspaceId: string, sessionId?: string | null) {
   const workspace = encodeURIComponent(workspaceId.trim());
   const session = sessionId?.trim();

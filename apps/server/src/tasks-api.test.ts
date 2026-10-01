@@ -20,7 +20,7 @@ describe("tasks-api: who is acting", () => {
       account: ACCOUNT,
       platformURL: null,
       platformToken: "tok",
-      refreshToken: null,
+      refreshToken: null, refreshRequestId: null, refreshError: null,
       platformTokenExpiresAt: null,
     };
     expect(taskActorOf(connection)).toEqual({ userId: "user_ada", name: "Ada", email: "ada@kanzlei.test" });
@@ -33,7 +33,7 @@ describe("tasks-api: who is acting", () => {
       account: ACCOUNT,
       platformURL: null,
       platformToken: null,
-      refreshToken: null,
+      refreshToken: null, refreshRequestId: null, refreshError: null,
       platformTokenExpiresAt: null,
     };
     expect(connectedTaskOrgId(connection)).toBeNull();

@@ -4,7 +4,7 @@ Implementation: LegalWork `feat/project-calendars-deadline-skills` and model-api
 
 ## Calendar behavior
 
-Each project's Calendar shows original calendar records and projections of dated project tasks. Home in the small left sidebar aggregates local projects, shared project replicas, connected remote workers and dated inbox tasks. Opening a task goes to its project task view. These projections do not create duplicate tasks or deadlines.
+Each project's Calendar shows original calendar records and projections of dated project tasks. The Calendar tab in Home in the small left sidebar aggregates local projects, shared project replicas, connected remote workers and dated inbox tasks. Home also retains its new-chat composer. Opening a task goes to its project task view. These projections do not create duplicate tasks or deadlines.
 
 Manual Fristende is always available. A calculated deadline needs a server-issued receipt from an installed jurisdiction skill. New deadlines start unreviewed; completing a linked task never completes a legal deadline. Date overrides require a reason and retain the original calculation in revision history. Whole-record revisions prevent concurrent date edits from silently overwriting each other. Conflicts and deleted entries have explicit resolution/restore controls.
 

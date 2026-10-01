@@ -3,11 +3,14 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
+  claimEigenweltRefreshRequest,
   readEigenweltConnection,
   readEigenweltEntitlementsView,
   writeEigenweltConnection,
+  writeEigenweltConnectionIfCurrent,
 } from "./eigenwelt-connection-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -163,6 +166,8 @@ describe("eigenwelt-connection-store", () => {
       platformURL: null,
       platformToken: null,
       refreshToken: null,
+      refreshRequestId: null,
+      refreshError: null,
       platformTokenExpiresAt: null,
     });
   });
@@ -207,4 +212,31 @@ describe("eigenwelt-connection-store", () => {
     ]);
     check.close();
   });
+});
+
+
+test("concurrent runtime processes claim the same durable request, and stale writes cannot erase another process's sign-in", async () => {
+  const config = await setup();
+  await writeEigenweltConnection(config, { refreshToken: "refresh-original", platformToken: "access-original" });
+  const module = pathToFileURL(join(import.meta.dir, "eigenwelt-connection-store.ts")).href;
+  async function child(operation: string): Promise<string> {
+    const run = Bun.spawn([process.execPath, "-e", `import * as store from ${JSON.stringify(module)};
+      const config = ${JSON.stringify(config)}; ${operation}`],
+      { env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
+    const output = await new Response(run.stdout).text();
+    expect(await run.exited).toBe(0);
+    expect(await new Response(run.stderr).text()).toBe("");
+    return output.trim();
+  }
+  const ids = await Promise.all(Array.from({ length: 3 }, () => child(
+    'console.log(await store.claimEigenweltRefreshRequest(config, "refresh-original"));',
+  )));
+  expect(new Set(ids).size).toBe(1);
+  expect(await claimEigenweltRefreshRequest(config, "refresh-original")).toBe(ids[0]);
+  await child('await store.writeEigenweltConnection(config, { refreshToken: "refresh-new", platformToken: "access-new" });');
+  expect(await writeEigenweltConnectionIfCurrent(config, { refreshToken: null, platformToken: null },
+    { refreshToken: "refresh-original", refreshRequestId: ids[0] })).toBe(false);
+  const current = await readEigenweltConnection(config);
+  expect(current.refreshToken).toBe("refresh-new");
+  expect(current.refreshRequestId).toBeNull();
 });
