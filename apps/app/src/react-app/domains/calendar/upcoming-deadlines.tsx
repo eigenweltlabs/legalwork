@@ -24,7 +24,7 @@ export function UpcomingDeadlines(props: { client: LegalworkServerClient; worksp
     try { setEditing((await props.client.calendarItem(props.workspaceId, item.itemId)).item); }
     catch (error) { toast.error(calendarError(error)); } finally { setOpening(false); }
   };
-  return <section aria-label={t("calendar.upcoming")}>
+  return <section className="min-w-0" aria-label={t("calendar.upcoming")}>
     <SectionHeading title={t("calendar.upcoming")} action={<>
       <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => navigate(workspaceCalendarRoute(props.projectId))}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
       <Button variant="ghost" size="icon-sm" aria-label={t("calendar.add")} title={t("calendar.add")} onClick={() => setEditing("new")}><Plus className="size-4" /></Button>

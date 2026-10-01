@@ -190,7 +190,10 @@ export function ProjectHome(props: {
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
 
-        <UpcomingDeadlines client={client} workspaceId={workspaceId} projectId={props.projectId} />
+        <div className="grid grid-cols-1 items-start gap-6 @min-[800px]/project-page:grid-cols-2">
+          <div className="min-w-0">{props.tasksView}</div>
+          <UpcomingDeadlines client={client} workspaceId={workspaceId} projectId={props.projectId} />
+        </div>
 
         <ContextMenu>
         <ContextMenuTrigger render={<section aria-label={t("projects.notes")} />}>
@@ -220,8 +223,6 @@ export function ProjectHome(props: {
           <ContextMenuItem disabled={rootFiles.isFetching || notes.isFetching} onClick={refreshNotes}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
         </ContextMenu>
-
-        <div>{props.tasksView}</div>
 
         <ProjectRecordings projectId={props.projectId} onStartRecording={props.onStartRecording} />
       </div>
