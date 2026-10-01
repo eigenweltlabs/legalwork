@@ -5,9 +5,9 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navCalendar", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
@@ -16,6 +16,7 @@ const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar"
 
 export type ShellConfig = {
   navHome: boolean;
+  navCalendar: boolean;
   navProjects: boolean;
   chatSectionOrder: ChatSectionKey[];
   sectionPinned: boolean;
@@ -71,6 +72,7 @@ export type ShellConfig = {
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navOrder: DEFAULT_NAV_ORDER,
   navHome: true,
+  navCalendar: true,
   navProjects: true,
   chatSectionOrder: DEFAULT_CHAT_ORDER,
   sectionPinned: true,
@@ -125,9 +127,16 @@ function readShellConfig(): ShellConfig {
     if (!raw) return DEFAULT_SHELL_CONFIG;
     const parsed = JSON.parse(raw);
     const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
+    const savedNavOrder = Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder;
+    const navOrder = readOrder(savedNavOrder, DEFAULT_NAV_ORDER);
+    // Add Calendar beside Home for existing profiles without changing saved ordering.
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
+      navOrder.splice(navOrder.indexOf("navCalendar"), 1);
+      navOrder.splice(navOrder.indexOf("navHome") + 1, 0, "navCalendar");
+    }
     return {
       ...next,
-      navOrder: readOrder(Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder, DEFAULT_NAV_ORDER),
+      navOrder,
       chatSectionOrder: readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER),
       projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
       projectSessions: true,

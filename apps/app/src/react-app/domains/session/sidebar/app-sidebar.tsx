@@ -531,7 +531,7 @@ export type AppSidebarProps = {
    */
   onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -695,6 +695,7 @@ export function AppSidebar(props: AppSidebarProps) {
   const projectsPage = location.pathname === "/projects";
   const actions: Record<ShellNavKey, { onClick: () => void; active: boolean; available?: boolean }> = {
     navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: location.pathname === "/home" },
+    navCalendar: { onClick: () => navigate("/calendar"), active: location.pathname === "/calendar" },
     navProjects: { onClick: () => props.onShowProjects?.(), active: projectsPage },
     navTasks: { onClick: () => props.onShowTasks?.(), active: props.activeNav === "tasks", available: !!props.onShowTasks },
     navWorkflows: { onClick: () => props.onShowWorkflows?.(), active: props.activeNav === "workflows" },

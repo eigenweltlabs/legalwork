@@ -130,7 +130,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -1112,6 +1112,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.projectPage === "home" ? workspaceName
     : props.projectPage === "reviews" ? t("projects.tab_review")
     : props.projectPage === "tasks" ? t("projects.tasks")
+    : props.projectPage === "calendar" || props.sidebar.activeNav === "calendar" ? t("calendar.title")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")

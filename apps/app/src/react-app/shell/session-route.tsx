@@ -1,4 +1,3 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CalendarView } from "../domains/calendar/calendar-view";
 import { workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
@@ -1046,7 +1045,7 @@ export function SessionRoute() {
   // Organizing local project files, notes and tasks does not need an AI model.
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
-    location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !createWorkspaceOpen;
+    location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -2155,6 +2154,7 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
+  const calendarPage = location.pathname === "/calendar";
   const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
@@ -2437,7 +2437,7 @@ export function SessionRoute() {
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
       projectsPage={location.pathname === "/projects" && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
-      projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
+      projectPage={!calendarPage && (location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
         if (recordingSessionStarting.current) return;
@@ -2499,42 +2499,33 @@ export function SessionRoute() {
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
-        homePage ? (
-          <Tabs defaultValue="home" className="h-full min-h-0 gap-0">
-            <TabsList className="mx-6 mt-4 shrink-0" aria-label={t("home.nav_label")}>
-              <TabsTrigger value="home">{t("home.nav_label")}</TabsTrigger>
-              <TabsTrigger value="calendar">{t("calendar.title")}</TabsTrigger>
-            </TabsList>
-            <TabsContent value="home" keepMounted className="min-h-0 overflow-hidden">
-                <AppHome
-                  workspaces={sidebarWorkspaces}
-                  projectId={homeProjectId}
-                  onProjectChange={(id) => {
-                    if (id === homeProjectId) return;
-                    setHomeProjectId(id);
-                    pendingHomeMessage.current = null;
-                    if (id) setLegacySelectedWorkspaceId(id);
-                    if (location.pathname === "/home") navigate(homeRoute(id), { replace: true });
-                  }}
-                  onSend={handleHomeSend}
-                  disabled={effectiveLoading || createWorkspaceBusy || !client}
-                  providerConnectedCount={usableProviderCount}
-                  onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
-                  selectedModel={local.prefs.defaultModel}
-                  modelLocked={soloEigenweltModel}
-                  onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
-                  modelVariant={modelVariantValue}
-                  modelVariantLabel={modelVariantLabel}
-                  modelBehaviorOptions={modelBehaviorOptions}
-                  onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
-                />
-            </TabsContent>
-            <TabsContent value="calendar" className="min-h-0 overflow-hidden">
-              <CalendarView client={client}
-                remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
-                onOpenProject={id => navigate(workspaceCalendarRoute(id))} onOpenTask={(id, projectId) => { setOpenTask({ id, at: Date.now() }); if (projectId) navigate(workspaceTasksRoute(projectId)); else showTasksPane(); }} />
-            </TabsContent>
-          </Tabs>
+        calendarPage ? (
+          <CalendarView client={client}
+            remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
+            onOpenProject={id => navigate(workspaceCalendarRoute(id))} onOpenTask={(id, projectId) => { setOpenTask({ id, at: Date.now() }); if (projectId) navigate(workspaceTasksRoute(projectId)); else showTasksPane(); }} />
+        ) : homePage ? (
+          <AppHome
+            workspaces={sidebarWorkspaces}
+            projectId={homeProjectId}
+            onProjectChange={(id) => {
+              if (id === homeProjectId) return;
+              setHomeProjectId(id);
+              pendingHomeMessage.current = null;
+              if (id) setLegacySelectedWorkspaceId(id);
+              if (location.pathname === "/home") navigate(homeRoute(id), { replace: true });
+            }}
+            onSend={handleHomeSend}
+            disabled={effectiveLoading || createWorkspaceBusy || !client}
+            providerConnectedCount={usableProviderCount}
+            onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+            selectedModel={local.prefs.defaultModel}
+            modelLocked={soloEigenweltModel}
+            onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
+            modelVariant={modelVariantValue}
+            modelVariantLabel={modelVariantLabel}
+            modelBehaviorOptions={modelBehaviorOptions}
+            onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
+          />
         ) : showWorkflows ? (
           // onClose drops the pane so actions that navigate to a session (e.g.
           // opening the workflow-generation session) always reveal the chat —
@@ -2616,7 +2607,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
+        activeNav: calendarPage ? "calendar" : showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
