@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { z } from "zod";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
+import { CorpusStore } from "../corpus/storage.js";
 
 test("review HTTP routes enforce scope, user settings, workspace boundaries and read-only mode", async () => {
   const root = await mkdtemp(join(tmpdir(), "review-routes-")), workspace = join(root, "workspace");
@@ -67,6 +68,22 @@ test("review HTTP routes enforce scope, user settings, workspace boundaries and 
     expect(await (await call("/settings")).json()).toMatchObject({ settings: { mode: "llm" } });
     expect(await (await call(`/${request.requestId}`)).json()).toMatchObject({ settings });
     config.readOnly = true;
+    const wait = await call("/wait", "POST", { reviewIds: [request.requestId], waitSeconds: 0 }, viewer);
+    expect(wait.status).toBe(200); expect(await wait.json()).toMatchObject({ settled: true, reviews: [{ id: request.requestId, status: "draft" }] });
+    expect((await call("/wait", "POST", { reviewIds: [request.requestId], waitSeconds: 0, mode: "llm" }, viewer)).status).toBe(400);
+    const searchId = randomUUID();
+    await new CorpusStore(workspace).write({ id: searchId, createdAt: Date.now(), status: "complete", total: 1, skipped: 0,
+      question: "Is this document a contract?", kind: "classification", options: ["Contract", "Operational"], selection: { providerId: "fixture", model: "fixture" },
+      rows: [{ path: "contract.md", status: "complete", answer: "Contract", confidence: .99 }] });
+    const progress = await call("/corpus/" + searchId, "GET", undefined, viewer);
+    expect(progress.status).toBe(200); expect(await progress.json()).toMatchObject({ question: "Is this document a contract?", counts: { Contract: 1, Operational: 0 } });
+    const matches = await call("/corpus/" + searchId + "/results?answer=Contract", "GET", undefined, viewer);
+    expect(matches.status).toBe(200); expect(await matches.json()).toMatchObject({ results: [{ path: "contract.md", answer: "Contract" }], nextOffset: null });
+    const empty = await call("/corpus/" + searchId + "/results?answer=Operational", "GET", undefined, viewer);
+    expect(await empty.json()).toMatchObject({ results: [], matching: 0 });
+    expect((await call("/corpus/" + searchId + "/results?offset=-1", "GET", undefined, viewer)).status).toBe(400);
+    expect((await call("/corpus/" + searchId + "/results", "GET", undefined, "wrong")).status).toBe(401);
+
     expect((await call(`/${request.requestId}`, "PATCH", { revision: 0, name: "Changed" })).status).toBe(403);
     expect((await call(`/${request.requestId}`, "DELETE", { revision: 0 })).status).toBe(403);
     expect((await call("/settings", "PUT", settings)).status).toBe(403);

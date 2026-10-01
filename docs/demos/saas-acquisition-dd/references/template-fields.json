@@ -1,0 +1,178 @@
+{
+  "tokens": [
+    "action",
+    "action_deliverable",
+    "action_owner",
+    "action_plan_summary",
+    "action_timing",
+    "aid",
+    "buyer_name",
+    "c_open",
+    "c_rows",
+    "corporate-agreements_actions",
+    "corporate-agreements_findings",
+    "corporate-agreements_summary",
+    "corporate-agreements_uncertainty",
+    "customer-agreements_actions",
+    "customer-agreements_findings",
+    "customer-agreements_summary",
+    "customer-agreements_uncertainty",
+    "d_open",
+    "d_rows",
+    "dpa_actions",
+    "dpa_findings",
+    "dpa_summary",
+    "dpa_uncertainty",
+    "e_open",
+    "e_rows",
+    "employment_actions",
+    "employment_findings",
+    "employment_summary",
+    "employment_uncertainty",
+    "excluded_files",
+    "executive_summary",
+    "finding",
+    "g_open",
+    "g_rows",
+    "information_requests",
+    "m_open",
+    "m_rows",
+    "matter_name",
+    "method_description",
+    "method_limitations",
+    "msa_actions",
+    "msa_findings",
+    "msa_summary",
+    "msa_uncertainty",
+    "open_review_summary",
+    "prepared_by",
+    "r_open",
+    "r_rows",
+    "report_date",
+    "report_status",
+    "residual_exposure",
+    "retained_files",
+    "review_settings",
+    "reviewed_files",
+    "rid",
+    "risk_action",
+    "risk_finding",
+    "risk_register_note",
+    "risk_source",
+    "scope_description",
+    "scope_limitations",
+    "sev",
+    "shareholder-resolutions_actions",
+    "shareholder-resolutions_findings",
+    "shareholder-resolutions_summary",
+    "shareholder-resolutions_uncertainty",
+    "supporting_files",
+    "target_name",
+    "total_files",
+    "transaction_description",
+    "transaction_implications",
+    "unresolved_files",
+    "use_limitation"
+  ],
+  "aliases": {
+    "sev": "summary_priority",
+    "finding": "summary_finding",
+    "action": "summary_action",
+    "rid": "risk_id",
+    "aid": "action_id",
+    "c_rows": "customer-agreements_count",
+    "c_open": "customer-agreements_open",
+    "d_rows": "dpa_count",
+    "d_open": "dpa_open",
+    "m_rows": "msa_count",
+    "m_open": "msa_open",
+    "e_rows": "employment_count",
+    "e_open": "employment_open",
+    "g_rows": "corporate-agreements_count",
+    "g_open": "corporate-agreements_open",
+    "r_rows": "shareholder-resolutions_count",
+    "r_open": "shareholder-resolutions_open"
+  },
+  "repeat_tables": {
+    "executive": [
+      "sev",
+      "finding",
+      "action"
+    ],
+    "risks": [
+      "rid",
+      "risk_finding",
+      "risk_source",
+      "risk_action"
+    ],
+    "actions": [
+      "aid",
+      "action_timing",
+      "action_owner",
+      "action_deliverable"
+    ]
+  },
+  "guidance": {
+    "review_settings": "Describe the legal basis and scope of reliance in ordinary matter language. Never fill this field with mode, provider/model, confidence, OCR, prompt or execution settings.",
+    "method_description": "Describe source review, cross-document reconciliation and the supplied-evidence limits. Exclude technical workflow mechanics.",
+    "prepared_by": "Use an actual supplied preparer identity, or the generic Transaction review team. Do not invent a law firm or LegalWork Advisory.",
+    "use_limitation": "State internal buyer use and draft review status. Do not assert attorney-client privilege without a supplied basis.",
+    "supporting_files": "Describe supporting legal records and outstanding evidence in buyer-facing language. Keep CSV/JSON paths and audit inventories in separate internal records."
+  },
+  "count_bindings": {
+    "reviewed_files": {
+      "metric": "documents"
+    },
+    "unresolved_files": {
+      "metric": "openDocuments"
+    },
+    "c_rows": {
+      "metric": "documents",
+      "reviewName": "SaaS DD - Customer Agreements"
+    },
+    "c_open": {
+      "metric": "openDocuments",
+      "reviewName": "SaaS DD - Customer Agreements"
+    },
+    "d_rows": {
+      "metric": "documents",
+      "reviewName": "SaaS DD - Data Processing Agreements"
+    },
+    "d_open": {
+      "metric": "openDocuments",
+      "reviewName": "SaaS DD - Data Processing Agreements"
+    },
+    "m_rows": {
+      "metric": "documents",
+      "reviewName": "SaaS DD - Master Services Agreements"
+    },
+    "m_open": {
+      "metric": "openDocuments",
+      "reviewName": "SaaS DD - Master Services Agreements"
+    },
+    "e_rows": {
+      "metric": "documents",
+      "reviewName": "SaaS DD - Employment Agreements"
+    },
+    "e_open": {
+      "metric": "openDocuments",
+      "reviewName": "SaaS DD - Employment Agreements"
+    },
+    "g_rows": {
+      "metric": "documents",
+      "reviewName": "SaaS DD - Corporate Agreements"
+    },
+    "g_open": {
+      "metric": "openDocuments",
+      "reviewName": "SaaS DD - Corporate Agreements"
+    },
+    "r_rows": {
+      "metric": "documents",
+      "reviewName": "SaaS DD - Shareholder Resolutions"
+    },
+    "r_open": {
+      "metric": "openDocuments",
+      "reviewName": "SaaS DD - Shareholder Resolutions"
+    }
+  }
+}

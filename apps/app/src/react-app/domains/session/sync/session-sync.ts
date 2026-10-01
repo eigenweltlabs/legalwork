@@ -903,7 +903,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
 
   if (event.type === "message.updated") {
     const props = (event.properties ?? {}) as {
-      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; finish?: string; error?: unknown; time?: { created?: number; completed?: number } };
+      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; summary?: boolean; finish?: string; error?: unknown; time?: { created?: number; completed?: number } };
     };
     const info = props.info;
     if (!info?.id || !info.sessionID || (info.role !== "user" && info.role !== "assistant" && info.role !== "system")) {
@@ -912,7 +912,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     useSessionActivityStore.getState().markMessageRole(workspaceId, info.sessionID, info.id, info.role);
     // Each tool step is a completed assistant message, not a completed run.
     // Only a terminal answer/error may substitute for a missing idle event.
-    if (info.role === "assistant" && typeof info.time?.completed === "number"
+    if (info.role === "assistant" && !info.summary && typeof info.time?.completed === "number"
       && (info.error || (info.finish && info.finish !== "tool-calls" && info.finish !== "unknown"))) {
       useSessionActivityStore.getState().setRunStatus(workspaceId, info.sessionID, idleStatus);
       if (isTrackedSession(entry, info.sessionID)) {
@@ -924,7 +924,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     const next = {
       id: info.id,
       role: info.role,
-      ...(typeof created === "number" ? { metadata: { opencode: { created } } } : {}),
+      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(info.summary ? { summary: true } : {}) } },
       parts: [],
     } satisfies UIMessage;
     queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, info.sessionID), (current = []) =>
@@ -1047,6 +1047,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // panel. Mark workspace previews stale so active files reload immediately
     // and closed files fetch fresh bytes the next time they are opened.
     void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     // Only emits for runs this client instrumented (markTaskRunStart in the
     // send path); also dedupes idle events from multiple workspace syncs.
     const runStartedAt = takeTaskRunStart(props.sessionID);
@@ -1272,6 +1273,21 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   }
 }
 
+export function seedTodoState(
+  workspaceId: string,
+  sessionId: string,
+  todos: Todo[],
+  snapshotStartedAt = 0,
+) {
+  const queryClient = getReactQueryClient();
+  const key = todoKey(workspaceId, sessionId);
+  const current = queryClient.getQueryState(key);
+  // Cached snapshots are replayed when session metadata changes. Only a
+  // fresh read may replace an existing plan, and never a newer live update.
+  if (current?.data !== undefined && current.dataUpdatedAt >= snapshotStartedAt) return;
+  queryClient.setQueryData(key, todos);
+}
+
 export function seedSessionState(workspaceId: string, snapshot: LegalworkSessionSnapshot) {
   const queryClient = getReactQueryClient();
   const key = transcriptKey(workspaceId, snapshot.session.id);
@@ -1302,7 +1318,7 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
   if (isLiveStatus(snapshot.status) || !activity?.runActive) {
     queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
   }
-  queryClient.setQueryData(todoKey(workspaceId, snapshot.session.id), snapshot.todos);
+  seedTodoState(workspaceId, snapshot.session.id, snapshot.todos);
 }
 
 /**

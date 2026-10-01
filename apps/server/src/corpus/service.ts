@@ -9,7 +9,7 @@ import { within } from "../reviews/storage.js";
 import { splitReviewEvidence } from "../reviews/chunks.js";
 import { ReviewQueue } from "../reviews/scheduler.js";
 import { CORPUS_EXTENSIONS, type CorpusText } from "./extract.js";
-import { CORPUS_MAX_FILES, CORPUS_FALLBACKS, CorpusQuerySchema, type CorpusQuery, type CorpusRow, type SavedCorpusJob, SavedCorpusJobSchema } from "./schema.js";
+import { CORPUS_FALLBACKS, CorpusQuerySchema, type CorpusQuery, type CorpusRow, type SavedCorpusJob, SavedCorpusJobSchema } from "./schema.js";
 import { CorpusStore } from "./storage.js";
 
 const TTL = 60 * 60_000;
@@ -22,14 +22,8 @@ export function validateDocumentQuestion(input: CorpusQuery) {
 }
 export async function discoverCorpus(workspace: string, paths: string[]) {
   const root = await realpath(workspace), files = new Map<string, boolean>(), visited = new Set<string>();
-  let scanned = 0, skipped = 0;
-  const folders: string[] = [];
-  const scopeError = (message: string) => new ApiError(413, "corpus_scope", message, {
-    maxFiles: CORPUS_MAX_FILES, requestedPaths: paths, folders: folders.slice(0, 50), foldersTruncated: folders.length > 50,
-    guidance: "No inference has started. Check the requested scope first: retry the specific folder named by the user using its path directly. Folders recurse automatically; do not enumerate their files. One job handles up to 1,000 files. Only split if the user's exact requested scope itself exceeds that limit; do not silently omit documents.",
-  });
+  let skipped = 0;
   async function visit(input: string, explicit = false) {
-    if (++scanned > 10_000) throw scopeError("Folder traversal exceeds 10,000 entries. Retry with the specific requested subfolder.");
     const requested = resolve(root, input);
     if (!within(root, requested)) throw new ApiError(403, "corpus_path", "Sources must belong to this project.");
     const info = await lstat(requested);
@@ -39,14 +33,11 @@ export async function discoverCorpus(workspace: string, paths: string[]) {
     if (visited.has(absolute)) return; visited.add(absolute);
     if (info.isDirectory()) {
       const entries = (await readdir(absolute, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
-      if (explicit) folders.push(...entries.filter(entry => entry.isDirectory() && !entry.name.startsWith(".") && !["node_modules", "vendor", "__pycache__"].includes(entry.name))
-        .map(entry => relative(root, join(absolute, entry.name)).split("\\").join("/")));
       for (const entry of entries) {
         if (entry.name.startsWith(".") || ["node_modules", "vendor", "__pycache__"].includes(entry.name)) { skipped++; continue; }
         await visit(join(absolute, entry.name));
       }
     } else if (info.isFile()) {
-      if (files.size >= CORPUS_MAX_FILES) throw scopeError(`The selected scope exceeds ${CORPUS_MAX_FILES} files. Retry with the specific requested folder; no inference has started.`);
       files.set(relative(root, absolute).split("\\").join("/"), CORPUS_EXTENSIONS.has(extname(absolute).toLowerCase()));
     } else skipped++;
   }
@@ -110,7 +101,7 @@ export class CorpusService {
         // Reserve before asynchronous discovery so simultaneous starts cannot exceed the bound.
         const controller = new AbortController(); setMaxListeners(0, controller.signal);
         job = { id: randomUUID(), workspace: workspace.path, requestId, createdAt: Date.now(), status: "running", controller, rows: [], total: 0, skipped: 0,
-          question: input.question!, kind: input.kind, selection: { providerId: "", model: "" }, done: Promise.resolve() };
+          question: input.question!, kind: input.kind, options: input.kind === "classification" ? [...new Set([...(input.options ?? []), ...CORPUS_FALLBACKS])] : undefined, selection: { providerId: "", model: "" }, done: Promise.resolve() };
         this.jobs.set(job.id, job);
         try {
           const sources = await discoverCorpus(workspace.path, input.paths!);
@@ -153,9 +144,9 @@ export class CorpusService {
       if (timer) clearTimeout(timer);
     }
     if (job.status !== "running") await job.done;
-    const counts: Record<string, number> = {};
+    const counts: Record<string, number> = Object.fromEntries((job.kind === "yes_no" ? ["Yes", "No"] : job.options ?? []).map(answer => [answer, 0]));
     for (const row of job.rows) { const key = row.status === "complete" ? row.answer! : row.status; counts[key] = (counts[key] ?? 0) + 1; }
-    const filtered = job.rows.filter(row => !input.answers || input.answers.includes(row.answer ?? row.status)).sort((a, b) => a.path.localeCompare(b.path));
+    const filtered = job.rows.filter(row => !input.answers || (input.answers.includes(row.answer ?? "") || input.answers.includes(row.status))).sort((a, b) => a.path.localeCompare(b.path));
     const finished = job.status !== "running";
     return { jobId: job.id, status: job.status, question: job.question, kind: job.kind, model: job.selection.model, providerId: job.selection.providerId,
       total: job.total, processed: job.rows.length, skippedEntries: job.skipped, counts, matching: filtered.length,
@@ -165,7 +156,7 @@ export class CorpusService {
         : "Still processing. Call this tool with jobId and waitSeconds=20; do not resubmit the sources. Results paginate after completion, so offsets stay stable." };
   }
   private async run(job: Job, input: CorpusQuery, files: Array<{ path: string; supported: boolean }>) {
-    const signal = AbortSignal.any([job.controller.signal, AbortSignal.timeout(30 * 60_000)]);
+    const signal = job.controller.signal;
     setMaxListeners(0, signal);
     await Promise.all(files.map(async file => {
       try {

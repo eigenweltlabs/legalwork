@@ -1,3 +1,21 @@
+  .lw-session-typography {
+    --lw-font-sans: var(--lw-font-content);
+    --lw-text-primary: var(--lw-text-content);
+    --foreground: var(--lw-text-content);
+    --dls-text-primary: var(--lw-text-content);
+    font-family: var(--lw-font-content);
+    color: var(--lw-text-content);
+    letter-spacing: normal;
+  }
+
+  .lw-session-typography .markdown-content :is(strong, b, th) {
+    font-weight: 600;
+  }
+
+  .lw-session-typography .markdown-content :not(pre) > code {
+    background-color: color-mix(in srgb, currentColor 2%, transparent);
+  }
+
   .lw-session-column {
     width: 100%;
     max-width: 800px;

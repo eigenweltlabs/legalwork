@@ -1077,6 +1077,7 @@ export function SessionPage(props: SessionPageProps) {
       memory={memoryDrivePanel}
       files={(
         <WorkspaceFilesPanel
+          active={fileSidebar === "files"}
           headerTarget={!mobile && filesRailActive ? filesHeaderTarget : null}
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}

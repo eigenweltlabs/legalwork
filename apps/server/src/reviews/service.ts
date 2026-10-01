@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { setMaxListeners } from "node:events";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 import { ApiError } from "../errors.js";
@@ -16,10 +17,11 @@ import { readReviewResults } from "./results.js";
 import { ReviewResultQueries } from "./result-query-pages.js";
 import { ReviewUpdates } from "./updates.js";
 import { queryCells } from "./result-query.js";
-import { QueryReviewResultsSchema } from "./schema.js";
+import { QueryReviewResultsSchema, WaitReviewsSchema } from "./schema.js";
 
 function cellsFor(documents: ReviewDocument[], review: Pick<SavedReview, "columns" | "cells">): ReviewCell[] {
-  return documents.flatMap(document => review.columns.map(column => review.cells.find(cell => cell.documentId === document.id && cell.columnKey === column.key)
+  const existing = new Map(review.cells.map(cell => [`${cell.documentId}\0${cell.columnKey}`, cell]));
+  return documents.flatMap(document => review.columns.map(column => existing.get(`${document.id}\0${column.key}`)
     ?? { documentId: document.id, columnKey: column.key, status: "pending", result: null, error: null }));
 }
 function summary(review: SavedReview): ReviewSummary {
@@ -166,6 +168,43 @@ export class ReviewService {
   async queryResults(workspace: WorkspaceInfo, id: string, input: unknown) {
     return this.resultQueries.read(workspace.path, id, input, () => this.get(workspace, id));
   }
+  /** Wait on local run promises; remote runs refresh at a bounded interval. Never starts inference. */
+  async wait(workspace: WorkspaceInfo, raw: unknown, signal?: AbortSignal) {
+    const input = WaitReviewsSchema.parse(raw), ids = [...new Set(input.reviewIds)];
+    const deadline = Date.now() + input.waitSeconds * 1000;
+    const read = async () => {
+      const reviews: ReviewSummary[] = [], errors: Array<{ reviewId: string; message: string }> = [];
+      for (const id of ids) {
+        try { reviews.push(summary(await this.get(workspace, id))); }
+        catch (error) {
+          if (!(error instanceof ApiError) || error.code !== "review_not_found") throw error;
+          errors.push({ reviewId: id, message: error.message });
+        }
+      }
+      return { reviews, errors };
+    };
+    let snapshot = await read();
+    while (snapshot.reviews.some(review => review.status === "running") && Date.now() < deadline) {
+      signal?.throwIfAborted();
+      const running = snapshot.reviews.filter(review => review.status === "running");
+      const local = running.flatMap(review => {
+        const run = this.runs.get(this.key(workspace, review.id));
+        return run ? [run] : [];
+      });
+      const timeout = new AbortController();
+      try {
+        await Promise.race([
+          ...(local.length ? [Promise.allSettled(local)] : []),
+          delay(Math.min(deadline - Date.now(), local.length === running.length ? 25_000 : 2000),
+            undefined, { signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal }),
+        ]);
+      } finally { timeout.abort(); }
+      snapshot = await read();
+    }
+    return { ...snapshot, settled: snapshot.reviews.every(review => review.status !== "running"),
+      timedOut: snapshot.reviews.some(review => review.status === "running"),
+      guidance: "Read every requested review status and error. Draft reviews have not started; needs_review, cancelled and interrupted are not cleared results. When settled, query each review's complete result coverage before reporting." };
+  }
   async changes(workspace: WorkspaceInfo, id: string, revision?: number) {
     return this.updates.read(workspace.path, await this.get(workspace, id), revision);
   }
@@ -288,6 +327,10 @@ export class ReviewService {
             }
           });
           if (!current.cells.some(cell => selected(cell) && cell.status === "queued")) return;
+          // This document worker owns these cells until it settles. Edits are
+          // forbidden during a run and cancellation aborts each queued worker.
+          // Do not re-read the entire review snapshot for every cell start.
+          const queuedColumns = new Set(current.cells.filter(cell => selected(cell) && cell.status === "queued").map(cell => cell.columnKey));
           await store.update(snapshot.id, review => { const item = review.documents.find(item => item.id === document.id)!; item.status = "preparing"; item.error = null; });
           const jobId = /\.(pdf|png|jpe?g|webp)$/i.test(document.path) ? await prepare() : undefined;
           const evidence = await prepareReviewEvidence({ workspace: workspace.path, path: document.path, preparation: this.preparation, preparationJobId: jobId, signal, force: input.reprocess,
@@ -303,7 +346,7 @@ export class ReviewService {
             return this.scheduler.cells.run(group, `${backend}:${provider!.providerId}`, signal, async () => {
               signal.throwIfAborted();
               const predicate = (cell: ReviewCell) => cell.documentId === document.id && cell.columnKey === column.key;
-              if ((await store.read(snapshot.id)).cells.find(predicate)?.status !== "queued") return;
+              if (!queuedColumns.has(column.key)) return;
               await store.update(snapshot.id, review => { review.cells.find(predicate)!.status = "running"; });
               try {
                 const result = await this.executor.execute(workspace, snapshot, column, evidence, AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]));

@@ -119,9 +119,24 @@ test("review cards deduplicate across prose but keep different projects and fail
   for (const thinking of [false, true]) {
     const groups = groupAssistantToolRuns(messages([[created], [{ type: "text", text: "Starting it now." }], [started, other, failed]]), thinking)
       .flatMap(item => getAssistantRenderGroups(item.message.parts, thinking));
-    expect(groups.filter(group => group.kind === "review").map(group => group.part.toolCallId)).toEqual(["start", "other-project", "failed"]);
+    expect(groups.filter(group => group.kind === "review").map(group => group.part.toolCallId)).toEqual(["failed"]);
+    expect(groups.filter(group => group.kind === "reviews").flatMap(group => group.parts.map(part => part.toolCallId))).toEqual(["start", "other-project"]);
     expect(groups.some(group => group.kind === "text" && group.text === "Starting it now.")).toBe(true);
   }
+});
+
+test("six reviews launched in one user turn share one live list across prose", () => {
+  const launches: DynamicToolUIPart[] = Array.from({ length: 6 }, (_, index) => ({ ...bash, toolName: "legalwork_review_launch", toolCallId: `launch-${index}`,
+    output: { ok: true, workspaceId: "project", review: { id: `101ec043-4ef0-4df7-88b6-4690869e883${index}`, name: `Review ${index}`, status: "running", completed: 0, total: 8, documents: 1, columns: 8 } } }));
+  const groups = groupAssistantToolRuns(messages([[launches[0]], [{ type: "text", text: "Launching the remaining classes." }], launches.slice(1)]), false)
+    .flatMap(item => getAssistantRenderGroups(item.message.parts, false));
+  expect(groups.filter(group => group.kind === "reviews")).toEqual([{ kind: "reviews", parts: launches }]);
+  expect(groups.some(group => group.kind === "text")).toBe(true);
+});
+
+test("source reads and result paging are distinguishable from new Jev inference", () => {
+  expect(getToolHistoryLabel({ ...bash, toolName: "legalwork_jev_corpus_question", input: { jobId: "saved", offset: 50 } })).toBe("Read saved Jev results");
+  expect(getToolHistoryLabel({ ...bash, toolName: "legalwork_jev_corpus_question", input: { jobId: "saved", evidencePath: "room/a.pdf" } })).toBe("Read source: room/a.pdf");
 });
 
 

@@ -79,7 +79,14 @@ export function getToolHistoryLabel(part: ToolPart): string {
     const description = part.input?.description?.trim();
     return description ? truncateText(description, 80) : t("tool_run.ran_command");
   }
-  if (nameOf(part) === "legalwork_jev_corpus_question") return t("tool_run.jev_search");
+  if (nameOf(part) === "legalwork_jev_corpus_question") {
+    const input = part.input;
+    if (input && typeof input === "object" && "jobId" in input) {
+      if ("evidencePath" in input && typeof input.evidencePath === "string") return t("tool_run.jev_evidence", { path: truncateText(input.evidencePath, 65) });
+      return t("tool_run.jev_saved_results");
+    }
+    return t("tool_run.jev_search");
+  }
   if (nameOf(part) === "legalwork_review_results") return t("tool_run.review_results");
   if (nameOf(part) === "legalwork_review_settings") return t("tool_run.review_settings");
   if (nameOf(part) === "legalwork_review_list") return t("tool_run.review_list");

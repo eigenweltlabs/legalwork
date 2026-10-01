@@ -6,18 +6,16 @@ type QueryClientGlobal = typeof globalThis & {
 
 export function getReactQueryClient(): QueryClient {
   const target = globalThis as QueryClientGlobal;
-  if (target.__owReactQueryClient) return target.__owReactQueryClient;
-  const queryClient = new QueryClient();
+  const queryClient = target.__owReactQueryClient ?? new QueryClient();
 
   for (const queryKey of [
     ["react-session-transcript"],
     ["react-session-status"],
-    ["react-session-todos"],
   ] as const) {
     queryClient.setQueryDefaults(queryKey, { gcTime: 15_000 });
   }
 
-  // Pending permissions and questions are written with setQueryData only and
+  // Plans, pending permissions and questions are written with setQueryData only and
   // observed through a raw cache subscription, so the query has zero
   // observers and TanStack GC removes it ~15s after creation. That made the
   // permission dialog auto-dismiss with no resolution while the tool call
@@ -25,10 +23,21 @@ export function getReactQueryClient(): QueryClient {
   // permission.replied / question.answered events and clearTrackedSession,
   // never by GC.
   for (const queryKey of [
+    ["react-session-todos"],
     ["react-session-permissions"],
     ["react-session-questions"],
   ] as const) {
     queryClient.setQueryDefaults(queryKey, { gcTime: Infinity });
+  }
+  // Also repair plans created before a dev hot update; preserve the shared
+  // cache/client and all user state rather than waiting for an app restart.
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ["react-session-todos"] })) {
+    if (query.gcTime !== Infinity) {
+      // setOptions changes the deadline but does not clear an already scheduled
+      // GC timer. These setQueryData-only entries have no fetch to interrupt.
+      query.destroy();
+      query.setOptions({ ...query.options, gcTime: Infinity });
+    }
   }
 
   target.__owReactQueryClient = queryClient;
