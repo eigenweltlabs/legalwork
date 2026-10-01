@@ -1,5 +1,5 @@
 import type { SavedReview } from "@legalwork/types/reviews";
-import { usableAnswer } from "../reviews/result-query.js";
+import { usableAnswer } from "./result-query.js";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 
@@ -15,7 +15,7 @@ export const ReportTemplateFieldsSchema = z.object({
 type Source = z.infer<typeof ReportEvidenceIndexSchema>["documents"][number];
 
 /** All decisions remain on disk; model context contains distributions and examples. */
-export function reviewReportData(reviews: SavedReview[], sources: Source[]) {
+export function reviewReportData(reviews: SavedReview[], sources: Source[], libraryNames: ReadonlyMap<string, string> = new Map()) {
   const sourceMap = new Map(sources.map(source => [source.document, source]));
   const references = new Map<string, { ref: string; document: string; sourceHash: string | null; title: string; evidenceFiles: string[] }>();
   const classes = reviews.map(review => {
@@ -68,7 +68,10 @@ export function reviewReportData(reviews: SavedReview[], sources: Source[]) {
       reviewId: review.id, revision: review.revision, sourceRef: row.sourceRef,
       documentId: row.documentId, document: row.document, ...answer,
     })));
-    return { reviewId: review.id, name: review.name, revision: review.revision, status: review.status,
+    const libraryIds = new Set(review.columns.map(column => column.libraryId));
+    const libraryId = libraryIds.size === 1 ? review.columns[0]?.libraryId : undefined;
+    return { reviewId: review.id, name: review.name, libraryId, libraryName: libraryId ? libraryNames.get(libraryId) : undefined,
+      revision: review.revision, status: review.status,
       documents: rows.length, columns: review.columns.length, cells: rows.length * review.columns.length,
       openCells: openCells.length, openDocuments: rows.filter(row => row.answers.some(answer => !answer.accepted)).length,
       distribution, rows, unresolved: openCells };
@@ -93,8 +96,10 @@ export function reportPacketFiles(packet: ReviewReportData, measuredFields: Reco
     let members: string[] = [], bytes = 2;
     const save = () => {
       if (!members.length) return;
-      const path = `${prefix}/${name}-${paths.length + 1}.json`;
-      files.push({ path, content: `[${members.join(",")}]` }); paths.push(path);
+      const content = `[${members.join(",")}]`;
+      const digest = createHash("sha256").update(content).digest("hex");
+      const path = `${prefix}/packets/${packet.packetId}/${name}-${paths.length + 1}-${digest}.json`;
+      files.push({ path, content }); paths.push(path);
       members = []; bytes = 2;
     };
     for (const record of records) {
@@ -122,10 +127,21 @@ export function reportDraftData(packet: ReviewReportData, layout: z.infer<typeof
   const repeated = new Set(Object.values(layout.repeat_tables).flat());
   const fields: Record<string, string | number> = Object.fromEntries(layout.tokens.filter(key => !repeated.has(key)).map(key => [key, ""]));
   const measured: Record<string, number> = {};
+  const classes = new Set(Object.values(layout.count_bindings).flatMap(binding => binding.reviewName ? [binding.reviewName] : []));
+  if (classes.size) for (const review of packet.reviews) {
+    if (!classes.has(review.libraryName ?? review.name))
+      throw new Error("No report count binding for reviewed class: " + review.name);
+  }
   for (const [field, binding] of Object.entries(layout.count_bindings)) {
     if (!(field in fields)) throw new Error("A count binding is not a template field: " + field);
-    const review = binding.reviewName ? packet.reviews.find(review => review.name === binding.reviewName) : undefined;
-    const value = binding.reviewName ? review?.[binding.metric] ?? 0
+    const matches = packet.reviews.filter(review => (review.libraryName ?? review.name) === binding.reviewName);
+    const classCounts = {
+      documents: new Set(matches.flatMap(review => review.rows.map(row => row.document))).size,
+      openDocuments: new Set(matches.flatMap(review => review.unresolved.map(row => row.document))).size,
+      cells: matches.reduce((sum, review) => sum + review.cells, 0),
+      openCells: matches.reduce((sum, review) => sum + review.openCells, 0),
+    };
+    const value = binding.reviewName ? classCounts[binding.metric]
       : binding.metric === "documents" ? packet.distinctDocuments : packet[binding.metric];
     fields[field] = value;
     measured[field] = value;

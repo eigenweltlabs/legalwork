@@ -44,6 +44,9 @@ def load_packet(project, packet_file):
 def assemble(packet, draft):
     if packet.get("packetId") and draft.get("packetId") != packet["packetId"]:
         raise ValueError("The draft does not belong to this pinned review packet. Use its matching packet identity.")
+    summary = draft.get("fields", {}).get("executive_summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("Write the buyer-facing executive summary before generating the report.")
     sources = {source["ref"]: source for source in packet["sources"]}
     findings = []
     for index, row in enumerate(draft.get("findings", []), 1):
@@ -125,9 +128,10 @@ def build(project, packet_path, data_path, template_path, output_path):
     packet = load_packet(project, packet_file)
     draft = json.loads(data_file.read_text())
     plan, register, sources = assemble(packet, draft)
-    audit = output.parent / (output.stem + "-support")
+    audit = project_file(project, str((output.parent / (output.stem + "-support")).relative_to(project)))
     protected = {packet_file, data_file, template}
-    paths = [audit / name for name in ["findings.json", "evidence-index.json", "checks.json", "template-content.json", "unresolved.json"]]
+    paths = [project_file(project, str((audit / name).relative_to(project)))
+             for name in ["findings.json", "evidence-index.json", "checks.json", "template-content.json", "unresolved.json"]]
     if protected.intersection(paths):
         raise ValueError("Supporting outputs would overwrite a report input.")
     audit.mkdir(parents=True, exist_ok=True)

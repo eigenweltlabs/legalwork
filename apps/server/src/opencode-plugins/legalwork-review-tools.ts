@@ -6,7 +6,7 @@ import { projectContentsSchema } from "@legalwork/types/workspace";
 import type { createOpencodeClient } from "@opencode-ai/sdk";
 import { recoverEmptyReviewResponse } from "./recover-empty-review-response.js";
 import { reviewExportData } from "./review-export.js";
-import { ReportEvidenceIndexSchema, ReportEvidenceSchema, ReportTemplateFieldsSchema, reportClassText, reportDraftData, reportPacketFiles, reportSourceText, reviewReportData } from "./review-report.js";
+import { ReportEvidenceIndexSchema, ReportEvidenceSchema, ReportTemplateFieldsSchema, reportClassText, reportDraftData, reportPacketFiles, reportSourceText, reviewReportData } from "../reviews/report-data.js";
 import { ReviewLibraryEntrySchema, reviewLibraryKind } from "@legalwork/types/reviews";
 import { CreateReviewSchema, EditReviewSchema, QueryReviewResultsSchema, RunReviewSchema, SaveReviewLibrarySchema, SavedReviewSchema, WaitReviewsSchema } from "../reviews/schema.js";
 import { listWorkspaces, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
@@ -202,8 +202,16 @@ export const LegalWorkReviewTools = async (context: OpenCodeContext & { client?:
         }
         const sources = [];
         for (const index of input.evidenceIndexes) sources.push(...ReportEvidenceIndexSchema.parse(await read(index)).documents);
-        const packet = reviewReportData(reviews, sources), prefix = input.outputPrefix;
-        const draft = input.templateFields ? reportDraftData(packet, ReportTemplateFieldsSchema.parse(await read(input.templateFields))) : undefined;
+        const layout = input.templateFields ? ReportTemplateFieldsSchema.parse(await read(input.templateFields)) : undefined;
+        const libraryNames = new Map<string, string>();
+        if (layout && Object.values(layout.count_bindings).some(binding => binding.reviewName)) {
+          const libraries = await call(ctx, "/library?language=en");
+          if (!libraries.ok) return libraries;
+          for (const entry of z.object({ entries: z.array(ReviewLibraryEntrySchema) }).parse(libraries.data).entries)
+            libraryNames.set(entry.id, entry.name);
+        }
+        const packet = reviewReportData(reviews, sources, libraryNames), prefix = input.outputPrefix;
+        const draft = layout ? reportDraftData(packet, layout) : undefined;
         const stored = reportPacketFiles(packet, draft?.measuredFields ?? {}, prefix);
         const files = [...stored.parts];
         if (draft) files.push({ path: `${prefix}/draft.json`, content: JSON.stringify(draft, null, 2) });

@@ -14,6 +14,7 @@ let exportFixture = false;
 let exportDraft = false;
 let reportFixture = false;
 let reportWrongHash = false;
+let reportLibraryFixture = false;
 const server = Bun.serve({ port: 0, async fetch(request) {
   if (request.headers.get("authorization") !== "Bearer fixture-relay") return new Response("", { status: 401 });
   const url = new URL(request.url), path = url.pathname;
@@ -28,17 +29,20 @@ const server = Bun.serve({ port: 0, async fetch(request) {
     return Response.json({ jobId: id, question: "Which class?", kind: "classification", total: f.count, counts: { [f.uncertain ? "uncertain" : "Customer Agreements"]: f.count }, status: f.status, matching: f.count, results: Array.from({ length: end - args.offset }, (_, index) => ({ path: `room/${String(args.offset + index).padStart(5, "0")}.pdf`, sourceHash: `hash-${args.offset + index}`, chunks: 1, status: f.uncertain ? "uncertain" : "complete", answer: "Customer Agreements", confidence: 1 })), nextOffset: f.incomplete || end === f.count ? null : end });
   }
   if (exportFixture) {
+    if (reportLibraryFixture && path.endsWith("/library")) return Response.json({ entries: [{ id, version: 2, kind: "set", name: "DD", language: "en", source: "personal", updatedAt: 0,
+      columns: [{ key: "ip", label: "IP", kind: "classification", question: "Owns IP?", hint: "", options: ["Yes", "No"] }] }] });
     if (path.endsWith("/files/content")) {
       if (request.method === "GET") {
         const file = url.searchParams.get("path");
         const content = file === "source-index.json" ? { documents: [{ document: "room/source.pdf", title: "Source", sourceHash: "hash", evidenceFiles: ["source-evidence.json"] }] }
-          : file === "template-fields.json" ? { tokens: ["reviewed_files", "executive_summary"], repeat_tables: {}, count_bindings: { reviewed_files: { metric: "documents" } } }
+          : file === "template-fields.json" ? { tokens: ["reviewed_files", "executive_summary", ...(reportLibraryFixture ? ["class_rows"] : [])], repeat_tables: {}, count_bindings: { reviewed_files: { metric: "documents" }, ...(reportLibraryFixture ? { class_rows: { metric: "documents", reviewName: "DD" } } : {}) } }
           : { document: "room/source.pdf", sourceHash: reportWrongHash ? "wrong" : "hash", passages: [{ page: 2, text: "The company owns its IP." }] };
         return Response.json({ content: JSON.stringify(content) });
       }
       return Response.json({ path: z.object({ path: z.string() }).parse(JSON.parse(text)).path });
     }
     const review = SavedReviewSchema.parse({ id, name: "Export", revision: 8, createdAt: 1, updatedAt: 1, settings: { mode: "jev", jev: null, llm: null }, columns: [{ key: "ip", label: "IP", kind: "classification", question: "Owns IP?", options: ["Yes", "No"] }], documents: exportDraft ? [] : [{ id: "source", path: "room/source.pdf", name: "Source", sourceHash: "hash", status: "ready" }], cells: exportDraft ? [] : [{ documentId: "source", columnKey: "ip", status: "needs_review", result: null }], status: exportDraft ? "draft" : "needs_review", runId: null });
+    if (reportLibraryFixture) review.columns[0].libraryId = id;
     if (reportFixture && review.cells[0]) {
       review.cells[0].status = "complete";
       review.cells[0].result = { value: "Yes", reason: "", citations: [], confidence: null, evidence: "uncited", backend: "systemone", providerId: "eigenwelt", model: "Jev", requestedModel: "Jev", sourceHash: "hash", prompt: review.columns[0], completedAt: 1, chunks: [] };
@@ -57,7 +61,7 @@ const server = Bun.serve({ port: 0, async fetch(request) {
 } });
 process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture-relay";
 const plugin = await LegalWorkReviewTools();
-beforeEach(() => { calls.length = 0; denied = false; unavailable = false; launchFixture = false; launchFail = false; launchUnreadable = false; selectionFixture = undefined; exportFixture = false; exportDraft = false; reportFixture = false; reportWrongHash = false; });
+beforeEach(() => { calls.length = 0; denied = false; unavailable = false; launchFixture = false; launchFail = false; launchUnreadable = false; selectionFixture = undefined; exportFixture = false; exportDraft = false; reportFixture = false; reportWrongHash = false; reportLibraryFixture = false; });
 afterAll(() => { server.stop(true); if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = originalUrl; if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = originalToken; });
 const context = { directory: "/project", sessionID: "parent" };
 const id = "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911";
@@ -104,6 +108,16 @@ test("report preparation preserves open cells and rejects mismatched evidence be
   expect(calls.some(call => call.method === "POST")).toBe(false);
   expect(JSON.parse(await plugin.tool.legalwork_review_report_prepare.execute({ ...input, reviewIds: [id,id] }, context)).ok).toBe(false);
   expect(JSON.parse(await plugin.tool.legalwork_review_report_prepare.execute({ ...input, outputPrefix: "reports/../room" }, context)).ok).toBe(false);
+});
+
+test("native report preparation binds renamed reviews through installed library provenance", async () => {
+  exportFixture = true; reportFixture = true; reportLibraryFixture = true;
+  const result = JSON.parse(await plugin.tool.legalwork_review_report_prepare.execute({ reviewIds: [id], evidenceIndexes: ["source-index.json"], templateFields: "template-fields.json" }, context));
+  expect(result.ok).toBe(true);
+  const packet = [...calls].reverse().find(call => call.path.endsWith("/files/content") && call.method === "POST");
+  expect(JSON.parse(z.object({ content: z.string() }).parse(packet?.body).content)).toMatchObject({
+    measuredFields: { reviewed_files: 1, class_rows: 1 }, reviews: [{ name: "Export", libraryName: "DD" }],
+  });
 });
 
 test("saved selections transfer 6,001 paths internally with constant-size model arguments", async () => {

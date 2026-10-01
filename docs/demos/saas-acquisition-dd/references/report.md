@@ -14,6 +14,8 @@ Use Critical for a supported issue affecting title, completion, a key approval o
 
 The native preparation tool writes `draft.json` with `fields`, `findings`, measured fields and the packet identity. Keep its identity and measured fields. Fill the narrative field values directly with write/edit. Coverage/count fields are derived from the native packet and cannot be changed by drafting. Fill total/excluded/retained input-file counts from the screening manifest, and explain any retained legal records outside the six reviewed classes. The template field map supplies every field name, so template inspection is unnecessary.
 
+The class counts follow the installed prompt-set identity even when a review has a custom title. `unresolved_files` and each class's open-document count mean documents with at least one outstanding review question, across all questions. They do not measure unsigned documents, defective execution or material risks. Use the execution question's accepted answer counts for signature observations, and describe uncertain execution separately. Retain this distinction in the template's coverage labels.
+
 Add findings in this format:
 
 ```json

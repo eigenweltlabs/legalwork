@@ -87,11 +87,34 @@ class ReportBuilderChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "inside the project"):
             helper.project_file(self.project, "../outside.json")
 
+    def test_supporting_directory_cannot_escape_the_project_through_a_symlink(self):
+        with tempfile.TemporaryDirectory() as outside:
+            (self.project / "reports").mkdir()
+            (self.project / "reports/report-support").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "inside the project"):
+                self.build()
+            self.assertEqual(list(Path(outside).iterdir()), [])
+
     def test_a_draft_can_have_no_material_findings_without_clearing_open_decisions(self):
         self.draft["findings"] = []
         result = self.build()
         self.assertEqual(result["verifiedCitations"], 0)
         self.assertEqual(result["openDocuments"], 1)
+
+    def test_an_empty_prose_stub_cannot_be_delivered_as_a_completed_report(self):
+        self.draft["fields"]["executive_summary"] = "  "
+        with self.assertRaisesRegex(ValueError, "executive summary"):
+            self.build()
+        self.assertFalse((self.project / "reports/report.docx").exists())
+
+    def test_supporting_files_cannot_escape_through_a_symlink(self):
+        with tempfile.TemporaryDirectory() as outside:
+            audit = self.project / "reports/report-support"
+            audit.mkdir(parents=True)
+            (audit / "findings.json").symlink_to(Path(outside) / "findings.json")
+            with self.assertRaisesRegex(ValueError, "inside the project"):
+                self.build()
+            self.assertEqual(list(Path(outside).iterdir()), [])
 
     def test_group_citations_expand_800_sources_without_model_generated_id_lists(self):
         base = self.packet["sources"][0]

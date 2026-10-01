@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
-import { ReportTemplateFieldsSchema, reportClassText, reportDraftData, reportPacketFiles, reportSourceText, reviewReportData } from "./review-report.js";
+import { ReportTemplateFieldsSchema, reportClassText, reportDraftData, reportPacketFiles, reportSourceText, reviewReportData } from "./report-data.js";
 
 function fixture(count = 3) {
   return SavedReviewSchema.parse({ id: "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911", name: "Customers", revision: 7,
@@ -71,6 +71,51 @@ test("template count bindings fill measured values without assembling code", () 
     repeat_tables: { executive: ["sev"] }, count_bindings: { reviewed_files: { metric: "documents" }, customer_open: { reviewName: "Customers", metric: "openDocuments" } } }));
   expect(draft.fields).toEqual({ executive_summary: "", reviewed_files: 3, customer_open: 1 });
   expect(draft.measuredFields).toEqual({ reviewed_files: 3, customer_open: 1 });
+});
+
+test("class counts use native library identity despite custom review names and deduplicate split classes", () => {
+  const review = fixture(), second = fixture(2);
+  review.name = "Customer Agreements Review";
+  second.name = "Another customer batch";
+  second.id = "ad421fb4-3f23-49e3-a5a2-01a2f3cd9911";
+  second.documents[1].path = "room/extra.pdf";
+  for (const item of [review, second]) item.columns[0].libraryId = "customers-library";
+  const packet = reviewReportData([review, second], [], new Map([["customers-library", "Customers"]]));
+  const fields = reportDraftData(packet, ReportTemplateFieldsSchema.parse({
+    tokens: ["rows", "open", "cells", "open_cells", "absent_rows"], repeat_tables: {}, count_bindings: {
+      rows: { reviewName: "Customers", metric: "documents" }, open: { reviewName: "Customers", metric: "openDocuments" },
+      cells: { reviewName: "Customers", metric: "cells" }, open_cells: { reviewName: "Customers", metric: "openCells" },
+      absent_rows: { reviewName: "Absent class", metric: "documents" },
+    },
+  })).fields;
+  expect(fields).toEqual({ rows: 4, open: 1, cells: 5, open_cells: 2, absent_rows: 0 });
+});
+
+test("unmapped report classes fail instead of silently recording zero scope", () => {
+  const packet = reviewReportData([fixture()], []);
+  expect(() => reportDraftData(packet, ReportTemplateFieldsSchema.parse({
+    tokens: ["rows"], repeat_tables: {}, count_bindings: { rows: { reviewName: "Wrong class", metric: "documents" } },
+  }))).toThrow("No report count binding");
+});
+
+test("a new snapshot cannot overwrite parts referenced by the previous packet", () => {
+  const review = fixture(), old = reportPacketFiles(reviewReportData([review], []), {}, "reports/data");
+  review.revision++;
+  const next = reportPacketFiles(reviewReportData([review], []), {}, "reports/data");
+  expect(next.descriptor.path).toBe(old.descriptor.path);
+  expect(next.parts.some(file => old.parts.some(previous => previous.path === file.path))).toBe(false);
+});
+
+test("refreshed evidence metadata cannot alter existing parts for the same review revision", () => {
+  const review = fixture(), previous = reportPacketFiles(reviewReportData([review], []), {}, "reports/data");
+  const next = reportPacketFiles(reviewReportData([review], [{
+    document: "room/1.pdf", title: "Refreshed source title", sourceHash: "h1", evidenceFiles: ["evidence/1.json"],
+  }]), {}, "reports/data");
+  for (const file of next.parts) {
+    const existing = previous.parts.find(part => part.path === file.path);
+    if (existing) expect(file.content).toBe(existing.content);
+  }
+  expect(JSON.parse(next.descriptor.content).sourceFiles).not.toEqual(JSON.parse(previous.descriptor.content).sourceFiles);
 });
 
 test("source reading aids preserve literal text/pages and explicitly disclose omitted records", () => {
