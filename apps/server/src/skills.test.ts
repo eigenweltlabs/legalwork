@@ -6,6 +6,8 @@ import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsert
 import { exists } from "./utils.js";
 
 let workspace: string;
+let configHome: string;
+let savedConfigHome: string | undefined;
 
 async function writeSkill(dir: string, name: string, metadata = "") {
   await mkdir(dir, { recursive: true });
@@ -15,9 +17,14 @@ async function writeSkill(dir: string, name: string, metadata = "") {
 beforeEach(async () => {
   workspace = await mkdtemp(join(tmpdir(), "legalwork-skills-"));
   await mkdir(join(workspace, ".git"), { recursive: true });
+  savedConfigHome = process.env.XDG_CONFIG_HOME;
+  configHome = join(workspace, "global-config");
+  process.env.XDG_CONFIG_HOME = configHome;
 });
 
 afterEach(async () => {
+  if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = savedConfigHome;
   await rm(workspace, { recursive: true, force: true });
 });
 
@@ -47,21 +54,6 @@ describe("deleteSkill", () => {
 });
 
 describe("upsertSkill", () => {
-  let configHome: string;
-  let savedConfigHome: string | undefined;
-
-  beforeEach(async () => {
-    savedConfigHome = process.env.XDG_CONFIG_HOME;
-    configHome = await mkdtemp(join(tmpdir(), "legalwork-skills-config-"));
-    process.env.XDG_CONFIG_HOME = configHome;
-  });
-
-  afterEach(async () => {
-    if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = savedConfigHome;
-    await rm(configHome, { recursive: true, force: true });
-  });
-
   test("defaults to the workspace's own skills dir", async () => {
     const result = await upsertSkill(workspace, {
       name: "matter-intake",
