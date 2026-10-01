@@ -33,6 +33,7 @@ export function useDocxPageFit(
     let lastHostWidth = 0;
     let lastViewportWidth = 0;
     let lastPageWidth = 0;
+    let lastLayoutHeight = 0;
     let transform = "";
     let needsFit = true;
 
@@ -49,16 +50,23 @@ export function useDocxPageFit(
         if (host.style.getPropertyValue("--docx-zoom") !== String(zoom)) host.style.setProperty("--docx-zoom", String(zoom));
         const minWidth = `${width * zoom + PAGE_GUTTERS + rail}px`;
         if (width && host.style.getPropertyValue("--docx-layout-width") !== minWidth) host.style.setProperty("--docx-layout-width", minWidth);
+        // Transforms change painted size while retaining the full layout height.
+        // Match the scroll track to the pages, avoiding empty space at the end.
+        const height = `${(zoomLayer?.offsetHeight ?? 0) * zoom}px`;
+        if (zoomLayer && host.style.getPropertyValue("--docx-layout-height") !== height) host.style.setProperty("--docx-layout-height", height);
       });
     };
     const resize = new ResizeObserver(() => {
       const width = page?.offsetWidth ?? 0;
       const viewportWidth = viewport?.clientWidth ?? 0;
-      if (host.clientWidth === lastHostWidth && width === lastPageWidth && viewportWidth === lastViewportWidth) return;
+      const layoutHeight = zoomLayer?.offsetHeight ?? 0;
+      const widthChanged = host.clientWidth !== lastHostWidth || width !== lastPageWidth || viewportWidth !== lastViewportWidth;
+      if (!widthChanged && layoutHeight === lastLayoutHeight) return;
       lastHostWidth = host.clientWidth;
       lastViewportWidth = viewportWidth;
       lastPageWidth = width;
-      schedule(true);
+      lastLayoutHeight = layoutHeight;
+      schedule(widthChanged);
     });
     const structure = new MutationObserver(() => schedule());
     const zoomChanges = new MutationObserver(() => {
@@ -76,12 +84,14 @@ export function useDocxPageFit(
       if (nextSidebar !== sidebar) needsFit = true;
       if (page) resize.unobserve(page);
       if (viewport) resize.unobserve(viewport);
+      if (zoomLayer) resize.unobserve(zoomLayer);
       page = nextPage;
       viewport = nextViewport;
       zoomLayer = nextZoomLayer;
       sidebar = nextSidebar;
       if (page) resize.observe(page);
       if (viewport) resize.observe(viewport);
+      if (zoomLayer) resize.observe(zoomLayer);
       // Observe only the layout ancestors. Paragraph/text mutations and caret
       // styles never schedule geometry work on the typing path.
       structure.disconnect();

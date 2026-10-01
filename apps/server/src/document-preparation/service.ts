@@ -22,7 +22,7 @@ const VERSION = "review-preparation-4";
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 export const prepareInput = z.strictObject({
-  files: z.array(z.string().min(1).max(4096)).min(1).max(100),
+  files: z.array(z.string().min(1).max(4096)).min(1),
   languages: z.array(languageSchema).max(32).default([]),
   force: z.boolean().default(false),
   /** `missing-text` reads a PDF page with OCR only when it has no text of its own. */

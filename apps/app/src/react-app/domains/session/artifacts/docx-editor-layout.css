@@ -14,6 +14,10 @@
   container-type: inline-size;
 }
 
+.docx-host .paged-editor {
+  height: var(--docx-layout-height, auto) !important;
+}
+
 /* Keep the selected native card readable and anchored to its rendered revision.
    Its ancestors are scaled with the page, so the host supplies an inverse scale. */
 .docx-host .docx-unified-sidebar [data-docx-review-anchor] {

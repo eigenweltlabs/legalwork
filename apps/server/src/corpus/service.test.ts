@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, mkdir, symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CorpusService, discoverCorpus, validateDocumentQuestion } from "./service.js";
-import { CORPUS_MAX_FILES, CorpusQuerySchema } from "./schema.js";
+import { CorpusQuerySchema } from "./schema.js";
 import type { WorkspaceInfo } from "../types.js";
 import type { SystemOneRequest, SystemOneResponse } from "../systemone-schema.js";
 const roots: string[] = [];
@@ -30,7 +30,7 @@ test("fans the same question out to each file with sixteen simultaneous calls an
   const question = "Does this document contain an assignment clause?";
   const result = await service.query(f.workspace, { paths: ["."], question, answers: ["Yes"], limit: 10 }, "once");
   expect(result.status).toBe("complete"); expect(peak).toBe(16); expect(calls).toBe(40);
-  expect(result.counts).toEqual({ Yes: 40 }); expect(result.results).toHaveLength(10); expect(result.nextOffset).toBe(10);
+  expect(result.counts).toEqual({ Yes: 40, No: 0 }); expect(result.results).toHaveLength(10); expect(result.nextOffset).toBe(10);
   expect(requests.every(request => typeof request.questions.answer.instructions === "object" && JSON.stringify(request.questions.answer.instructions).includes(question))).toBe(true);
   expect(new Set(requests.map(request => request.state)).size).toBe(40);
   expect(JSON.stringify(result)).not.toContain("Evidence for");
@@ -47,8 +47,10 @@ test("uncertainty, unsupported sources and errors are not negative answers", asy
     const value = await extract(root, path); return { ...value, complete: path !== "002.txt" };
   }, infer: async () => binary(.51) });
   const result = await service.query(f.workspace, { paths: ["."], question: "Does this document contain X?" });
-  expect(result.counts).toEqual({ uncertain: 2, error: 1, unsupported: 1 });
+  expect(result.counts).toEqual({ Yes: 0, No: 0, uncertain: 2, error: 1, unsupported: 1 });
   expect(result.results?.some(row => row.answer === "No")).toBe(false);
+  const uncertain = await service.query(f.workspace, { jobId: result.jobId, answers: ["uncertain"] });
+  expect(uncertain.results).toHaveLength(2);
 });
 
 test("classification includes fallbacks and does not choose between conflicting passages", async () => {
@@ -91,29 +93,22 @@ test("large jobs return a reference and cancellation drains unfinished documents
 });
 
 
-test("one named folder runs 1,000 files in one saved job; root overflow returns folder recovery without inference", async () => {
-  const f = await fixture(0);
-  const folder = "Jev Search Corpus";
+test("one named folder searches over 5,000 files and reloads complete saved pagination", async () => {
+  const f = await fixture(0), folder = "Jev Search Corpus", count = 6001;
   await mkdir(join(f.root, folder));
-  for (let n = 0; n < CORPUS_MAX_FILES; n++) await writeFile(join(f.root, folder, `${n}.txt`), "Evidence");
-  await writeFile(join(f.root, "Unrelated deck.pptx"), "Not part of the requested corpus");
+  for (let n = 0; n < count; n++) await writeFile(join(f.root, folder, String(n).padStart(5, "0") + ".txt"), "Evidence");
+  await writeFile(join(f.root, "Unrelated deck.pptx"), "Outside requested scope");
   let calls = 0;
   const backend = { selection, extract, infer: async () => { calls++; return binary(.99); } };
   const service = new CorpusService(backend);
-  await expect(service.query(f.workspace, { paths: ["."], question: "Does this document contain X?" })).rejects.toMatchObject({
-    code: "corpus_scope", details: { maxFiles: 1000, requestedPaths: ["."], folders: [folder] },
-  });
-  expect(calls).toBe(0);
   const result = await service.query(f.workspace, { paths: [folder], question: "Does this document contain X?", answers: ["Yes"] });
-  expect(result.status).toBe("complete"); expect(result.total).toBe(1000); expect(result.processed).toBe(1000);
-  expect(result.counts).toEqual({ Yes: 1000 }); expect(calls).toBe(1000);
-  const reloaded = await new CorpusService(backend).query(f.workspace, { jobId: result.jobId, answers: ["Yes"], offset: 990, limit: 50 });
-  expect(reloaded.total).toBe(1000); expect(reloaded.results).toHaveLength(10); expect(reloaded.nextOffset).toBeNull();
-  expect(calls).toBe(1000);
-});
+  expect(result.status).toBe("complete"); expect(result.total).toBe(count); expect(result.processed).toBe(count);
+  expect(result.counts).toEqual({ Yes: count, No: 0 }); expect(calls).toBe(count);
+  const reloaded = await new CorpusService(backend).query(f.workspace, { jobId: result.jobId, answers: ["Yes"], offset: 6000, limit: 50 });
+  expect(reloaded.total).toBe(count); expect(reloaded.results).toHaveLength(1); expect(reloaded.nextOffset).toBeNull();
+  expect(reloaded.question).toBe(result.question); expect(calls).toBe(count);
+}, 30000);
 
-test("explicit paths share the 1,000-file request limit", () => {
-  const paths = Array.from({ length: 1000 }, (_, n) => `${n}.pdf`);
-  expect(CorpusQuerySchema.safeParse({ paths }).success).toBe(true);
-  expect(CorpusQuerySchema.safeParse({ paths: [...paths, "one-too-many.pdf"] }).success).toBe(false);
+test("explicit search paths have no document-count cap", () => {
+  expect(CorpusQuerySchema.safeParse({ paths: Array.from({ length: 6001 }, (_, n) => String(n) + ".pdf") }).success).toBe(true);
 });

@@ -16,6 +16,7 @@ import {
   questionKey,
   seedPermissionState,
   seedQuestionState,
+  seedTodoState,
   todoKey,
 } from "./session-sync";
 
@@ -59,6 +60,16 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     [sessionId, workspaceId],
   );
   const todos = useQueryCacheState<TodoItem[]>(todoQueryKey, emptyTodos);
+
+  useEffect(() => {
+    if (!client || !workspaceId || !sessionId) return;
+    let cancelled = false;
+    const snapshotStartedAt = Date.now();
+    void client.session.todo({ sessionID: sessionId, directory: workspaceRoot || undefined }).then((result) => {
+      if (!cancelled) seedTodoState(workspaceId, sessionId, unwrap(result), snapshotStartedAt);
+    }).catch(() => { /* Keep the event-synced plan on a failed read. */ });
+    return () => { cancelled = true; };
+  }, [client, sessionId, workspaceId, workspaceRoot]);
 
   useEffect(() => {
     if (!client || !workspaceId || !sessionId) return;
