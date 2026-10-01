@@ -26,7 +26,9 @@ export class CalendarStore {
       CREATE TABLE IF NOT EXISTS deadline_calculations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS calendar_conflicts (item_id TEXT PRIMARY KEY, remote TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS calendar_reminders (key TEXT PRIMARY KEY, data TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS calendar_feeds (hash TEXT PRIMARY KEY, project_id TEXT, created_at TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS calendar_feeds (hash TEXT PRIMARY KEY, project_id TEXT, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS calendar_subscriptions (account TEXT NOT NULL, scope TEXT NOT NULL, token TEXT NOT NULL, content_hash TEXT,
+        PRIMARY KEY(account, scope));`);
     return new CalendarStore(db);
   }
   list(projectId: string, deleted = false): CalendarItem[] {
@@ -179,6 +181,18 @@ export class CalendarStore {
     return row ? { projectId: row.project_id === null ? null : String(row.project_id) } : null;
   }
   revokeFeed(token: string) { this.db.run("DELETE FROM calendar_feeds WHERE hash = ?", [hash(token)]); }
+  subscriptions(account: string) {
+    return this.db.all("SELECT scope, token, content_hash FROM calendar_subscriptions WHERE account = ?", [account]).map(row => ({
+      workspaceId: String(row.scope) || null, token: String(row.token), contentHash: row.content_hash === null ? null : String(row.content_hash),
+    }));
+  }
+  saveSubscription(account: string, workspaceId: string | null, token: string, contentHash: string) {
+    this.db.run(`INSERT INTO calendar_subscriptions (account, scope, token, content_hash) VALUES (?, ?, ?, ?)
+      ON CONFLICT(account, scope) DO UPDATE SET token = excluded.token, content_hash = excluded.content_hash`, [account, workspaceId ?? "", token, contentHash]);
+  }
+  removeSubscription(account: string, workspaceId: string | null) {
+    this.db.run("DELETE FROM calendar_subscriptions WHERE account = ? AND scope = ?", [account, workspaceId ?? ""]);
+  }
   enqueueReminder(key: string, data: unknown) { this.db.run("INSERT INTO calendar_reminders (key, data) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET data = excluded.data WHERE delivered = 0", [key, JSON.stringify(data)]); }
   claimReminders(allowedProjects?: Set<string>, userId: string | null = null) {
     this.db.exec("BEGIN IMMEDIATE");

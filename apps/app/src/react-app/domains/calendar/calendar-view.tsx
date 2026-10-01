@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { useCalendarOccurrences, useCalendarRecords, useCalendarRefresh, type Ca
 import { CalendarEntry } from "./calendar-entries";
 import { CalendarConflict, CalendarTrash } from "./calendar-management";
 import { DeadlineDialog } from "./deadline-dialog";
+import { CalendarSubscriptionDialog } from "./calendar-subscription-dialog";
 
 type CalendarViewProps = CalendarContext & {
   projectId?: string; projectName?: string; projects?: CalendarSource[];
@@ -30,6 +31,7 @@ export function CalendarView(props: CalendarViewProps) {
   const [view, setView] = useState<CalendarViewMode>("week");
   const [kind, setKind] = useState("all"), [status, setStatus] = useState("active"), [project, setProject] = useState("all"), [assignee, setAssignee] = useState("all");
   const [trashOpen, setTrashOpen] = useState(false);
+  const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const [editing, setEditing] = useState<{ item: CalendarItem | null; day: string; client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string } | null>(null);
   const [opening, setOpening] = useState(false);
   const range = calendarRange(anchor, view);
@@ -68,6 +70,7 @@ export function CalendarView(props: CalendarViewProps) {
   return <div className="@container/calendar h-full min-h-0 overflow-y-auto bg-background">
     <div className="lw-page-content lw-page-top space-y-5 pb-8">
       <SectionHeading size="page" title={t("calendar.title")} description={!props.workspaceId ? t("calendar.all_projects_short") : undefined} action={<>
+        <Button variant="outline" disabled={!props.client} onClick={() => setSubscriptionOpen(true)}><Link2 />{t("calendar.subscribe")}</Button>
         {canCreate && <Button disabled={!props.client} onClick={() => create()}><Plus />{t("calendar.add")}</Button>}
         <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={query.isFetching} onClick={refresh} />}><RefreshCw className={cn(query.isFetching && "animate-spin")} /></TooltipTrigger><TooltipContent>{t("common.refresh")}</TooltipContent></Tooltip>
         {props.workspaceId && <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("calendar.more_actions")} />}><MoreHorizontal /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={records.isPending || records.isError} onClick={() => setTrashOpen(true)}><Trash2 />{t("calendar.trash")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}
@@ -107,6 +110,7 @@ export function CalendarView(props: CalendarViewProps) {
         </>}
       </Tabs>
       {trashOpen && props.client && props.workspaceId && <CalendarTrash client={props.client} workspaceId={props.workspaceId} items={records.data?.items.filter(item => item.deletedAt) ?? []} onClose={() => setTrashOpen(false)} onChanged={refresh} />}
+      {subscriptionOpen && props.client && <CalendarSubscriptionDialog client={props.client} workspaceId={props.workspaceId ?? null} projectName={props.projectName} hasRemoteProjects={!props.workspaceId && Boolean(props.remoteSources?.length)} onClose={() => setSubscriptionOpen(false)} />}
       {editing && <DeadlineDialog key={editing.item?.id ?? editing.day} client={editing.client} workspaceId={editing.workspaceId} projectId={editing.projectId} projectName={editing.projectName} projects={props.projects} item={editing.item} day={editing.day} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
     </div>
   </div>;

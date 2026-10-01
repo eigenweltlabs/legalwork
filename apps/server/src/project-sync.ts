@@ -28,6 +28,7 @@ import {
   type RemoteProject,
 } from "./eigenwelt-projects.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { syncCalendarSubscriptions } from "./calendar/subscriptions.js";
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
 import { fileKey, hashFile, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
@@ -790,6 +791,10 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
   } catch (error) {
     result.error = messageOf(error);
     roundStates.set(key, { offline: unreachable(error), error: result.error, at: Date.now() });
+  }
+  if (platform === REAL_PLATFORM) {
+    try { await syncCalendarSubscriptions(config); }
+    catch (error) { result.error ??= messageOf(error); }
   }
   refreshWatchers(config, store.links(orgId));
   // What the round changed (states, files, conflicts) shows in the app now.

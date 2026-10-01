@@ -20,7 +20,11 @@ Calendar sync maps local workspace IDs onto stable canonical project/item identi
 
 Reminders are queued durably and claimed once. Completed, deleted, withdrawn and superseded entries cannot deliver stale queued reminders. Calculation reminders use the established filing cutoff. Local reminders work offline; the existing platform jobs queue shared reminders while the desktop is closed. Desktop notifications are delivered when a desktop is running or next reconnects. This release does not send reminder emails or mobile push notifications.
 
-ICS feed credentials are explicitly issued through the API, stored hashed, scoped to the issuing user's current permissions, and revocable. Ordinary sharing does not create a public feed. Platform feeds can aggregate all visible projects or serve one project.
+With an active subscription, **Subscribe** in a project calendar creates its own calendar URL; **Subscribe** in the aggregate calendar creates a separate URL for all local/shared projects and dated Inbox tasks. The dialog supports copying and disabling either link independently. Connected remote workers expose their own project links. Calendar applications poll these read-only iCalendar URLs on their own refresh schedule.
+
+The hosted service stores a hash of each feed credential. The issuing desktop retains the credential, partitioned by platform/account/organization and project (or aggregate scope), so reopening the dialog returns the same URL. Another desktop can issue an independent link. Ordinary project sharing does not issue a feed. Disabling a link revokes it; creating one again produces a different URL. Membership and subscription are checked on every download. Viewing subscription credentials requires collaborator access to the local runtime.
+
+Shared records and published tasks are read live with their current permissions. Private local calendars and unpublished dated tasks are copied only when a user creates a link, then refreshed by the existing project synchronization loop while LegalWork is running. The latest synced copy remains available while the desktop is closed. Session identifiers and local file attachments are excluded from these private copies. Published, reassigned, withdrawn and deleted tasks use the live task permissions rather than a stale private copy. Removing a local project revokes its link on the next synchronization.
 
 ## Executable skill coverage
 
@@ -40,27 +44,23 @@ Regular server tests cover primary-source examples, refusals, actual installed-c
 
 `pnpm --dir apps/server test:deadline-oracles` performs ten live comparisons against LTO's published calculator and Gebühren-Portal's calculation endpoint. It uses HTTP and only the hash-pinned, reviewed calculation functions in an isolated adapter; it never opens a browser or executes widget initialization/ads. Responses are recorded in `src/calendar/fixtures/deadline-oracles.json` for offline regressions. Changing the LTO executable requires review before updating its hash. Calculator agreement complements primary-law tests; it is not evidence that every legal edge case is supported. For example, the inspected LTO widget misclassified Berlin's one-off 8 May 2020 holiday; the primary-law regression correctly retains 11 May as the adjusted endpoint.
 
-Deploy model-api migration `0029_project_calendars.sql` and the platform routes/jobs before releasing cloud calendar sync. This development work does not deploy either repository. Local calendars and skills run in the Electron development app immediately.
+Deploy model-api migrations `0029_project_calendars.sql` and `0030_calendar_subscriptions.sql`, plus the platform routes, authentication proxy and jobs, before releasing cloud calendar sync and subscription links. This development work does not deploy either repository. Local calendars and skills run in the Electron development app immediately.
 
 Development commands:
 
 ```sh
 pnpm dev:ui
-LEGALWORK_DEV_MODE=1 \
-LEGALWORK_ELECTRON_USERDATA="$PWD/.calendar-electron-profile" \
-LEGALWORK_SERVER_CONFIG="$PWD/.calendar-electron-profile/server.json" \
-LEGALWORK_ELECTRON_START_URL=http://localhost:5173/home \
-pnpm --dir apps/desktop electron
+pnpm --dir apps/desktop dev
 ```
 
-The standard Electron dev command rebuilds native modules and macOS helpers. On this machine the unaccepted Xcode license blocks that rebuild; the current development launch reuses compatible existing native binaries and does not accept the license.
+Use the default development profile (`com.eigenweltlabs.legalwork.dev`), with no custom user-data or server-config overrides. The standard Electron dev command rebuilds native modules and macOS helpers. On this machine the unaccepted Xcode license blocks that rebuild; the current development launch reuses compatible existing native binaries and does not accept the license.
 
 ## Deadline context and attachments
 
-Every deadline belongs to its project calendar. The aggregate calendar can create a deadline in a selected project; the editor links back to that project. `attachmentPaths` names up to 50 visible project-relative files. Users can upload files (up to 20 MB each), choose a project file, or drop a project file into the editor. Removing an attachment removes the link, not the project file. The API validates newly linked files, including their real paths, and rejects traversal and escaping symbolic links.
+Every deadline belongs to its project calendar. The aggregate calendar provides a project selector for new deadlines and a project link when editing. Inside a project, the modal omits the redundant project breadcrumb. It uses the same date, reminder and assignee chips as Tasks, with compact file/session actions and collapsible source/timezone details. `attachmentPaths` names up to 50 visible project-relative files. Users can upload files (up to 20 MB each), choose a project file, or drop a project file into the editor. Removing an attachment removes the link, not the project file. The API validates newly linked files, including their real paths, and rejects traversal and escaping symbolic links.
 
 Attachments accompany calendar sharing even when general document sharing is disabled. The existing project storage, membership checks and file synchronization carry only the referenced documents. iCalendar represents these references as URI-valued `ATTACH:legalwork-file:…` properties and retains other imported attachments. Imported attachment URIs do not automatically link files from the receiving project; linking a local source requires explicit selection.
 
 `sessionIds` links sessions in the same project. The editor opens linked sessions, and agent-created deadlines automatically link the creating session. As with Tasks, session links remain on the originating computer and are stripped from cloud synchronization; syncing revisions or accepting a remote conflict preserves local links.
 
-An unreviewed manual date is labelled “Entered manually”; an unreviewed calculation, imported date or calculated-date override shows “Needs review”. The editor exposes explicit review confirmation; changing the date or source clears it. This display distinction does not automatically verify user-entered dates.
+An unreviewed manual date is labelled “Entered manually”; an unreviewed calculation, imported date or calculated-date override shows “Needs review”. For calculated and imported dates, the editor exposes explicit review confirmation; changing the date or source clears it. This display distinction does not automatically verify user-entered dates.

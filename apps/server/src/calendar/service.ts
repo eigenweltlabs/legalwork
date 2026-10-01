@@ -41,18 +41,23 @@ export async function datedTasks(config: ServerConfig, projectId?: string) {
   do { const page = store.listTasks({ projectId, limit: 200, cursor }, orgId); tasks.push(...page.tasks); cursor = page.nextCursor ?? undefined; } while (cursor);
   return tasks;
 }
-export async function calendarExport(config: ServerConfig, workspace: WorkspaceInfo, profile: "native" | "calendar") {
-  if (!(await calendarVisible(config, workspace))) return exportCalendar([]);
-  const items = (await calendarStore(config)).list(workspace.id);
-  for (const task of await datedTasks(config, workspace.id)) {
+export async function calendarExportItems(config: ServerConfig, workspace?: WorkspaceInfo, privateTasksOnly = false) {
+  if (workspace && !(await calendarVisible(config, workspace))) return [];
+  const items = workspace ? (await calendarStore(config)).list(workspace.id) : [];
+  for (const task of await datedTasks(config, workspace?.id)) {
+    if (!workspace && task.projectId) continue;
+    if (privateTasksOnly && task.sync.orgId !== null) continue;
     if (!task.dueDate || task.status === "cancelled") continue;
-    const item: CalendarItem = { id: task.id, uid: `task-${task.id}@legalwork`, projectId: workspace.id, title: task.title, description: task.description,
+    const item: CalendarItem = { id: task.id, uid: `task-${task.id}@legalwork`, projectId: workspace?.id ?? "inbox", title: task.title, description: task.description,
       kind: "deadline", start: task.dueDate, end: null, timeZone: "Europe/Berlin", status: task.status === "done" ? "completed" : "active", verified: true,
       assigneeUserId: task.assigneeUserId, taskIds: [], attachmentPaths: [], sessionIds: [], reminders: [], provenance: { kind: "manual", source: "Task due date", reason: "" },
       revision: 0, createdAt: task.createdAt, updatedAt: task.updatedAt, deletedAt: null, ical: "" };
     item.ical = itemCalendar(item); items.push(item);
   }
-  return exportCalendar(items, profile);
+  return items;
+}
+export async function calendarExport(config: ServerConfig, workspace: WorkspaceInfo, profile: "native" | "calendar") {
+  return exportCalendar(await calendarExportItems(config, workspace), profile);
 }
 /** Catch up on reminders missed while the local runtime was closed. Idempotent per occurrence. */
 export async function collectCalendarReminders(config: ServerConfig, now = Date.now()) {

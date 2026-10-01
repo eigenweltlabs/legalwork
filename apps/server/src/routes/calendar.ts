@@ -16,6 +16,7 @@ import { DEADLINE_SKILLS } from "../calendar/deadline-rules.js";
 import { calculateWithSkill, DEADLINE_CODE_HASH, ensureDeadlineSkills } from "../calendar/skills.js";
 import { announceSyncChange } from "../app-sync-events.js";
 import { scheduleProjectSync } from "../project-sync.js";
+import { calendarSubscription, changeCalendarSubscription } from "../calendar/subscriptions.js";
 
 export function registerCalendarRoutes(options: {
   routes: Route[]; config: ServerConfig; jsonResponse: (data: unknown, status?: number) => Response;
@@ -48,6 +49,16 @@ export function registerCalendarRoutes(options: {
   route("GET", "/occurrences", async (ctx, workspace) => { const { from, to } = range(ctx); return { occurrences: await calendarOccurrences(config, workspace, from, to) }; });
   route("GET", "/export", async (ctx, workspace) => new Response(await calendarExport(config, workspace, ctx.url.searchParams.get("profile") === "native" ? "native" : "calendar"), { headers: { "Content-Type": "text/calendar; charset=utf-8", "Cache-Control": "no-store" } }));
   route("GET", "/rules", async () => ({ skills: DEADLINE_SKILLS, codeHash: DEADLINE_CODE_HASH }));
+  // Subscription URLs are bearer credentials. Viewer clients cannot retrieve them.
+  for (const method of ["GET", "POST", "DELETE"]) {
+    const subscription = async (ctx: RequestContext, workspaceId: string | null) => {
+      options.requireClientScope(ctx, "collaborator");
+      if (method !== "GET") options.ensureWritable(config);
+      return method === "GET" ? calendarSubscription(config, workspaceId) : changeCalendarSubscription(config, workspaceId, method === "POST");
+    };
+    route(method, "/subscription", (ctx, workspace) => subscription(ctx, workspace.id));
+    addRoute(options.routes, method, "/calendar/subscription", "client", async ctx => options.jsonResponse(await subscription(ctx, null)));
+  }
   route("GET", "/links", async (ctx, workspace) => ({ projectName: workspace.displayName?.trim() || workspace.name,
     sessions: (await options.listSessions(workspace, ctx.url.searchParams.get("search")?.slice(0, 255))).filter(session => resolve(session.directory) === resolve(workspace.path)).map(({ id, title }) => ({ id, title })) }));
   route("POST", "/calculate", async (ctx, workspace) => {
