@@ -1,4 +1,4 @@
-"""Build a source-checked Eigenwelt DD report from prose and native review data.
+"""Build a source-checked due diligence report from prose and native review data.
 
 The agent writes fields and findings as JSON. This helper expands source references,
 builds the three report tables, checks quotations, and populates the Word template.
@@ -46,7 +46,7 @@ def assemble(packet, draft):
         raise ValueError("The draft does not belong to this pinned review packet. Use its matching packet identity.")
     summary = draft.get("fields", {}).get("executive_summary")
     if not isinstance(summary, str) or not summary.strip():
-        raise ValueError("Write the buyer-facing executive summary before generating the report.")
+        raise ValueError("Write the executive summary before generating the report.")
     sources = {source["ref"]: source for source in packet["sources"]}
     findings = []
     for index, row in enumerate(draft.get("findings", []), 1):

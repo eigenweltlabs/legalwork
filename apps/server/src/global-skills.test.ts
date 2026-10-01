@@ -6,6 +6,8 @@ import { listSkillResources, readSkillResource, upsertSkillResource } from "./sk
 import { listSkills, upsertSkill } from "./skills.js";
 import { exists } from "./utils.js";
 import { globalSkillsDir } from "./workspace-files.js";
+import { ensureBundledWorkflows } from "./bundled-workflows.js";
+import { unzipSync } from "fflate";
 
 const name = "workflow-assistant-cite-check";
 let root: string;
@@ -53,6 +55,38 @@ async function importWorkflow(configHome = appData) {
 
 test("standalone Windows keeps its APPDATA library without a desktop migration", () => {
   expect(globalSkillsDir()).toBe(join(appData, "opencode", "skills"));
+});
+
+test("the bundled DD workflow and its Word attachment are available across workspaces and remote clients", async () => {
+  await importWorkflow(); // Other personal workflows must stay out of remote listings.
+  await Promise.all([ensureBundledWorkflows(), ensureBundledWorkflows()]);
+  const bundled = "workflow-assistant-due-diligence";
+  const canonical = await readFile(new URL(`../resources/core-opencode/skills/${bundled}/resources/DD-Report-Template.docx`, import.meta.url));
+  for (const workspace of workspaces) {
+    for (const includeGlobal of [true, false]) {
+      const skills = await listSkills(workspace, includeGlobal);
+      expect(skills.filter(item => item.name === bundled)).toMatchObject([
+        { kind: "workflow", workflowType: "assistant", scope: "global" },
+      ]);
+      if (!includeGlobal) expect(skills.some(item => item.name === name)).toBe(false);
+    }
+    expect(await listSkillResources(workspace, bundled)).toMatchObject([{ name: "DD-Report-Template.docx" }]);
+    const attachment = await readSkillResource(workspace, bundled, "DD-Report-Template.docx", "base64");
+    const bytes = Buffer.from(attachment.content, "base64");
+    expect(bytes.equals(canonical)).toBe(true);
+    const parts = unzipSync(bytes);
+    expect(new TextDecoder().decode(parts["word/document.xml"])).toContain("{{matter_name}}");
+  }
+});
+
+test("startup preserves customized bundled workflows and attached templates", async () => {
+  await ensureBundledWorkflows();
+  const folder = join(globalSkillsDir(), "workflow-assistant-due-diligence");
+  await writeFile(join(folder, "SKILL.md"), "Firm's customized workflow.");
+  await writeFile(join(folder, "resources/DD-Report-Template.docx"), "Firm's customized template.");
+  await ensureBundledWorkflows();
+  expect(await readFile(join(folder, "SKILL.md"), "utf8")).toBe("Firm's customized workflow.");
+  expect(await readFile(join(folder, "resources/DD-Report-Template.docx"), "utf8")).toBe("Firm's customized template.");
 });
 
 test("desktop Windows uses OpenCode's XDG folder after migration", () => {

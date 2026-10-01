@@ -117,18 +117,22 @@ function compact(result: Awaited<ReturnType<typeof call>>) {
 export const LegalWorkReviewTools = async (context: OpenCodeContext & { client?: ReturnType<typeof createOpencodeClient> } = {}) => {
   let folderContext = { at: 0, value: "" };
   const ddSessions = new Set<string>(), draftingSessions = new Set<string>();
+  const ddSkills = ["workflow-assistant-due-diligence", "saas-acquisition-dd", "workflow-assistant-saas-acquisition-dd"];
+  const ddHelpers = ["docx-edit", "author-review-prompts", "start-tabular-review", "pdf-tools"];
   return ({
   ...(context.client ? { event: recoverEmptyReviewResponse(context.client, context.directory) } : {}),
   "tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args: Record<string, unknown> }) => {
     if (!input.sessionID) return;
-    if (input.tool === "skill" && ["saas-acquisition-dd", "workflow-assistant-saas-acquisition-dd"].includes(String(output.args.name)))
+    if (input.tool === "skill" && ddSkills.includes(String(output.args.name)))
       ddSessions.add(input.sessionID);
-    if (input.tool === "skill" && !["saas-acquisition-dd", "workflow-assistant-saas-acquisition-dd"].includes(String(output.args.name))) {
+    if (input.tool === "skill" && !ddSkills.includes(String(output.args.name)) && !ddHelpers.includes(String(output.args.name))) {
       ddSessions.delete(input.sessionID); draftingSessions.delete(input.sessionID);
     }
     if (input.tool === "todowrite") {
       const todos = z.array(z.object({ status: z.string() })).safeParse(output.args.todos);
-      if (todos.success && todos.data.length && todos.data.every(todo => todo.status === "completed")) draftingSessions.delete(input.sessionID);
+      if (todos.success && todos.data.length && todos.data.every(todo => todo.status === "completed")) {
+        ddSessions.delete(input.sessionID); draftingSessions.delete(input.sessionID);
+      }
     }
     if (!draftingSessions.has(input.sessionID)) return;
     const command = typeof output.args.command === "string" ? output.args.command : "";
