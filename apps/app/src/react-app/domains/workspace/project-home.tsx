@@ -190,7 +190,7 @@ export function ProjectHome(props: {
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
 
-        <div className="grid grid-cols-1 items-start gap-6 @min-[800px]/project-page:grid-cols-2">
+        <div className="grid grid-cols-1 items-stretch gap-4 @min-[640px]/project-page:grid-cols-2">
           <div className="min-w-0">{props.tasksView}</div>
           <UpcomingDeadlines client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />
         </div>
