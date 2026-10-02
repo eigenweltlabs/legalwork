@@ -24,6 +24,7 @@ import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { modelCatalogBaseURL } from "./provider-model-catalog.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -70,9 +71,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   // No trailing slash: the engine appends "/api.json" to this value, so a
   // trailing slash produces the malformed "https://…com//api.json" seen in
   // user-reported engine logs.
-  const opencodeModelsUrl = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") || (process.env.LEGALWORK_DEV_MODE === "1"
-    ? "http://localhost:8791/models"
-    : "https://models.eigenweltlabs.com");
+  const opencodeModelsUrl = modelCatalogBaseURL();
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
