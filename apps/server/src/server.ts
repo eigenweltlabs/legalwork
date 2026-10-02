@@ -126,6 +126,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { deleteAllLocalMemories } from "./personalization.js";
+import { readProjectDetails, updateProjectPersonalization } from "./project-store.js";
 import {
   mergeLegalworkWorkspaceConfigs,
   readLegalworkWorkspaceConfig,
@@ -1690,6 +1691,20 @@ function createRoutes(
 
   addRoute(routes, "GET", "/personalization", "client", async () => {
     return jsonResponse({ settings: await readGlobalPersonalizationSettings(config) });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/personalization", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const details = await readProjectDetails(workspace.path);
+    return jsonResponse({ customInstructions: details.personalizationPrompt ?? "", revision: details.revision });
+  });
+
+  addRoute(routes, "PUT", "/workspace/:id/personalization", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const details = await updateProjectPersonalization(workspace.path, await readJsonBody(ctx.request));
+    return jsonResponse({ customInstructions: details.personalizationPrompt ?? "", revision: details.revision });
   });
 
   addRoute(routes, "PUT", "/personalization", "client", async (ctx) => {
