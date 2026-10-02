@@ -136,9 +136,11 @@ its compression. Windows/Linux sizes and native execution require separate check
 
 The optional higher-quality model needs no Python either. Its explicit setup downloads
 Paddle's official `PaddlePaddle/PaddleOCR-VL-1.6-GGUF` release (Apache-2.0, about 1.8 GB)
-and an official llama.cpp build (MIT, `b11234`, about 12 MB), both revision-pinned and
-checksum-verified, streamed to disk and published atomically. Only a macOS Apple Silicon
-build is pinned so far; other platforms report the model as unsupported. Installations
+and an official llama.cpp build (MIT, `b11234`, about 12 MB on macOS and 33 MB on Windows),
+both revision-pinned and checksum-verified, streamed to disk and published atomically.
+Builds are pinned for macOS Apple Silicon (Metal) and 64-bit Windows (Vulkan, which falls
+back to its CPU backends without a usable graphics card); other platforms report the model
+as unsupported. The Windows build is not yet verified on Windows hardware. Installations
 from the earlier Python/MLX runtime are prepared again; their files are not reused.
 
 `llama-server` starts on the first page of a job, keeps the model loaded, and stops when

@@ -10,8 +10,11 @@ import { assetReady, downloadModelAsset } from "./models.js";
 import { OcrError } from "./types.js";
 
 const build = "b11234";
-const builds: Record<string, { name: string; bytes: number; sha256: string }> = {
-  "darwin-arm64": { name: `llama-${build}-bin-macos-arm64.tar.gz`, bytes: 11757756, sha256: "ee87c0ef14d224a408f8fa409c355f6734d2b34a899afe25a25975b275cc5094" },
+// `folder` holds the build inside the archive: the macOS archive has one, the Windows zip keeps it at the top.
+// The Windows Vulkan build runs on most graphics cards and falls back to its CPU backends without one.
+const builds: Record<string, { name: string; bytes: number; sha256: string; folder: string }> = {
+  "darwin-arm64": { name: `llama-${build}-bin-macos-arm64.tar.gz`, bytes: 11757756, sha256: "ee87c0ef14d224a408f8fa409c355f6734d2b34a899afe25a25975b275cc5094", folder: `llama-${build}` },
+  "win32-x64": { name: `llama-${build}-bin-win-vulkan-x64.zip`, bytes: 33058657, sha256: "a8a2a0f18d778a9efe0dd75bfce0efa29d4110bf4569c724b2f92846733f8a54", folder: "" },
 };
 const gguf = "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/511b09642bb324401f15f97cc23bc67e8f0a291d";
 const weights = [
@@ -26,7 +29,7 @@ export const llamaSupported = () => `${process.platform}-${process.arch}` in bui
 
 function paths(directory: string) {
   const root = join(directory, "paddleocr-vl-1.6");
-  return { root, build: join(root, `llama-${build}`), server: join(root, `llama-${build}`, "llama-server"), model: join(root, weights[0]!.name), mmproj: join(root, weights[1]!.name) };
+  return { root, build: join(root, `llama-${build}`), server: join(root, `llama-${build}`, process.platform === "win32" ? "llama-server.exe" : "llama-server"), model: join(root, weights[0]!.name), mmproj: join(root, weights[1]!.name) };
 }
 
 export async function qualityModelReady(directory: string, signal?: AbortSignal) {
@@ -39,7 +42,7 @@ export async function qualityModelReady(directory: string, signal?: AbortSignal)
 /** Downloads the pinned llama.cpp build and the model files. Complete files are reused on retry. */
 export async function prepareQualityModel(directory: string, signal: AbortSignal) {
   const archive = builds[`${process.platform}-${process.arch}`];
-  if (!archive) throw new OcrError("runtime-unavailable", "This model requires an Apple Silicon Mac.");
+  if (!archive) throw new OcrError("runtime-unavailable", "This model requires an Apple Silicon Mac or a 64-bit Windows PC.");
   const location = paths(directory);
   await mkdir(location.root, { recursive: true, mode: 0o700 });
   if (!await access(location.server).then(() => true, () => false)) {
@@ -47,10 +50,11 @@ export async function prepareQualityModel(directory: string, signal: AbortSignal
     try {
       await downloadModelAsset({ ...archive, url: `https://github.com/ggml-org/llama.cpp/releases/download/${build}/${archive.name}` }, file, signal);
       await mkdir(temporary, { mode: 0o700 });
-      // The system tar keeps the build's library symlinks; the archive's checksum was verified above.
+      // The system tar (bsdtar on macOS and Windows) keeps the build's library symlinks and also reads the Windows zip.
+      // The archive's checksum was verified above.
       await new Promise<void>((resolve, reject) => execFile("tar", ["-xf", file, "-C", temporary], { signal }, error => error ? reject(error) : resolve()));
       await rm(location.build, { recursive: true, force: true });
-      await rename(join(temporary, `llama-${build}`), location.build);
+      await rename(join(temporary, archive.folder), location.build);
     } finally { await rm(temporary, { recursive: true, force: true }); await rm(file, { force: true }); }
   }
   for (const asset of weights) await downloadModelAsset(asset, join(location.root, asset.name), signal);
