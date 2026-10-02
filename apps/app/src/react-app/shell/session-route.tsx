@@ -39,6 +39,7 @@ import type {
 
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
+import { systemReminderPart } from "@/app/lib/system-reminder";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
@@ -1421,6 +1422,7 @@ export function SessionRoute() {
         const turnSystemContext = [envSystemContext, draft.modelContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
+        if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
 
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
           const candidateModels = getFusionSelectedModels(targetSessionId);
@@ -1443,7 +1445,6 @@ export function SessionRoute() {
               mainModel: local.prefs.defaultModel ?? undefined,
               agent: selectedAgent ?? undefined,
               variant: modelVariantValue ?? undefined,
-              baseSystem: turnSystemContext || undefined,
             }).catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
@@ -1461,7 +1462,6 @@ export function SessionRoute() {
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(turnSystemContext ? { system: turnSystemContext } : {}),
         };
         if (options?.waitForCompletion) {
           // The queue advances after the engine's whole loop, not after a tool
