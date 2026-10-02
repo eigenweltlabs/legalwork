@@ -42,6 +42,7 @@ export type AiSettingsViewProps = {
   onReplaceProviderKey?: (providerId: string) => void | Promise<void>;
   /** Edit a user-defined custom provider (only shown for `source === "custom"`). */
   onEditProvider?: (providerId: string) => void | Promise<void>;
+  onRefreshProvider?: (providerId: string) => void | Promise<void>;
   canDisconnectProvider: (source?: ConnectedProvider["source"]) => boolean;
   eigenweltConnected: boolean;
   onManageEigenweltAccount: () => void;
@@ -122,7 +123,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
             </div>
             {!props.cloudProviderIds?.has(provider.id) && (
               (provider.source === "env" && props.onReplaceProviderKey) ||
-              (provider.editableAsCustom && props.onEditProvider) ||
+              (provider.editableAsCustom && props.onEditProvider) || props.onRefreshProvider ||
               props.canDisconnectProvider(provider.source)
             ) ? (
               <ProviderActionsMenu name={provider.name} disabled={props.busy || props.providerAuthBusy || props.disconnectingProviderId !== null}>
@@ -148,6 +149,14 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                     }
                   >
                     {t("settings.edit")}
+                  </DropdownMenuItem>
+                ) : null}
+                {props.onRefreshProvider ? (
+                  <DropdownMenuItem
+                    onClick={() => void props.onRefreshProvider?.(provider.id)}
+                    disabled={props.busy || props.providerAuthBusy || props.disconnectingProviderId !== null}
+                  >
+                    {t("provider_auth.refresh_models")}
                   </DropdownMenuItem>
                 ) : null}
                 {props.canDisconnectProvider(provider.source) ? (

@@ -214,7 +214,7 @@ export function ensureProviderListQuery(
       staleTime: 0,
     });
   }
-  return queryClient.ensureQueryData({
+  return queryClient.fetchQuery({
     ...options,
     staleTime: PROVIDER_LIST_CACHE_MS,
   });

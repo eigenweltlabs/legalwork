@@ -879,6 +879,10 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  useEffect(() => {
+    if (modelPicker.open || modelPicker.compactOpen) void sessionProviderAuthStore.refreshCustomProviderModels().catch(() => undefined);
+  }, [modelPicker.open, modelPicker.compactOpen, sessionProviderAuthStore]);
+
   // "Start free trial" CTAs (migration dialog, connect-AI bar): the choice is
   // already made, so go straight to the Eigenwelt sign-in in the browser (the
   // platform funnel continues to the trial) instead of the provider picker.
@@ -2408,6 +2412,7 @@ export function SessionRoute() {
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
         onFetchCustomModels: sessionProviderAuthStore.fetchCustomProviderModels,
+        onRefreshCustomProvider: sessionProviderAuthStore.refreshCustomProvider,
         onReadCustomProvider: sessionProviderAuthStore.readCustomProviderForEdit,
         // From the plan screen's "own model" card: providers only.
         onEigenweltSignIn: providerModalFromPlans ? undefined : sessionProviderAuthStore.startEigenweltSignIn,
