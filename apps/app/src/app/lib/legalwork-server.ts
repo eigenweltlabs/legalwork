@@ -1,3 +1,4 @@
+import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
@@ -2636,6 +2637,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     },
     runProjectSync: () =>
       requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
+    calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
+      requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
+    calendarLinks: (workspaceId: string, search = "") => requestJson<{ projectName: string; sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/links?search=${encodeURIComponent(search)}`, { token, hostToken }),
+    calendarItems: (workspaceId: string, includeDeleted = false) => requestJson<{ items: CalendarItem[]; conflicts: CalendarItem[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${includeDeleted ? "?deleted=include" : ""}`, { token, hostToken }),
+    calendarSubscription: (workspaceId: string | null, method = "GET") => requestJson<{ available: boolean; url: string | null; lastSyncedAt: string | null }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/subscription`, { token, hostToken, method }),
+    calendarItem: (workspaceId: string, itemId: string) => requestJson<{ item: CalendarItem }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/${encodeURIComponent(itemId)}`, { token, hostToken }),
+    calendarWrite: (workspaceId: string, path: string, body: unknown, method = "POST") => requestJson<{ item?: CalendarItem; items?: CalendarItem[]; calculation?: DeadlineCalculation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${path}`, { token, hostToken, method, body }),
+    calendarExport: async (workspaceId: string) => {
+      const file = await requestBinary(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/export`, { token, hostToken });
+      return new TextDecoder().decode(file.data);
+    },
+    claimCalendarReminders: () => requestJson<{ reminders: { id: string; itemId: string; projectId: string; title: string; deadline: string }[] }>(baseUrl, "/calendar/reminders/claim", { token, hostToken, method: "POST" }),
     projectSyncStatus: (workspaceId: string) =>
       requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
         token,

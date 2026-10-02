@@ -44,6 +44,7 @@
     "electron-updater": "^6.3.9",
     "fflate": "^0.8.3",
     "gray-matter": "4.0.3",
+    "ical.js": "2.2.1",
     "image-size": "2.0.4",
     "jsonc-parser": "^3.2.1",
     "minimatch": "^10.0.1",

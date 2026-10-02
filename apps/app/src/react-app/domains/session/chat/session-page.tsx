@@ -61,7 +61,7 @@ import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig } from "../../../shell/shell-config";
-import { workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute } from "../../../shell/workspace-routes";
+import { workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
@@ -130,7 +130,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -224,9 +224,10 @@ export type SessionPageProps = {
   mainView?: React.ReactNode;
   projectsPage?: boolean;
   homePage?: boolean;
-  projectPage?: "home" | "tasks" | "reviews";
+  projectPage?: "calendar" | "home" | "tasks" | "reviews";
   onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
+  projectCalendarView?: React.ReactNode;
   onStartProjectRecording: () => void;
   onCreateProjectSession?: (shareRecording: boolean) => void | Promise<void>;
   terminalOpen?: boolean;
@@ -1031,7 +1032,7 @@ export function SessionPage(props: SessionPageProps) {
     onOpenProject={async (id, page) => {
       if (await props.sidebar.onSelectWorkspace(id) === false) return;
       if (page === "projectFiles") setFileSidebarState(`project:${id}`, "files");
-      navigate(page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
+      navigate(page === "projectCalendar" ? workspaceCalendarRoute(id) : page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
     }}
     onOpenSession={openSessionTab}
     onNewChat={props.sidebar.onCreateChatInWorkspace}
@@ -1042,7 +1043,7 @@ export function SessionPage(props: SessionPageProps) {
     newChatDisabled={props.sidebar.newChatDisabled}
   /> : props.projectPage === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews onOpenSession={sessionId => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
-  ) : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
+  ) : props.projectPage === "calendar" ? props.projectCalendarView : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
@@ -1111,6 +1112,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.projectPage === "home" ? workspaceName
     : props.projectPage === "reviews" ? t("projects.tab_review")
     : props.projectPage === "tasks" ? t("projects.tasks")
+    : props.projectPage === "calendar" || props.sidebar.activeNav === "calendar" ? t("calendar.title")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")

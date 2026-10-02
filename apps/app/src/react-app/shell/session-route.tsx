@@ -1,3 +1,5 @@
+import { CalendarView } from "../domains/calendar/calendar-view";
+import { workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import {
@@ -512,6 +514,23 @@ export function SessionRoute() {
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
+  useEffect(() => {
+    if (!client || detached) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { reminders } = await client.claimCalendarReminders();
+        if (cancelled) return;
+        for (const reminder of reminders) {
+          const target = workspaceCalendarRoute(reminder.projectId);
+          toast.info(`${reminder.title} · ${reminder.deadline.slice(0, 10)}`, { id: reminder.id, action: { label: t("calendar.title"), onClick: () => navigate(target) } });
+          void platform.notify(reminder.title, reminder.deadline.slice(0, 10), () => navigate(target));
+        }
+      } catch { /* Retry after a server restart or while disconnected. */ }
+    };
+    void poll(); const timer = window.setInterval(() => void poll(), 60000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [client?.baseUrl, detached, platform, navigate]);
   useEffect(() => onSyncPoke((poke) => {
     if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
     if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
@@ -1026,7 +1045,7 @@ export function SessionRoute() {
   // Organizing local project files, notes and tasks does not need an AI model.
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
-    location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !createWorkspaceOpen;
+    location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -2135,6 +2154,7 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
+  const calendarPage = location.pathname === "/calendar";
   const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
@@ -2417,7 +2437,7 @@ export function SessionRoute() {
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
       projectsPage={location.pathname === "/projects" && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
-      projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
+      projectPage={!calendarPage && (location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
         if (recordingSessionStarting.current) return;
@@ -2432,8 +2452,9 @@ export function SessionRoute() {
           );
         } finally { recordingSessionStarting.current = false; }
       }}
+      projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} onOpenTask={id => { setOpenTask({ id, at: Date.now() }); navigate(workspaceTasksRoute(selectedWorkspaceId)); }} />}
       projectTasksView={
-        <TasksPane embedded={location.pathname.endsWith("/project")} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+        <TasksPane embedded={location.pathname.endsWith("/project")} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} openTask={openTask} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
       onStartProjectRecording={() => {
         const recorder = useRecorderStore.getState();
@@ -2478,7 +2499,12 @@ export function SessionRoute() {
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
-        homePage ? (
+        calendarPage ? (
+          <CalendarView client={client}
+            projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
+            remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
+            onOpenTask={(id, projectId) => { setOpenTask({ id, at: Date.now() }); if (projectId) navigate(workspaceTasksRoute(projectId)); else showTasksPane(); }} />
+        ) : homePage ? (
           <AppHome
             workspaces={sidebarWorkspaces}
             projectId={homeProjectId}
@@ -2582,7 +2608,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
+        activeNav: calendarPage ? "calendar" : showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

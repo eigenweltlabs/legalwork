@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,12 @@ import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 
 export const SIDEBAR_ITEMS = {
   navHome: { label: "home.nav_label", icon: House },
+  navCalendar: { label: "calendar.title", icon: CalendarDays },
   navProjects: { label: "projects.plural", icon: LayoutGrid },
   sectionPinned: { label: "sidebar.pinned_sessions", icon: Pin },
   sectionProjects: { label: "projects.plural", icon: FolderOpen },
   sectionRecent: { label: "sidebar.recent_sessions", icon: Clock },
+  projectCalendar: { label: "calendar.title", icon: CalendarDays },
   projectHome: { label: "projects.home", icon: House },
   projectReviews: { label: "projects.tab_review", icon: Table2 },
   projectTasks: { label: "projects.tasks", icon: ListTodo },

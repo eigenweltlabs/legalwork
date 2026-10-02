@@ -48,7 +48,8 @@
     "./reviews": "./src/reviews.ts",
     "./corpus": "./src/corpus.ts",
     "./search": "./src/search.ts",
-    "./sync-events": "./src/sync-events.ts"
+    "./sync-events": "./src/sync-events.ts",
+    "./calendar": "./src/calendar.ts"
   },
   "files": [
     "src",
