@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Square, Star, StickyNote, SquareCheck } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -126,12 +126,17 @@ export function ProjectHome(props: {
 
         {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} onOpenFile={props.onOpenFile} />}
 
+        <div className="border-t border-border/60 px-5 py-2 @min-[720px]/project-page:px-6">
+          <Button variant="ghost" size="sm" onClick={() => controls.openSettings(props.workspace, "folders")}><Link2 />{t("projects.remote.linked")} {details.data?.remote?.folders.length || ""}</Button>
+        </div>
+
         <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen} className="border-t border-border/60 bg-background/60 px-5 py-1.5 @min-[720px]/project-page:px-6">
           <div className="flex items-center gap-2">
             <CollapsibleTrigger render={<Button variant="ghost" className="min-w-0 flex-1 justify-start gap-2 px-0 text-sm font-normal hover:bg-transparent aria-expanded:bg-transparent" />}>
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
+            <Button size="icon-xs" variant="ghost" disabled={!details.data} aria-label={t("projects.configure_fields")} title={t("projects.configure_fields")} onClick={() => controls.openSettings(props.workspace, "fields")}><Settings2 className="size-3.5" /></Button>
           </div>
           <CollapsibleContent>
             <div className="pb-3 pt-2">

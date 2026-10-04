@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { FolderOpen, FolderPlus, MessageSquare, Mic, MoreHorizontal, Pencil, Plus, Settings2, Square, SquareCheck, Star, StickyNote, Trash2, Users } from "lucide-react";
+import { FolderOpen, FolderPlus, MessageSquare, Mic, MoreHorizontal, Plus, Settings2, Square, SquareCheck, Star, StickyNote, Trash2, Users } from "lucide-react";
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import { isWindowsPlatform } from "@/app/utils";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,6 @@ export function ProjectMenuItems({ workspace, variant = "dropdown" }: { workspac
     </Sub>
     <Separator />
     <Item onClick={() => controls.openSettings(workspace)}><Settings2 />{t("project_settings.title")}</Item>
-    <Item onClick={() => controls.openSettings(workspace, "general")}><Pencil />{t("sidebar.rename_project")}</Item>
     {workspace.workspaceType === "local" ? <Item onClick={() => controls.openSettings(workspace, "sharing")}><Users />{t("project_settings.sharing")}</Item> : null}
     <Item onClick={() => toggleFavorite(workspace.id)}><Star className={favorite ? "fill-current" : undefined} />{t(favorite ? "projects.remove_favorite" : "projects.add_favorite")}</Item>
     {workspace.workspaceType === "local" ? <Item onClick={() => controls.onReveal(workspace.id)}><FolderOpen />{t(isWindowsPlatform() ? "workspace_list.reveal_explorer" : "workspace_list.reveal_finder")}</Item> : null}
