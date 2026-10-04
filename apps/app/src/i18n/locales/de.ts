@@ -44,6 +44,7 @@ const de = {
   "calc.check_endpoint": "Wochenende und Feiertage prüfen",
   "calc.working_day": "Der letzte Tag ist in {location} ein Werktag.",
   "calc.unchanged": "Keine Verschiebung",
+  "calc.endpoint_confirmed": "Verschobenes Fristende bestätigt",
   "calc.adjust_endpoint": "Fristende verschieben",
   "calc.nonworking_day": "{date} ist kein Werktag. Weiter zum nächsten maßgeblichen Tag.",
   "calc.decision_failed": "Die Entscheidung konnte nicht gespeichert werden. Bitte Quellen prüfen und erneut versuchen.",

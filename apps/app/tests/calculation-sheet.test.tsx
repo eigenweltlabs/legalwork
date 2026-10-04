@@ -61,3 +61,23 @@ test("missing service evidence cannot present a calendar save action", () => {
   expect(html).toContain("Clarify information");
   expect(html).not.toContain("Save to calendar");
 });
+test("show mode keeps evidence and necessary questions visible without approval buttons", () => {
+  const shown = { ...card, mode: "show", state: "shown" } satisfies CalculationPresentation;
+  const html = render(shown);
+  expect(html).toContain("Aug 14");
+  expect(html).toContain("gerichtliche-verfuegung.pdf");
+  expect(html).not.toContain("Save to calendar");
+  expect(html).not.toContain(">Correct<");
+  const missing = render({ ...shown, runs: [{ ...run, status: "needs_information", origin: "assessment", steps: [], results: [], missingFacts: ["When was the order served?"] }] });
+  expect(missing).toContain("When was the order served?");
+  expect(missing).not.toContain("Clarify information");
+  expect(missing).not.toContain("Save to calendar");
+});
+test("a holiday rollover never ends with a misleading no-adjustment label", () => {
+  const steps = calculationSteps({ ...run, steps: [
+    { title: "1", reason: "2026-11-18 is not a working day; advance one day.", inputs: {}, output: null },
+    { title: "2", reason: "Weekend and statutory-holiday check passed for 2026-11-19 (SN, Dresden).", inputs: {}, output: null },
+  ] });
+  expect(steps[0].reason).toContain("Nov 18");
+  expect(steps[1].value).toBe("Adjusted date confirmed");
+});

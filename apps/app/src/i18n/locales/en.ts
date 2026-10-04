@@ -34,6 +34,7 @@ export default {
   "calc.check_endpoint": "Check weekends and holidays",
   "calc.working_day": "The endpoint is a working day in {location}.",
   "calc.unchanged": "No adjustment",
+  "calc.endpoint_confirmed": "Adjusted date confirmed",
   "calc.adjust_endpoint": "Move past the non-working day",
   "calc.nonworking_day": "{date} is not a working day. Continue to the next applicable day.",
   "calc.decision_failed": "Could not save this decision. Check the sources and try again.",

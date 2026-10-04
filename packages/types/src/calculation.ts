@@ -22,7 +22,7 @@ export const CalculationRunSchema = z.object({
 export const CalculationPresentationInputSchema = z.object({
   supersedes: z.uuid().optional().describe("Previous card ID to close when correcting its inputs or legal selection. Unrelated deadlines remain independent."),
   title: z.string().min(1).max(255), selection: z.string().min(1).max(4000).describe("Explain which legal deadline was requested and why the chosen rule applies. This is an agent assessment, separate from the code execution."),
-  mode: z.enum(["show", "confirm"]).default("confirm"), sessionId: z.string().optional(),
+  mode: z.enum(["show", "confirm"]).default("show").describe("Show evidence by default. Confirm only when review before saving was requested or required; missing facts need a focused question, not approval."), sessionId: z.string().optional(),
   calculationIds: z.array(z.uuid()).max(30).default([]), runId: z.uuid().optional(),
   assessment: z.object({ status: z.enum(["needs_information", "requires_specialist_review"]),
     missingFacts: z.array(z.string().min(1).max(2000)).min(1).max(30), skill: z.string().min(1), inputs: z.record(z.string(), z.unknown()).default({}),

@@ -51,6 +51,7 @@ export function calculationFacts(run: CalculationRun) {
     .map(([key, value]) => ({ label: key === "triggerDate" && run.inputs.triggerType === "service" ? t("calc.served") : factLabel(key), value: key === "duration" ? periodText(value, run.inputs.unit) : valueText(value, key, run.results[0]?.timeZone) }));
 }
 export function calculationSteps(run: CalculationRun) {
+  const shifted = run.steps.some(step => /^\d{4}-\d{2}-\d{2} (?:is not a working day|is nonworking|after the service addition is nonworking);/.test(step.reason));
   return run.steps.flatMap(step => {
     const zone = run.results[0]?.timeZone;
     // Known, versioned calculator messages become the compact rows from the design.
@@ -60,7 +61,7 @@ export function calculationSteps(run: CalculationRun) {
     match = /^(\d+) (days|weeks|months|years) from (\d{4}-\d{2}-\d{2}); nominal end (\d{4}-\d{2}-\d{2})/.exec(step.reason);
     if (match) return [{ title: t("calc.count_period"), reason: t("calc.count_from", { period: periodText(Number(match[1]), match[2]), date: dateText(match[3]) }), value: dateText(match[4]) }];
     match = /^Weekend and statutory-holiday check passed for (\d{4}-\d{2}-\d{2}) \(([^)]+)\)/.exec(step.reason);
-    if (match) return [{ title: t("calc.check_endpoint"), reason: t("calc.working_day", { location: match[2].split(", ").map(part => regions[part] ?? part).join(", ") }), value: t("calc.unchanged") }];
+    if (match) return [{ title: t("calc.check_endpoint"), reason: t("calc.working_day", { location: match[2].split(", ").map(part => regions[part] ?? part).join(", ") }), value: t(shifted ? "calc.endpoint_confirmed" : "calc.unchanged") }];
     match = /^(\d{4}-\d{2}-\d{2}) (?:is not a working day|is nonworking|after the service addition is nonworking);/.exec(step.reason);
     if (match) return [{ title: t("calc.adjust_endpoint"), reason: t("calc.nonworking_day", { date: dateText(match[1]) }), value: "" }];
     if (/^(End of day |Cutoff |Deadline day .*; cutoff )/.test(step.reason) && run.results.length) return []; // The exact cutoff is already visible in the result.

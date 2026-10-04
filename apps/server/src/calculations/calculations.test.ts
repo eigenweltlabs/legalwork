@@ -19,13 +19,28 @@ async function fixture() {
 const input = { rule: "de-zpo-period", region: "BE", triggerDate: "2026-01-12", duration: 2, unit: "weeks", source: "Personal service record" };
 const signal = new AbortController().signal;
 
+test("show is the default: evidence does not write or require approval, an explicit save retains the receipt", async () => {
+  const { store, workspace } = await fixture();
+  const calculation = store.recordCalculation(workspace.id, calculateDeadline(input), "code");
+  const card = await presentCalculation(store, workspace, { title: "Response", selection: "Ordinary response period", calculationIds: [calculation.id] }, signal);
+  expect(card.mode).toBe("show");
+  expect(card.state).toBe("shown");
+  expect(store.list(workspace.id)).toHaveLength(0);
+  const item = store.create(workspace.id, { kind: "deadline", title: "Response", start: calculation.deadlineDay, timeZone: calculation.timeZone }, calculation.id);
+  expect(item.provenance.kind).toBe("calculated");
+  expect(item.verified).toBe(false);
+  expect(store.list(workspace.id)).toHaveLength(1);
+});
+
 test("confirmation saves immutable receipts once, links sources, blocks background writes and crosses no projects", async () => {
   const { store, workspace } = await fixture();
   const calculation = store.recordCalculation(workspace.id, calculateDeadline(input), "code");
-  const card = await presentCalculation(store, workspace, { title: "Ordinary response period", selection: "Two-week diary entry, not the absolute objection cutoff.", calculationIds: [calculation.id] }, signal);
+  const card = await presentCalculation(store, workspace, { mode: "confirm", title: "Ordinary response period", selection: "Two-week diary entry, not the absolute objection cutoff.", calculationIds: [calculation.id] }, signal);
   expect(card.runs[0].results[0].date).toBe("2026-01-26");
   expect(card.runs[0].steps.map(step => step.reason)).toEqual(calculation.trace);
   expect(() => store.create(workspace.id, { title: "Bypass", start: "2026-01-26", timeZone: "Europe/Berlin" }, calculation.id)).toThrow("requires review");
+  await presentCalculation(store, workspace, { title: "Same evidence", selection: "Showing evidence is not approval", mode: "show", calculationIds: [calculation.id] }, signal);
+  expect(() => store.create(workspace.id, { kind: "deadline", title: "Bypass", start: "2026-01-26", timeZone: "Europe/Berlin" }, calculation.id)).toThrow("requires review");
   expect(() => store.presentation("another", card.id)).toThrow();
   const saved = store.decidePresentation(workspace.id, card.id, "save");
   expect(saved.state).toBe("saved");
@@ -38,7 +53,7 @@ test("confirmation saves immutable receipts once, links sources, blocks backgrou
 test("rejection prevents stale approval and missing information cannot create a date", async () => {
   const { store, workspace } = await fixture();
   const calculation = store.recordCalculation(workspace.id, calculateDeadline(input), "code");
-  const card = await presentCalculation(store, workspace, { title: "Check", selection: "Check", calculationIds: [calculation.id] }, signal);
+  const card = await presentCalculation(store, workspace, { mode: "confirm", title: "Check", selection: "Check", calculationIds: [calculation.id] }, signal);
   store.decidePresentation(workspace.id, card.id, "reject");
   expect(() => store.decidePresentation(workspace.id, card.id, "save")).toThrow("closed");
   const missing = store.recordPresentation({ ...card, id: crypto.randomUUID(), state: "pending", runs: [{ ...card.runs[0], origin: "assessment", status: "needs_information", results: [], steps: [], missingFacts: ["Whether and when a Vollstreckungsbescheid was ordered."] }] });
@@ -49,7 +64,7 @@ test("rejection prevents stale approval and missing information cannot create a 
 test("multiple independent clocks save atomically; altered and foreign receipts are refused", async () => {
   const { store, workspace } = await fixture();
   const receipts = [1, 2].map(duration => store.recordCalculation(workspace.id, calculateDeadline({ ...input, duration, unit: "months", triggerDate: "2026-01-31" }), "code"));
-  const card = await presentCalculation(store, workspace, { title: "Appeal clocks", selection: "Independent periods from original anchor", calculationIds: receipts.map(item => item.id) }, signal);
+  const card = await presentCalculation(store, workspace, { mode: "confirm", title: "Appeal clocks", selection: "Independent periods from original anchor", calculationIds: receipts.map(item => item.id) }, signal);
   expect(card.runs.map(run => run.results[0].date)).toEqual(["2026-03-02", "2026-03-31"]);
   store.recordPresentation({ ...card, id: crypto.randomUUID(), runs: [card.runs[0], { ...card.runs[1], results: [{ ...card.runs[1].results[0], date: "2026-04-01" }] }] });
   const invalid = store.recordPresentation({ ...card, id: crypto.randomUUID(), runs: [card.runs[0], { ...card.runs[1], results: [{ ...card.runs[1].results[0], calculationId: crypto.randomUUID() }] }] });
@@ -148,8 +163,8 @@ test("chat card envelopes cannot include executable bundles or grow past engine 
 test("a replacement card retires the previous confirmation without changing its receipt", async () => {
   const { store, workspace } = await fixture();
   const receipt = store.recordCalculation(workspace.id, calculateDeadline(input), "code");
-  const first = await presentCalculation(store, workspace, { title: "Response", selection: "Initial selection", calculationIds: [receipt.id] }, signal);
-  const next = await presentCalculation(store, workspace, { title: "Ordinary response", selection: "Corrected selection", calculationIds: [receipt.id], supersedes: first.id }, signal);
+  const first = await presentCalculation(store, workspace, { mode: "confirm", title: "Response", selection: "Initial selection", calculationIds: [receipt.id] }, signal);
+  const next = await presentCalculation(store, workspace, { mode: "confirm", title: "Ordinary response", selection: "Corrected selection", calculationIds: [receipt.id], supersedes: first.id }, signal);
   expect(store.presentation(workspace.id, first.id).state).toBe("rejected");
   expect(() => store.decidePresentation(workspace.id, first.id, "save")).toThrow("closed");
   expect(store.decidePresentation(workspace.id, next.id, "save").itemIds).toHaveLength(1);

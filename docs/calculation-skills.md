@@ -8,7 +8,11 @@ Load a jurisdiction skill with `legalwork_skill_load`. This resolves its base an
 
 `selection` is an explicitly labelled agent assessment of the requested legal deadline. It is not presented as a proven consequence of the calculator. A refusal or missing-facts conclusion uses an assessment with no dates. A presentation can contain multiple independent receipts, without reducing them to one deadline.
 
-In `show` mode the card is informational. In `confirm` mode its Save button creates the exact reviewed deadlines in one transaction. Duplicate clicks return the same items. A pending/rejected card prevents agent background saves using its receipts. Rejected cards cannot later be approved. The sources must still have the same hashes when saved. New facts require a new run and card.
+`show` is the default: show a supported calculation directly when its material facts are established. Read the available evidence first and do not ask the user to reconfirm it or answer hypothetical exceptions. A request to calculate does not authorize a calendar write. A request to add a deadline does: save the exact receipt and show its calculation without an extra approval step. This does not mark the entry human-verified.
+
+When a fact could change the requested result and is absent from the record, show an assessment without a date and ask a focused question. Do not substitute an ordinary response date for an unknown statutory cutoff. An unsupported executable rule needs a clear limitation, not an irrelevant questionnaire.
+
+Use `confirm` for an explicit request to review before saving or an applicable substantive review requirement. Its Save button creates the exact reviewed deadlines in one transaction. Duplicate clicks return the same items. A pending/rejected card prevents agent background saves using its receipts, including through a later show card. Rejected cards cannot later be approved. The sources must still have the same hashes when saved. New facts require a new run and card. Current interaction guidance supersedes generic confirmation advice in older bundled skills without rewriting installed skill packages or breaking pinned corrections.
 
 ## Custom Python skill code
 
