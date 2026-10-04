@@ -1,7 +1,7 @@
 import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
-import { confirmDiscardDocuments, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
+import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
@@ -195,6 +195,7 @@ function moveTab(state: PanelTabStore, sessionId: string, tabId: string, to: "ma
   if (tab?.type !== "artifact" || inSide === (to === "side")) {
     return state;
   }
+  if (to === "side" && session.tabs.length - session.sideTabIds.length <= 1) return state;
 
   // The moved tab remounts in its new pane and takes over as that pane's
   // active document, so both may lose unsaved changes.
@@ -353,9 +354,13 @@ export const usePanelTabStore = create<PanelTabStore>()(
 
         const inSide = session.sideTabIds.includes(tabId);
         const wasActive = (inSide ? session.sideActiveTabId : session.activeTabId) === tabId;
+        // Closing the last main tab promotes the side document and remounts
+        // its editor, so that draft needs the same guard as an explicit move.
+        const promoted = !inSide && session.tabs.length - session.sideTabIds.length === 1
+          ? session.sideActiveTabId : null;
         if (closing.type === "workflow" || closing.type === "workflow-resource") {
-          if (!confirmDiscardDocuments(tabId)) return state;
-        } else if (wasActive && !confirmDiscardSessionDocuments(sessionId, [tabId], undefined, true)) return state;
+          if (!confirmDiscardSessionDocuments(sessionId, [tabId, promoted])) return state;
+        } else if (wasActive && !confirmDiscardSessionDocuments(sessionId, [tabId, promoted], undefined, true)) return state;
         const nextActiveId = wasActive ? neighbourInPane(session, tabId) : null;
 
         return updateSession(state, sessionId, normalizeSession(

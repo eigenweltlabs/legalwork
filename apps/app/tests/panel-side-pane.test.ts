@@ -86,6 +86,51 @@ describe("documents side by side", () => {
     expect(session().sideTabIds).toEqual([]);
   });
 
+  test("moving the only main document is a no-op, without discarding its draft", () => {
+    const [nda, msa] = [document("NDA.docx"), document("MSA.docx")];
+    open(nda, msa);
+    const store = usePanelTabStore.getState();
+    store.moveTabToSide("session", msa.id);
+    let asked = 0;
+    let discarded = 0;
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => { asked += 1; return true; } } });
+    const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", nda.id), nda.label, () => true, () => { discarded += 1; });
+    try {
+      store.moveTabToSide("session", nda.id);
+      expect(asked).toBe(0);
+      expect(discarded).toBe(0);
+      expect(session().activeTabId).toBe(nda.id);
+      expect(session().sideActiveTabId).toBe(msa.id);
+    } finally {
+      unregister();
+      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
+
+  test("closing the last main tab protects the dirty side document before promoting it", () => {
+    const [nda, msa] = [document("NDA.docx"), document("MSA.docx")];
+    open(nda, msa);
+    const store = usePanelTabStore.getState();
+    store.moveTabToSide("session", msa.id);
+    let asked = 0;
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => { asked += 1; return false; } } });
+    const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", msa.id), msa.label, () => true);
+    try {
+      store.closeTab("session", nda.id);
+      expect(asked).toBe(1);
+      expect(session().tabs.map((tab) => tab.id)).toEqual([nda.id, msa.id]);
+      expect(session().activeTabId).toBe(nda.id);
+      expect(session().sideActiveTabId).toBe(msa.id);
+    } finally {
+      unregister();
+      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
+
   test("closing the last side document closes the side pane", () => {
     const [nda, msa] = [document("NDA.docx"), document("MSA.docx")];
     open(nda, msa);

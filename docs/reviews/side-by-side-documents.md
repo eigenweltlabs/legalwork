@@ -36,6 +36,18 @@ Nothing is persisted beyond what was persisted before. Document tabs are not res
 - A real pointer drag in Electron, and a drop while the main pane shows a browser tab. The native browser view covers the content area, so the drop target there is the tab strip.
 - A dirty document moving between panes prompts to discard, the same prompt as switching tabs today. Saving first keeps the draft.
 
+## Follow-up validation: 4 October
+
+Interactive validation found a draft-loss bug the original store tests did not cover: closing a clean side pane remounted the main Markdown editor and silently lost its unsaved changes. Opening a split had the same component-lifetime problem. The main editor and header strip now retain their render positions when the split opens or closes. The stored divider width ignores layouts without a side panel.
+
+The store also guards a dirty side document when closing the last main tab promotes it. Moving the only main document is now a no-op before any discard prompt, and its move control is disabled. Two regression tests cover these cases.
+
+After these changes, typecheck, the i18n audit, all **757 app tests**, the UI production build and `git diff --check` passed. The focused panel/storage suite has **19 passing tests**. The initial sandboxed suite could not bind local HTTP ports; the unrestricted local-server run passed.
+
+Chrome interaction confirmed an unsaved main draft survives opening an inactive document beside it and closing that clean side tab. The repository Electron shell with an isolated profile and the sample session fixture confirmed split-by-button, preservation of the main draft and undo availability on side closure, cancellation of a dirty-document switch, and keyboard resizing of the outer viewer divider.
+
+These are sample Markdown UI checks. Native pointer gestures through the automation did not establish a successful tab move; pointer resizing was also inconclusive. Real DOCX round-trips, native-browser overlay drops and a recording remain outstanding. The sample fixture rejects binary downloads and has expected failed requests for unimplemented services. This is not a full connected-app or zero-console-error claim.
+
 ## Reproduce the checks
 
 ```sh

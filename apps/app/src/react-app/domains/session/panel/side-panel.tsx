@@ -157,13 +157,14 @@ type SidePanelTabProps = {
   tab: PanelTabEntry;
   pane: ViewerPane;
   active: boolean;
+  canMove: boolean;
   onSelect: (tabId: string) => void;
   onClose: (tab: PanelTabEntry) => void;
   onMove: (tab: ArtifactPanelTab) => void;
   onDragChange: (tabId: string | null) => void;
 };
 
-function SidePanelTab({ tab, pane, active, onSelect, onClose, onMove, onDragChange }: SidePanelTabProps) {
+function SidePanelTab({ tab, pane, active, canMove, onSelect, onClose, onMove, onDragChange }: SidePanelTabProps) {
   const dragControls = useDragControls();
   const tabRef = React.useRef<HTMLDivElement>(null);
   const label = tab.type === "artifact" && tab.value && !tab.storage
@@ -197,7 +198,7 @@ function SidePanelTab({ tab, pane, active, onSelect, onClose, onMove, onDragChan
       <div
         ref={tabRef}
         className="relative"
-        draggable={fileTab !== null}
+        draggable={fileTab !== null && canMove}
         onDragStart={fileTab ? (event) => {
           event.dataTransfer.setData(TAB_DRAG_TYPE, fileTab.id);
           event.dataTransfer.effectAllowed = "move";
@@ -251,6 +252,7 @@ function SidePanelTab({ tab, pane, active, onSelect, onClose, onMove, onDragChan
             type="button"
             variant="ghost"
             size="icon-xs"
+            disabled={!canMove}
             className={cn(
               "absolute right-7 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100",
               active && "opacity-100",
@@ -783,6 +785,7 @@ export function SidePanel({
                 tab={tab}
                 pane="main"
                 active={tab.id === activeTab?.id}
+                canMove={mainTabs.length > 1}
                 onSelect={selectTab}
                 onClose={closeTab}
                 onMove={(fileTab) => moveToSide(fileTab.id)}
@@ -839,6 +842,7 @@ export function SidePanel({
                 tab={tab}
                 pane="side"
                 active={tab.id === sideActiveTab.id}
+                canMove
                 onSelect={selectTab}
                 onClose={closeTab}
                 onMove={(fileTab) => moveToMain(fileTab.id)}
@@ -943,54 +947,54 @@ export function SidePanel({
         {headerTarget ? (
           // In the window header both strips share one row, split like the panes.
           <PanelHeaderPortal target={headerTarget}>
-            {sideStrip ? (
-              <div className="flex h-full min-w-0">
-                <div className="h-full min-w-0" style={{ width: `${100 - sideSize}%` }}>{mainStrip}</div>
-                <div className="h-full min-w-0 border-l border-border/70" style={{ width: `${sideSize}%` }}>{sideStrip}</div>
-              </div>
-            ) : mainStrip}
+            <div className="flex h-full min-w-0">
+              <div className="h-full min-w-0" style={{ width: sideStrip ? `${100 - sideSize}%` : "100%" }}>{mainStrip}</div>
+              {sideStrip ? <div className="h-full min-w-0 border-l border-border/70" style={{ width: `${sideSize}%` }}>{sideStrip}</div> : null}
+            </div>
           </PanelHeaderPortal>
         ) : null}
-        {sideActiveTab ? (
-          <ResizablePanelGroup
-            orientation="horizontal"
-            className="min-h-0 flex-1"
-            onLayoutChange={(layout) => setSideSize(layout["viewer-side"])}
-          >
-            <ResizablePanel id="viewer-main" minSize="220px" className="flex min-w-0 flex-col">
-              {headerTarget ? null : mainStrip}
-              {mainContent}
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel id="viewer-side" defaultSize={`${sideSize}%`} minSize="220px" className="flex min-w-0 flex-col">
-              {headerTarget ? null : sideStrip}
-              <TabDropZone
-                pane="side"
-                dragging={draggingTab}
-                label={t("side_panel.drop_to_move_here")}
-                onDrop={moveToSide}
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <ArtifactPanel
-                    sessionId={sessionId}
-                    tab={sideActiveTab}
-                    client={client}
-                    workspaceId={workspaceId}
-                    workspaceRoot={workspaceRoot}
-                    isRemoteWorkspace={isRemoteWorkspace}
-                    onClose={() => closeTab(sideActiveTab)}
-                  />
-                </div>
-              </TabDropZone>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        ) : (
-          <>
+        {/* Keep the main editor mounted when the side pane opens or closes:
+            its unsaved draft and undo history belong to the document. */}
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="min-h-0 flex-1"
+          onLayoutChange={(layout) => {
+            const size = layout["viewer-side"];
+            if (typeof size === "number") setSideSize(size);
+          }}
+        >
+          <ResizablePanel id="viewer-main" minSize="220px" className="flex min-w-0 flex-col">
             {headerTarget ? null : mainStrip}
             {mainContent}
-          </>
-        )}
+          </ResizablePanel>
+          {sideActiveTab ? (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel id="viewer-side" defaultSize={`${sideSize}%`} minSize="220px" className="flex min-w-0 flex-col">
+                {headerTarget ? null : sideStrip}
+                <TabDropZone
+                  pane="side"
+                  dragging={draggingTab}
+                  label={t("side_panel.drop_to_move_here")}
+                  onDrop={moveToSide}
+                  className="flex min-h-0 flex-1 flex-col"
+                >
+                  <div className="min-h-0 flex-1 overflow-hidden">
+                    <ArtifactPanel
+                      sessionId={sessionId}
+                      tab={sideActiveTab}
+                      client={client}
+                      workspaceId={workspaceId}
+                      workspaceRoot={workspaceRoot}
+                      isRemoteWorkspace={isRemoteWorkspace}
+                      onClose={() => closeTab(sideActiveTab)}
+                    />
+                  </div>
+                </TabDropZone>
+              </ResizablePanel>
+            </>
+          ) : null}
+        </ResizablePanelGroup>
       </div>
     </TooltipProvider>
   );
