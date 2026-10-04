@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { ArrowUpRight, FolderOpen, Bell, ChevronRight, Circle, ExternalLink, Loader2, Timer, Trash2 } from "lucide-react";
+import { ArrowUpRight, FolderOpen, Bell, CalendarDays, ChevronDown, ChevronRight, ListFilter, Circle, CircleCheck, ExternalLink, Loader2, Timer, Trash2 } from "lucide-react";
 import type { CalendarItem } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { useNavigate } from "react-router-dom";
@@ -9,7 +9,8 @@ import type { CalendarSource } from "./calendar-queries";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ItemDetailLabel, ItemDescriptionInput, ItemDialogContent, ItemTitleInput } from "@/react-app/design-system/item-detail";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,7 +20,7 @@ import { AssigneeMark } from "../tasks/task-glyphs";
 import { DueDateChip, PropertyChip } from "../tasks/task-property-chip";
 import { taskMemberOptions } from "../tasks/task-format";
 import { useTaskMembers } from "../tasks/tasks-queries";
-import { calendarError, formatCalendarDay } from "./calendar-format";
+import { calendarError, calendarKindLabel, formatCalendarDay } from "./calendar-format";
 
 const UNASSIGNED = "__unassigned__";
 
@@ -96,40 +97,37 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
     } catch (error) { toast.error(calendarError(error)); } finally { setDeleting(false); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) props.onClose(); }}>
-    <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-xl">
+    <ItemDialogContent>
       <form className="flex min-h-0 flex-col" onSubmit={event => { event.preventDefault(); void save(); }}>
-        <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4 pr-14">
-          <DialogTitle className="flex items-center gap-2 text-sm font-medium"><Timer className="size-4 text-muted-foreground" />{t(item ? "calendar.edit" : "calendar.add")}</DialogTitle>
+        <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-3.5 pe-14">
+          <DialogTitle><ItemDetailLabel icon={item && item.kind !== "deadline" ? <CalendarDays /> : <Timer />}>{item ? calendarKindLabel(item.kind) : t("calendar.add")}</ItemDetailLabel></DialogTitle>
           <DialogDescription className="sr-only">{t("calendar.manual_hint")}</DialogDescription>
         </DialogHeader>
-        <fieldset disabled={saving || deleting} className="min-h-0 min-w-0 space-y-4 overflow-y-auto px-6 py-5">
-          {Boolean(props.projects?.length) && <div className="flex min-w-0 items-center gap-2">
-            {!item ? <PropertyChip label={t("calendar.project")} value={project.id} disabled={busy}
-              items={(props.projects ?? []).map(value => ({ value: value.id, label: value.name, leading: <FolderOpen className="size-3.5" /> }))}
-              onChange={value => { const next = props.projects?.find(entry => entry.id === value); if (next) { setProject(next); setAttachmentPaths([]); setSessionIds([]); setAssignee(UNASSIGNED); } }} />
-            : <Button type="button" variant="ghost" size="sm" className="h-7 min-w-0 max-w-full justify-start px-0 text-xs font-normal text-muted-foreground" title={project.name} disabled={busy} onClick={() => { props.onClose(); navigate(workspaceProjectRoute(project.id)); }}><FolderOpen className="size-3.5 shrink-0" /><span className="truncate">{project.name}</span><ArrowUpRight className="size-3 shrink-0" /></Button>}
-          </div>}
-          <div className="space-y-3">
-            <Input id={ids.title} aria-label={t("calendar.name")} autoFocus required maxLength={1000} placeholder={t("calendar.title_placeholder")} value={title} onChange={event => setTitle(event.target.value)}
-              className="h-auto rounded-md border-transparent bg-transparent px-0 py-1 text-xl font-medium leading-snug tracking-tight shadow-none md:text-xl hover:enabled:border-transparent focus-visible:border-transparent focus-visible:ring-0" />
-            <Textarea id={ids.description} aria-label={t("tasks.field_description")} rows={2} maxLength={20000} placeholder={t("calendar.description_placeholder")} value={description} onChange={event => setDescription(event.target.value)}
-              className="min-h-16 max-h-40 rounded-md border-transparent bg-transparent px-0 py-1 text-sm shadow-none hover:enabled:border-transparent focus-visible:border-transparent focus-visible:ring-0" />
+        <fieldset disabled={saving || deleting} className="min-h-0 min-w-0 space-y-5 overflow-y-auto px-5 py-6 sm:px-8">
+          <div className="space-y-4">
+            <ItemTitleInput id={ids.title} aria-label={t("calendar.name")} autoFocus required maxLength={1000} placeholder={t("calendar.title_placeholder")} value={title} onChange={event => setTitle(event.target.value)} />
+            <ItemDescriptionInput id={ids.description} aria-label={t("tasks.field_description")} rows={2} maxLength={20000} placeholder={t("calendar.description_placeholder")} value={description} onChange={event => setDescription(event.target.value)} />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 [&>[data-slot=select-trigger]]:max-w-72">
+            {item && <PropertyChip label={t("calendar.status")} value={status} disabled={busy} items={statusItems.map(option => ({ ...option, leading: option.value === "completed" ? <CircleCheck className="size-3.5 text-green-11" /> : <Circle className="size-3.5 text-muted-foreground" /> }))}
+              onChange={value => { if (value === "active" || value === "completed" || value === "cancelled") setStatus(value); }} />}
             <DueDateChip value={day} disabled={advanced || busy} onChange={value => setDay(value ?? "")} />
             <PropertyChip label={t("calendar.reminder")} value={reminder} disabled={busy} items={reminderItems.map(option => ({ ...option, leading: <Bell className="size-3.5 text-muted-foreground" /> }))} onChange={setReminder} />
             {Boolean(members.data?.length || item?.assigneeUserId) && <PropertyChip label={t("calendar.assignee")} value={assignee} disabled={busy}
               items={assigneeItems.map(option => ({ ...option, leading: <AssigneeMark name={option.value === UNASSIGNED ? null : option.primary} /> }))} onChange={setAssignee} />}
-            {item && <PropertyChip label={t("calendar.status")} value={status} disabled={busy} items={statusItems.map(option => ({ ...option, leading: <Circle className="size-3.5 text-muted-foreground" /> }))}
-              onChange={value => { if (value === "active" || value === "completed" || value === "cancelled") setStatus(value); }} />}
+
+            {!item && props.projects?.length ? <PropertyChip label={t("calendar.project")} value={project.id} disabled={busy}
+              items={props.projects.map(value => ({ value: value.id, label: value.name, leading: <FolderOpen className="size-3.5" /> }))}
+              onChange={value => { const next = props.projects?.find(entry => entry.id === value); if (next) { setProject(next); setAttachmentPaths([]); setSessionIds([]); setAssignee(UNASSIGNED); } }} />
+            : <Button type="button" variant="outline" size="sm" className="h-8 max-w-full gap-2 px-2.5 text-xs" title={project.name} disabled={busy} onClick={() => { props.onClose(); navigate(workspaceProjectRoute(project.id)); }}><FolderOpen className="size-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{project.name}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></Button>}
           </div>
           {advanced && <p className="text-xs leading-5 text-muted-foreground">{t("calendar.advanced_hint")}</p>}
-          <div className="border-t border-border/60 pt-3">
+          <div className="border-t border-border/60 pt-4">
             <DeadlineLinks key={project.id} client={client} workspaceId={workspaceId} projectId={project.id} attachmentPaths={attachmentPaths} sessionIds={sessionIds} disabled={saving || deleting}
               onAttachments={setAttachmentPaths} onSessions={setSessionIds} onBusy={setUploading} onClose={props.onClose} />
           </div>
-          <Collapsible>
-            <CollapsibleTrigger render={<Button type="button" variant="ghost" className="h-7 justify-start gap-1.5 px-0 text-xs font-normal text-muted-foreground" />}><ChevronRight className="size-3.5" />{t("calendar.more_details")}</CollapsibleTrigger>
+          <Collapsible className="border-t border-border/60">
+            <CollapsibleTrigger render={<Button type="button" variant="ghost" className="h-12 w-full justify-start gap-3 px-0 text-xs font-medium" />}><ListFilter className="size-4 text-muted-foreground" />{t("tasks.details")}<ChevronDown className="ms-auto size-4 text-muted-foreground transition-transform in-aria-expanded:rotate-180" /></CollapsibleTrigger>
             <CollapsibleContent className="space-y-3 pb-1 pt-3">
               {(!item || item.provenance.kind === "manual") && <div className="flex flex-col gap-1.5"><Label htmlFor={ids.source}>{t("calendar.source")}</Label><Input id={ids.source} maxLength={4000} placeholder={t("calendar.source_placeholder")} value={source} onChange={event => setSource(event.target.value)} /></div>}
               <div className="flex flex-col gap-1.5"><Label htmlFor={ids.timeZone}>{t("calendar.timezone")}</Label><Input id={ids.timeZone} required disabled={advanced} value={timeZone} onChange={event => setTimeZone(event.target.value)} /></div>
@@ -139,12 +137,12 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
           {item && item.provenance.kind !== "manual" && <div className="flex items-center gap-2"><Checkbox id={ids.reviewed} checked={verified} onCheckedChange={setVerified} /><Label htmlFor={ids.reviewed} className="text-xs">{t("calendar.verified")}</Label></div>}
           {item && <CalculationDetails item={item} />}
         </fieldset>
-        <DialogFooter className="m-0 shrink-0 px-6 py-4">
+        <DialogFooter className="m-0 shrink-0 border-border/60 bg-muted/20 px-6 py-3.5">
           {item && <Button type="button" variant="ghost" className="sm:mr-auto" disabled={busy} onClick={() => void remove()}>{deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}{t("calendar.delete")}</Button>}
           <Button type="button" variant="ghost" disabled={busy} onClick={props.onClose}>{t("common.cancel")}</Button>
           <Button type="submit" disabled={busy || !title.trim() || !day || (needsReason && !reason.trim())} aria-busy={saving}>{saving && <Loader2 className="animate-spin" />}{t(item ? "calendar.save" : "calendar.add")}</Button>
         </DialogFooter>
       </form>
-    </DialogContent>
+    </ItemDialogContent>
   </Dialog>;
 }

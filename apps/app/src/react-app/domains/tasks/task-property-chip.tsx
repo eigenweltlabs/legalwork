@@ -22,7 +22,7 @@ export type PropertyChipItem = {
 };
 
 const CHIP_CLASS =
-  "h-9 w-full min-w-0 max-w-full gap-2 rounded-lg sm:w-fit border-transparent bg-muted/60 px-3 text-sm font-medium text-foreground hover:bg-muted/60 data-[size=sm]:h-9";
+  "h-8 w-fit min-w-0 max-w-full gap-2 rounded-lg border-border/70 bg-background px-2.5 text-xs font-medium text-foreground shadow-xs hover:bg-muted/50 data-[size=sm]:h-8 [&>svg]:text-muted-foreground";
 
 export function PropertyChip(props: {
   label: string;
@@ -89,7 +89,7 @@ export function DueDateChip(props: { value: string | null; disabled: boolean; on
   return (
     <span
       className={cn(
-        "inline-flex h-9 min-w-0 items-center gap-2 rounded-lg bg-muted/60 ps-3 pe-1 text-sm font-medium",
+        "inline-flex h-8 min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-background ps-2.5 pe-1 text-xs font-medium shadow-xs",
         tone === "overdue" && "text-red-9",
         tone === "today" && "text-amber-9",
       )}
@@ -104,7 +104,7 @@ export function DueDateChip(props: { value: string | null; disabled: boolean; on
         disabled={props.disabled}
         value={taskDueDateInputValue(props.value)}
         title={props.value ? t("tasks.due_label", { date: formatTaskDueDate(props.value) }) : t("tasks.due_none")}
-        className="h-9 min-w-0 bg-transparent text-sm font-medium text-inherit outline-none disabled:cursor-not-allowed"
+        className="h-8 min-w-0 bg-transparent text-xs font-medium text-inherit outline-none disabled:cursor-not-allowed"
         onChange={(event) => props.onChange(event.target.value || null)}
       />
       {props.value ? (

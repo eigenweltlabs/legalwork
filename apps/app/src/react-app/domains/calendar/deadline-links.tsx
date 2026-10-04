@@ -75,9 +75,10 @@ export function DeadlineLinks(props: {
         append([file.path]);
       } else void upload(Array.from(event.dataTransfer.files));
     }}>
-      <div className="-ml-2 flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="me-auto flex items-center gap-3 py-1 text-xs font-medium"><Paperclip className="size-4 text-muted-foreground" />{props.attachmentPaths.length ? t("tasks.attachments_count", { count: props.attachmentPaths.length }) : t("tasks.attachments_empty")}</span>
         <DropdownMenu><DropdownMenuTrigger render={<Button type="button" variant="ghost" size="sm" className="h-8 text-xs font-normal text-muted-foreground" disabled={props.disabled || busy || props.attachmentPaths.length >= 50} />}>
-          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Paperclip className="size-3.5" />}{t("calendar.attach_files")}
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}{t("tasks.add_attachment")}
         </DropdownMenuTrigger><DropdownMenuContent align="start"><DropdownMenuItem onClick={() => setPicker(true)}><FolderOpen />{t("calendar.choose_project_file")}</DropdownMenuItem><DropdownMenuItem onClick={() => input.current?.click()}><Plus />{t("calendar.upload_file")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
         <Popover open={sessionPicker} onOpenChange={open => { setSessionPicker(open); if (!open) setSearch(""); }}>
           <PopoverTrigger render={<Button type="button" variant="ghost" size="sm" className="h-8 text-xs font-normal text-muted-foreground" disabled={props.disabled || busy || props.sessionIds.length >= 50} />}><MessageSquare className="size-3.5" />{t("calendar.link_session")}</PopoverTrigger>

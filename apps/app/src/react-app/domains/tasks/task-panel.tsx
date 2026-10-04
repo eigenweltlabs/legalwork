@@ -122,6 +122,7 @@ export function TaskContent(props: TaskContentProps) {
     <TaskDetail
       inPanel
       inDialog={props.inDialog}
+      saving={updateTask.isPending || resolveConflict.isPending}
       projects={props.projects}
       task={task}
       submission={detailQuery.data?.submission}

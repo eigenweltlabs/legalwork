@@ -1,7 +1,8 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogTitle } from "@/components/ui/dialog";
+import { ItemDialogContent } from "@/react-app/design-system/item-detail";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { ArtifactPanelTab } from "../session/panel/panel-tab-store";
@@ -19,7 +20,7 @@ export function TaskDialog(props: {
   const contentRef = useRef<HTMLDivElement>(null);
   const [attachment, setAttachment] = useState<ArtifactPanelTab | null>(null);
   return <Dialog open onOpenChange={open => { if (!open) props.onClose(); }}>
-    <DialogContent ref={contentRef} initialFocus={contentRef} showCloseButton={!attachment} className={cn("flex h-[min(760px,85dvh)] flex-col gap-0 p-0 sm:max-w-2xl", attachment && "sm:max-w-5xl")}>
+    <ItemDialogContent ref={contentRef} initialFocus={contentRef} showCloseButton={!attachment} className={cn("h-[min(560px,85dvh)]", attachment && "h-[min(760px,85dvh)] sm:max-w-5xl")}>
       <DialogTitle className="sr-only">{attachment?.label ?? t("calendar.task")}</DialogTitle>
       <div className={cn("min-h-0 flex-1", attachment && "hidden")}>
         <TaskContent {...props} inDialog onOpenAttachment={setAttachment} />
@@ -31,6 +32,6 @@ export function TaskDialog(props: {
               onClose={() => setAttachment(null)} />
           </Suspense>
       </div>}
-    </DialogContent>
+    </ItemDialogContent>
   </Dialog>;
 }
