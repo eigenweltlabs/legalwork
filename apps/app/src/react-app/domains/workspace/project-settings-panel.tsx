@@ -118,7 +118,7 @@ function ProjectFieldsEditor(props: { client: LegalworkServerClient; workspaceId
     if (props.details.revision !== base.revision && JSON.stringify(props.details.fields) === JSON.stringify(base.fields)) setBase(props.details);
   }, [props.details, base]);
   return <div><h3 className="font-medium">{t("project_settings.fields")}</h3><p className="mt-1 text-sm text-muted-foreground">{t("projects.metadata_hint")}</p>
-    <ProjectMetadata details={withInitialProjectFields(base, defaults ?? defaultAkteFields())} definitionsOnly onCancel={props.onClose} onReload={async () => {
+    <ProjectMetadata details={withInitialProjectFields(base, defaults ?? defaultAkteFields())} onCancel={props.onClose} onReload={async () => {
       const data = await props.client.getProjectDetails(props.workspaceId);
       setBase(data);
       queryClient.setQueryData(["project", props.workspaceId], data);
