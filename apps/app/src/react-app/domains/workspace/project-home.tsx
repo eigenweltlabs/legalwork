@@ -24,7 +24,7 @@ import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
 import { noteTitle } from "./project-note-title";
 import type { WorkspaceInfo } from "@/app/lib/desktop";
-import { ProjectMenu, ProjectContextMenu } from "./project-menu";
+import { ProjectContextMenu } from "./project-menu";
 import { useProjectControls } from "./project-controls";
 
 export function ProjectHome(props: {
@@ -98,11 +98,11 @@ export function ProjectHome(props: {
         <div className="lw-project-home-header overflow-hidden rounded-2xl border border-border/60">
         <ProjectContextMenu workspace={props.workspace}>
         <header className="p-5 @min-[720px]/project-page:p-6">
-          <div className="flex items-start gap-1">
-            <h1 className="min-w-0 flex-1 break-words text-2xl font-semibold leading-tight tracking-tight">{props.name}</h1>
+          <div className="flex flex-wrap items-start gap-1">
+            <h1 className="min-w-0 flex-1 basis-full break-words text-2xl font-semibold leading-tight tracking-tight @min-[640px]/project-page:basis-auto">{props.name}</h1>
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(props.projectId)}><Star className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
             {props.isRemoteWorkspace ? null : <ProjectShareButton client={client} workspaceId={workspaceId} onOpen={() => controls.openSettings(props.workspace, "sharing")} />}
-            <ProjectMenu workspace={props.workspace} />
+            <Button variant="ghost" size="sm" className="shrink-0" aria-haspopup="dialog" onClick={() => controls.openSettings(props.workspace)}><Settings2 />{t("project_settings.title")}</Button>
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-xl shadow-xs">
