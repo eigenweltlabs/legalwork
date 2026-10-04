@@ -1,0 +1,41 @@
+import { expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+test("expert correction composes in a fresh load, preserves base, respects scope, detects updates and cycles", async () => {
+  const root = await mkdtemp(join(tmpdir(), "skill-composition-"));
+  const script = join(root, "check.mjs");
+  await writeFile(script, `
+    import { mkdir, readFile, writeFile } from 'node:fs/promises';
+    import { join } from 'node:path';
+    import assert from 'node:assert/strict';
+    const { upsertSkill } = await import(${JSON.stringify(new URL("./skills.ts", import.meta.url).href)});
+    const { composedSkill } = await import(${JSON.stringify(new URL("./skill-composition.ts", import.meta.url).href)});
+    const workspace = join(process.env.XDG_CONFIG_HOME, 'project');
+    const other = join(process.env.XDG_CONFIG_HOME, 'other');
+    await mkdir(join(workspace, '.git'), { recursive:true });
+    await mkdir(join(other, '.git'), { recursive:true });
+    const base = await upsertSkill(workspace, { name:'de-civil-demo', description:'Civil deadlines.', content:'Use the installed calculator for established periods.', scope:'global' });
+    const original = await readFile(base.path,'utf8');
+    const lesson = { base:'de-civil-demo', appliesWhen:'German payment orders, distinguish requested legal cutoff from diary entry.', correction:'For the absolute Widerspruch cutoff under §694(1) ZPO, request whether/when the Vollstreckungsbescheid was ordered. Unknown means needs_information and no date. Two weeks is not a Notfrist.', examples:[{input:'Served 12 Jan 2026, absolute cutoff, subsequent record absent',expected:'needs_information; no deadline'}, {input:'Same service, ordinary two-week diary entry',expected:'26 Jan 2026; never label absolute cutoff'}] };
+    const extension = await upsertSkill(workspace, { name:'payment-order-correction', description:'Use for Mahnbescheid.', content:'Apply this scoped correction.', scope:'project', lesson });
+    assert.equal(await readFile(base.path,'utf8'),original);
+    const loaded = await composedSkill(workspace,'de-civil-demo');
+    assert.equal(loaded.chain.length,2);
+    assert.match(loaded.chain[1].content,/needs_information/);
+    assert.match(loaded.chain[1].content,/26 Jan 2026/);
+    assert.equal((await composedSkill(other,'de-civil-demo')).chain.length,1);
+    assert.equal((await composedSkill(workspace,'payment-order-correction')).chain.length,2);
+    await assert.rejects(upsertSkill(workspace,{name:'de-civil-demo',content:'Cycle',description:'Cycle',lesson:{...lesson,base:'payment-order-correction'}}),{code:'skill_cycle'});
+    await writeFile(base.path, original+'\\nChanged code-selection guidance.\\n');
+    await assert.rejects(composedSkill(workspace,'de-civil-demo'),{code:'skill_base_changed'});
+    console.log('fresh load, original preserved, positive and negative example, scoped, cycle and update checks passed');
+  `);
+  try {
+    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root }, stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    expect(stdout).toContain("checks passed");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

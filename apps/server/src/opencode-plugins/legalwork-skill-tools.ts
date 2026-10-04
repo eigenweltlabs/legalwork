@@ -1,3 +1,4 @@
+import { SkillLessonInputSchema } from "../skill-lesson-schema.js";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -29,6 +30,8 @@ Exception: tabular-review prompts and sets are structured library entries. Load 
 Use kind "workflow" for a legal task the user runs on documents (drafting from a template, a review pass); use kind "skill" for knowledge or capability the assistant should pick up automatically. Attach the firm's template with resourcePaths when the task drafts from one. Call legalwork_skill_list first if you need to check what already exists.`;
 
 const createArgs = z.object({
+  lesson: SkillLessonInputSchema.optional().describe("For a lawyer-approved reusable correction, extend an installed base skill. Supply precise scope and positive and negative regression examples. This preserves the base. A code defect also needs an executable fix and tests; prose cannot fix code."),
+  scope: z.enum(["project", "global"]).default("global").describe("Project for a matter-specific correction; global for a reusable correction in this user library."),
   name: z
     .string()
     .min(1)
@@ -151,9 +154,18 @@ async function attachResources(
 
 export const LegalWorkSkillTools = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    output.system.push(SKILL_TOOLS_INSTRUCTION);
+    output.system.push(SKILL_TOOLS_INSTRUCTION + "\nBefore calculating legal deadlines, use legalwork_skill_load to read the jurisdiction skill AND its expert corrections. When a lawyer corrects you, distinguish an extracted fact, a matter-specific exception, a reusable rule, and a code defect. Propose the exact correction and project/global scope. On an explicit request to remember/save it, call legalwork_skill_create with kind=skill, lesson={base, appliesWhen, correction, examples}, and a new descriptive name. Preserve the base. Include both the corrected case and a nearby case whose correct behavior must not change. Never claim these examples are executed tests. Reload the composed skill before retrying, including in a new session.");
   },
   tool: {
+    legalwork_skill_load: {
+      description: "Read an installed skill together with its scoped expert corrections. Resolves dependencies and refuses changed base versions. Always load a deadline skill through this tool before calculating.",
+      args: { name: z.string().min(1) },
+      async execute(raw: unknown, context: OpenCodeContext) {
+        const { name } = z.object({ name: z.string().min(1) }).parse(raw);
+        const workspace = await resolveWorkspaceId(context);
+        return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(name)}/composed`));
+      },
+    },
     legalwork_skill_create: {
       description:
         "Add a skill or workflow to the firm's LegalWork library so it appears in Settings > Skills / Settings > Workflows and loads in every workspace. Use whenever the user asks to create, save, or reuse a repeatable task — 'make a workflow for this', 'save this as a skill', 'remember how we draft these'. For tabular-review prompts and sets, use the author-review-prompts skill and legalwork_review_library_save instead. This is the only way a new skill/workflow reaches the app: writing a SKILL.md yourself with the file tools leaves it as a loose file the app never lists.",
@@ -197,7 +209,8 @@ export const LegalWorkSkillTools = async () => ({
                 workflowType,
               }),
               // The library the app lists, not this workspace's .opencode/skills.
-              scope: "global",
+              scope: args.scope,
+              lesson: args.lesson,
             },
           });
           if (!created.ok) {
@@ -216,7 +229,12 @@ export const LegalWorkSkillTools = async () => ({
               path: (created.payload as { path?: string } | null)?.path,
               ...(attached.length ? { attachedResources: attached } : {}),
               ...(warnings.length ? { resourceWarnings: warnings } : {}),
-              message: `Saved "${fullName}" to the firm's library. It is listed under ${where} and is available in every workspace. Tell the user where to find it, and that the assistant can run it once they accept the reload the app offers above the conversation.`,
+              scope: args.scope,
+              ...(args.lesson ? { extends: args.lesson.base } : {}),
+              message: args.lesson
+                ? `Saved "${fullName}" as a ${args.scope}-scoped extension of ${args.lesson.base}. The base is unchanged. Call legalwork_skill_load to resolve it immediately, including in a fresh session. The saved examples are expectations, not executed tests.`
+                : args.scope === "project" ? `Saved "${fullName}" in this project's skills. Accept the offered reload to refresh the skill list.`
+                : `Saved "${fullName}" to the user's library under ${where}. Accept the offered reload to refresh the skill list.`,
             },
             null,
             2,

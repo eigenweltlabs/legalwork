@@ -1,3 +1,4 @@
+import { CalculationPresentationSchema, CalculationRunSchema, type CalculationPresentation, type CalculationRun } from "../calculations/schema.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -24,6 +25,8 @@ export class CalendarStore {
       UNIQUE(project_id, uid));
       CREATE TABLE IF NOT EXISTS calendar_history (item_id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(item_id, revision));
       CREATE TABLE IF NOT EXISTS deadline_calculations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS calculation_runs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS calculation_presentations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS calendar_conflicts (item_id TEXT PRIMARY KEY, remote TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS calendar_reminders (key TEXT PRIMARY KEY, data TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS calendar_feeds (hash TEXT PRIMARY KEY, project_id TEXT, created_at TEXT NOT NULL);
@@ -39,9 +42,9 @@ export class CalendarStore {
     if (!row) throw new ApiError(404, "calendar_not_found", "Calendar entry not found.");
     return CalendarItemSchema.parse(JSON.parse(String(row.data)));
   }
-  private write(item: CalendarItem, expected?: number, remoteRevision?: number, replica = false): CalendarItem {
+  private write(item: CalendarItem, expected?: number, remoteRevision?: number, replica = false, transaction = true): CalendarItem {
     CalendarItemSchema.parse(item);
-    this.db.exec("BEGIN IMMEDIATE");
+    if (transaction) this.db.exec("BEGIN IMMEDIATE");
     try {
       const old = this.db.get("SELECT data FROM calendar_items WHERE id = ?", [item.id]);
       const current = old ? CalendarItemSchema.parse(JSON.parse(String(old.data))) : null;
@@ -53,22 +56,28 @@ export class CalendarStore {
         [item.id, item.projectId, item.uid, JSON.stringify(item), remoteRevision ?? 0, remoteRevision === undefined ? 1 : 0, replica ? 1 : 0, remoteRevision ?? null, remoteRevision ?? null]);
       this.db.run("INSERT INTO calendar_history (item_id, revision, data) VALUES (?, ?, ?)", [item.id, item.revision, JSON.stringify(item)]);
       this.db.run("DELETE FROM calendar_reminders WHERE delivered = 0 AND json_extract(data, '$.itemId') = ?", [item.id]);
-      this.db.exec("COMMIT"); return item;
-    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+      if (transaction) this.db.exec("COMMIT"); return item;
+    } catch (error) { if (transaction) this.db.exec("ROLLBACK"); throw error; }
   }
-  create(projectId: string, raw: unknown, calculationId?: string): CalendarItem {
+  create(projectId: string, raw: unknown, calculationId?: string, review?: { id: string; transaction: boolean }): CalendarItem {
     const input = CalendarCreateSchema.parse(raw), now = new Date().toISOString(), id = randomUUID();
     let calculation: DeadlineCalculation | null = null;
     if (calculationId) {
+      for (const row of this.db.all("SELECT data FROM calculation_presentations WHERE project_id = ?", [projectId])) {
+        const card = CalculationPresentationSchema.parse(JSON.parse(String(row.data)));
+        if (card.mode === "confirm" && !review && card.state !== "saved" && card.runs.some(run => run.results.some(result => result.calculationId === calculationId))) {
+          throw new ApiError(409, "calculation_review_required", "This calculation requires review in its card. Do not save it in the background.");
+        }
+      }
       const row = this.db.get("SELECT data FROM deadline_calculations WHERE id = ? AND project_id = ?", [calculationId, projectId]);
       if (!row) throw new ApiError(404, "calculation_not_found", "Calculate this deadline with its installed skill first.");
       calculation = DeadlineCalculationSchema.parse(JSON.parse(String(row.data)));
       if (input.kind !== "deadline" || input.start !== calculation.deadlineDay || input.timeZone !== calculation.timeZone) throw new ApiError(400, "calculation_mismatch", "The entered deadline must match the calculation receipt.");
     }
     const item: CalendarItem = { ...input, id, uid: `${id}@legalwork`, projectId, end: input.end ?? null,
-      status: "active", verified: false, provenance: calculation ? { kind: "calculated", calculation } : { kind: "manual", source: input.source, reason: input.reason },
+      status: "active", verified: !!review, provenance: calculation ? { kind: "calculated", calculation } : { kind: "manual", source: input.source, reason: input.reason },
       revision: 1, createdAt: now, updatedAt: now, deletedAt: null, ical: "" };
-    this.validateDates(item); item.ical = itemCalendar(item); return this.write(item);
+    this.validateDates(item); item.ical = itemCalendar(item); return this.write(item, undefined, undefined, false, review?.transaction ?? true);
   }
   patch(projectId: string, id: string, raw: unknown): CalendarItem {
     const { revision, source, reason, ...patch } = CalendarPatchSchema.parse(raw), current = this.get(projectId, id);
@@ -91,9 +100,66 @@ export class CalendarStore {
     this.get(projectId, id);
     return this.db.all("SELECT data FROM calendar_history WHERE item_id = ? ORDER BY revision DESC", [id]).map(row => CalendarItemSchema.parse(JSON.parse(String(row.data))));
   }
-  recordCalculation(projectId: string, result: DeadlineResult, codeHash: string): DeadlineCalculation {
+  recordCalculation(projectId: string, result: Omit<DeadlineResult, "input"> & { input: Record<string, unknown> }, codeHash: string): DeadlineCalculation {
     const receipt = DeadlineCalculationSchema.parse({ ...result, id: randomUUID(), inputHash: hash(JSON.stringify(result.input)), codeHash, createdAt: new Date().toISOString() });
     this.db.run("INSERT INTO deadline_calculations (id, project_id, data) VALUES (?, ?, ?)", [receipt.id, projectId, JSON.stringify(receipt)]); return receipt;
+  }
+  calculation(projectId: string, id: string) {
+    const row = this.db.get("SELECT data FROM deadline_calculations WHERE id = ? AND project_id = ?", [id, projectId]);
+    if (!row) throw new ApiError(404, "calculation_not_found", "Calculation not found in this project.");
+    return DeadlineCalculationSchema.parse(JSON.parse(String(row.data)));
+  }
+  recordRun(projectId: string, run: CalculationRun) {
+    CalculationRunSchema.parse(run);
+    this.db.run("INSERT INTO calculation_runs (id, project_id, data) VALUES (?, ?, ?)", [run.id, projectId, JSON.stringify(run)]);
+    return run;
+  }
+  run(projectId: string, id: string) {
+    const row = this.db.get("SELECT data FROM calculation_runs WHERE id = ? AND project_id = ?", [id, projectId]);
+    if (!row) throw new ApiError(404, "calculation_not_found", "Calculation not found in this project.");
+    return CalculationRunSchema.parse(JSON.parse(String(row.data)));
+  }
+  recordPresentation(card: CalculationPresentation, supersedes?: string) {
+    CalculationPresentationSchema.parse(card);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (supersedes) {
+        const old = this.presentation(card.workspaceId, supersedes);
+        if (old.sessionId !== card.sessionId || old.state === "saved") throw new ApiError(409, "calculation_review_closed", "Only an unsaved card in this conversation can be replaced.");
+        old.state = "rejected";
+        this.db.run("UPDATE calculation_presentations SET data = ? WHERE id = ?", [JSON.stringify(old), old.id]);
+      }
+      this.db.run("INSERT INTO calculation_presentations (id, project_id, data) VALUES (?, ?, ?)", [card.id, card.workspaceId, JSON.stringify(card)]);
+      this.db.exec("COMMIT"); return card;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+
+  presentation(projectId: string, id: string) {
+    const row = this.db.get("SELECT data FROM calculation_presentations WHERE id = ? AND project_id = ?", [id, projectId]);
+    if (!row) throw new ApiError(404, "calculation_not_found", "Calculation card not found in this project.");
+    return CalculationPresentationSchema.parse(JSON.parse(String(row.data)));
+  }
+  decidePresentation(projectId: string, id: string, action: "save" | "reject" | "acknowledge") {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const card = this.presentation(projectId, id);
+      if (["saved", "acknowledged", "rejected"].includes(card.state)) {
+        const expected = action === "save" ? "saved" : action === "reject" ? "rejected" : "acknowledged";
+        if (card.state !== expected) throw new ApiError(409, "calculation_review_closed", "This review is closed. Present a new calculation after corrections.");
+        this.db.exec("COMMIT"); return card;
+      }
+      if (action === "save") {
+        if (card.runs.some(run => run.status !== "calculated") || !card.runs.some(run => run.results.length)) throw new ApiError(409, "calculation_no_date", "Missing information cannot be saved as a deadline.");
+        card.itemIds = card.runs.flatMap(run => run.results.map(result => this.create(projectId, {
+          kind: "deadline", title: card.runs.length === 1 && run.results.length === 1 ? card.title : result.title,
+          start: result.date, timeZone: result.timeZone, description: card.selection,
+          attachmentPaths: [...new Set(card.sources.map(source => source.path))], sessionIds: card.sessionId ? [card.sessionId] : [],
+        }, result.calculationId, { id, transaction: false }).id));
+        card.state = "saved";
+      } else card.state = action === "reject" ? "rejected" : "acknowledged";
+      this.db.run("UPDATE calculation_presentations SET data = ? WHERE id = ? AND project_id = ?", [JSON.stringify(card), id, projectId]);
+      this.db.exec("COMMIT"); return card;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   import(projectId: string, text: string, source: string, expected: Record<string, number> = {}, zone = "Europe/Berlin"): CalendarItem[] {
     const root = parseCalendar(text), grouped = new Map<string, ICAL.Component[]>();

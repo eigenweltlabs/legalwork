@@ -49,7 +49,8 @@
     "./corpus": "./src/corpus.ts",
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",
-    "./calendar": "./src/calendar.ts"
+    "./calendar": "./src/calendar.ts",
+    "./calculation": "./src/calculation.ts"
   },
   "files": [
     "src",

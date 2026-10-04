@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { addDays, dayDate, dayOf, weekday, zonedInstant, zoneValid } from "./dates.js";
 
-export const DEADLINE_RULE_VERSION = "2026.09.30.1";
+export const DEADLINE_RULE_VERSION = "2026.10.04.1";
 const deSource = "https://www.gesetze-im-internet.de/";
 export const DEADLINE_SKILLS = [
   { name: "de-civil-deadlines", jurisdiction: "DE", rules: ["de-zpo-period", "de-bgb-event", "de-bgb-beginning", "de-zpo-517", "de-zpo-520"], timeZone: "Europe/Berlin",
@@ -146,14 +146,18 @@ export function calculateDeadline(raw: unknown): DeadlineResult {
       trace.push(`Complete judgment served ${input.triggerDate}; latest commencement ${latest}; governing trigger ${trigger}.`);
     }
     end = periodEnd(trigger, count, unit, input.rule === "de-bgb-beginning");
-    trace.push(`${input.rule === "de-bgb-beginning" ? "Include the beginning day (§187(2))" : "Exclude the event day (§187(1))"}; ${count} ${unit}; nominal end ${end} (§188).`);
+    trace.push(`${input.rule === "de-bgb-beginning" ? `Start on ${trigger}, including the beginning day (§187(2))` : `Start on ${addDays(trigger, 1)}, excluding the event day (§187(1))`}.`);
+    trace.push(`${count} ${unit} from ${trigger}; nominal end ${end} (§188).`);
     if (input.extensionGrantedDate) {
       if (input.rule !== "de-zpo-520" || !input.extensionSource) refuse("unsupported_scenario", "Only a documented granted §520 extension with an explicit end date is supported.");
       if (input.extensionGrantedDate < end) refuse("unsupported_scenario", "The stated extension date precedes the ordinary period end.");
       end = input.extensionGrantedDate; trace.push(`Use the explicit date granted by the court: ${end}; source: ${input.extensionSource}.`);
     }
     const adjust = input.rule.startsWith("de-zpo-") || required(input.appliesFinalDayAdjustment, "whether §193 applies to this BGB period");
-    if (adjust) while (nonworking(end, input, jurisdiction)) { trace.push(`${end} is not a working day; advance one day.`); end = addDays(end, 1); }
+    if (adjust) {
+      while (nonworking(end, input, jurisdiction)) { trace.push(`${end} is not a working day; advance one day.`); end = addDays(end, 1); }
+      trace.push(`Weekend and statutory-holiday check passed for ${end} (${input.region}${input.municipality ? `, ${input.municipality}` : ""}).`);
+    } else trace.push("No final-day adjustment applies, as specified in the inputs.");
   } else {
     if (input.unit && input.unit !== "days") refuse("unsupported_scenario", "This installed profile supports days only.");
     const count = required(input.duration, "the established number of days");
@@ -184,7 +188,7 @@ export function calculateDeadline(raw: unknown): DeadlineResult {
     if (jurisdiction === "US-FED" && input.serviceMethod && ["mail", "clerk", "consented-other"].includes(input.serviceMethod)) {
       if (direction < 0) refuse("unsupported_scenario", "Rule 6(d) service additions are supported only for periods running after service.");
       end = addDays(end, 3); trace.push("Add three days after ordinary expiration for the specified Rule 6(d) service method.");
-      while (nonworking(end, input, jurisdiction)) end = addDays(end, 1);
+      while (nonworking(end, input, jurisdiction)) { trace.push(`${end} after the service addition is nonworking; advance one day.`); end = addDays(end, 1); }
     }
     if (!input.filing) refuse("missing_inputs", "Specify electronic filing, court-office filing, or service.");
     if (input.filing !== "electronic") required(input.cutoffTime, "the established filing/service cutoff time");
@@ -192,6 +196,6 @@ export function calculateDeadline(raw: unknown): DeadlineResult {
   }
   yearChecked(end);
   const cutoff = input.cutoffTime ? zonedInstant(`${end}T${input.cutoffTime}:00`, zone) : zonedInstant(addDays(end, 1), zone);
-  trace.push(`Deadline day ${end}; cutoff ${cutoff} (${zone}).`);
+  trace.push(input.cutoffTime ? `Cutoff ${input.cutoffTime} on ${end} (${zone}).` : `End of day ${end} (${zone}); exclusive boundary at midnight on ${addDays(end, 1)}.`);
   return { skill: skill.name, version: DEADLINE_RULE_VERSION, rule: input.rule, input, deadlineDay: end, cutoff, timeZone: zone, trace, sources: skill.sources };
 }

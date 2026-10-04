@@ -1,3 +1,7 @@
+import { calculationScript, runPythonCalculation } from "../calculations/python-runner.js";
+import type { ApprovalRequest } from "../types.js";
+import { presentCalculation, validatePresentationSources } from "../calculations/present.js";
+import { CalculationCardSchema, CalculationPresentationInputSchema } from "../calculations/schema.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { requireIntakeClient, intakeRequest } from "../eigenwelt-intake.js";
 import { projectSyncStore } from "../project-sync-store.js";
@@ -19,6 +23,7 @@ import { scheduleProjectSync } from "../project-sync.js";
 import { calendarSubscription, changeCalendarSubscription } from "../calendar/subscriptions.js";
 
 export function registerCalendarRoutes(options: {
+  requireApproval: (ctx: RequestContext, input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">) => Promise<void>;
   routes: Route[]; config: ServerConfig; jsonResponse: (data: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void; requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
@@ -64,6 +69,29 @@ export function registerCalendarRoutes(options: {
   route("POST", "/calculate", async (ctx, workspace) => {
     const input = z.strictObject({ skill: z.string(), input: z.unknown() }).parse(await body(ctx));
     return { calculation: (await calendarStore(config)).recordCalculation(workspace.id, await calculateWithSkill(workspace.path, input.skill, input.input), DEADLINE_CODE_HASH) };
+  });
+  route("POST", "/run", async (ctx, workspace) => {
+    const input = z.object({ skill: z.string().min(1), input: z.record(z.string(), z.unknown()) }).parse(await body(ctx));
+    const script = await calculationScript(workspace.path, input.skill);
+    await options.requireApproval(ctx, { workspaceId: workspace.id, action: "calculations.execute", summary: `Execute installed calculation skill ${input.skill}`, paths: [script.path] });
+    const run = await runPythonCalculation(await calendarStore(config), workspace.id, input.skill, script, input.input, ctx.request.signal);
+    return { runId: run.id, status: run.status, results: run.results, missingFacts: run.missingFacts };
+  });
+  route("POST", "/present", async (ctx, workspace) => {
+    const input = CalculationPresentationInputSchema.parse(await body(ctx));
+    if (input.sessionId) await validateCalendarLinks(workspace, { sessionIds: [input.sessionId] }, undefined, options.getSession);
+    const presentation = await presentCalculation(await calendarStore(config), workspace, input, ctx.request.signal);
+    return { ...CalculationCardSchema.parse({ presentation }), status: presentation.state, instruction: presentation.mode === "confirm" ? "The card is visible in chat. Wait for the human to use its actions. Do not save these receipts in the background." : "The informational card is visible in chat. Continue according to the user request." };
+  });
+  route("GET", "/presentations/:presentation", async (ctx, workspace) => ({ presentation: (await calendarStore(config)).presentation(workspace.id, ctx.params.presentation) }));
+  route("POST", "/presentations/:presentation/decision", async (ctx, workspace) => {
+    const { action } = z.object({ action: z.enum(["save", "reject", "acknowledge"]) }).parse(await body(ctx));
+    const store = await calendarStore(config), card = store.presentation(workspace.id, ctx.params.presentation);
+    if (action === "save" && card.state !== "saved") {
+      await validatePresentationSources(workspace, card.sources);
+      await validateCalendarLinks(workspace, { attachmentPaths: card.sources.map(source => source.path), sessionIds: card.sessionId ? [card.sessionId] : [] }, undefined, options.getSession);
+    }
+    return { presentation: store.decidePresentation(workspace.id, card.id, action) };
   });
   route("POST", "", async (ctx, workspace) => {
     const { calculationId, ...input } = await body(ctx);

@@ -1,3 +1,4 @@
+import { composedSkill } from "./skill-composition.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
@@ -1576,7 +1577,7 @@ function createRoutes(
     };
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
-  registerCalendarRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace,
+  registerCalendarRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
     listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
     getSession: async (workspace, id) => {
       const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
@@ -3858,6 +3859,12 @@ function createRoutes(
     return jsonResponse({ item, content });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await composedSkill(workspace.path, ctx.params.name));
+  });
+
   addRoute(routes, "POST", "/workspace/:id/skills", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -3875,7 +3882,7 @@ function createRoutes(
       summary: `Upsert skill ${name}`,
       paths: [join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")],
     });
-    const result = await upsertSkill(workspace.path, { name, content, description, scope });
+    const result = await upsertSkill(workspace.path, { name, content, description, scope, lesson: body.lesson });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,

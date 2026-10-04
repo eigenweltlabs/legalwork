@@ -1,3 +1,4 @@
+import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
@@ -2637,6 +2638,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     },
     runProjectSync: () =>
       requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
+    calculationPresentation: (workspaceId: string, id: string) => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}`, { token, hostToken }),
+    decideCalculation: (workspaceId: string, id: string, action: "save" | "reject" | "acknowledge") => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}/decision`, { token, hostToken, method: "POST", body: { action } }),
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
     calendarLinks: (workspaceId: string, search = "") => requestJson<{ projectName: string; sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/links?search=${encodeURIComponent(search)}`, { token, hostToken }),
