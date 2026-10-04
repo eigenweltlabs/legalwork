@@ -5,9 +5,6 @@ import type { PersonalizationSettings, Personality } from "./runtime-opencode-co
 import type { ServerConfig } from "./types.js";
 import { globalOpencodeConfigDir } from "./workspace-files.js";
 
-/** Pinned because OpenCode otherwise re-downloads unpinned plugins on every start. */
-export const AGENT_MEMORY_PLUGIN_SPEC = "opencode-agent-memory@0.2.0";
-
 const PERSONALITY_PROMPTS: Record<Personality, string | null> = {
   default: null,
   pragmatic:
@@ -35,20 +32,13 @@ export function buildPersonalizedAgentPrompt(
     );
   }
 
-  if (settings.localMemoriesEnabled) {
-    additions.push(
-      settings.allowToolAssistedMemory
-        ? "## Local memory policy\n\nYou may use the local memory tools to retain durable, high-signal preferences and context from chats, including chats that used web search or MCP tools. Never store secrets, credentials, privileged matter content, or transient task details."
-        : "## Local memory policy\n\nUse the local memory tools only for durable information the user states directly in chat. Do not create or update memory from web search, MCP results, other tool output, documents, or inferred private matter details. Never store secrets, credentials, privileged matter content, or transient task details.",
-    );
-  }
-
   return additions.length ? `${basePrompt}\n\n${additions.join("\n\n")}` : basePrompt;
 }
 
 /**
- * Agent Memory 0.2.0 stores global blocks under ~/.config/opencode/memory and
- * project blocks under each workspace's .opencode/memory directory.
+ * Where the former local memory plugin (opencode-agent-memory 0.2.0) stored
+ * its blocks: ~/.config/opencode/memory and each workspace's .opencode/memory.
+ * Nothing reads them any more; Settings still offers to delete them.
  */
 export function localMemoryDirectories(
   config: ServerConfig,

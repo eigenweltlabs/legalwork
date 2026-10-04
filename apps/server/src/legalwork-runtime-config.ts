@@ -51,7 +51,7 @@ import {
   runtimePluginList,
   runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
-import { AGENT_MEMORY_PLUGIN_SPEC, buildPersonalizedAgentPrompt } from "./personalization.js";
+import { buildPersonalizedAgentPrompt } from "./personalization.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
 const OPENCODE_ZEN_PROVIDER_ID = "opencode";
@@ -265,7 +265,6 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
-      ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),
       ...runtimePluginList(runtimeConfig),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),

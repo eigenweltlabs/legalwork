@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  AGENT_MEMORY_PLUGIN_SPEC,
   buildPersonalizedAgentPrompt,
   deleteAllLocalMemories,
 } from "./personalization.js";
@@ -59,33 +58,30 @@ async function missing(path: string) {
 }
 
 describe("Personalisation", () => {
-  test("appends personality, custom instructions, and the privacy-aware memory policy", () => {
+  test("appends personality and custom instructions", () => {
     const prompt = buildPersonalizedAgentPrompt("Base prompt", {
       customInstructions: "Always use short headings.",
-      localMemoriesEnabled: true,
-      allowToolAssistedMemory: false,
       personality: "pragmatic",
     });
     expect(prompt).toContain("Base prompt");
     expect(prompt).toContain("Always use short headings.");
     expect(prompt).toContain("Use a pragmatic tone");
-    expect(prompt).toContain("Do not create or update memory from web search");
+    expect(prompt).not.toContain("memory");
   });
 
-  test("persists host-wide settings and activates Agent Memory in the runtime config", async () => {
+  test("persists host-wide settings; memory flags from earlier versions load no plugin", async () => {
     const { config } = await setup();
     const server = await startServer(config);
     try {
       const settings: PersonalizationSettings = {
         customInstructions: "Use numbered recommendations.",
-        localMemoriesEnabled: true,
-        allowToolAssistedMemory: true,
         personality: "professional",
       };
+      // An app from before local memories were removed still sends both flags.
       const put = await fetch(`http://127.0.0.1:${server.port}/personalization`, {
         method: "PUT",
         headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({ ...settings, localMemoriesEnabled: true, allowToolAssistedMemory: true }),
       });
       expect(put.status).toBe(200);
       expect(await put.json()).toMatchObject({ settings });
@@ -99,10 +95,11 @@ describe("Personalisation", () => {
       expect((await readRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID)).personalization).toEqual(settings);
 
       const runtime = await buildLegalworkRuntimeConfigObject(config, "ws_1");
-      expect(runtime.plugin).toContain(AGENT_MEMORY_PLUGIN_SPEC);
+      expect(JSON.stringify(runtime.plugin)).not.toContain("agent-memory");
       const agents = runtime.agent as Record<string, Record<string, unknown>>;
       expect(agents.legalwork?.prompt).toContain("Use numbered recommendations.");
       expect(agents.legalwork?.prompt).toContain("Use a professional tone");
+      expect(agents.legalwork?.prompt).not.toContain("Local memory policy");
     } finally {
       await server.stop();
     }

@@ -298,19 +298,11 @@ function parsePersonalizationPayload(value: unknown) {
       `customInstructions must be ${MAX_CUSTOM_INSTRUCTIONS_LENGTH} characters or fewer`,
     );
   }
-  if (typeof value.localMemoriesEnabled !== "boolean") {
-    throw new ApiError(400, "invalid_personalization", "localMemoriesEnabled must be a boolean");
-  }
-  if (typeof value.allowToolAssistedMemory !== "boolean") {
-    throw new ApiError(400, "invalid_personalization", "allowToolAssistedMemory must be a boolean");
-  }
   if (!isPersonality(value.personality)) {
     throw new ApiError(400, "invalid_personalization", "personality is not supported");
   }
   return {
     customInstructions: value.customInstructions,
-    localMemoriesEnabled: value.localMemoriesEnabled,
-    allowToolAssistedMemory: value.allowToolAssistedMemory,
     personality: value.personality,
   };
 }

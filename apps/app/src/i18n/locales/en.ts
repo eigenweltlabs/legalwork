@@ -3753,8 +3753,6 @@ export default {
   "personalisation.memories_deleted": "Local memories deleted.",
   "personalisation.system_prompt_title": "System prompt additions",
   "personalisation.system_prompt_placeholder": "Add your system prompt additions…",
-  "personalisation.enable_memories": "Enable local memories",
-  "personalisation.allow_tool_memories": "Allow memory generation from tool-assisted chats",
   "personalisation.delete_memories": "Delete local memories",
   "personalisation.tone_desc": "Choose the default tone for LegalWork responses.",
   "personalisation.delete_confirm_title": "Delete all local memories?",
@@ -4256,11 +4254,6 @@ export default {
     "I reviewed these files and configurations. Included MCP keys will be encrypted but can be copied by every authorized firm member.",
   "personalisation.system_prompt_desc":
     "Add instructions and context that LegalWork includes in the system prompt for every chat on this host.",
-  "personalisation.learn_more": "Learn more",
-  "personalisation.enable_memories_desc":
-    "Create private memory blocks from chats on this host and use them to personalise future chats.",
-  "personalisation.allow_tool_memories_desc":
-    "Let LegalWork retain durable context from chats that used MCP tools or web search.",
   "personalisation.delete_memories_desc":
     "Permanently delete all global and workspace memory blocks stored on this host.",
   "personalisation.personality_note":
@@ -4525,7 +4518,8 @@ export default {
   "workspace_files.hide_hidden": "Hide hidden files",
   "personalisation.characters_remaining": "{count} characters remaining",
   "personalisation.memory_title": "Memory",
-  "personalisation.memory_desc": "Configure how local memories are collected and used on this host.",
+  "personalisation.memory_desc":
+    "LegalWork no longer keeps local memories. Memories saved by earlier versions stay on this computer until you delete them.",
   "extensions.connectors_label": "Connectors",
   "ext.voice_desc": "Realtime voice control backed by the current session's authoritative OpenCode worker.",
   "ext.voice_provider_label": "Connected OpenAI provider",
