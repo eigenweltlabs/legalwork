@@ -2073,7 +2073,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 action: "updated",
               });
             }}
-            onOpenLink={(url) => platform.openLink(url)}
           />
         );
       case "benchmark":

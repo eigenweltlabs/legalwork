@@ -145,8 +145,6 @@ export type LegalworkPersonality = (typeof LEGALWORK_PERSONALITY_VALUES)[number]
 
 export type LegalworkPersonalizationSettings = {
   customInstructions: string;
-  localMemoriesEnabled: boolean;
-  allowToolAssistedMemory: boolean;
   personality: LegalworkPersonality;
 };
 

@@ -4055,8 +4055,6 @@ const de = {
   "personalisation.memories_deleted": "Lokale Erinnerungen gelöscht.",
   "personalisation.system_prompt_title": "Ergänzungen zum System-Prompt",
   "personalisation.system_prompt_placeholder": "Ergänzen Sie hier Ihren System-Prompt…",
-  "personalisation.enable_memories": "Lokale Erinnerungen aktivieren",
-  "personalisation.allow_tool_memories": "Erinnerungen auch aus Chats mit Tool-Einsatz erzeugen",
   "personalisation.delete_memories": "Lokale Erinnerungen löschen",
   "personalisation.tone_desc": "Wählen Sie den Standardton für die Antworten von LegalWork.",
   "personalisation.delete_confirm_title": "Alle lokalen Erinnerungen löschen?",
@@ -4606,11 +4604,6 @@ const de = {
     "Ich habe diese Dateien und Konfigurationen geprüft. Mitgegebene MCP-Schlüssel werden verschlüsselt, können aber von jedem berechtigten Kanzleimitglied kopiert werden.",
   "personalisation.system_prompt_desc":
     "Ergänzen Sie Anweisungen und Kontext, die LegalWork bei jedem Chat auf diesem Host in den System-Prompt aufnimmt.",
-  "personalisation.learn_more": "Mehr erfahren",
-  "personalisation.enable_memories_desc":
-    "Erzeugt private Erinnerungsblöcke aus Chats auf diesem Host und nutzt sie, um künftige Chats zu personalisieren.",
-  "personalisation.allow_tool_memories_desc":
-    "Erlaubt LegalWork, dauerhaften Kontext aus Chats mit MCP-Tools oder Websuche zu behalten.",
   "personalisation.delete_memories_desc":
     "Löscht alle globalen und workspace-bezogenen Erinnerungsblöcke auf diesem Host dauerhaft.",
   "personalisation.personality_note":
@@ -4885,7 +4878,7 @@ const de = {
   "personalisation.characters_remaining": "Noch {count} Zeichen",
   "personalisation.memory_title": "Erinnerungen",
   "personalisation.memory_desc":
-    "Legen Sie fest, wie lokale Erinnerungen auf diesem Host erfasst und genutzt werden.",
+    "LegalWork speichert keine lokalen Erinnerungen mehr. Von früheren Versionen gespeicherte Erinnerungen bleiben auf diesem Computer, bis Sie sie löschen.",
   "extensions.connectors_label": "Konnektoren",
   "ext.voice_desc": "Echtzeit-Sprachsteuerung über den maßgeblichen OpenCode-Worker der aktuellen Session.",
   "ext.voice_provider_label": "Verbundener OpenAI-Provider",
