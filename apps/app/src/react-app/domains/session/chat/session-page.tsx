@@ -122,6 +122,7 @@ export type SessionPageHistoryControls = {
 export type SessionPageSidebarProps = {
   onOpenSearch?: () => void;
   onShowChats?: () => void;
+  onNewChat?: () => void;
   onShowProjects?: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
@@ -1250,6 +1251,7 @@ export function SessionPage(props: SessionPageProps) {
           onShowTasks={props.sidebar.onShowTasks}
           onOpenSearch={props.sidebar.onOpenSearch}
           onShowChats={props.sidebar.onShowChats}
+          onNewChat={props.sidebar.onNewChat}
           onShowProjects={props.sidebar.onShowProjects}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}

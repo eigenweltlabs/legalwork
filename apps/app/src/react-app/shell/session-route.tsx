@@ -130,6 +130,7 @@ import { useModelPicker } from "@/react-app/domains/session/modals/use-model-pic
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
 import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
+import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
@@ -554,6 +555,8 @@ export function SessionRoute() {
   // One-way latch for "a refreshRouteState is currently running"; prevents
   // overlapping route refreshes from queueing up when the user clicks fast.
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [selectCreatedProjectForHome, setSelectCreatedProjectForHome] = useState(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
@@ -1602,6 +1605,7 @@ export function SessionRoute() {
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
+    setSelectCreatedProjectForHome(false);
     setCreateWorkspaceOpen(true);
   }, []);
 
@@ -1820,7 +1824,7 @@ export function SessionRoute() {
     onCreateChat: () => {
       const openProjectId = routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null);
       if (openProjectId) void handleCreateChatInWorkspace(openProjectId);
-      else navigate("/home");
+      else setNewChatOpen(true);
     },
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
@@ -2119,7 +2123,13 @@ export function SessionRoute() {
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
       await refreshRouteState();
       setCreateWorkspaceOpen(false);
-      navigate(workspaceProjectRoute(id));
+      if (selectCreatedProjectForHome && !input.initializeFromFolders) {
+        setHomeProjectId(id);
+        pendingHomeMessage.current = null;
+        navigate(homeRoute(id), { replace: true });
+      } else {
+        navigate(workspaceProjectRoute(id));
+      }
       if (input.initializeFromFolders) {
         try {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
@@ -2509,6 +2519,11 @@ export function SessionRoute() {
           <AppHome
             workspaces={sidebarWorkspaces}
             projectId={homeProjectId}
+            onCreateProject={() => {
+              setSelectCreatedProjectForHome(true);
+              setCreateWorkspaceError(null);
+              setCreateWorkspaceOpen(true);
+            }}
             onProjectChange={(id) => {
               if (id === homeProjectId) return;
               setHomeProjectId(id);
@@ -2593,6 +2608,7 @@ export function SessionRoute() {
       }}
       sidebar={{
         onOpenSearch: () => setCommandPaletteOpen(true),
+        onNewChat: () => setNewChatOpen(true),
         onShowChats: () => {
           setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
           navigate("/home");
@@ -2769,6 +2785,13 @@ export function SessionRoute() {
       statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
     />
+    {newChatOpen && <NewChatDialog
+      groups={workspaceSessionGroups}
+      disabled={!canCreateChat}
+      onClose={() => setNewChatOpen(false)}
+      onSelectProject={(workspaceId) => void handleCreateChatInWorkspace(workspaceId)}
+      onCreateProject={handleOpenCreateWorkspace}
+    />}
     <CreateProjectModal
       client={client}
       open={createWorkspaceOpen}
