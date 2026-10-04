@@ -24,12 +24,26 @@ function valueText(value: unknown, key = "", timeZone?: string): string {
   if (typeof value === "number" && /(?:timestamp|epoch)(?:_?ms)?$/i.test(key)) return new Date(value).toLocaleString(currentLocale(), { timeZone, dateStyle: "medium", timeStyle: "short" });
   if (key === "region" && typeof value === "string") return regions[value] ?? value;
   if (key === "direction" && value === "before") return t("calc.before");
-  if (key === "serviceMethod" && typeof value === "string" && ["personal", "electronic", "mail", "clerk", "consented-other"].includes(value)) return t(`calc.service_${value}`);
+  if (key === "serviceMethod") {
+    switch (value) {
+      case "personal": return t("calc.service_personal");
+      case "electronic": return t("calc.service_electronic");
+      case "mail": return t("calc.service_mail");
+      case "clerk": return t("calc.service_clerk");
+      case "consented-other": return t("calc.service_consented-other");
+    }
+  }
   return readableText(String(value), timeZone);
 }
 function periodText(count: unknown, unit: unknown) {
-  return typeof count === "number" && typeof unit === "string" && ["days", "weeks", "months", "years"].includes(unit)
-    ? t(`calc.period_${unit}${count === 1 ? "_one" : ""}`, { count }) : valueText(count);
+  if (typeof count !== "number") return valueText(count);
+  switch (unit) {
+    case "days": return count === 1 ? t("calc.period_days_one", { count }) : t("calc.period_days", { count });
+    case "weeks": return count === 1 ? t("calc.period_weeks_one", { count }) : t("calc.period_weeks", { count });
+    case "months": return count === 1 ? t("calc.period_months_one", { count }) : t("calc.period_months", { count });
+    case "years": return count === 1 ? t("calc.period_years_one", { count }) : t("calc.period_years", { count });
+    default: return valueText(count);
+  }
 }
 export function calculationFacts(run: CalculationRun) {
   return Object.entries(run.inputs).filter(([key, value]) => !hiddenFacts.has(key) && !noValue(value)
