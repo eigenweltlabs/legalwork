@@ -2261,6 +2261,10 @@ export function SessionRoute() {
       client={opencodeClient}
       opencodeBaseUrl={opencodeBaseUrl}
       selectedWorkspaceRoot={selectedWorkspaceRoot}
+      workspaces={workspaces}
+      baseUrl={baseUrl}
+      token={token}
+      onOpenSession={navigateToWorkspaceSession}
     >
     {opencodeClient && selectedWorkspaceEndpoint && opencodeBaseUrl && selectedWorkspaceServerToken ? (
       <ReactSessionRuntime

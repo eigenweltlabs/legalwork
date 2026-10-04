@@ -276,6 +276,7 @@ export function TaskDetail(props: TaskDetailProps) {
   const [draftTags, setDraftTags] = useState(task.tags);
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
+  const [preparingSession, setPreparingSession] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const email = useMemo(() => readTaskSubmission(props.submission), [props.submission]);
   const emailHtml = useMemo(() => (email?.html ? sanitizeEmailHtml(email.html) : null), [email]);
@@ -341,6 +342,19 @@ export function TaskDetail(props: TaskDetailProps) {
     if (draftDescription !== task.description) {
       await patch({ description: draftDescription }, t("tasks.update_failed"));
     }
+  };
+
+  const startSession = async () => {
+    if (preparingSession || props.busy || props.saving || !draftTitle.trim()) return;
+    setPreparingSession(true);
+    try {
+      const changes = {
+        ...(draftTitle.trim() !== task.title ? { title: draftTitle.trim() } : {}),
+        ...(draftDescription !== task.description ? { description: draftDescription } : {}),
+      };
+      if (Object.keys(changes).length && !await patch(changes, t("tasks.update_failed"))) return;
+      props.onStartSession?.();
+    } finally { setPreparingSession(false); }
   };
 
   const saveInlineOnCommandEnter = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -479,6 +493,11 @@ export function TaskDetail(props: TaskDetailProps) {
               <Button size="sm" disabled={props.busy} aria-busy={props.busy} onClick={props.onRestore}>
                 {props.busy ? <Loader2 className="animate-spin" /> : <ArchiveRestore />}
                 {t("tasks.restore")}
+              </Button>
+            ) : !canRun && props.onStartSession ? (
+              <Button size="sm" variant="outline" disabled={props.busy || props.saving || uploading || preparingSession || !draftTitle.trim()} onPointerDown={event => event.preventDefault()} onClick={() => void startSession()}>
+                {props.busy || preparingSession ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}
+                {t("tasks.start_session")}
               </Button>
             ) : canRun && task.cloudRunId ? (
               // Triage already started the workflow in the cloud; a local

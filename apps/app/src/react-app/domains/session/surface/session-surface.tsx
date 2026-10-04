@@ -83,6 +83,8 @@ import {
   storageComposerDisplayText,
   reviewComposerDisplayText,
   reviewComposerInstruction,
+  calendarComposerDisplayText,
+  calendarComposerInstruction,
   taskComposerDisplayText,
   taskComposerInstruction,
   type ComposerMentionKind,
@@ -1112,6 +1114,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(reviewComposerInstruction(value));
           return [{ type: "text", text: reviewComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "calendar") {
+          modelContexts.push(calendarComposerInstruction(value));
+          return [{ type: "text", text: calendarComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "task") {
           modelContexts.push(taskComposerInstruction(value));
           return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
@@ -1136,6 +1142,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
             ? storageComposerDisplayText(value)
             : kind === "review"
               ? reviewComposerDisplayText(value)
+            : kind === "calendar"
+              ? calendarComposerDisplayText(value)
             : kind === "task"
               ? taskComposerDisplayText(value)
               : kind === "upload"
