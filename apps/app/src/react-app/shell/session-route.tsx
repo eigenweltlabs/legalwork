@@ -142,6 +142,7 @@ import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-co
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
 import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
+import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
 import type { ContentSearchResult } from "@legalwork/types/search";
@@ -2417,7 +2418,7 @@ export function SessionRoute() {
       } : null}
       projectsPage={location.pathname === "/projects" && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
       projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
-      onRenameWorkspace={handleRenameWorkspace}
+      onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
         if (recordingSessionStarting.current) return;
         recordingSessionStarting.current = true;
@@ -2434,7 +2435,7 @@ export function SessionRoute() {
       projectTasksView={
         <TasksPane embedded={location.pathname.endsWith("/project")} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
-      onStartProjectRecording={(projectId = selectedWorkspaceId) => {
+      onStartProjectRecording={() => {
         const recorder = useRecorderStore.getState();
         if (recorder.recording) {
           void recorder.stopRecording().then(() => {
@@ -2444,8 +2445,7 @@ export function SessionRoute() {
           return;
         }
         if (recorder.starting || recorder.importing) return;
-        const workspace = workspaces.find(item => item.id === projectId);
-        const project = { id: projectId, name: workspace?.displayNameResolved || workspace?.name || projectId };
+        const project = { id: selectedWorkspaceId, name: selectedWorkspace?.displayNameResolved || selectedWorkspaceId };
         const setupAction = {
           label: t("recorder.open"),
           onClick: () => {
@@ -2837,6 +2837,7 @@ export function SessionRoute() {
       }}
       onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
     />
+    {client ? <ProjectShareHost client={client} /> : null}
     </WorkspaceProvider>
   );
 }

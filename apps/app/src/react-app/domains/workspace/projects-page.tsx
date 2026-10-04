@@ -1,9 +1,8 @@
-import { ProjectMenu } from "./project-menu";
 import { useId, useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, MessageSquare, PenLine, Pin, Plus, Search, } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, MessageSquare, MoreHorizontal, Pencil, PenLine, Pin, PinOff, Plus, Search, Settings2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import { formatRelativeTime, isMacPlatform } from "@/app/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -24,6 +23,7 @@ import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } 
 import { collectProjectFilterFields, matchesProjectFilters, useProjectFilterStore } from "./project-filters";
 import { ProjectFilterBar } from "./project-filter-bar";
 import { ProjectViews } from "./project-views";
+import { useProjectPersonalisation } from "./project-personalisation-modal";
 
 type ProjectPage = Exclude<ProjectNavKey, "projectSessions">;
 type Props = {
@@ -34,6 +34,9 @@ type Props = {
   onNewChat: (workspaceId: string) => void;
   onCreate: () => void;
   onOpenSearch?: () => void;
+  onRename: (id: string) => void;
+  onReveal: (id: string) => void;
+  onForget: (id: string) => void;
   newChatDisabled: boolean;
 };
 const PAGE_SIZE = 10;
@@ -122,6 +125,7 @@ function Pagination({ current, pages, onChange }: { current: number; pages: numb
 }
 
 function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSessionGroup; updated: number }) {
+  const openPersonalisation = useProjectPersonalisation();
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
   const { config } = useShellConfig();
@@ -157,7 +161,14 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
           </DropdownMenuContent>
         </DropdownMenu>
         <Button variant="ghost" size="icon-sm" className="size-7" aria-label={t("projects.new_chat")} title={t("projects.new_chat")} disabled={props.newChatDisabled} onClick={() => props.onNewChat(id)}><PenLine className="size-3.5" /></Button>
-        <ProjectMenu workspace={group.workspace} className="pointer-events-auto size-7" />
+        <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="size-7" aria-label={t("sidebar.project_actions")}><MoreHorizontal className="size-4" /></Button>} /><DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => favorites.toggleFavorite(id)}>{pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}{t(pinned ? "sidebar.unpin_project" : "sidebar.pin_project")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => props.onRename(id)}><Pencil className="size-4" />{t("sidebar.rename_project")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => openPersonalisation(id)}><Settings2 className="size-4" />{t("personalisation.project_prompt_menu")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => props.onReveal(id)}><FolderOpen className="size-4" />{t("sidebar.reveal_project")}</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => props.onForget(id)}><Trash2 className="size-4" />{t("sidebar.remove_project")}</DropdownMenuItem>
+        </DropdownMenuContent></DropdownMenu>
       </div>
     </div>
     <div id={contentId} hidden={!expanded} className="relative pb-1 pt-0.5">
