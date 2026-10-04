@@ -12,6 +12,8 @@ Load a jurisdiction skill with `legalwork_skill_load`. This resolves its base an
 
 When a fact could change the requested result and is absent from the record, show an assessment without a date and ask a focused question. Do not substitute an ordinary response date for an unknown statutory cutoff. An unsupported executable rule needs a clear limitation, not an irrelevant questionnaire.
 
+For an existing deadline, read its current revision and use `legalwork_calendar_update`. Recalculations pass the new `calculationId` and exact `start`/`timeZone`, preserving the entry ID, project, existing links and earlier receipts in its history. Manual overrides require a reason. A pending or rejected confirmation also blocks attaching its receipt through an update. Calendar tools resolve the chat's project and refuse unknown directories instead of falling back to another project. File discovery uses the silent file tool; the visible project contents card is reserved for requested overviews.
+
 Use `confirm` for an explicit request to review before saving or an applicable substantive review requirement. Its Save button creates the exact reviewed deadlines in one transaction. Duplicate clicks return the same items. A pending/rejected card prevents agent background saves using its receipts, including through a later show card. Rejected cards cannot later be approved. The sources must still have the same hashes when saved. New facts require a new run and card. Current interaction guidance supersedes generic confirmation advice in older bundled skills without rewriting installed skill packages or breaking pinned corrections.
 
 ## Custom Python skill code

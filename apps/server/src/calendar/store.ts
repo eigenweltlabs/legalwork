@@ -59,37 +59,41 @@ export class CalendarStore {
       if (transaction) this.db.exec("COMMIT"); return item;
     } catch (error) { if (transaction) this.db.exec("ROLLBACK"); throw error; }
   }
+  private checkedCalculation(projectId: string, calculationId: string, input: Pick<CalendarItem, "kind" | "start" | "timeZone">, reviewed = false): DeadlineCalculation {
+    for (const row of this.db.all("SELECT data FROM calculation_presentations WHERE project_id = ?", [projectId])) {
+      const card = CalculationPresentationSchema.parse(JSON.parse(String(row.data)));
+      if (card.mode === "confirm" && !reviewed && card.state !== "saved" && card.runs.some(run => run.results.some(result => result.calculationId === calculationId))) {
+        throw new ApiError(409, "calculation_review_required", "This calculation requires review in its card. Do not save it in the background.");
+      }
+    }
+    const row = this.db.get("SELECT data FROM deadline_calculations WHERE id = ? AND project_id = ?", [calculationId, projectId]);
+    if (!row) throw new ApiError(404, "calculation_not_found", "Calculate this deadline with its installed skill first.");
+    const calculation = DeadlineCalculationSchema.parse(JSON.parse(String(row.data)));
+    if (input.kind !== "deadline" || input.start !== calculation.deadlineDay || input.timeZone !== calculation.timeZone) throw new ApiError(400, "calculation_mismatch", "The entered deadline must match the calculation receipt.");
+    return calculation;
+  }
   create(projectId: string, raw: unknown, calculationId?: string, review?: { id: string; transaction: boolean }): CalendarItem {
     const input = CalendarCreateSchema.parse(raw), now = new Date().toISOString(), id = randomUUID();
-    let calculation: DeadlineCalculation | null = null;
-    if (calculationId) {
-      for (const row of this.db.all("SELECT data FROM calculation_presentations WHERE project_id = ?", [projectId])) {
-        const card = CalculationPresentationSchema.parse(JSON.parse(String(row.data)));
-        if (card.mode === "confirm" && !review && card.state !== "saved" && card.runs.some(run => run.results.some(result => result.calculationId === calculationId))) {
-          throw new ApiError(409, "calculation_review_required", "This calculation requires review in its card. Do not save it in the background.");
-        }
-      }
-      const row = this.db.get("SELECT data FROM deadline_calculations WHERE id = ? AND project_id = ?", [calculationId, projectId]);
-      if (!row) throw new ApiError(404, "calculation_not_found", "Calculate this deadline with its installed skill first.");
-      calculation = DeadlineCalculationSchema.parse(JSON.parse(String(row.data)));
-      if (input.kind !== "deadline" || input.start !== calculation.deadlineDay || input.timeZone !== calculation.timeZone) throw new ApiError(400, "calculation_mismatch", "The entered deadline must match the calculation receipt.");
-    }
+    const calculation = calculationId ? this.checkedCalculation(projectId, calculationId, input, !!review) : null;
     const item: CalendarItem = { ...input, id, uid: `${id}@legalwork`, projectId, end: input.end ?? null,
       status: "active", verified: !!review, provenance: calculation ? { kind: "calculated", calculation } : { kind: "manual", source: input.source, reason: input.reason },
       revision: 1, createdAt: now, updatedAt: now, deletedAt: null, ical: "" };
     this.validateDates(item); item.ical = itemCalendar(item); return this.write(item, undefined, undefined, false, review?.transaction ?? true);
   }
   patch(projectId: string, id: string, raw: unknown): CalendarItem {
-    const { revision, source, reason, ...patch } = CalendarPatchSchema.parse(raw), current = this.get(projectId, id);
+    const { revision, source, reason, calculationId, ...patch } = CalendarPatchSchema.parse(raw), current = this.get(projectId, id);
     if (current.deletedAt) throw new ApiError(410, "calendar_deleted", "Restore this entry before editing it.");
     const item = { ...current, ...patch, revision: current.revision + 1, updatedAt: new Date().toISOString() };
-    if (patch.start !== undefined || patch.timeZone !== undefined || source !== undefined || reason !== undefined) {
+    if (calculationId) {
+      item.provenance = { kind: "calculated", calculation: this.checkedCalculation(projectId, calculationId, item) };
+      item.verified = false;
+    } else if (patch.start !== undefined || patch.timeZone !== undefined || source !== undefined || reason !== undefined) {
       if (current.provenance.kind === "calculated" && !reason?.trim()) throw new ApiError(400, "override_reason_required", "Record why the calculated deadline is being overridden.");
       item.provenance = { kind: "manual", source: source ?? (current.provenance.kind === "manual" ? current.provenance.source : ""), reason: reason ?? "" };
       item.verified = false;
     }
     const changed = new Set(Object.keys(patch));
-    if (current.provenance.kind === "calculated" && item.provenance.kind === "manual") changed.add("reminders");
+    if (calculationId || (current.provenance.kind === "calculated" && item.provenance.kind === "manual")) changed.add("reminders");
     this.validateDates(item); item.ical = updateCalendar(item, changed); return this.write(item, revision);
   }
   remove(projectId: string, id: string, revision: number, restore = false) {

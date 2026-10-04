@@ -43,6 +43,27 @@ describe("calendar storage and RFC5545", () => {
     expect(() => db.patch("project", edited.id, { revision: edited.revision, start: "2026-09-02" })).toThrow();
     expect(() => db.import("project", text, "retry")).toThrow();
   });
+  test("recalculation edits the same deadline with immutable receipts and rejects foreign or mismatched dates", async () => {
+    const db = await store();
+    const input = { rule: "de-zpo-period", region: "BE", triggerDate: "2026-01-30", duration: 4, unit: "weeks", source: "DeadlineBench DB-DE-01 service record" };
+    const original = db.recordCalculation("project", calculateDeadline(input), "tested-code");
+    const extended = db.recordCalculation("project", calculateDeadline({ ...input, triggerDate: original.deadlineDay, duration: 2, source: "DeadlineBench DB-DE-01 extension order" }), "tested-code");
+    const foreign = db.recordCalculation("other-project", calculateDeadline(input), "tested-code");
+    const item = db.create("project", { title: "Stellungnahme", start: original.deadlineDay, sessionIds: ["ses_own"], attachmentPaths: ["Verfuegung.txt"] }, original.id);
+    const patch = { revision: item.revision, calculationId: extended.id, start: extended.deadlineDay, timeZone: extended.timeZone };
+    expect(() => db.patch("other-project", item.id, patch)).toThrow("not found");
+    expect(() => db.patch("project", item.id, { ...patch, calculationId: foreign.id })).toThrow("installed skill first");
+    expect(() => db.patch("project", item.id, { ...patch, start: "2026-03-14" })).toThrow("match the calculation");
+    expect(() => db.patch("project", item.id, { ...patch, timeZone: "UTC" })).toThrow("match the calculation");
+    const updated = db.patch("project", item.id, patch);
+    expect(updated).toMatchObject({ id: item.id, uid: item.uid, projectId: "project", start: "2026-03-13", revision: 2, verified: false, sessionIds: ["ses_own"], attachmentPaths: ["Verfuegung.txt"], provenance: { kind: "calculated", calculation: extended } });
+    expect(db.list("project")).toHaveLength(1);
+    expect(db.history("project", item.id)[1].provenance).toEqual({ kind: "calculated", calculation: original });
+    expect(occurrences(updated, "Project", "2026-03-01", "2026-04-01")[0].start).toBe("2026-03-13");
+    const alarm = parseCalendar(updated.ical).getFirstSubcomponent("vevent")?.getFirstSubcomponent("valarm");
+    expect(String(alarm?.getFirstPropertyValue("trigger"))).toBe("2026-03-12T23:00:00Z");
+    expect(() => db.patch("project", item.id, patch)).toThrow("changed");
+  });
   test("IANA recurrences preserve local time across DST without global timezone registration", async () => {
     const db = await store();
     const [item] = db.import("project", fixture("DTSTART;TZID=Europe/Berlin:20261024T090000\r\nDTEND;TZID=Europe/Berlin:20261024T100000\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:DST"), "source");

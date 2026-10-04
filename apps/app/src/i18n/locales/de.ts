@@ -81,7 +81,7 @@ const de = {
   "calc.code": "Ausgeführten Code ansehen",
   "calc.rejected": "Korrektur angefragt. Vor dem Speichern eine neue Berechnung prüfen.",
   "calc.acknowledged": "Fehlende Angaben bestätigt",
-  "calc.correct": "Korrigieren",
+  "calc.correct": "Ändern",
   "calc.request": "Angaben klären",
   "calc.save": "Im Kalender speichern",
 

@@ -31,6 +31,8 @@ test("court-order card retains the executed dates and checks without exposing bu
   expect(html).toContain("24:00");
   for (const technical of ["ZodObject", "secret-hash", "secret_dependency_bundle", "2024-08-14T22", "de-zpo-period", "exclusive boundary"]) expect(html).not.toContain(technical);
   expect(html).toContain("Save to calendar");
+  expect(html).toContain(">Change<");
+  expect(html).not.toContain(">Correct<");
 });
 test("three passages in one file use one source button, with all highlights preserved", () => {
   const groups = calculationSources(card.sources);
@@ -67,7 +69,7 @@ test("show mode keeps evidence and necessary questions visible without approval 
   expect(html).toContain("Aug 14");
   expect(html).toContain("gerichtliche-verfuegung.pdf");
   expect(html).not.toContain("Save to calendar");
-  expect(html).not.toContain(">Correct<");
+  expect(html).not.toContain(">Change<");
   const missing = render({ ...shown, runs: [{ ...run, status: "needs_information", origin: "assessment", steps: [], results: [], missingFacts: ["When was the order served?"] }] });
   expect(missing).toContain("When was the order served?");
   expect(missing).not.toContain("Clarify information");

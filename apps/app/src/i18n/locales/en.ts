@@ -71,7 +71,7 @@ export default {
   "calc.code": "View executed code",
   "calc.rejected": "Correction requested. Review a fresh calculation before saving.",
   "calc.acknowledged": "Missing information acknowledged",
-  "calc.correct": "Correct",
+  "calc.correct": "Change",
   "calc.request": "Clarify information",
   "calc.save": "Save to calendar",
 

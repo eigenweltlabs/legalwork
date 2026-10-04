@@ -43,6 +43,10 @@ test("calendar HTTP auth, receipt creation, aggregation, override history and re
       assert.equal((await call(path, "POST", { title: "Bad file", start: "2026-10-01", attachmentPaths: ["../outside.pdf"] })).status, 400);
       assert.equal((await call(path, "POST", { title: "Missing file", start: "2026-10-01", attachmentPaths: ["missing.pdf"] })).status, 400);
       assert.equal((await call("/workspace/other/calendar/" + item.id)).status, 404);
+      assert.equal((await call("/workspace/other/calendar/" + item.id, "PATCH", { revision: item.revision, title: "Wrong project" })).status, 404);
+      assert.equal((await call("/workspace/other/calendar", "POST", { title: "Wrong receipt", start: receipt.deadlineDay, calculationId: receipt.id })).status, 404);
+      const untouched = (await (await call(path + "/" + item.id)).json()).item;
+      assert.equal(untouched.projectId, "project"); assert.equal(untouched.title, item.title); assert.equal(untouched.revision, item.revision);
       const all = await (await call("/calendar/occurrences?from=2026-03-01&to=2026-04-01")).json();
       assert.equal(all.occurrences.length, 1); assert.equal(all.occurrences[0].itemId, item.id);
       assert.equal((await call(path + "/" + item.id, "PATCH", { revision: 1, start: "2026-03-03" })).status, 400);

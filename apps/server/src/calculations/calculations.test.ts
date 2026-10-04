@@ -41,6 +41,9 @@ test("confirmation saves immutable receipts once, links sources, blocks backgrou
   expect(() => store.create(workspace.id, { title: "Bypass", start: "2026-01-26", timeZone: "Europe/Berlin" }, calculation.id)).toThrow("requires review");
   await presentCalculation(store, workspace, { title: "Same evidence", selection: "Showing evidence is not approval", mode: "show", calculationIds: [calculation.id] }, signal);
   expect(() => store.create(workspace.id, { kind: "deadline", title: "Bypass", start: "2026-01-26", timeZone: "Europe/Berlin" }, calculation.id)).toThrow("requires review");
+  const existing = store.create(workspace.id, { title: "Existing entry", start: "2026-01-20" });
+  expect(() => store.patch(workspace.id, existing.id, { revision: existing.revision, calculationId: calculation.id, start: "2026-01-26" })).toThrow("requires review");
+  store.remove(workspace.id, existing.id, existing.revision);
   expect(() => store.presentation("another", card.id)).toThrow();
   const saved = store.decidePresentation(workspace.id, card.id, "save");
   expect(saved.state).toBe("saved");

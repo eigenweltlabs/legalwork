@@ -55,6 +55,7 @@ export const CalendarCreateSchema = z.strictObject({
   reminders: z.array(z.number().int().min(0).max(525600)).max(20).default([1440]),
 });
 export const CalendarPatchSchema = z.strictObject({
+  calculationId: z.uuid().optional().describe("Receipt for a recalculated deadline. The final date and time zone must match it exactly."),
   title: CalendarCreateSchema.shape.title.optional(),
   description: CalendarCreateSchema.shape.description.unwrap().optional(),
   kind: CalendarCreateSchema.shape.kind.unwrap().optional(), start: CalendarValueSchema.optional(), end: CalendarValueSchema.nullable().optional(),
