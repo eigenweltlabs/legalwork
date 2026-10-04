@@ -128,6 +128,7 @@ import { newProjectFields } from "@/react-app/domains/workspace/project-defaults
 import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
+import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
@@ -1114,7 +1115,7 @@ export function SessionRoute() {
     }
     setProviderModalFromPlans(false);
   }, [providerConnectedIds, providerModalOpen]);
-  const openProvidersFromPlans = useCallback((preferredProviderId?: string) => {
+  const openProvidersFromPlans = useCallback((preferredProviderId?: string, startOAuth = false) => {
     aiPlansPathRef.current = "own_model";
     providersAtOwnModelOpenRef.current = {
       ids: providerConnectedIds,
@@ -1122,7 +1123,7 @@ export function SessionRoute() {
       variant: aiPlansVariant ?? "new",
     };
     setProviderModalFromPlans(true);
-    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none", preferredProviderId }).catch(() => {
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none", preferredProviderId, startOAuth }).catch(() => {
       providersAtOwnModelOpenRef.current = null;
       setProviderModalFromPlans(false);
       toast.error(t("providers.load_failed"));
@@ -2222,6 +2223,14 @@ export function SessionRoute() {
         }}
       />
     ) : null}
+    {aiPlansGateEnabled && <SyncProviderSetup
+      client={client}
+      workspaceId={selectedWorkspaceId}
+      connection={eigenweltView}
+      connectedProviders={providerListQuery.data ? getConnectedProviderItems(providerListQuery.data) : null}
+      paused={providerModalOpen || onboardingStage !== "done" && onboardingStage !== "ai"}
+      onChooseProvider={openProvidersFromPlans}
+    />}
     {aiPlansScreenVisible ? (
       // The plan screen: the last onboarding step, and the screen over the
       // app while no model is usable. There is no skip: it closes by itself
@@ -2304,6 +2313,7 @@ export function SessionRoute() {
         submitting: sessionProviderAuthSnapshot.providerAuthBusy,
         error: sessionProviderAuthSnapshot.providerAuthError,
         preferredProviderId: sessionProviderAuthSnapshot.providerAuthPreferredProviderId,
+        startOAuth: sessionProviderAuthSnapshot.providerAuthStartOAuth,
         workerType: sessionProviderAuthSnapshot.providerAuthWorkerType,
         providers: sessionProviderAuthSnapshot.providerAuthProviders,
         connectedProviderIds: providerConnectedIds,

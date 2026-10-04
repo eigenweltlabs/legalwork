@@ -3,6 +3,9 @@ export const usageCopy = {
   "limits.invitation_pending": "Invitation pending",
   "limits.retry_change": "Finish change",
   "limits.pending_change_hint": "Retry to complete the confirmed change. The same payment will not be collected twice.",
+  "limits.plan_updated": "Plan updated successfully.",
+  "limits.invitation_sent": "Invitation sent successfully.",
+  "limits.change_refresh_error": "The change is confirmed, but usage could not be refreshed. Refresh usage before making another change.",
   "limits.member_change_error": "We could not complete the change. Retry to finish without paying twice. If payment was declined or the price changed, review the price again.",
   "limits.quote_hint": "Includes the prorated change today. The recurring total is before taxes and discounts. Your billing date stays the same.",
   "limits.organization_total": "New organization total",
@@ -41,10 +44,36 @@ export const usageCopy = {
     "limits.payment_changed": "The saved card changed. Refresh payment details or use another payment method.",
     "limits.topup_verify_hint": "Your payment needs attention. Complete bank verification on the secure payment page. This continues the same top-up.",
     "limits.topup_paid": "Payment received",
-    "limits.topup_paid_hint": "Your balance updates automatically once payment confirmation is processed.",
+    "limits.topup_paid_hint": "Your credits are being added to your organization’s balance. You won’t be charged again.",
+    "limits.credits_added": "Credits added",
+    "limits.credits_ready": "Ready to continue",
+    "limits.updating_credits": "Updating your AI credits",
+    "limits.usage_attention": "Review your usage settings",
+    "limits.topup_confirmed_hint": "Your one-time payment was successful.",
+    "limits.topup_ready_hint": "You can now use your LegalWork AI credits. Send your message again to continue.",
+    "limits.topup_external_hint": "Your LegalWork AI credits are ready to use with LegalWork AI models.",
+    "limits.topup_refresh_error": "Your payment was received, but we couldn’t check whether the credits are ready. Check credits to refresh; this won’t charge you again.",
+    "limits.check_credits": "Check credits",
+    "limits.back_to_chat": "Back to chat",
+    "limits.done": "Done",
     "limits.topup_retry_hint": "We could not confirm the result. Resume this top-up to check its status without creating another payment.",
     "limits.topup_hint": "Add prepaid funds to the shared organization balance.",
-    "limits.title": "Usage & limits",
+    "limits.intent_personal_hint": "Increase your recurring monthly extra-usage limit to continue using the shared balance.",
+    "limits.intent_organization_hint": "Increase your organization’s monthly extra-usage spending cap to continue using the shared balance.",
+    "limits.intent_enable_hint": "Enable extra AI usage from your organization’s shared prepaid balance.",
+    "limits.intent_current": "Current monthly limit",
+    "limits.intent_new_limit": "New monthly limit (€)",
+    "limits.intent_unlimited": "Unlimited",
+    "limits.intent_increase": "Increase limit",
+    "limits.intent_enable": "Enable extra usage",
+    "limits.intent_increased": "Limit increased",
+    "limits.intent_enabled": "Extra usage enabled",
+    "limits.intent_saved": "Usage setting updated",
+    "limits.intent_ready": "You can now continue your conversation. Send your message again.",
+    "limits.intent_checking": "Checking your AI usage…",
+    "limits.intent_refresh_error": "Your change was saved, but we couldn’t check whether AI usage is ready. Refresh to check again.",
+    "limits.intent_invalid_limit": "Enter a limit above your current limit, up to €50,000, with at most two decimal places.",
+    "limits.manage_platform": "Manage on platform",
     "limits.refresh": "Refresh",
     "limits.loading": "Loading usage…",
     "limits.load_error": "Usage is unavailable. Please retry.",
@@ -58,6 +87,16 @@ export const usageCopy = {
     "limits.resets": "Resets",
     "limits.extra": "Extra usage this month",
   "limits.no_seat": "No paid plan",
+    "limits.blocked_member_admin": "Your personal monthly extra-usage limit has been reached. Increase your limit to use the shared balance. Adding credits does not raise this limit.",
+    "limits.blocked_member": "Your personal monthly extra-usage limit has been reached. Ask your admin to increase it.",
+    "limits.blocked_organization_admin": "Your organization’s monthly extra-usage spending cap has been reached. Increase the team cap to use the shared balance. Adding credits does not raise this cap.",
+    "limits.blocked_organization": "Your organization’s monthly extra-usage spending cap has been reached. Ask your admin to increase the team cap.",
+    "limits.blocked_wallet_admin": "Your organization’s shared AI balance is empty. Add credits to continue within your personal and team spending limits.",
+    "limits.blocked_wallet": "Your organization’s shared AI balance is empty. Ask your admin to add credits.",
+    "limits.blocked_disabled_admin": "Extra AI usage is disabled for your organization. Enable extra usage to use the shared balance.",
+    "limits.blocked_disabled": "Extra AI usage is disabled for your organization. Ask your admin to enable it.",
+    "limits.blocked_seat_admin": "Your account has no active paid LegalWork plan. Assign an active plan to continue.",
+    "limits.blocked_seat": "Your account has no active paid LegalWork plan. Ask your admin to assign one.",
     "limits.blocked": "Your usage limit has been reached. Request more usage from an admin.",
     "limits.request": "Request more usage",
     "limits.request_hint": "Your admin can approve extra usage or assign a higher seat tier. Sending a request does not charge your organization.",
@@ -98,7 +137,6 @@ export const usageCopy = {
     "limits.preview_purchase": "Review price",
     "limits.purchase_hint": "Adds recurring seats on the organization’s billing interval. Review the amount due now before confirming. Assign purchased seats above.",
     "limits.purchase_error": "Purchase was not completed. Review the price again or update your payment method in Billing.",
-    "limits.open": "Usage & admin requests",
     "limits.recurring_price": "Added recurring price, before tax and discounts",
     "limits.per_month": "per month",
     "limits.per_year": "per year"
@@ -107,6 +145,9 @@ export const usageCopy = {
   "limits.invitation_pending": "Einladung ausstehend",
   "limits.retry_change": "Änderung abschließen",
   "limits.pending_change_hint": "Wiederholen Sie die bestätigte Änderung. Die Zahlung wird nicht doppelt eingezogen.",
+  "limits.plan_updated": "Tarif erfolgreich aktualisiert.",
+  "limits.invitation_sent": "Einladung erfolgreich gesendet.",
+  "limits.change_refresh_error": "Die Änderung ist bestätigt, aber die Nutzung konnte nicht aktualisiert werden. Aktualisieren Sie die Nutzung vor einer weiteren Änderung.",
   "limits.member_change_error": "Die Änderung konnte nicht abgeschlossen werden. Versuchen Sie es ohne doppelte Zahlung erneut. Prüfen Sie bei abgelehnter Zahlung oder Preisänderung den Preis erneut.",
   "limits.quote_hint": "Der heutige Betrag berücksichtigt die anteilige Änderung. Der wiederkehrende Gesamtpreis versteht sich vor Steuern und Rabatten. Ihr Abrechnungstag bleibt unverändert.",
   "limits.organization_total": "Neuer Gesamtpreis",
@@ -145,10 +186,36 @@ export const usageCopy = {
     "limits.payment_changed": "Die gespeicherte Karte hat sich geändert. Aktualisieren Sie die Zahlungsdaten oder verwenden Sie eine andere Zahlungsmethode.",
     "limits.topup_verify_hint": "Ihre Zahlung erfordert einen weiteren Schritt. Bestätigen Sie die Zahlung auf der sicheren Zahlungsseite Ihrer Bank. Sie setzen damit dieselbe Aufladung fort.",
     "limits.topup_paid": "Zahlung eingegangen",
-    "limits.topup_paid_hint": "Ihr Guthaben wird automatisch aktualisiert, sobald die Zahlungsbestätigung verarbeitet wurde.",
+    "limits.topup_paid_hint": "Die Credits werden Ihrem Organisationsguthaben hinzugefügt. Sie werden nicht erneut belastet.",
+    "limits.credits_added": "Credits hinzugefügt",
+    "limits.credits_ready": "Bereit zum Fortfahren",
+    "limits.updating_credits": "Ihre KI-Credits werden aktualisiert",
+    "limits.usage_attention": "Nutzungseinstellungen prüfen",
+    "limits.topup_confirmed_hint": "Ihre einmalige Zahlung war erfolgreich.",
+    "limits.topup_ready_hint": "Sie können Ihre LegalWork KI-Credits jetzt nutzen. Senden Sie Ihre Nachricht erneut, um fortzufahren.",
+    "limits.topup_external_hint": "Ihre LegalWork KI-Credits können jetzt mit LegalWork KI-Modellen genutzt werden.",
+    "limits.topup_refresh_error": "Ihre Zahlung ist eingegangen, aber wir konnten nicht prüfen, ob die Credits verfügbar sind. Prüfen Sie die Credits erneut; dabei erfolgt keine weitere Zahlung.",
+    "limits.check_credits": "Credits prüfen",
+    "limits.back_to_chat": "Zurück zum Chat",
+    "limits.done": "Fertig",
     "limits.topup_retry_hint": "Das Ergebnis konnte nicht bestätigt werden. Setzen Sie diese Aufladung fort, um den Status zu prüfen, ohne eine neue Zahlung anzulegen.",
     "limits.topup_hint": "Laden Sie das gemeinsame Guthaben Ihrer Organisation auf.",
-    "limits.title": "Nutzung & Limits",
+    "limits.intent_personal_hint": "Erhöhen Sie Ihr monatliches Zusatzlimit, um das gemeinsame Guthaben weiter zu nutzen.",
+    "limits.intent_organization_hint": "Erhöhen Sie das monatliche Zusatzlimit Ihrer Organisation, um das gemeinsame Guthaben weiter zu nutzen.",
+    "limits.intent_enable_hint": "Aktivieren Sie zusätzliche KI-Nutzung aus dem gemeinsamen vorausbezahlten Guthaben Ihrer Organisation.",
+    "limits.intent_current": "Aktuelles monatliches Limit",
+    "limits.intent_new_limit": "Neues monatliches Limit (€)",
+    "limits.intent_unlimited": "Unbegrenzt",
+    "limits.intent_increase": "Limit erhöhen",
+    "limits.intent_enable": "Zusätzliche Nutzung aktivieren",
+    "limits.intent_increased": "Limit erhöht",
+    "limits.intent_enabled": "Zusätzliche Nutzung aktiviert",
+    "limits.intent_saved": "Nutzungseinstellung aktualisiert",
+    "limits.intent_ready": "Sie können Ihre Unterhaltung jetzt fortsetzen. Senden Sie Ihre Nachricht erneut.",
+    "limits.intent_checking": "Ihre KI-Nutzung wird geprüft…",
+    "limits.intent_refresh_error": "Ihre Änderung wurde gespeichert, aber wir konnten die KI-Nutzung nicht prüfen. Aktualisieren Sie, um erneut zu prüfen.",
+    "limits.intent_invalid_limit": "Geben Sie ein Limit über Ihrem aktuellen Limit bis 50.000 € mit höchstens zwei Nachkommastellen ein.",
+    "limits.manage_platform": "Auf der Plattform verwalten",
     "limits.refresh": "Aktualisieren",
     "limits.loading": "Nutzung wird geladen…",
     "limits.load_error": "Nutzung ist nicht verfügbar. Bitte erneut versuchen.",
@@ -162,6 +229,16 @@ export const usageCopy = {
     "limits.resets": "Wird zurückgesetzt am",
     "limits.extra": "Zusätzliche Nutzung diesen Monat",
   "limits.no_seat": "Keine bezahlte Stufe",
+    "limits.blocked_member_admin": "Ihr persönliches monatliches Limit für zusätzliche KI-Nutzung ist erreicht. Erhöhen Sie Ihr Limit, um das gemeinsame Guthaben zu nutzen. Eine Aufladung erhöht dieses Limit nicht.",
+    "limits.blocked_member": "Ihr persönliches monatliches Limit für zusätzliche KI-Nutzung ist erreicht. Bitten Sie Ihren Admin, es zu erhöhen.",
+    "limits.blocked_organization_admin": "Das monatliche Ausgabenlimit Ihrer Organisation für zusätzliche KI-Nutzung ist erreicht. Erhöhen Sie das Teamlimit, um das gemeinsame Guthaben zu nutzen. Eine Aufladung erhöht dieses Limit nicht.",
+    "limits.blocked_organization": "Das monatliche Ausgabenlimit Ihrer Organisation für zusätzliche KI-Nutzung ist erreicht. Bitten Sie Ihren Admin, das Teamlimit zu erhöhen.",
+    "limits.blocked_wallet_admin": "Das gemeinsame KI-Guthaben Ihrer Organisation ist aufgebraucht. Laden Sie Guthaben auf, um innerhalb Ihrer persönlichen und gemeinsamen Ausgabenlimits weiterzuarbeiten.",
+    "limits.blocked_wallet": "Das gemeinsame KI-Guthaben Ihrer Organisation ist aufgebraucht. Bitten Sie Ihren Admin, Guthaben aufzuladen.",
+    "limits.blocked_disabled_admin": "Zusätzliche KI-Nutzung ist für Ihre Organisation deaktiviert. Aktivieren Sie zusätzliche Nutzung, um das gemeinsame Guthaben zu nutzen.",
+    "limits.blocked_disabled": "Zusätzliche KI-Nutzung ist für Ihre Organisation deaktiviert. Bitten Sie Ihren Admin, sie zu aktivieren.",
+    "limits.blocked_seat_admin": "Ihrem Konto ist kein aktiver kostenpflichtiger LegalWork-Tarif zugewiesen. Weisen Sie einen aktiven Tarif zu, um weiterzuarbeiten.",
+    "limits.blocked_seat": "Ihrem Konto ist kein aktiver kostenpflichtiger LegalWork-Tarif zugewiesen. Bitten Sie Ihren Admin, einen Tarif zuzuweisen.",
     "limits.blocked": "Ihr Nutzungslimit ist erreicht. Fordern Sie zusätzliche Nutzung bei einem Admin an.",
     "limits.request": "Mehr Nutzung anfragen",
     "limits.request_hint": "Ihr Admin kann zusätzliche Nutzung genehmigen oder eine höhere Stufe zuweisen. Die Anfrage verursacht keine Kosten.",
@@ -202,9 +279,30 @@ export const usageCopy = {
     "limits.preview_purchase": "Preis prüfen",
     "limits.purchase_hint": "Fügt wiederkehrend berechnete Plätze im Abrechnungsintervall der Organisation hinzu. Prüfen Sie den sofort fälligen Betrag. Gekaufte Plätze können Sie oben zuweisen.",
     "limits.purchase_error": "Kauf nicht abgeschlossen. Prüfen Sie den Preis erneut oder aktualisieren Sie Ihr Zahlungsmittel unter Abrechnung.",
-    "limits.open": "Nutzung & Admin-Anfragen",
     "limits.recurring_price": "Zusätzlicher wiederkehrender Preis vor Steuern und Rabatten",
     "limits.per_month": "pro Monat",
     "limits.per_year": "pro Jahr"
   }
 };
+
+/** Explain the spending boundary that actually blocks this member. */
+export function usageBlockMessageKey(reason: string | null, isAdmin: boolean) {
+  switch (reason) {
+    case "member_limit":
+      return isAdmin ? "limits.blocked_member_admin" : "limits.blocked_member";
+    case "organization_limit":
+      return isAdmin ? "limits.blocked_organization_admin" : "limits.blocked_organization";
+    case "wallet_empty":
+      return isAdmin ? "limits.blocked_wallet_admin" : "limits.blocked_wallet";
+    case "extra_disabled":
+      return isAdmin ? "limits.blocked_disabled_admin" : "limits.blocked_disabled";
+    case "seat_required":
+      return isAdmin ? "limits.blocked_seat_admin" : "limits.blocked_seat";
+    default:
+      return "limits.blocked";
+  }
+}
+
+export function usageBlockNeedsSettings(reason: string | null) {
+  return reason === "member_limit" || reason === "organization_limit" || reason === "extra_disabled";
+}

@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import {
+  ArrowLeft,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -60,6 +61,7 @@ import {
 } from "./local-templates";
 import { findCustomModelLimitProblem, replaceDiscoveredModels } from "./custom-provider-config";
 import { defaultOutputLimit } from "@legalwork/types/model-limits";
+import { ChatGptPlanCard } from "./chatgpt-plan-card";
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
 function inferCustomApiType(baseURL: string): CustomProviderApiType {
@@ -252,6 +254,8 @@ export type ProviderAuthModalProps = {
   submitting: boolean;
   error: string | null;
   preferredProviderId?: string | null;
+  /** A subscription was already selected; start its OAuth without asking again. */
+  startOAuth?: boolean;
   workerType?: "local" | "remote";
   providers: ProviderAuthProvider[];
   connectedProviderIds: string[];
@@ -330,6 +334,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const oauthSubmitBusyRef = useRef(false);
   const oauthAutoBusyRef = useRef(false);
   const oauthStartBusyRef = useRef(false);
+  const oauthStartTokenRef = useRef(0);
   const autoOpenedPreferredProviderIdRef = useRef<string | null>(null);
   const customEditPrefilledRef = useRef<string | null>(null);
   const customRequestRef = useRef(0);
@@ -550,6 +555,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       oauthCodeCopiedResetRef.current = null;
     }
     eigenweltWaitTokenRef.current += 1;
+    oauthStartTokenRef.current += 1;
     customRequestRef.current += 1;
     setView("list");
     setSelectedProviderId(null);
@@ -668,7 +674,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   }, [props.open, resolvedView]);
 
   useEffect(() => {
-    if (!props.open || props.loading || resolvedView !== "list") return;
+    if (!props.open || props.loading || props.submitting || resolvedView !== "list") return;
 
     const preferredId = props.preferredProviderId?.trim().toLowerCase() ?? "";
     if (!preferredId || autoOpenedPreferredProviderIdRef.current === preferredId) return;
@@ -678,18 +684,33 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     autoOpenedPreferredProviderIdRef.current = preferredId;
     queueMicrotask(() => {
-      handleEntrySelect(entry);
+      if (props.startOAuth) {
+        setSelectedProviderId(entry.id);
+        const method = entry.methods.find(item => item.type === "oauth");
+        if (!method) {
+          setView("method");
+          setLocalError(`${t("providers.no_oauth_prefix")} ${entry.name}.`);
+          return;
+        }
+        setView("oauth-auto");
+        void startOauth(entry, method.methodIndex);
+      } else {
+        void handleEntrySelect(entry);
+      }
     });
   }, [
     entries,
     props.loading,
+    props.submitting,
     props.open,
     props.preferredProviderId,
+    props.startOAuth,
     resolvedView,
   ]);
 
   useEffect(() => {
     return () => {
+      oauthStartTokenRef.current += 1;
       stopOauthAutoPolling();
       stopProviderPolling();
       if (oauthCodeCopiedResetRef.current !== null) {
@@ -825,6 +846,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
     oauthStartBusyRef.current = true;
+    const startToken = ++oauthStartTokenRef.current;
     setLocalError(null);
     setOauthCodeInput("");
     setOauthSession(null);
@@ -832,6 +854,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setOauthBrowserOpened(false);
     try {
       const started = await props.onSelect(entry.id, methodIndex);
+      if (startToken !== oauthStartTokenRef.current) return;
       const selectedMethod = entry.methods.find((method) => method.methodIndex === methodIndex);
       if (!selectedMethod) {
         throw new Error(`Selected auth method is unavailable for ${entry.name}.`);
@@ -856,10 +879,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
       setView("oauth-auto");
     } catch (error) {
+      if (startToken !== oauthStartTokenRef.current) return;
       const message = error instanceof Error ? error.message : t("providers.oauth_start_failed");
       setLocalError(message);
+      setView("method");
     } finally {
-      oauthStartBusyRef.current = false;
+      if (startToken === oauthStartTokenRef.current) oauthStartBusyRef.current = false;
     }
   };
 
@@ -1212,6 +1237,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const handleBack = () => {
     if (resolvedView === "oauth-code" || resolvedView === "oauth-auto") {
       eigenweltWaitTokenRef.current += 1;
+      oauthStartTokenRef.current += 1;
+      oauthStartBusyRef.current = false;
       if ((selectedEntry?.methods.length ?? 0) > 1) {
         setView("method");
       } else {
@@ -1296,6 +1323,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     if (method.type === "oauth") {
       return t("providers.browser_continue_hint");
     }
+    if (isOpenAiProvider(entry.id, entry.name)) return t("providers.openai_api_billing_hint");
     if (isOpencodeZenProvider(entry.id)) {
       return t("providers.zen_signin_hint");
     }
@@ -1312,6 +1340,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   );
 
   const featuredOpenAI = entries.find(entry => isOpenAiProvider(entry.id, entry.name) && entry.methods.some(method => method.type === "oauth"));
+  const featuredChatGptMethod = featuredOpenAI?.methods.find(method => method.type === "oauth");
+  const selectedEntryIsOpenAI = Boolean(selectedEntry && isOpenAiProvider(selectedEntry.id, selectedEntry.name));
   const selectedEntryHasClaudeSubscription = Boolean(
     selectedEntry &&
       isAnthropicProvider(selectedEntry.id, selectedEntry.name) &&
@@ -1332,9 +1362,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     >
       <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t("providers.connect_title")}</DialogTitle>
+          <DialogTitle>{selectedEntryIsOpenAI && resolvedView === "method" ? t("providers.connect_openai_title") : t("providers.connect_title")}</DialogTitle>
           <DialogDescription>
-            {t("providers.connect_subtitle")}
+            {selectedEntryIsOpenAI && resolvedView === "method" ? t("providers.choose_connection") : t("providers.connect_subtitle")}
           </DialogDescription>
         </DialogHeader>
 
@@ -1351,11 +1381,15 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
             <div className="-mr-1 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {resolvedView === "list" ? (
                 <div className="space-y-1.5" role="presentation" onKeyDown={handleListKeyDown}>
-                  {!searchQuery && featuredOpenAI && <div className="mb-4 space-y-3 rounded-xl border border-dls-border bg-dls-hover p-4">
-                    <div className="flex items-center gap-2"><ProviderIcon providerId="openai" size={20} /><p className="text-sm font-medium">ChatGPT</p></div>
-                    <p className="text-xs leading-relaxed text-dls-secondary">{t("ai_plans.provider_openai_hint")}</p>
-                    <Button className="w-full" disabled={actionDisabled} onClick={() => handleEntrySelect(featuredOpenAI)}>{t("ai_plans.provider_openai")}</Button>
-                  </div>}
+                  {!searchQuery && featuredOpenAI && featuredChatGptMethod && (
+                    <div className="mb-4">
+                      <ChatGptPlanCard disabled={actionDisabled} onContinue={() => {
+                        setSelectedProviderId(featuredOpenAI.id);
+                        setView("method");
+                        void startOauth(featuredOpenAI, featuredChatGptMethod.methodIndex);
+                      }} />
+                    </div>
+                  )}
                   <div className="relative mb-2">
                     <Search
                       size={16}
@@ -1447,8 +1481,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
               ) : null}
 
               {resolvedView === "method" && selectedEntry ? (
-                <div className={`${surfaceCardClass} space-y-4`}>
-                  <div className="flex items-center justify-between gap-4">
+                <div className={selectedEntryIsOpenAI ? "space-y-4" : `${surfaceCardClass} space-y-4`}>
+                  {selectedEntryIsOpenAI ? (
+                    <Button variant="ghost" size="sm" onClick={handleBack} disabled={actionDisabled}>
+                      <ArrowLeft />{t("common.back")}
+                    </Button>
+                  ) : <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm font-medium text-dls-text">{selectedEntry.name}</div>
                       <div className="mt-1 text-xs text-dls-secondary">{t("providers.choose_connection")}</div>
@@ -1456,10 +1494,16 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
                       {t("common.back")}
                     </Button>
-                  </div>
+                  </div>}
                   {selectedEntryHasClaudeSubscription ? anthropicSubscriptionWarning : null}
                   <div className="grid gap-2">
-                    {selectedEntry.methods.map((method) => (
+                    {selectedEntry.methods.map((method) => selectedEntryIsOpenAI && method.type === "oauth" ? (
+                      <ChatGptPlanCard
+                        key={`${selectedEntry.id}-${method.methodIndex}`}
+                        disabled={actionDisabled}
+                        onContinue={() => void handleMethodSelect(method)}
+                      />
+                    ) : (
                       <button
                         key={`${selectedEntry.id}-${method.type}-${method.methodIndex ?? method.label}`}
                         type="button"
@@ -1471,7 +1515,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         onClick={() => void handleMethodSelect(method)}
                         disabled={actionDisabled}
                       >
-                        <div className="text-sm font-medium text-dls-text">{methodLabel(method)}</div>
+                        <div className="text-sm font-medium text-dls-text">{selectedEntryIsOpenAI ? t("providers.use_openai_api_key") : methodLabel(method)}</div>
                         <div className="mt-1 text-xs text-dls-secondary">{methodDescription(selectedEntry, method)}</div>
                       </button>
                     ))}
@@ -1537,6 +1581,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </Button>
                   </div>
                 </div>
+              ) : null}
+
+              {resolvedView === "oauth-auto" && selectedEntry && !oauthSession ? (
+                <p role="status" className="flex items-center gap-2 py-4 text-sm text-dls-secondary">
+                  <Loader2 className="size-4 animate-spin" />{t("providers.opening_auth")}
+                </p>
               ) : null}
 
               {resolvedView === "oauth-code" && selectedEntry && oauthSession ? (

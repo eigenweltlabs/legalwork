@@ -18,7 +18,7 @@ import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ComposerDraft, WorkspaceSessionGroup } from "@/app/types";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { initLocale } from "@/i18n";
+import { initLocale, setLocale } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
 import { ProviderAuthModal } from "@/react-app/domains/connections/provider-auth";
@@ -40,10 +40,31 @@ initLocale();
 
 const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
+if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
+if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
 const limitParam = previewParams.get("limit");
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? "openai", modelID: "Preview model" };
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
+const upgradePreview = previewParams.get("upgrade");
+const topUpPreview = previewParams.get("topup");
+const intentPreview = previewParams.get("intent");
+let topUpPending: { operationId: string; amountCents: number } | null = null;
+let topUpReadyAt = 0;
+let failNextUsageRead = false;
+if (upgradePreview) limitFixture.usage.me.blockedReason = "wallet_empty";
+if (topUpPreview) {
+  limitFixture.usage.walletCents = 0;
+  limitFixture.usage.me.blockedReason = "wallet_empty";
+  limitFixture.usage.me.extraUsedCents = 0;
+  limitFixture.usage.me.extraRemainingCents = 0;
+}
+if (intentPreview === "personal" || intentPreview === "organization" || intentPreview === "enable") {
+  limitFixture.usage.me.blockedReason = intentPreview === "personal" ? "member_limit" : intentPreview === "organization" ? "organization_limit" : "extra_disabled";
+  if (intentPreview !== "personal") limitFixture.usage.me.extraUsedCents = 0;
+  if (intentPreview === "organization") limitFixture.usage.orgExtraLimitCents = limitFixture.usage.orgExtraUsedCents;
+  if (intentPreview === "enable") limitFixture.usage.extraEnabled = false;
+}
 const workspace: WorkspaceInfo = {
   id: "visual-workspace", name: "Northstar Legal", displayName: "Northstar Legal",
   path: "/workspaces/northstar-legal", preset: "starter", workspaceType: "local",
@@ -100,6 +121,11 @@ if (limitParam) {
       ...message, parts: [], info: { ...message.info, error: { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID) } } },
     } : message),
   });
+  if (previewParams.has("continued")) {
+    const previous = snapshots.get("visual-limit");
+    const continued = snapshot("visual-limit", "Review supplier agreement", "Hallo?");
+    saveSnapshot({ ...continued, messages: [...(previous?.messages ?? []), ...continued.messages] });
+  }
 }
 
 const files: LegalworkWorkspaceDirectoryEntry[] = [
@@ -143,7 +169,7 @@ const previewDelay = (ms: number, cancelled: () => boolean) =>
 
 function PlansPreview() {
   const [plans, setPlans] = useState(initialPlans);
-  const [providersOpen, setProvidersOpen] = useState(false);
+  const [providersOpen, setProvidersOpen] = useState(previewParams.get("connect") === "openai");
   const upgradeChecks = useRef(0);
   if (!plans) return null;
   const close = () => window.setTimeout(() => setPlans(null), 1_200);
@@ -179,6 +205,7 @@ function PlansPreview() {
           loading={false}
           submitting={false}
           error={null}
+          preferredProviderId={previewParams.get("connect") === "openai" ? "openai" : undefined}
           providers={[
             { id: "openai", name: "OpenAI", env: [] },
             { id: "anthropic", name: "Anthropic", env: [] },
@@ -186,12 +213,12 @@ function PlansPreview() {
           ]}
           connectedProviderIds={[]}
           authMethods={{
-            openai: [{ type: "api", label: "API key" }],
+            openai: [{ type: "oauth", label: "ChatGPT Plus/Pro (browser)", methodIndex: 0 }, { type: "api", label: "API key", methodIndex: 1 }],
             anthropic: [{ type: "api", label: "API key" }],
             mistral: [{ type: "api", label: "API key" }],
           }}
-          onSelect={async () => {
-            throw new Error("Sign-in with a provider needs the running desktop app.");
+          onSelect={async (providerId, methodIndex) => {
+            throw new Error(`Preview only: ${providerId} sign-in method ${methodIndex} selected. No account is connected.`);
           }}
           onSubmitApiKey={async () => {
             // A connected provider makes a model usable: the plan screen goes.
@@ -215,14 +242,68 @@ function PlansPreview() {
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
   eigenweltEntitlements: async () => limitFixture.entitlements,
-  eigenweltUsage: async () => limitFixture.usage,
+  eigenweltUsage: async () => {
+    if (failNextUsageRead) { failNextUsageRead = false; throw new Error("Simulated usage refresh failure"); }
+    return limitFixture.usage;
+  },
   eigenweltUsageAction: async (_workspaceId, action) => {
-    if (action.action === "paymentDetails") return {
-      card: { id: "visual-card", brand: "visa", last4: "4242", expMonth: 9, expYear: 2027 }, pendingTopUps: [],
-    };
+    if (intentPreview && (action.action === "increaseLimit" || action.action === "enableExtraUsage")) {
+      const previous = limitFixture.usage;
+      const personal = action.action === "increaseLimit" && action.scope === "personal";
+      const organization = action.action === "increaseLimit" && action.scope === "organization";
+      const me = { ...previous.me,
+        baseExtraLimitCents: personal ? action.limitCents : previous.me.baseExtraLimitCents,
+        extraLimitCents: personal ? action.limitCents : previous.me.extraLimitCents,
+        inheritsLimit: personal ? false : previous.me.inheritsLimit,
+      };
+      const orgLimit = organization ? action.limitCents : previous.orgExtraLimitCents;
+      const wallet = previewParams.get("intentRecovery") === "blocked" ? 0 : previous.walletCents ?? 0;
+      me.extraRemainingCents = Math.max(0, Math.min(me.extraLimitCents - me.extraUsedCents, orgLimit === null ? Infinity : orgLimit - (previous.orgExtraUsedCents ?? 0), wallet));
+      me.blockedReason = me.extraRemainingCents > 0 ? null : "wallet_empty";
+      limitFixture.usage = { ...previous, me, members: [me], orgExtraLimitCents: orgLimit, walletCents: wallet,
+        extraEnabled: action.action === "enableExtraUsage" || previous.extraEnabled };
+      failNextUsageRead = previewParams.get("intentRecovery") === "refresh-failed";
+      return { ok: true };
+    }
+    if (action.action === "paymentDetails") {
+      if (topUpPending && Date.now() >= topUpReadyAt) {
+        const me = { ...limitFixture.usage.me,
+          extraRemainingCents: topUpPreview === "blocked" ? 0 : topUpPending.amountCents,
+          blockedReason: topUpPreview === "blocked" ? "member_limit" : null,
+        };
+        limitFixture.usage = { ...limitFixture.usage, me, members: [me], walletCents: topUpPending.amountCents };
+        topUpPending = null;
+      }
+      return {
+        card: { id: "visual-card", brand: "visa", last4: "4242", expMonth: 9, expYear: 2027 },
+        pendingTopUps: topUpPending ? [topUpPending] : [],
+      };
+    }
+    // Explicit dev-only simulation. No payment service, account, or credentials are used.
+    if (action.action === "topUp" && topUpPreview) {
+      topUpPending = { operationId: action.operationId, amountCents: action.amountCents };
+      topUpReadyAt = Date.now() + (topUpPreview === "delayed" ? 10_000 : 0);
+      failNextUsageRead = topUpPreview === "refresh-failed";
+      return { status: "paid", operationId: action.operationId };
+    }
     if (action.action === "memberChange" && action.preview) return {
       quoteId: "visual-quote", amountCents: 1500, recurringAmountCents: 12800, billingInterval: "month",
     };
+    if (action.action === "memberChange" && !action.preview && upgradePreview && action.target.kind === "plan" && action.target.plan !== "none") {
+      const used = limitFixture.usage.me.allowanceCents - limitFixture.usage.me.remainingCents;
+      const updated = usageLimitFixture(action.target.plan, true, model.providerID);
+      const remaining = upgradePreview === "blocked" ? 0 : Math.max(0, updated.usage.me.allowanceCents - used);
+      updated.usage.me.remainingCents = remaining;
+      updated.usage.me.blockedReason = remaining > 0 ? null : "wallet_empty";
+      if (updated.entitlements.entitlements) {
+        updated.entitlements.entitlements.usage.remainingCents = remaining;
+        updated.entitlements.entitlements.usage.dailyRemainingCents = remaining;
+      }
+      limitFixture.usage = updated.usage;
+      limitFixture.entitlements = updated.entitlements;
+      failNextUsageRead = upgradePreview === "refresh-failed";
+      return { ok: true };
+    }
     throw new Error("Billing changes and payments are disabled in this visual preview.");
   },
   getSessionSnapshot: async (_workspaceId, sessionId) => {

@@ -77,6 +77,8 @@ export type UsageControlView = {
   billingInterval: "month" | "year";
 };
 export type UsageControlAction =
+  | { action: "increaseLimit"; scope: "personal" | "organization"; limitCents: number }
+  | { action: "enableExtraUsage" }
   | { action: "paymentDetails" }
   | { action: "paymentSetup" }
   | {

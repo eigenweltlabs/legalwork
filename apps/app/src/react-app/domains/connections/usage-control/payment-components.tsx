@@ -1,16 +1,14 @@
 /** @jsxImportSource react */
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { CreditCard, Loader2, Plus, ShieldCheck } from "lucide-react";
+import { Check, CreditCard, Loader2, Plus } from "lucide-react";
 import type {
   BillingPaymentDetails,
   SavedCard,
   TopUpResult,
 } from "@legalwork/types/usage-control";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +17,9 @@ import {
   DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import type { Run, Text, UsageTransport } from "./panel";
+import type { Run, Text, UsageTextKey, UsageTransport } from "./transport";
+import { usageBlockMessageKey } from "./copy";
+import { CHECKING_TOP_UP, checkConfirmedTopUp, type TopUpRecovery } from "./usage-recovery";
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -140,7 +140,7 @@ function PaymentState({
       <p role="alert" className="text-sm text-muted-foreground">
         {t("limits.payment_load_error")}
       </p>
-      <Button variant="outline" onClick={() => void reload()}>
+      <Button type="button" variant="outline" onClick={() => void reload()}>
         {t("limits.refresh")}
       </Button>
     </div>
@@ -154,93 +154,101 @@ function PaymentState({
     </p>
   );
 }
-export function PaymentMethods(props: Props & { refreshSignal?: unknown }) {
-  const { t, run, busy, transport } = props;
-  const { details, failed, reload } = usePaymentDetails(
-    transport,
-    props.refreshSignal,
-  );
-  return (
-    <div className="max-w-3xl space-y-5">
-      <div className="space-y-1">
-        <h2 className="text-base font-medium">{t("limits.payment_tab")}</h2>
-        <p className="text-sm text-muted-foreground">
-          {t("limits.payment_description")}
-        </p>
-      </div>
-      <Card className="gap-0 overflow-hidden py-0 shadow-none">
-        <div className="p-6">
-          {!details ? (
-            <PaymentState failed={failed} t={t} reload={reload} />
-          ) : (
-            <div className="flex flex-wrap items-center justify-between gap-5">
-              {details.card ? (
-                <CardLabel card={details.card} t={t} />
-              ) : (
-                <p className="text-sm">{t("limits.no_saved_card")}</p>
-              )}
-              {details.card && (
-                <Badge variant="secondary">{t("limits.default_payment")}</Badge>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t bg-muted/20 px-6 py-4">
-          <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-            {t("limits.payment_update_hint")}
-          </p>
-          <Button
-            variant="outline"
-            disabled={busy || !details}
-            onClick={() => void run({ action: "paymentSetup" }).catch(() => {})}
-          >
-            {details?.card ? t("limits.change_card") : t("limits.add_card")}
-          </Button>
-        </div>
-      </Card>
-      <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-        <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-        {t("limits.card_security")}
-      </p>
-    </div>
-  );
-}
-export function CardTopUp(props: Props & { triggerSize?: "default" | "sm" }) {
+export function CardTopUp(props: Props & {
+  triggerSize?: "default" | "sm";
+  hideTrigger?: boolean;
+  returnLabel?: UsageTextKey;
+  readyHint?: UsageTextKey;
+  onRecoveryChange?: (recovery: TopUpRecovery) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [paidOperationId, setPaidOperationId] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [checked, setChecked] = useState<{ operationId: string; recovery: TopUpRecovery } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const recovery = checked?.operationId === paidOperationId ? checked.recovery : CHECKING_TOP_UP;
+  const { transport, onRecoveryChange } = props;
+  useEffect(() => {
+    if (!paidOperationId) return;
+    const operationId = paidOperationId;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const started = Date.now();
+    setChecked({ operationId, recovery: CHECKING_TOP_UP });
+    async function check() {
+      setChecking(true);
+      const next = await checkConfirmedTopUp(
+        operationId,
+        async () => detailsSchema.parse(await transport.write({ action: "paymentDetails" })),
+        transport.read,
+      );
+      if (!active) return;
+      setChecked({ operationId, recovery: next });
+      if (next.status === "checking" && !next.refreshFailed && Date.now() - started < 30_000)
+        timer = setTimeout(() => void check(), 1500);
+      else setChecking(false);
+    }
+    void check();
+    return () => { active = false; clearTimeout(timer); };
+  }, [paidOperationId, attempt, transport]);
+  useEffect(() => {
+    if (paidOperationId) onRecoveryChange?.(recovery);
+  }, [paidOperationId, recovery, onRecoveryChange]);
+  const waiting = recovery.status === "checking";
+  const recoveryBody = recovery.status === "ready" ? props.t(props.readyHint ?? "limits.topup_ready_hint")
+    : recovery.status === "blocked" && recovery.view
+      ? props.t(usageBlockMessageKey(recovery.view.me.blockedReason, recovery.view.isAdmin))
+      : props.t(recovery.refreshFailed ? "limits.topup_refresh_error" : "limits.topup_paid_hint");
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!props.busy) setOpen(value);
+        if (props.busy) return;
+        if (value && !waiting) setPaidOperationId(null);
+        setOpen(value);
       }}
     >
-      <DialogTrigger render={<Button size={props.triggerSize} className="self-start" />}>
-        <Plus />
-        {props.t("limits.topup")}
-      </DialogTrigger>
+      {!props.hideTrigger && <DialogTrigger render={<Button size={props.triggerSize} className="self-start" />}>
+        {paidOperationId && waiting ? <CreditCard /> : <Plus />}
+        {props.t(paidOperationId && waiting ? "limits.check_credits" : "limits.topup")}
+      </DialogTrigger>}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{props.t("limits.topup")}</DialogTitle>
-          <DialogDescription>{props.t("limits.topup_hint")}</DialogDescription>
+          <DialogTitle>{props.t(paidOperationId ? waiting ? "limits.topup_paid" : "limits.credits_added" : "limits.topup")}</DialogTitle>
+          <DialogDescription>{props.t(paidOperationId ? "limits.topup_confirmed_hint" : "limits.topup_hint")}</DialogDescription>
         </DialogHeader>
-        {open && <TopUpForm {...props} />}
+        {open && (paidOperationId ? <div className="space-y-4">
+          <div role="status" className="flex items-start gap-3 rounded-xl border bg-muted/30 p-4">
+            {waiting && checking ? <Loader2 className="mt-0.5 size-5 shrink-0 animate-spin" /> : <Check className="mt-0.5 size-5 shrink-0" />}
+            <div className="space-y-1">
+              <p className="text-sm font-medium">{props.t(waiting ? "limits.updating_credits" : recovery.status === "ready" ? "limits.credits_ready" : "limits.usage_attention")}</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">{recoveryBody}</p>
+            </div>
+          </div>
+          {waiting && !checking && <Button variant="outline" className="w-full" onClick={() => setAttempt(value => value + 1)}>{props.t("limits.check_credits")}</Button>}
+          <Button className="w-full" onClick={() => setOpen(false)}>{props.t(props.returnLabel ?? "limits.done")}</Button>
+        </div> : <TopUpForm {...props} onPaid={setPaidOperationId} />)}
       </DialogContent>
     </Dialog>
   );
 }
-function TopUpForm({ t, run, busy, transport }: Props) {
+function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (operationId: string) => void }) {
   const { details, failed, reload } = usePaymentDetails(transport);
   const [value, setValue] = useState("100"),
     [operationId, setOperationId] = useState(() => crypto.randomUUID()),
     [submitted, setSubmitted] = useState(false),
     [error, setError] = useState("");
   const [result, setResult] = useState<TopUpResult | null>(null);
+  useEffect(() => {
+    if (result?.status === "paid") onPaid(result.operationId);
+  }, [result, onPaid]);
   async function execute(action: Parameters<Run>[0]) {
     setError("");
     setSubmitted(true);
     try {
       const next = resultSchema.parse(await run(action));
       setResult(next);
+      if (next.status === "paid") return;
       if (next.status === "canceled") {
         setSubmitted(false);
         setOperationId(crypto.randomUUID());
@@ -258,15 +266,9 @@ function TopUpForm({ t, run, busy, transport }: Props) {
       await reload();
     }
   }
-  if (!details) return <PaymentState failed={failed} t={t} reload={reload} />;
   if (result?.status === "paid")
     return (
-      <div role="status" className="space-y-2 rounded-xl bg-muted/40 p-5">
-        <p className="font-medium">{t("limits.topup_paid")}</p>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          {t("limits.topup_paid_hint")}
-        </p>
-      </div>
+      <p role="status" className="text-sm text-muted-foreground">{t("limits.topup_paid")}</p>
     );
   if (result?.status === "failed" || result?.status === "processing")
     return (
@@ -368,7 +370,7 @@ function TopUpForm({ t, run, busy, transport }: Props) {
         )}
       </div>
     );
-  if (details.pendingTopUps.length)
+  if (details?.pendingTopUps.length)
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
@@ -417,6 +419,7 @@ function TopUpForm({ t, run, busy, transport }: Props) {
       className="space-y-5"
       onSubmit={(event) => {
         event.preventDefault();
+        if (!details || busy || submitted) return;
         const raw = value.trim().replace(",", ".");
         const amountCents = Math.round(Number(raw) * 100);
         if (
@@ -471,7 +474,11 @@ function TopUpForm({ t, run, busy, transport }: Props) {
           />
         </label>
       </fieldset>
-      {details.card ? (
+      {!details ? (
+        <div className="flex min-h-28 items-center rounded-xl border bg-muted/20 p-4">
+          <PaymentState failed={failed} t={t} reload={reload} />
+        </div>
+      ) : details.card ? (
         <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
           <CardLabel card={details.card} t={t} />
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -488,15 +495,19 @@ function TopUpForm({ t, run, busy, transport }: Props) {
           {error}
         </p>
       )}
-      <Button type="submit" disabled={busy} className="w-full">
+      <Button
+        type="submit"
+        disabled={busy || submitted || !details}
+        className="w-full"
+      >
         <CreditCard />
-        {details.card
+        {!details || details.card
           ? t("limits.confirm_topup")
           : t("limits.continue_checkout")}
-        {details.card &&
+        {(!details || details.card) &&
           ` · ${money(Math.round(Number(value.replace(",", ".")) * 100) || 0)}`}
       </Button>
-      {details.card && !submitted && (
+      {details?.card && !submitted && (
         <Button
           type="button"
           variant="ghost"

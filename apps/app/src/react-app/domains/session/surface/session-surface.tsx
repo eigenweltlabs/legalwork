@@ -1,6 +1,7 @@
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
+import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
 import { isProviderUsageLimitError, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -947,7 +948,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [liveStatus, sending, chatStreaming]);
 
   // A quota failure requires user action. Stop on its first retry event.
-  const paidBudgetRetryActive = liveStatus.type === "retry" && isProviderUsageLimitError(liveStatus.message);
+  const paidBudgetRetryActive = liveStatus.type === "retry" && isProviderUsageLimitError(liveStatus.message, props.selectedModel.providerID);
   const retryStatusForDisplay = liveStatus.type === "retry" && !paidBudgetRetryActive ? liveStatus : null;
   const renderedMessages = useMemo(
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
@@ -2091,16 +2092,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     >
                       <MessageList
                         eigenweltPlan={eigenweltPlan}
-                        renderUsageLimit={error => {
+                        renderUsageLimit={(error, messageId) => {
                           const provider = providerFromUsageLimitError(error);
                           const legacyBudget = isEigenweltBudgetExceededErrorText(error);
-                          if (!isProviderUsageLimitError(error) && provider === null && !legacyBudget) return null;
+                          if (!isProviderUsageLimitError(error, props.selectedModel.providerID) && provider === null && !legacyBudget) return null;
                           return <ProviderLimitMessage
                             client={props.client}
                             workspaceId={props.workspaceId}
                             plan={eigenweltPlan}
                             providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
                             onChoosePlan={props.onChooseAiPlan}
+                            resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
                           />;
                         }}
                         messages={renderedMessages}

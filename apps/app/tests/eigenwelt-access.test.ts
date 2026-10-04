@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   aiAccessState,
+  needsSyncProviderSetup,
   forgetEigenweltAccount,
   isAiPlansVariant,
   readRememberedEigenweltAccount,
@@ -31,6 +32,35 @@ const state = (input: Partial<AiAccessInput>) =>
     signedInBefore: false,
     ...input,
   });
+
+describe("Sync provider setup", () => {
+  const sync = { connected: true, entitlements: { plan: "sync", subscriptionStatus: "active" } };
+  test("waits for checkout confirmation and the connected-provider list", () => {
+    expect(needsSyncProviderSetup({ eigenwelt: undefined, connectedProviders: [] })).toBe(false);
+    expect(needsSyncProviderSetup({ eigenwelt: sync, connectedProviders: null })).toBe(false);
+    expect(needsSyncProviderSetup({ eigenwelt: { ...sync, connected: false }, connectedProviders: [] })).toBe(false);
+    expect(needsSyncProviderSetup({ eigenwelt: { connected: true, entitlements: null }, connectedProviders: [] })).toBe(false);
+  });
+  test("opens after a confirmed Sync purchase or existing Sync sign-in", () => {
+    for (const subscriptionStatus of ["active", "trialing"]) {
+      expect(needsSyncProviderSetup({ eigenwelt: { connected: true, entitlements: { plan: "sync", subscriptionStatus } }, connectedProviders: [] })).toBe(true);
+    }
+    expect(needsSyncProviderSetup({ eigenwelt: sync, connectedProviders: [withModels("eigenwelt")] })).toBe(true);
+  });
+  test("skips users who already connected any own provider", () => {
+    for (const id of ["openai", "anthropic", "ollama", "custom-provider"]) {
+      expect(needsSyncProviderSetup({ eigenwelt: sync, connectedProviders: [withModels(id)] })).toBe(false);
+    }
+  });
+  test("does not offer setup for other plans or failed purchases", () => {
+    for (const plan of ["plus", "pro", null]) {
+      expect(needsSyncProviderSetup({ eigenwelt: { connected: true, entitlements: { plan, subscriptionStatus: "active" } }, connectedProviders: [] })).toBe(false);
+    }
+    for (const subscriptionStatus of ["canceled", "incomplete", "unpaid"]) {
+      expect(needsSyncProviderSetup({ eigenwelt: { connected: true, entitlements: { plan: "sync", subscriptionStatus } }, connectedProviders: [] })).toBe(false);
+    }
+  });
+});
 
 describe("aiAccessState", () => {
   test("nothing is decided while the provider list loads", () => {

@@ -43,13 +43,6 @@ import {
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
@@ -395,8 +388,6 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   // "signed-out" starts on the sign-in card; this shows the cards instead.
   const [showPlans, setShowPlans] = useState(false);
   const [aiTier, setAiTier] = useState("plus");
-  const [syncProviderOpen, setSyncProviderOpen] = useState(false);
-  const syncProviderRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   // Bumping cancels whatever flow is running (a sign-in wait, the upgrade poll).
@@ -481,12 +472,6 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         captureAnalyticsEvent("ai_plans_connected", { choice, mode, variant });
         setPhase({ kind: "connecting" });
         props.onSignedIn(plan);
-        if (plan === "sync")
-          props.onBringOwnModel(
-            result.preferredAiProvider === "other"
-              ? undefined
-              : (result.preferredAiProvider ?? syncProviderRef.current),
-          );
         return;
       }
       setPhase({ kind: "choose" });
@@ -533,11 +518,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   };
 
   const choosePlan = (plan: EigenweltPlanId) => {
-    if (plan === "sync") {
-      setSyncProviderOpen(true);
-      return;
-    }
-    if (variant === "no-models") upgrade(plan);
+    if (variant === "no-models" && plan !== "sync") upgrade(plan);
     else void signIn(plan);
   };
 
@@ -880,47 +861,6 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         props.mode === "gate" && "duration-300 animate-in fade-in-0",
       )}
     >
-      <Dialog open={syncProviderOpen} onOpenChange={setSyncProviderOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("ai_plans.provider_title")}</DialogTitle>
-            <DialogDescription>
-              {t("ai_plans.provider_description")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
-              <p className="font-medium">ChatGPT</p>
-              <p className="text-sm text-muted-foreground">
-                {t("ai_plans.provider_openai_hint")}
-              </p>
-              <Button
-                className="w-full"
-                disabled={disabled}
-                onClick={() => {
-                  syncProviderRef.current = "openai";
-                  setSyncProviderOpen(false);
-                  void signIn("sync");
-                }}
-              >
-                {t("ai_plans.provider_openai")}
-              </Button>
-            </div>
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={disabled}
-              onClick={() => {
-                syncProviderRef.current = undefined;
-                setSyncProviderOpen(false);
-                void signIn("sync");
-              }}
-            >
-              {t("ai_plans.provider_other")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
       {/* The window stays draggable by its top edge while the screen covers
           it (macOS app only, like the onboarding covers' titlebar region). */}
       <div

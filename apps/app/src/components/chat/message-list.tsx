@@ -244,7 +244,7 @@ const EMPTY_MATTERS: Record<string, string> = {}
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
 
 type RetryStatus = Extract<SessionStatus, { type: "retry" }>
-const UsageLimitRendererContext = React.createContext<((error: string) => React.ReactNode) | null>(null)
+const UsageLimitRendererContext = React.createContext<((error: string, messageId?: string) => React.ReactNode) | null>(null)
 const EigenweltBudgetPlanContext = React.createContext<EigenweltBudgetPlan>(null)
 
 function isSessionErrorMessage(message: UIMessage) {
@@ -682,7 +682,7 @@ type MessageComponentProps = {
 const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
-      return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} />
+      return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} messageId={message.id} />
     }
 
     if (isEmptyMessage(message) && !isStreaming) return null
@@ -723,12 +723,13 @@ LoadingMessage.displayName = "LoadingMessage"
 
 interface ErrorMessageProps {
   error: string | null
+  messageId?: string
 }
 
-function ErrorMessage({ error }: ErrorMessageProps) {
+function ErrorMessage({ error, messageId }: ErrorMessageProps) {
   const eigenweltPlan = React.useContext(EigenweltBudgetPlanContext)
   const renderUsageLimit = React.useContext(UsageLimitRendererContext)
-  const recovery = error ? renderUsageLimit?.(error) : null
+  const recovery = error ? renderUsageLimit?.(error, messageId) : null
   if (recovery) return <Message className="not-prose w-full">{recovery}</Message>
   if (isEigenweltBudgetExceededErrorText(error)) {
     return <BudgetExceededMessage plan={eigenweltPlan} />
@@ -990,7 +991,7 @@ function MessageGroup({
 }
 
 interface MessageListProps {
-  renderUsageLimit?: (error: string) => React.ReactNode
+  renderUsageLimit?: (error: string, messageId?: string) => React.ReactNode
 
   eigenweltPlan?: EigenweltBudgetPlan
   messages: UIMessage[]
