@@ -114,6 +114,7 @@ type TabDropZoneProps = {
 
 function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
   const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentSplitOrientation | null } | null>(null);
+  const [dragActive, setDragActive] = React.useState(false);
   const zone = React.useRef<HTMLDivElement>(null);
   const accepts = dragging !== null && (edge || dragging.pane !== pane);
 
@@ -137,10 +138,20 @@ function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDro
       event.stopPropagation();
       data.dropEffect = file ? "copy" : "move";
     };
-    const stop = () => setOver(null);
+    const stop = () => { setOver(null); setDragActive(false); };
     const leave = (event: DragEvent) => {
-      if (!(event.relatedTarget instanceof Node) || !element.contains(event.relatedTarget)) stop();
+      if (!(event.relatedTarget instanceof Node) || !element.contains(event.relatedTarget)) setOver(null);
     };
+    // Arm before the pointer reaches a PDF/HTML iframe: events inside its
+    // document cannot bubble to this pane. Text/link drags keep their usual path.
+    const start = (event: DragEvent) => {
+      const data = event.dataTransfer;
+      if (inset && data && (hasViewerFileDrag(data) || data.types.includes(TAB_DRAG_TYPE))) setDragActive(true);
+    };
+    const leaveWindow = (event: DragEvent) => {
+      if (!event.relatedTarget && (event.target === document || event.target === document.documentElement)) stop();
+    };
+    const cancel = (event: KeyboardEvent) => { if (event.key === "Escape") stop(); };
     const drop = (event: DragEvent) => {
       stop();
       const data = event.dataTransfer;
@@ -163,22 +174,31 @@ function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDro
     element.addEventListener("dragover", over, true);
     element.addEventListener("dragleave", leave);
     element.addEventListener("drop", drop, true);
-    window.addEventListener("dragend", stop);
+    window.addEventListener("dragstart", start);
+    window.addEventListener("dragenter", start, true);
+    window.addEventListener("dragleave", leaveWindow);
+    window.addEventListener("dragend", stop, true);
     window.addEventListener("drop", stop, true);
     window.addEventListener("blur", stop);
+    window.addEventListener("keydown", cancel);
     return () => {
       element.removeEventListener("dragover", over, true);
       element.removeEventListener("dragleave", leave);
       element.removeEventListener("drop", drop, true);
-      window.removeEventListener("dragend", stop);
+      window.removeEventListener("dragstart", start);
+      window.removeEventListener("dragenter", start, true);
+      window.removeEventListener("dragleave", leaveWindow);
+      window.removeEventListener("dragend", stop, true);
       window.removeEventListener("drop", stop, true);
       window.removeEventListener("blur", stop);
+      window.removeEventListener("keydown", cancel);
     };
-  }, [accepts, edge, pane, onDrop, onFileDrop]);
+  }, [accepts, edge, inset, pane, onDrop, onFileDrop]);
 
   return (
     <div ref={zone} data-document-drop-pane={inset ? pane : undefined} className={cn("relative", className)}>
       {children}
+      {dragActive && <div aria-hidden data-viewer-drop-overlay data-viewer-drag-shield className="absolute inset-0 z-30" />}
       {over ? (
         <div
           aria-hidden
@@ -189,7 +209,9 @@ function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDro
             over.split === "horizontal" ? "w-[30%]" : "left-0",
           )}
         >
-          {over.split ? t(over.split === "vertical" ? "side_panel.drop_to_open_below" : "side_panel.drop_to_open_beside") : over.file ? t("side_panel.drop_to_open_here") : label}
+          <span className="rounded bg-background/95 px-2 py-1">
+            {over.split ? t(over.split === "vertical" ? "side_panel.drop_to_open_below" : "side_panel.drop_to_open_beside") : over.file ? t("side_panel.drop_to_open_here") : label}
+          </span>
         </div>
       ) : null}
     </div>

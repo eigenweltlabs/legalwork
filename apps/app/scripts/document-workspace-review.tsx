@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { writeWorkspaceFileDrag } from "../src/app/lib/workspace-file-drag";
+import { classifyOpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
 import { SidePanel } from "../src/react-app/domains/session/panel/side-panel";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { LegalworkControlProvider, useLegalworkControl } from "../src/react-app/shell/control/control-provider";
@@ -18,7 +19,7 @@ initLocale();
 const sessionId = "document-workspace-validation";
 const workspaceId = "document-validation";
 const server = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:5175", token: "document-validation-client" });
-const open = (name: string) => usePanelTabStore.getState().openTab(sessionId, { id: `file:${name}`, type: "artifact", label: name, value: name, preview: "word" });
+const open = (name: string) => usePanelTabStore.getState().openTab(sessionId, { id: `file:${name}`, type: "artifact", label: name, value: name, preview: classifyOpenTarget(name, "file") });
 // Test native event routing through a portaled editor without depending on OS
 // pointer automation. These controls are not evidence of a native mouse gesture.
 function projectDrop(type: "dragover" | "drop", edge: "right" | "bottom" | null) {
@@ -31,6 +32,19 @@ function projectDrop(type: "dragover" | "drop", edge: "right" | "bottom" | null)
     bubbles: true, cancelable: true, dataTransfer,
     clientX: rect.left + rect.width * (edge === "right" ? 0.9 : 0.4), clientY: rect.top + rect.height * (edge === "bottom" ? 0.9 : 0.5),
   }));
+}
+// Unlike projectDrop, hit-test the live page so a PDF iframe can expose the bug.
+function frameDrop(type: "dragenter" | "dragover" | "drop" | "dragend") {
+  const frame = document.querySelector('iframe[title="Reference.pdf"]');
+  if (!frame) return;
+  const rect = frame.getBoundingClientRect();
+  const clientX = rect.left + rect.width * 0.9;
+  const clientY = rect.top + rect.height * 0.5;
+  const target = type === "dragenter" || type === "dragend" ? document.documentElement : document.elementFromPoint(clientX, clientY);
+  if (!target || target instanceof HTMLIFrameElement) return;
+  const dataTransfer = new DataTransfer();
+  writeWorkspaceFileDrag(dataTransfer, { workspaceId, path: "Precedent.docx", name: "Precedent.docx" });
+  target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, clientX, clientY }));
 }
 if (!usePanelTabStore.getState().sessions[sessionId]?.tabs.length) {
   open("Agreement.docx"); open("Precedent.docx");
@@ -62,6 +76,7 @@ function Harness() {
       <button onClick={() => { pendingWrite.current?.(); pendingWrite.current = null; }}>Release write</button>
       <button onClick={() => open("Agreement.docx")}>Open agreement</button>
       <button onClick={() => open("Precedent.docx")}>Open precedent</button>
+      <button onClick={() => open("Reference.pdf")}>Open PDF</button>
       <button onClick={async () => {
         const reports = await Promise.all(["Agreement.docx", "Precedent.docx"].map(async (path) => {
           const file = await server.downloadWorkspaceFile(workspaceId, path);
@@ -84,7 +99,13 @@ function Harness() {
         <button onClick={() => projectDrop("dragover", "bottom")}>Preview bottom-edge drop</button>
         <button onClick={() => projectDrop("drop", "bottom")}>Drop precedent at bottom edge</button>
         <button onClick={() => projectDrop("drop", null)}>Drop precedent into main</button>
-        <p>Both documents are synthetic.</p>
+        <details><summary>PDF drag checks</summary>
+          <button onClick={() => frameDrop("dragenter")}>Enter file drag</button>
+          <button onClick={() => frameDrop("dragover")}>Hover over PDF</button>
+          <button onClick={() => frameDrop("drop")}>Drop over PDF</button>
+          <button onClick={() => frameDrop("dragend")}>Cancel file drag</button>
+        </details>
+        <p>All documents are synthetic.</p>
       </aside>
       <main className="min-w-0 flex-1"><SidePanel headerTarget={dockHeader ? headerTarget : null} sessionId={sessionId} workspaceId={workspaceId} workspaceRoot="" client={client} onClose={() => {}} /></main>
     </div><Toaster />

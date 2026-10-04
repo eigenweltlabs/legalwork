@@ -46,6 +46,16 @@ In the real DOCX review harness, synthetic native `dragover`/`drop` events dispa
 
 ![Drop indicator below the Word toolbar, using a synthetic document and drag event](./document-drop-inset.png)
 
+### PDF drop overlays
+
+PDFium lives in an iframe, whose drag events do not bubble into the containing document pane. A recognized file or document-tab drag now activates a temporary transparent surface over the pane before the pointer enters that iframe. The existing inset indicator and drop handlers then receive the events. The surface disappears on drop, drag end, Escape, window exit or blur. Plain text/link drags do not activate it, and the PDF iframe is not reloaded. The indicator label has a background so it remains readable over PDFium's dark sidebar.
+
+Validation: app typecheck and `git diff --check` passed; **43 tests passed, 0 failed** across `viewer-file-drop`, `panel-side-pane`, `document-split-drop`, `document-preferences`, `storage-file-drag` and `storage-file-tabs`. The full suite was not rerun for this follow-up. In a separate Electron window using the installed runtime with `plugins: true`, a generated three-page PDF visibly rendered below the indicator. Canceling restored PDF navigation (page 1 to page 2); a subsequent drop moved the existing Precedent DOCX into the targeted pane. Browser hit-testing confirmed the transparent surface replaced the iframe as the event target, Escape/drop removed it, and a right-edge drop opened a split while retaining the PDF blob URL. These drag events were explicitly synthetic; native mouse and Finder gestures remain manual checks.
+
+The isolated harness now includes **Open PDF** and **PDF drag checks**. Use **Enter file drag**, then **Hover over PDF**, followed by **Drop over PDF** or **Cancel file drag**. Unlike the older direct-pane buttons, these hover/drop controls use `elementFromPoint` and refuse to dispatch into an unshielded iframe. PDF visual checks require a browser/Electron window with the built-in PDF viewer enabled. No client documents or DOCX selection-rendering code were changed.
+
+![Drop indicator above the Electron PDF viewer, with synthetic documents and drag events](./document-pdf-drop.png)
+
 ## Editor documentation checked
 
 The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.
