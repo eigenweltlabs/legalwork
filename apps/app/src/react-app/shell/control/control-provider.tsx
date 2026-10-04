@@ -436,9 +436,17 @@ export function useLegalworkControl() {
   return use(LegalworkControlContext);
 }
 
+const ControlActionScopeContext = createContext(true);
+/** With multiple visible editors, route unqualified agent commands only to
+ * the selected document instead of whichever editor registered last. */
+export function ControlActionScope({ active, children }: { active: boolean; children: ReactNode }) {
+  return <ControlActionScopeContext value={active}>{children}</ControlActionScopeContext>;
+}
+
 export function useControlAction(action: LegalworkControlAction | null | false | undefined) {
   const control = useLegalworkControl();
-  const registerAction = control?.registerAction;
+  const active = use(ControlActionScopeContext);
+  const registerAction = active ? control?.registerAction : undefined;
   const latestActionRef = useRef<LegalworkControlAction | null>(action || null);
   latestActionRef.current = action || null;
   const actionId = action ? action.id : null;
@@ -451,7 +459,8 @@ export function useControlAction(action: LegalworkControlAction | null | false |
 
 export function useControlSurface(surface: LegalworkControlSurface | null | false | undefined) {
   const control = useLegalworkControl();
-  const registerSurface = control?.registerSurface;
+  const active = use(ControlActionScopeContext);
+  const registerSurface = active ? control?.registerSurface : undefined;
 
   useEffect(() => {
     if (!registerSurface || !surface) return undefined;
@@ -467,7 +476,8 @@ export function useControlSurface(surface: LegalworkControlSurface | null | fals
  */
 export function useControlActions(actions: readonly LegalworkControlAction[]) {
   const control = useLegalworkControl();
-  const registerAction = control?.registerAction;
+  const active = use(ControlActionScopeContext);
+  const registerAction = active ? control?.registerAction : undefined;
 
   // One ref per action id, so executeAction always sees the freshest closure.
   const refsById = useRef<Map<string, { current: LegalworkControlAction | null }>>(new Map());

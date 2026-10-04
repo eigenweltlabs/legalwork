@@ -1,60 +1,66 @@
-# Documents side by side
+# Document workspace and original-file autosave
 
-Created `feat/side-by-side-documents` from `origin/dev`, rebased onto `f64d51b9` (#202).
+Local branch: `feat/side-by-side-documents`, based on `dev` at `f64d51b9`. Nothing has been pushed or published.
 
-A document tab can now be opened beside the current one, so a contract and its precedent sit next to each other in the same window. The viewer splits into a main pane and a side pane, each with its own tab strip and a draggable divider. Two gestures open the split: the arrow button that appears on a document tab, or dragging the tab onto the right third of the viewer. Dragging a tab onto the other pane moves it across; the arrow on a side tab moves it back. Closing the last side document closes the side pane.
+## Behavior
 
-Only document tabs move. Browser and task tabs stay in the main pane, and the main pane never empties into the side pane, so the split is always a second document beside a first. A tab sits in exactly one pane, which keeps every document mounted once; the same rule Project Temple had to enforce after its editor broke when a document was shown in two panes.
+- Each editable local DOCX has an **Autosave** switch beside Save. It defaults to off and remembers the choice for that workspace/path on this device.
+- When enabled, changes are serialized after 1.5 seconds without editing, or within 10 seconds during continuous editing. Writes update the original workspace file through the existing LegalWork binary-file API. This is not just a recovery copy or a download.
+- Saves run one at a time. Edits made during an in-flight save remain dirty and trigger another save. Turning the switch off cancels pending autosaves; it cannot undo a write already in flight. Manual Save remains available.
+- Failed writes pause automatic retries, show a persistent message and retain the draft. A successful manual save, or switching off and on, retries/resumes autosave. Existing modification-time conflict checks prevent overwriting an externally changed file. Retrying does not bypass a conflict.
+- IndexedDB recovery remains separate from original-file saving. Restoring a draft honors its original conflict baseline and the current autosave preference. The recovery prompt explains this.
+- The first save retains the loaded original in local history. Rapid autosaves share five-minute checkpoints rather than consuming all five retained versions within seconds. Manual saves remain distinct. A history browsing/restoration UI is still outside this change.
+- Autosave is currently offered for editable local workspace DOCX files. Connected-storage checkout/publish flows, remote/read-only documents, PDF, Markdown, spreadsheets and presentations do not acquire this switch.
 
-## What changed
+## Split workspace
 
-- `panel-tab-store.ts` carries `sideTabIds` and `sideActiveTabId` per session, normalised on every write so both panes only ever point at tabs that exist. `moveTabToSide` and `moveTabToMain` are the new actions. `reorderTabs` accepts the order of one pane and leaves the other pane's tabs in place. Closing or moving an active tab activates its neighbour in the same pane. Reopening a document already in the side pane shows it there instead of pulling it back.
-- `docx-document-state.ts` gains `confirmDiscardSessionDocuments(sessionId, targetIds)`. With two editors mounted at once, switching a tab in one pane must only ask about the document that is about to unmount, not about a draft in the other pane. It matches both the artifact key and the bare tab id workflow editors register under, and it honours `retainOnSwitch`. The store uses it for opening, selecting, closing and moving documents; closing a workflow tab keeps its own exact-key guard, and the global guard still protects closing the whole viewer and leaving the session.
-- `side-panel.tsx` renders the split with the existing `ResizablePanelGroup`, adds a native drag on document tabs under a private MIME type, and wraps each strip and content area in a `TabDropZone`. The zones listen in the capture phase so the editor underneath cannot swallow the drop. Without a split, only the outer third of the main pane accepts a drop and shows the overlay; with a split, either pane accepts a tab from the other.
-- With the tab strip in the window header, both strips share the header row and take the same widths as the panes below, following the divider as it moves. The button that closes the viewer moves to the outer end of the side strip. Without a header target, each pane carries its own strip.
-- `use-side-panel-tabs.ts` recognises a selection that landed in the side pane.
-- Four strings in English and German: open to the side, move to the main pane, and the two drop overlays.
+Open a document beside another with its tab arrow. Both panes can expand together using **Expand document workspace**, with **Return to chat** restoring the ordinary viewer. The divider width is remembered using the resizable-panel library's `defaultLayout` API; storage updates when resizing finishes.
 
-Nothing is persisted beyond what was persisted before. Document tabs are not restored across relaunch today, so the side pane is not either; when they are, `sideTabIds` can join the persisted shape.
+A stable portal host moves with each visible document. Moving a dirty document between panes, or promoting the remaining side document, preserves its editor, draft and Undo history. Only an editor actually leaving the mounted set needs a discard guard. At most two document editors are mounted. Closing or switching away from a dirty editor still uses the existing guard; hidden tabs do not keep every editor alive.
 
-## Validation
+Workspace file tabs, pane membership and selected tabs survive reload. Transient search/review sources and connected-storage working copies are excluded from restoration. Browser/task tabs remain in the main pane. The focused pane determines unqualified document-agent commands and Ctrl+Tab navigation. Native drop listeners follow the physical pane around portaled editors.
 
-- `pnpm --filter @legalwork/app typecheck` — passed.
-- `pnpm --filter @legalwork/app test:i18n` — passed, 5053 keys × 2 languages.
-- `pnpm --filter @legalwork/app test` — 755 passed, 0 failed.
-- `pnpm build:ui` — passed, with the existing chunk-size warnings.
-- New `tests/panel-side-pane.test.ts` (12 tests): a tab lives in one pane; the main pane never empties; only documents move; closing the last side tab closes the pane; closing or moving an active tab picks the neighbour within its pane; reopening a side document activates it there; reordering one pane keeps the other; transcript and browser sync keep the split; workflow editors keep their guard rules, including `retainOnSwitch`; the unsaved guard asks only about the document that would unmount, and a refusal changes nothing.
-- `tests/storage-file-tabs.test.ts` passes unchanged.
-- Session preview (`PORT=5174 pnpm dev:ui`, `/session-preview.html`, German UI, 1600 × 1000): opened `review-notes.md` from the workspace root and again from the Contracts folder; the arrow on the second tab opened it beside the first; each header strip measured the same left edge and width as its pane, before and after dragging the divider; a synthetic `DataTransfer` drag of the side tab onto the main strip in the header showed the "move here" overlay and collapsed the split; a synthetic drag of a main tab over the left part of the editor showed no overlay, over the right third showed "open beside", and dropping there reopened the split. No console errors or warnings during the flow.
+This is a two-pane workspace within one window. Cross-window document transfer, synchronized scrolling and an automatic document comparison are not included.
 
-![Two documents side by side](./side-by-side-documents-split.jpg)
+## Editor documentation checked
 
-![Dragging a tab onto the right third offers to open it beside](./side-by-side-documents-drop-zone.jpg)
+The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.
 
-## Not covered here
+This implementation therefore uses the installed editor's change events and `save({ selective: false })`, through LegalWork's existing serialized save and revision checks. No editor upgrade or new dependency was introduced.
 
-- A real pointer drag in Electron, and a drop while the main pane shows a browser tab. The native browser view covers the content area, so the drop target there is the tab strip.
-- A dirty document moving between panes prompts to discard, the same prompt as switching tabs today. Saving first keeps the draft.
+## Validation on 4 October 2026
 
-## Follow-up validation: 4 October
+- App typecheck and English/German translation audit passed (5,060 keys in each language).
+- Full app suite: **763 passed, 0 failed**, 112 files. The initial sandboxed run could not bind localhost ports; the run with local-server access passed.
+- Focused autosave, history, panel and connected-storage tests: **25 passed**. They cover off/on behavior, cancellation of queued writes, serialized saves with later edits, deadline saves, paused retries, history coalescing, draft guards and persistent pane restoration.
+- Production UI build passed with existing large-chunk warnings. `git diff --check` passed.
+- In-app browser with the real editor and real LegalWork server, using disposable synthetic DOCX originals: off retained an unsaved edit without writing; enabling saved it to the original; the saved DOCX was downloaded and parsed to verify its content.
+- A held write completed while a later edit remained dirty; the next write persisted both edits. A simulated failed write paused autosave and preserved the draft; manual Save recovered.
+- An external edit to the original file caused a real server conflict. The original retained the external marker and did not acquire the conflicting local draft. A fresh page offered that draft for recovery with the changed-file warning.
+- Moving a dirty side DOCX to the main pane preserved the draft and Undo; Undo reverted the same edit after moving. Focused-document agent metadata selected the side document correctly.
+- Expanded workspace, keyboard resize from 50% to 55%, tab/pane restoration and remembered autosave settings were verified. The divider returned at 55% after reload.
 
-Interactive validation found a draft-loss bug the original store tests did not cover: closing a clean side pane remounted the main Markdown editor and silently lost its unsaved changes. Opening a split had the same component-lifetime problem. The main editor and header strip now retain their render positions when the split opens or closes. The stored divider width ignores layouts without a side panel.
+Native pointer tab drags did not establish a successful move through automation. Native Electron pointer gestures and drops onto native browser overlays remain manual checks; do not report them as passed. This round validates the real web editor/API path, not a full newly installed desktop build. During development, a harness hot-reload issue was corrected by disposing its React root; final checks use a fresh page. The existing native discard confirmation briefly blocked browser automation, so fresh pages were used for subsequent checks.
 
-The store also guards a dirty side document when closing the last main tab promotes it. Moving the only main document is now a no-op before any discard prompt, and its move control is disabled. Two regression tests cover these cases.
+![Original-file autosave and expanded document workspace](./document-autosave-workspace.png)
 
-After these changes, typecheck, the i18n audit, all **757 app tests**, the UI production build and `git diff --check` passed. The focused panel/storage suite has **19 passing tests**. The initial sandboxed suite could not bind local HTTP ports; the unrestricted local-server run passed.
+![External modification pauses autosave while retaining the draft](./document-autosave-conflict.png)
 
-Chrome interaction confirmed an unsaved main draft survives opening an inactive document beside it and closing that clean side tab. The repository Electron shell with an isolated profile and the sample session fixture confirmed split-by-button, preservation of the main draft and undo availability on side closure, cancellation of a dirty-document switch, and keyboard resizing of the outer viewer divider.
-
-These are sample Markdown UI checks. Native pointer gestures through the automation did not establish a successful tab move; pointer resizing was also inconclusive. Real DOCX round-trips, native-browser overlay drops and a recording remain outstanding. The sample fixture rejects binary downloads and has expected failed requests for unimplemented services. This is not a full connected-app or zero-console-error claim.
-
-## Reproduce the checks
+## Reproduce
 
 ```sh
 pnpm --filter @legalwork/app typecheck
 pnpm --filter @legalwork/app test:i18n
-pnpm --filter @legalwork/app exec bun test tests/panel-side-pane.test.ts tests/storage-file-tabs.test.ts
+pnpm --filter @legalwork/app exec bun test tests/document-autosave.test.ts tests/document-version-history.test.ts tests/panel-side-pane.test.ts tests/storage-file-tabs.test.ts
 pnpm --filter @legalwork/app test
 pnpm build:ui
-PORT=5174 pnpm dev:ui   # then open http://localhost:5174/session-preview.html
 ```
+
+For an isolated live check, run these in separate terminals from the repository root:
+
+```sh
+pnpm exec bun apps/server/scripts/document-workspace-review.ts
+PORT=5174 pnpm dev:ui
+```
+
+Open `http://localhost:5174/document-workspace-review.html`. The server logs its temporary workspace directory, copies the synthetic fixture into two originals, and uses the real authenticated file routes on localhost:5175. The development-only page exposes failed/held writes, a release button, original-file readback and active-document metadata. **Hold writes** waits until **Release write** is clicked; turn holding off before releasing to let subsequent saves finish normally. The harness is not a production build entry and uses no model calls or client documents.

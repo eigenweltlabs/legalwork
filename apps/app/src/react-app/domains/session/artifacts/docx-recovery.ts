@@ -53,7 +53,7 @@ export async function removeDocxRecovery(key: string) {
   await operation((store) => store.delete(key));
 }
 
-export type DocxVersion = { savedAt: number; buffer: ArrayBuffer };
+export type DocxVersion = { savedAt: number; buffer: ArrayBuffer; automatic?: boolean };
 
 function versionsFromRecord(value: unknown): DocxVersion[] {
   if (!value || typeof value !== "object" || !("versions" in value) || !Array.isArray(value.versions)) return [];
@@ -65,12 +65,20 @@ export async function readDocxVersions(key: string): Promise<DocxVersion[]> {
   return versionsFromRecord(await operation((store) => store.get(key), "versions"));
 }
 
-export async function keepDocxVersion(key: string, buffer: ArrayBuffer) {
+export function appendDocxVersion(versions: DocxVersion[], buffer: ArrayBuffer, automatic: boolean, now: number): DocxVersion[] {
+  // Keep the bucket's start time so continuous saving eventually starts a new
+  // checkpoint instead of replacing the same one for the entire session.
+  const coalesce = automatic && versions[0]?.automatic && now - versions[0].savedAt < 5 * 60_000;
+  return [{ savedAt: coalesce ? versions[0].savedAt : now, buffer, automatic }, ...versions.slice(coalesce ? 1 : 0)].slice(0, 5);
+}
+
+export async function keepDocxVersion(key: string, buffer: ArrayBuffer, automatic = false) {
   // Read/append within one transaction so saves in two windows cannot drop a version.
   await operation((store) => {
     const request = store.get(key);
     request.onsuccess = () => {
-      store.put({ key, versions: [{ savedAt: Date.now(), buffer }, ...versionsFromRecord(request.result)].slice(0, 5) });
+      const versions = versionsFromRecord(request.result);
+      store.put({ key, versions: appendDocxVersion(versions, buffer, automatic, Date.now()) });
     };
     return request;
   }, "versions");

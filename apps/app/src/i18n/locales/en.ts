@@ -4,6 +4,14 @@
  */
 
 export default {
+  "artifact.autosave": "Autosave",
+  "docx.recover_saved_draft": "A draft of {name} was kept on this device at {time}. Restore it to continue editing. If Autosave is on, the restored draft will be saved to the original file.",
+  "artifact.autosave_description": "Automatically save changes to this original file. Remembered for this document on this device.",
+  "artifact.autosave_paused": "Autosave paused",
+  "artifact.autosave_failed": "Your changes are still open. Save manually to retry autosave.",
+  "side_panel.expand_workspace": "Expand document workspace",
+  "side_panel.restore_workspace": "Return to chat",
+
   "home.nav_label": "Home",
   "home.placeholder": "Work with LegalWork",
   "home.prompt_label": "Message LegalWork",

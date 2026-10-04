@@ -14,6 +14,13 @@
  */
 
 const de = {
+  "artifact.autosave": "Automatisch speichern",
+  "docx.recover_saved_draft": "Ein Entwurf von {name} wurde am {time} auf diesem Gerät gesichert. Stellen Sie ihn wieder her, um weiterzuarbeiten. Wenn automatisches Speichern aktiviert ist, wird der wiederhergestellte Entwurf in der Originaldatei gespeichert.",
+  "artifact.autosave_description": "Änderungen automatisch in dieser Originaldatei speichern. Die Einstellung wird für dieses Dokument auf diesem Gerät gespeichert.",
+  "artifact.autosave_paused": "Automatisches Speichern pausiert",
+  "artifact.autosave_failed": "Ihre Änderungen sind weiterhin geöffnet. Speichern Sie manuell, um das automatische Speichern fortzusetzen.",
+  "side_panel.expand_workspace": "Dokumentarbeitsbereich vergrößern",
+  "side_panel.restore_workspace": "Zurück zum Chat",
   "home.nav_label": "Startseite",
   "home.placeholder": "Arbeiten Sie mit LegalWork",
   "home.prompt_label": "Nachricht an LegalWork",

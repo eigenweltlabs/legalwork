@@ -20,6 +20,7 @@ import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 import { t } from "@/i18n";
+import { createDocumentAutosave } from "./document-autosave";
 
 // The editor otherwise injects a fonts.googleapis.com stylesheet for any font a
 // document names that isn't installed locally — which would tell Google the
@@ -59,6 +60,8 @@ type ArtifactDocxEditorProps = {
   recoveryKey?: string;
   baseUpdatedAt?: number | null;
   onRestore?: (baseUpdatedAt: number | null) => void;
+  autosave?: boolean;
+  onAutosaveError?: (error: string | null) => void;
 };
 
 const AUTHOR_KEY = "legalwork.docx.reviewer";
@@ -144,7 +147,7 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
   if (!checked) return <div className="p-6 text-sm" role="status">{t("docx.checking_draft")}</div>;
   if (recovery) return <div className="space-y-4 p-6">
     <h3 className="font-medium">{t("docx.recover_prompt")}</h3>
-    <p className="text-sm text-muted-foreground">A draft of {props.name} was kept on this device at {new Date(recovery.savedAt).toLocaleString()}. Restoring it does not overwrite the workspace file.</p>
+    <p className="text-sm text-muted-foreground">{t("docx.recover_saved_draft", { name: props.name, time: new Date(recovery.savedAt).toLocaleString() })}</p>
     {recovery.baseUpdatedAt !== props.baseUpdatedAt && <p className="text-sm">{t("docx.recover_body")}</p>}
     <div className="flex gap-2">
       <Button onClick={() => { props.onRestore?.(recovery.baseUpdatedAt); setRestored(recovery); setRecovery(null); }}>{t("docx.recover_draft")}</Button>
@@ -156,7 +159,7 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
   return <LiveDocxEditor {...props} content={restored?.buffer ?? props.content} recovered={!!restored} />;
 }
 
-function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered }: ArtifactDocxEditorProps & { recovered: boolean }) {
+function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered, autosave = false, onAutosaveError }: ArtifactDocxEditorProps & { recovered: boolean }) {
   const colorMode = useThemeColorMode();
   const [documentBuffer] = useState(() => content.slice(0));
   const [documentId] = useState(() => `${Date.now()}:${++documentInstance}`);
@@ -181,18 +184,28 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   const ready = useRef(false);
   const pendingSave = useRef<Promise<boolean> | null>(null);
   const serialization = useRef<Promise<ArrayBuffer | null> | null>(null);
+  const historyStarted = useRef(false);
   const lastDocument = useRef<ReturnType<DocxEditorRef["getDocument"]>>(null);
+  const latestSave = useRef<() => Promise<boolean>>(async () => false);
+  const latestAutosaveError = useRef(onAutosaveError);
+  latestAutosaveError.current = onAutosaveError;
+  const [automaticSave] = useState(() => createDocumentAutosave({
+    save: () => latestSave.current(),
+    isDirty: () => dirty.current && ready.current,
+    onError: (error) => latestAutosaveError.current?.(error instanceof Error ? error.message : t("artifact.save_failed")),
+  }));
 
   const markDirty = useCallback(() => {
     if (readOnly || !ready.current) return;
     revision.current += 1;
     dirty.current = true;
     onDirtyChange?.(true);
+    automaticSave.changed();
     if (recoveryKey) {
       if (checkpointTimer.current) clearTimeout(checkpointTimer.current);
       checkpointTimer.current = setTimeout(() => { void checkpoint.current(); }, 1000);
     }
-  }, [readOnly, onDirtyChange, recoveryKey]);
+  }, [readOnly, onDirtyChange, recoveryKey, automaticSave]);
 
   // Ask before fetching a font the document needs and this machine lacks — the
   // one case office-fonts.css cannot cover locally. Runs once the editor has
@@ -279,7 +292,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
     };
   }, []);
 
-  const save = useCallback((): Promise<boolean> => {
+  const save = useCallback((automatic = false): Promise<boolean> => {
     if (pendingSave.current) return pendingSave.current;
     if (readOnly || !onSave) return Promise.resolve(false);
     checkDocument();
@@ -287,19 +300,34 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
     const operation = (async () => {
       const buffer = await getBuffer();
       if (!buffer) return false;
+      if (recoveryKey && !historyStarted.current && !recovered) {
+        await keepDocxVersion(recoveryKey, documentBuffer.slice(0)).catch(() => toast.error(t("docx.saved_no_history")));
+        historyStarted.current = true;
+      }
       await onSave(buffer);
-      if (recoveryKey) void keepDocxVersion(recoveryKey, buffer.slice(0)).catch(() => toast.error(t("docx.saved_no_history")));
+      if (recoveryKey) void keepDocxVersion(recoveryKey, buffer.slice(0), automatic).catch(() => toast.error(t("docx.saved_no_history")));
       checkDocument();
       if (revision.current === savingRevision) {
         dirty.current = false;
         onDirtyChange?.(false);
         if (recoveryKey) await removeDocxRecovery(recoveryKey).catch(() => toast.error(t("docx.saved_recovery_not_cleared")));
       }
+      automaticSave.saved();
+      onAutosaveError?.(null);
       return true;
     })();
     pendingSave.current = operation.finally(() => { pendingSave.current = null; });
     return pendingSave.current;
-  }, [readOnly, onSave, checkDocument, getBuffer, onDirtyChange, recoveryKey]);
+  }, [readOnly, onSave, checkDocument, getBuffer, onDirtyChange, recoveryKey, automaticSave, onAutosaveError, recovered, documentBuffer]);
+  latestSave.current = () => save(true);
+
+  useEffect(() => {
+    automaticSave.setEnabled(autosave && !readOnly);
+    onAutosaveError?.(null);
+    const flush = () => { if (document.visibilityState === "hidden") void automaticSave.flush(); };
+    document.addEventListener("visibilitychange", flush);
+    return () => { automaticSave.setEnabled(false); document.removeEventListener("visibilitychange", flush); };
+  }, [automaticSave, autosave, readOnly, onAutosaveError]);
 
   useEffect(() => {
     if (!apiRef) return;
@@ -364,7 +392,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
     },
     {
       id: "document.propose_change", label: "Propose a change in the open document", sideEffect: "mutation", disabled: readOnly,
-      description: "Apply a tracked proposal to the current draft. Requires name, documentId and draftRevision from document.read_draft. The lawyer reviews it with Accept/Reject; it is not saved automatically.",
+      description: "Apply a tracked proposal to the current draft. Requires name, documentId and draftRevision from document.read_draft. The lawyer reviews it with Accept/Reject. Saving follows the document's Autosave setting; saving does not accept the proposal.",
       requiresArgs: true,
       args: [{ name: "name", type: "string", required: true }, { name: "documentId", type: "string", required: true }, { name: "draftRevision", type: "number", required: true }, { name: "paraId", type: "string", required: true }, { name: "search", type: "string", required: true }, { name: "replaceWith", type: "string", required: true }],
       execute: (args) => {
@@ -424,7 +452,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
               lastDocument.current = editorRef.current?.getDocument() ?? null;
               ready.current = true;
               askAboutFonts();
-              if (recovered) { dirty.current = true; onDirtyChange?.(true); }
+              if (recovered) { dirty.current = true; onDirtyChange?.(true); automaticSave.changed(); }
             });
           }}
           onChange={(document) => { lastDocument.current = document; markDirty(); }}

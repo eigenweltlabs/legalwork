@@ -109,7 +109,7 @@ describe("documents side by side", () => {
     }
   });
 
-  test("closing the last main tab protects the dirty side document before promoting it", () => {
+  test("closing the last main tab promotes the dirty side document without discarding it", () => {
     const [nda, msa] = [document("NDA.docx"), document("MSA.docx")];
     open(nda, msa);
     const store = usePanelTabStore.getState();
@@ -120,10 +120,10 @@ describe("documents side by side", () => {
     const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", msa.id), msa.label, () => true);
     try {
       store.closeTab("session", nda.id);
-      expect(asked).toBe(1);
-      expect(session().tabs.map((tab) => tab.id)).toEqual([nda.id, msa.id]);
-      expect(session().activeTabId).toBe(nda.id);
-      expect(session().sideActiveTabId).toBe(msa.id);
+      expect(asked).toBe(0);
+      expect(session().tabs.map((tab) => tab.id)).toEqual([msa.id]);
+      expect(session().activeTabId).toBe(msa.id);
+      expect(session().sideActiveTabId).toBeNull();
     } finally {
       unregister();
       if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
@@ -201,6 +201,20 @@ describe("documents side by side", () => {
     expect(session().tabs.map((tab) => tab.id)).toEqual([b.id, a.id, d.id, c.id]);
   });
 
+  test("reopening restores workspace files and their pane, but excludes transient source views", async () => {
+    const [nda, msa] = [document("NDA.docx"), document("MSA.docx")];
+    open({ ...document("source.docx"), searchSources: [] }, nda, msa);
+    usePanelTabStore.getState().moveTabToSide("session", msa.id);
+    const persisted = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of persisted) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(session().tabs.map((tab) => tab.id)).toEqual([nda.id, msa.id]);
+    expect(session().activeTabId).toBe(nda.id);
+    expect(session().sideActiveTabId).toBe(msa.id);
+    expect(session().sideTabIds).toEqual([msa.id]);
+  });
+
   test("transcript and browser synchronization keep the side pane", () => {
     const [nda, msa] = [document("NDA.docx"), document("MSA.docx")];
     open(nda, msa);
@@ -261,14 +275,14 @@ describe("documents side by side", () => {
       store.selectTab("session", nda.id);
       expect(session().activeTabId).toBe(nda.id);
       expect(asked).toBe(0);
-      // Moving it would remount it, so that asks, and a refusal changes nothing.
+      // Moving the dirty document preserves its mounted editor.
       store.moveTabToMain("session", msa.id);
+      expect(asked).toBe(0);
+      expect(session().sideTabIds).toEqual([]);
+      // Replacing that dirty editor still asks, and refusal preserves it.
+      store.selectTab("session", dpa.id);
       expect(asked).toBe(1);
-      expect(session().sideTabIds).toEqual([msa.id]);
-      // Replacing it as the side pane's active document asks as well.
-      store.moveTabToSide("session", dpa.id);
-      expect(asked).toBe(2);
-      expect(session().sideTabIds).toEqual([msa.id]);
+      expect(session().activeTabId).toBe(msa.id);
     } finally {
       unregister();
       if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);

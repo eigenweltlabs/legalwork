@@ -23,6 +23,8 @@ import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarge
 import { MediaPreview } from "./media-preview";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
 import { t } from "@/i18n";
+import { Switch } from "@/components/ui/switch";
+import { useDocumentPreferences } from "./document-preferences";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -187,6 +189,10 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const isBinaryEditor = target.preview === "word" || isOfficeEditor;
   const [documentSaving, setDocumentSaving] = useState(false);
   const isEditableDocument = isBinaryEditor && target.kind === "file" && !isRemoteWorkspace && !localReadOnly;
+  const autosaveKey = JSON.stringify([workspaceId, target.value]);
+  const canAutosave = target.preview === "word" && isEditableDocument && !hasSaveActions;
+  const autosave = useDocumentPreferences((state) => canAutosave && state.autosave[autosaveKey] === true);
+  const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const onDocumentDirtyChange = useCallback((dirty: boolean) => {
     documentDirtyRef.current = dirty;
     setDocumentDirty(dirty);
@@ -531,11 +537,15 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
           {target.exists === false ? "missing" : target.size !== undefined ? formatFileSize(target.size) : null}
           {isEditableDocument && documentSnapshot ? (
             <span className="ms-2" role="status">
-              {documentSaving || isSaving ? t("common.saving") : documentDirty ? t("common.unsaved_changes") : t("common.saved")}
+              {documentSaving || isSaving ? t("common.saving") : autosaveError ? t("artifact.autosave_paused") : documentDirty ? t("common.unsaved_changes") : t("common.saved")}
             </span>
           ) : null}
         </>}
         actions={<>
+          {canAutosave && <label className="flex shrink-0 items-center gap-2 text-xs" title={t("artifact.autosave_description")}>
+            <Switch size="sm" checked={autosave} onCheckedChange={(enabled) => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
+            {t("artifact.autosave")}
+          </label>}
           {saveActions && data ? saveActions(persistWorkingCopy, isSaving || documentSaving) : null}
           {isTextContent(target) && data?.kind === "text" && !localReadOnly && !(hasSaveActions && isTextSheet) ? (
             editing || isDirectTextEdit ? (
@@ -638,6 +648,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
           </Tooltip>
         </>}
       >
+      {autosaveError && <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
+        {t("artifact.autosave_failed")} <span>{autosaveError}</span>
+      </div>}
       {documentChangedOnDisk ? (
         <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
           {t("artifact.file_changed_note")}
@@ -682,6 +695,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
             onSave={saveDocumentContent}
             apiRef={docxApi}
             onDirtyChange={onDocumentDirtyChange}
+            autosave={autosave}
+            onAutosaveError={setAutosaveError}
             recoveryKey={isEditableDocument ? JSON.stringify([workspaceId, target.value]) : undefined}
             baseUpdatedAt={documentSnapshot.updatedAt}
             onRestore={(baseUpdatedAt) => {

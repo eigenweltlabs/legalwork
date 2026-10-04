@@ -4,7 +4,7 @@ import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
+import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
@@ -62,19 +62,17 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTabRef = {
-  id: string;
-  type: PanelTabType;
-};
-
-type PersistedSessionPanelState = {
-  tabs: PersistedPanelTabRef[];
-  activeTabId: string | null;
-};
-
-type PersistedPanelTabStore = {
-  sessions: Record<string, PersistedSessionPanelState>;
-};
+type PersistedPanelTab = { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string };
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function restoredTab(value: unknown): PanelTab | null {
+  if (!record(value) || typeof value.id !== "string") return null;
+  if (value.type === "artifact" && typeof value.label === "string" && typeof value.value === "string" && value.value)
+    return { id: value.id, type: "artifact", label: value.label, value: value.value, preview: classifyOpenTarget(value.value, "file") };
+  if (value.type !== "browser") return null;
+  return { id: value.id, type: "browser", label: "New tab", url: "", favicon: null, status: "ready", canGoBack: false, canGoForward: false };
+}
 
 export type PanelTabStore = {
   sessions: Record<string, SessionPanelState>;
@@ -197,10 +195,10 @@ function moveTab(state: PanelTabStore, sessionId: string, tabId: string, to: "ma
   }
   if (to === "side" && session.tabs.length - session.sideTabIds.length <= 1) return state;
 
-  // The moved tab remounts in its new pane and takes over as that pane's
-  // active document, so both may lose unsaved changes.
+  // The document's stable portal moves with it. Only the replaced document
+  // leaves the mounted set and needs a discard guard.
   const replaced = to === "side" ? session.sideActiveTabId : session.activeTabId;
-  if (!confirmDiscardSessionDocuments(sessionId, [tabId, replaced], undefined, true)) return state;
+  if (!confirmDiscardSessionDocuments(sessionId, [replaced], undefined, true)) return state;
 
   const sideTabIds = to === "side"
     ? [...session.sideTabIds, tabId]
@@ -284,29 +282,17 @@ function mergePersistedSessions(
   persistedState: unknown,
   currentState: PanelTabStore,
 ): PanelTabStore {
-  const persisted = persistedState as PersistedPanelTabStore | undefined;
-
-  if (!persisted?.sessions) {
-    return currentState;
-  }
-
+  if (!record(persistedState) || !record(persistedState.sessions)) return currentState;
   const sessions: Record<string, SessionPanelState> = {};
-
-  for (const [sessionId, session] of Object.entries(persisted.sessions)) {
-    const tabs = session.tabs
-      .filter(({ type }) => type === "browser")
-      .map(({ id }): PanelTab => ({
-        id,
-        type: "browser",
-        label: "New tab",
-        url: "",
-        favicon: null,
-        status: "ready",
-        canGoBack: false,
-        canGoForward: false,
-      }));
-
-    sessions[sessionId] = normalizeSession(tabs, session.activeTabId, [], null);
+  for (const [sessionId, session] of Object.entries(persistedState.sessions)) {
+    if (!record(session) || !Array.isArray(session.tabs)) continue;
+    const tabs = session.tabs.flatMap((value: unknown) => {
+      const tab = restoredTab(value);
+      return tab ? [tab] : [];
+    }).filter((tab, index, all) => all.findIndex((other) => other.id === tab.id) === index);
+    const sideIds = Array.isArray(session.sideTabIds) ? session.sideTabIds.filter((id): id is string => typeof id === "string") : [];
+    sessions[sessionId] = normalizeSession(tabs, typeof session.activeTabId === "string" ? session.activeTabId : null,
+      sideIds, typeof session.sideActiveTabId === "string" ? session.sideActiveTabId : null);
   }
 
   return {
@@ -354,13 +340,9 @@ export const usePanelTabStore = create<PanelTabStore>()(
 
         const inSide = session.sideTabIds.includes(tabId);
         const wasActive = (inSide ? session.sideActiveTabId : session.activeTabId) === tabId;
-        // Closing the last main tab promotes the side document and remounts
-        // its editor, so that draft needs the same guard as an explicit move.
-        const promoted = !inSide && session.tabs.length - session.sideTabIds.length === 1
-          ? session.sideActiveTabId : null;
         if (closing.type === "workflow" || closing.type === "workflow-resource") {
-          if (!confirmDiscardSessionDocuments(sessionId, [tabId, promoted])) return state;
-        } else if (wasActive && !confirmDiscardSessionDocuments(sessionId, [tabId, promoted], undefined, true)) return state;
+          if (!confirmDiscardSessionDocuments(sessionId, [tabId])) return state;
+        } else if (wasActive && !confirmDiscardSessionDocuments(sessionId, [tabId], undefined, true)) return state;
         const nextActiveId = wasActive ? neighbourInPane(session, tabId) : null;
 
         return updateSession(state, sessionId, normalizeSession(
@@ -519,14 +501,22 @@ export const usePanelTabStore = create<PanelTabStore>()(
         sessions: Object.fromEntries(
           Object.entries(state.sessions).map(([sessionId, session]) => {
             const tabs = session.tabs
-              .filter((tab) => tab.type === "browser")
-              .map(({ id, type }) => ({ id, type }));
+              .flatMap<PersistedPanelTab>((tab) => {
+                if (tab.type === "browser") return [{ id: tab.id, type: tab.type }];
+                // Restore original workspace files, not downloaded credentials,
+                // cached storage working copies or ephemeral evidence viewers.
+                if (tab.type === "artifact" && tab.value && !tab.storage && !tab.searchSources && !tab.reviewCitation && !tab.reviewRecognition)
+                  return [{ id: tab.id, type: tab.type, label: tab.label, value: tab.value }];
+                return [];
+              });
 
             return [
               sessionId,
               {
                 tabs,
                 activeTabId: resolveActiveTabId(tabs, session.activeTabId),
+                sideTabIds: session.sideTabIds,
+                sideActiveTabId: session.sideActiveTabId,
               },
             ];
           }),
