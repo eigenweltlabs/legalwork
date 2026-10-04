@@ -787,8 +787,8 @@ export function SidePanel({
   const stripClassName = cn("shrink-0 titlebar-no-drag", portaledHeader ? "h-full" : "bg-muted/35 backdrop-blur-xl");
   const stripRowClassName = cn("flex h-11 items-center gap-1 border-b border-border/70 px-2", portaledHeader && "h-full border-b-0");
   const layoutLabel = t(stacked ? "side_panel.arrange_side_by_side" : "side_panel.arrange_stacked");
-  // Closes the whole viewer, so it sits at the outer end of the last strip.
-  const closeButton = (
+  // Shared workspace controls stay at the top-right in either orientation.
+  const workspaceControls = (
     <div className="ml-auto flex shrink-0">
       <Button variant="ghost" size="icon-sm" onClick={() => useDocumentPreferences.getState().setSplitOrientation(stacked ? "horizontal" : "vertical")} aria-label={layoutLabel} title={layoutLabel}>
         {stacked ? <Columns2 /> : <Rows2 />}
@@ -856,7 +856,7 @@ export function SidePanel({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {sideActiveTab ? null : closeButton}
+        {!sideActiveTab || stacked ? workspaceControls : null}
       </div>
     </TabDropZone>
   );
@@ -892,7 +892,7 @@ export function SidePanel({
             ))}
           </PanelTabList>
         </div>
-        {closeButton}
+        {stacked ? null : workspaceControls}
       </div>
     </TabDropZone>
   ) : null;

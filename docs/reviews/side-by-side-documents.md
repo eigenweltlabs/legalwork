@@ -26,6 +26,8 @@ This is a two-pane workspace within one window. Cross-window document transfer, 
 
 The layout button beside Expand switches between **Stack documents vertically** and **Arrange documents side by side**. The document arrow changes to **Open below** / **Move to the top pane** in the stacked layout. Each document keeps its own tab strip; the lower strip stays with its pane even when the upper strip uses the window header. Both panes still expand together.
 
+The shared layout, expand/restore and close-viewer buttons always sit at the workspace's top-right: in the upper tab strip for stacked documents and in the right strip for side-by-side documents. The follow-up positioning change passed typecheck and browser checks for both layouts, docked headers and the expanded workspace; each has exactly one shared control group.
+
 With a single pane, dropping a file or movable document tab on its bottom 30% opens a vertical split; the right 30% opens a horizontal split. In the overlapping corner the nearer relative edge wins. Existing splits accept files into the indicated pane. Orientation and separate width/height divider positions persist on this device; old preferences retain the horizontal default.
 
 Vertical-layout validation: **778 tests passed, 0 failed**, across 115 files. Typecheck, production UI build, the English/German audit (5,069 keys each) and whitespace checks passed. Browser checks with synthetic DOCX files covered bottom-edge event routing, both layout directions, docked/inline tab strips, expansion and resize/reload restoration. The same live editor id, draft revision and unsaved text survived a layout switch; Undo then removed the test edit. Pointer gestures remain a manual check. No selection-highlighting fix is included.
