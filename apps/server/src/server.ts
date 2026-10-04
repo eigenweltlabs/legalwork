@@ -126,6 +126,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { deleteAllLocalMemories } from "./personalization.js";
+import { readProjectDetails, updateProjectPersonalization } from "./project-store.js";
 import {
   mergeLegalworkWorkspaceConfigs,
   readLegalworkWorkspaceConfig,
@@ -138,6 +139,8 @@ import {
 } from "./legalwork-runtime-config.js";
 import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
+import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
+import { fetchProviderModelCatalog } from "./provider-model-catalog.js";
 import {
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
@@ -201,6 +204,7 @@ import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer }
 import {
   configureProjectSync,
   noteProjectDetailsSaved,
+  noteProjectPersonalizationSaved,
   noteProjectFoldersChanged,
   noteProjectRemoved,
   noteProjectRenamed,
@@ -298,19 +302,11 @@ function parsePersonalizationPayload(value: unknown) {
       `customInstructions must be ${MAX_CUSTOM_INSTRUCTIONS_LENGTH} characters or fewer`,
     );
   }
-  if (typeof value.localMemoriesEnabled !== "boolean") {
-    throw new ApiError(400, "invalid_personalization", "localMemoriesEnabled must be a boolean");
-  }
-  if (typeof value.allowToolAssistedMemory !== "boolean") {
-    throw new ApiError(400, "invalid_personalization", "allowToolAssistedMemory must be a boolean");
-  }
   if (!isPersonality(value.personality)) {
     throw new ApiError(400, "invalid_personalization", "personality is not supported");
   }
   return {
     customInstructions: value.customInstructions,
-    localMemoriesEnabled: value.localMemoriesEnabled,
-    allowToolAssistedMemory: value.allowToolAssistedMemory,
     personality: value.personality,
   };
 }
@@ -1577,6 +1573,46 @@ function createRoutes(
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
+  const readCustomProviders = async (workspace: WorkspaceInfo): Promise<Record<string, unknown>> => {
+    const persisted = mergeOpencodeConfigs(await readOpencodeConfig(workspace.path), await readRuntimeOpencodeConfig(config, workspace.id));
+    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+    let engineProviders: Record<string, unknown> = {};
+    if (connection.baseUrl) {
+      const url = new URL("/config", connection.baseUrl);
+      const directory = resolveOpencodeDirectory(workspace);
+      if (directory) url.searchParams.set("directory", directory);
+      try {
+        const response = await fetch(url, {
+          headers: connection.authHeader ? { Authorization: connection.authHeader } : {},
+          signal: AbortSignal.timeout(10_000),
+        });
+        const engine: unknown = response.ok ? await response.json() : null;
+        if (isRecord(engine) && isRecord(engine.provider)) engineProviders = engine.provider;
+      } catch { /* The persisted inventory remains usable while the engine reconnects. */ }
+    }
+    return { ...engineProviders, ...(isRecord(persisted.provider) ? persisted.provider : {}) };
+  };
+  const refreshCustomModels = createCustomProviderModelRefresh({
+    config,
+    readProviders: readCustomProviders,
+    readCatalogModels: async (workspace, providerId) => {
+      const catalogModels = await fetchProviderModelCatalog(providerId);
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const providers = unwrapOpencodeResult(await client.provider.list(), "/provider");
+      const knownModels = new Set(Object.keys(providers.all.find(provider => provider.id === providerId)?.models ?? {}));
+      return Object.fromEntries(Object.entries(catalogModels).filter(([id]) => !knownModels.has(id)));
+    },
+    isBusy: (workspace) => workspaceEngineBusy(config, workspace),
+    reload: async (workspace) => {
+      await writeLegalworkRuntimeConfigFile(config, workspace.id);
+      try {
+        await reloadOpencodeEngine(config, workspace);
+      } finally {
+        const primary = config.workspaces[0];
+        if (primary && primary.id !== workspace.id) await writeLegalworkRuntimeConfigFile(config, primary.id);
+      }
+    },
+  });
 
   registerCoreRoutes({
     routes,
@@ -1692,6 +1728,22 @@ function createRoutes(
     return jsonResponse({ settings: await readGlobalPersonalizationSettings(config) });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/personalization", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const details = await readProjectDetails(workspace.path);
+    return jsonResponse({ customInstructions: details.personalizationPrompt ?? "", revision: details.revision });
+  });
+
+  addRoute(routes, "PUT", "/workspace/:id/personalization", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const before = await readProjectDetails(workspace.path);
+    const details = await updateProjectPersonalization(workspace.path, await readJsonBody(ctx.request));
+    await noteProjectPersonalizationSaved(config, workspace.id, before.personalizationPrompt ?? "", details.personalizationPrompt ?? "");
+    return jsonResponse({ customInstructions: details.personalizationPrompt ?? "", revision: details.revision });
+  });
+
   addRoute(routes, "PUT", "/personalization", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -1716,9 +1768,30 @@ function createRoutes(
 
   addRoute(routes, "POST", "/workspace/:id/provider-models", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    return jsonResponse({ models: await discoverProviderModels(body.baseURL, body.apiKey) });
+    let apiKey = body.apiKey;
+    if (typeof body.providerId === "string" && (typeof apiKey !== "string" || !apiKey.trim())) {
+      const provider = (await readCustomProviders(workspace))[body.providerId];
+      // Never forward a stored secret to a URL newly entered in the form.
+      if (typeof body.baseURL === "string" && providerBaseURL(provider) === body.baseURL.trim().replace(/\/+$/, "")) {
+        apiKey = await readStoredProviderApiKey(body.providerId, provider);
+      }
+    }
+    return jsonResponse({ models: await discoverProviderModels(body.baseURL, apiKey) });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/provider-model-refresh", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    return jsonResponse(await refreshCustomModels(workspace, {
+      providerId: typeof body.providerId === "string" ? body.providerId : undefined,
+      force: body.force === true,
+      reloadRequired: body.reloadRequired === true,
+      catalog: body.catalog === true,
+    }));
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
@@ -3517,6 +3590,16 @@ function createRoutes(
 
       const providerUpdate = ensurePlainObject(provider);
       if (Object.keys(providerUpdate).length) {
+        // Mark disconnections before deleting config: the engine may still
+        // return its old provider until the client finishes reloading it.
+        await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+          const settings = readModelRefreshSettings(current.customProviderModelRefresh);
+          for (const [id, provider] of Object.entries(providerUpdate)) {
+            if (provider === null) settings[id] = { ...settings[id], enabled: false, disconnected: true, pendingReload: false };
+            else if (settings[id]?.disconnected) settings[id] = { ...settings[id], disconnected: false };
+          }
+          return { ...current, customProviderModelRefresh: settings };
+        });
         const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
         // A `null` value in the patch removes that provider (see
         // mergeRuntimeProviderPatch) so a client can fully disconnect it.
@@ -3577,10 +3660,17 @@ function createRoutes(
       }
     }
     if (legalwork) {
-      await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => ({
-        ...current,
-        ...legalwork,
-      }));
+      await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+        const next = { ...current, ...legalwork };
+        if (isRecord(legalwork.customProviderModelRefresh)) {
+          const settings = readModelRefreshSettings(current.customProviderModelRefresh);
+          for (const [id, entry] of Object.entries(legalwork.customProviderModelRefresh)) {
+            if (isRecord(entry)) settings[id] = { ...settings[id], enabled: entry.enabled === true };
+          }
+          next.customProviderModelRefresh = settings;
+        }
+        return next;
+      });
     }
 
     await recordAudit(workspace.path, {

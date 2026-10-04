@@ -14,6 +14,12 @@ export type OpenCodeContext = {
   messageID?: string;
   directory?: string;
   worktree?: string;
+  ask?: (input: {
+    permission: string;
+    patterns: string[];
+    always: string[];
+    metadata: Record<string, unknown>;
+  }) => Promise<void>;
 };
 
 export const OFFICE_TOOL_TIMEOUT_MS = 45_000;

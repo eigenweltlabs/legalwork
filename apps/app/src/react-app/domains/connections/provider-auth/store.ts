@@ -32,6 +32,7 @@ import type {
   EigenweltEntitlements,
   EigenweltManifestModel,
   EigenweltSignInPayload,
+  CustomProviderModelRefreshStatus,
 } from "../../../../app/lib/legalwork-server";
 import { invalidateEigenweltEntitlements } from "../eigenwelt-entitlements";
 import type { EigenweltPlanId } from "../../../../app/lib/eigenwelt-plans";
@@ -124,6 +125,7 @@ export type CustomProviderInstallInput = {
   apiKey: string;
   apiType: CustomProviderApiType;
   models: CustomProviderModelInput[];
+  autoRefresh?: boolean;
 };
 
 /** A custom provider's current config, read back so the form can edit it. */
@@ -132,8 +134,10 @@ export type CustomProviderEditData = {
   name: string;
   baseURL: string;
   apiType: CustomProviderApiType;
+  modelRefresh?: CustomProviderModelRefreshStatus;
   models: Array<{
     id: string;
+    name?: string;
     toolCall: boolean;
     reasoning: boolean;
     contextLimit: number | null;
@@ -192,6 +196,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let disposed = false;
   let started = false;
   let lastWorkspaceKey = "";
+  let modelRefreshTimer: ReturnType<typeof setInterval> | undefined;
 
   let state: MutableState = {
     providerAuthModalOpen: false,
@@ -908,6 +913,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   const writeCustomProviderConfig = async (
     providerId: string,
     providerConfig: Record<string, unknown>,
+    autoRefresh: boolean,
   ): Promise<boolean> => {
     const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget, canUseLegalworkServer } =
       await resolveLegalworkConfigTarget("write");
@@ -919,6 +925,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       await legalworkClient.patchConfig(legalworkWorkspaceId, {
         opencode: { provider: { [providerId]: providerConfig } },
+        legalwork: { customProviderModelRefresh: { [providerId]: { enabled: autoRefresh } } },
       });
       return true;
     }
@@ -1025,7 +1032,22 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!resolvedId) return null;
 
     const config = unwrap(await c.config.get()) as Record<string, unknown>;
-    const providers = isPlainRecord(config.provider) ? config.provider : {};
+    let providers = isPlainRecord(config.provider) ? config.provider : {};
+    let modelRefresh: CustomProviderModelRefreshStatus | undefined;
+    const target = await resolveLegalworkConfigTarget("read");
+    if (target.legalworkClient && target.legalworkWorkspaceId) {
+      const saved = await target.legalworkClient.getConfig(target.legalworkWorkspaceId);
+      if (isPlainRecord(saved.opencode.provider)) providers = { ...providers, ...saved.opencode.provider };
+      const settings = isPlainRecord(saved.legalwork.customProviderModelRefresh) ? saved.legalwork.customProviderModelRefresh : {};
+      const status = settings[resolvedId];
+      if (isPlainRecord(status)) modelRefresh = {
+        enabled: status.enabled === true,
+        availableModels: Array.isArray(status.availableModels) ? status.availableModels.filter((id): id is string => typeof id === "string") : undefined,
+        lastUpdatedAt: typeof status.lastUpdatedAt === "number" ? status.lastUpdatedAt : undefined,
+        lastError: typeof status.lastError === "string" ? status.lastError : null,
+        pendingReload: status.pendingReload === true,
+      };
+    }
     const entry = isPlainRecord(providers[resolvedId]) ? providers[resolvedId] : null;
     if (!entry) return null;
 
@@ -1034,7 +1056,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const providerOptions = isPlainRecord(entry.options) ? entry.options : {};
     const baseURL = typeof providerOptions.baseURL === "string" ? providerOptions.baseURL : "";
     const modelsRecord = isPlainRecord(entry.models) ? entry.models : {};
-    const models = Object.entries(modelsRecord).map(([id, raw]) => customProviderModelFromEntry(id, raw));
+    const models = Object.entries(modelsRecord)
+      .filter(([id]) => !Array.isArray(entry.whitelist) || entry.whitelist.includes(id))
+      .map(([id, raw]) => customProviderModelFromEntry(id, raw));
 
     return {
       providerId: resolvedId,
@@ -1042,16 +1066,42 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       baseURL,
       apiType,
       models,
+      modelRefresh,
     };
   }
 
-  async function fetchCustomProviderModels(input: { baseURL: string; apiKey: string }): Promise<string[]> {
+  async function fetchCustomProviderModels(input: { baseURL: string; apiKey: string; providerId?: string }): Promise<string[]> {
     const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } = await resolveLegalworkConfigTarget("read");
     if (!hasLegalworkTarget || !legalworkClient || !legalworkWorkspaceId) {
       throw new Error("Connect to the LegalWork worker to fetch models, or enter model IDs manually.");
     }
     const result = await legalworkClient.discoverProviderModels(legalworkWorkspaceId, input);
     return result.models;
+  }
+
+  async function refreshCustomProviderModels(input: { providerId?: string; force?: boolean; reloadRequired?: boolean; catalog?: boolean } = {}) {
+    if (!options.client()) return null;
+    const workspaceKey = currentWorkspaceKey();
+    const target = await resolveLegalworkConfigTarget("read");
+    if (!target.legalworkClient || !target.legalworkWorkspaceId) return null;
+    const result = await target.legalworkClient.refreshCustomProviderModels(target.legalworkWorkspaceId, input);
+    if (disposed || workspaceKey !== currentWorkspaceKey()) return result;
+    if (result.reloaded) {
+      await refreshProviderListQueries(getReactQueryClient());
+      await refreshProviders();
+    }
+    return result;
+  }
+
+  async function refreshCustomProvider(providerId: string) {
+    await refreshCustomProviderModels({ providerId, force: true });
+    return readCustomProviderForEdit(providerId);
+  }
+
+  async function refreshProviderModels(providerId: string) {
+    const provider = options.providers().find(item => item.id === providerId);
+    const hasBaseURL = typeof provider?.options?.baseURL === "string" && provider.options.baseURL.trim().length > 0;
+    return refreshCustomProviderModels({ providerId, force: true, catalog: provider?.source !== "custom" && !hasBaseURL });
   }
 
   async function submitCustomProvider(input: CustomProviderInstallInput) {
@@ -1089,13 +1139,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       name,
       options: { baseURL },
       models: modelsConfig,
-      // The engine merges configured providers with its built-in catalog.
-      // LM Studio must only offer the IDs selected for this endpoint.
-      ...(providerId === "lmstudio" ? { whitelist: Object.keys(modelsConfig) } : {}),
+      // Even a custom endpoint with a built-in provider ID must respect this selection.
+      whitelist: Object.keys(modelsConfig),
     };
 
     try {
-      const wrote = await writeCustomProviderConfig(providerId, providerConfig);
+      const wrote = await writeCustomProviderConfig(providerId, providerConfig, input.autoRefresh === true);
       if (!wrote) {
         throw new Error(t("providers.save_config_failed"));
       }
@@ -1107,7 +1156,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
 
       options.markOpencodeConfigReloadRequired();
-      await refreshProviders({ dispose: true });
+      const target = await resolveLegalworkConfigTarget("read");
+      if (target.legalworkClient && target.legalworkWorkspaceId) {
+        await refreshCustomProviderModels({ providerId, force: input.autoRefresh === true, reloadRequired: true });
+      } else {
+        await refreshProviders({ dispose: true });
+      }
       return `${t("status.connected")} ${name}`;
     } catch (error) {
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
@@ -1353,9 +1407,16 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
   const syncFromOptions = () => {
     const workspaceKey = currentWorkspaceKey();
+    const changed = workspaceKey !== lastWorkspaceKey;
     lastWorkspaceKey = workspaceKey;
     refreshSnapshot();
     emitChange();
+    if (started && changed) pollCustomProviderModels();
+  };
+
+  const pollCustomProviderModels = () => {
+    if (disposed || document.visibilityState === "hidden") return;
+    void refreshCustomProviderModels().catch(() => undefined);
   };
 
   const start = () => {
@@ -1366,12 +1427,17 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     lastWorkspaceKey = currentWorkspaceKey();
     refreshSnapshot();
     emitChange();
+    modelRefreshTimer = setInterval(pollCustomProviderModels, 15_000);
+    document.addEventListener("visibilitychange", pollCustomProviderModels);
+    pollCustomProviderModels();
   };
 
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     started = false;
+    clearInterval(modelRefreshTimer);
+    document.removeEventListener("visibilitychange", pollCustomProviderModels);
     listeners.clear();
   };
 
@@ -1389,6 +1455,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     submitProviderApiKey,
     submitCustomProvider,
     fetchCustomProviderModels,
+    refreshCustomProviderModels,
+    refreshCustomProvider,
+    refreshProviderModels,
     startEigenweltSignIn,
     completeEigenweltSignIn,
     readCustomProviderForEdit,

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { QueryObserver } from "@tanstack/react-query";
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
@@ -7,6 +8,8 @@ import type { Client, WorkspaceDisplay } from "../src/app/types";
 import { createProviderAuthStore } from "../src/react-app/domains/connections/provider-auth/store";
 import {
   fetchProviderList,
+  ensureProviderListQuery,
+  PROVIDER_LIST_CACHE_MS,
   providerListQueryKey,
   refreshProviderListQueries,
 } from "../src/react-app/infra/provider-list-query";
@@ -89,6 +92,23 @@ test("an engine reload refreshes the provider list the composer reads", async ()
 
   expect(composer.getCurrentResult().data?.connected).toEqual(["eigenwelt"]);
   unsubscribe();
+});
+
+test("opening the picker fetches an expired cached provider list", async () => {
+  const baseUrl = "http://localhost:4097";
+  const directory = "/tmp/stale-picker";
+  let calls = 0;
+  const client = createOpencodeClient({ baseUrl, fetch: async () => {
+    calls += 1;
+    return Response.json(providerList(["eigenwelt"]));
+  } });
+  const queryClient = getReactQueryClient();
+  queryClient.setQueryData(providerListQueryKey({ baseUrl, directory }), providerList([]), {
+    updatedAt: Date.now() - PROVIDER_LIST_CACHE_MS - 1,
+  });
+  expect((await ensureProviderListQuery(queryClient, { client, baseUrl, directory })).connected).toEqual(["eigenwelt"]);
+  await ensureProviderListQuery(queryClient, { client, baseUrl, directory });
+  expect(calls).toBe(1);
 });
 
 test("an engine reload drops the cached lists of workspaces not on screen", async () => {

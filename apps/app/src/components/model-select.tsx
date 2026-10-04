@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, Settings2 } from "lucide-react";
 
 import type { ModelOption, ModelRef } from "@/app/types";
+import { modelDisplayName } from "@/app/utils/models";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
   Popover,
@@ -71,7 +72,7 @@ export function useModelOptions(open: boolean) {
       Object.entries(provider.models).map(([id, model]) => ({
         providerID: provider.id,
         modelID: id,
-        title: model.name,
+        title: modelDisplayName(id, model.name),
         description: provider.name,
         behaviorTitle: t("model_select.reasoning"),
         behaviorLabel: t("model_select.default"),
@@ -272,13 +273,12 @@ export function ModelSelect({
                           className="size-3.5 opacity-70"
                           size={14}
                         />
-                        <span className="min-w-0 flex-1">
+                        <span className="min-w-0 flex-1" title={option.modelID}>
                           <span className="block truncate text-foreground">
                             {option.title}
                           </span>
                           <span className="block truncate text-xs text-muted-foreground">
-                            {option.description ??
-                              getProviderDisplayName(option.providerID)}
+                            {option.description ?? getProviderDisplayName(option.providerID)}
                           </span>
                         </span>
                       </CommandItem>

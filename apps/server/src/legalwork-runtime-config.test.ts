@@ -179,14 +179,16 @@ describe("legalwork runtime config file", () => {
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
 
+    // Saved while local memories existed: the flags stay in the stored JSON.
+    const saved: { customInstructions: string; localMemoriesEnabled: boolean; allowToolAssistedMemory: boolean; personality: "professional" } = {
+      customInstructions: "Use concise issue-rule-analysis conclusions.",
+      localMemoriesEnabled: true,
+      allowToolAssistedMemory: false,
+      personality: "professional",
+    };
     await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, (current) => ({
       ...current,
-      personalization: {
-        customInstructions: "Use concise issue-rule-analysis conclusions.",
-        localMemoriesEnabled: true,
-        allowToolAssistedMemory: false,
-        personality: "professional",
-      },
+      personalization: saved,
     }));
 
     let prompt = "";
@@ -201,7 +203,26 @@ describe("legalwork runtime config file", () => {
     }
 
     expect(prompt).toContain("Use concise issue-rule-analysis conclusions.");
-    expect(plugins).toContain("opencode-agent-memory@0.2.0");
+    expect(prompt).not.toContain("Local memory policy");
+    expect(plugins.some((plugin) => plugin.includes("agent-memory"))).toBe(false);
+  });
+
+  test("project instruction updates require approval even with broad tool allow rules", async () => {
+    const { config } = await setup();
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({
+      ...current,
+      permission: { legalwork_project_set_instructions: "allow", "*": "allow", bash: "ask" },
+    }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const parsed = await readConfigFile(config);
+    if (typeof parsed.permission !== "object" || parsed.permission === null) throw new Error("Permission config missing");
+    expect(parsed.permission).toMatchObject({ "*": "allow", bash: "ask", legalwork_project_set_instructions: "ask" });
+    expect(Object.keys(parsed.permission).at(-1)).toBe("legalwork_project_set_instructions");
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({
+      ...current, permission: { legalwork_project_set_instructions: "deny" },
+    }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await readConfigFile(config)).permission).toMatchObject({ legalwork_project_set_instructions: "deny" });
   });
 });
 

@@ -1,7 +1,8 @@
 import { ProjectRemoteFolders } from "./project-remote-folders";
+import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -44,6 +45,7 @@ export function ProjectHome(props: {
   onRename?: (name: string) => Promise<boolean>;
 }) {
   const { client, workspaceId } = props;
+  const openPersonalisation = useProjectPersonalisation();
   const recordingActive = useRecorderStore((state) => Boolean(state.recording && state.recording.id !== state.dictationRecordingId));
   const recordingStarting = useRecorderStore((state) => state.starting || Boolean(state.importing) || Boolean(state.recording && state.recording.id === state.dictationRecordingId));
   const recordingFinalizing = useRecorderStore((state) => state.finalizing);
@@ -112,6 +114,7 @@ export function ProjectHome(props: {
             <ProjectName name={props.name} onRename={props.onRename} />
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Star className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
             {props.isRemoteWorkspace ? null : <ProjectShareButton client={client} workspaceId={workspaceId} projectName={props.name} />}
+            <Button variant="ghost" size="sm" className="shrink-0" aria-haspopup="dialog" onClick={() => openPersonalisation(props.projectId)}><WandSparkles />{t("personalisation.project_prompt_menu")}</Button>
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-xl shadow-xs">

@@ -43,6 +43,14 @@ import { t } from "@/i18n";
 
 export * from "./benchmark-types";
 
+export type CustomProviderModelRefreshStatus = {
+  enabled: boolean;
+  availableModels?: string[];
+  lastUpdatedAt?: number;
+  lastError?: string | null;
+  pendingReload?: boolean;
+};
+
 export type LegalworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "legalwork" | "opencode" };
   skillResources?: { read: boolean; write: boolean };
@@ -145,8 +153,6 @@ export type LegalworkPersonality = (typeof LEGALWORK_PERSONALITY_VALUES)[number]
 
 export type LegalworkPersonalizationSettings = {
   customInstructions: string;
-  localMemoriesEnabled: boolean;
-  allowToolAssistedMemory: boolean;
   personality: LegalworkPersonality;
 };
 
@@ -1672,6 +1678,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
+    getProjectPersonalization: (workspaceId: string) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    setProjectPersonalization: (workspaceId: string, customInstructions: string, revision: number) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: { customInstructions, revision },
+        timeoutMs: timeouts.config,
+      }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,
@@ -2098,7 +2118,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           timeoutMs: timeouts.workspaceImport,
         },
       ),
-    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string }) =>
+    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string; providerId?: string }) =>
       requestJson<{ models: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-models`, {
         token,
         hostToken,
@@ -2106,6 +2126,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: input,
         timeoutMs: 15_000,
       }),
+    refreshCustomProviderModels: (workspaceId: string, input: { providerId?: string; force?: boolean; reloadRequired?: boolean; catalog?: boolean } = {}) =>
+      requestJson<{ providers: Record<string, CustomProviderModelRefreshStatus>; reloaded: boolean }>(
+        baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-model-refresh`,
+        { token, hostToken, method: "POST", body: input, timeoutMs: 60_000 },
+      ),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,

@@ -10,10 +10,12 @@ import type { IntakeClient } from "./eigenwelt-intake.js";
 import type { RemoteProject } from "./eigenwelt-projects.js";
 import { ApiError } from "./errors.js";
 import { checkCondition, conflict, entry, type StorageAdapter } from "./file-storage/common.js";
-import { readProjectDetails, updateProjectDetails, updateProjectRemote } from "./project-store.js";
+import { readProjectDetails, updateProjectDetails, updateProjectPersonalization, updateProjectRemote } from "./project-store.js";
+import { projectSyncStore } from "./project-sync-store.js";
 import {
   diffFields,
   noteProjectDetailsSaved,
+  noteProjectPersonalizationSaved,
   noteProjectFoldersChanged,
   noteProjectRenamed,
   projectSyncOverview,
@@ -61,6 +63,7 @@ function fakeFirm() {
   type Stored = {
     record: Omit<RemoteProject, "role">;
     deleted: boolean;
+    personalizationAt: string | null;
     files: Map<string, { path: string; bytes: Buffer }>;
   };
   const projects = new Map<string, Stored>();
@@ -71,6 +74,7 @@ function fakeFirm() {
   const wire = (stored: Stored, userId: string): RemoteProject => ({
     ...stored.record,
     fields: stored.record.scope.metadata ? stored.record.fields : [],
+    personalizationPrompt: stored.record.scope.metadata ? stored.record.personalizationPrompt ?? null : null,
     role: stored.record.ownerUserId === userId ? "owner" : "member",
   });
   const lookup = (client: IntakeClient, id: string) => {
@@ -96,6 +100,7 @@ function fakeFirm() {
       const stored: Stored = {
         record: { ...input, ownerUserId: userOf(client), createdAt: now, updatedAt: now },
         deleted: false,
+        personalizationAt: input.personalizationPrompt === undefined ? null : now,
         files: projects.get(input.id)?.files ?? new Map(),
       };
       projects.set(input.id, stored);
@@ -103,6 +108,16 @@ function fakeFirm() {
     },
     patchProject: async (client, id, patch) => {
       const stored = lookup(client, id);
+      const now = tick();
+      const scope = patch.scope ?? stored.record.scope;
+      let personalizationPrompt = scope.metadata ? stored.record.personalizationPrompt ?? null : null;
+      const applied: string[] = [];
+      if (!scope.metadata) stored.personalizationAt = null;
+      if (scope.metadata && patch.personalizationPrompt !== undefined && (patch.changedAt ?? now) >= (stored.personalizationAt ?? "")) {
+        personalizationPrompt = patch.personalizationPrompt;
+        stored.personalizationAt = patch.changedAt ?? now;
+        applied.push("personalization");
+      }
       const fields = [...stored.record.fields];
       for (const change of patch.fieldChanges ?? []) {
         const index = fields.findIndex((field) => field.id === change.id);
@@ -116,12 +131,13 @@ function fakeFirm() {
         name: patch.name ?? stored.record.name,
         remote: patch.remote ?? stored.record.remote,
         fields,
+        personalizationPrompt,
         access: patch.access ?? stored.record.access,
         memberIds: patch.memberIds ?? stored.record.memberIds,
-        scope: patch.scope ?? stored.record.scope,
-        updatedAt: tick(),
+        scope,
+        updatedAt: now,
       };
-      return { project: wire(stored, userOf(client)), applied: [] };
+      return { project: wire(stored, userOf(client)), applied };
     },
     deleteProject: async (client, id) => {
       const stored = lookup(client, id);
@@ -228,7 +244,133 @@ function settings(overrides: Partial<ProjectSyncSettings> = {}): ProjectSyncSett
   return { access: "members", memberIds: [], scope: ALL, ...overrides };
 }
 
+async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prompt: string) {
+  const before = await readProjectDetails(workspace.path);
+  const saved = await updateProjectPersonalization(workspace.path, { revision: before.revision, customInstructions: prompt });
+  await noteProjectPersonalizationSaved(config, workspace.id, before.personalizationPrompt ?? "", saved.personalizationPrompt ?? "");
+}
+
 describe("project sync between computers", () => {
+  test("instructions arrive with a shared project, edits return, and clearing reaches both computers", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Writing preferences");
+    await changePrompt(owner.config, akte, "Use formal English.");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Use formal English.");
+    const previous = await readProjectDetails(akte.path);
+    await changePrompt(member.config, copy, "Use short paragraphs.");
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Use short paragraphs.");
+    expect((await readProjectDetails(akte.path)).fields).toEqual(previous.fields);
+    await expect(updateProjectPersonalization(akte.path, { revision: previous.revision, customInstructions: "Stale draft" })).rejects.toMatchObject({ code: "project_changed" });
+    await changePrompt(owner.config, akte, "");
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    for (const path of [akte.path, copy.path]) expect((await readProjectDetails(path)).personalizationPrompt).toBe("");
+  });
+
+  test("a failed upload keeps offline instructions while a newer remote prompt is pulled", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Offline preferences");
+    await changePrompt(owner.config, akte, "Original instructions");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    await changePrompt(owner.config, akte, "Remote edit");
+    await runProjectSync(owner.config, { platform });
+    await changePrompt(member.config, copy, "Offline edit");
+    const offline: ProjectSyncPlatform = { ...platform, patchProject: async (client, id, patch) => {
+      if (patch.personalizationPrompt !== undefined) throw new ApiError(503, "temporarily_unavailable", "Try later");
+      return platform.patchProject(client, id, patch);
+    } };
+    await runProjectSync(member.config, { platform: offline });
+    const refused: ProjectSyncPlatform = { ...platform, patchProject: async (client, id, patch) => {
+      if (patch.personalizationPrompt !== undefined) throw new ApiError(409, "retry_instruction_write", "Try later");
+      return platform.patchProject(client, id, patch);
+    } };
+    expect((await runProjectSync(member.config, { platform: refused })).pulled).toBeGreaterThan(0);
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Offline edit");
+    expect((await projectSyncStore(member.config)).outbox().some((entry) => entry.op.kind === "personalization")).toBe(true);
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Offline edit");
+  });
+
+  test("Project details scope keeps instructions local when off and publishes them when enabled", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Private preferences");
+    await changePrompt(owner.config, akte, "Private instructions");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org", scope: { ...ALL, metadata: false } }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBeUndefined();
+    await changePrompt(owner.config, akte, "Updated private instructions");
+    expect((await projectSyncStore(owner.config)).outbox()).toEqual([]);
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Updated private instructions");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org", scope: { ...ALL, metadata: false } }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect([...projects.values()][0].record.personalizationPrompt).toBeNull();
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Updated private instructions");
+  });
+
+  test("older services retain queued changes and do not erase local instructions", async () => {
+    const { platform } = fakeFirm();
+    const legacy: ProjectSyncPlatform = { ...platform,
+      createProject: async (client, input) => { const result = await platform.createProject(client, input); delete result.personalizationPrompt; return result; },
+      patchProject: async (client, id, patch) => { const result = await platform.patchProject(client, id, patch); if (result.project) delete result.project.personalizationPrompt; return result; },
+      listProjects: async (client, params) => { const result = await platform.listProjects(client, params); for (const project of result.projects) delete project.personalizationPrompt; return result; },
+    };
+    const owner = await machine("user_anna", "Anna");
+    const akte = await localProject(owner.config, "Legacy service");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform: legacy });
+    await changePrompt(owner.config, akte, "Keep these instructions");
+    await runProjectSync(owner.config, { platform: legacy });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Keep these instructions");
+    const pending = (await projectSyncStore(owner.config)).outbox();
+    expect(pending).toHaveLength(1);
+    expect(pending[0].op.kind).toBe("personalization");
+    expect((await projectSyncStatus(owner.config, akte)).error).toContain("team service needs an update");
+    await runProjectSync(owner.config, { platform });
+    expect((await projectSyncStore(owner.config)).outbox()).toEqual([]);
+    expect((await projectSyncStatus(owner.config, akte)).error).toBeNull();
+  });
+
+  test("an existing shared project's saved local instructions survive service rollout and are published", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Existing project");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    const stored = [...projects.values()][0];
+    stored.record.personalizationPrompt = null;
+    stored.record.updatedAt = new Date(Date.parse(stored.record.updatedAt) + 1000).toISOString();
+    const details = await readProjectDetails(akte.path);
+    await updateProjectPersonalization(akte.path, { revision: details.revision, customInstructions: "Previously saved instructions" });
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Previously saved instructions");
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect((await readProjectDetails(projectsOf(member.config)[0].path)).personalizationPrompt).toBe("Previously saved instructions");
+  });
+
   test("a shared project and its documents reach a named member, and edits come back", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
