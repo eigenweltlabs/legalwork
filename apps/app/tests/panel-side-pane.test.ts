@@ -80,6 +80,62 @@ describe("documents side by side", () => {
     expect(session().activeTabId).toBe(nda.id);
   });
 
+  test("dropping beside a dirty main document opens the split without replacing that editor", () => {
+    const [nda, msa] = [document("NDA.docx"), document("MSA.docx")];
+    open(nda);
+    // No discard confirmation should be needed for the main editor.
+    const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", nda.id), nda.label, () => true);
+    try {
+      usePanelTabStore.getState().openTab("session", msa, "side");
+      expect(session().activeTabId).toBe(nda.id);
+      expect(session().sideActiveTabId).toBe(msa.id);
+      expect(session().tabs).toEqual([nda, msa]);
+    } finally { unregister(); }
+  });
+
+  test("refusing to replace a dirty drop target leaves both panes and tabs unchanged", () => {
+    const [nda, msa, dpa] = [document("NDA.docx"), document("MSA.docx"), document("DPA.docx")];
+    open(nda);
+    const store = usePanelTabStore.getState();
+    store.openTab("session", msa, "side");
+    const previous = session();
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => false } });
+    const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", msa.id), msa.label, () => true);
+    try {
+      store.openTab("session", dpa, "side");
+      expect(session()).toBe(previous);
+    } finally {
+      unregister();
+      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
+
+  test("a project file drop reuses a legacy tab id and moves its dirty editor", () => {
+    const nda = { ...document("NDA.docx"), id: "file:nda.docx" };
+    const msa = document("MSA.docx");
+    open(msa, nda);
+    const store = usePanelTabStore.getState();
+    const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", nda.id), nda.label, () => true);
+    try {
+      store.openTab("session", document("NDA.docx"), "side");
+      expect(session().tabs).toHaveLength(2);
+      expect(session().sideActiveTabId).toBe(nda.id);
+      expect(session().activeTabId).toBe(msa.id);
+      store.openTab("session", document("NDA.docx"), "main");
+      expect(session().activeTabId).toBe(nda.id);
+      expect(session().sideTabIds).toEqual([]);
+    } finally { unregister(); }
+  });
+
+  test("a side drop into an empty viewer becomes the main document", () => {
+    const nda = document("NDA.docx");
+    usePanelTabStore.getState().openTab("session", nda, "side");
+    expect(session().activeTabId).toBe(nda.id);
+    expect(session().sideTabIds).toEqual([]);
+  });
+
   test("only documents can sit beside the main pane", () => {
     open(document("NDA.docx"), browser);
     usePanelTabStore.getState().moveTabToSide("session", browser.id);

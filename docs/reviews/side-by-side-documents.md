@@ -22,6 +22,18 @@ Workspace file tabs, pane membership and selected tabs survive reload. Transient
 
 This is a two-pane workspace within one window. Cross-window document transfer, synchronized scrolling and an automatic document comparison are not included.
 
+### File drops and smaller drop indicators
+
+The document drop indicator has a fixed 160px top inset and 32px bottom inset, keeping it below the Word toolbar without measuring the editor layout. Tab-strip indicators retain their original height. The target still accepts drops throughout the document pane.
+
+Project Files and Memory Drive files can be dropped into either pane or its tab strip. With only one pane open, its rightmost 30% opens a file beside the current document. Project files open their existing workspace path; Memory Drive files use the existing storage viewer with its cloud-save actions. LegalMemory materialization and external-file working copies remain supported. An existing file reuses its tab/editor, including legacy tab ids and cloud working paths. A new side drop does not replace the main editor; replacing a dirty target still requires the existing discard confirmation.
+
+Follow-up validation: **773 tests passed, 0 failed**, across 113 files; app typecheck, production UI build and the translation audit (5,064 keys per language) passed. Added tests cover source routing, cross-workspace rejection, disconnected cloud roots, incremental external-file imports, dirty targets, original-tab reuse and retained cloud working paths. The build retains its existing chunk-size warnings.
+
+In the real DOCX review harness, synthetic native `dragover`/`drop` events dispatched through the portaled editor verified the smaller indicator, opening a new split and moving the same file back without duplicating it. These checks validate event routing, not a native mouse gesture. Pointer automation still did not produce a successful drag. A real connected Memory Drive download/publish was not exercised in this follow-up; its source metadata is covered by automated tests.
+
+![Drop indicator below the Word toolbar, using a synthetic document and drag event](./document-drop-inset.png)
+
 ## Editor documentation checked
 
 The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.
@@ -64,3 +76,5 @@ PORT=5174 pnpm dev:ui
 ```
 
 Open `http://localhost:5174/document-workspace-review.html`. The server logs its temporary workspace directory, copies the synthetic fixture into two originals, and uses the real authenticated file routes on localhost:5175. The development-only page exposes failed/held writes, a release button, original-file readback and active-document metadata. **Hold writes** waits until **Release write** is clicked; turn holding off before releasing to let subsequent saves finish normally. The harness is not a production build entry and uses no model calls or client documents.
+
+For file-drop checks, close the Precedent tab and drag it from the fixture's Project Files list to the document's right edge. The explicitly labeled synthetic-event buttons provide a separate check of the production drop listeners and the portaled editor path. Use **Preview right-edge drop** to inspect the indicator, **Drop precedent at right edge** to open the split and **Drop precedent into main** to move it back.

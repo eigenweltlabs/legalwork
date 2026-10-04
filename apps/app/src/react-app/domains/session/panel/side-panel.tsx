@@ -18,15 +18,13 @@ import {
   X,
   Workflow,
 } from "lucide-react";
-import { AnimatePresence, motion, useDragControls } from "motion/react";
+import { useDragControls } from "motion/react";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
 import { toast } from "@/components/ui/sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { importViewerFile } from "./import-viewer-file";
-import { type LegalMemoryFileDragItem, hasLegalMemoryFileDrag, readLegalMemoryFileDrag, materializeLegalMemoryFile } from "@/app/lib/legalmemory-file";
-import { classifyOpenTarget } from "../artifacts/open-target";
+import { hasViewerFileDrag, readViewerFileDrop, viewerFileTabs } from "./viewer-file-drop";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -99,43 +97,56 @@ type TabDrag = { id: string; pane: ViewerPane };
 type TabDropZoneProps = {
   pane: ViewerPane;
   dragging: TabDrag | null;
-  // Without a side pane, only the outer third of the main pane takes a drop;
-  // that is the gesture that opens a document beside the current one.
+  // The outer third opens a split when there is no side pane yet.
   edge?: boolean;
+  inset?: boolean;
   label: string;
   onDrop: (tabId: string) => void;
+  onFileDrop: (drop: ReturnType<typeof readViewerFileDrop>, pane: ViewerPane) => void;
   className?: string;
   children: React.ReactNode;
 };
 
-function TabDropZone({ pane, dragging, edge = false, label, onDrop, className, children }: TabDropZoneProps) {
-  const [over, setOver] = React.useState(false);
+function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
+  const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean } | null>(null);
   const zone = React.useRef<HTMLDivElement>(null);
   const accepts = dragging !== null && (edge || dragging.pane !== pane);
 
   React.useEffect(() => {
     const element = zone.current;
     if (!element) return;
-    const inZone = (event: DragEvent) => {
+    const atEdge = (event: DragEvent) => {
       const rect = element.getBoundingClientRect();
-      return !edge || event.clientX >= rect.left + rect.width * 0.7;
+      return edge && event.clientX >= rect.left + rect.width * 0.7;
     };
     const over = (event: DragEvent) => {
-      if (!accepts || !event.dataTransfer?.types.includes(TAB_DRAG_TYPE)) return;
-      const hit = inZone(event);
-      setOver(hit);
-      if (!hit) return;
+      const data = event.dataTransfer;
+      if (!data) return;
+      const file = hasViewerFileDrag(data);
+      const hit = file || (accepts && data.types.includes(TAB_DRAG_TYPE) && (!edge || atEdge(event)));
+      if (!hit) { setOver(null); return; }
+      const target = atEdge(event) ? "side" : pane;
+      setOver((previous) => previous?.pane === target && previous.file === file ? previous : { pane: target, file });
       event.preventDefault();
       event.stopPropagation();
-      event.dataTransfer.dropEffect = "move";
+      data.dropEffect = file ? "copy" : "move";
     };
+    const stop = () => setOver(null);
     const leave = (event: DragEvent) => {
-      if (!(event.relatedTarget instanceof Node) || !element.contains(event.relatedTarget)) setOver(false);
+      if (!(event.relatedTarget instanceof Node) || !element.contains(event.relatedTarget)) stop();
     };
     const drop = (event: DragEvent) => {
-      setOver(false);
-      const tabId = event.dataTransfer?.getData(TAB_DRAG_TYPE);
-      if (!accepts || !tabId || !inZone(event)) return;
+      stop();
+      const data = event.dataTransfer;
+      if (!data) return;
+      if (hasViewerFileDrag(data)) {
+        event.preventDefault();
+        event.stopPropagation();
+        onFileDrop(readViewerFileDrop(data), atEdge(event) ? "side" : pane);
+        return;
+      }
+      const tabId = data.getData(TAB_DRAG_TYPE);
+      if (!accepts || !tabId || (edge && !atEdge(event))) return;
       event.preventDefault();
       event.stopPropagation();
       onDrop(tabId);
@@ -145,25 +156,33 @@ function TabDropZone({ pane, dragging, edge = false, label, onDrop, className, c
     element.addEventListener("dragover", over, true);
     element.addEventListener("dragleave", leave);
     element.addEventListener("drop", drop, true);
+    window.addEventListener("dragend", stop);
+    window.addEventListener("drop", stop, true);
+    window.addEventListener("blur", stop);
     return () => {
       element.removeEventListener("dragover", over, true);
       element.removeEventListener("dragleave", leave);
       element.removeEventListener("drop", drop, true);
+      window.removeEventListener("dragend", stop);
+      window.removeEventListener("drop", stop, true);
+      window.removeEventListener("blur", stop);
     };
-  }, [accepts, edge, onDrop]);
+  }, [accepts, edge, pane, onDrop, onFileDrop]);
 
   return (
-    <div ref={zone} className={cn("relative", className)}>
+    <div ref={zone} data-document-drop-pane={inset ? pane : undefined} className={cn("relative", className)}>
       {children}
-      {over && accepts ? (
+      {over ? (
         <div
           aria-hidden
+          data-viewer-drop-overlay
           className={cn(
-            "pointer-events-none absolute inset-y-0 right-0 z-40 flex items-center justify-center border-2 border-dashed border-primary/60 bg-primary/10 p-2 text-center text-xs font-medium text-primary",
-            edge ? "w-[30%]" : "left-0",
+            "pointer-events-none absolute right-0 z-40 flex items-center justify-center border-2 border-dashed border-primary/60 bg-primary/10 p-2 text-center text-xs font-medium text-primary",
+            inset ? "top-40 bottom-8" : "inset-y-0",
+            edge && over.pane === "side" ? "w-[30%]" : "left-0",
           )}
         >
-          {label}
+          {over.file ? t(edge && over.pane === "side" ? "side_panel.drop_to_open_beside" : "side_panel.drop_to_open_here") : label}
         </div>
       ) : null}
     </div>
@@ -565,81 +584,41 @@ export function SidePanel({
   const [sideDestination, setSideDestination] = React.useState<HTMLDivElement | null>(null);
   const [focusedTabId, setFocusedTabId] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const [fileDragActive, setFileDragActive] = React.useState(false);
-  const [dropHovered, setDropHovered] = React.useState(false);
-  const [copyingFile, setCopyingFile] = React.useState<string | null>(null);
+  const [openingFile, setOpeningFile] = React.useState<string | null>(null);
   const importing = React.useRef(false);
   const mounted = React.useRef(true);
 
   React.useEffect(() => {
     mounted.current = true;
-    const start = (event: DragEvent) => {
-      if (event.dataTransfer && (Array.from(event.dataTransfer.types).includes("Files") || hasLegalMemoryFileDrag(event.dataTransfer))) {
-        setFileDragActive(true);
-      }
-    };
-    const stop = () => { setFileDragActive(false); setDropHovered(false); };
-    const leave = (event: DragEvent) => { if (!event.relatedTarget) stop(); };
-    window.addEventListener("dragenter", start, true);
-    window.addEventListener("drop", stop, true);
-    window.addEventListener("dragend", stop, true);
-    window.addEventListener("dragleave", leave);
-    window.addEventListener("blur", stop);
-    return () => {
-      mounted.current = false;
-      window.removeEventListener("dragenter", start, true);
-      window.removeEventListener("drop", stop, true);
-      window.removeEventListener("dragend", stop, true);
-      window.removeEventListener("dragleave", leave);
-      window.removeEventListener("blur", stop);
-    };
+    return () => { mounted.current = false; };
   }, []);
 
-  const openFilesInViewer = async (files: File[], memoryFile: LegalMemoryFileDragItem | null = null) => {
-    if (!files.length && !memoryFile) return;
+  const openFilesInViewer = React.useCallback(async (drop: ReturnType<typeof readViewerFileDrop>, pane?: ViewerPane) => {
     if (importing.current) return;
     if (!client || !workspaceId) {
       toast.error(t("side_panel.wait_for_workspace"));
       return;
     }
     importing.current = true;
+    setOpeningFile(drop.workspace?.name ?? drop.storage?.name ?? drop.memory?.name ?? drop.files[0]?.name ?? null);
     try {
-      if (memoryFile) {
-        setCopyingFile(memoryFile.name);
-        const result = await materializeLegalMemoryFile(client, workspaceId, memoryFile.document_id);
-        usePanelTabStore.getState().openTab(sessionId, {
-          id: `file:${result.path}`, type: "artifact", label: memoryFile.name,
-          value: result.path, preview: classifyOpenTarget(result.path, "file"),
-        });
-      } else {
-        for (const file of files) {
-          if (mounted.current) setCopyingFile(file.name);
-          try {
-            const tab = await importViewerFile(client, workspaceId, file);
-            usePanelTabStore.getState().openTab(sessionId, tab);
-            if (usePanelTabStore.getState().sessions[sessionId]?.activeTabId !== tab.id) break;
-          } catch (error) {
-            toast.error(`Could not open ${file.name}`, { description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
-          }
-        }
+      for await (const tab of viewerFileTabs(client, workspaceId, drop)) {
+        if (!mounted.current) return;
+        usePanelTabStore.getState().openTab(sessionId, tab, pane);
+        const session = usePanelTabStore.getState().sessions[sessionId];
+        const selectedId = pane === "side" && session?.sideActiveTabId ? session.sideActiveTabId : session?.activeTabId;
+        const selected = session?.tabs.find((entry) => entry.id === selectedId);
+        if (!selected || !(selected.id === tab.id || (selected.type === "artifact" && !selected.storage && !tab.storage && tab.value && selected.value === tab.value))) break;
+        setFocusedTabId(selected.id);
       }
       void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     } catch (error) {
       toast.error(t("side_panel.file_open_failed"), { description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
     } finally {
       importing.current = false;
-      if (mounted.current) setCopyingFile(null);
+      if (mounted.current) setOpeningFile(null);
     }
-  };
-
-  const dropFiles = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!Array.from(event.dataTransfer.types).includes("Files") && !hasLegalMemoryFileDrag(event.dataTransfer)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setFileDragActive(false);
-    setDropHovered(false);
-    void openFilesInViewer(Array.from(event.dataTransfer.files), readLegalMemoryFileDrag(event.dataTransfer));
-  };
+  }, [client, workspaceId, sessionId, queryClient]);
 
   const { tabs, sideTabIds, sideActiveTabId } = useSessionPanelState(sessionId);
   const activeTab = useActivePanelTab(sessionId);
@@ -805,6 +784,7 @@ export function SidePanel({
       dragging={draggingTab}
       label={t("side_panel.drop_to_move_here")}
       onDrop={moveToMain}
+      onFileDrop={openFilesInViewer}
       className={stripClassName}
     >
       <div className={stripRowClassName}>
@@ -837,13 +817,13 @@ export function SidePanel({
           onChange={(event) => {
             const files = Array.from(event.currentTarget.files ?? []);
             event.currentTarget.value = "";
-            void openFilesInViewer(files);
+            void openFilesInViewer({ workspace: null, storage: null, memory: null, files });
           }}
         />
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
           <DropdownMenuContent align="end">
-            <DropdownMenuItem disabled={!client || !workspaceId || Boolean(copyingFile)} onClick={() => fileInputRef.current?.click()}>
+            <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => fileInputRef.current?.click()}>
               <FolderInput /> {t("side_panel.files")}
             </DropdownMenuItem>
             <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab()}>
@@ -862,6 +842,7 @@ export function SidePanel({
       dragging={draggingTab}
       label={t("side_panel.drop_to_move_here")}
       onDrop={moveToSide}
+      onFileDrop={openFilesInViewer}
       className={stripClassName}
     >
       <div className={stripRowClassName}>
@@ -895,9 +876,11 @@ export function SidePanel({
       pane="main"
       // A lone main document cannot move: the main pane never empties.
       dragging={sideActiveTab || mainTabs.length > 1 ? draggingTab : null}
-      edge={!sideActiveTab}
+      edge={!sideActiveTab && Boolean(activeTab)}
+      inset
       label={sideActiveTab ? t("side_panel.drop_to_move_here") : t("side_panel.drop_to_open_beside")}
       onDrop={sideActiveTab ? moveToMain : moveToSide}
+      onFileDrop={openFilesInViewer}
       className="flex min-h-0 flex-1 flex-col"
     >
       {!activeTab ? (
@@ -936,39 +919,13 @@ export function SidePanel({
         data-viewer-drop-target
         data-document-workspace-expanded={expanded}
         className={cn("flex h-full min-h-0 flex-col bg-background", expanded ? "fixed inset-0 z-40 mac:top-11" : "relative")}
-        onDragOverCapture={(event) => {
-          if (!Array.from(event.dataTransfer.types).includes("Files") && !hasLegalMemoryFileDrag(event.dataTransfer)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          event.dataTransfer.dropEffect = importing.current ? "none" : "copy";
-          setDropHovered(true);
-        }}
-        onDragLeave={(event) => {
-          if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropHovered(false);
-        }}
-        onDropCapture={(event) => void dropFiles(event)}
       >
-        <AnimatePresence>
-          {fileDragActive || copyingFile ? (
-            <motion.div
-              key="file-drop"
-              data-viewer-drop-overlay
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 p-5 backdrop-blur-sm"
-            >
-              <motion.div
-                animate={{ scale: dropHovered ? 1.02 : 1 }}
-                className={`flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center ${dropHovered ? "border-primary bg-primary/5" : "border-border bg-muted/30"}`}
-                role="status" aria-live="polite"
-              >
-                {copyingFile ? <Loader2 className="size-8 animate-spin text-primary" /> : <FolderInput className="size-8 text-primary" />}
-                <p className="text-sm font-medium">{copyingFile ? "Creating a working copy…" : "Drop files to open"}</p>
-                <p className="max-w-full truncate text-xs text-muted-foreground">{copyingFile ?? "Copies go into the workspace. Originals stay intact."}</p>
-              </motion.div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+        {openingFile ? (
+          <div role="status" className="pointer-events-none absolute bottom-4 left-1/2 z-50 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs shadow-sm">
+            <Loader2 className="size-4 shrink-0 animate-spin" />
+            <span className="truncate">{t("side_panel.opening_file", { name: openingFile })}</span>
+          </div>
+        ) : null}
         {portaledHeader ? (
           // In the window header both strips share one row, split like the panes.
           <PanelHeaderPortal target={portaledHeader}>
@@ -1007,6 +964,8 @@ export function SidePanel({
                   dragging={draggingTab}
                   label={t("side_panel.drop_to_move_here")}
                   onDrop={moveToSide}
+                  onFileDrop={openFilesInViewer}
+                  inset
                   className="flex min-h-0 flex-1 flex-col"
                 >
                   <div ref={setSideDestination} className="min-h-0 flex-1 overflow-hidden" onFocusCapture={() => setFocusedTabId(sideActiveTab.id)} onPointerDownCapture={() => setFocusedTabId(sideActiveTab.id)} />

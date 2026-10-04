@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
+import { writeWorkspaceFileDrag } from "../src/app/lib/workspace-file-drag";
 import { SidePanel } from "../src/react-app/domains/session/panel/side-panel";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { LegalworkControlProvider, useLegalworkControl } from "../src/react-app/shell/control/control-provider";
@@ -18,6 +19,19 @@ const sessionId = "document-workspace-validation";
 const workspaceId = "document-validation";
 const server = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:5175", token: "document-validation-client" });
 const open = (name: string) => usePanelTabStore.getState().openTab(sessionId, { id: `file:${name}`, type: "artifact", label: name, value: name, preview: "word" });
+// Test native event routing through a portaled editor without depending on OS
+// pointer automation. These controls are not evidence of a native mouse gesture.
+function projectDrop(type: "dragover" | "drop", edge: boolean) {
+  const pane = document.querySelector('[data-document-drop-pane="main"]');
+  if (!pane) return;
+  const rect = pane.getBoundingClientRect();
+  const dataTransfer = new DataTransfer();
+  writeWorkspaceFileDrag(dataTransfer, { workspaceId, path: "Precedent.docx", name: "Precedent.docx" });
+  (pane.querySelector('[contenteditable="true"]') ?? pane).dispatchEvent(new DragEvent(type, {
+    bubbles: true, cancelable: true, dataTransfer,
+    clientX: rect.left + rect.width * (edge ? 0.9 : 0.4), clientY: rect.top + rect.height / 2,
+  }));
+}
 if (!usePanelTabStore.getState().sessions[sessionId]?.tabs.length) {
   open("Agreement.docx"); open("Precedent.docx");
   usePanelTabStore.getState().moveTabToSide(sessionId, "file:Precedent.docx");
@@ -57,7 +71,15 @@ function Harness() {
     </div>
     <details><summary>Saved file / control evidence</summary><pre className="max-h-32 overflow-auto whitespace-pre-wrap text-xs">{contents}</pre></details>
     <div className="flex min-h-0 flex-1">
-      <aside className="w-48 shrink-0 border-r p-5 text-sm text-muted-foreground">Matter notes<br />Compare the agreement with the precedent. Both are synthetic documents.</aside>
+      <aside className="w-48 shrink-0 space-y-3 border-r p-5 text-sm text-muted-foreground">
+        <p>Project files — drag into either pane or to the right edge to open a split.</p>
+        {["Agreement.docx", "Precedent.docx"].map((name) => <div key={name} draggable className="cursor-grab rounded border p-2" onDragStart={(event) => writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: name, name })}>{name}</div>)}
+        <p className="text-xs">Synthetic drop events:</p>
+        <button onClick={() => projectDrop("dragover", true)}>Preview right-edge drop</button>
+        <button onClick={() => projectDrop("drop", true)}>Drop precedent at right edge</button>
+        <button onClick={() => projectDrop("drop", false)}>Drop precedent into main</button>
+        <p>Both documents are synthetic.</p>
+      </aside>
       <main className="min-w-0 flex-1"><SidePanel sessionId={sessionId} workspaceId={workspaceId} workspaceRoot="" client={client} onClose={() => {}} /></main>
     </div><Toaster />
   </div>;

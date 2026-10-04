@@ -96,6 +96,20 @@ describe("connected storage document tabs", () => {
     expect(usePanelTabStore.getState().sessions.session.activeTabId).toBe(tab.id);
   });
 
+  test("dropping an open cloud file into the other pane retains its working path", () => {
+    const tab = storageFileTab("workspace", root, file);
+    const other = storageFileTab("workspace", root, { ...file, path: "Other.docx" });
+    const store = usePanelTabStore.getState();
+    store.openTab("session", other);
+    store.openTab("session", tab);
+    store.setStorageWorkingPath("session", tab.id, ".legalwork/storage-downloads/copy/Contract.docx");
+    store.openTab("session", storageFileTab("workspace", root, file), "side");
+    const session = usePanelTabStore.getState().sessions.session;
+    expect(session.tabs).toHaveLength(2);
+    expect(session.sideActiveTabId).toBe(tab.id);
+    expect(session.tabs[1]).toMatchObject({ value: ".legalwork/storage-downloads/copy/Contract.docx", storage: tab.storage });
+  });
+
   test("the existing unsaved-document guard protects switching and closing storage tabs", () => {
     const tab = storageFileTab("workspace", root, file);
     const other = storageFileTab("workspace", root, { ...file, path: "Other.docx" });

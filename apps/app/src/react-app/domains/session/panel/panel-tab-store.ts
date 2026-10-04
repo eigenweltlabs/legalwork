@@ -77,7 +77,7 @@ function restoredTab(value: unknown): PanelTab | null {
 export type PanelTabStore = {
   sessions: Record<string, SessionPanelState>;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
-  openTab: (sessionId: string, tab: PanelTab) => void;
+  openTab: (sessionId: string, tab: PanelTab, pane?: "main" | "side") => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
@@ -312,11 +312,19 @@ export const usePanelTabStore = create<PanelTabStore>()(
         if (tab?.type !== "artifact" || !tab.storage || tab.value === path) return state;
         return updateSession(state, sessionId, { ...session, tabs: session.tabs.map((item) => item.id === tabId ? { ...tab, value: path } : item) });
       }),
-      openTab: (sessionId, tab) => set((state) => {
+      openTab: (sessionId, tab, pane) => set((state) => {
         const session = getWritableSession(state, sessionId);
+        // Dropping a file already opened by the file browser reuses its editor,
+        // including legacy tab ids and a storage tab's checked-out working path.
+        const existing = session.tabs.find((entry) => entry.id === tab.id ||
+          (pane && tab.type === "artifact" && entry.type === "artifact" && !tab.storage && !entry.storage && tab.value && tab.value === entry.value));
+        if (existing) tab = { ...existing, ...tab, id: existing.id };
         // A tab already beside the main pane is shown there again rather than
-        // pulled back, so a document keeps the pane the user gave it.
-        const inSide = session.sideTabIds.includes(tab.id);
+        // pulled back, unless a drop explicitly targets the other pane.
+        const wasInSide = session.sideTabIds.includes(tab.id);
+        const inSide = pane && tab.type === "artifact"
+          ? pane === "side" && session.tabs.some((entry) => entry.id !== tab.id && !session.sideTabIds.includes(entry.id))
+          : wasInSide;
         const replaced = inSide ? session.sideActiveTabId : session.activeTabId;
         if (replaced !== tab.id && !confirmDiscardSessionDocuments(sessionId, [replaced], undefined, true)) return state;
         const existingIndex = session.tabs.findIndex((entry) => entry.id === tab.id);
@@ -326,9 +334,9 @@ export const usePanelTabStore = create<PanelTabStore>()(
 
         return updateSession(state, sessionId, normalizeSession(
           tabs,
-          inSide ? session.activeTabId : tab.id,
-          session.sideTabIds,
-          inSide ? tab.id : session.sideActiveTabId,
+          inSide ? session.activeTabId === tab.id ? neighbourInPane(session, tab.id) : session.activeTabId : tab.id,
+          inSide === wasInSide ? session.sideTabIds : inSide ? [...session.sideTabIds, tab.id] : session.sideTabIds.filter((id) => id !== tab.id),
+          inSide ? tab.id : session.sideActiveTabId === tab.id ? neighbourInPane(session, tab.id) : session.sideActiveTabId,
         ));
       }),
       closeTab: (sessionId, tabId) => set((state) => {
