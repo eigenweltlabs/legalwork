@@ -189,6 +189,8 @@ export type TaskDetailProps = {
   onBack: () => void;
   /** Panel tabs already provide navigation and a close button. */
   inPanel?: boolean;
+  /** Reserve room for the standard dialog close button. */
+  inDialog?: boolean;
   /** Every in-place change goes through here; it resolves when the store has it. */
   onPatch: (patch: LegalworkTaskPatch) => Promise<unknown>;
   onDelete: () => void;
@@ -428,7 +430,7 @@ export function TaskDetail(props: TaskDetailProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <header className="shrink-0 border-b border-border py-3">
+      <header className={cn("shrink-0 border-b border-border py-3", props.inDialog && "pe-10")}>
         <div className={cn("mx-auto flex w-full max-w-2xl flex-wrap items-center gap-2 px-4 sm:px-6", props.inPanel ? "justify-end" : "justify-between")}>
           {(!props.inPanel || inTrash) && <div className="flex min-w-0 items-center gap-2">
             {!props.inPanel && <>

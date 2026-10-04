@@ -12,6 +12,7 @@ import { toast } from "@/components/ui/sonner";
 import { SectionHeading } from "@/react-app/design-system/surface";
 import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { TaskDialog } from "../tasks/task-dialog";
 import { useTaskMembers } from "../tasks/tasks-queries";
 import { taskMemberOptions } from "../tasks/task-format";
 import { calendarDay, calendarError, calendarKindLabel, calendarRange, formatCalendarDay, isActive, isCompleted, moveCalendar, occurrenceDay, occursOnDay, shiftDay, type CalendarViewMode } from "./calendar-format";
@@ -23,7 +24,6 @@ import { CalendarSubscriptionDialog } from "./calendar-subscription-dialog";
 
 type CalendarViewProps = CalendarContext & {
   projectId?: string; projectName?: string; projects?: CalendarSource[];
-  onOpenTask?: (id: string, projectId: string | null) => void;
 };
 
 export function CalendarView(props: CalendarViewProps) {
@@ -33,6 +33,7 @@ export function CalendarView(props: CalendarViewProps) {
   const [trashOpen, setTrashOpen] = useState(false);
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const [editing, setEditing] = useState<{ item: CalendarItem | null; day: string; client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string } | null>(null);
+  const [task, setTask] = useState<{ id: string; client: LegalworkServerClient; workspaceId: string; projects: { id: string; name: string }[] } | null>(null);
   const [opening, setOpening] = useState(false);
   const range = calendarRange(anchor, view);
   const query = useCalendarOccurrences(props, range.from, range.to), records = useCalendarRecords(props), refresh = useCalendarRefresh();
@@ -50,9 +51,17 @@ export function CalendarView(props: CalendarViewProps) {
   };
   const canCreate = Boolean(props.workspaceId || props.projects?.length);
   const open = async (item: CalendarOccurrence) => {
-    if (item.kind === "task") { props.onOpenTask?.(item.itemId, item.projectId); return; }
     const source = props.workspaceId ? undefined : props.remoteSources?.find(source => source.id === item.projectId);
     const client = source?.client ?? props.client, workspaceId = source?.workspaceId ?? props.workspaceId ?? item.projectId;
+    if (item.kind === "task") {
+      // Inbox tasks use a local workspace for transport; remote tasks keep their source endpoint.
+      const taskWorkspaceId = workspaceId ?? props.projects?.find(project => !props.remoteSources?.some(remote => remote.id === project.id))?.workspaceId;
+      if (client && taskWorkspaceId) setTask({ id: item.itemId, client, workspaceId: taskWorkspaceId,
+        projects: props.workspaceId ? [{ id: props.workspaceId, name: props.projectName ?? item.projectName }]
+          : (props.projects ?? []).filter(project => project.client.baseUrl === client.baseUrl).map(project => ({ id: project.workspaceId, name: project.name })),
+      });
+      return;
+    }
     if (!client || !workspaceId || opening) return;
     setOpening(true);
     try { setEditing({ item: (await client.calendarItem(workspaceId, item.itemId)).item, day: occurrenceDay(item), client, workspaceId, projectId: props.projectId ?? source?.id ?? workspaceId, projectName: item.projectName }); }
@@ -111,6 +120,7 @@ export function CalendarView(props: CalendarViewProps) {
       </Tabs>
       {trashOpen && props.client && props.workspaceId && <CalendarTrash client={props.client} workspaceId={props.workspaceId} items={records.data?.items.filter(item => item.deletedAt) ?? []} onClose={() => setTrashOpen(false)} onChanged={refresh} />}
       {subscriptionOpen && props.client && <CalendarSubscriptionDialog client={props.client} workspaceId={props.workspaceId ?? null} projectName={props.projectName} hasRemoteProjects={!props.workspaceId && Boolean(props.remoteSources?.length)} onClose={() => setSubscriptionOpen(false)} />}
+      {task && <TaskDialog taskId={task.id} client={task.client} workspaceId={task.workspaceId} projects={task.projects} onClose={() => setTask(null)} />}
       {editing && <DeadlineDialog key={editing.item?.id ?? editing.day} client={editing.client} workspaceId={editing.workspaceId} projectId={editing.projectId} projectName={editing.projectName} projects={props.projects} item={editing.item} day={editing.day} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
     </div>
   </div>;

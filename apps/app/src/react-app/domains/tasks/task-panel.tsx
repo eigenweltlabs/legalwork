@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { ListTodo, Loader2 } from "lucide-react";
 
 import type { LegalworkTaskAttachment, LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -9,7 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { importViewerFile } from "@/react-app/domains/session/panel/import-viewer-file";
-import { type TaskPanelTab, usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
+import { type ArtifactPanelTab, type TaskPanelTab, usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import { TaskDetail } from "./task-detail";
 import {
   useDeleteTask,
@@ -34,9 +34,25 @@ type TaskPanelProps = {
 };
 
 export function TaskPanel(props: TaskPanelProps) {
+  const onTitleChange = useCallback((title: string) => {
+    if (title !== props.tab.label) usePanelTabStore.getState().openTab(props.sessionId, { ...props.tab, label: title });
+  }, [props.sessionId, props.tab]);
+  return <TaskContent {...props} taskId={props.tab.taskId} onTitleChange={onTitleChange}
+    onOpenAttachment={tab => usePanelTabStore.getState().openTab(props.sessionId, tab)} />;
+}
+
+type TaskContentProps = Omit<TaskPanelProps, "sessionId" | "tab"> & {
+  taskId: string;
+  inDialog?: boolean;
+  onTitleChange?: (title: string) => void;
+  onOpenAttachment: (tab: ArtifactPanelTab) => void;
+};
+
+/** Shared task editor for the side panel and calendar dialog. */
+export function TaskContent(props: TaskContentProps) {
   const workspaceId = props.workspaceId ?? "";
   const context = { client: props.client, workspaceId };
-  const detailQuery = useTask(context, props.tab.taskId);
+  const detailQuery = useTask(context, props.taskId);
   const membersQuery = useTaskMembers(context);
   const tagsQuery = useTaskTags(context);
   const access = useTaskAccess(context);
@@ -47,11 +63,11 @@ export function TaskPanel(props: TaskPanelProps) {
   const uploadAttachments = useUploadTaskAttachments(context);
   const deleteAttachment = useDeleteTaskAttachment(context);
   const task = detailQuery.data?.task ?? null;
+  const title = task?.title;
 
   useEffect(() => {
-    if (!task || task.title === props.tab.label) return;
-    usePanelTabStore.getState().openTab(props.sessionId, { ...props.tab, label: task.title });
-  }, [props.sessionId, props.tab, task]);
+    if (title !== undefined) props.onTitleChange?.(title);
+  }, [props.onTitleChange, title]);
 
   if (!props.client || !workspaceId) {
     return <PanelEmptyState icon={<ListTodo />} title={t("tasks.load_failed")} description={t("side_panel.wait_for_workspace")} />;
@@ -97,7 +113,7 @@ export function TaskPanel(props: TaskPanelProps) {
     const file = await client.downloadTaskAttachment(workspaceId, task.id, attachment.id);
     const copy = new File([file.data], attachment.filename, { type: attachment.contentType });
     const tab = await importViewerFile(client, workspaceId, copy);
-    usePanelTabStore.getState().openTab(props.sessionId, tab);
+    props.onOpenAttachment(tab);
   };
 
   const busy = deleteTask.isPending || restoreTask.isPending;
@@ -105,6 +121,7 @@ export function TaskPanel(props: TaskPanelProps) {
   return (
     <TaskDetail
       inPanel
+      inDialog={props.inDialog}
       projects={props.projects}
       task={task}
       submission={detailQuery.data?.submission}
