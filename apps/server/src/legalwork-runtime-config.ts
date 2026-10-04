@@ -226,8 +226,14 @@ export async function buildLegalworkRuntimeConfigObject(
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
+  const permission = { ...runtimeConfig.permission };
+  const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
+  // Append the specific rule after wildcard rules; approvals cannot be saved
+  // for this tool, so every proposed instructions change is reviewed.
+  delete permission.legalwork_project_set_instructions;
   return {
     ...runtimeConfig,
+    permission: { ...permission, legalwork_project_set_instructions: instructionPermission },
     // A refusal remains a tool error visible to the model. The engine should
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
