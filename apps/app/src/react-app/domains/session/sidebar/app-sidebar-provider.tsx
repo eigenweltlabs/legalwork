@@ -9,7 +9,8 @@ export type SidebarContextValue = {
   activeProjectFeature: "calendar" | "home" | "tasks" | "reviews" | "sessions" | null;
   onOpenProjectPage: (workspaceId: string, page: "calendar" | "home" | "tasks" | "reviews") => Promise<void>;
   onOpenProjectFiles: (workspaceId: string) => void;
-  onOpenProjectWindow?: (workspaceId: string, page: "home" | "reviews" | "tasks" | "files") => void;
+  projectFilesOpen?: boolean;
+  onOpenProjectWindow?: (workspaceId: string, page: "home" | "calendar" | "reviews" | "tasks" | "files") => void;
   developerMode: boolean;
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;

@@ -409,10 +409,9 @@ export function SessionRoute() {
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
   // the window is in the background stays counted until the window comes
-  // back. A detached window leaves the (shared, persisted) announcements to
-  // the main one.
+  // back. Reading Tasks in any app window clears those announcements.
   useEffect(() => {
-    if (!showTasks || detached) return;
+    if (!showTasks) return;
     const markRead = () => {
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       const store = useNotificationStore.getState();
@@ -429,7 +428,7 @@ export function SessionRoute() {
       window.removeEventListener("focus", markRead);
       document.removeEventListener("visibilitychange", markRead);
     };
-  }, [detached, showTasks]);
+  }, [showTasks]);
   useEffect(() => {
     const pending = takePendingTasksPaneRequest();
     if (pending) {
@@ -2377,7 +2376,6 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
-      detached={detached}
       homePage={homePage}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}

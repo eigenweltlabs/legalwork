@@ -20,7 +20,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
-import { desktopFetch } from "./desktop";
+import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
@@ -2621,7 +2621,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
      */
     syncEvents: async (onPoke: (poke: SyncPoke) => void, signal: AbortSignal) => {
       const url = `${baseUrl}/sync/events`;
-      const response = await resolveFetch(url)(url, {
+      const response = await (isDesktopRuntime() ? desktopStreamFetch : globalThis.fetch)(url, {
         headers: buildAuthHeaders(token, hostToken, { Accept: "text/event-stream" }),
         signal,
       });

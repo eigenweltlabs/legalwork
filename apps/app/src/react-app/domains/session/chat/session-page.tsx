@@ -60,7 +60,7 @@ import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
-import { useShellConfig } from "../../../shell/shell-config";
+import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
@@ -160,8 +160,6 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
-  /** Native secondary chat window: omit the primary navigation sidebar. */
-  detached?: boolean;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
   selectedWorkspaceDisplay: {
@@ -354,10 +352,13 @@ export function SessionPage(props: SessionPageProps) {
   const fileSidebar = useUiStateStore((state) => state.fileSidebarState[panelStateSessionId] ?? null);
   const setFileSidebarState = useUiStateStore((state) => state.setFileSidebarState);
   useEffect(() => {
-    if (props.detached && props.projectPage && new URLSearchParams(location.search).get("panel") === "files") {
+    const search = new URLSearchParams(location.search);
+    if (props.projectPage && search.get("panel") === "files") {
       setFileSidebarState(panelStateSessionId, "files");
+      search.delete("panel");
+      navigate({ pathname: location.pathname, search: search.toString() }, { replace: true });
     }
-  }, [props.detached, props.projectPage, location.search, panelStateSessionId, setFileSidebarState]);
+  }, [props.projectPage, location.pathname, location.search, navigate, panelStateSessionId, setFileSidebarState]);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const transcriptTargets = usePanelTabStore((state) => (
@@ -929,23 +930,33 @@ export function SessionPage(props: SessionPageProps) {
     });
   }, [props.sidebar.workspaceSessionGroups]);
 
-  const openProjectWindow = useCallback((workspaceId: string, page: "home" | "reviews" | "tasks" | "files") => {
+  const openNavWindow = useCallback((key: ShellNavKey) => {
+    const pages = {
+      navHome: "home", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
+      navTasks: "tasks", navRecorder: "recorder", navEvaluations: "evals",
+    } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
+    void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
+      toast.error(t("projects.open_in_new_window_failed"));
+    });
+  }, []);
+
+  const openProjectWindow = useCallback((workspaceId: string, page: "home" | "calendar" | "reviews" | "tasks" | "files") => {
     if (!isElectronRuntime()) return;
-    const title = t(page === "reviews" ? "projects.tab_review" : page === "tasks" ? "projects.tasks" : page === "files" ? "projects.files" : "projects.home");
+    const title = t(page === "calendar" ? "calendar.title" : page === "reviews" ? "projects.tab_review" : page === "tasks" ? "projects.tasks" : page === "files" ? "projects.files" : "projects.home");
     void desktopBridge.openProjectWindow({ workspaceId, page, title }).catch(() => {
       toast.error(t("projects.open_in_new_window_failed"));
     });
   }, []);
 
   useEffect(() => {
-    if (props.detached || !props.selectedSessionId || !isElectronRuntime()) return;
+    if (!props.selectedSessionId || !isElectronRuntime()) return;
     const selectedSessionId = props.selectedSessionId;
     const handleNativeOpenSessionWindow = () => {
       openSessionWindow(props.selectedWorkspaceId, selectedSessionId);
     };
     window.addEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
     return () => window.removeEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
-  }, [openSessionWindow, props.detached, props.selectedSessionId, props.selectedWorkspaceId]);
+  }, [openSessionWindow, props.selectedSessionId, props.selectedWorkspaceId]);
 
   const closeSessionTab = useCallback((sessionId: string) => {
     setSessionTabs((current) => current.filter((tab) => tab.sessionId !== sessionId));
@@ -1120,10 +1131,10 @@ export function SessionPage(props: SessionPageProps) {
     : props.sidebar.activeNav === "extensions" ? t("extensions.title")
     : showWorkspaceSetupEmptyState ? t("session.create_or_connect_workspace")
     : selectedSessionTitle || t("session.default_title");
-  const sidebarVisible = !props.detached && shellConfig.sidebar && chatSidebarOpen && !mobile;
+  const sidebarVisible = shellConfig.sidebar && chatSidebarOpen && !mobile;
   useEffect(() => {
-    if (props.detached) document.title = windowTitle;
-  }, [props.detached, windowTitle]);
+    document.title = windowTitle;
+  }, [windowTitle]);
 
   return (
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
@@ -1142,11 +1153,9 @@ export function SessionPage(props: SessionPageProps) {
         <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center electron:titlebar-drag">
           <div className="flex h-full min-w-0 flex-1 items-center gap-2 pr-2">
             <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
-              {!props.detached && <>
-                <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
-                <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
-                {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
-              </>}
+              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
+              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
+              {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
@@ -1155,7 +1164,7 @@ export function SessionPage(props: SessionPageProps) {
             </div>
             <div className="flex items-center gap-1.5 text-gray-10 titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
-              {!hasMainView && !props.detached && props.selectedSessionId && isElectronRuntime() ? (
+              {!hasMainView && props.selectedSessionId && isElectronRuntime() ? (
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -1188,15 +1197,17 @@ export function SessionPage(props: SessionPageProps) {
           {!mobile && fileSidebar && <div ref={setFilesHeaderTarget} data-panel-header="files" className="lw-window-panel-header" style={{ width: filesHeaderWidth }} />}
           {!mobile && (sidePanelOpen || fileSidebar) && <div aria-hidden className="shrink-0" style={{ width: shellConfig.panelRail ? "calc(var(--lw-window-right-rail-width) + 1px)" : 1 }} />}
         </header>
-        {!props.detached ? <AppSidebar
+        <AppSidebar
           accountClient={props.environmentClient ?? props.legalworkServerClient ?? null}
           workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
+          projectFilesOpen={fileSidebar === "files"}
+          onOpenNavWindow={isElectronRuntime() ? openNavWindow : undefined}
           onOpenProjectFiles={(workspaceId) => {
             if (workspaceId === props.selectedWorkspaceId && !props.mainView) {
-              setFileSidebarState(panelStateSessionId, "files");
+              openFilesRailPane();
             } else {
               setFileSidebarState(`project:${workspaceId}`, "files");
               void props.sidebar.onSelectWorkspace(workspaceId);
@@ -1243,7 +1254,7 @@ export function SessionPage(props: SessionPageProps) {
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
-        /> : null}
+        />
         {hasMainView ? (
           // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
