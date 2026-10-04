@@ -2,6 +2,8 @@
 import * as React from "react";
 import {
   ArrowLeft,
+  ArrowDownToLine,
+  ArrowUpToLine,
   ArrowLeftToLine,
   ArrowRight,
   ArrowRightToLine,
@@ -14,6 +16,8 @@ import {
   Loader2,
   Plus,
   PanelsTopLeft,
+  Columns2,
+  Rows2,
   RotateCw,
   X,
   Workflow,
@@ -41,7 +45,8 @@ import { cn } from "@/lib/utils";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
-import { useDocumentPreferences } from "../artifacts/document-preferences";
+import { useDocumentPreferences, type DocumentSplitOrientation } from "../artifacts/document-preferences";
+import { documentSplitDropEdge } from "./document-split-drop";
 import {
   type ArtifactPanelTab,
   type BrowserPanelTab,
@@ -101,32 +106,33 @@ type TabDropZoneProps = {
   edge?: boolean;
   inset?: boolean;
   label: string;
-  onDrop: (tabId: string) => void;
-  onFileDrop: (drop: ReturnType<typeof readViewerFileDrop>, pane: ViewerPane) => void;
+  onDrop: (tabId: string, split?: DocumentSplitOrientation) => void;
+  onFileDrop: (drop: ReturnType<typeof readViewerFileDrop>, pane: ViewerPane, split?: DocumentSplitOrientation) => void;
   className?: string;
   children: React.ReactNode;
 };
 
 function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
-  const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean } | null>(null);
+  const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentSplitOrientation | null } | null>(null);
   const zone = React.useRef<HTMLDivElement>(null);
   const accepts = dragging !== null && (edge || dragging.pane !== pane);
 
   React.useEffect(() => {
     const element = zone.current;
     if (!element) return;
-    const atEdge = (event: DragEvent) => {
+    const splitEdge = (event: DragEvent) => {
       const rect = element.getBoundingClientRect();
-      return edge && event.clientX >= rect.left + rect.width * 0.7;
+      return edge ? documentSplitDropEdge(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height) : null;
     };
     const over = (event: DragEvent) => {
       const data = event.dataTransfer;
       if (!data) return;
       const file = hasViewerFileDrag(data);
-      const hit = file || (accepts && data.types.includes(TAB_DRAG_TYPE) && (!edge || atEdge(event)));
+      const split = splitEdge(event);
+      const hit = file || (accepts && data.types.includes(TAB_DRAG_TYPE) && (!edge || split));
       if (!hit) { setOver(null); return; }
-      const target = atEdge(event) ? "side" : pane;
-      setOver((previous) => previous?.pane === target && previous.file === file ? previous : { pane: target, file });
+      const target = split ? "side" : pane;
+      setOver((previous) => previous?.pane === target && previous.file === file && previous.split === split ? previous : { pane: target, file, split });
       event.preventDefault();
       event.stopPropagation();
       data.dropEffect = file ? "copy" : "move";
@@ -139,17 +145,18 @@ function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDro
       stop();
       const data = event.dataTransfer;
       if (!data) return;
+      const split = splitEdge(event);
       if (hasViewerFileDrag(data)) {
         event.preventDefault();
         event.stopPropagation();
-        onFileDrop(readViewerFileDrop(data), atEdge(event) ? "side" : pane);
+        onFileDrop(readViewerFileDrop(data), split ? "side" : pane, split ?? undefined);
         return;
       }
       const tabId = data.getData(TAB_DRAG_TYPE);
-      if (!accepts || !tabId || (edge && !atEdge(event))) return;
+      if (!accepts || !tabId || (edge && !split)) return;
       event.preventDefault();
       event.stopPropagation();
-      onDrop(tabId);
+      onDrop(tabId, split ?? undefined);
     };
     // Native capture follows the physical pane even when its editor is a React
     // portal, and receives the drop before the editor can consume it.
@@ -178,11 +185,11 @@ function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDro
           data-viewer-drop-overlay
           className={cn(
             "pointer-events-none absolute right-0 z-40 flex items-center justify-center border-2 border-dashed border-primary/60 bg-primary/10 p-2 text-center text-xs font-medium text-primary",
-            inset ? "top-40 bottom-8" : "inset-y-0",
-            edge && over.pane === "side" ? "w-[30%]" : "left-0",
+            over.split === "vertical" ? "left-0 top-[max(10rem,70%)] bottom-8" : inset ? "top-40 bottom-8" : "inset-y-0",
+            over.split === "horizontal" ? "w-[30%]" : "left-0",
           )}
         >
-          {over.file ? t(edge && over.pane === "side" ? "side_panel.drop_to_open_beside" : "side_panel.drop_to_open_here") : label}
+          {over.split ? t(over.split === "vertical" ? "side_panel.drop_to_open_below" : "side_panel.drop_to_open_beside") : over.file ? t("side_panel.drop_to_open_here") : label}
         </div>
       ) : null}
     </div>
@@ -192,6 +199,7 @@ function TabDropZone({ pane, dragging, edge = false, inset = false, label, onDro
 type SidePanelTabProps = {
   tab: PanelTabEntry;
   pane: ViewerPane;
+  orientation: DocumentSplitOrientation;
   active: boolean;
   canMove: boolean;
   onSelect: (tabId: string) => void;
@@ -200,12 +208,15 @@ type SidePanelTabProps = {
   onDragChange: (tabId: string | null) => void;
 };
 
-function SidePanelTab({ tab, pane, active, canMove, onSelect, onClose, onMove, onDragChange }: SidePanelTabProps) {
+function SidePanelTab({ tab, pane, orientation, active, canMove, onSelect, onClose, onMove, onDragChange }: SidePanelTabProps) {
   const dragControls = useDragControls();
   const tabRef = React.useRef<HTMLDivElement>(null);
   const label = tab.type === "artifact" && tab.value && !tab.storage
     ? projectFileDisplayName(tab.value, tab.label) : tab.label;
   const fileTab = tab.type === "artifact" ? tab : null;
+  const moveLabel = pane === "main"
+    ? t(orientation === "vertical" ? "side_panel.open_below" : "side_panel.open_to_side")
+    : t(orientation === "vertical" ? "side_panel.move_to_top" : "side_panel.move_to_main");
 
   React.useEffect(() => {
     if (active) {
@@ -293,15 +304,15 @@ function SidePanelTab({ tab, pane, active, canMove, onSelect, onClose, onMove, o
               "absolute right-7 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100",
               active && "opacity-100",
             )}
-            title={pane === "main" ? t("side_panel.open_to_side") : t("side_panel.move_to_main")}
-            aria-label={pane === "main" ? t("side_panel.open_to_side") : t("side_panel.move_to_main")}
+            title={moveLabel}
+            aria-label={moveLabel}
             onClick={(event) => {
               event.stopPropagation();
               onMove(fileTab);
             }}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            {pane === "main" ? <ArrowRightToLine /> : <ArrowLeftToLine />}
+            {orientation === "vertical" ? (pane === "main" ? <ArrowDownToLine /> : <ArrowUpToLine />) : (pane === "main" ? <ArrowRightToLine /> : <ArrowLeftToLine />)}
           </Button>
         ) : null}
         <PanelTabClose
@@ -580,6 +591,8 @@ export function SidePanel({
 }: SidePanelProps) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = React.useState(false);
+  const orientation = useDocumentPreferences((state) => state.splitOrientation);
+  const stacked = orientation === "vertical";
   const [mainDestination, setMainDestination] = React.useState<HTMLDivElement | null>(null);
   const [sideDestination, setSideDestination] = React.useState<HTMLDivElement | null>(null);
   const [focusedTabId, setFocusedTabId] = React.useState<string | null>(null);
@@ -593,7 +606,7 @@ export function SidePanel({
     return () => { mounted.current = false; };
   }, []);
 
-  const openFilesInViewer = React.useCallback(async (drop: ReturnType<typeof readViewerFileDrop>, pane?: ViewerPane) => {
+  const openFilesInViewer = React.useCallback(async (drop: ReturnType<typeof readViewerFileDrop>, pane?: ViewerPane, split?: DocumentSplitOrientation) => {
     if (importing.current) return;
     if (!client || !workspaceId) {
       toast.error(t("side_panel.wait_for_workspace"));
@@ -609,6 +622,7 @@ export function SidePanel({
         const selectedId = pane === "side" && session?.sideActiveTabId ? session.sideActiveTabId : session?.activeTabId;
         const selected = session?.tabs.find((entry) => entry.id === selectedId);
         if (!selected || !(selected.id === tab.id || (selected.type === "artifact" && !selected.storage && !tab.storage && tab.value && selected.value === tab.value))) break;
+        if (split && session.sideActiveTabId === selected.id) useDocumentPreferences.getState().setSplitOrientation(split);
         setFocusedTabId(selected.id);
       }
       void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
@@ -644,7 +658,10 @@ export function SidePanel({
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
   const moveTabToSide = usePanelTabStore((state) => state.moveTabToSide);
   const moveTabToMain = usePanelTabStore((state) => state.moveTabToMain);
-  const moveToSide = React.useCallback((tabId: string) => moveTabToSide(sessionId, tabId), [moveTabToSide, sessionId]);
+  const moveToSide = React.useCallback((tabId: string, split?: DocumentSplitOrientation) => {
+    moveTabToSide(sessionId, tabId);
+    if (split && usePanelTabStore.getState().sessions[sessionId]?.sideActiveTabId === tabId) useDocumentPreferences.getState().setSplitOrientation(split);
+  }, [moveTabToSide, sessionId]);
   const moveToMain = React.useCallback((tabId: string) => moveTabToMain(sessionId, tabId), [moveTabToMain, sessionId]);
   const [draggingTabId, setDraggingTabId] = React.useState<string | null>(null);
   const draggingTab = React.useMemo<TabDrag | null>(
@@ -759,16 +776,23 @@ export function SidePanel({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeTab, sideActiveTab, focusedTabId, selectTab, mainTabs, sideTabs]);
 
-  // The divider's position, so the two tab strips in the window header stay
-  // lined up with the panes beneath them.
-  const [sideSize, setSideSize] = React.useState(() => useDocumentPreferences.getState().splitSize);
+  // Keep width and height independent when switching layouts.
+  const [splitSizes, setSplitSizes] = React.useState(() => ({
+    horizontal: useDocumentPreferences.getState().splitSize,
+    vertical: useDocumentPreferences.getState().stackedSplitSize,
+  }));
+  const sideSize = splitSizes[orientation];
 
   const portaledHeader = expanded ? null : headerTarget;
   const stripClassName = cn("shrink-0 titlebar-no-drag", portaledHeader ? "h-full" : "bg-muted/35 backdrop-blur-xl");
   const stripRowClassName = cn("flex h-11 items-center gap-1 border-b border-border/70 px-2", portaledHeader && "h-full border-b-0");
+  const layoutLabel = t(stacked ? "side_panel.arrange_side_by_side" : "side_panel.arrange_stacked");
   // Closes the whole viewer, so it sits at the outer end of the last strip.
   const closeButton = (
     <div className="ml-auto flex shrink-0">
+      <Button variant="ghost" size="icon-sm" onClick={() => useDocumentPreferences.getState().setSplitOrientation(stacked ? "horizontal" : "vertical")} aria-label={layoutLabel} title={layoutLabel}>
+        {stacked ? <Columns2 /> : <Rows2 />}
+      </Button>
       <Button variant="ghost" size="icon-sm" onClick={() => setExpanded(!expanded)} aria-label={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")} title={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")}>
         {expanded ? <Minimize2 /> : <Maximize2 />}
       </Button>
@@ -798,6 +822,7 @@ export function SidePanel({
                 key={tab.id}
                 tab={tab}
                 pane="main"
+                orientation={orientation}
                 active={tab.id === activeTab?.id}
                 canMove={mainTabs.length > 1}
                 onSelect={(id) => { selectTab(id); setFocusedTabId(id); }}
@@ -843,7 +868,7 @@ export function SidePanel({
       label={t("side_panel.drop_to_move_here")}
       onDrop={moveToSide}
       onFileDrop={openFilesInViewer}
-      className={stripClassName}
+      className={cn(stripClassName, stacked && "h-11 border-b border-border/70 bg-muted/35")}
     >
       <div className={stripRowClassName}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
@@ -856,6 +881,7 @@ export function SidePanel({
                 key={tab.id}
                 tab={tab}
                 pane="side"
+                orientation={orientation}
                 active={tab.id === sideActiveTab.id}
                 canMove
                 onSelect={(id) => { selectTab(id); setFocusedTabId(id); }}
@@ -927,38 +953,40 @@ export function SidePanel({
           </div>
         ) : null}
         {portaledHeader ? (
-          // In the window header both strips share one row, split like the panes.
+          // Stacked documents keep the lower strip with its pane. The upper
+          // strip still uses the window header while the workspace is docked.
           <PanelHeaderPortal target={portaledHeader}>
             <div className="flex h-full min-w-0">
-              <div className="h-full min-w-0" style={{ width: sideStrip ? `${100 - sideSize}%` : "100%" }}>{mainStrip}</div>
-              {sideStrip ? <div className="h-full min-w-0 border-l border-border/70" style={{ width: `${sideSize}%` }}>{sideStrip}</div> : null}
+              <div className="h-full min-w-0" style={{ width: sideStrip && !stacked ? `${100 - sideSize}%` : "100%" }}>{mainStrip}</div>
+              {sideStrip && !stacked ? <div className="h-full min-w-0 border-l border-border/70" style={{ width: `${sideSize}%` }}>{sideStrip}</div> : null}
             </div>
           </PanelHeaderPortal>
         ) : null}
         {/* Keep the main editor mounted when the side pane opens or closes:
             its unsaved draft and undo history belong to the document. */}
         <ResizablePanelGroup
-          orientation="horizontal"
+          key={orientation}
+          orientation={orientation}
           className="min-h-0 flex-1"
           defaultLayout={{ "viewer-main": 100 - sideSize, "viewer-side": sideSize }}
           onLayoutChange={(layout) => {
             const size = layout["viewer-side"];
-            if (typeof size === "number") setSideSize(size);
+            if (typeof size === "number") setSplitSizes((previous) => previous[orientation] === size ? previous : { ...previous, [orientation]: size });
           }}
           onLayoutChanged={(layout) => {
             const size = layout["viewer-side"];
-            if (typeof size === "number") useDocumentPreferences.getState().setSplitSize(size);
+            if (typeof size === "number") useDocumentPreferences.getState().setSplitSize(size, orientation);
           }}
         >
-          <ResizablePanel id="viewer-main" minSize="220px" className="flex min-w-0 flex-col">
+          <ResizablePanel id="viewer-main" minSize={stacked ? "30%" : "220px"} className="flex min-h-0 min-w-0 flex-col">
             {portaledHeader ? null : mainStrip}
             {mainContent}
           </ResizablePanel>
           {sideActiveTab ? (
             <>
               <ResizableHandle withHandle />
-              <ResizablePanel id="viewer-side" minSize="220px" className="flex min-w-0 flex-col">
-                {portaledHeader ? null : sideStrip}
+              <ResizablePanel id="viewer-side" minSize={stacked ? "30%" : "220px"} className="flex min-h-0 min-w-0 flex-col">
+                {portaledHeader && !stacked ? null : sideStrip}
                 <TabDropZone
                   pane="side"
                   dragging={draggingTab}

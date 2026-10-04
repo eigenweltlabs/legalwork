@@ -22,6 +22,16 @@ Workspace file tabs, pane membership and selected tabs survive reload. Transient
 
 This is a two-pane workspace within one window. Cross-window document transfer, synchronized scrolling and an automatic document comparison are not included.
 
+### Top/bottom layout
+
+The layout button beside Expand switches between **Stack documents vertically** and **Arrange documents side by side**. The document arrow changes to **Open below** / **Move to the top pane** in the stacked layout. Each document keeps its own tab strip; the lower strip stays with its pane even when the upper strip uses the window header. Both panes still expand together.
+
+With a single pane, dropping a file or movable document tab on its bottom 30% opens a vertical split; the right 30% opens a horizontal split. In the overlapping corner the nearer relative edge wins. Existing splits accept files into the indicated pane. Orientation and separate width/height divider positions persist on this device; old preferences retain the horizontal default.
+
+Vertical-layout validation: **778 tests passed, 0 failed**, across 115 files. Typecheck, production UI build, the English/German audit (5,069 keys each) and whitespace checks passed. Browser checks with synthetic DOCX files covered bottom-edge event routing, both layout directions, docked/inline tab strips, expansion and resize/reload restoration. The same live editor id, draft revision and unsaved text survived a layout switch; Undo then removed the test edit. Pointer gestures remain a manual check. No selection-highlighting fix is included.
+
+![Documents stacked vertically in the test workspace](./document-workspace-stacked.png)
+
 ### File drops and smaller drop indicators
 
 The document drop indicator has a fixed 160px top inset and 32px bottom inset, keeping it below the Word toolbar without measuring the editor layout. Tab-strip indicators retain their original height. The target still accepts drops throughout the document pane.
@@ -78,3 +88,5 @@ PORT=5174 pnpm dev:ui
 Open `http://localhost:5174/document-workspace-review.html`. The server logs its temporary workspace directory, copies the synthetic fixture into two originals, and uses the real authenticated file routes on localhost:5175. The development-only page exposes failed/held writes, a release button, original-file readback and active-document metadata. **Hold writes** waits until **Release write** is clicked; turn holding off before releasing to let subsequent saves finish normally. The harness is not a production build entry and uses no model calls or client documents.
 
 For file-drop checks, close the Precedent tab and drag it from the fixture's Project Files list to the document's right edge. The explicitly labeled synthetic-event buttons provide a separate check of the production drop listeners and the portaled editor path. Use **Preview right-edge drop** to inspect the indicator, **Drop precedent at right edge** to open the split and **Drop precedent into main** to move it back.
+
+The bottom-edge buttons exercise vertical creation. **Dock tabs in header** reproduces the desktop header placement; use the production layout button to switch orientations, and the separator's arrow keys to verify resizing and restoration.
