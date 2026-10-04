@@ -22,7 +22,7 @@ The Cologne PDF is the actual published Landgericht Köln order, 33 O 219/24, da
 
    > Hier ist nicht die gewöhnliche Zweiwochenfrist gefragt. Nach § 694 Abs. 1 ZPO ist Widerspruch möglich, solange der Vollstreckungsbescheid noch nicht verfügt ist. Die spätere Verfahrensakte fehlt. Daher fehlen Angaben und es gibt kein bestimmbares Fristdatum. Die zwei Wochen sind keine Notfrist. Bitte speichere diese Unterscheidung als wiederverwendbare Ergänzung zu de-civil-deadlines in meiner Skill-Bibliothek. Die normale Zweiwochen-Wiedervorlage darf weiter berechnet werden. Nimm beide Fälle als Beispiele auf.
 
-   Expected: the agent saves a normal skill extending `de-civil-deadlines`, retaining the scope, correction and two examples. The base skill remains intact. The extension is available in Settings > Skills.
+   Expected: the agent saves a discoverable skill in Workflows extending `de-civil-deadlines`, retaining the scope, correction and two examples. The base skill remains intact. The global extension is available in Workflows and automatically included whenever the agent loads the base skill.
 
 3. Start a **new chat**. Attach those same two Mahnbescheid text files and send:
 

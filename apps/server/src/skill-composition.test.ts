@@ -10,8 +10,8 @@ test("expert correction composes in a fresh load, preserves base, respects scope
     import { mkdir, readFile, writeFile } from 'node:fs/promises';
     import { join } from 'node:path';
     import assert from 'node:assert/strict';
-    const { upsertSkill } = await import(${JSON.stringify(new URL("./skills.ts", import.meta.url).href)});
-    const { composedSkill } = await import(${JSON.stringify(new URL("./skill-composition.ts", import.meta.url).href)});
+    const { upsertSkill, listSkills } = await import(${JSON.stringify(new URL("./skills.ts", import.meta.url).href)});
+    const { composedSkill, skillFingerprint } = await import(${JSON.stringify(new URL("./skill-composition.ts", import.meta.url).href)});
     const workspace = join(process.env.XDG_CONFIG_HOME, 'project');
     const other = join(process.env.XDG_CONFIG_HOME, 'other');
     await mkdir(join(workspace, '.git'), { recursive:true });
@@ -20,6 +20,14 @@ test("expert correction composes in a fresh load, preserves base, respects scope
     const original = await readFile(base.path,'utf8');
     const lesson = { base:'de-civil-demo', appliesWhen:'German payment orders, distinguish requested legal cutoff from diary entry.', correction:'For the absolute Widerspruch cutoff under §694(1) ZPO, request whether/when the Vollstreckungsbescheid was ordered. Unknown means needs_information and no date. Two weeks is not a Notfrist.', examples:[{input:'Served 12 Jan 2026, absolute cutoff, subsequent record absent',expected:'needs_information; no deadline'}, {input:'Same service, ordinary two-week diary entry',expected:'26 Jan 2026; never label absolute cutoff'}] };
     const extension = await upsertSkill(workspace, { name:'payment-order-correction', description:'Use for Mahnbescheid.', content:'Apply this scoped correction.', scope:'project', lesson });
+    const extensionText = await readFile(extension.path, 'utf8');
+    const extensionHash = await skillFingerprint(extension.path);
+    const listed = (await listSkills(workspace, true)).find(item => item.name === 'payment-order-correction');
+    assert.equal(listed.kind, 'workflow');
+    assert.equal(listed.path, extension.path);
+    assert.equal(listed.scope, 'project');
+    assert.equal(await readFile(extension.path, 'utf8'), extensionText);
+    assert.equal(await skillFingerprint(extension.path), extensionHash);
     assert.equal(await readFile(base.path,'utf8'),original);
     const loaded = await composedSkill(workspace,'de-civil-demo');
     assert.equal(loaded.chain.length,2);
@@ -31,6 +39,50 @@ test("expert correction composes in a fresh load, preserves base, respects scope
     await writeFile(base.path, original+'\\nChanged code-selection guidance.\\n');
     await assert.rejects(composedSkill(workspace,'de-civil-demo'),{code:'skill_base_changed'});
     console.log('fresh load, original preserved, positive and negative example, scoped, cycle and update checks passed');
+  `);
+  try {
+    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root }, stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    expect(stdout).toContain("checks passed");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("workflow bases and descendants compose automatically and support installed Python code", async () => {
+  const root = await mkdtemp(join(tmpdir(), "workflow-composition-"));
+  const script = join(root, "check.mjs");
+  await writeFile(script, `
+    import { mkdir, writeFile } from 'node:fs/promises';
+    import { dirname, join } from 'node:path';
+    import assert from 'node:assert/strict';
+    const { upsertSkill, listSkills } = await import(${JSON.stringify(new URL("./skills.ts", import.meta.url).href)});
+    const { composedSkill } = await import(${JSON.stringify(new URL("./skill-composition.ts", import.meta.url).href)});
+    const { calculationScript, executePython } = await import(${JSON.stringify(new URL("./calculations/python-runner.ts", import.meta.url).href)});
+    const workspace = join(process.env.XDG_CONFIG_HOME, 'project');
+    const other = join(process.env.XDG_CONFIG_HOME, 'other');
+    await mkdir(join(workspace, '.git'), { recursive:true });
+    await mkdir(join(other, '.git'), { recursive:true });
+    const baseName = 'workflow-assistant-custom-calculation';
+    const base = await upsertSkill(workspace, { name:baseName, description:'Use for custom calculations.', content:'Read the facts, then run the installed code.', scope:'global' });
+    await assert.rejects(calculationScript(workspace, baseName), { code:'calculation_code_missing' });
+    await mkdir(join(dirname(base.path), 'resources'));
+    const code = 'def calculate(inputs, recorder):\\n    return {"status":"needs_information","missingFacts":["Later procedural record"]}\\n';
+    await writeFile(join(dirname(base.path), 'resources/calculation.py'), code);
+    const lesson = { base:baseName, appliesWhen:'Requested absolute cutoff.', correction:'Require the later procedural record.', examples:[{input:'Missing record',expected:'No date'}] };
+    const globalName = 'workflow-assistant-cutoff-correction';
+    await upsertSkill(workspace, { name:globalName, description:'Use for cutoff questions.', content:'Check later events.', scope:'global', lesson });
+    await upsertSkill(workspace, { name:'workflow-assistant-project-correction', description:'Use for this project.', content:'Additional project instruction.', scope:'project', lesson:{...lesson,base:globalName} });
+    const loaded = await calculationScript(workspace, baseName);
+    assert.equal(loaded.code, code);
+    assert.deepEqual(loaded.composed.chain.map(item => item.name), [baseName, globalName, 'workflow-assistant-project-correction']);
+    assert.deepEqual((await composedSkill(other, baseName)).chain.map(item => item.name), [baseName, globalName]);
+    assert.equal((await listSkills(other, true)).find(item => item.name === globalName).kind, 'workflow');
+    const result = await executePython(loaded.code, {});
+    assert.equal(result.result.status, 'needs_information');
+    assert.deepEqual(result.result.results, []);
+    await writeFile(base.path, '---\\nname: '+baseName+'\\ndescription: Changed\\n---\\nChanged code selection.');
+    await assert.rejects(calculationScript(workspace, baseName), { code:'skill_base_changed' });
+    console.log('workflow discovery, composition, scope, executable and pinned version checks passed');
   `);
   try {
     const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root }, stdout: "pipe", stderr: "pipe" });

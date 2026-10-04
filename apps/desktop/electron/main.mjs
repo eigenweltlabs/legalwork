@@ -1581,7 +1581,8 @@ async function listLocalSkills(projectDir) {
         path: skillDir,
         description,
         trigger: extractTrigger(raw) ?? undefined,
-        kind: extractFrontmatterValue(raw, ["kind"]) ?? undefined,
+        // Saved corrections belong in Workflows, including older unprefixed packages.
+        kind: await pathExists(path.join(skillDir, "legalwork-extension.json")) ? "workflow" : extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,
       });
     }

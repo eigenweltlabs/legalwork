@@ -48,7 +48,7 @@ export async function calculateWithSkill(workspacePath: string, skillName: strin
   const input = DeadlineInputSchema.parse(raw), supported = DEADLINE_SKILLS.find(skill => skill.name === skillName && skill.rules.includes(input.rule));
   if (!supported) throw new ApiError(422, "unsupported_rule", "This jurisdiction skill has no executable support for that rule.");
   const installed = (await listSkills(workspacePath, true)).find(skill => skill.name === skillName);
-  if (!installed || installed.kind === "workflow") throw new ApiError(422, "deadline_skill_missing", "Install the jurisdiction deadline skill before calculating.");
+  if (!installed) throw new ApiError(422, "deadline_skill_missing", "Install the jurisdiction deadline skill before calculating.");
   const context = await composedSkill(workspacePath, skillName);
   // SkillItem.path is the SKILL.md file, not the containing directory.
   const path = join(installed.path, "..", "calculate.mjs");

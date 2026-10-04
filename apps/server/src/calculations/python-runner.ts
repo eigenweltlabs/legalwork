@@ -37,7 +37,7 @@ const OutputSchema = z.object({ runtime: z.string(), steps: z.array(CalculationS
 }) });
 export async function calculationScript(workspace: string, name: string) {
   const composed = await composedSkill(workspace, name);
-  const installed = (await listSkills(workspace, true)).find(skill => skill.name === name && skill.kind !== "workflow");
+  const installed = (await listSkills(workspace, true)).find(skill => skill.name === name);
   if (!installed) throw new ApiError(422, "deadline_skill_missing", "Install the calculation skill first.");
   const path = join(dirname(installed.path), "resources", "calculation.py");
   let code: string;

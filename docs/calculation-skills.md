@@ -1,6 +1,6 @@
 # Inspectable calculations and expert corrections
 
-The existing skill system remains the entry point. There is no new workflow type.
+The existing skill system remains the entry point. Workflows is its user-facing home. Both workflows and supporting skills are automatically discoverable; their library classification does not restrict loading, composition or calculation code.
 
 ## Shipped calculators
 
@@ -50,7 +50,7 @@ Installed scripts are executable code, not a security sandbox or legally certifi
 
 ## Teaching through existing skills
 
-With the lawyer's instruction to remember a correction, call `legalwork_skill_create` with `kind: skill`, a new name, `scope: project | global`, and:
+With the lawyer's instruction to remember a correction, call `legalwork_skill_create` with `kind: workflow`, a new name, `scope: project | global`, and:
 
 ```json
 {
@@ -66,7 +66,7 @@ With the lawyer's instruction to remember a correction, call `legalwork_skill_cr
 }
 ```
 
-The extension is a normal `SKILL.md` plus `legalwork-extension.json`. The base instructions/code are not overwritten. Global means this user's local skill library, not automatic firm-wide distribution. Project scope stays in the project. The engine receives normal skill frontmatter; composition metadata is stored separately.
+The extension is a normal `SKILL.md` plus `legalwork-extension.json`. Saved corrections are classified as workflows, including existing extensions without a workflow name prefix. Classification does not rename files or change pinned hashes. New corrections receive the standard workflow name prefix even if an older caller requests `kind: skill`. The base instructions/code are not overwritten. Global means this user's local library, shown in Workflows, not automatic firm-wide distribution. Project scope stays in the project. The engine receives normal skill frontmatter; composition metadata is stored separately. Loading the base automatically includes applicable corrections, without a manual workflow run.
 
 Dependencies resolve base-first with cycle and missing-base checks. A changed base package blocks loading until the extension is reviewed/rebased. Multiple scoped corrections are returned together; semantic conflicts must be raised with the lawyer, not resolved silently by file order. Examples are saved expectations, not automatically executed tests. For a code defect, fix the code and run executable regression tests separately. Prose corrections cannot expand a calculator's implemented coverage.
 

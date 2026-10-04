@@ -81,8 +81,9 @@ async function parseSkillEntry(
   const { data, body } = parsed;
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
-  // Legacy tabular workflows remain callable under their original names and paths.
-  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-") ? "workflow" : undefined;
+  // Workflows are user-facing skills. Recognize older corrections without rewriting pinned packages.
+  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-")
+    || await exists(join(dirname(skillPath), "legalwork-extension.json")) ? "workflow" : undefined;
   const workflowType = kind === "workflow" ? "assistant" : undefined;
   const trigger =
     typeof data.trigger === "string"

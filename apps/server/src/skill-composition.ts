@@ -35,7 +35,7 @@ export async function composedSkill(workspace: string, name: string, includeExte
   async function visit(current: string) {
     if (visiting.has(current)) throw new ApiError(422, "skill_cycle", "Skill dependencies contain a cycle.");
     if (chain.some(item => item.name === current)) return;
-    const skill = installed.find(skill => skill.name === current && skill.kind !== "workflow");
+    const skill = installed.find(skill => skill.name === current);
     if (!skill) throw new ApiError(422, "skill_dependency_missing", `Install the base skill ${current}.`);
     visiting.add(current);
     const extension = await extensionAt(skill.path);
@@ -53,7 +53,7 @@ export async function composedSkill(workspace: string, name: string, includeExte
     while (added) {
       added = false;
       for (const skill of installed) {
-        if (skill.kind === "workflow" || chain.some(item => item.name === skill.name)) continue;
+        if (chain.some(item => item.name === skill.name)) continue;
         const extension = await extensionAt(skill.path);
         if (extension && chain.some(item => item.name === extension.base)) { await visit(skill.name); added = true; }
       }

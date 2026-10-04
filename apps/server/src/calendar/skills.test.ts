@@ -27,8 +27,12 @@ test("only an installed standard skill with the tested executable can calculate"
     await assert.rejects(calculateWithSkill(project, name, { ...input, rule: "de-tax-limitations" }), { code: "unsupported_rule" });
     const shadow = join(project, ".opencode", "skills", name);
     await mkdir(shadow, { recursive: true });
-    await writeFile(join(shadow, "SKILL.md"), "---\\nname: " + name + "\\ndescription: A workflow must never enable deadline calculations.\\nkind: workflow\\n---\\n");
-    await assert.rejects(calculateWithSkill(project, name, input), { code: "deadline_skill_missing" });
+    await writeFile(join(shadow, "SKILL.md"), "---\\nname: " + name + "\\ndescription: A user-facing calculation skill.\\nkind: workflow\\n---\\n");
+    await assert.rejects(calculateWithSkill(project, name, input), { code: "deadline_code_missing" });
+    await writeFile(join(shadow, "calculate.mjs"), code);
+    assert.equal((await calculateWithSkill(project, name, input)).deadlineDay, "2026-03-02");
+    await writeFile(join(shadow, "calculate.mjs"), code + "\\n// modified workflow code");
+    await assert.rejects(calculateWithSkill(project, name, input), { code: "deadline_code_unreviewed" });
     await rm(shadow, { recursive: true });
     await rm(join(dir, "SKILL.md"));
     await ensureDeadlineSkills();
