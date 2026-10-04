@@ -20,7 +20,10 @@ async function request(context: OpenCodeContext, method: string, path: string, d
 const calculation = z.object({ skill: z.string(), input: DeadlineInputSchema });
 const create = CalendarCreateSchema.extend({ calculationId: z.uuid().optional() });
 const patch = z.object({ itemId: z.uuid(), patch: CalendarPatchSchema });
-const list = z.object({ from: z.iso.date(), to: z.iso.date() });
+const list = z.object({
+  from: z.iso.date().describe("Inclusive first day."),
+  to: z.iso.date().describe("Exclusive end: use the following day to include the last requested date, or the first day of the next month for a whole month."),
+});
 const get = z.object({ itemId: z.uuid() });
 export const LegalWorkCalendarTools = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
