@@ -48,7 +48,10 @@ export function createEventStreams(fetchImpl = fetch) {
         }
         return chunk.value;
       } catch (error) {
+        const cancelled = stream.controller.signal.aborted;
         cancel(owner, id);
+        // Window closure and renderer cancellation are normal end-of-stream.
+        if (cancelled) return null;
         throw error;
       }
     },

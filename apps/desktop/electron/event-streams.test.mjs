@@ -31,7 +31,7 @@ test("multiple windows can stream while ordinary requests still complete; owners
     await assert.rejects(bridge.read(new Owner(), "same-id"), /another window/);
     const pending = bridge.read(windows[0], "same-id");
     bridge.cancel(windows[0], "same-id");
-    await assert.rejects(pending);
+    assert.equal(await pending, null);
     await assert.rejects(bridge.read(windows[0], "same-id"), /closed/);
   } finally {
     for (const owner of windows) owner.emit("destroyed");
