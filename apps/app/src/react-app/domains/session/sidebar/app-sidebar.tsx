@@ -8,7 +8,7 @@ import {
   Files,
   ListTodo,
   Settings,
-  Settings2,
+  WandSparkles,
   Table2,
   Archive,
   ArchiveRestore,
@@ -462,7 +462,7 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
           {t("workspace_list.edit_name")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => openPersonalisation(workspace.id)}>
-          <Settings2 className="size-4" />
+          <WandSparkles className="size-4" />
           {t("personalisation.project_prompt_menu")}
         </DropdownMenuItem>
         {workspace.workspaceType === "local" ? (
