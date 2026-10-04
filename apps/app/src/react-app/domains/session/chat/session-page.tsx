@@ -1,8 +1,8 @@
-import { ProjectControlsProvider } from "../../workspace/project-controls";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
+import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -226,9 +226,9 @@ export type SessionPageProps = {
   projectsPage?: boolean;
   homePage?: boolean;
   projectPage?: "home" | "tasks" | "reviews";
-  onRenameWorkspace: (workspaceId: string, name: string) => Promise<boolean>;
+  onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
-  onStartProjectRecording: (projectId?: string) => void;
+  onStartProjectRecording: () => void;
   onCreateProjectSession?: (shareRecording: boolean) => void | Promise<void>;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
@@ -1025,7 +1025,6 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
-  const projectWorkspace = props.sidebar.workspaceSessionGroups.find(group => group.workspace.id === props.selectedWorkspaceId)?.workspace;
   const mainView = props.projectsPage ? <ProjectsPage
     client={props.environmentClient ?? null}
     groups={props.sidebar.workspaceSessionGroups}
@@ -1038,18 +1037,20 @@ export function SessionPage(props: SessionPageProps) {
     onOpenSession={openSessionTab}
     onNewChat={props.sidebar.onCreateChatInWorkspace}
     onCreate={props.sidebar.onOpenCreateWorkspace}
+    onRename={props.sidebar.onOpenRenameWorkspace}
+    onReveal={props.sidebar.onRevealWorkspace}
+    onForget={props.sidebar.onForgetWorkspace}
     newChatDisabled={props.sidebar.newChatDisabled}
   /> : props.projectPage === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews onOpenSession={sessionId => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
-    props.legalworkServerClient && props.runtimeWorkspaceId && projectWorkspace ? <ProjectHome
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
-      workspace={projectWorkspace}
       workspaceId={props.runtimeWorkspaceId}
       projectId={props.selectedWorkspaceId}
       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
-      onStartRecording={() => props.onStartProjectRecording(props.selectedWorkspaceId)}
+      onStartRecording={props.onStartProjectRecording}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
       onOpenFile={openWorkspaceFileEntry}
       onBeforeDeleteNote={(entry) => {
@@ -1065,6 +1066,7 @@ export function SessionPage(props: SessionPageProps) {
         ? props.onCreateProjectSession(shareRecording)
         : props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
       tasksView={props.projectTasksView}
+      onRename={props.onRenameProject}
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : props.mainView;
 
@@ -1123,13 +1125,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [props.detached, windowTitle]);
 
   return (
-    <ProjectControlsProvider
-      groups={props.sidebar.workspaceSessionGroups}
-      client={props.environmentClient ?? null}
-      onRename={props.onRenameWorkspace}
-      onReveal={props.sidebar.onRevealWorkspace}
-      onForget={props.sidebar.onForgetWorkspace}
-    >
+    <ProjectPersonalisationProvider groups={props.sidebar.workspaceSessionGroups} client={props.environmentClient ?? null}>
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
       <SidebarProvider
         open={chatSidebarOpen}
@@ -1722,6 +1718,6 @@ export function SessionPage(props: SessionPageProps) {
 
       {/* Cloud provider notifications are now handled globally by CloudProvidersToast in app-root.tsx */}
     </div>
-    </ProjectControlsProvider>
+    </ProjectPersonalisationProvider>
   );
 }
