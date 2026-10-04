@@ -1,4 +1,3 @@
-import { useRecorderStore } from "../../recorder/recorder-store";
 import { ProjectControlsProvider } from "../../workspace/project-controls";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
@@ -1127,19 +1126,6 @@ export function SessionPage(props: SessionPageProps) {
     <ProjectControlsProvider
       groups={props.sidebar.workspaceSessionGroups}
       client={props.environmentClient ?? null}
-      newChatDisabled={props.sidebar.newChatDisabled}
-      onNewChat={projectId => {
-        if (projectId === props.selectedWorkspaceId && props.onCreateProjectSession) {
-          const recorder = useRecorderStore.getState();
-          void props.onCreateProjectSession(Boolean(recorder.recording && recorder.recording.id !== recorder.dictationRecordingId));
-        } else props.sidebar.onCreateChatInWorkspace(projectId);
-      }}
-      onRecord={props.onStartProjectRecording}
-      onCreateGroup={projectId => {
-        setCreateGroupWorkspaceId(projectId);
-        setCreateGroupLabel("");
-        setCreateGroupOpen(true);
-      }}
       onRename={props.onRenameWorkspace}
       onReveal={props.sidebar.onRevealWorkspace}
       onForget={props.sidebar.onForgetWorkspace}

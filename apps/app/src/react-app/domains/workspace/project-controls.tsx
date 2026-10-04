@@ -10,15 +10,11 @@ import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
 import { ProjectSettingsPanel, type ProjectSettingsSection } from "./project-settings-panel";
 
-type CreateAction = "chat" | "note" | "task" | "record" | "group";
+type CreateAction = "note" | "task";
 type Props = {
   children: ReactNode;
   groups: WorkspaceSessionGroup[];
   client: LegalworkServerClient | null;
-  newChatDisabled: boolean;
-  onNewChat: (projectId: string) => void;
-  onRecord: (projectId: string) => void;
-  onCreateGroup: (projectId: string) => void;
   onRename: (projectId: string, name: string) => Promise<boolean>;
   onReveal: (projectId: string) => void;
   onForget: (projectId: string) => void;
@@ -28,7 +24,6 @@ type ProjectControls = {
   create: (workspace: WorkspaceInfo, action: CreateAction) => void;
   onReveal: Props["onReveal"];
   onForget: Props["onForget"];
-  newChatDisabled: boolean;
 };
 const ProjectControlsContext = createContext<ProjectControls | null>(null);
 
@@ -56,7 +51,6 @@ export function ProjectControlsProvider(props: Props) {
     }
   };
   const controls: ProjectControls = {
-    newChatDisabled: props.newChatDisabled,
     onReveal: props.onReveal,
     onForget: props.onForget,
     openSettings: (workspace, section = "general") => {
@@ -64,17 +58,12 @@ export function ProjectControlsProvider(props: Props) {
       setSettings({ projectId: workspace.id, section });
     },
     create: (workspace, action) => {
-      if (action === "chat") props.onNewChat(workspace.id);
-      else if (action === "record") props.onRecord(workspace.id);
-      else if (action === "group") props.onCreateGroup(workspace.id);
-      else {
-        if (!resolveWorkspaceEndpoint(workspace, { baseUrl: props.client?.baseUrl, token: props.client?.token })) {
-          toast.error(t("personalisation.server_required"));
-          return;
-        }
-        setSettings(null);
-        setCreation({ projectId: workspace.id, kind: action });
+      if (!resolveWorkspaceEndpoint(workspace, { baseUrl: props.client?.baseUrl, token: props.client?.token })) {
+        toast.error(t("personalisation.server_required"));
+        return;
       }
+      setSettings(null);
+      setCreation({ projectId: workspace.id, kind: action });
     },
   };
   return <ProjectControlsContext.Provider value={controls}>
