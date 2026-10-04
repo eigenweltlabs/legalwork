@@ -5381,7 +5381,7 @@ export default {
   "tasks.attachments_count_other": "{count} attachments",
   "tasks.attachments_empty": "No attachments.",
   "tasks.download_attachment": "Download",
-  "tasks.open_attachment": "Open in the side panel",
+  "tasks.open_attachment": "Open attachment",
   "tasks.open_attachment_failed": "The attachment could not be opened.",
   "tasks.download_failed": "The attachment could not be downloaded.",
   "tasks.cloud_run_running": "Running in the cloud",

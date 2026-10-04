@@ -5773,7 +5773,7 @@ const de = {
   "tasks.attachments_count_other": "{count} Anhänge",
   "tasks.attachments_empty": "Keine Anhänge.",
   "tasks.download_attachment": "Herunterladen",
-  "tasks.open_attachment": "In der Seitenleiste öffnen",
+  "tasks.open_attachment": "Anhang öffnen",
   "tasks.open_attachment_failed": "Der Anhang konnte nicht geöffnet werden.",
   "tasks.download_failed": "Der Anhang konnte nicht heruntergeladen werden.",
   "tasks.cloud_run_running": "Läuft in der Cloud",
