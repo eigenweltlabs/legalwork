@@ -2,7 +2,7 @@ import { z } from "zod";
 import { CalendarAttachmentPathSchema } from "./calendar.js";
 
 export const CalculationSourceInputSchema = z.object({
-  path: CalendarAttachmentPathSchema, page: z.number().int().positive(), quote: z.string().min(1).max(6000),
+  path: CalendarAttachmentPathSchema, page: z.number().int().positive().nullable().default(null), quote: z.string().min(1).max(6000),
   source: z.enum(["native", "ocr"]).default("native"), preparationPath: z.string().optional(),
 });
 export const CalculationSourceSchema = CalculationSourceInputSchema.extend({ hash: z.string() });

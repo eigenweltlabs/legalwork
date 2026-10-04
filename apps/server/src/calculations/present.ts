@@ -4,13 +4,15 @@ import { join } from "node:path";
 import { CalculationPresentationInputSchema, type CalculationRun } from "./schema.js";
 import type { CalendarStore } from "../calendar/store.js";
 import type { WorkspaceInfo } from "../types.js";
-import { sourceHash } from "../reviews/evidence.js";
+import { prepareReviewEvidence, sourceHash, type ReviewEvidence } from "../reviews/evidence.js";
+import type { DocumentPreparation } from "../document-preparation/service.js";
+import { quoteRange } from "../document-preparation/highlights.js";
 import { reviewSourcePage } from "../reviews/source-page.js";
 import { composedSkill } from "../skill-composition.js";
 import { listSkills } from "../skills.js";
 import { ApiError } from "../errors.js";
 
-export async function presentCalculation(store: CalendarStore, workspace: WorkspaceInfo, raw: unknown, signal: AbortSignal) {
+export async function presentCalculation(store: CalendarStore, workspace: WorkspaceInfo, raw: unknown, signal: AbortSignal, preparation?: DocumentPreparation) {
   const input = CalculationPresentationInputSchema.parse(raw);
   const runs: CalculationRun[] = [];
   if (input.runId) runs.push(store.run(workspace.id, input.runId));
@@ -44,12 +46,39 @@ export async function presentCalculation(store: CalendarStore, workspace: Worksp
     } catch { /* Old receipt still has its immutable trace and hash. */ }
   }
   const sources = [];
+  const evidence = new Map<string, ReviewEvidence>();
   for (const reference of input.sources) {
-    const { hash } = await sourceHash(workspace.path, reference.path);
-    const verified = await reviewSourcePage(workspace.path, reference.path, { sourceHash: hash, preparationPath: reference.preparationPath,
-      citations: [{ page: reference.page, quote: reference.quote, source: reference.source }] }, 0, signal);
+    const { hash, source, bytes } = await sourceHash(workspace.path, reference.path);
+    let bound = { ...reference, path: source.path, hash };
+    if (/\.(txt|md)$/i.test(source.path)) {
+      if (!quoteRange(new TextDecoder("utf-8", { fatal: true }).decode(bytes), reference.quote)) throw new ApiError(422, "calculation_source_ambiguous", "Supply an exact, unique passage from the source file.");
+      bound = { ...bound, page: null, source: "native", preparationPath: undefined };
+      sources.push(bound);
+      continue;
+    }
+    if (!reference.page) throw new ApiError(422, "calculation_source_page", "Supply the page number for a PDF or image source.");
+    const verify = () => reviewSourcePage(workspace.path, source.path, { sourceHash: hash, preparationPath: bound.preparationPath,
+      citations: [{ page: bound.page, quote: bound.quote, source: bound.source }] }, 0, signal);
+    let verified;
+    try { verified = await verify(); }
+    catch (error) {
+      if (!preparation || reference.preparationPath || !(error instanceof ApiError) || error.code !== "review_citation") throw error;
+    }
+    if (!verified?.regions.length && preparation && !reference.preparationPath) {
+      let prepared = evidence.get(source.path);
+      if (!prepared) {
+        prepared = await prepareReviewEvidence({ workspace: workspace.path, path: source.path, preparation, signal, force: false, onProgress: async () => {} });
+        evidence.set(source.path, prepared);
+      }
+      if (prepared.hash !== hash) throw new ApiError(409, "calculation_source_changed", "The source changed during preparation. Present a fresh calculation.");
+      const page = prepared.pages.find(page => page.page === reference.page && quoteRange(page.text, reference.quote));
+      if (!page) throw new ApiError(422, "calculation_source_ambiguous", "The passage could not be located uniquely. Supply a longer exact quote.");
+      bound = { ...bound, source: page.source ?? "native", preparationPath: prepared.preparationPath };
+      verified = await verify();
+    }
+    if (!verified) throw new ApiError(422, "calculation_source_ambiguous", "The passage could not be verified. Supply an exact quote or prepare the document.");
     if (!verified.regions.length) throw new ApiError(422, "calculation_source_ambiguous", "The passage could not be located uniquely. Supply a longer exact quote or prepared OCR evidence.");
-    sources.push({ ...reference, hash });
+    sources.push(bound);
   }
   return store.recordPresentation({ id: randomUUID(), workspaceId: workspace.id, sessionId: input.sessionId, title: input.title, selection: input.selection,
     mode: input.mode, state: input.mode === "confirm" ? "pending" : "shown", runs, sources, itemIds: [], createdAt: new Date().toISOString() }, input.supersedes);

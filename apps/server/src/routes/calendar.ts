@@ -1,4 +1,5 @@
 import { calculationScript, runPythonCalculation } from "../calculations/python-runner.js";
+import type { DocumentPreparation } from "../document-preparation/service.js";
 import type { ApprovalRequest } from "../types.js";
 import { presentCalculation, validatePresentationSources } from "../calculations/present.js";
 import { CalculationCardSchema, CalculationPresentationInputSchema } from "../calculations/schema.js";
@@ -23,6 +24,7 @@ import { scheduleProjectSync } from "../project-sync.js";
 import { calendarSubscription, changeCalendarSubscription } from "../calendar/subscriptions.js";
 
 export function registerCalendarRoutes(options: {
+  preparation: DocumentPreparation;
   requireApproval: (ctx: RequestContext, input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">) => Promise<void>;
   routes: Route[]; config: ServerConfig; jsonResponse: (data: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
@@ -80,7 +82,7 @@ export function registerCalendarRoutes(options: {
   route("POST", "/present", async (ctx, workspace) => {
     const input = CalculationPresentationInputSchema.parse(await body(ctx));
     if (input.sessionId) await validateCalendarLinks(workspace, { sessionIds: [input.sessionId] }, undefined, options.getSession);
-    const presentation = await presentCalculation(await calendarStore(config), workspace, input, ctx.request.signal);
+    const presentation = await presentCalculation(await calendarStore(config), workspace, input, ctx.request.signal, options.preparation);
     return { ...CalculationCardSchema.parse({ presentation }), status: presentation.state, instruction: presentation.mode === "confirm" ? "The card is visible in chat. Wait for the human to use its actions. Do not save these receipts in the background." : "The informational card is visible in chat. Continue according to the user request." };
   });
   route("GET", "/presentations/:presentation", async (ctx, workspace) => ({ presentation: (await calendarStore(config)).presentation(workspace.id, ctx.params.presentation) }));

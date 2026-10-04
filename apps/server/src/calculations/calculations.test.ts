@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CalendarStore } from "../calendar/store.js";
@@ -8,6 +8,9 @@ import { presentCalculation, validatePresentationSources } from "./present.js";
 import { executePython } from "./python-runner.js";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { quoteRange } from "../document-preparation/highlights.js";
+import { DocumentPreparation } from "../document-preparation/service.js";
+import { OcrManager } from "../ocr/manager.js";
+import { OcrService } from "../ocr/service.js";
 
 async function fixture() {
   const path = await mkdtemp(join(tmpdir(), "calculation-test-"));
@@ -69,6 +72,44 @@ test("PDF evidence verifies literal text, highlights uniquely and invalidates on
   expect(quoteRange("Due tomorrow. Due tomorrow.", "Due tomorrow.")).toBeNull();
   await writeFile(join(workspace.path, "order.pdf"), "changed");
   await expect(validatePresentationSources(workspace, card.sources)).rejects.toThrow("source changed");
+});
+
+test("the original DeadlineBench Cologne scan prepares OCR once for multiple verified passages", async () => {
+  const { store, workspace } = await fixture();
+  const bytes = await readFile(new URL("../../../../docs/demos/deadlinebench/koeln/gerichtliche-verfuegung.pdf", import.meta.url));
+  await writeFile(join(workspace.path, "order.pdf"), bytes);
+  let calls = 0;
+  const quotes = ["innerhalb einer Frist von weiteren zwei Wochen", "Diese Erwiderungsfrist läuft also vier Wochen nach Zustellung dieser Verfügung ab."];
+  const preparation = new DocumentPreparation(new OcrManager(join(workspace.path, "ocr")), {
+    layout: { fingerprint: "test", async detect() { return { model: "test", regions: [] }; } },
+    snapshot: async () => ({ fingerprint: "test", service: new OcrService([{ info: { id: "test", label: "Test OCR", execution: "local", model: "test", languages: null, regions: true, warnings: [] }, async recognize() {
+      calls++;
+      return { text: quotes.join("\n"), regions: quotes.map((text, index) => ({ text, box: { x: 0.1, y: 0.5 + index / 10, width: 0.8, height: 0.05 } })), truncated: false };
+    } }], "test") }),
+  });
+  const calculation = store.recordCalculation(workspace.id, calculateDeadline({ ...input, triggerDate: "2024-07-17", duration: 4, region: "NW" }), "code");
+  const card = await presentCalculation(store, workspace, { title: "Klageerwiderung", selection: "Four weeks from evidenced service", calculationIds: [calculation.id], sources: quotes.map(quote => ({ path: "order.pdf", page: 1, quote })) }, signal, preparation);
+  expect(card.runs[0].results[0].date).toBe("2024-08-14");
+  expect(card.sources).toHaveLength(2);
+  expect(card.sources[0].source).toBe("ocr");
+  expect(card.sources[0].preparationPath).toBeTruthy();
+  expect(card.sources[0].preparationPath).toBe(card.sources[1].preparationPath);
+  expect(card.sources[0].hash).toBe("095c1570fb02523ba67ccd302b47a5e7e3f95401c26b4270d0546d7637d2b6e9");
+  expect(calls).toBe(2); // The two original pages, not a new OCR run for each quote.
+}, 15000);
+
+test("original benchmark text evidence is verified without pretending it is a PDF page", async () => {
+  const { store, workspace } = await fixture();
+  const text = await readFile(new URL("../../../../docs/demos/deadlinebench/mahnbescheid/Mahnbescheid.txt", import.meta.url), "utf8");
+  await writeFile(join(workspace.path, "Mahnbescheid.txt"), text);
+  const calculation = store.recordCalculation(workspace.id, calculateDeadline(input), "code");
+  const raw = { title: "Evidence", selection: "Ordinary response only", calculationIds: [calculation.id], sources: [{ path: "Mahnbescheid.txt", quote: "Die spätere Verfahrensakte liegt nicht bei." }] };
+  const card = await presentCalculation(store, workspace, raw, signal);
+  expect(card.sources[0].page).toBeNull();
+  expect(card.sources[0].source).toBe("native");
+  await expect(presentCalculation(store, workspace, { ...raw, sources: [{ ...raw.sources[0], quote: "Die spätere Verfahrensakte ist vollständig." }] }, signal)).rejects.toThrow("exact, unique");
+  await writeFile(join(workspace.path, "Mahnbescheid.txt"), text + text);
+  await expect(presentCalculation(store, workspace, raw, signal)).rejects.toThrow("exact, unique");
 });
 
 const python = `from datetime import date, timedelta

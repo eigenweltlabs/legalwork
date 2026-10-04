@@ -34,7 +34,7 @@ def calculate(inputs, recorder):
 
 `legalwork_calculation_run(skill, input)` executes a snapshot of this installed script under the server's execution approval policy. The child receives JSON via stdin and runs isolated Python with the standard library. Use `LEGALWORK_CALCULATION_PYTHON` to configure the Python binary when it is not on PATH. Python is required for community scripts; shipped calculators do not need it.
 
-The recorder captures each called function's bound inputs, actual return value, source and line number. `reason` and `title` are authored by the skill. They are explanatory labels, not independent proof of legal correctness. Instrument every meaningful decision, including branches that stop calculation. Uninstrumented arbitrary scripts do not gain a trustworthy step-by-step explanation automatically. The complete executed script remains inspectable and its hash is retained.
+The recorder captures each called function's bound inputs, actual return value, source and line number. `reason` and `title` are authored by the skill. They are explanatory labels, not independent proof of legal correctness. Instrument every meaningful decision, including branches that stop calculation. Uninstrumented arbitrary scripts do not gain a trustworthy step-by-step explanation automatically. The complete executed script and its hash remain in the stored audit record. The chat card shows readable dates, concise recorded steps and the result; it does not render dependency bundles, hashes or raw intermediate arguments.
 
 Return `status: calculated` with `results: [{title, date, cutoff, timeZone}]`, or `needs_information` / `requires_specialist_review` with `missingFacts` and no dates. `date` is the local calendar day. `cutoff` is an ISO instant with timezone offset, and `timeZone` is an IANA zone. End-of-day deadlines use the exclusive next-day midnight instant. Do not assume every deadline ends at midnight. Multiple results are supported. Call `legalwork_calculation_present(runId)` to show them.
 
@@ -64,7 +64,7 @@ Dependencies resolve base-first with cycle and missing-base checks. A changed ba
 
 ## Evidence
 
-`path`, one-based `page`, and exact `quote` are resolved against the current source. The server binds the source hash, verifies text/OCR evidence and derives highlight boxes. Duplicate passages require a longer unique quote. Missing or stale matches fail instead of highlighting an arbitrary location. Clicking the chip opens the existing native document evidence viewer.
+`path`, one-based `page`, and exact `quote` are resolved against the current source. The server binds the source hash, verifies text/OCR evidence and derives highlight boxes. It automatically prepares a scanned PDF with the configured document preparation service when native text is insufficient. Each document appears once, with all its quoted passages accessible through that one button. TXT/Markdown sources use an exact unique quote and no page number. Duplicate passages require a longer unique quote. Missing or stale matches fail instead of highlighting an arbitrary location. Clicking the chip opens the existing native document evidence viewer.
 
 ## Validation boundaries
 
