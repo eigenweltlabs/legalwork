@@ -355,9 +355,9 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
         </div>
 
         <AlertDialogFooter className="flex-col gap-4">
-          <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
-            {t(projectInstructions ? "session.project_instructions_approval_hint" : "session.permission_decision_hint")}
-          </p>
+          {!projectInstructions ? <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
+            {t("session.permission_decision_hint")}
+          </p> : null}
           <div className={`grid grid-cols-1 gap-2.5 ${projectInstructions ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
             <AlertDialogAction
               variant="destructive"
@@ -470,7 +470,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             </div>
           </div>
 
-          {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /><p className="mt-3 text-xs text-dls-secondary">{t("session.project_instructions_approval_hint")}</p></div> : null}
+          {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /></div> : null}
           {hasMetadata && !projectInstructions ? (
             <details className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-medium text-dls-text">

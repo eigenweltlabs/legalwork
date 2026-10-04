@@ -112,7 +112,7 @@ describe("permission approval modal helpers", () => {
     expect(html).not.toContain("<script>");
     const labels = Array.from(html.matchAll(/<button\b[\s\S]*?<\/button>/g)).map(match => match[0].replace(/<[^>]*>/g, "").trim());
     expect(labels).toEqual(["Deny", "Allow once"]);
-    expect(html).toContain("Future changes need your approval again.");
+    expect(html).not.toContain("Approval applies to this change only.");
     expect(render("")).toContain("Use global defaults");
   });
 });

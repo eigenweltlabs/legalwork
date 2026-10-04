@@ -627,7 +627,6 @@ export default {
   "session.project_instructions_approval_message": "Review the proposed instructions before saving. They apply to every chat in this project.",
   "session.project_instructions_current": "Current instructions",
   "session.project_instructions_proposed": "Proposed instructions",
-  "session.project_instructions_approval_hint": "Approval applies to this change only. Future changes need your approval again.",
   "projects.name": "Project name",
   "projects.location": "Document folder",
   "projects.default_folder": "Application default folder",

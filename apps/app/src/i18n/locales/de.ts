@@ -635,7 +635,6 @@ const de = {
   "session.project_instructions_approval_message": "Prüfen Sie die vorgeschlagenen Anweisungen vor dem Speichern. Sie gelten für alle Chats in diesem Projekt.",
   "session.project_instructions_current": "Aktuelle Anweisungen",
   "session.project_instructions_proposed": "Vorgeschlagene Anweisungen",
-  "session.project_instructions_approval_hint": "Die Genehmigung gilt nur für diese Änderung. Jede weitere Änderung benötigt erneut Ihre Zustimmung.",
   "projects.name": "Projektname",
   "projects.location": "Dokumentenordner",
   "projects.default_folder": "Standardordner der Anwendung",
