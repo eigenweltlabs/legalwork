@@ -39,3 +39,48 @@ test("expert correction composes in a fresh load, preserves base, respects scope
     expect(stdout).toContain("checks passed");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("older shipped skills and their corrections receive the current tool contract without changing pinned files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "deadline-tool-guide-"));
+  const script = join(root, "check.mjs");
+  await writeFile(script, `
+    import { mkdir, readFile } from 'node:fs/promises';
+    import { join } from 'node:path';
+    import assert from 'node:assert/strict';
+    const { upsertSkill } = await import(${JSON.stringify(new URL("./skills.ts", import.meta.url).href)});
+    const { composedSkill, skillFingerprint } = await import(${JSON.stringify(new URL("./skill-composition.ts", import.meta.url).href)});
+    const workspace = join(process.env.XDG_CONFIG_HOME, 'project');
+    await mkdir(join(workspace, '.git'), { recursive:true });
+    const base = await upsertSkill(workspace, { name:'de-civil-deadlines', description:'German deadlines.', content:'Read this skill before calculating. The executable exports calculate(input) and can be imported by Node.js.', scope:'global' });
+    const original = await readFile(base.path, 'utf8');
+    const hash = await skillFingerprint(base.path);
+    await upsertSkill(workspace, { name:'payment-order-correction', description:'Payment orders.', content:'Distinguish the requested cutoff.', scope:'project', lesson:{base:'de-civil-deadlines', appliesWhen:'Absolute objection cutoff.', correction:'Missing later procedural facts means no date.', examples:[{input:'Absolute cutoff, later record absent',expected:'No date'},{input:'Ordinary response period',expected:'Calculate the supported period'}]} });
+    for (const name of ['de-civil-deadlines', 'payment-order-correction']) {
+      const loaded = await composedSkill(workspace, name);
+      assert.equal(loaded.chain.length, 2);
+      const guide = loaded.calculationGuide;
+      assert.equal(guide.calculate.tool, 'legalwork_deadline_calculate');
+      assert.equal(guide.present.tool, 'legalwork_calculation_present');
+      const schema = guide.calculate.argumentsSchema;
+      assert.deepEqual(schema.properties.skill.enum, ['de-civil-deadlines']);
+      assert.equal(schema.properties.input.properties.triggerDate.format, 'date');
+      assert.deepEqual(schema.properties.input.properties.unit.enum, ['days','weeks','months','years']);
+      assert.equal(schema.properties.input.additionalProperties, false);
+      assert.match(guide.instruction, /No external-folder access is needed/);
+      assert.match(guide.present.guidance, /without requiring the user to ask for a card/);
+      assert.match(guide.interaction, /mode=show by default/);
+      assert.equal(loaded.chain[0].hash, hash);
+    }
+    assert.equal(await readFile(base.path, 'utf8'), original);
+    assert.equal(await skillFingerprint(base.path), hash);
+    await upsertSkill(workspace, { name:'custom-calculator', description:'Custom calculation.', content:'My own script and presentation.', scope:'global' });
+    assert.equal((await composedSkill(workspace, 'custom-calculator')).calculationGuide, undefined);
+    console.log('legacy instructions, composed corrections, actual tool schema, preserved pins, and optional community presentation passed');
+  `);
+  try {
+    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root }, stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    expect(stdout).toContain("optional community presentation passed");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

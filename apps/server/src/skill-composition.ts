@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { listSkills } from "./skills.js";
 import { ApiError } from "./errors.js";
+import { deadlineToolGuide } from "./calculations/guidance.js";
 
 import { SkillExtensionSchema } from "./skill-lesson-schema.js";
 export { SkillLessonInputSchema } from "./skill-lesson-schema.js";
@@ -58,5 +59,6 @@ export async function composedSkill(workspace: string, name: string, includeExte
       }
     }
   }
-  return { name, chain, instruction: "Read base first, then apply extensions only within their stated scope. If instructions conflict, ask the user. Examples are regression expectations, not proof that executable tests ran. Corrections do not extend the coverage of code. For calculations, optionally call legalwork_calculation_present to show actual execution and request review." };
+  const calculationGuide = deadlineToolGuide(chain.map(item => item.name));
+  return { name, chain, ...(calculationGuide ? { calculationGuide } : {}), instruction: "Read base first, then apply extensions only within their stated scope. If instructions conflict, ask the user. Examples are regression expectations, not proof that executable tests ran. Corrections do not extend the coverage of code. Any calculationGuide below provides the current app tool contract without changing the installed skill or its pinned corrections." };
 }
