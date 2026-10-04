@@ -204,6 +204,7 @@ import { runTaskSync, scheduleTaskSync, signOutOfFirmTasks, startTaskSyncTimer }
 import {
   configureProjectSync,
   noteProjectDetailsSaved,
+  noteProjectPersonalizationSaved,
   noteProjectFoldersChanged,
   noteProjectRemoved,
   noteProjectRenamed,
@@ -1737,7 +1738,9 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    const before = await readProjectDetails(workspace.path);
     const details = await updateProjectPersonalization(workspace.path, await readJsonBody(ctx.request));
+    await noteProjectPersonalizationSaved(config, workspace.id, before.personalizationPrompt ?? "", details.personalizationPrompt ?? "");
     return jsonResponse({ customInstructions: details.personalizationPrompt ?? "", revision: details.revision });
   });
 

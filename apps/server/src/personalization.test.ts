@@ -15,6 +15,7 @@ import {
 } from "./runtime-opencode-config-store.js";
 import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js";
 import { startServer } from "./server.js";
+import { projectSyncStore } from "./project-sync-store.js";
 import type { ServerConfig } from "./types.js";
 import { LegalWorkCapabilitiesKnowledge } from "./opencode-plugins/legalwork-capabilities-knowledge.js";
 import { LegalWorkProjectTools } from "./opencode-plugins/legalwork-project-tools.js";
@@ -193,6 +194,33 @@ describe("Personalisation", () => {
       if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
       else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
     }
+  });
+
+  test("the personalization API queues saved and cleared instructions once, and rejects stale edits before syncing", async () => {
+    const { config } = await setup();
+    const store = await projectSyncStore(config);
+    store.saveLink({
+      workspaceId: "ws_1", projectId: "11111111-1111-4111-8111-111111111111", orgId: "org_test",
+      origin: "local", role: "owner", ownerUserId: "user_test", confirmed: true,
+      settings: { access: "members", memberIds: [], scope: { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false } },
+      remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false,
+      lastSyncAt: null, lastError: null, report: null,
+    });
+    const server = await startServer(config);
+    const put = (revision: number, customInstructions: string) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_1/personalization`, {
+      method: "PUT", headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ revision, customInstructions }),
+    });
+    try {
+      expect((await put(0, "Use formal English.")).status).toBe(200);
+      expect(store.outbox().map((entry) => entry.op)).toEqual([{ kind: "personalization", prompt: "Use formal English.", changedAt: expect.any(String) }]);
+      expect((await put(0, "Stale draft")).status).toBe(409);
+      expect(store.outbox()).toHaveLength(1);
+      expect((await put(1, "Use formal English.")).status).toBe(200);
+      expect(store.outbox()).toHaveLength(1);
+      expect((await put(2, "")).status).toBe(200);
+      expect(store.outbox()[1].op).toMatchObject({ kind: "personalization", prompt: "" });
+    } finally { await server.stop(); }
   });
 
   test("project prompt writes validate input and enforce access permissions", async () => {

@@ -3760,7 +3760,7 @@ export default {
   "personalisation.system_prompt_title": "System prompt additions",
   "personalisation.project_prompt_title": "Project prompt: {name}",
   "personalisation.project_prompt_menu": "Personalization",
-  "personalisation.project_prompt_desc": "Set the writing style, tone, language, or formatting for this project. Applies from the next message in every chat in this project and overrides conflicting global writing preferences. Leave blank to use your global defaults.",
+  "personalisation.project_prompt_desc": "Set the writing style, tone, language, or formatting for this project. Applies from the next message in every chat in this project and overrides conflicting global writing preferences. With Project details sync enabled, these instructions are shared with project members. Leave blank to use your global defaults.",
   "personalisation.project_prompt_placeholder": "For example: Write in formal British English, keep paragraphs short, and use numbered headings.",
   "personalisation.project_prompt_saved": "Project prompt saved. Applies from the next message.",
   "personalisation.project_prompt_conflict": "This project changed elsewhere. Copy your draft if you want to keep it, then reload the saved prompt before editing again.",

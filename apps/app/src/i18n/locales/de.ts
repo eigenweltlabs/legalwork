@@ -4062,7 +4062,7 @@ const de = {
   "personalisation.system_prompt_title": "Ergänzungen zum System-Prompt",
   "personalisation.project_prompt_title": "Projekt-Prompt: {name}",
   "personalisation.project_prompt_menu": "Personalisierung",
-  "personalisation.project_prompt_desc": "Legen Sie Schreibstil, Ton, Sprache oder Formatierung für dieses Projekt fest. Gilt ab der nächsten Nachricht in allen Chats dieses Projekts und hat Vorrang vor widersprüchlichen globalen Schreibpräferenzen. Lassen Sie das Feld leer, um Ihre globalen Vorgaben zu verwenden.",
+  "personalisation.project_prompt_desc": "Legen Sie Schreibstil, Ton, Sprache oder Formatierung für dieses Projekt fest. Gilt ab der nächsten Nachricht in allen Chats dieses Projekts und hat Vorrang vor widersprüchlichen globalen Schreibpräferenzen. Wenn die Projektdaten synchronisiert werden, werden diese Anweisungen mit den Projektmitgliedern geteilt. Lassen Sie das Feld leer, um Ihre globalen Vorgaben zu verwenden.",
   "personalisation.project_prompt_placeholder": "Zum Beispiel: Schreiben Sie in formellem Deutsch, halten Sie Absätze kurz und verwenden Sie nummerierte Überschriften.",
   "personalisation.project_prompt_saved": "Projekt-Prompt gespeichert. Gilt ab der nächsten Nachricht.",
   "personalisation.project_prompt_conflict": "Dieses Projekt wurde an anderer Stelle geändert. Kopieren Sie Ihren Entwurf, wenn Sie ihn behalten möchten, und laden Sie dann den gespeicherten Prompt vor der weiteren Bearbeitung neu.",
