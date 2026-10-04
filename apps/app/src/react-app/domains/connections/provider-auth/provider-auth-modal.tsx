@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import {
   ArrowLeft,
-  Check,
   ChevronDown,
   CheckCircle2,
   ChevronRight,

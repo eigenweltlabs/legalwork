@@ -10,5 +10,8 @@ Captured through CUA on 2026-10-04. All images use local fixture data; no card w
 | Increase organization monthly limit | [Form](team-limit.jpg) |
 | Enable extra usage | [Form](enable-extra-usage.jpg) |
 | Credits received and usable | [Confirmation](credits-confirmed.jpg) |
+| Seat upgrade confirmed and ready | [Confirmation](upgrade-confirmed.jpg) |
+
+After removing the obsolete member editor, the own-seat upgrade was checked through price review, confirmation and return to chat. A simulated failed usage refresh kept the upgrade confirmation visible, offered Refresh, and then reported available usage without repeating the purchase.
 
 The regular-member flow opens **Request more usage** directly. The real dedicated Electron app was exercised in prior sandbox tests with a depleted member allowance. Member requests, approvals and new ChatGPT OAuth consent still need final acceptance in a packaged alpha build. Full account/member management stays on the platform.

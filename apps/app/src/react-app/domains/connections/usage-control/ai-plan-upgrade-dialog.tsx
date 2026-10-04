@@ -9,8 +9,8 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { eigenweltBillingUrl } from "../eigenwelt-entitlements";
 import { useDesktopUsageTransport } from "./desktop-transport";
-import { MemberPlanChange } from "./member-actions";
-import { usageBlockMessageKey } from "./copy";
+import { SeatPlanUpgrade } from "./seat-plan-upgrade";
+import { usageBlockMessageKey } from "./usage-block";
 import { planChangeRecovery } from "./usage-recovery";
 
 /** Uses the same server-authorized quote and confirmation as inline upgrades. */
@@ -63,12 +63,11 @@ export function AiPlanUpgradeDialog({ client, workspaceId, platformURL, onClose 
         {!view ? error ? <Button variant="outline" onClick={() => void refresh().catch(() => {})}>{t("limits.refresh")}</Button>
           : <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("limits.loading")}</p>
         : !view.enabled ? <Button onClick={() => void openDesktopUrl(eigenweltBillingUrl(platformURL))}>{t("firm_hub.billing")}</Button>
-        : view.isAdmin ? <MemberPlanChange transport={transport} refresh={refresh} t={t}
-          target={{ kind: "plan", userId: view.me.userId, plan: "plus" }} allowedPlans={["plus", "pro"]}
-          onBusyChange={setBusy} onComplete={target => {
-            if (target.kind !== "plan" || (target.plan !== "plus" && target.plan !== "pro")) return;
+        : view.isAdmin ? <SeatPlanUpgrade transport={transport} refresh={refresh} t={t}
+          userId={view.me.userId} initialPlan="plus" allowedPlans={["plus", "pro"]}
+          onBusyChange={setBusy} onComplete={plan => {
             setView(null);
-            setConfirmedPlan(target.plan);
+            setConfirmedPlan(plan);
           }} />
         : <div className="space-y-4">
           <p className="text-sm text-muted-foreground">{t("provider_limit.admin_hint")}</p>

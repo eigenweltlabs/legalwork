@@ -5,22 +5,11 @@ import { t } from "@/i18n";
 
 export const EIGENWELT_PROVIDER_ID = "eigenwelt";
 
-/**
- * Prod fallback for the platform billing/upgrade page. The live URL is derived
- * from the *connected* platform origin at the render sites via
- * `eigenweltBillingUrl(eigenweltPremiumPlatformUrl())`; this default is only
- * used when no firm is connected yet (and by unit tests, which run headless).
- */
-export const EIGENWELT_BILLING_URL_DEFAULT = "https://platform.eigenweltlabs.com/billing";
-
-/** Stop the engine's retry loop after this many budget-exceeded attempts. */
-export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 1;
-
 // Functions, not consts: a module-scope t() would freeze the English copy at
 // import time, before initLocale() has picked the language.
-export const eigenweltBudgetExceededTitle = () => t("budget.exceeded_title");
-export const eigenweltBudgetExceededBody = () => t("budget.exceeded_body");
-export const eigenweltBudgetUpgradeLabel = () => t("budget.upgrade_label");
+const eigenweltBudgetExceededTitle = () => t("budget.exceeded_title");
+const eigenweltBudgetExceededBody = () => t("budget.exceeded_body");
+const eigenweltBudgetUpgradeLabel = () => t("budget.upgrade_label");
 
 export type EigenweltBudgetPlan = "sync" | "plus" | "pro" | null;
 
@@ -69,20 +58,6 @@ export function isEigenweltBudgetError(
   return BUDGET_MESSAGE_PATTERN.test(errorMessage);
 }
 
-/**
- * True once the engine has burned through the allowed budget-exceeded
- * attempts and the app must abort the run instead of letting it back off
- * forever.
- */
-export function shouldStopEigenweltBudgetRetry(
-  providerId: string | null | undefined,
-  errorMessage: string | null | undefined,
-  attempt: number,
-): boolean {
-  if (!isEigenweltBudgetError(providerId, errorMessage)) return false;
-  return attempt >= EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS;
-}
-
 /** The stable prefix of {@link EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT}. */
 const EIGENWELT_BUDGET_SENTINEL = "Your seat's included usage for this week is used up";
 
@@ -91,40 +66,13 @@ export function isEigenweltBudgetExceededErrorText(text: string | null | undefin
   return Boolean(text && text.includes(EIGENWELT_BUDGET_SENTINEL));
 }
 
-/**
- * Action block attached to the retry banner while the (up to 3) budget
- * retries are still running, so the upgrade button is available before the
- * run is stopped. Shape mirrors the engine's `SessionStatus` retry action.
- *
- * `billingUrl` is passed in by the (React) caller, resolved against the
- * connected platform origin; it falls back to the prod default so this pure
- * module stays free of React/connection imports.
- */
-export function eigenweltBudgetRetryAction(billingUrl: string = EIGENWELT_BILLING_URL_DEFAULT): {
-  reason: string;
-  provider: string;
-  title: string;
-  message: string;
-  label: string;
-  link?: string;
-} {
-  return {
-    reason: "budget_exceeded",
-    provider: EIGENWELT_PROVIDER_ID,
-    title: t("budget.retry_title"),
-    message: eigenweltBudgetExceededBody(),
-    label: eigenweltBudgetUpgradeLabel(),
-    link: billingUrl,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Pending-stop registry
 // ---------------------------------------------------------------------------
 //
 // The abort issued by the app makes the engine emit a `session.error` with a
-// generic MessageAbortedError ("The message was interrupted"). The session
-// surface marks the session here right before aborting; the event-sync layer
+// generic MessageAbortedError ("The message was interrupted"). The
+// event-sync layer marks the session here right before aborting, then
 // consumes the mark and substitutes the budget-exceeded copy so the terminal
 // message in the chat is the top-up card instead of the generic interrupt.
 
@@ -138,15 +86,6 @@ export function markEigenweltBudgetStop(sessionId: string, now: number = Date.no
 export function updateProviderUsageLimitStop(sessionId: string, errorText: string): void {
   const stop = pendingStops.get(sessionId);
   if (stop) stop.errorText = errorText;
-}
-
-/**
- * Returns true (once) when a budget stop was marked for the session within
- * the TTL. Consuming removes the mark so a later, unrelated session error is
- * not mislabeled.
- */
-export function consumeEigenweltBudgetStop(sessionId: string, now: number = Date.now()): boolean {
-  return consumeProviderUsageLimitStop(sessionId, now) !== null;
 }
 
 export function consumeProviderUsageLimitStop(sessionId: string, now: number = Date.now()): string | null {

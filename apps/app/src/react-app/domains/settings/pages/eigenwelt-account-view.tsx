@@ -54,8 +54,9 @@ import {
  * The single source of truth for the Eigenweltlabs connection in the desktop
  * app. This is an account/identity surface — NOT a model provider. Signing in
  * here provisions the firm's models under the hood, but the connection is
- * owned, viewed and managed from this one tab (plan, usage, billing, members,
- * sign in / sign out), never from the "Connect a model provider" flow.
+ * viewed from this tab (plan, read-only usage and sign in / sign out), never
+ * from the "Connect a model provider" flow. Billing and member management
+ * open the platform.
  */
 export type EigenweltAccountViewProps = {
   legalworkClient: LegalworkServerClient | null;

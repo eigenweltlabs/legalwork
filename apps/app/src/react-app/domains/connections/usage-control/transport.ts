@@ -1,9 +1,9 @@
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
-import type { usageCopy } from "./copy";
+import type en from "@/i18n/locales/en";
 
 export type UsageTransport = { read: () => Promise<UsageControlView>; write: (action: UsageControlAction) => Promise<unknown>; open: (url: string) => void | Promise<void> };
 export type Run = (action: UsageControlAction) => Promise<unknown>;
-export type UsageTextKey = keyof typeof usageCopy.en;
+export type UsageTextKey = Extract<keyof typeof en, `limits.${string}`>;
 export type Text = (key: UsageTextKey) => string;
 
 export function parseUsageAmount(value: FormDataEntryValue | null) {

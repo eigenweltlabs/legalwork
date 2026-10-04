@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { parseUsageAmount, type Text, type UsageTransport } from "./transport";
 import { usageIntentAction, type UsageIntent } from "./usage-intent";
 import { usageIsAvailable } from "./usage-recovery";
-import { usageBlockMessageKey } from "./copy";
+import { usageBlockMessageKey } from "./usage-block";
 
 export function AdminUsageIntent({ intent, view, transport, t, onSaved, onUpdated, onRefreshError, onBusyChange, onClose, openManagement }: {
   intent: UsageIntent; view: UsageControlView; transport: UsageTransport; t: Text;

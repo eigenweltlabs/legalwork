@@ -25,10 +25,10 @@ import {
 } from "@/components/ui/dialog";
 import { useDesktopUsageTransport } from "./desktop-transport";
 import { CardTopUp } from "./payment-components";
-import { MemberPlanChange } from "./member-actions";
+import { SeatPlanUpgrade } from "./seat-plan-upgrade";
 import { AdminUsageIntent } from "./admin-usage-intent";
 import { usageIntentForReason, type UsageIntent } from "./usage-intent";
-import { usageBlockMessageKey, usageBlockNeedsSettings } from "./copy";
+import { usageBlockMessageKey, usageBlockNeedsSettings } from "./usage-block";
 import { isCardTopUpAction, planChangeRecovery, usageIsAvailable, type TopUpRecovery } from "./usage-recovery";
 
 const PROVIDER_NAMES: Record<string, string> = {
@@ -295,21 +295,17 @@ export function ProviderLimitMessage({
               onRefreshError={() => setRefreshFailed(true)}
               onBusyChange={setBusy} onClose={() => setOpen(null)} openManagement={() => openManagement(adminIntent)} />
           ) : confirmation ? confirmation : managed?.isAdmin ? (
-            <MemberPlanChange
+            <SeatPlanUpgrade
               transport={transport}
               refresh={refresh}
               t={t}
-              target={{
-                kind: "plan",
-                userId: managed.me.userId,
-                plan: offeredPlans[0] ?? "pro",
-              }}
+              userId={managed.me.userId}
+              initialPlan={offeredPlans[0] ?? "pro"}
               allowedPlans={offeredPlans}
               onBusyChange={setBusy}
-              onComplete={target => {
-                if (target.kind !== "plan" || (target.plan !== "plus" && target.plan !== "pro")) return;
+              onComplete={plan => {
                 setView(null);
-                setUpgradedPlan(target.plan);
+                setUpgradedPlan(plan);
               }}
             />
           ) : (

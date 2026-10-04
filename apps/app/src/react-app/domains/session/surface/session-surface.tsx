@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import {
-  eigenweltBudgetLimitDisplay,
   isEigenweltBudgetExceededErrorText,
 } from "@/app/lib/eigenwelt-budget";
 import {
@@ -25,7 +24,6 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { eigenweltPlanWithoutModels, eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
@@ -107,7 +105,6 @@ import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-m
 import { deriveOpenTargets, resolvePathOpenTarget, selectAutoOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import {
-  injectSessionErrorMessage,
   seedSessionState,
   seedTodoState,
   captureRunOutcome,

@@ -18,7 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Run, Text, UsageTextKey, UsageTransport } from "./transport";
-import { usageBlockMessageKey } from "./copy";
+import { usageBlockMessageKey } from "./usage-block";
 import { CHECKING_TOP_UP, checkConfirmedTopUp, type TopUpRecovery } from "./usage-recovery";
 
 function record(value: unknown): value is Record<string, unknown> {
