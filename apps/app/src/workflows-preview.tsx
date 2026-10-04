@@ -28,7 +28,7 @@ function fixture(changed: () => void) {
   const encode = (content: string) => resourceBase64(new TextEncoder().encode(content).buffer);
   const resources = new Map<string, string>([["playbook.md", encode("# Review playbook\n\nRecord sources and unresolved questions.")]]);
   let resourceCards: SkillResourceCard[] = [];
-  const refreshResources = () => { resourceCards = [...resources].map(([name, content]) => ({ name, path: `resources/${name}`, size: atob(content).length })); changed(); };
+  const refreshResources = () => { resourceCards = [...resources].map(([name, content]) => ({ name, path: `resources/${name}`, size: atob(content).length, updatedAt: Date.now() })); changed(); };
   const unavailable = async () => { throw new Error("This action needs a connected workspace."); };
   const store: SkillsExtensionsStore & { workspaceContextKey: () => string } = {
     workspaceContextKey: () => "workflow-preview", skills: () => cards, skillsStatus: () => null,

@@ -1,3 +1,4 @@
+import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
@@ -197,7 +198,7 @@ export type EigenweltUsage = {
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
   /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
-  plan: "plus" | "pro" | null;
+  plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -247,6 +248,7 @@ export type EigenweltEntitlementsView = {
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
 export type EigenweltSignInPayload = {
+  preferredAiProvider?: "openai" | "other";
   systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
@@ -2062,6 +2064,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
+    recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string) =>
+      requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
+        token, hostToken, method: "POST", body: { messageId },
+      }),
     getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
       const query = new URLSearchParams();
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
@@ -2313,6 +2319,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // platform NOW (bypassing the access-token skew short-circuit) — used by the
     // post-checkout "waiting for your subscription" poll so a fresh sub shows up
     // within seconds instead of on the next lazy token refresh.
+    eigenweltUsage: (workspaceId: string) => requestJson<UsageControlView>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken }),
+    eigenweltUsageAction: (workspaceId: string, action: UsageControlAction) => requestJson<unknown>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken, method: "POST", body: action }),
     eigenweltEntitlements: (workspaceId: string, opts?: { refresh?: boolean }) =>
       requestJson<EigenweltEntitlementsView>(
         baseUrl,

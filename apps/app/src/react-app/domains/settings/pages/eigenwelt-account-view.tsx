@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   CreditCard,
@@ -54,8 +54,9 @@ import {
  * The single source of truth for the Eigenweltlabs connection in the desktop
  * app. This is an account/identity surface — NOT a model provider. Signing in
  * here provisions the firm's models under the hood, but the connection is
- * owned, viewed and managed from this one tab (plan, usage, billing, members,
- * sign in / sign out), never from the "Connect a model provider" flow.
+ * viewed from this tab (plan, read-only usage and sign in / sign out), never
+ * from the "Connect a model provider" flow. Billing and member management
+ * open the platform.
  */
 export type EigenweltAccountViewProps = {
   legalworkClient: LegalworkServerClient | null;
@@ -121,6 +122,19 @@ export function EigenweltAccountView({
   const account = entitlementsQuery.data?.account ?? null;
   const entitlements = entitlementsQuery.data?.entitlements ?? null;
   const platformURL = entitlementsQuery.data?.platformURL ?? null;
+  const usageQuery = useQuery({
+    queryKey: ["eigenwelt-account-usage", platformURL, account?.orgId, account?.userId],
+    enabled: Boolean(connected && serverConnected && legalworkClient && workspaceId && account),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
+    retry: false,
+    queryFn: async () => {
+      if (!legalworkClient || !workspaceId) return null;
+      return legalworkClient.eigenweltUsage(workspaceId);
+    },
+  });
+  const memberUsage = usageQuery.data?.enabled ? usageQuery.data.me : null;
   const billingUrl = eigenweltBillingUrl(platformURL);
   const membersUrl = `${(platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "")}/members`;
   const learnMoreUrl = `${(platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "")}/pricing`;
@@ -188,9 +202,10 @@ export function EigenweltAccountView({
     if (!onRefreshModels || !legalworkClient || !workspaceId) return;
     setRefreshing(true);
     try {
-      const [entitlementsResult, modelsResult] = await Promise.allSettled([
+      const [entitlementsResult, modelsResult, usageResult] = await Promise.allSettled([
         legalworkClient.eigenweltEntitlements(workspaceId, { refresh: true }),
         onRefreshModels(),
+        usageQuery.refetch({ throwOnError: true }),
       ]);
 
       if (entitlementsResult.status === "fulfilled") {
@@ -201,6 +216,7 @@ export function EigenweltAccountView({
       }
       if (entitlementsResult.status === "rejected") throw entitlementsResult.reason;
       if (modelsResult.status === "rejected") throw modelsResult.reason;
+      if (usageResult.status === "rejected") throw usageResult.reason;
 
       const { modelCount: count, changed } = modelsResult.value;
       if (count === 0) toast(t("account.refresh_none"));
@@ -280,13 +296,16 @@ export function EigenweltAccountView({
     planActive && entitlements?.plan
       ? entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
       : t("account.plan_inactive");
-  // A plan without the Eigenwelt models (no current plan is one; see
-  // eigenweltPlanWithoutModels): no usage to show, and the models row
-  // explains the upgrade instead of "no models yet".
   const modelsIncluded = hasEigenweltFeature(entitlements, "premium_models");
+  const syncPlan = memberUsage ? memberUsage.plan === "sync" : entitlements?.plan === "sync";
+  const includedUsagePercent = memberUsage && memberUsage.allowanceCents > 0
+    ? Math.min(100, Math.max(0, Math.round(100 * (memberUsage.allowanceCents - memberUsage.remainingCents) / memberUsage.allowanceCents)))
+    : entitlements?.usage.usedPercent;
   // When the seat's included usage resets, e.g. "Mon, Sep 7" (platforms that
   // send no reset time show the percentage alone).
-  const usageResetsOn = formatUsageResetDate(entitlements?.usage.resetsAt);
+  const usageResetsOn = formatUsageResetDate(memberUsage?.resetsAt ?? entitlements?.usage.resetsAt);
+  const creditUsageResetsOn = formatUsageResetDate(memberUsage?.extraResetsAt);
+  const money = new Intl.NumberFormat(currentLocale(), { style: "currency", currency: "EUR" });
   const planWithoutModels = eigenweltPlanWithoutModels(entitlements);
   const trial = eigenweltTrialState(entitlements);
   const trialText =
@@ -387,27 +406,48 @@ export function EigenweltAccountView({
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
 
-        {entitlements && modelsIncluded ? (
+        {entitlements && (modelsIncluded || syncPlan) ? (
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
               <LayoutSectionItemTitle>
-                {entitlements.usage.window === "week"
-                  ? t("firm_hub.usage_label_week")
-                  : t("firm_hub.usage_label")}
+                {t("account.included_usage")}
               </LayoutSectionItemTitle>
-              {usageResetsOn ? (
+              {syncPlan ? (
+                <LayoutSectionItemDescription>{t("account.usage_not_included")}</LayoutSectionItemDescription>
+              ) : usageResetsOn ? (
                 <LayoutSectionItemDescription>
                   {t("firm_hub.usage_resets", { date: usageResetsOn })}
                 </LayoutSectionItemDescription>
               ) : null}
-              <LayoutSectionItemHeaderActions>
+              {!syncPlan && <LayoutSectionItemHeaderActions>
                 <span className="text-sm text-muted-foreground">
                   {t(
                     entitlements.usage.window === "week"
                       ? "firm_hub.usage_this_week"
                       : "firm_hub.usage_today",
-                    { percent: String(entitlements.usage.usedPercent) },
+                    { percent: String(includedUsagePercent) },
                   )}
+                </span>
+              </LayoutSectionItemHeaderActions>}
+            </LayoutSectionItemHeader>
+          </LayoutSectionItem>
+        ) : null}
+
+        {memberUsage && memberUsage.plan !== "none" ? (
+          <LayoutSectionItem>
+            <LayoutSectionItemHeader>
+              <LayoutSectionItemTitle>{t("account.credit_usage")}</LayoutSectionItemTitle>
+              {creditUsageResetsOn ? (
+                <LayoutSectionItemDescription>
+                  {t("firm_hub.usage_resets", { date: creditUsageResetsOn })}
+                </LayoutSectionItemDescription>
+              ) : null}
+              <LayoutSectionItemHeaderActions>
+                <span className="text-sm tabular-nums text-muted-foreground">
+                  {usageQuery.isError ? t("account.usage_unavailable") : t("account.credit_usage_amount", {
+                    used: money.format(memberUsage.extraUsedCents / 100),
+                    limit: money.format(memberUsage.extraLimitCents / 100),
+                  })}
                 </span>
               </LayoutSectionItemHeaderActions>
             </LayoutSectionItemHeader>

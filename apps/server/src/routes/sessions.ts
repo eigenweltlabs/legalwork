@@ -1,5 +1,6 @@
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
+import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
   createSessionGroupId,
@@ -119,10 +120,10 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
       return buildSessionMessages(
-        unwrapOpencodeResult(
+        await applySessionUsageLimits(config, workspace.id, sessionId, unwrapOpencodeResult(
           await opencode.session.messages({ sessionID: sessionId, limit: input.limit }),
           `/session/${encodeURIComponent(sessionId)}/message`,
-        ),
+        )),
       );
     } catch (error) {
       remapSessionReadError(error);
@@ -148,7 +149,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
           .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}/todo`)),
         opencode.session.status().then((result) => unwrapOpencodeResult(result, "/session/status")),
       ]);
-      return buildSessionSnapshot({ session, messages, todos, statuses });
+      return buildSessionSnapshot({ session, messages: await applySessionUsageLimits(config, workspace.id, sessionId, messages), todos, statuses });
     } catch (error) {
       remapSessionReadError(error);
     }
@@ -340,6 +341,46 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return jsonResponse({ item });
   });
 
+  addRoute(
+    routes,
+    "POST",
+    "/workspace/:id/sessions/:sessionId/usage-limit",
+    "client",
+    async (ctx) => {
+      ensureWritable(config);
+      requireClientScope(ctx, "collaborator");
+      const workspace = await resolveWorkspace(config, ctx.params.id);
+      const body = await readJsonBody(ctx.request);
+      const messageId = requireStringField(body, "messageId");
+      const sessionId = ctx.params.sessionId;
+      const opencode = createWorkspaceOpencodeClient(config, workspace);
+      const message = unwrapOpencodeResult(
+        await opencode.session.message({
+          sessionID: sessionId,
+          messageID: messageId,
+        }),
+        "session message",
+      );
+      if (
+        message.info.role !== "assistant" ||
+        message.info.sessionID !== sessionId
+      )
+        throw new ApiError(
+          400,
+          "invalid_message",
+          "An assistant turn in this session is required",
+        );
+      await recordSessionUsageLimit(
+        config,
+        workspace.id,
+        sessionId,
+        messageId,
+        message.info.providerID,
+      );
+      return jsonResponse({ ok: true });
+    },
+  );
+
   addRoute(routes, "DELETE", "/workspace/:id/sessions/:sessionId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -355,6 +396,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       await opencode.session.delete({ sessionID: sessionId }),
       `/session/${encodeURIComponent(sessionId)}`,
     );
+    await deleteSessionUsageLimits(config, workspace.id, sessionId);
 
     return jsonResponse({ ok: true });
   });

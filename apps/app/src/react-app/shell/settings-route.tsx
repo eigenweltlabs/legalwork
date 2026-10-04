@@ -56,6 +56,7 @@ import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVIDER_ID, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
+import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
 import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
@@ -437,6 +438,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const remoteWorkspaceCheckRunRef = useRef<Record<string, string>>({});
   const remoteWorkspaceCheckRunCounterRef = useRef(0);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
+  const [providerListLoaded, setProviderListLoaded] = useState(false);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
@@ -694,7 +696,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           routeStateRef.current.selectedWorkspaceId.trim() ||
           null,
         legalworkServer: legalworkServerStore,
-        setProviders,
+        setProviders: items => { setProviders(items); setProviderListLoaded(true); },
         setProviderDefaults,
         setProviderConnectedIds,
         setDisabledProviders,
@@ -1576,6 +1578,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   useEffect(() => {
     if (!activeClient) {
       setProviders([]);
+      setProviderListLoaded(false);
       setProviderDefaults({});
       setProviderConnectedIds([]);
       setDisabledProviders([]);
@@ -2071,6 +2074,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         );
       case "account":
         return (
+          <>
           <EigenweltAccountView
             legalworkClient={legalworkClient}
             workspaceId={hubWorkspaceId}
@@ -2087,6 +2091,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void reloadWorkspaceEngineFromUi();
             }}
           />
+          <SyncProviderSetup
+            client={legalworkClient}
+            workspaceId={hubWorkspaceId}
+            connection={eigenweltAccount}
+            connectedProviders={providerListLoaded ? providers.filter(provider => providerConnectedIdSet.has(provider.id)) : null}
+            paused={providerAuthSnapshot.providerAuthModalOpen}
+            onChooseProvider={(preferredProviderId, startOAuth) => {
+              void providerAuthStore.openProviderAuthModal({ preferredProviderId, startOAuth }).catch(() => toast.error(t("providers.load_failed")));
+            }}
+          />
+          </>
         );
       case "personalisation":
         return (
@@ -2513,6 +2528,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         submitting={providerAuthSnapshot.providerAuthBusy}
         error={providerAuthSnapshot.providerAuthError}
         preferredProviderId={providerAuthSnapshot.providerAuthPreferredProviderId}
+        startOAuth={providerAuthSnapshot.providerAuthStartOAuth}
         workerType={providerAuthSnapshot.providerAuthWorkerType}
         providers={providerAuthSnapshot.providerAuthProviders}
         connectedProviderIds={providerConnectedIds}

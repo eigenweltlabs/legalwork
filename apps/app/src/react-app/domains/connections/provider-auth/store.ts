@@ -1,5 +1,7 @@
 import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
+import { useSyncProviderSetupState } from "./sync-provider-setup-state";
+import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
 
 import { applyEdits, modify, parse } from "jsonc-parser";
 import type {
@@ -155,6 +157,7 @@ export type ProviderAuthStoreSnapshot = {
   providerAuthError: string | null;
   providerAuthMethods: Record<string, ProviderAuthMethod[]>;
   providerAuthPreferredProviderId: string | null;
+  providerAuthStartOAuth: boolean;
   providerAuthWorkerType: "local" | "remote";
   providerAuthProviders: ProviderAuthProvider[];
 };
@@ -184,6 +187,7 @@ type MutableState = {
   providerAuthError: string | null;
   providerAuthMethods: Record<string, ProviderAuthMethod[]>;
   providerAuthPreferredProviderId: string | null;
+  providerAuthStartOAuth: boolean;
   providerAuthReturnFocusTarget: ProviderReturnFocusTarget;
 };
 
@@ -204,6 +208,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     providerAuthError: null,
     providerAuthMethods: {},
     providerAuthPreferredProviderId: null,
+    providerAuthStartOAuth: false,
     providerAuthReturnFocusTarget: "none",
   };
 
@@ -258,6 +263,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       providerAuthError: state.providerAuthError,
       providerAuthMethods: state.providerAuthMethods,
       providerAuthPreferredProviderId: state.providerAuthPreferredProviderId,
+      providerAuthStartOAuth: state.providerAuthStartOAuth,
       providerAuthWorkerType: getProviderAuthWorkerType(),
       providerAuthProviders: getProviderAuthProviders(),
     };
@@ -1275,7 +1281,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   async function completeEigenweltSignIn(
     sessionId: string,
     opts?: { cancelled?: () => boolean },
-  ): Promise<{ connected: boolean; cancelled?: boolean; message?: string }> {
+  ): Promise<{ connected: boolean; cancelled?: boolean; message?: string; preferredAiProvider?: "openai" | "other" }> {
     setStateField("providerAuthError", null);
     try {
       const legalworkClient = requireEigenweltServerClient();
@@ -1289,7 +1295,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         }
         if (opts?.cancelled?.()) return { connected: false, cancelled: true };
         await finalizeEigenweltConnect(result as EigenweltSignInPayload);
-        return { connected: true, message: `${t("status.connected")} Eigenwelt Subscription` };
+        if ("account" in result && result.account && "entitlements" in result &&
+          result.entitlements?.plan === "sync" && isEigenweltEntitledStatus(result.entitlements.subscriptionStatus)) {
+          useSyncProviderSetupState.getState().reset(`${result.account.orgId}:${result.account.userId}`);
+        }
+        return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: `${t("status.connected")} Eigenwelt Subscription` };
       }
       throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {
@@ -1350,11 +1360,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   async function openProviderAuthModal(optionsArg?: {
     returnFocusTarget?: ProviderReturnFocusTarget;
     preferredProviderId?: string;
+    startOAuth?: boolean;
   }) {
     mutateState((current) => ({
       ...current,
       providerAuthReturnFocusTarget: optionsArg?.returnFocusTarget ?? "none",
       providerAuthPreferredProviderId: optionsArg?.preferredProviderId?.trim() || null,
+      providerAuthStartOAuth: optionsArg?.startOAuth === true,
       providerAuthBusy: true,
       providerAuthError: null,
     }));
@@ -1371,6 +1383,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       mutateState((current) => ({
         ...current,
         providerAuthPreferredProviderId: null,
+        providerAuthStartOAuth: false,
         providerAuthReturnFocusTarget: "none",
         providerAuthError: message,
       }));
@@ -1388,6 +1401,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       providerAuthModalOpen: false,
       providerAuthError: null,
       providerAuthPreferredProviderId: null,
+      providerAuthStartOAuth: false,
       providerAuthReturnFocusTarget: "none",
     }));
     if (shouldFocusPrompt) {

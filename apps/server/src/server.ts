@@ -1,3 +1,4 @@
+import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
 import { searchSessionContents, searchFileContents } from "./content-search.js";
@@ -2452,6 +2453,21 @@ function createRoutes(
       return view;
     });
     return jsonResponse(view);
+  });
+
+  // These controls use the device owner's global Eigenwelt identity. A remote
+  // collaborator must never spend from the owner's organization credentials.
+  addRoute(routes, "GET", "/workspace/:id/eigenwelt/usage", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await eigenweltUsageRequest(config));
+  });
+  addRoute(routes, "POST", "/workspace/:id/eigenwelt/usage", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBodyLimited(ctx.request, 8192);
+    return jsonResponse(await eigenweltUsageRequest(config, body));
   });
 
   addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
