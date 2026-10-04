@@ -7,11 +7,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
+import { isDesktopRuntime, isWindowsPlatform } from "@/app/utils";
+import { joinDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
+import { toast } from "@/components/ui/sonner";
 import { useProjectFileImport } from "../../workspace/use-project-file-import";
 
-export function WorkspaceEntryMenu({ client, workspaceId, isRemoteWorkspace, folderPath, entry, children, className, onOpen, onRefresh }: {
+export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, children, className, onOpen, onRefresh }: {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
+  workspaceRoot: string;
   isRemoteWorkspace: boolean;
   folderPath: string;
   entry?: LegalworkWorkspaceDirectoryEntry;
@@ -48,6 +52,11 @@ export function WorkspaceEntryMenu({ client, workspaceId, isRemoteWorkspace, fol
       </ContextMenuTrigger>
       <ContextMenuContent>
         {onOpen && <ContextMenuItem onClick={onOpen}><FolderOpen />{t("storage.open")}</ContextMenuItem>}
+        {!isRemoteWorkspace && isDesktopRuntime() && <ContextMenuItem disabled={!workspaceRoot} onClick={() => {
+          void joinDesktopPath(workspaceRoot, ...(entry?.path ?? folderPath).split("/").filter(Boolean))
+            .then(revealDesktopItemInDir)
+            .catch(() => toast.error(t("workspace_files.open_failed_title")));
+        }}><FolderOpen />{t(isWindowsPlatform() ? "workspace_list.reveal_explorer" : "workspace_list.reveal_finder")}</ContextMenuItem>}
         {isFolder && <ContextMenuItem onClick={() => {
           void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId, targetFolder] });
           onRefresh();

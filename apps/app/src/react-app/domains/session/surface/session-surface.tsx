@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
-import { Check, Minimize2, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,7 @@ import {
 } from "@/app/lib/app-inspector";
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
+import { hasUnfinishedTodos, TodoPanel } from "./todo-panel";
 import {
   VoicePanel,
   type VoiceOpenCodeJobSnapshot,
@@ -108,6 +109,7 @@ import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-st
 import {
   injectSessionErrorMessage,
   seedSessionState,
+  seedTodoState,
   captureRunOutcome,
   snapshotKey as reactSnapshotKey,
   statusKey as reactStatusKey,
@@ -299,63 +301,6 @@ function AssistantWaitingCard({ label = t("session.assistant_thinking") }: { lab
       <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
         <span className="lw-tool-shimmer">{label}</span>
       </div>
-    </div>
-  );
-}
-
-function TodoPanel(props: { todos: TodoItem[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const todos = props.todos.filter((todo) => todo.content.trim());
-  const completedTodos = todos.filter((todo) => todo.status === "completed").length;
-  const progressLabel = t("session.todo_progress_label");
-  const label = expanded ? progressLabel : `${progressLabel} · ${completedTodos}/${todos.length}`;
-
-  if (todos.length === 0) return null;
-
-  return (
-    <div className="overflow-hidden border-b border-dls-border bg-transparent">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between px-4 py-3 text-xs text-gray-9 transition-colors hover:bg-gray-2/50"
-          onClick={() => setExpanded((current) => !current)}
-        >
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-gray-11">{label}</span>
-          </div>
-          <Minimize2 size={12} className={`text-gray-8 transition-transform ${expanded ? "" : "rotate-180"}`} />
-        </button>
-        {expanded ? (
-          <div className="max-h-60 space-y-2.5 overflow-auto border-t border-dls-border px-4 pb-3">
-            {todos.map((todo, index) => {
-              const done = todo.status === "completed";
-              const cancelled = todo.status === "cancelled";
-              const active = todo.status === "in_progress";
-              return (
-                <div key={todo.id} className="flex items-start gap-2.5 pt-2.5 first:pt-2.5">
-                  <div className="flex items-center gap-1.5 pt-0.5">
-                    <div
-                      className={`flex size-4.5 items-center justify-center rounded-full border ${
-                        done
-                          ? "border-green-6 bg-green-2 text-green-11"
-                          : active
-                            ? "border-amber-6 bg-amber-2 text-amber-11"
-                            : cancelled
-                              ? "border-gray-6 bg-gray-2 text-gray-8"
-                              : "border-gray-6 bg-gray-1 text-gray-8"
-                      }`}
-                    >
-                      {done ? <Check size={10} /> : active ? <span className="size-1.5 rounded-full bg-amber-9" /> : null}
-                    </div>
-                  </div>
-                  <div className={`flex-1 text-sm leading-relaxed ${cancelled ? "text-gray-9 line-through" : "text-gray-12"}`}>
-                    <span className="mr-1.5 text-gray-9">{index + 1}.</span>
-                    {todo.content}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
     </div>
   );
 }
@@ -826,7 +771,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   if (searchMessageId) fullHistorySession.current = props.sessionId;
   const snapshotQuery = useQuery<LegalworkSessionSnapshot>({
     queryKey: snapshotQueryKey,
-    queryFn: async () => (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? undefined : { limit: 140 })).item,
+    queryFn: async () => {
+      const startedAt = Date.now();
+      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? undefined : { limit: 140 })).item;
+      seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
+      return snapshot;
+    },
     staleTime: 500,
   });
 
@@ -850,6 +800,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     refetchOnWindowFocus: "always",
   });
   const statusState = statusQuery.data ?? currentSnapshot?.status ?? IDLE_STATUS;
+  const hasActivePlan = hasUnfinishedTodos(props.todos ?? []);
 
   useEffect(() => {
     if (!currentSnapshot) return;
@@ -1110,7 +1061,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // the actual pasted content instead of "[pasted text <label>]".
     let resolved = text;
     for (const part of pasteParts) {
-      resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
+      resolved = resolved.replace(`[pasted text ${part.label}]`, () => part.text);
     }
     resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
     for (const [value, kind] of Object.entries(mentions)) {
@@ -1648,16 +1599,21 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const handlePasteText = (text: string) => {
     const id = `paste-${Math.random().toString(36).slice(2)}`;
-    const label = `${id.slice(-4)} · ${text.split(/\r?\n/).length} lines`;
-    setComposerPasteParts(props.sessionId, [...pasteParts, { id, label, text, lines: text.split(/\r?\n/).length }]);
-    setComposerDraft(props.sessionId, `${draft}[pasted text ${label}]`);
+    const lines = text.split(/\r?\n/).length;
+    const part = { id, label: `${id.slice(-4)} · ${lines} lines`, text, lines };
+    const current = getComposerPasteParts(useComposerStateStore.getState(), props.sessionId);
+    setComposerPasteParts(props.sessionId, [...current, part]);
+    return part;
   };
 
   const handleExpandPastedText = (id: string) => {
-    const part = pasteParts.find((item) => item.id === id);
+    const state = useComposerStateStore.getState();
+    const currentParts = getComposerPasteParts(state, props.sessionId);
+    const part = currentParts.find((item) => item.id === id);
     if (!part) return;
-    setComposerDraft(props.sessionId, draft.replace(`[pasted text ${part.label}]`, part.text));
-    setComposerPasteParts(props.sessionId, pasteParts.filter((item) => item.id !== id));
+    const currentDraft = getComposerDraft(state, props.sessionId);
+    setComposerDraft(props.sessionId, currentDraft.replace(`[pasted text ${part.label}]`, () => part.text));
+    setComposerPasteParts(props.sessionId, currentParts.filter((item) => item.id !== id));
   };
 
   const handleRemovePastedText = (id: string) => {
@@ -1999,7 +1955,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="lw-session-typography flex h-full min-h-0 flex-col">
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">
@@ -2223,9 +2179,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
           queueAccessory={queuedDrafts.length > 0 ? (
             <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked} />
           ) : null}
-          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || queuedDrafts.length > 0)}
+          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
-            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission ? (
+            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission ? (
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
@@ -2245,8 +2201,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       }
                     }}
                   />
-                ) : (props.todos ?? []).some((todo) => todo.content.trim()) ? (
-                  <TodoPanel todos={props.todos ?? []} />
+                ) : null}
+                {hasActivePlan ? (
+                  <TodoPanel key={`${props.workspaceId}:${props.sessionId}`} todos={props.todos ?? []} />
                 ) : null}
                 {props.activePermission ? (
                   <PermissionApprovalPanel

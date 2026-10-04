@@ -1,4 +1,4 @@
-import { isReviewFile, REVIEW_MAX_DOCUMENTS, REVIEW_MAX_FILE_BYTES } from "@legalwork/types/reviews";
+import { isReviewFile, REVIEW_MAX_FILE_BYTES } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { hasWorkspaceFileDrag, readWorkspaceFileDrag, type WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
 import { hasStorageFileDrag, materializeStorageFile, readStorageFileDrag, type StorageFileDragItem } from "@/app/lib/storage-file-drag";
@@ -92,9 +92,6 @@ export async function importReviewFiles(options: {
     const name = source.file.name;
     options.onProgress?.(index + 1, options.sources.length, name);
     try {
-      // Existing project references may still be dropped again at the limit.
-      if (paths.size >= REVIEW_MAX_DOCUMENTS && !(source.kind === "workspace" && source.file.workspaceId === options.workspaceId && paths.has(source.file.path)))
-        throw new Error(t("review.file_limit"));
       const path = await importReviewFile(options.client, options.workspaceId, source);
       options.signal?.throwIfAborted();
       if (!paths.has(path)) { paths.add(path); added.push(path); }

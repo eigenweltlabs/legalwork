@@ -75,6 +75,15 @@ test("the whole card links to its exact review and keeps completed progress visi
   expect(completed).not.toContain("queued");
 });
 
+test("compact review rows keep exact links, progress and unresolved counts", () => {
+  const html = renderToStaticMarkup(<MemoryRouter><ReviewProgressCard compact available progress={reviewCardProgress(reference, saved("needs_review", ["complete", "needs_review"]))} href={workspaceReviewsRoute(reference.workspaceId, id)} /></MemoryRouter>);
+  expect(html).toContain(`href="/workspace/project/reviews?review=${id}"`);
+  expect(html).toContain('aria-label="Open review: NDA review"');
+  expect(html).toContain("Needs attention: 1");
+  expect(html).toContain('aria-valuenow="100"');
+  expect(html).not.toContain("lucide-table");
+});
+
 test("opening a review is never redirected back to the workspace's remembered chat", () => {
   for (const path of [workspaceReviewsRoute("project"), workspaceReviewsRoute("project", id).split("?")[0], "/workspace/project/project", "/workspace/project/tasks", "/workspace/project/settings", "/workspace/project/session/existing-session"])
     expect(isSessionIndexRoute(path)).toBe(false);

@@ -15,7 +15,7 @@ import { analyticsSurface, captureAnalyticsEvent, discardPendingAnalytics, getSt
 import { captureAppError } from "../../app/lib/app-error";
 import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId } from "./session-memory";
-import { workspaceProjectRoute } from "./workspace-routes";
+import { homeRoute } from "./workspace-routes";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { markTranscriptionIntroSeen } from "./transcription-intro";
 import { markAllWhatsNewSeen } from "./whats-new";
@@ -35,7 +35,7 @@ export function WelcomeRoute() {
     // React Router may commit navigation after the preferences update. Do not
     // replace the new project's destination with the returning-user redirect.
     if (local.prefs.hasCompletedOnboarding && !createdProjectId.current) {
-      navigate("/session", { replace: true });
+      navigate("/home", { replace: true });
     }
   }, [local.prefs.hasCompletedOnboarding, navigate]);
 
@@ -86,7 +86,7 @@ export function WelcomeRoute() {
       }));
       markAllWhatsNewSeen();
       markTranscriptionIntroSeen();
-      navigate(workspaceProjectRoute(createdId), { replace: true });
+      navigate(homeRoute(createdId), { replace: true });
     } catch (error) {
       captureAppError("workspace_create", error);
       setError(projectErrorMessage(error, true));

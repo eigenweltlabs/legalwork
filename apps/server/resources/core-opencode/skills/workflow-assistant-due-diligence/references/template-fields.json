@@ -1,0 +1,71 @@
+{
+  "tokens": [
+    "action",
+    "action_deliverable",
+    "action_owner",
+    "action_plan_summary",
+    "action_timing",
+    "aid",
+    "assessment_basis",
+    "client_name",
+    "excluded_files",
+    "executive_summary",
+    "finding",
+    "information_requests",
+    "matter_implications",
+    "matter_name",
+    "method_description",
+    "method_limitations",
+    "open_review_summary",
+    "prepared_by",
+    "report_date",
+    "report_status",
+    "residual_exposure",
+    "retained_files",
+    "review_area_actions",
+    "review_area_findings",
+    "review_area_summary",
+    "review_area_uncertainty",
+    "review_purpose",
+    "reviewed_files",
+    "rid",
+    "risk_action",
+    "risk_finding",
+    "risk_register_note",
+    "risk_source",
+    "scope_description",
+    "scope_limitations",
+    "sev",
+    "supporting_files",
+    "total_files",
+    "unresolved_files",
+    "use_limitation"
+  ],
+  "repeat_tables": {
+    "executive": [
+      "sev",
+      "finding",
+      "action"
+    ],
+    "risks": [
+      "rid",
+      "risk_finding",
+      "risk_source",
+      "risk_action"
+    ],
+    "actions": [
+      "aid",
+      "action_timing",
+      "action_owner",
+      "action_deliverable"
+    ]
+  },
+  "count_bindings": {
+    "reviewed_files": {
+      "metric": "documents"
+    },
+    "unresolved_files": {
+      "metric": "openDocuments"
+    }
+  }
+}

@@ -63,6 +63,7 @@ function withAttachmentRecoveryHint(text: string) {
 }
 
 function describeErrorText(text: string) {
+  if (/request (?:entity|body) too large|request_too_large|\b413\b/i.test(text)) return t("chat.error_request_size");
   if (isEigenweltModelDisabledError({ texts: [text] })) return eigenweltModelDisabledMessage();
   if (isEigenweltSignInExpiredError({ status: null, provider: null, texts: [text] })) {
     return eigenweltSignInExpiredMessage();
@@ -87,6 +88,10 @@ export function describeOpencodeSessionError(error: unknown, fallback = "Session
   const code = firstStringValue(records, ["code", "errorCode"]);
   const retries = firstNumberValue(records, ["retries", "retryCount"]);
   const responseBody = firstStringValue(records, ["responseBody", "body", "response"]);
+
+  if (status === 413 || /request (?:entity|body) too large|request_too_large/i.test([message, responseBody].join(" "))) {
+    return t("chat.error_request_size");
+  }
 
   // A model the firm's admin turned off (403 from the gateway): say so
   // instead of echoing the allowlist. Checked first, since a 403 from the
@@ -224,10 +229,11 @@ function mapSnapshotToolParts(part: ToolPart): UIMessage["parts"] {
 export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMessage[] {
   return snapshot.messages.flatMap((message) => {
     const created = message.info.time?.created;
+    const summary = message.info.role === "assistant" && "summary" in message.info && message.info.summary === true;
     const uiMessage = {
       id: message.info.id,
       role: message.info.role,
-      ...(typeof created === "number" ? { metadata: { opencode: { created } } } : {}),
+      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}) } },
       parts: message.parts.flatMap<UIMessage["parts"][number]>((part) => {
         if (part.type === "text") {
           if (part.synthetic || part.ignored) return [];

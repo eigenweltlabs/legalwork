@@ -2,6 +2,7 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
+import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -223,6 +224,7 @@ export type SessionPageProps = {
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
   projectsPage?: boolean;
+  homePage?: boolean;
   projectPage?: "home" | "tasks" | "reviews";
   onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
@@ -1076,6 +1078,7 @@ export function SessionPage(props: SessionPageProps) {
       memory={memoryDrivePanel}
       files={(
         <WorkspaceFilesPanel
+          active={fileSidebar === "files"}
           headerTarget={!mobile && filesRailActive ? filesHeaderTarget : null}
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
@@ -1104,7 +1107,8 @@ export function SessionPage(props: SessionPageProps) {
     </Button>
   );
 
-  const windowTitle = props.projectsPage ? t("projects.plural")
+  const windowTitle = props.homePage ? t("home.nav_label")
+    : props.projectsPage ? t("projects.plural")
     : props.projectPage === "home" ? workspaceName
     : props.projectPage === "reviews" ? t("projects.tab_review")
     : props.projectPage === "tasks" ? t("projects.tasks")
@@ -1121,6 +1125,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [props.detached, windowTitle]);
 
   return (
+    <ProjectPersonalisationProvider groups={props.sidebar.workspaceSessionGroups} client={props.environmentClient ?? null}>
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
       <SidebarProvider
         open={chatSidebarOpen}
@@ -1713,5 +1718,6 @@ export function SessionPage(props: SessionPageProps) {
 
       {/* Cloud provider notifications are now handled globally by CloudProvidersToast in app-root.tsx */}
     </div>
+    </ProjectPersonalisationProvider>
   );
 }

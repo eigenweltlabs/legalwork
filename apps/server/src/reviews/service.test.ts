@@ -14,9 +14,22 @@ import type { ReviewCapabilities, ReviewColumn, ReviewResult, SavedReview } from
 import type { ReviewEvidence } from "./evidence.js";
 import { ReviewScheduler } from "./scheduler.js";
 import { builtinReviewLibrary } from "./builtin-library.js";
+import { CreateReviewSchema, EditReviewSchema, QueryReviewResultsSchema, SavedReviewSchema } from "./schema.js";
+import { prepareInput } from "../document-preparation/service.js";
 
 const roots: string[] = [];
 const services: ReviewService[] = [];
+test("review creation, editing, saved state, filtering and preparation accept more than 100 documents", () => {
+  const files = Array.from({ length: 6001 }, (_, index) => String(index) + ".pdf");
+  expect(CreateReviewSchema.parse({ name: "Whole class", files, columns: [], requestId: randomUUID() }).files).toHaveLength(6001);
+  expect(EditReviewSchema.parse({ revision: 0, files }).files).toHaveLength(6001);
+  expect(QueryReviewResultsSchema.parse({ documentIds: files }).documentIds).toHaveLength(6001);
+  expect(prepareInput.parse({ files }).files).toHaveLength(6001);
+  const review = SavedReviewSchema.parse({ id: randomUUID(), name: "Whole class", revision: 0, createdAt: 0, updatedAt: 0,
+    settings: { mode: "llm", jev: null, llm: { providerId: "fixture", model: "fixture" } }, columns: [], cells: [], status: "draft", runId: null,
+    documents: files.map((path, index) => ({ id: String(index), name: path, path, sourceHash: null, status: "pending" })) });
+  expect(review.documents).toHaveLength(6001);
+});
 afterEach(async () => { await Promise.all(services.splice(0).map(service => service.stop())); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 const column: ReviewColumn = { key: "assign", label: "Assignment", question: "Is assignment permitted?", kind: "yes_no", options: [], hint: "" };
 const caps: ReviewCapabilities = { settings: { mode: "mixed", jev: { providerId: "firm", model: "jev" }, llm: { providerId: "firm", model: "chat" } }, allowedKinds: ["yes_no", "classification", "text"], errors: [], models: [
@@ -510,3 +523,53 @@ test("a review a colleague's computer runs is watched here: not interrupted, run
   await f.service.start(f.workspace, over.id, { revision: over.revision });
   expect((await settled(f.service, f.workspace, review.id)).status).toBe("complete");
 });
+
+test("wait joins multiple started reviews, reports missing IDs and never starts inference", async () => {
+  let release = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture({ beforeExecute: async () => { await gate; } });
+  const first = await f.create();
+  const second = await f.create();
+  await f.service.start(f.workspace, first.id, { revision: first.revision });
+  await f.service.start(f.workspace, second.id, { revision: second.revision });
+  const immediate = await f.service.wait(f.workspace, { reviewIds: [first.id, second.id], waitSeconds: 0 });
+  expect(immediate.settled).toBe(false); expect(immediate.timedOut).toBe(true);
+  let settled = false;
+  const waiting = f.service.wait(f.workspace, { reviewIds: [first.id, second.id], waitSeconds: 2 }).then(result => { settled = true; return result; });
+  await Bun.sleep(20); expect(settled).toBe(false);
+  release();
+  const done = await waiting;
+  expect(done.settled).toBe(true); expect(done.reviews).toHaveLength(2);
+  expect(done.reviews.every(review => review.status === "complete" && review.completed === 1)).toBe(true);
+  expect(f.calls).toHaveLength(2);
+  const missing = randomUUID();
+  const snapshot = await f.service.wait(f.workspace, { reviewIds: [first.id, missing], waitSeconds: 0 });
+  expect(snapshot.reviews).toHaveLength(1); expect(snapshot.errors[0].reviewId).toBe(missing);
+  const other = await fixture();
+  const outside = await f.service.wait(other.workspace, { reviewIds: [first.id], waitSeconds: 0 });
+  expect(outside.reviews).toEqual([]); expect(outside.errors).toHaveLength(1);
+  expect(f.calls).toHaveLength(2);
+});
+
+test("waiting responds to cancellation without stopping the underlying review", async () => {
+  const f = await fixture(); f.hold();
+  const review = await f.create(); await f.service.start(f.workspace, review.id, { revision: review.revision });
+  const controller = new AbortController();
+  const waiting = f.service.wait(f.workspace, { reviewIds: [review.id], waitSeconds: 25 }, controller.signal);
+  controller.abort();
+  await expect(waiting).rejects.toThrow();
+  expect((await f.service.get(f.workspace, review.id)).status).toBe("running");
+});
+
+test("a complete document class with more than 100 files runs as one review", async () => {
+  const f = await fixture(), files: string[] = [];
+  for (let index = 0; index < 101; index++) {
+    const path = String(index) + ".md"; files.push(path); await writeFile(join(f.root, path), "Assignment is permitted with consent.");
+  }
+  const review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Entire class", files, columns: [column] });
+  expect(review.documents).toHaveLength(101);
+  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  const done = await f.service.wait(f.workspace, { reviewIds: [review.id], waitSeconds: 25 });
+  expect(done.settled).toBe(true); expect(done.reviews[0]).toMatchObject({ documents: 101, completed: 101, total: 101, status: "complete" });
+  expect(f.calls).toHaveLength(101);
+}, 30000);

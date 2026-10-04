@@ -1,16 +1,12 @@
-// Model picker modal state: lazy option loading (with "Recently added"
-// provider flagging), open-event/localStorage triggers from the new-providers
-// toast, and org-restriction filtering. Extracted verbatim from
-// session-route.tsx; settings-route carries a sibling copy that should adopt
-// this hook next.
-import { useEffect, useState } from "react";
+// Model picker state with live provider inventory and new-provider toast triggers.
+import { useEffect, useEffectEvent, useState } from "react";
 
 import type { Client, ModelOption } from "@/app/types";
+import { modelDisplayName } from "@/app/utils/models";
 import {
-  ensureProviderListQuery,
+  useProviderListQuery,
   getConnectedProviderItems,
 } from "@/react-app/infra/provider-list-query";
-import { getReactQueryClient } from "@/react-app/infra/query-client";
 import {
   openModelPickerEvent,
   pendingModelPickerProviderIdsKey,
@@ -35,6 +31,7 @@ export function useModelPicker(input: UseModelPickerInput) {
   // "Recently added" in the model picker even after they've been
   // marked as seen in localStorage.
   const [recentProviderIds, setRecentProviderIds] = useState<Set<string>>(new Set());
+  const providerQuery = useProviderListQuery({ client, baseUrl, directory: workspaceRoot || undefined, enabled: open || compactOpen });
 
   // Open model picker when the global toast's "Pick a new default?" is clicked
   useEffect(() => {
@@ -69,63 +66,50 @@ export function useModelPicker(input: UseModelPickerInput) {
     }
   }, []);
 
-  // Load the picker list lazily the first time the modal opens. Uses the
-  // cached catalog when available, otherwise re-fetches.
+  // Observe the cache so models discovered while the picker is open appear immediately.
   useEffect(() => {
-    if (!open || !client) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const data = await ensureProviderListQuery(getReactQueryClient(), {
-          client,
-          baseUrl,
-          directory: workspaceRoot || undefined,
+    const data = providerQuery.data;
+    if (!data?.all) { setModelOptions([]); return; }
+    // Flag models from recently-added providers so they appear in
+    // the "Recently added" section at the top of the picker.
+    // Two sources: (1) providers not yet in the localStorage seen-set,
+    // (2) providers passed via the openModelPickerEvent from the toast.
+    let seenIds: Set<string>;
+    try {
+      const raw = window.localStorage.getItem("legalwork.seenProviderIds");
+      seenIds = new Set(raw ? JSON.parse(raw) : []);
+    } catch {
+      seenIds = new Set();
+    }
+    const options: ModelOption[] = [];
+    for (const provider of getConnectedProviderItems(data)) {
+      const modelIds = Object.keys(provider.models);
+      const isNew = !seenIds.has(provider.id) || recentProviderIds.has(provider.id);
+      for (const id of modelIds) {
+        const model = provider.models[id];
+        options.push({
+          providerID: provider.id,
+          modelID: id,
+          title: modelDisplayName(id, model.name),
+          description: provider.name,
+          behaviorTitle: "Reasoning",
+          behaviorLabel: "Default",
+          behaviorDescription: "",
+          behaviorValue: null,
+          isFree: false,
+          isConnected: true,
+          isRecommended: isNew,
+          source: /^lpr_/i.test(provider.id) ? "cloud" as const : undefined,
         });
-        if (cancelled || !data?.all) return;
-        // Flag models from recently-added providers so they appear in
-        // the "Recently added" section at the top of the picker.
-        // Two sources: (1) providers not yet in the localStorage seen-set,
-        // (2) providers passed via the openModelPickerEvent from the toast.
-        let seenIds: Set<string>;
-        try {
-          const raw = window.localStorage.getItem("legalwork.seenProviderIds");
-          seenIds = new Set(raw ? JSON.parse(raw) : []);
-        } catch {
-          seenIds = new Set();
-        }
-        const options: ModelOption[] = [];
-        for (const provider of getConnectedProviderItems(data)) {
-          const modelIds = Object.keys(provider.models);
-          const isNew = !seenIds.has(provider.id) || recentProviderIds.has(provider.id);
-          for (const id of modelIds) {
-            const model = provider.models[id];
-            options.push({
-              providerID: provider.id,
-              modelID: id,
-              title: model.name || id,
-              description: provider.name,
-              behaviorTitle: "Reasoning",
-              behaviorLabel: "Default",
-              behaviorDescription: "",
-              behaviorValue: null,
-              isFree: false,
-              isConnected: true,
-              isRecommended: isNew,
-              source: /^lpr_/i.test(provider.id) ? "cloud" as const : undefined,
-            });
-          }
-        }
-        setModelOptions(options);
-      } catch (error) {
-        // Default: silent — the picker surfaces an empty list rather than
-        // blocking the UI. Callers can opt into surfacing the failure.
-        onLoadError?.(error);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, baseUrl, client, recentProviderIds, workspaceRoot]);
+    }
+    setModelOptions(options);
+  }, [providerQuery.data, recentProviderIds]);
+
+  const reportError = useEffectEvent((error: unknown) => onLoadError?.(error));
+  useEffect(() => {
+    if (providerQuery.error) reportError(providerQuery.error);
+  }, [providerQuery.error]);
 
   // Org-level provider restrictions were removed with the cloud backend;
   // surface every connected provider model.

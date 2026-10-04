@@ -124,6 +124,9 @@ describe("ensureWorkspaceFiles", () => {
       const updated = await readFile(engine, "utf8");
       expect(updated).toContain("@xmldom+xmldom@0.9.12/");
       expect(updated).not.toContain("@xmldom+xmldom@0.9.10/");
+      const assets = join(root, ".opencode", "skills", "docx-edit", "assets");
+      expect(await readFile(join(assets, "populate-template.py"), "utf8")).toContain("def populate(");
+      expect(await readFile(join(assets, "verify-evidence.py"), "utf8")).toContain("def verify(");
       expect(result.reloadReasons).toContain("skills");
       expect(await ensureWorkspaceFiles(root, "starter")).toEqual({ changed: false, reloadReasons: [] });
     });

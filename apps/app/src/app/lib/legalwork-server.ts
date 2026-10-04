@@ -2,7 +2,7 @@ import type { UsageControlAction, UsageControlView } from "@legalwork/types/usag
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
-import type { JevSearchProgress } from "@legalwork/types/corpus";
+import type { JevSearchProgress, JevSearchResults } from "@legalwork/types/corpus";
 import { applyReviewUpdate, type ReviewUpdate, type QueryReviewResults, type CreateReview, type EditReview, type RunReview, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities, type ReviewLibraryEntry, type SaveReviewLibrary, type ReviewSourceReference, type ReviewSourcePage, type ReviewRecognitionPage } from "@legalwork/types/reviews";
 import type {
   ProjectContents,
@@ -43,6 +43,14 @@ import type {
 import { t } from "@/i18n";
 
 export * from "./benchmark-types";
+
+export type CustomProviderModelRefreshStatus = {
+  enabled: boolean;
+  availableModels?: string[];
+  lastUpdatedAt?: number;
+  lastError?: string | null;
+  pendingReload?: boolean;
+};
 
 export type LegalworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "legalwork" | "opencode" };
@@ -146,8 +154,6 @@ export type LegalworkPersonality = (typeof LEGALWORK_PERSONALITY_VALUES)[number]
 
 export type LegalworkPersonalizationSettings = {
   customInstructions: string;
-  localMemoriesEnabled: boolean;
-  allowToolAssistedMemory: boolean;
   personality: LegalworkPersonality;
 };
 
@@ -228,6 +234,8 @@ export type EigenweltEntitlementsView = {
   platformURL: string | null;
   /** Signed in with an Eigenwelt account — independent of the served model list. */
   connected: boolean;
+  /** Temporary refresh failure; the saved account remains connected. */
+  reconnecting?: boolean;
   /**
    * Fingerprint of the model list the server currently serves (admins turn
    * models on and off on the platform); null when not connected. Only the
@@ -1672,6 +1680,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
+    getProjectPersonalization: (workspaceId: string) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    setProjectPersonalization: (workspaceId: string, customInstructions: string, revision: number) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: { customInstructions, revision },
+        timeoutMs: timeouts.config,
+      }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,
@@ -1730,6 +1752,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       return applyReviewUpdate(previous, update) ?? requestJson<SavedReview>(baseUrl, path, { token, hostToken });
     },
     getJevSearchProgress: (workspaceId: string, jobId: string) => requestJson<JevSearchProgress>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}`, { token, hostToken }),
+    getJevSearchResults: (workspaceId: string, jobId: string, answer: string, offset = 0) => requestJson<JevSearchResults>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}/results?${new URLSearchParams({ answer, offset: String(offset) })}`, { token, hostToken }),
     queryReviewRows: (workspaceId: string, reviewId: string, input: Omit<QueryReviewResults, "cursor" | "limit" | "view">) => requestJson<{ revision: number; documentIds: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/rows/query`, { token, hostToken, method: "POST", body: input }),
     deleteReview: (workspaceId: string, reviewId: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "DELETE", body: { revision } }),
     createReview: (workspaceId: string, input: CreateReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken, method: "POST", body: input }),
@@ -2101,7 +2124,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           timeoutMs: timeouts.workspaceImport,
         },
       ),
-    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string }) =>
+    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string; providerId?: string }) =>
       requestJson<{ models: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-models`, {
         token,
         hostToken,
@@ -2109,6 +2132,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: input,
         timeoutMs: 15_000,
       }),
+    refreshCustomProviderModels: (workspaceId: string, input: { providerId?: string; force?: boolean; reloadRequired?: boolean; catalog?: boolean } = {}) =>
+      requestJson<{ providers: Record<string, CustomProviderModelRefreshStatus>; reloaded: boolean }>(
+        baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-model-refresh`,
+        { token, hostToken, method: "POST", body: input, timeoutMs: 60_000 },
+      ),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,

@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { SavedReviewSchema, ReviewSettingsSchema, type SavedReview, type ReviewSettings } from "./schema.js";
@@ -23,8 +23,12 @@ export async function atomicJson(path: string, data: unknown) {
   await rename(tmp, path);
 }
 export async function readJson<T>(path: string, schema: z.ZodType<T>): Promise<T> {
-  if (await realpath(path) !== path) throw new ApiError(403, "review_path", "Review storage must not use symbolic links.");
-  if ((await stat(path)).size > 64 * 1024 * 1024) throw new ApiError(413, "review_size", "Review storage exceeds the size limit.");
+  // On Linux, Bun's realpath(file) can report " (deleted)" when an atomic
+  // save replaces the file. Check the stable parent and final link separately.
+  const directory = dirname(path);
+  const file = await lstat(path);
+  if (file.isSymbolicLink() || await realpath(directory) !== directory) throw new ApiError(403, "review_path", "Review storage must not use symbolic links.");
+  if (file.size > 64 * 1024 * 1024) throw new ApiError(413, "review_size", "Review storage exceeds the size limit.");
   return schema.parse(JSON.parse(await readFile(path, "utf8")));
 }
 export class ReviewStore {
