@@ -27,7 +27,6 @@ export function ProjectRemoteFolders({ client, workspaceId }: { client: Legalwor
     catch (error) { toast.error(error instanceof Error ? error.message : t("projects.failed")); }
     finally { setBusy(false); }
   };
-  if (!sources.data?.sources.length && !details.data?.remote?.folders.length) return null;
   return <>
     <div className="border-t border-border/60 px-5 py-2"><Button variant="ghost" size="sm" onClick={() => setOpen(true)}><Link2 />{t("projects.remote.linked")} {details.data?.remote?.folders.length || ""}</Button></div>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="rounded-3xl sm:max-w-xl">

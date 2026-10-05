@@ -67,6 +67,8 @@ export type ProjectDetails = {
   version: 1;
   revision: number;
   fields: ProjectField[];
+  /** User-provided writing preferences for every chat in this project. */
+  personalizationPrompt?: string;
   remote?: ProjectRemote;
   /**
    * The firm's id for this project once it syncs. Kept with the folder, so a

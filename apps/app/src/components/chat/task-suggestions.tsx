@@ -61,7 +61,7 @@ export function TaskSuggestionCards({ className, providerConnectedCount, onConne
         </motion.div>
       ) : null}
       <motion.p variants={entrance} className="lw-task-suggestions-label">{t("task_suggestions.label")}</motion.p>
-      <div className="grid min-w-0 grid-cols-1 gap-3 @lg:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-3 @xl:grid-cols-3">
         {suggestions().map((suggestion) => (
           <motion.div key={suggestion.kind} variants={entrance} className="min-w-0">
             <Button variant="ghost" className="lw-task-card" data-task-kind={suggestion.kind} onClick={() => onSelect(suggestion.prompt)}>

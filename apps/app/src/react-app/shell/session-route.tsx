@@ -133,6 +133,7 @@ import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains
 import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
+import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
@@ -900,6 +901,10 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  useEffect(() => {
+    if (modelPicker.open || modelPicker.compactOpen) void sessionProviderAuthStore.refreshCustomProviderModels().catch(() => undefined);
+  }, [modelPicker.open, modelPicker.compactOpen, sessionProviderAuthStore]);
+
   // "Start free trial" CTAs (migration dialog, connect-AI bar): the choice is
   // already made, so go straight to the Eigenwelt sign-in in the browser (the
   // platform funnel continues to the trial) instead of the provider picker.
@@ -1138,7 +1143,7 @@ export function SessionRoute() {
     }
     setProviderModalFromPlans(false);
   }, [providerConnectedIds, providerModalOpen]);
-  const openProvidersFromPlans = useCallback(() => {
+  const openProvidersFromPlans = useCallback((preferredProviderId?: string, startOAuth = false) => {
     aiPlansPathRef.current = "own_model";
     providersAtOwnModelOpenRef.current = {
       ids: providerConnectedIds,
@@ -1146,7 +1151,7 @@ export function SessionRoute() {
       variant: aiPlansVariant ?? "new",
     };
     setProviderModalFromPlans(true);
-    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none" }).catch(() => {
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none", preferredProviderId, startOAuth }).catch(() => {
       providersAtOwnModelOpenRef.current = null;
       setProviderModalFromPlans(false);
       toast.error(t("providers.load_failed"));
@@ -1366,6 +1371,14 @@ export function SessionRoute() {
           return;
         }
         void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
+      },
+      onChooseAiPlan: async (plan: "plus" | "pro") => {
+        const started = await sessionProviderAuthStore.startEigenweltSignIn({ plan });
+        await openDesktopUrl(started.authorizeUrl);
+        const result = await sessionProviderAuthStore.completeEigenweltSignIn(started.sessionId);
+        if (!result.connected) throw new Error(result.message ?? t("providers.connect_failed"));
+        modelPicker.setQuery("eigenwelt");
+        modelPicker.setOpen(true);
       },
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
@@ -2344,6 +2357,14 @@ export function SessionRoute() {
         }}
       />
     ) : null}
+    {aiPlansGateEnabled && <SyncProviderSetup
+      client={client}
+      workspaceId={selectedWorkspaceId}
+      connection={eigenweltView}
+      connectedProviders={providerListQuery.data ? getConnectedProviderItems(providerListQuery.data) : null}
+      paused={providerModalOpen || onboardingStage !== "done" && onboardingStage !== "ai"}
+      onChooseProvider={openProvidersFromPlans}
+    />}
     {aiPlansScreenVisible ? (
       // The plan screen: the last onboarding step, and the screen over the
       // app while no model is usable. There is no skip: it closes by itself
@@ -2355,10 +2376,10 @@ export function SessionRoute() {
         serverReady={Boolean(selectedWorkspaceEndpoint)}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onSignedIn={() => {
+        onSignedIn={(plan) => {
           // Connected: refetch the entitlements so the screen closes (and the
           // models are live) the moment the account shows up.
-          aiPlansPathRef.current = "eigenwelt";
+          aiPlansPathRef.current = plan === "sync" ? "own_model" : "eigenwelt";
           invalidateEigenweltEntitlements();
         }}
         onBringOwnModel={openProvidersFromPlans}
@@ -2426,6 +2447,7 @@ export function SessionRoute() {
         submitting: sessionProviderAuthSnapshot.providerAuthBusy,
         error: sessionProviderAuthSnapshot.providerAuthError,
         preferredProviderId: sessionProviderAuthSnapshot.providerAuthPreferredProviderId,
+        startOAuth: sessionProviderAuthSnapshot.providerAuthStartOAuth,
         workerType: sessionProviderAuthSnapshot.providerAuthWorkerType,
         providers: sessionProviderAuthSnapshot.providerAuthProviders,
         connectedProviderIds: providerConnectedIds,
@@ -2440,6 +2462,7 @@ export function SessionRoute() {
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
         onFetchCustomModels: sessionProviderAuthStore.fetchCustomProviderModels,
+        onRefreshCustomProvider: sessionProviderAuthStore.refreshCustomProvider,
         onReadCustomProvider: sessionProviderAuthStore.readCustomProviderForEdit,
         // From the plan screen's "own model" card: providers only.
         onEigenweltSignIn: providerModalFromPlans ? undefined : sessionProviderAuthStore.startEigenweltSignIn,

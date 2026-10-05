@@ -9,6 +9,7 @@ import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
+import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
 
 export type SkippedSkill = { path: string; reason: string };
 
@@ -165,6 +166,15 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean, 
     items.push(...(await listSkillsInDir(globalClaude, "global", skipped)));
     items.push(...(await listSkillsInDir(globalAgents, "global", skipped)));
     items.push(...(await listSkillsInDir(globalAgentLegacy, "global", skipped)));
+  } else {
+    // Remote clients also get shipped workflows, without listing the host's
+    // other personal workflows or skills.
+    for (const name of BUNDLED_WORKFLOW_NAMES) {
+      const path = join(globalSkillsDir(), name, "SKILL.md");
+      if (!(await exists(path))) continue;
+      const item = await parseSkillEntry(path, name, "global", skipped);
+      if (item) items.push(item);
+    }
   }
 
   const seen = new Set<string>();

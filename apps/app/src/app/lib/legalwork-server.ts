@@ -1,5 +1,6 @@
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
+import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
@@ -44,6 +45,14 @@ import type {
 import { t } from "@/i18n";
 
 export * from "./benchmark-types";
+
+export type CustomProviderModelRefreshStatus = {
+  enabled: boolean;
+  availableModels?: string[];
+  lastUpdatedAt?: number;
+  lastError?: string | null;
+  pendingReload?: boolean;
+};
 
 export type LegalworkServerCapabilities = {
   skills: { read: boolean; write: boolean; source: "legalwork" | "opencode" };
@@ -147,8 +156,6 @@ export type LegalworkPersonality = (typeof LEGALWORK_PERSONALITY_VALUES)[number]
 
 export type LegalworkPersonalizationSettings = {
   customInstructions: string;
-  localMemoriesEnabled: boolean;
-  allowToolAssistedMemory: boolean;
   personality: LegalworkPersonality;
 };
 
@@ -193,7 +200,7 @@ export type EigenweltUsage = {
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
   /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
-  plan: "plus" | "pro" | null;
+  plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -243,6 +250,7 @@ export type EigenweltEntitlementsView = {
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
 export type EigenweltSignInPayload = {
+  preferredAiProvider?: "openai" | "other";
   systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
@@ -1674,6 +1682,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
+    getProjectPersonalization: (workspaceId: string) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    setProjectPersonalization: (workspaceId: string, customInstructions: string, revision: number) =>
+      requestJson<{ customInstructions: string; revision: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/personalization`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: { customInstructions, revision },
+        timeoutMs: timeouts.config,
+      }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,
@@ -2044,6 +2066,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
+    recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string) =>
+      requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
+        token, hostToken, method: "POST", body: { messageId },
+      }),
     getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
       const query = new URLSearchParams();
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
@@ -2100,7 +2126,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           timeoutMs: timeouts.workspaceImport,
         },
       ),
-    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string }) =>
+    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string; providerId?: string }) =>
       requestJson<{ models: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-models`, {
         token,
         hostToken,
@@ -2108,6 +2134,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: input,
         timeoutMs: 15_000,
       }),
+    refreshCustomProviderModels: (workspaceId: string, input: { providerId?: string; force?: boolean; reloadRequired?: boolean; catalog?: boolean } = {}) =>
+      requestJson<{ providers: Record<string, CustomProviderModelRefreshStatus>; reloaded: boolean }>(
+        baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-model-refresh`,
+        { token, hostToken, method: "POST", body: input, timeoutMs: 60_000 },
+      ),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,
@@ -2290,6 +2321,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // platform NOW (bypassing the access-token skew short-circuit) — used by the
     // post-checkout "waiting for your subscription" poll so a fresh sub shows up
     // within seconds instead of on the next lazy token refresh.
+    eigenweltUsage: (workspaceId: string) => requestJson<UsageControlView>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken }),
+    eigenweltUsageAction: (workspaceId: string, action: UsageControlAction) => requestJson<unknown>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken, method: "POST", body: action }),
     eigenweltEntitlements: (workspaceId: string, opts?: { refresh?: boolean }) =>
       requestJson<EigenweltEntitlementsView>(
         baseUrl,

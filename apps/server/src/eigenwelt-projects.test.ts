@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { IntakeClient } from "./eigenwelt-intake.js";
-import { downloadRemoteProjectFile, PROJECT_CHUNK_BYTES, type RemoteProjectFile, uploadRemoteProjectFile } from "./eigenwelt-projects.js";
+import { createRemoteProject, listRemoteProjects, patchRemoteProject, downloadRemoteProjectFile, PROJECT_CHUNK_BYTES, type RemoteProjectFile, uploadRemoteProjectFile } from "./eigenwelt-projects.js";
 import { eigenweltProjectStorage, type RemoteFileIndex } from "./eigenwelt-project-storage.js";
 import { ApiError } from "./errors.js";
 
@@ -52,6 +52,23 @@ function stubFetch(respond: (call: Call) => Response | Promise<Response>): void 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+
+test("project API transfers instructions, clearing, and nullable or missing rollout values without stripping them", async () => {
+  const scope = { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false, calendar: true };
+  const project = { id: PROJECT, name: "Writing preferences", ownerUserId: "user_1", role: "owner", access: "members", memberIds: [], scope, fields: [], createdAt: "2026-10-04T10:00:00.000Z", updatedAt: "2026-10-04T10:00:00.000Z" };
+  stubFetch((call) => {
+    if (call.method === "POST") return json({ project: { ...project, personalizationPrompt: "Formal English" } });
+    if (call.method === "PATCH") return json({ project: { ...project, personalizationPrompt: "" }, applied: ["personalization"] });
+    return json({ projects: [{ ...project, personalizationPrompt: null }, { ...project, personalizationPrompt: "Short paragraphs" }, project], nextCursor: null });
+  });
+  const created = await createRemoteProject(client, { id: PROJECT, name: project.name, fields: [], scope, access: "members", memberIds: [], personalizationPrompt: "Formal English" });
+  expect(created.personalizationPrompt).toBe("Formal English");
+  expect(JSON.parse(calls[0].body?.toString() ?? "{}")).toHaveProperty("personalizationPrompt", "Formal English");
+  expect((await patchRemoteProject(client, PROJECT, { personalizationPrompt: "" })).project?.personalizationPrompt).toBe("");
+  expect(JSON.parse(calls[1].body?.toString() ?? "{}")).toHaveProperty("personalizationPrompt", "");
+  const list = await listRemoteProjects(client, {});
+  expect(list.projects.map((item) => item.personalizationPrompt)).toEqual([null, "Short paragraphs", undefined]);
+});
 
 function memoryIndex(): RemoteFileIndex {
   const files = new Map<string, RemoteProjectFile>();

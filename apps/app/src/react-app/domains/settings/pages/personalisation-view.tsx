@@ -10,7 +10,6 @@ import {
 } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
@@ -32,8 +31,6 @@ import { t } from "@/i18n";
 
 const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   customInstructions: "",
-  localMemoriesEnabled: false,
-  allowToolAssistedMemory: true,
   personality: "pragmatic",
 };
 
@@ -57,7 +54,6 @@ function describeError(error: unknown): string {
 export type PersonalisationViewProps = {
   client: LegalworkServerClient | null;
   onSettingsApplied: () => void;
-  onOpenLink: (url: string) => void;
 };
 
 export function PersonalisationView(props: PersonalisationViewProps) {
@@ -192,51 +188,8 @@ export function PersonalisationView(props: PersonalisationViewProps) {
         <LayoutSection>
           <LayoutSectionHeader>
             <LayoutSectionTitle>{t("personalisation.memory_title")}</LayoutSectionTitle>
-            <LayoutSectionDescription>
-              {t("personalisation.memory_desc")}{" "}
-              <button
-                type="button"
-                className="text-primary hover:underline"
-                onClick={() => props.onOpenLink("https://www.opencode.asia/ecosystem/plugins/agent-memory/")}
-              >
-                {t("personalisation.learn_more")}
-              </button>
-            </LayoutSectionDescription>
+            <LayoutSectionDescription>{t("personalisation.memory_desc")}</LayoutSectionDescription>
           </LayoutSectionHeader>
-
-          <LayoutSectionItem>
-            <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.enable_memories")}</LayoutSectionItemTitle>
-              <LayoutSectionItemDescription>
-                {t("personalisation.enable_memories_desc")}
-              </LayoutSectionItemDescription>
-              <LayoutSectionItemHeaderActions>
-                <Switch
-                  aria-label={t("personalisation.enable_memories")}
-                  checked={settings.localMemoriesEnabled}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => void persist({ ...settings, localMemoriesEnabled: checked })}
-                />
-              </LayoutSectionItemHeaderActions>
-            </LayoutSectionItemHeader>
-          </LayoutSectionItem>
-
-          <LayoutSectionItem>
-            <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.allow_tool_memories")}</LayoutSectionItemTitle>
-              <LayoutSectionItemDescription>
-                {t("personalisation.allow_tool_memories_desc")}
-              </LayoutSectionItemDescription>
-              <LayoutSectionItemHeaderActions>
-                <Switch
-                  aria-label={t("personalisation.allow_tool_memories")}
-                  checked={settings.allowToolAssistedMemory}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => void persist({ ...settings, allowToolAssistedMemory: checked })}
-                />
-              </LayoutSectionItemHeaderActions>
-            </LayoutSectionItemHeader>
-          </LayoutSectionItem>
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>

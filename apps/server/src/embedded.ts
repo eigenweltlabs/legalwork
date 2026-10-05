@@ -11,6 +11,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeE
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
+import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
@@ -23,6 +24,7 @@ import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { modelCatalogBaseURL } from "./provider-model-catalog.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -69,15 +71,14 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   // No trailing slash: the engine appends "/api.json" to this value, so a
   // trailing slash produces the malformed "https://…com//api.json" seen in
   // user-reported engine logs.
-  const opencodeModelsUrl = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") || (process.env.LEGALWORK_DEV_MODE === "1"
-    ? "http://localhost:8791/models"
-    : "https://models.eigenweltlabs.com");
+  const opencodeModelsUrl = modelCatalogBaseURL();
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
 
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
+    await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
       await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
     }

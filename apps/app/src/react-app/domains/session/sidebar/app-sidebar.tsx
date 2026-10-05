@@ -8,6 +8,7 @@ import {
   Files,
   ListTodo,
   Settings,
+  WandSparkles,
   Table2,
   Archive,
   ArchiveRestore,
@@ -93,6 +94,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
+import { useProjectPersonalisation } from "../../workspace/project-personalisation-modal";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
 import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
@@ -433,6 +435,7 @@ type WorkspaceActionsMenuProps = {
 
 function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProps) {
   const ctx = useSidebarContext();
+  const openPersonalisation = useProjectPersonalisation();
   const shared = useProjectSyncStore((store) => store.states[workspace.id] !== undefined);
   const share = useProjectSyncStore((store) => store.share);
 
@@ -457,6 +460,10 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
         <DropdownMenuItem onClick={() => ctx.onOpenRenameWorkspace(workspace.id)}>
           <Pencil className="size-4" />
           {t("workspace_list.edit_name")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => openPersonalisation(workspace.id)}>
+          <WandSparkles className="size-4" />
+          {t("personalisation.project_prompt_menu")}
         </DropdownMenuItem>
         {workspace.workspaceType === "local" ? (
           <DropdownMenuItem onClick={() => share({ workspaceId: workspace.id, name: workspaceLabel(workspace) })}>

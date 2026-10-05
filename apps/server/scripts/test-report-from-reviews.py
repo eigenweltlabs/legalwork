@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import re
+from zipfile import ZipFile
 from docx import Document
 
 script = Path(__file__).resolve().parents[1] / "resources/core-opencode/skills/docx-edit/assets/report-from-reviews.py"
@@ -67,6 +69,31 @@ class ReportBuilderChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source-support"):
             self.build()
         self.assertFalse((self.project / "reports/report.docx").exists())
+
+    def test_bundled_general_template_builds_a_source_checked_report_without_fixed_classes(self):
+        workflow = script.parents[2] / "workflow-assistant-due-diligence"
+        layout = json.loads((workflow / "references/template-fields.json").read_text())
+        template = workflow / "resources/DD-Report-Template.docx"
+        def text_parts(path):
+            with ZipFile(path) as archive:
+                return "\n".join(archive.read(name).decode() for name in archive.namelist()
+                                 if name.startswith("word/") and name.endswith(".xml"))
+        original = text_parts(template)
+        self.assertEqual(set(re.findall(r"\{\{([^}]+)\}\}", original)), set(layout["tokens"]))
+        repeated = {token for tokens in layout["repeat_tables"].values() for token in tokens}
+        self.draft["fields"] = {token: "Not applicable to the agreed scope." for token in layout["tokens"] if token not in repeated}
+        self.draft["fields"].update(matter_name="Property financing review", client_name="Example Property Fund",
+                                    executive_summary="Obtain the lender's consent before completion.")
+        self.packet["measuredFields"] = {"reviewed_files": 1, "unresolved_files": 1}
+        self.save("packet.json", self.packet)
+        self.save("draft.json", self.draft)
+        result = helper.build(self.project, "packet.json", "draft.json", template, "reports/property-report.docx")
+        self.assertEqual(result["verifiedCitations"], 1)
+        rendered = text_parts(self.project / "reports/property-report.docx")
+        self.assertNotIn("{{", rendered)
+        self.assertNotRegex(rendered.lower(), r"saas|customer-agreements|shareholder resolutions|acquisition")
+        self.assertIn("Property financing review", rendered)
+        self.assertEqual(text_parts(template), original)
 
     def test_changed_source_is_not_verified(self):
         (self.project / "agreement.pdf").write_bytes(b"changed source")

@@ -7,6 +7,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./manag
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
+import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
@@ -39,6 +40,7 @@ let managedOpencode: ManagedOpencodeServer | null = null;
 
 if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
+  await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
     await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
   }

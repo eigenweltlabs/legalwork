@@ -31,15 +31,11 @@ export type Personality = (typeof PERSONALITY_VALUES)[number];
 
 export type PersonalizationSettings = {
   customInstructions: string;
-  localMemoriesEnabled: boolean;
-  allowToolAssistedMemory: boolean;
   personality: Personality;
 };
 
 export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
   customInstructions: "",
-  localMemoriesEnabled: false,
-  allowToolAssistedMemory: true,
   personality: "pragmatic",
 };
 
@@ -64,6 +60,7 @@ export function isPersonality(value: unknown): value is Personality {
   return typeof value === "string" && PERSONALITY_VALUES.some((item) => item === value);
 }
 
+/** Settings saved while local memories existed also carry localMemoriesEnabled and allowToolAssistedMemory; they are dropped here. */
 export function normalizePersonalizationSettings(value: unknown): PersonalizationSettings {
   if (!isRecord(value)) return { ...DEFAULT_PERSONALIZATION_SETTINGS };
   return {
@@ -71,14 +68,6 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
       typeof value.customInstructions === "string"
         ? value.customInstructions.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH)
         : DEFAULT_PERSONALIZATION_SETTINGS.customInstructions,
-    localMemoriesEnabled:
-      typeof value.localMemoriesEnabled === "boolean"
-        ? value.localMemoriesEnabled
-        : DEFAULT_PERSONALIZATION_SETTINGS.localMemoriesEnabled,
-    allowToolAssistedMemory:
-      typeof value.allowToolAssistedMemory === "boolean"
-        ? value.allowToolAssistedMemory
-        : DEFAULT_PERSONALIZATION_SETTINGS.allowToolAssistedMemory,
     personality: isPersonality(value.personality)
       ? value.personality
       : DEFAULT_PERSONALIZATION_SETTINGS.personality,

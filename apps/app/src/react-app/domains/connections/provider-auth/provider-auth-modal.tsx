@@ -1,15 +1,19 @@
 /** @jsxImportSource react */
 import {
-  Check,
+  ArrowLeft,
+  ChevronDown,
   CheckCircle2,
   ChevronRight,
   Loader2,
+  Plug,
   Plus,
+  RefreshCw,
   Search,
   TriangleAlert,
-  X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   useEffect,
   useMemo,
@@ -29,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { compareProviders } from "@/app/utils/providers";
+import { modelDisplayName } from "@/app/utils/models";
 import { Button } from "@/components/ui/button";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 import { TextInput } from "../../../design-system/text-input";
@@ -58,8 +63,9 @@ import {
   slugifyProviderId,
   type LocalRuntimeTemplate,
 } from "./local-templates";
-import { findCustomModelLimitProblem, replaceDiscoveredModels } from "./custom-provider-config";
+import { findCustomModelLimitProblem } from "./custom-provider-config";
 import { defaultOutputLimit } from "@legalwork/types/model-limits";
+import { ChatGptPlanCard } from "./chatgpt-plan-card";
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
 function inferCustomApiType(baseURL: string): CustomProviderApiType {
@@ -71,6 +77,7 @@ function inferCustomApiType(baseURL: string): CustomProviderApiType {
  * provider-wide ones. */
 type CustomModelDraft = {
   id: string;
+  name?: string;
   toolCall: boolean;
   reasoning: boolean;
   contextLimit: string;
@@ -252,6 +259,8 @@ export type ProviderAuthModalProps = {
   submitting: boolean;
   error: string | null;
   preferredProviderId?: string | null;
+  /** A subscription was already selected; start its OAuth without asking again. */
+  startOAuth?: boolean;
   workerType?: "local" | "remote";
   providers: ProviderAuthProvider[];
   connectedProviderIds: string[];
@@ -259,7 +268,8 @@ export type ProviderAuthModalProps = {
   onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
   onSubmitCustomProvider?: (input: CustomProviderInstallInput) => Promise<string | void>;
-  onFetchCustomModels?: (input: { baseURL: string; apiKey: string }) => Promise<string[]>;
+  onFetchCustomModels?: (input: { baseURL: string; apiKey: string; providerId?: string }) => Promise<string[]>;
+  onRefreshCustomProvider?: (providerId: string) => Promise<CustomProviderEditData | null>;
   onReadCustomProvider?: (providerId: string) => Promise<CustomProviderEditData | null>;
   /** Starts the server-owned t("provider_auth.sign_in_eigenwelt") flow. */
   onEigenweltSignIn?: () => Promise<{ authorizeUrl: string; sessionId: string }>;
@@ -270,6 +280,7 @@ export type ProviderAuthModalProps = {
   ) => Promise<{ connected: boolean; cancelled?: boolean; message?: string }>;
   /** When set, the modal opens straight into the custom form to edit this provider. */
   customEdit?: CustomProviderEditData | null;
+  customModelsOnly?: boolean;
   onSubmitOAuth: (
     providerId: string,
     methodIndex: number,
@@ -318,9 +329,25 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const [customTemplateId, setCustomTemplateId] = useState<string | null>(null);
   const [customModelInput, setCustomModelInput] = useState("");
   const [customModels, setCustomModels] = useState<CustomModelDraft[]>([]);
+  const [customDeselectedModels, setCustomDeselectedModels] = useState<CustomModelDraft[]>([]);
+  const [customModelSearch, setCustomModelSearch] = useState("");
   const [customFetchedModels, setCustomFetchedModels] = useState<string[]>([]);
   const [customFetching, setCustomFetching] = useState(false);
+  const [customAutoRefresh, setCustomAutoRefresh] = useState(false);
+  const [customAutoRefreshTouched, setCustomAutoRefreshTouched] = useState(false);
+  const [customSavedBaseURL, setCustomSavedBaseURL] = useState("");
+  const [customRefreshStatus, setCustomRefreshStatus] = useState<CustomProviderEditData["modelRefresh"]>();
   const [customBusy, setCustomBusy] = useState(false);
+  const customModelChoices = useMemo(() => [...new Set([
+    ...customFetchedModels,
+    ...customModels.map(model => model.id),
+    ...customDeselectedModels.map(model => model.id),
+  ])].sort((left, right) => left.localeCompare(right)), [customFetchedModels, customModels, customDeselectedModels]);
+  const customModelNames = useMemo(() => new Map([...customDeselectedModels, ...customModels].map(model => [model.id, model.name])), [customDeselectedModels, customModels]);
+  const filteredCustomModelChoices = customModelChoices.filter(id => {
+    const query = customModelSearch.trim().toLowerCase();
+    return id.toLowerCase().includes(query) || modelDisplayName(id, customModelNames.get(id)).toLowerCase().includes(query);
+  });
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const providerPollRef = useRef<number | null>(null);
@@ -330,9 +357,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const oauthSubmitBusyRef = useRef(false);
   const oauthAutoBusyRef = useRef(false);
   const oauthStartBusyRef = useRef(false);
+  const oauthStartTokenRef = useRef(0);
   const autoOpenedPreferredProviderIdRef = useRef<string | null>(null);
   const customEditPrefilledRef = useRef<string | null>(null);
   const customRequestRef = useRef(0);
+  const customModelsSectionRef = useRef<HTMLDivElement | null>(null);
+  const customModelsFocusRef = useRef(false);
   // Bumped when the modal closes / navigates back / restarts the flow so the
   // store's Eigenwelt sign-in long-poll for a stale attempt stops instead of
   // finalizing. Each attempt captures the token at start and cancels itself
@@ -459,8 +489,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           env: [],
         });
       }
-      // Re-sort so pinned providers keep their order; the synthetic
-      // Local/Custom entries below stay pinned at the bottom.
+      // Re-sort branded providers before adding the Local and Custom entries.
       nextEntries.sort(compareProviders);
 
       // One consolidated "Local model" entry with per-runtime templates
@@ -473,10 +502,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         env: [],
       });
 
-      // Generic user-defined option, pinned at the very bottom.
-      nextEntries.push({
+      // Generic user-defined option, pinned at the top.
+      nextEntries.unshift({
         id: CUSTOM_PROVIDER_ENTRY_ID,
-        name: t("providers.custom_openai_compatible"),
+        name: t("provider_auth.custom_provider"),
         methods: [{ type: "api", label: "OpenAI-compatible" }],
         connected: false,
         env: [],
@@ -499,6 +528,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   );
 
   const resolvedView = selectedEntry ? view : "list";
+  useEffect(() => {
+    if (customFetching || !customModelsFocusRef.current || resolvedView !== "custom") return;
+    customModelsFocusRef.current = false;
+    customModelsSectionRef.current?.scrollIntoView({ block: "start" });
+  }, [customFetching, customFetchedModels, resolvedView]);
   const errorMessage = localError ?? props.error;
 
   const filteredEntries = useMemo(() => {
@@ -550,6 +584,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       oauthCodeCopiedResetRef.current = null;
     }
     eigenweltWaitTokenRef.current += 1;
+    oauthStartTokenRef.current += 1;
     customRequestRef.current += 1;
     setView("list");
     setSelectedProviderId(null);
@@ -574,9 +609,16 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomTemplateId(null);
     setCustomModelInput("");
     setCustomModels([]);
+    setCustomDeselectedModels([]);
+    setCustomModelSearch("");
     setCustomFetchedModels([]);
     setCustomFetching(false);
     setCustomBusy(false);
+    setCustomAutoRefresh(false);
+    setCustomAutoRefreshTouched(false);
+    setCustomSavedBaseURL("");
+    setCustomRefreshStatus(undefined);
+    customModelsFocusRef.current = false;
     pollingBusyRef.current = false;
     oauthSubmitBusyRef.current = false;
     oauthAutoBusyRef.current = false;
@@ -616,6 +658,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   }, [props.open]);
 
   function applyCustomEdit(edit: CustomProviderEditData) {
+    setCustomAutoRefresh(edit.modelRefresh?.enabled === true);
+    setCustomAutoRefreshTouched(true);
+    setCustomSavedBaseURL(edit.baseURL.trim().replace(/\/+$/, ""));
+    setCustomRefreshStatus(edit.modelRefresh);
     setCustomEditMode(true);
     setCustomFixedProviderId(edit.providerId);
     setCustomBrandName(null);
@@ -629,13 +675,16 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomModels(
       edit.models.map((model) => ({
         id: model.id,
+        name: model.name,
         toolCall: model.toolCall,
         reasoning: model.reasoning,
         contextLimit: model.contextLimit != null ? String(model.contextLimit) : "",
         outputLimit: model.outputLimit != null ? String(model.outputLimit) : "",
       })),
     );
-    setCustomFetchedModels([]);
+    setCustomFetchedModels(edit.modelRefresh?.availableModels ?? []);
+    setCustomDeselectedModels([]);
+    setCustomModelSearch("");
     setLocalError(null);
     setSelectedProviderId(CUSTOM_PROVIDER_ENTRY_ID);
     setView("custom");
@@ -668,7 +717,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   }, [props.open, resolvedView]);
 
   useEffect(() => {
-    if (!props.open || props.loading || resolvedView !== "list") return;
+    if (!props.open || props.loading || props.submitting || resolvedView !== "list") return;
 
     const preferredId = props.preferredProviderId?.trim().toLowerCase() ?? "";
     if (!preferredId || autoOpenedPreferredProviderIdRef.current === preferredId) return;
@@ -678,18 +727,33 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     autoOpenedPreferredProviderIdRef.current = preferredId;
     queueMicrotask(() => {
-      handleEntrySelect(entry);
+      if (props.startOAuth) {
+        setSelectedProviderId(entry.id);
+        const method = entry.methods.find(item => item.type === "oauth");
+        if (!method) {
+          setView("method");
+          setLocalError(`${t("providers.no_oauth_prefix")} ${entry.name}.`);
+          return;
+        }
+        setView("oauth-auto");
+        void startOauth(entry, method.methodIndex);
+      } else {
+        void handleEntrySelect(entry);
+      }
     });
   }, [
     entries,
     props.loading,
+    props.submitting,
     props.open,
     props.preferredProviderId,
+    props.startOAuth,
     resolvedView,
   ]);
 
   useEffect(() => {
     return () => {
+      oauthStartTokenRef.current += 1;
       stopOauthAutoPolling();
       stopProviderPolling();
       if (oauthCodeCopiedResetRef.current !== null) {
@@ -825,6 +889,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
     oauthStartBusyRef.current = true;
+    const startToken = ++oauthStartTokenRef.current;
     setLocalError(null);
     setOauthCodeInput("");
     setOauthSession(null);
@@ -832,6 +897,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setOauthBrowserOpened(false);
     try {
       const started = await props.onSelect(entry.id, methodIndex);
+      if (startToken !== oauthStartTokenRef.current) return;
       const selectedMethod = entry.methods.find((method) => method.methodIndex === methodIndex);
       if (!selectedMethod) {
         throw new Error(`Selected auth method is unavailable for ${entry.name}.`);
@@ -856,10 +922,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
       setView("oauth-auto");
     } catch (error) {
+      if (startToken !== oauthStartTokenRef.current) return;
       const message = error instanceof Error ? error.message : t("providers.oauth_start_failed");
       setLocalError(message);
+      setView("method");
     } finally {
-      oauthStartBusyRef.current = false;
+      if (startToken === oauthStartTokenRef.current) oauthStartBusyRef.current = false;
     }
   };
 
@@ -1006,12 +1074,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const id = rawId.trim();
     if (!id) return;
     setCustomModels((current) =>
-      current.some((model) => model.id === id) ? current : [...current, makeCustomModelDraft(id)],
+      current.some((model) => model.id === id) ? current : [...current, customDeselectedModels.find(model => model.id === id) ?? makeCustomModelDraft(id)],
     );
     if (localError) setLocalError(null);
   };
 
   const removeCustomModelId = (id: string) => {
+    const model = customModels.find(model => model.id === id);
+    if (model) setCustomDeselectedModels(current => [...current.filter(model => model.id !== id), model]);
     setCustomModels((current) => current.filter((model) => model.id !== id));
   };
 
@@ -1021,8 +1091,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     );
   };
 
-  const customModelExists = (id: string) => customModels.some((model) => model.id === id);
-
   const handleAddCustomModelFromInput = () => {
     const ids = customModelInput
       .split(/[\n,]/)
@@ -1031,6 +1099,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     if (!ids.length) return;
     for (const id of ids) addCustomModelId(id);
     setCustomModelInput("");
+    setCustomModelSearch("");
   };
 
   const fetchCustomModels = async () => {
@@ -1043,21 +1112,26 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomFetching(true);
     setLocalError(null);
     try {
+      if (customEditMode && customFixedProviderId && base === customSavedBaseURL && !customApiKey.trim() && props.onRefreshCustomProvider) {
+        const refreshed = await props.onRefreshCustomProvider(customFixedProviderId);
+        if (request !== customRequestRef.current || !refreshed) return;
+        setCustomRefreshStatus(refreshed.modelRefresh);
+        setCustomFetchedModels(refreshed.modelRefresh?.availableModels ?? []);
+        if (refreshed.modelRefresh?.lastError) setLocalError(refreshed.modelRefresh.lastError);
+        else customModelsFocusRef.current = true;
+        return;
+      }
       if (!props.onFetchCustomModels) {
         throw new Error("Connect to the LegalWork worker to fetch models.");
       }
-      const ids = await props.onFetchCustomModels({ baseURL: base, apiKey: customApiKey.trim() });
+      const ids = await props.onFetchCustomModels({ baseURL: base, apiKey: customApiKey.trim(), providerId: customEditMode ? customFixedProviderId ?? undefined : undefined });
       if (request !== customRequestRef.current) return;
       setCustomFetchedModels(ids);
-      // A successful refresh replaces LM Studio's inventory, retaining only
-      // capability edits for IDs the endpoint still offers.
-      if (isLmStudio) {
-        setCustomModels((current) => replaceDiscoveredModels(current, ids, makeCustomModelDraft));
-      }
+      customModelsFocusRef.current = true;
+      if (!customEditMode && !customAutoRefreshTouched) setCustomAutoRefresh(true);
       if (!ids.length) setLocalError(t("providers.no_models_returned"));
     } catch (error) {
       if (request !== customRequestRef.current) return;
-      setCustomFetchedModels([]);
       const detail = error instanceof Error ? error.message : "request failed";
       setLocalError(`Couldn't list models — enter IDs manually. (${detail})`);
     } finally {
@@ -1068,6 +1142,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   // Open the custom form fresh — blank for the generic entry, pre-branded
   // (fixed id, name, API type, Base-URL hint) for a branded provider.
   const startCustomProvider = (branded?: BrandedCustomProvider) => {
+    setCustomAutoRefresh(false);
+    setCustomAutoRefreshTouched(false);
+    setCustomSavedBaseURL("");
+    setCustomRefreshStatus(undefined);
     setCustomEditMode(false);
     setCustomFixedProviderId(branded?.id ?? null);
     setCustomBrandName(branded?.name ?? null);
@@ -1083,6 +1161,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomTemplateId(null);
     setCustomModelInput("");
     setCustomModels([]);
+    setCustomDeselectedModels([]);
+    setCustomModelSearch("");
     setCustomFetchedModels([]);
     setLocalError(null);
     setSelectedProviderId(branded?.id ?? CUSTOM_PROVIDER_ENTRY_ID);
@@ -1106,6 +1186,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomBaseUrlPlaceholder(DEFAULT_BASE_URL_PLACEHOLDER);
     setCustomModelInput("");
     setCustomModels([]);
+    setCustomDeselectedModels([]);
+    setCustomModelSearch("");
     setCustomFetchedModels([]);
     setLocalError(null);
     setSelectedProviderId(LOCAL_PROVIDER_ENTRY_ID);
@@ -1118,6 +1200,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     customRequestRef.current += 1;
     setCustomFetching(false);
     setCustomFetchedModels([]);
+    setCustomDeselectedModels([]);
+    setCustomModelSearch("");
     if (isLmStudio || template.id === "lmstudio") setCustomModels([]);
     setCustomTemplateId(template.id);
     setCustomBaseURL(template.baseURL);
@@ -1135,15 +1219,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const baseURL = customBaseURL.trim();
     const apiKey = customApiKey.trim();
 
-    // Fold any not-yet-added text in the input into the model list.
-    const pendingDrafts = customModelInput
-      .split(/[\n,]/)
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .filter((id) => !customModelExists(id))
-      .map(makeCustomModelDraft);
-    const drafts = [...customModels, ...pendingDrafts];
-
     if (!name) {
       setLocalError("Name is required.");
       return;
@@ -1152,13 +1227,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       setLocalError("Base URL is required.");
       return;
     }
-    if (!drafts.length) {
-      setLocalError("Add at least one model ID.");
+    if (!customModels.length) {
+      setLocalError(t("provider_auth.select_models_hint"));
       return;
     }
 
-    const models = drafts.map((model) => ({
+    const models = customModels.map((model) => ({
       id: model.id,
+      name: model.name,
       toolCall: model.toolCall,
       reasoning: model.reasoning,
       contextLimit: parseTokenCount(model.contextLimit),
@@ -1187,6 +1263,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         apiKey,
         apiType: customApiType,
         models,
+        autoRefresh: customAutoRefresh,
       });
       props.onClose();
     } catch (error) {
@@ -1212,6 +1289,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const handleBack = () => {
     if (resolvedView === "oauth-code" || resolvedView === "oauth-auto") {
       eigenweltWaitTokenRef.current += 1;
+      oauthStartTokenRef.current += 1;
+      oauthStartBusyRef.current = false;
       if ((selectedEntry?.methods.length ?? 0) > 1) {
         setView("method");
       } else {
@@ -1296,6 +1375,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     if (method.type === "oauth") {
       return t("providers.browser_continue_hint");
     }
+    if (isOpenAiProvider(entry.id, entry.name)) return t("providers.openai_api_billing_hint");
     if (isOpencodeZenProvider(entry.id)) {
       return t("providers.zen_signin_hint");
     }
@@ -1311,6 +1391,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     </div>
   );
 
+  const featuredOpenAI = entries.find(entry => isOpenAiProvider(entry.id, entry.name) && entry.methods.some(method => method.type === "oauth"));
+  const featuredChatGptMethod = featuredOpenAI?.methods.find(method => method.type === "oauth");
+  const selectedEntryIsOpenAI = Boolean(selectedEntry && isOpenAiProvider(selectedEntry.id, selectedEntry.name));
   const selectedEntryHasClaudeSubscription = Boolean(
     selectedEntry &&
       isAnthropicProvider(selectedEntry.id, selectedEntry.name) &&
@@ -1329,11 +1412,37 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         if (!open) handleClose();
       }}
     >
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t("providers.connect_title")}</DialogTitle>
+      <DialogContent className={`flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden ${resolvedView === "custom" ? "max-w-2xl sm:max-w-2xl" : "max-w-lg sm:max-w-lg"}`}>
+        <DialogHeader className="shrink-0 pr-8">
+          <div className="flex items-center gap-2">
+            {resolvedView === "custom" && !props.customModelsOnly ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="-ml-2 shrink-0"
+                onClick={handleBack}
+                disabled={actionDisabled || customBusy}
+                aria-label={t("common.back")}
+              >
+                <ArrowLeft />
+              </Button>
+            ) : null}
+            <DialogTitle>
+              {resolvedView === "custom"
+                ? props.customModelsOnly ? t("provider_auth.models_for_provider", { provider: customName })
+                  : isEditingCustomProvider ? t("provider_auth.edit_provider") : customBrandName ?? t("provider_auth.custom_provider")
+                : selectedEntryIsOpenAI && resolvedView === "method" ? t("providers.connect_openai_title") : t("providers.connect_title")}
+            </DialogTitle>
+          </div>
           <DialogDescription>
-            {t("providers.connect_subtitle")}
+            {resolvedView === "custom"
+              ? props.customModelsOnly ? t("provider_auth.select_models_hint")
+                : isEditingCustomProvider
+                ? t("provider_auth.update_compatible")
+                : customShowLocalTemplates
+                  ? t("provider_auth.pick_runtime")
+                  : isLmStudio ? t("local_templates.lmstudio_note") : activeBrandedProvider?.description ?? t("provider_auth.any_endpoint")
+              : selectedEntryIsOpenAI && resolvedView === "method" ? t("providers.choose_connection") : t("providers.connect_subtitle")}
           </DialogDescription>
         </DialogHeader>
 
@@ -1350,6 +1459,15 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
             <div className="-mr-1 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {resolvedView === "list" ? (
                 <div className="space-y-1.5" role="presentation" onKeyDown={handleListKeyDown}>
+                  {!searchQuery && featuredOpenAI && featuredChatGptMethod && (
+                    <div className="mb-4">
+                      <ChatGptPlanCard disabled={actionDisabled} onContinue={() => {
+                        setSelectedProviderId(featuredOpenAI.id);
+                        setView("method");
+                        void startOauth(featuredOpenAI, featuredChatGptMethod.methodIndex);
+                      }} />
+                    </div>
+                  )}
                   <div className="relative mb-2">
                     <Search
                       size={16}
@@ -1387,7 +1505,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         onClick={() => handleEntrySelect(entry)}
                       >
                         <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dls-border bg-dls-surface">
-                          <ProviderIcon providerId={entry.id} size={18} className="text-dls-text" />
+                          {entry.id === CUSTOM_PROVIDER_ENTRY_ID ? (
+                            <Plug size={18} className="text-dls-text" aria-hidden="true" />
+                          ) : (
+                            <ProviderIcon providerId={entry.id} size={18} className="text-dls-text" />
+                          )}
                         </div>
 
                         <div className="min-w-0 flex-1">
@@ -1396,9 +1518,15 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                               <div className="truncate text-[14px] font-medium tracking-tight text-dls-text">
                                 {entry.name}
                               </div>
-                              <div className="truncate font-mono text-[11px] text-dls-secondary">
-                                {entry.id}
-                              </div>
+                              {entry.id === CUSTOM_PROVIDER_ENTRY_ID ? (
+                                <div className="truncate text-[11px] text-dls-secondary">
+                                  {t("provider_auth.custom_provider_description")}
+                                </div>
+                              ) : (
+                                <div className="truncate font-mono text-[11px] text-dls-secondary">
+                                  {entry.id}
+                                </div>
+                              )}
                             </div>
                             <div className="flex shrink-0 items-center justify-end">
                               {entry.connected ? (
@@ -1441,8 +1569,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
               ) : null}
 
               {resolvedView === "method" && selectedEntry ? (
-                <div className={`${surfaceCardClass} space-y-4`}>
-                  <div className="flex items-center justify-between gap-4">
+                <div className={selectedEntryIsOpenAI ? "space-y-4" : `${surfaceCardClass} space-y-4`}>
+                  {selectedEntryIsOpenAI ? (
+                    <Button variant="ghost" size="sm" onClick={handleBack} disabled={actionDisabled}>
+                      <ArrowLeft />{t("common.back")}
+                    </Button>
+                  ) : <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm font-medium text-dls-text">{selectedEntry.name}</div>
                       <div className="mt-1 text-xs text-dls-secondary">{t("providers.choose_connection")}</div>
@@ -1450,10 +1582,16 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
                       {t("common.back")}
                     </Button>
-                  </div>
+                  </div>}
                   {selectedEntryHasClaudeSubscription ? anthropicSubscriptionWarning : null}
                   <div className="grid gap-2">
-                    {selectedEntry.methods.map((method) => (
+                    {selectedEntry.methods.map((method) => selectedEntryIsOpenAI && method.type === "oauth" ? (
+                      <ChatGptPlanCard
+                        key={`${selectedEntry.id}-${method.methodIndex}`}
+                        disabled={actionDisabled}
+                        onContinue={() => void handleMethodSelect(method)}
+                      />
+                    ) : (
                       <button
                         key={`${selectedEntry.id}-${method.type}-${method.methodIndex ?? method.label}`}
                         type="button"
@@ -1465,7 +1603,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                         onClick={() => void handleMethodSelect(method)}
                         disabled={actionDisabled}
                       >
-                        <div className="text-sm font-medium text-dls-text">{methodLabel(method)}</div>
+                        <div className="text-sm font-medium text-dls-text">{selectedEntryIsOpenAI ? t("providers.use_openai_api_key") : methodLabel(method)}</div>
                         <div className="mt-1 text-xs text-dls-secondary">{methodDescription(selectedEntry, method)}</div>
                       </button>
                     ))}
@@ -1531,6 +1669,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </Button>
                   </div>
                 </div>
+              ) : null}
+
+              {resolvedView === "oauth-auto" && selectedEntry && !oauthSession ? (
+                <p role="status" className="flex items-center gap-2 py-4 text-sm text-dls-secondary">
+                  <Loader2 className="size-4 animate-spin" />{t("providers.opening_auth")}
+                </p>
               ) : null}
 
               {resolvedView === "oauth-code" && selectedEntry && oauthSession ? (
@@ -1658,354 +1802,342 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
               ) : null}
 
               {resolvedView === "custom" ? (
-                <div className={`${surfaceCardClass} space-y-4`}>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-medium text-dls-text">
-                        {isEditingCustomProvider ? t("provider_auth.edit_provider") : customBrandName ?? t("provider_auth.custom_provider")}
-                      </div>
-                      <div className="mt-1 text-xs text-dls-secondary">
-                        {isEditingCustomProvider
-                          ? t("provider_auth.update_compatible")
-                          : customShowLocalTemplates
-                            ? t("provider_auth.pick_runtime")
-                            : isLmStudio ? t("local_templates.lmstudio_note") : activeBrandedProvider?.description ?? t("provider_auth.any_endpoint")}
-                      </div>
-                    </div>
-                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled || customBusy}>
-                      Back
-                    </Button>
-                  </div>
-
-                  {customShowLocalTemplates ? (
-                    <div className="space-y-1.5">
-                      <div className="text-xs font-medium text-dls-secondary">Runtime</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {localRuntimeTemplates().map((template) => {
-                          const active = customTemplateId === template.id;
-                          return (
-                            <button
-                              key={template.id}
-                              type="button"
-                              onClick={() => applyLocalTemplate(template)}
-                              disabled={actionDisabled || customBusy}
-                              className={`rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                                active
-                                  ? "border-[rgba(var(--dls-accent-rgb),0.4)] bg-[rgba(var(--dls-accent-rgb),0.08)] text-dls-text"
-                                  : "border-dls-border bg-dls-hover text-dls-secondary hover:bg-dls-active hover:text-dls-text"
+                <div className="space-y-5 pb-1">
+                  {!props.customModelsOnly ? (
+                    <div className="space-y-5">
+                      {customShowLocalTemplates ? (
+                        <div className="space-y-1.5">
+                          <div className="text-xs font-medium text-dls-secondary">Runtime</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {localRuntimeTemplates().map((template) => {
+                              const active = customTemplateId === template.id;
+                              return (
+                                <button
+                                  key={template.id}
+                                  type="button"
+                                  onClick={() => applyLocalTemplate(template)}
+                                  disabled={actionDisabled || customBusy}
+                                  className={`rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                                    active
+                                      ? "border-[rgba(var(--dls-accent-rgb),0.4)] bg-[rgba(var(--dls-accent-rgb),0.08)] text-dls-text"
+                                      : "border-dls-border bg-dls-hover text-dls-secondary hover:bg-dls-active hover:text-dls-text"
+                                  }`}
+                                >
+                                  {template.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {activeLocalTemplate ? (
+                            <div
+                              className={`rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${
+                                activeLocalTemplate.autoDetected
+                                  ? "border-amber-7/30 bg-amber-3/30 text-amber-11"
+                                  : "border-dls-border bg-dls-hover text-dls-secondary"
                               }`}
                             >
-                              {template.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {activeLocalTemplate ? (
-                        <div
-                          className={`rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${
-                            activeLocalTemplate.autoDetected
-                              ? "border-amber-7/30 bg-amber-3/30 text-amber-11"
-                              : "border-dls-border bg-dls-hover text-dls-secondary"
-                          }`}
-                        >
-                          {activeLocalTemplate.note}
+                              {activeLocalTemplate.note}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
-                    </div>
-                  ) : null}
 
-                  <TextInput
-                    label={t("provider_auth.name")}
-                    type="text"
-                    placeholder={t("providers.name_placeholder")}
-                    value={customName}
-                    onChange={(event) => {
-                      setCustomName(event.currentTarget.value);
-                      if (localError) setLocalError(null);
-                    }}
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    disabled={actionDisabled || customBusy}
-                  />
-                  {customFixedProviderId ? (
-                    <div className="-mt-2 text-[11px] text-dls-secondary">
-                      Provider ID: <span className="font-mono">{customFixedProviderId}</span> (fixed)
-                    </div>
-                  ) : customName.trim() ? (
-                    <div className="-mt-2 text-[11px] text-dls-secondary">
-                      Provider ID: <span className="font-mono">{slugifyProviderId(customName)}</span>
-                    </div>
-                  ) : null}
-
-                  <TextInput
-                    label={t("provider_auth.base_url")}
-                    type="text"
-                    placeholder={customBaseUrlPlaceholder}
-                    value={customBaseURL}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      customRequestRef.current += 1;
-                      setCustomFetching(false);
-                      setCustomFetchedModels([]);
-                      if (isLmStudio) setCustomModels([]);
-                      setCustomBaseURL(value);
-                      // Default OpenAI/Azure URLs to the Responses API; the user
-                      // can still override. Once they pick manually, stop inferring.
-                      if (!customApiTypeTouched) setCustomApiType(inferCustomApiType(value));
-                      if (localError) setLocalError(null);
-                    }}
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    disabled={actionDisabled || customBusy}
-                  />
-
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium text-dls-secondary">{t("providers.api_type")}</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(
-                        [
-                          {
-                            value: "chat" as const,
-                            label: "Chat Completions",
-                            hint: "/v1/chat/completions · most endpoints",
-                          },
-                          {
-                            value: "responses" as const,
-                            label: "Responses API",
-                            hint: "/v1/responses · OpenAI, Azure OpenAI",
-                          },
-                        ]
-                      ).map((option) => {
-                        const active = customApiType === option.value;
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => {
-                              setCustomApiType(option.value);
-                              setCustomApiTypeTouched(true);
-                            }}
-                            disabled={actionDisabled || customBusy}
-                            className={`rounded-xl border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                              active
-                                ? "border-[rgba(var(--dls-accent-rgb),0.4)] bg-[rgba(var(--dls-accent-rgb),0.08)]"
-                                : "border-dls-border bg-dls-hover hover:bg-dls-active"
-                            }`}
-                          >
-                            <div className="text-[13px] font-medium text-dls-text">{option.label}</div>
-                            <div className="mt-0.5 font-mono text-[10px] text-dls-secondary">{option.hint}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="text-[11px] text-dls-secondary">
-                      {customApiType === "responses"
-                        ? t("provider_auth.uses_openai_sdk")
-                        : t("provider_auth.uses_compatible_sdk")}
-                    </div>
-                  </div>
-
-                  <TextInput
-                    label={isEditingCustomProvider ? "API key" : "API key (optional)"}
-                    type="password"
-                    placeholder={isEditingCustomProvider ? t("provider_auth.leave_blank_key") : "sk-..."}
-                    value={customApiKey}
-                    onChange={(event) => {
-                      customRequestRef.current += 1;
-                      setCustomFetching(false);
-                      setCustomFetchedModels([]);
-                      setCustomApiKey(event.currentTarget.value);
-                      if (localError) setLocalError(null);
-                    }}
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    disabled={actionDisabled || customBusy}
-                  />
-
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs font-medium text-dls-text">Models</div>
-                      <button
-                        type="button"
-                        onClick={() => void fetchCustomModels()}
-                        disabled={actionDisabled || customBusy || customFetching || !customBaseURL.trim()}
-                        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-dls-accent transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {customFetching ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                        {customFetching ? "Fetching…" : t("provider_auth.fetch_from_endpoint")}
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
+                      <TextInput
+                        label={t("provider_auth.name")}
                         type="text"
-                        placeholder={t("providers.add_model_placeholder")}
-                        value={customModelInput}
+                        placeholder={t("providers.name_placeholder")}
+                        value={customName}
                         onChange={(event) => {
-                          setCustomModelInput(event.currentTarget.value);
+                          setCustomName(event.currentTarget.value);
                           if (localError) setLocalError(null);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
-                          event.preventDefault();
-                          handleAddCustomModelFromInput();
                         }}
                         autoComplete="off"
                         autoCapitalize="off"
                         spellCheck={false}
                         disabled={actionDisabled || customBusy}
-                        className="h-9 flex-1 rounded-lg border border-dls-border bg-dls-surface px-3 font-mono text-[13px] text-dls-text transition-colors placeholder:font-sans placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.5)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.16)] disabled:cursor-not-allowed disabled:opacity-60"
                       />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 gap-1"
-                        onClick={handleAddCustomModelFromInput}
-                        disabled={actionDisabled || customBusy || !customModelInput.trim()}
-                      >
-                        <Plus size={14} />
-                        Add
-                      </Button>
-                    </div>
-
-                    {customModels.length ? (
-                      <div className="divide-y divide-dls-border overflow-hidden rounded-xl border border-dls-border">
-                        {customModels.map((model) => (
-                          <div key={model.id} className="group/model px-3 py-2.5">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="truncate font-mono text-[12.5px] text-dls-text">{model.id}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeCustomModelId(model.id)}
-                                disabled={actionDisabled || customBusy}
-                                aria-label={t("provider_auth.remove_model", { model: model.id })}
-                                className="-mr-1 shrink-0 rounded-md p-1 text-dls-secondary opacity-0 transition-all hover:bg-dls-hover hover:text-dls-text focus-visible:opacity-100 group-hover/model:opacity-100 disabled:opacity-0"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                            <div className="mt-2 flex items-center gap-5">
-                              <label className="flex cursor-pointer select-none items-center gap-2">
-                                <Switch
-                                  size="sm"
-                                  checked={model.toolCall}
-                                  onCheckedChange={(checked) => updateCustomModel(model.id, { toolCall: checked })}
-                                  disabled={actionDisabled || customBusy}
-                                />
-                                <span className={`text-[11px] ${model.toolCall ? "text-dls-text" : "text-dls-secondary"}`}>
-                                  Tools
-                                </span>
-                              </label>
-                              <label className="flex cursor-pointer select-none items-center gap-2">
-                                <Switch
-                                  size="sm"
-                                  checked={model.reasoning}
-                                  onCheckedChange={(checked) => updateCustomModel(model.id, { reasoning: checked })}
-                                  disabled={actionDisabled || customBusy}
-                                />
-                                <span className={`text-[11px] ${model.reasoning ? "text-dls-text" : "text-dls-secondary"}`}>
-                                  Reasoning
-                                </span>
-                              </label>
-                              <div className="ml-auto flex items-center gap-1.5">
-                                <span className="text-[11px] text-dls-secondary">Context</span>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  placeholder="auto"
-                                  value={model.contextLimit}
-                                  onChange={(event) =>
-                                    updateCustomModel(model.id, { contextLimit: event.currentTarget.value })
-                                  }
-                                  disabled={actionDisabled || customBusy}
-                                  className="w-16 rounded-md border border-transparent bg-dls-hover px-2 py-1 text-right font-mono text-[11px] text-dls-text transition-colors placeholder:text-dls-secondary focus:border-dls-border focus:bg-dls-surface focus:outline-none disabled:opacity-60"
-                                />
-                                <span className="text-[11px] text-dls-secondary">Output</span>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  placeholder={outputLimitPlaceholder(model.contextLimit)}
-                                  title={t("providers.output_limit_hint")}
-                                  value={model.outputLimit}
-                                  onChange={(event) =>
-                                    updateCustomModel(model.id, { outputLimit: event.currentTarget.value })
-                                  }
-                                  disabled={actionDisabled || customBusy}
-                                  className="w-16 rounded-md border border-transparent bg-dls-hover px-2 py-1 text-right font-mono text-[11px] text-dls-text transition-colors placeholder:text-dls-secondary focus:border-dls-border focus:bg-dls-surface focus:outline-none disabled:opacity-60"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-dls-border px-3 py-4 text-center text-[11px] leading-relaxed text-dls-secondary">
-                        {t("providers.no_models_custom")}
-                        <br />
-                        {t("providers.add_or_fetch")}
-                      </div>
-                    )}
-
-                    {customFetchedModels.length ? (
-                      <div className="space-y-1.5 pt-0.5">
-                        <div className="text-[10px] font-medium uppercase tracking-wide text-dls-secondary">
-                          {t("providers.from_endpoint")}
+                      {customFixedProviderId ? (
+                        <div className="-mt-2 text-[11px] text-dls-secondary">
+                          Provider ID: <span className="font-mono">{customFixedProviderId}</span> (fixed)
                         </div>
-                        <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
-                          {customFetchedModels.map((id) => {
-                            const added = customModelExists(id);
+                      ) : customName.trim() ? (
+                        <div className="-mt-2 text-[11px] text-dls-secondary">
+                          Provider ID: <span className="font-mono">{slugifyProviderId(customName)}</span>
+                        </div>
+                      ) : null}
+
+                      <TextInput
+                        label={t("provider_auth.base_url")}
+                        type="text"
+                        placeholder={customBaseUrlPlaceholder}
+                        value={customBaseURL}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          customRequestRef.current += 1;
+                          setCustomFetching(false);
+                          setCustomFetchedModels([]);
+                          if (isLmStudio) setCustomModels([]);
+                          setCustomBaseURL(value);
+                          // Default OpenAI/Azure URLs to the Responses API; the user
+                          // can still override. Once they pick manually, stop inferring.
+                          if (!customApiTypeTouched) setCustomApiType(inferCustomApiType(value));
+                          if (localError) setLocalError(null);
+                        }}
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        disabled={actionDisabled || customBusy}
+                      />
+
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-medium text-dls-secondary">{t("providers.api_type")}</div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {(
+                            [
+                              {
+                                value: "chat" as const,
+                                label: "Chat Completions",
+                                hint: "/v1/chat/completions · most endpoints",
+                              },
+                              {
+                                value: "responses" as const,
+                                label: "Responses API",
+                                hint: "/v1/responses · OpenAI, Azure OpenAI",
+                              },
+                            ]
+                          ).map((option) => {
+                            const active = customApiType === option.value;
                             return (
                               <button
-                                key={id}
+                                key={option.value}
                                 type="button"
-                                onClick={() => addCustomModelId(id)}
-                                disabled={actionDisabled || customBusy || added}
-                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
-                                  added
-                                    ? "cursor-default border-transparent bg-dls-hover text-dls-secondary"
-                                    : "border-dls-border text-dls-text hover:border-[rgba(var(--dls-accent-rgb),0.4)] hover:bg-[rgba(var(--dls-accent-rgb),0.06)]"
+                                onClick={() => {
+                                  setCustomApiType(option.value);
+                                  setCustomApiTypeTouched(true);
+                                }}
+                                disabled={actionDisabled || customBusy}
+                                className={`rounded-xl border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                                  active
+                                    ? "border-[rgba(var(--dls-accent-rgb),0.4)] bg-[rgba(var(--dls-accent-rgb),0.08)]"
+                                    : "border-dls-border bg-dls-hover hover:bg-dls-active"
                                 }`}
                               >
-                                {added ? <Check size={11} /> : <Plus size={11} />}
-                                {id}
+                                <div className="text-[13px] font-medium text-dls-text">{option.label}</div>
+                                <div className="mt-0.5 font-mono text-[10px] text-dls-secondary">{option.hint}</div>
                               </button>
                             );
                           })}
                         </div>
+                        <div className="text-[11px] text-dls-secondary">
+                          {customApiType === "responses"
+                            ? t("provider_auth.uses_openai_sdk")
+                            : t("provider_auth.uses_compatible_sdk")}
+                        </div>
                       </div>
-                    ) : null}
 
-                    {customModels.length ? (
-                      <div className="text-[11px] text-dls-secondary">
-                        {t("providers.reasoning_autodetect")}
+                      <TextInput
+                        label={isEditingCustomProvider ? "API key" : "API key (optional)"}
+                        type="password"
+                        placeholder={isEditingCustomProvider ? t("provider_auth.leave_blank_key") : "sk-..."}
+                        value={customApiKey}
+                        onChange={(event) => {
+                          customRequestRef.current += 1;
+                          setCustomFetching(false);
+                          setCustomFetchedModels([]);
+                          setCustomApiKey(event.currentTarget.value);
+                          if (localError) setLocalError(null);
+                        }}
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        disabled={actionDisabled || customBusy}
+                      />
+                    </div>
+                  ) : null}
+
+                  <div ref={customModelsSectionRef} className={`space-y-3 ${props.customModelsOnly ? "" : "border-t border-dls-border pt-5"}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-medium text-dls-text">{t("provider_auth.models_to_use")}</h3>
+                        <span className="rounded-full bg-dls-hover px-2 py-0.5 text-[11px] text-dls-secondary">
+                          {t("provider_auth.models_selected", { count: customModels.length })}
+                        </span>
                       </div>
-                    ) : null}
-                  </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void fetchCustomModels()}
+                        disabled={actionDisabled || customBusy || customFetching || !customBaseURL.trim()}
+                      >
+                        {customFetching ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                        {t(customFetching ? "provider_auth.loading_models" : customEditMode ? "provider_auth.refresh_models" : "provider_auth.fetch_from_endpoint")}
+                      </Button>
+                    </div>
+                    {!props.customModelsOnly ? <p className="text-xs text-dls-secondary">{t("provider_auth.select_models_hint")}</p> : null}
 
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-dls-secondary">{t("providers.keys_stored_locally")}</div>
-                    <Button
-                      onClick={() => void handleCustomSubmit()}
-                      disabled={
-                        actionDisabled ||
-                        customBusy ||
-                        customFetching ||
-                        !customName.trim() ||
-                        !customBaseURL.trim() ||
-                        (customModels.length === 0 && !customModelInput.trim())
-                      }
-                    >
-                      {customBusy
-                        ? isEditingCustomProvider
-                          ? "Saving…"
-                          : "Adding…"
-                        : isEditingCustomProvider
-                          ? t("provider_auth.save_changes")
-                          : t("provider_auth.add_provider")}
-                    </Button>
+                    {customModelChoices.length ? (
+                      <TextInput
+                        type="search"
+                        aria-label={t("provider_auth.search_models")}
+                        placeholder={t("provider_auth.search_models")}
+                        value={customModelSearch}
+                        onChange={event => setCustomModelSearch(event.currentTarget.value)}
+                        disabled={actionDisabled || customBusy}
+                      />
+                    ) : null}
+                    {filteredCustomModelChoices.length ? (
+                      <div className="divide-y divide-dls-border overflow-hidden rounded-xl border border-dls-border">
+                        {filteredCustomModelChoices.map(id => {
+                          const model = customModels.find(model => model.id === id);
+                          const displayName = modelDisplayName(id, customModelNames.get(id));
+                          return (
+                            <Collapsible key={id} className="px-3 py-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                                  <Checkbox
+                                    className="border-dls-border"
+                                    checked={Boolean(model)}
+                                    onCheckedChange={checked => checked ? addCustomModelId(id) : removeCustomModelId(id)}
+                                    disabled={actionDisabled || customBusy}
+                                    aria-label={t("provider_auth.use_model", { model: displayName })}
+                                  />
+                                  <span className="min-w-0" title={id}>
+                                    <span className="block truncate text-[13px] font-medium text-dls-text">{displayName}</span>
+                                    <span className="mt-0.5 block truncate font-mono text-[11px] text-dls-secondary">{id}</span>
+                                  </span>
+                                </label>
+                                {model ? (
+                                  <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="group h-7 shrink-0 gap-1 text-[11px]" />}>
+                                    {t("provider_auth.model_settings")}
+                                    <ChevronDown size={12} className="transition-transform group-aria-expanded:rotate-180" />
+                                  </CollapsibleTrigger>
+                                ) : null}
+                              </div>
+                              {model ? (
+                                <CollapsibleContent>
+                                  <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-3">
+                                    <label className="flex cursor-pointer select-none items-center gap-2">
+                                      <Switch
+                                        size="sm"
+                                        checked={model.toolCall}
+                                        onCheckedChange={(checked) => updateCustomModel(model.id, { toolCall: checked })}
+                                        disabled={actionDisabled || customBusy}
+                                      />
+                                      <span className={`text-[11px] ${model.toolCall ? "text-dls-text" : "text-dls-secondary"}`}>
+                                        Tools
+                                      </span>
+                                    </label>
+                                    <label className="flex cursor-pointer select-none items-center gap-2">
+                                      <Switch
+                                        size="sm"
+                                        checked={model.reasoning}
+                                        onCheckedChange={(checked) => updateCustomModel(model.id, { reasoning: checked })}
+                                        disabled={actionDisabled || customBusy}
+                                      />
+                                      <span className={`text-[11px] ${model.reasoning ? "text-dls-text" : "text-dls-secondary"}`}>
+                                        Reasoning
+                                      </span>
+                                    </label>
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:ml-auto">
+                                      <label className="flex items-center gap-1.5">
+                                        <span className="text-[11px] text-dls-secondary">Context</span>
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          placeholder="auto"
+                                          value={model.contextLimit}
+                                          onChange={(event) =>
+                                            updateCustomModel(model.id, { contextLimit: event.currentTarget.value })
+                                          }
+                                          disabled={actionDisabled || customBusy}
+                                          className="w-16 rounded-md border border-transparent bg-dls-hover px-2 py-1 text-right font-mono text-[11px] text-dls-text transition-colors placeholder:text-dls-secondary focus:border-dls-border focus:bg-dls-surface focus:outline-none disabled:opacity-60"
+                                        />
+                                      </label>
+                                      <label className="flex items-center gap-1.5">
+                                        <span className="text-[11px] text-dls-secondary">Output</span>
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          placeholder={outputLimitPlaceholder(model.contextLimit)}
+                                          title={t("providers.output_limit_hint")}
+                                          value={model.outputLimit}
+                                          onChange={(event) =>
+                                            updateCustomModel(model.id, { outputLimit: event.currentTarget.value })
+                                          }
+                                          disabled={actionDisabled || customBusy}
+                                          className="w-16 rounded-md border border-transparent bg-dls-hover px-2 py-1 text-right font-mono text-[11px] text-dls-text transition-colors placeholder:text-dls-secondary focus:border-dls-border focus:bg-dls-surface focus:outline-none disabled:opacity-60"
+                                        />
+                                      </label>
+                                    </div>
+                                  </div>
+                                  <p className="mt-2 text-[11px] text-dls-secondary">{t("providers.reasoning_autodetect")}</p>
+                                </CollapsibleContent>
+                              ) : null}
+                            </Collapsible>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-dls-border px-3 py-4 text-center text-xs text-dls-secondary">
+                        {t(customModelChoices.length ? "provider_auth.no_matching_models" : "provider_auth.load_models_hint")}
+                      </div>
+                    )}
+
+                    <Collapsible>
+                      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="group -ml-2 gap-1 text-xs text-dls-secondary" />}>
+                        <Plus size={14} />
+                        {t("provider_auth.add_model_manually")}
+                        <ChevronDown size={12} className="transition-transform group-aria-expanded:rotate-180" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="pt-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder={t("providers.add_model_placeholder")}
+                            value={customModelInput}
+                            onChange={(event) => {
+                              setCustomModelInput(event.currentTarget.value);
+                              if (localError) setLocalError(null);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return;
+                              event.preventDefault();
+                              handleAddCustomModelFromInput();
+                            }}
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            disabled={actionDisabled || customBusy}
+                            className="h-9 min-w-0 flex-1 rounded-lg border border-dls-border bg-dls-surface px-3 font-mono text-[13px] text-dls-text transition-colors placeholder:font-sans placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.5)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.16)] disabled:cursor-not-allowed disabled:opacity-60"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 gap-1"
+                            onClick={handleAddCustomModelFromInput}
+                            disabled={actionDisabled || customBusy || !customModelInput.trim()}
+                          >
+                            <Plus size={14} />
+                            Add
+                          </Button>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+
+                    <div className="space-y-2 border-t border-dls-border pt-4">
+                      <label className="flex cursor-pointer items-center justify-between gap-3">
+                        <span className="text-xs font-medium text-dls-text">{t("provider_auth.auto_refresh_models")}</span>
+                        <Switch size="sm" checked={customAutoRefresh} onCheckedChange={(checked) => {
+                          setCustomAutoRefresh(checked);
+                          setCustomAutoRefreshTouched(true);
+                        }} disabled={actionDisabled || customBusy || customFetching} />
+                      </label>
+                      <p className="text-[11px] text-dls-secondary">{t("provider_auth.auto_refresh_models_hint")}</p>
+                      {customRefreshStatus?.lastUpdatedAt ? <p className="text-[11px] text-dls-secondary">{t("provider_auth.models_updated", { time: new Date(customRefreshStatus.lastUpdatedAt).toLocaleString() })}</p> : null}
+                      {customRefreshStatus?.pendingReload ? <p className="text-[11px] text-dls-secondary">{t("provider_auth.models_waiting")}</p> : null}
+                      {customRefreshStatus?.lastError && !localError ? <p role="status" className="text-[11px] text-dls-secondary">{customRefreshStatus.lastError}</p> : null}
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -2013,16 +2145,34 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           ) : null}
         </div>
 
-        <DialogFooter className="shrink-0 flex-col gap-3">
-          <div className="min-h-[16px] text-xs text-dls-secondary">
-            {props.submitting ? submittingLabel() : null}
+        <DialogFooter className="shrink-0 items-center gap-3">
+          {props.submitting ? <div role="status" className="text-xs text-dls-secondary">{submittingLabel()}</div> : null}
+          {resolvedView === "custom" ? <div className="text-[11px] text-dls-secondary sm:mr-auto">{t("providers.keys_stored_locally")}</div> : null}
+          <div className="flex w-full justify-end gap-2 sm:w-auto">
+            <DialogClose
+              disabled={actionDisabled || customBusy}
+              render={<Button variant="outline" disabled={actionDisabled || customBusy} />}
+            >
+              {t(resolvedView === "custom" ? "common.cancel" : "common.close")}
+            </DialogClose>
+            {resolvedView === "custom" ? (
+              <Button
+                onClick={() => void handleCustomSubmit()}
+                disabled={
+                  actionDisabled ||
+                  customBusy ||
+                  customFetching ||
+                  !customName.trim() ||
+                  !customBaseURL.trim() ||
+                  customModels.length === 0
+                }
+              >
+                {customBusy
+                  ? isEditingCustomProvider ? "Saving…" : "Adding…"
+                  : isEditingCustomProvider ? t("provider_auth.save_changes") : t("provider_auth.add_provider")}
+              </Button>
+            ) : null}
           </div>
-          <DialogClose
-            disabled={actionDisabled}
-            render={<Button variant="outline" disabled={actionDisabled} />}
-          >
-            {t("common.close")}
-          </DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -53,6 +53,7 @@ type ConnectedProvider = {
 type EigenweltConnectionView = {
   connected: boolean;
   entitlements: {
+    plan?: string | null;
     subscriptionStatus: string | null;
     features?: string[] | null;
   } | null;
@@ -75,6 +76,16 @@ export type AiAccessInput = {
 
 const servesModels = (provider: ConnectedProvider) =>
   Object.keys(provider.models ?? {}).length > 0;
+
+/** Provider setup follows a confirmed Sync subscription, never a plan click. */
+export function needsSyncProviderSetup(input: Pick<AiAccessInput, "connectedProviders" | "eigenwelt">): boolean {
+  const view = input.eigenwelt;
+  return Boolean(
+    input.connectedProviders && view?.connected && view.entitlements?.plan === "sync" &&
+    isEigenweltEntitledStatus(view.entitlements.subscriptionStatus) &&
+    !input.connectedProviders.some(provider => !NOT_OWN_PROVIDER_IDS.has(provider.id)),
+  );
+}
 
 export function aiAccessState(input: AiAccessInput): AiAccessState {
   const providers = input.connectedProviders;

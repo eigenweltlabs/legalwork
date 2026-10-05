@@ -12,6 +12,7 @@ import { resolveModelLimit } from "@legalwork/types/model-limits";
 
 export type CustomProviderModelFields = {
   id: string;
+  name?: string;
   toolCall: boolean;
   reasoning: boolean;
   /** Context-window size, or null when the engine default applies. */
@@ -30,7 +31,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  * gave, or the default for that context window.
  */
 export function customProviderModelEntry(
-  model: Partial<CustomProviderModelFields> & { id: string; name?: string },
+  model: Partial<CustomProviderModelFields> & { id: string },
 ): Record<string, unknown> {
   const entry: Record<string, unknown> = { name: model.name?.trim() || model.id };
   if (model.toolCall !== undefined) entry.tool_call = model.toolCall;
@@ -74,6 +75,7 @@ export function customProviderModelFromEntry(id: string, raw: unknown): CustomPr
   const limit = isPlainRecord(model.limit) ? model.limit : {};
   return {
     id,
+    ...(typeof model.name === "string" && model.name.trim() && model.name.trim() !== id ? { name: model.name.trim() } : {}),
     toolCall: typeof model.tool_call === "boolean" ? model.tool_call : true,
     reasoning: typeof model.reasoning === "boolean" ? model.reasoning : false,
     contextLimit: typeof limit.context === "number" ? limit.context : null,

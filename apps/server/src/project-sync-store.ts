@@ -10,6 +10,7 @@ import type { RemoteProjectFile } from "./eigenwelt-projects.js";
 import { openSqlite, runtimeDbPath, type Row, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
 
 /**
  * What this machine knows about its synced projects, in runtime.sqlite beside
@@ -190,6 +191,7 @@ const opSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("create") }),
   z.object({ kind: z.literal("remote"), remote: projectRemoteSchema, changedAt: z.string() }),
   z.object({ kind: z.literal("rename"), name: z.string(), changedAt: z.string() }),
+  z.object({ kind: z.literal("personalization"), prompt: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH), changedAt: z.string() }),
   z.object({
     kind: z.literal("fields"),
     changes: z.array(fieldChangeSchema),

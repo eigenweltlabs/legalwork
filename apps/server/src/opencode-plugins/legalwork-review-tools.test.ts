@@ -66,11 +66,13 @@ afterAll(() => { server.stop(true); if (originalUrl === undefined) delete proces
 const context = { directory: "/project", sessionID: "parent" };
 const id = "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911";
 
-test("DD report handoff redirects generated programs while allowing direct prose, arithmetic and other workflows", async () => {
+test.each(["workflow-assistant-due-diligence", "workflow-assistant-saas-acquisition-dd"])("%s report handoff redirects generated programs while allowing prose, arithmetic and other workflows", async (skillName) => {
   exportFixture = true;
   const dd = await LegalWorkReviewTools(), scoped = { ...context, sessionID: "direct-dd" };
-  await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "workflow-assistant-saas-acquisition-dd" } });
+  await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: skillName } });
+  await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "author-review-prompts" } });
   await dd.tool.legalwork_review_report_prepare.execute({ reviewIds: [id], evidenceIndexes: ["source-index.json"] }, scoped);
+  await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "docx-edit" } });
   for (const [tool,args] of [["bash", { command: "cat << 'EOF' > scratch/build_report.py\nimport json\nEOF" }],
     ["write", { filePath: "/project/scratch/build_report.py", content: "import json" }],
     ["bash", { command: "python3 -c 'import json; " + "print(1);".repeat(100) + "'" }]] satisfies Array<[string, Record<string, unknown>]>) {

@@ -39,6 +39,7 @@ import {
   readProjectDetails,
   setProjectSyncId,
   updateProjectDetails,
+  updateProjectPersonalization,
 } from "./project-store.js";
 import {
   projectSyncStore,
@@ -291,6 +292,7 @@ async function pushOne(
         id: link.projectId,
         name: nameOf(workspace),
         fields: link.settings.scope.metadata ? details.fields : [],
+        ...(link.settings.scope.metadata ? { personalizationPrompt: details.personalizationPrompt ?? "" } : {}),
         ...(details.remote ? { remote: details.remote } : {}),
         scope: { ...link.settings.scope, calendar: link.settings.scope.calendar !== false },
         access: link.settings.access,
@@ -301,6 +303,9 @@ async function pushOne(
         if (!repaired.project?.remote) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
       }
       if (details.remote && remote.remote === undefined) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
+      if (link.settings.scope.metadata && details.personalizationPrompt && remote.personalizationPrompt == null) {
+        await pushPersonalization(platform, client, link.projectId, details.personalizationPrompt);
+      }
       store.updateLink(link.workspaceId, {
         confirmed: true,
         ownerUserId: remote.ownerUserId,
@@ -318,6 +323,9 @@ async function pushOne(
     case "rename":
       await platform.patchProject(client, projectId, { name: op.name, changedAt: op.changedAt });
       return;
+    case "personalization":
+      if (link.settings.scope.metadata) await pushPersonalization(platform, client, projectId, op.prompt, op.changedAt);
+      return;
     case "fields":
       await platform.patchProject(client, projectId, {
         fieldChanges: op.changes,
@@ -332,6 +340,13 @@ async function pushOne(
         scope: op.settings.scope,
       });
       return;
+  }
+}
+
+async function pushPersonalization(platform: ProjectSyncPlatform, client: IntakeClient, projectId: string, prompt: string, changedAt?: string): Promise<void> {
+  const result = await platform.patchProject(client, projectId, { personalizationPrompt: prompt, changedAt });
+  if (result.project && (result.project.personalizationPrompt === undefined || (result.project.scope.metadata && result.project.personalizationPrompt === null))) {
+    throw new ApiError(503, "project_personalization_upgrade_required", "The team service needs an update before project instructions can sync.");
   }
 }
 
@@ -362,7 +377,7 @@ async function unregisteredCopy(config: ServerConfig, root: string, projectId: s
 }
 
 /** Take the firm's details, keeping each one with a change here still on its way up. */
-async function applyRemoteFields(store: ProjectSyncStore, link: ProjectLink, workspace: WorkspaceInfo, remote: RemoteProject): Promise<void> {
+async function applyRemoteDetails(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, workspace: WorkspaceInfo, remote: RemoteProject): Promise<void> {
   const pending = store.pendingOps(link.projectId);
   const dirty = new Set(pending.flatMap((op) => (op.kind === "fields" ? op.changes.map((change) => change.id) : [])));
   const orderDirty = pending.some((op) => op.kind === "fields" && op.order !== null);
@@ -382,8 +397,15 @@ async function applyRemoteFields(store: ProjectSyncStore, link: ProjectLink, wor
         return indexOf(a.id) - indexOf(b.id);
       })
     : merged;
-  if (JSON.stringify(ordered) === JSON.stringify(current.fields)) return;
-  await updateProjectDetails(workspace.path, { revision: current.revision, fields: ordered });
+  const updated = JSON.stringify(ordered) === JSON.stringify(current.fields) ? current
+    : await updateProjectDetails(workspace.path, { revision: current.revision, fields: ordered });
+  if (pending.some((op) => op.kind === "personalization")) return;
+  if (remote.personalizationPrompt === null && updated.personalizationPrompt) {
+    // Existing shared projects gain instructions without erasing a saved local prompt.
+    await noteProjectPersonalizationSaved(config, workspace.id, "", updated.personalizationPrompt);
+  } else if (typeof remote.personalizationPrompt === "string" && remote.personalizationPrompt !== (updated.personalizationPrompt ?? "")) {
+    await updateProjectPersonalization(workspace.path, { revision: updated.revision, customInstructions: remote.personalizationPrompt });
+  }
 }
 
 /**
@@ -443,7 +465,7 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
     report: null,
   };
   store.saveLink(link);
-  if (remote.scope.metadata) await applyRemoteFields(store, link, workspace, remote);
+  if (remote.scope.metadata) await applyRemoteDetails(config, store, link, workspace, remote);
   if (remote.remote) await updateProjectRemote(workspace.path, remote.remote);
   const tasks = await taskStore(config);
   tasks.linkRemoteProjectTasks(remote.id, workspace.id);
@@ -487,7 +509,7 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
     if (JSON.stringify(current.remote) !== JSON.stringify(remote.remote)) await updateProjectRemote(workspace.path, remote.remote, current.revision);
   }
   if (settings.scope.metadata && (await folderAvailable(workspace.path))) {
-    await applyRemoteFields(store, { ...link, settings }, workspace, remote);
+    await applyRemoteDetails(config, store, { ...link, settings }, workspace, remote);
   }
 }
 
@@ -1036,6 +1058,10 @@ export async function saveProjectSyncSettings(
   } else {
     store.updateLink(workspace.id, { settings, lastError: null });
     store.enqueue(link.projectId, { kind: "settings", settings: { ...settings, scope: { ...settings.scope, calendar: settings.scope.calendar !== false } } });
+    if (!link.settings.scope.metadata && settings.scope.metadata && await folderAvailable(workspace.path)) {
+      const details = await readProjectDetails(workspace.path);
+      store.enqueue(link.projectId, { kind: "personalization", prompt: details.personalizationPrompt ?? "", changedAt: new Date().toISOString() });
+    }
     if (link.settings.scope.tasks && !settings.scope.tasks) tasks.keepProjectTasksLocal(workspace.id);
     if (!link.settings.scope.tasks && settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   }
@@ -1165,6 +1191,15 @@ export async function resolveProjectSync(
 }
 
 // --- Local edits the firm has to hear about -----------------------------------------------
+
+export async function noteProjectPersonalizationSaved(config: ServerConfig, workspaceId: string, before: string, after: string): Promise<void> {
+  if (before === after) return;
+  const store = await projectSyncStore(config);
+  const link = store.linkByWorkspace(workspaceId);
+  if (!link || link.state !== "active" || !link.settings.scope.metadata) return;
+  store.enqueue(link.projectId, { kind: "personalization", prompt: after, changedAt: new Date().toISOString() });
+  scheduleProjectSync(config);
+}
 
 export async function noteProjectDetailsSaved(
   config: ServerConfig,

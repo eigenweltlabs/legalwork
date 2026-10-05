@@ -139,7 +139,7 @@ async function postSessionRequest<T>(
   return { error, request, response };
 }
 
-function resolveLegalworkWorkspaceMount(baseUrl: string): { baseUrl: string; workspaceId: string } | null {
+export function resolveLegalworkWorkspaceMount(baseUrl: string): { baseUrl: string; workspaceId: string } | null {
   try {
     const url = new URL(baseUrl);
     const match = url.pathname
