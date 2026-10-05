@@ -33,6 +33,7 @@ import {
   legalworkExcelToolsPluginPath,
   legalworkPowerPointToolsPluginPath,
   legalworkBenchmarkToolsPluginPath,
+  legalworkOrgPolicyGuardPluginPath,
 } from "./legalwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
 import {
@@ -50,8 +51,10 @@ import {
   runtimeMcpMap,
   runtimePluginList,
   runtimeStorageDir,
+  type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { buildPersonalizedAgentPrompt } from "./personalization.js";
+import { buildOrgPolicyEngineLayer, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
 const OPENCODE_ZEN_PROVIDER_ID = "opencode";
@@ -173,18 +176,22 @@ async function bundledPluginSpec(absolutePath: string, config?: ServerConfig): P
   return url.href;
 }
 
-export async function buildLegalworkRuntimeConfigObject(
-  config?: ServerConfig,
-  workspaceId?: string,
-): Promise<Record<string, unknown>> {
-  // Tool permissions are global (one safety posture across workspaces);
-  // the workspace row only contributes external_directory.
-  const runtimeConfig = config && workspaceId
+// Tool permissions are global (one safety posture across workspaces);
+// the workspace row only contributes external_directory.
+async function memberRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<RuntimeOpencodeConfig> {
+  return config && workspaceId
     ? applyGlobalToolPermissions(
         await readRuntimeOpencodeConfig(config, workspaceId),
         await readGlobalToolPermissions(config),
       )
     : {};
+}
+
+export async function buildLegalworkRuntimeConfigObject(
+  config?: ServerConfig,
+  workspaceId?: string,
+): Promise<Record<string, unknown>> {
+  const runtimeConfig = await memberRuntimeConfig(config, workspaceId);
   const personalization = config
     ? await readGlobalPersonalizationSettings(config)
     : null;
@@ -230,7 +237,10 @@ export async function buildLegalworkRuntimeConfigObject(
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
-  const permission = { ...runtimeConfig.permission };
+  // The firm's tool permissions apply over the member's own.
+  const { permission } = config
+    ? await orgPolicyPermissions(config, { ...runtimeConfig.permission })
+    : { permission: { ...runtimeConfig.permission } };
   const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
   // Append the specific rule after wildcard rules; approvals cannot be saved
   // for this tool, so every proposed instructions change is reviewed.
@@ -275,11 +285,18 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
+      bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       ...runtimePluginList(runtimeConfig),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
+}
+
+/** The firm's enforced engine layer, against the member's own settings of `workspaceId`. */
+export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {
+  const own = await memberRuntimeConfig(config, workspaceId);
+  return buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } });
 }
 
 export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
@@ -326,6 +343,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const tmp = `${path}.${randomUUID()}.tmp`;
     await writeFile(tmp, content, "utf8");
     await rename(tmp, path);
+    // The firm's enforced layer is rewritten with it, before every reload.
+    await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
   const next = previous.then(job, job);

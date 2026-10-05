@@ -26,9 +26,12 @@ import {
   applyPermissionPatch,
   applyQuickToggle,
   MANAGED_PERMISSION_TOOLS,
+  parseToolPermissions,
+  QUICK_TOGGLE_TOOLS,
   quickToggleChecked,
   readPermissionRecord,
   serializeToolPermissionsPatch,
+  withFirmPermissions,
   type ManagedPermissionTool,
   type PermissionAction,
   type QuickPermissionToggle,
@@ -39,6 +42,8 @@ import {
   toolPermissionsReducer,
 } from "./tool-permissions-panel-state";
 import { SettingsNotice } from "../settings-section";
+import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 import {
   LayoutSectionItem,
   LayoutSectionItemDescription,
@@ -244,6 +249,16 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
     };
   }, [canReadConfig, props.legalworkServerClient, props.runtimeWorkspaceId]);
 
+  // The firm's rules show over the member's own while they apply; changing a
+  // tool the firm manages takes them back first (asking after sign-out).
+  const firm = useOrgPolicy("tools.permissions");
+  const model = useMemo(
+    () => (firm ? parseToolPermissions(withFirmPermissions(state.loadedPermission, firm)) : state.model),
+    [firm, state.loadedPermission, state.model],
+  );
+  const firmManages = (tool: ManagedPermissionTool) => firm?.value[tool] !== undefined;
+  const lockedTool = (tool: ManagedPermissionTool) => firm?.locked === true && firmManages(tool);
+
   const persistModel = useCallback(async (nextModel: ToolPermissionsModel) => {
     const legalworkClient = props.legalworkServerClient;
     const legalworkWorkspaceId = props.runtimeWorkspaceId;
@@ -271,35 +286,47 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
     }
   }, [canWriteConfig, props.legalworkServerClient, props.onConfigUpdated, props.runtimeWorkspaceId, state.loadedPermission]);
 
+  const commit = useCallback((tools: ManagedPermissionTool[], nextModel: ToolPermissionsModel) => {
+    if (tools.some((tool) => firm?.value[tool] !== undefined)) {
+      void changeOrgPolicySetting("tools.permissions", () => persistModel(nextModel));
+      return;
+    }
+    // Only the member's own tools change: the firm's keep the member's values underneath.
+    const own = parseToolPermissions(state.loadedPermission);
+    const next = { ...nextModel };
+    for (const tool of MANAGED_PERMISSION_TOOLS) if (firm?.value[tool] !== undefined) next[tool] = own[tool];
+    void persistModel(next);
+  }, [firm, persistModel, state.loadedPermission]);
+
   const setToolAction = useCallback((tool: ManagedPermissionTool, action: PermissionAction) => {
     captureAnalyticsEvent("tool_permission_changed", { tool, action });
-    const nextModel = { ...state.model, [tool]: { ...state.model[tool], action } };
-    void persistModel(nextModel);
-  }, [persistModel, state.model]);
+    const nextModel = { ...model, [tool]: { ...model[tool], action } };
+    commit([tool], nextModel);
+  }, [commit, model]);
 
   const setBashRuleAction = useCallback((pattern: string, action: PermissionAction) => {
     const nextModel = {
-      ...state.model,
+      ...model,
       bash: {
-        ...state.model.bash,
-        rules: state.model.bash.rules.map((rule) =>
+        ...model.bash,
+        rules: model.bash.rules.map((rule) =>
           rule.pattern === pattern ? { ...rule, action } : rule,
         ),
       },
     };
-    void persistModel(nextModel);
-  }, [persistModel, state.model]);
+    commit(["bash"], nextModel);
+  }, [commit, model]);
 
   const removeBashRule = useCallback((pattern: string) => {
     const nextModel = {
-      ...state.model,
+      ...model,
       bash: {
-        ...state.model.bash,
-        rules: state.model.bash.rules.filter((rule) => rule.pattern !== pattern),
+        ...model.bash,
+        rules: model.bash.rules.filter((rule) => rule.pattern !== pattern),
       },
     };
-    void persistModel(nextModel);
-  }, [persistModel, state.model]);
+    commit(["bash"], nextModel);
+  }, [commit, model]);
 
   const addBashRule = useCallback(() => {
     const pattern = rulePatternDraft.trim();
@@ -308,22 +335,22 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
       dispatch({ type: "notice", status: t("tool_permissions.rule_wildcard_reserved") });
       return;
     }
-    if (state.model.bash.rules.some((rule) => rule.pattern === pattern)) {
+    if (model.bash.rules.some((rule) => rule.pattern === pattern)) {
       dispatch({ type: "notice", status: t("tool_permissions.rule_exists") });
       return;
     }
     const nextModel = {
-      ...state.model,
+      ...model,
       bash: {
         // Rules need an explicit "*" fallback; default to the current
         // effective behavior (allow) when no command default is set yet.
-        action: state.model.bash.action ?? "allow",
-        rules: [...state.model.bash.rules, { pattern, action: ruleActionDraft }],
+        action: model.bash.action ?? "allow",
+        rules: [...model.bash.rules, { pattern, action: ruleActionDraft }],
       },
     };
     setRulePatternDraft("");
-    void persistModel(nextModel);
-  }, [persistModel, ruleActionDraft, rulePatternDraft, state.model]);
+    commit(["bash"], nextModel);
+  }, [commit, model, ruleActionDraft, rulePatternDraft]);
 
   const busy = state.loading || state.saving;
   const quick = props.variant === "quick";
@@ -338,6 +365,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
           <LayoutSectionItemDescription>
             {t("tool_permissions.desc")}
           </LayoutSectionItemDescription>
+          <OrgPolicyNote policyKey="tools.permissions" />
         </LayoutSectionItemHeader>
       )}
 
@@ -357,11 +385,11 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
               >
                 <Switch
                   aria-label={quickToggleLabels(toggle).title}
-                  checked={quickToggleChecked(state.model, toggle)}
-                  disabled={busy || !canWriteConfig}
+                  checked={quickToggleChecked(model, toggle)}
+                  disabled={busy || !canWriteConfig || lockedTool(QUICK_TOGGLE_TOOLS[toggle])}
                   onCheckedChange={(checked) => {
                     captureAnalyticsEvent("quick_permission_toggled", { toggle, enabled: checked });
-                    void persistModel(applyQuickToggle(state.model, toggle, checked));
+                    commit([QUICK_TOGGLE_TOOLS[toggle]], applyQuickToggle(model, toggle, checked));
                   }}
                 />
               </PermissionRow>
@@ -388,9 +416,9 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
                     description={toolLabels(tool).description}
                   >
                     <ActionSelect
-                      value={state.model[tool].action}
+                      value={model[tool].action}
                       ariaLabel={toolLabels(tool).title}
-                      disabled={busy || !canWriteConfig}
+                      disabled={busy || !canWriteConfig || lockedTool(tool)}
                       onChange={(action) => setToolAction(tool, action)}
                     />
                   </PermissionRow>
@@ -408,9 +436,9 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
                   {t("tool_permissions.bash_rules_desc")}
                 </span>
               </div>
-              {state.model.bash.rules.length > 0 ? (
+              {model.bash.rules.length > 0 ? (
                 <PermissionGroup>
-                  {state.model.bash.rules.map((rule) => (
+                  {model.bash.rules.map((rule) => (
                     <div
                       key={rule.pattern}
                       className="flex flex-row items-center justify-between gap-3 px-4 py-3.5"
@@ -422,7 +450,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
                         <ActionSelect
                           value={rule.action}
                           ariaLabel={t("tool_permissions.rule_action_label", undefined, { pattern: rule.pattern })}
-                          disabled={busy || !canWriteConfig}
+                          disabled={busy || !canWriteConfig || lockedTool("bash")}
                           onChange={(action) => setBashRuleAction(rule.pattern, action)}
                         />
                         <Button
@@ -430,7 +458,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
                           size="icon-sm"
                           className="shrink-0 text-muted-foreground hover:text-destructive"
                           onClick={() => removeBashRule(rule.pattern)}
-                          disabled={busy || !canWriteConfig}
+                          disabled={busy || !canWriteConfig || lockedTool("bash")}
                           aria-label={t("tool_permissions.remove_rule", undefined, { pattern: rule.pattern })}
                         >
                           <X size={14} />
@@ -452,18 +480,18 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
                   }}
                   placeholder={t("tool_permissions.pattern_placeholder")}
                   aria-label={t("tool_permissions.pattern_placeholder")}
-                  disabled={busy || !canWriteConfig}
+                  disabled={busy || !canWriteConfig || lockedTool("bash")}
                   className="font-mono"
                 />
                 <ActionSelect
                   value={ruleActionDraft}
                   ariaLabel={t("tool_permissions.add_rule")}
-                  disabled={busy || !canWriteConfig}
+                  disabled={busy || !canWriteConfig || lockedTool("bash")}
                   onChange={setRuleActionDraft}
                 />
                 <Button
                   onClick={addBashRule}
-                  disabled={busy || !canWriteConfig || !rulePatternDraft.trim()}
+                  disabled={busy || !canWriteConfig || lockedTool("bash") || !rulePatternDraft.trim()}
                 >
                   <Plus className="size-4" />
                   {t("tool_permissions.add_rule")}

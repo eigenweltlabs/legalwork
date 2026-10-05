@@ -135,6 +135,7 @@ import {
 } from "./legalwork-workspace-config-store.js";
 import {
   buildLegalworkRuntimeConfigObject,
+  buildOrgPolicyEngineLayerFor,
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
@@ -192,8 +193,9 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
-import { onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, scheduleOrgPolicySync } from "./org-policy.js";
-import { isOrgPolicyKey } from "@legalwork/types/org-policy";
+import { onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyToolsUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
+import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
   EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
@@ -1997,6 +1999,7 @@ function createRoutes(
   addRoute(routes, "PUT", "/workspace/:id/authorized-folders", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyToolsUnmanaged(config, ["external_directory"]);
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const folders = parseAuthorizedFoldersPayload(body.folders, workspace.path);
@@ -2486,6 +2489,23 @@ function createRoutes(
   // is the device owner's choice, made in the app: never an agent's or a
   // remote collaborator's.
   addRoute(routes, "GET", "/org-policy", "client", async () => jsonResponse(await readOrgPolicyView(config)));
+  // For the engine's guard plugin: what the firm enforces now. The folder it
+  // enforces through is checked on the way: a changed one is restored, and the
+  // engines reload once idle.
+  addRoute(routes, "GET", "/org-policy/guard", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const { enforced } = await orgPolicyPermissions(config, await readGlobalToolPermissions(config));
+    const primary = config.workspaces?.[0]?.id;
+    if (primary) {
+      const layer = await buildOrgPolicyEngineLayerFor(config, primary);
+      if (!(await orgPolicyEngineLayerIntact(config, layer))) {
+        await writeOrgPolicyEngineLayer(config, layer);
+        if (Object.keys(layer).length > 0) applyOrgPolicyToEngines(config);
+      }
+    }
+    const view = await readOrgPolicyView(config);
+    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers: [] });
+  });
   addRoute(routes, "POST", "/org-policy/release", "client", async (ctx) => {
     requireClientScope(ctx, "owner");
     ensureWritable(config);
@@ -3663,6 +3683,7 @@ function createRoutes(
       }
 
       const permissionUpdate = ensurePlainObject(permission);
+      await requireOrgPolicyToolsUnmanaged(config, Object.keys(permissionUpdate));
       if (Object.keys(permissionUpdate).length) {
         const { external_directory: externalDirectoryUpdate, ...toolPermissionUpdate } = permissionUpdate;
 

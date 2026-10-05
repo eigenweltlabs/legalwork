@@ -11,7 +11,7 @@ import {
   type OrgPolicyKey,
   type OrgPolicyScope,
   type OrgPolicySnapshot,
-} from "@legalwork/types/org-policy";
+} from "./org-policy-schema.js";
 import type { OrgPolicyState, OrgPolicyView } from "@legalwork/types/org-policy-view";
 
 import { announceSyncChange } from "./app-sync-events.js";
@@ -167,6 +167,13 @@ export async function requireOrgPolicyUnmanaged(config: ServerConfig, key: OrgPo
   if (!(await appliedOrgPolicy(config, key))) return;
   const stored = await readStored(config);
   throw new ApiError(403, "org_policy_managed", `This setting is managed by ${stored?.snapshot.orgName || "your organization"}.`, { key });
+}
+
+/** Refuses a change to tool permissions the firm manages. */
+export async function requireOrgPolicyToolsUnmanaged(config: ServerConfig, tools: string[]): Promise<void> {
+  const entry = await appliedOrgPolicy(config, "tools.permissions");
+  const managed = Object.entries(entry?.value ?? {}).flatMap(([tool, rule]) => (rule === undefined ? [] : [tool]));
+  if (tools.some((tool) => managed.includes(tool))) await requireOrgPolicyUnmanaged(config, "tools.permissions");
 }
 
 /** Refuses an action the firm switched off with a boolean setting (`false`). */

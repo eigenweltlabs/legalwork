@@ -8,6 +8,7 @@ import {
   quickToggleChecked,
   readPermissionRecord,
   serializeToolPermissionsPatch,
+  withFirmPermissions,
   type ToolPermissionsModel,
 } from "../src/react-app/domains/settings/panels/tool-permissions-config";
 
@@ -198,5 +199,18 @@ describe("quick toggles", () => {
     expect(serializeToolPermissionsPatch(next, { bash: { "git *": "allow", "*": "allow" } })).toEqual({
       bash: { "git *": "allow", "*": "ask" },
     });
+  });
+});
+
+describe("withFirmPermissions", () => {
+  test("an enforced rule is the minimum; a default replaces the member's rule", () => {
+    const own = { bash: "deny", edit: "allow", webfetch: { "*": "allow" }, doom_loop: "ask" };
+    expect(withFirmPermissions(own, { mode: "enforced", value: { bash: "ask", edit: "ask", webfetch: "deny" } })).toEqual({
+      bash: "deny",
+      edit: "ask",
+      webfetch: "deny",
+      doom_loop: "ask",
+    });
+    expect(withFirmPermissions(own, { mode: "default", value: { bash: "allow" } })).toMatchObject({ bash: "allow" });
   });
 });
