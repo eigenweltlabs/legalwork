@@ -203,6 +203,7 @@ function PlansPreview() {
       {providersOpen ? (
         <ProviderAuthModal
           open
+          allowChatGptSubscription={limitPlan !== null}
           loading={false}
           submitting={false}
           error={null}

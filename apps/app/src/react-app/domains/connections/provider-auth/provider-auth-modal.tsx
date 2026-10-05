@@ -255,6 +255,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export type ProviderAuthModalProps = {
   open: boolean;
+  allowChatGptSubscription: boolean;
   loading: boolean;
   submitting: boolean;
   error: string | null;
@@ -444,6 +445,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         const entryMethods = (methods[id] ?? []).filter((method) => {
           if (!isOpenAiProvider(id, provider?.name)) return true;
           if (method.type !== "oauth") return true;
+          if (!props.allowChatGptSubscription) return false;
           if (isRemoteWorker) return isOpenAiHeadlessMethod(method);
           return !isOpenAiHeadlessMethod(method);
         });
@@ -515,6 +517,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return nextEntries;
   }, [
     isRemoteWorker,
+    props.allowChatGptSubscription,
     props.authMethods,
     props.connectedProviderIds,
     props.providers,

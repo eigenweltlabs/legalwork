@@ -2443,6 +2443,9 @@ export function SessionRoute() {
       titlebarControlsHidden={aiPlansScreenVisible}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
+        allowChatGptSubscription: Boolean(
+          eigenweltView?.connected && hasEigenweltFeature(eigenweltView.entitlements, "org_management"),
+        ),
         loading: false,
         submitting: sessionProviderAuthSnapshot.providerAuthBusy,
         error: sessionProviderAuthSnapshot.providerAuthError,
