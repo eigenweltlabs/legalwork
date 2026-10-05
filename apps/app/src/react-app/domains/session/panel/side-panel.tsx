@@ -40,10 +40,9 @@ import { cn } from "@/lib/utils";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
-import { type DocumentSplitOrientation } from "../artifacts/document-preferences";
+import { MAX_DOCUMENT_PANES, layoutLeaves, siblingPaneIds, topLayoutLeaves, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 import { documentSplitDropEdge } from "./document-split-drop";
 import {
-  DOCUMENT_LAYOUTS,
   type DocumentPaneState,
   type BrowserPanelTab,
   usePanelTabStore,
@@ -97,19 +96,19 @@ type TabDrag = { id: string; pane: ViewerPane };
 type TabDropZoneProps = {
   pane: ViewerPane;
   dragging: TabDrag | null;
-  // The outer third opens a split when there is no side pane yet.
+  // Edge drops split the pane under the pointer.
   edge?: boolean;
-  verticalEdge?: boolean;
+  splitBlocked?: boolean;
   inset?: boolean;
   label: string;
-  onDrop: (tabId: string, split?: DocumentSplitOrientation) => void;
-  onFileDrop: (drop: ReturnType<typeof readViewerFileDrop>, pane: ViewerPane, split?: DocumentSplitOrientation) => void;
+  onDrop: (tabId: string, split?: DocumentDropEdge) => void;
+  onFileDrop: (drop: ReturnType<typeof readViewerFileDrop>, pane: ViewerPane, split?: DocumentDropEdge) => void;
   className?: string;
   children: React.ReactNode;
 };
 
-function TabDropZone({ pane, dragging, edge = false, verticalEdge = true, inset = false, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
-  const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentSplitOrientation | null } | null>(null);
+function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset = false, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
+  const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentDropEdge | null } | null>(null);
   const [dragActive, setDragActive] = React.useState(false);
   const zone = React.useRef<HTMLDivElement>(null);
   const accepts = dragging !== null && (edge || dragging.pane !== pane);
@@ -120,7 +119,7 @@ function TabDropZone({ pane, dragging, edge = false, verticalEdge = true, inset 
     const splitEdge = (event: DragEvent) => {
       const rect = element.getBoundingClientRect();
       const split = edge ? documentSplitDropEdge(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height) : null;
-      return split === "vertical" && !verticalEdge ? null : split;
+      return split;
     };
     const over = (event: DragEvent) => {
       const data = event.dataTransfer;
@@ -133,7 +132,9 @@ function TabDropZone({ pane, dragging, edge = false, verticalEdge = true, inset 
       setOver((previous) => previous?.pane === target && previous.file === file && previous.split === split ? previous : { pane: target, file, split });
       event.preventDefault();
       event.stopPropagation();
-      data.dropEffect = file ? "copy" : "move";
+      // File identity is only readable on drop. It may be an already-open
+      // lone tab that can relocate even at the cap; the store decides atomically.
+      data.dropEffect = file ? "copy" : split && splitBlocked ? "none" : "move";
     };
     const stop = () => { setOver(null); setDragActive(false); };
     const leave = (event: DragEvent) => {
@@ -190,7 +191,7 @@ function TabDropZone({ pane, dragging, edge = false, verticalEdge = true, inset 
       window.removeEventListener("blur", stop);
       window.removeEventListener("keydown", cancel);
     };
-  }, [accepts, edge, verticalEdge, dragging?.pane, inset, pane, onDrop, onFileDrop]);
+  }, [accepts, edge, splitBlocked, dragging?.pane, inset, pane, onDrop, onFileDrop]);
 
   return (
     <div ref={zone} data-document-drop-pane={inset ? pane : undefined} className={cn("relative", className)}>
@@ -200,14 +201,21 @@ function TabDropZone({ pane, dragging, edge = false, verticalEdge = true, inset 
         <div
           aria-hidden
           data-viewer-drop-overlay
+          data-document-drop-edge={over.split ?? "center"}
           className={cn(
-            "pointer-events-none absolute right-0 z-40 flex items-center justify-center border-2 border-dashed border-primary/60 bg-primary/10 p-2 text-center text-xs font-medium text-primary",
-            over.split === "vertical" ? "left-0 top-[70%] bottom-4" : inset ? "top-[min(10rem,35%)] bottom-4" : "inset-y-0",
-            over.split === "horizontal" ? "w-[30%]" : "left-0",
+            "pointer-events-none absolute z-40 flex items-center justify-center rounded-xl border border-primary/30 bg-primary/10 p-3 text-center text-xs font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--background)/0.6),0_8px_28px_-16px_hsl(var(--foreground)/0.25)] transition-[top,right,bottom,left] duration-150 ease-out motion-reduce:transition-none",
+            over.split && splitBlocked && "border-border bg-muted/60 text-muted-foreground",
           )}
+          style={{
+            top: over.split === "bottom" ? "50%" : inset ? "min(8rem, 25%)" : 4,
+            bottom: over.split === "top" ? "50%" : inset ? 12 : 4,
+            left: over.split === "right" ? "50%" : 8,
+            right: over.split === "left" ? "50%" : 8,
+          }}
         >
-          <span className="rounded bg-background/95 px-2 py-1">
-            {over.split ? t(over.split === "vertical" ? "side_panel.drop_to_open_below" : "side_panel.drop_to_open_beside") : over.file ? t("side_panel.drop_to_open_here") : label}
+          <span className="flex max-w-full items-center gap-2 rounded-lg border border-border/50 bg-background/95 px-3 py-2 shadow-sm">
+            <PanelsTopLeft className="size-4 shrink-0" />
+            {over.split && splitBlocked ? t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }) : over.split ? t(`side_panel.drop_${over.split}`) : over.file ? t("side_panel.drop_to_open_here") : label}
           </span>
         </div>
       ) : null}
@@ -225,7 +233,7 @@ type SidePanelTabProps = {
   onSelect: (tabId: string) => void;
   onClose: (tab: PanelTabEntry) => void;
   onMove: (tabId: string, pane: string) => void;
-  onSplit: (tabId: string, split: DocumentSplitOrientation) => void;
+  onSplit: (tabId: string, split: DocumentDropEdge) => void;
   onDragChange: (tabId: string | null) => void;
 };
 
@@ -328,8 +336,7 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
         {t("side_panel.move_to_pane", { number: index + 1 })}
       </ContextMenuItem>)}
       {canSplit && <>
-        <ContextMenuItem disabled={!canMove} onClick={() => onSplit(tab.id, "horizontal")}>{t("side_panel.open_to_side")}</ContextMenuItem>
-        <ContextMenuItem disabled={!canMove} onClick={() => onSplit(tab.id, "vertical")}>{t("side_panel.open_below")}</ContextMenuItem>
+        {(["left", "right", "top", "bottom"] satisfies DocumentDropEdge[]).map(edge => <ContextMenuItem key={edge} onClick={() => onSplit(tab.id, edge)}>{t(`side_panel.split_${edge}`)}</ContextMenuItem>)}
       </>}
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => onClose(tab)}>{t("panel_tabs.close_tab")}</ContextMenuItem>
@@ -604,11 +611,17 @@ export function SidePanel({
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = React.useState(false);
   const session = useSessionPanelState(sessionId);
-  const { tabs, panes, layout } = session;
-  const stacked = layout === "rows";
-  const nested = layout === "main-and-stack";
+  const { tabs, panes, tree } = session;
   const [destinations, setDestinations] = React.useState<Record<string, HTMLDivElement | null>>({});
-  const destinationRefs = React.useMemo(() => Object.fromEntries(["main", "side", "third"].map(id => [id, (element: HTMLDivElement | null) => setDestinations(current => current[id] === element ? current : { ...current, [id]: element })])), []);
+  const destinationRefs = React.useRef(new Map<string, (element: HTMLDivElement | null) => void>());
+  const destinationRef = (id: string) => {
+    let ref = destinationRefs.current.get(id);
+    if (!ref) {
+      ref = element => setDestinations(current => current[id] === element ? current : { ...current, [id]: element });
+      destinationRefs.current.set(id, ref);
+    }
+    return ref;
+  };
   const [focusedTabId, setFocusedTabId] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [openingFile, setOpeningFile] = React.useState<string | null>(null);
@@ -620,37 +633,37 @@ export function SidePanel({
     return () => { mounted.current = false; };
   }, []);
 
-  const splitDestination = React.useCallback((split?: DocumentSplitOrientation) => {
-    const current = usePanelTabStore.getState().sessions[sessionId];
-    return split ? ["side", "third"].find(id => !current?.panes.some(pane => pane.id === id)) : undefined;
-  }, [sessionId]);
-  const applySplit = React.useCallback((split: DocumentSplitOrientation) => {
-    const store = usePanelTabStore.getState();
-    const count = store.sessions[sessionId]?.panes.length ?? 1;
-    store.setLayout(sessionId, count === 3 ? split === "vertical" ? "main-and-stack" : "three-columns" : split === "vertical" ? "rows" : "columns");
-  }, [sessionId]);
-  const openFilesInViewer = React.useCallback(async (drop: ReturnType<typeof readViewerFileDrop>, pane?: ViewerPane, split?: DocumentSplitOrientation) => {
+  const openFilesInViewer = React.useCallback(async (drop: ReturnType<typeof readViewerFileDrop>, pane?: ViewerPane, split?: DocumentDropEdge) => {
     if (importing.current) return;
     if (!client || !workspaceId) { toast.error(t("side_panel.wait_for_workspace")); return; }
-    const destination = splitDestination(split) ?? pane;
+    let destination = pane;
+    let pendingSplit = split;
     importing.current = true;
     setOpeningFile(drop.workspace?.name ?? drop.storage?.name ?? drop.memory?.name ?? drop.files[0]?.name ?? null);
     try {
       for await (const tab of viewerFileTabs(client, workspaceId, drop)) {
         if (!mounted.current) return;
         const store = usePanelTabStore.getState();
-        store.openTab(sessionId, tab, destination);
+        const before = store.sessions[sessionId];
+        if (destination && before && !before.panes.some(pane => pane.id === destination)) { toast.error(t("side_panel.drop_target_closed")); break; }
+        store.openTab(sessionId, tab, destination, pendingSplit);
         const next = usePanelTabStore.getState().sessions[sessionId];
         const opened = next?.tabs.find(entry => entry.id === tab.id || (entry.type === "artifact" && !entry.storage && !tab.storage && tab.value && entry.value === tab.value));
-        if (!opened || !next.panes.some(pane => pane.activeTabId === opened.id)) break;
-        if (split && next.panes.some(pane => pane.id === destination && pane.activeTabId === opened.id)) applySplit(split);
+        if (next === before) {
+          if (pendingSplit && before.panes.length >= MAX_DOCUMENT_PANES) toast.info(t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }));
+          break;
+        }
+        const openedPane = next?.panes.find(pane => pane.activeTabId === opened?.id);
+        if (!opened || !openedPane) break;
+        destination = openedPane.id;
+        pendingSplit = undefined;
         setFocusedTabId(opened.id);
       }
       void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     } catch (error) {
       toast.error(t("side_panel.file_open_failed"), { description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
     } finally { importing.current = false; if (mounted.current) setOpeningFile(null); }
-  }, [client, workspaceId, sessionId, queryClient, splitDestination, applySplit]);
+  }, [client, workspaceId, sessionId, queryClient]);
 
   const visibleIds = panes.flatMap(pane => pane.activeTabId ? [pane.activeTabId] : []);
   const focusedId = focusedTabId && visibleIds.includes(focusedTabId) ? focusedTabId : panes[0].activeTabId;
@@ -665,16 +678,38 @@ export function SidePanel({
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
-  const moveToPane = React.useCallback((tabId: string, pane: string, split?: DocumentSplitOrientation) => {
-    const destination = splitDestination(split) ?? pane;
-    usePanelTabStore.getState().moveTab(sessionId, tabId, destination);
+  const closeDocumentTab = React.useCallback((tab: PanelTabEntry) => {
+    const source = panes.find(pane => pane.tabIds.includes(tab.id));
+    closeTab(tab);
     const next = usePanelTabStore.getState().sessions[sessionId];
-    if (next?.panes.some(pane => pane.id === destination && pane.activeTabId === tabId)) {
-      if (split) applySplit(split);
-      setFocusedTabId(tabId);
-    }
-  }, [sessionId, splitDestination, applySplit]);
+    if (!source || !next || next.tabs.some(entry => entry.id === tab.id) || focusedId !== tab.id) return;
+    const replacement = next.panes.find(pane => pane.id === source.id) ??
+      siblingPaneIds(tree, source.id).flatMap(id => next.panes.filter(pane => pane.id === id))[0];
+    setFocusedTabId(replacement?.activeTabId ?? next.activeTabId);
+  }, [closeTab, focusedId, panes, sessionId, tree]);
+  const moveToPane = React.useCallback((tabId: string, pane: string, split?: DocumentDropEdge) => {
+    const store = usePanelTabStore.getState();
+    const before = store.sessions[sessionId];
+    store.moveTab(sessionId, tabId, pane, split);
+    const next = usePanelTabStore.getState().sessions[sessionId];
+    if (next !== before && next?.panes.some(pane => pane.activeTabId === tabId)) setFocusedTabId(tabId);
+    else if (split && before?.panes.length >= MAX_DOCUMENT_PANES) toast.info(t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }));
+  }, [sessionId]);
   const [draggingTabId, setDraggingTabId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const stop = () => setDraggingTabId(null);
+    const cancel = (event: KeyboardEvent) => { if (event.key === "Escape") stop(); };
+    window.addEventListener("drop", stop);
+    window.addEventListener("dragend", stop);
+    window.addEventListener("blur", stop);
+    window.addEventListener("keydown", cancel);
+    return () => {
+      window.removeEventListener("drop", stop);
+      window.removeEventListener("dragend", stop);
+      window.removeEventListener("blur", stop);
+      window.removeEventListener("keydown", cancel);
+    };
+  }, []);
   const draggingTab = React.useMemo<TabDrag | null>(() => {
     const pane = panes.find(pane => pane.tabIds.includes(draggingTabId ?? ""));
     return draggingTabId && pane ? { id: draggingTabId, pane: pane.id } : null;
@@ -777,21 +812,11 @@ export function SidePanel({
   }, [panes, tabs, focusedId, selectTab]);
 
   const portaledHeader = expanded ? null : headerTarget;
-  const layoutKey = `${layout}:${panes.map(pane => pane.id).join(":")}`;
   const [liveSizes, setLiveSizes] = React.useState<Record<string, Record<string, number>>>({});
-  const rootIds = nested ? [panes[0].id, "stack"] : panes.map(pane => pane.id);
-  const sizes = liveSizes[layoutKey] ?? session.sizes[layoutKey] ?? Object.fromEntries(rootIds.map(id => [id, 100 / rootIds.length]));
-  const controlsPane = stacked || panes.length === 1 ? panes[0].id : nested ? panes[1].id : panes[panes.length - 1].id;
-  const topPanes = stacked ? panes.slice(0, 1) : nested ? panes.slice(0, 2) : panes;
+  const topPaneIds = topLayoutLeaves(tree);
+  const controlsPane = topPaneIds[topPaneIds.length - 1];
+  const orderedPanes = layoutLeaves(tree).flatMap(id => panes.filter(pane => pane.id === id));
   const workspaceControls = <div className="ml-auto flex shrink-0">
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.document_layout")} title={t("side_panel.document_layout")}><PanelsTopLeft /></Button>} />
-      <DropdownMenuContent align="end">
-        {DOCUMENT_LAYOUTS.map(value => <DropdownMenuItem key={value} aria-selected={layout === value} onClick={() => usePanelTabStore.getState().setLayout(sessionId, value)}>
-          {t(`side_panel.layout_${value}`)}{layout === value ? " ✓" : ""}
-        </DropdownMenuItem>)}
-      </DropdownMenuContent>
-    </DropdownMenu>
     <Button variant="ghost" size="icon-sm" onClick={() => setExpanded(!expanded)} aria-label={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")} title={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")}>
       {expanded ? <Minimize2 /> : <Maximize2 />}
     </Button>
@@ -800,16 +825,16 @@ export function SidePanel({
 
   const strip = (pane: DocumentPaneState, docked = false) => {
     const paneTabs = tabs.filter(tab => pane.tabIds.includes(tab.id));
-    const canMove = pane.id !== "main" || paneTabs.length > 1;
+    const canMove = panes.length > 1 || paneTabs.length > 1;
     return <TabDropZone pane={pane.id} dragging={draggingTab} label={t("side_panel.drop_to_move_here")} onDrop={id => moveToPane(id, pane.id)} onFileDrop={openFilesInViewer} className={cn("shrink-0 titlebar-no-drag", docked ? "h-full" : "bg-muted/35")}>
       <div className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
-            {paneTabs.map(tab => <SidePanelTab key={tab.id} tab={tab} pane={pane.id} destinations={panes} canSplit={panes.length < 3} active={pane.activeTabId === tab.id} canMove={canMove}
-              onSelect={id => { selectTab(id); setFocusedTabId(id); }} onClose={closeTab} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
+            {paneTabs.map(tab => <SidePanelTab key={tab.id} tab={tab} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove}
+              onSelect={id => { selectTab(id); setFocusedTabId(id); }} onClose={closeDocumentTab} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
           </PanelTabList>
         </div>
-        {pane.id === "main" && <DropdownMenu>
+        {pane.id === panes[0].id && <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
           <DropdownMenuContent align="end">
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => fileInputRef.current?.click()}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
@@ -822,24 +847,52 @@ export function SidePanel({
   };
   const content = (pane: DocumentPaneState) => {
     const tab = tabs.find(tab => tab.id === pane.activeTabId);
-    return <TabDropZone pane={pane.id} dragging={draggingTab} edge={panes.length < 3 && Boolean(tab)} verticalEdge={panes.length === 1 || pane.id === panes[panes.length - 1].id} inset
+    const relocating = draggingTab && draggingTab.pane !== pane.id && panes.find(source => source.id === draggingTab.pane)?.tabIds.length === 1;
+    const sameLoneTab = draggingTab?.pane === pane.id && pane.tabIds.length === 1;
+    return <TabDropZone pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
       {tab?.type === "browser" ? <BrowserPanelContent tab={tab} onClose={onClose} />
-        : tab?.type === "artifact" ? <div ref={destinationRefs[pane.id]} className="min-h-0 flex-1 overflow-hidden" />
-        : tab?.type === "task" ? <TaskPanel projects={projects} sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} onClose={() => closeTab(tab)} />
-        : tab?.type === "workflow" ? <WorkflowEditorPanel key={tab.id} id={tab.id} onClose={() => closeTab(tab)} />
-        : tab?.type === "workflow-resource" ? <WorkflowResourceEditorPanel key={tab.id} id={tab.id} onClose={() => closeTab(tab)} />
+        : tab?.type === "artifact" ? <div ref={destinationRef(pane.id)} className="min-h-0 flex-1 overflow-hidden" />
+        : tab?.type === "task" ? <TaskPanel projects={projects} sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} onClose={() => closeDocumentTab(tab)} />
+        : tab?.type === "workflow" ? <WorkflowEditorPanel key={tab.id} id={tab.id} onClose={() => closeDocumentTab(tab)} />
+        : tab?.type === "workflow-resource" ? <WorkflowResourceEditorPanel key={tab.id} id={tab.id} onClose={() => closeDocumentTab(tab)} />
         : <PanelEmpty />}
     </TabDropZone>;
   };
-  const panel = (pane: DocumentPaneState) => <ResizablePanel key={pane.id} id={pane.id} minSize="15%" className="flex min-h-0 min-w-0 flex-col" data-document-pane={pane.id}>
-    {portaledHeader && topPanes.includes(pane) ? null : strip(pane)}
-    {content(pane)}
-  </ResizablePanel>;
-  const panels = (entries: DocumentPaneState[]) => entries.map((pane, index) => <React.Fragment key={pane.id}>{index > 0 && <ResizableHandle withHandle />}{panel(pane)}</React.Fragment>);
+  const renderLayout = (node: DocumentLayoutNode): React.ReactNode => {
+    if (node.type === "pane") {
+      const pane = panes.find(pane => pane.id === node.id);
+      if (!pane) return null;
+      return <div className="flex h-full min-h-0 min-w-0 flex-col" data-document-pane={pane.id}>
+        {portaledHeader && topPaneIds.includes(pane.id) ? null : strip(pane)}
+        {content(pane)}
+      </div>;
+    }
+    return <ResizablePanelGroup key={`${node.id}:${node.first.id}:${node.second.id}`} orientation={node.direction} defaultLayout={session.sizes[node.id]}
+      onLayoutChange={next => setLiveSizes(current => ({ ...current, [node.id]: next }))}
+      onLayoutChanged={next => usePanelTabStore.getState().setPaneSizes(sessionId, node.id, next)}>
+      <ResizablePanel id={node.first.id} minSize="15%">{renderLayout(node.first)}</ResizablePanel>
+      <ResizableHandle withHandle />
+      <ResizablePanel id={node.second.id} minSize="15%">{renderLayout(node.second)}</ResizablePanel>
+    </ResizablePanelGroup>;
+  };
+  const renderHeader = (node: DocumentLayoutNode): React.ReactNode => {
+    if (node.type === "pane") {
+      const pane = panes.find(pane => pane.id === node.id);
+      return pane ? strip(pane, true) : null;
+    }
+    if (node.direction === "vertical") return renderHeader(node.first);
+    const live = liveSizes[node.id];
+    const sizes = live?.[node.first.id] !== undefined && live?.[node.second.id] !== undefined ? live : session.sizes[node.id];
+    const first = sizes?.[node.first.id] ?? 50;
+    return <div className="flex h-full min-w-0">
+      <div className="h-full min-w-0" style={{ width: `${first}%` }}>{renderHeader(node.first)}</div>
+      <div className="h-full min-w-0 border-l border-border/70" style={{ width: `${100 - first}%` }}>{renderHeader(node.second)}</div>
+    </div>;
+  };
 
   return <TooltipProvider delay={1000}>
-    <div data-viewer-drop-target data-document-layout={layout} data-document-workspace-expanded={expanded} className={cn("flex h-full min-h-0 flex-col bg-background", expanded ? "fixed inset-0 z-40 mac:top-11" : "relative")}>
+    <div data-viewer-drop-target data-document-layout="free" data-document-workspace-expanded={expanded} className={cn("flex h-full min-h-0 flex-col bg-background", expanded ? "fixed inset-0 z-40 mac:top-11" : "relative")}>
       <input ref={fileInputRef} type="file" multiple className="hidden" aria-label={t("side_panel.open_in_viewer")} onChange={event => {
         const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
         void openFilesInViewer({ workspace: null, storage: null, memory: null, files });
@@ -847,25 +900,14 @@ export function SidePanel({
       {openingFile && <div role="status" className="pointer-events-none absolute bottom-4 left-1/2 z-50 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs shadow-sm">
         <Loader2 className="size-4 shrink-0 animate-spin" /><span className="truncate">{t("side_panel.opening_file", { name: openingFile })}</span>
       </div>}
-      {portaledHeader && <PanelHeaderPortal target={portaledHeader}><div className="flex h-full min-w-0">
-        {topPanes.map((pane, index) => <div key={pane.id} className={cn("h-full min-w-0", index > 0 && "border-l border-border/70")} style={{ width: `${stacked ? 100 : sizes[nested && index === 1 ? "stack" : pane.id] ?? 100 / topPanes.length}%` }}>{strip(pane, true)}</div>)}
-      </div></PanelHeaderPortal>}
-      <ResizablePanelGroup key={layoutKey} orientation={stacked ? "vertical" : "horizontal"} className="min-h-0 flex-1" defaultLayout={session.sizes[layoutKey] ?? sizes}
-        onLayoutChange={next => setLiveSizes(current => ({ ...current, [layoutKey]: next }))}
-        onLayoutChanged={next => usePanelTabStore.getState().setPaneSizes(sessionId, layoutKey, next)}>
-        {nested ? <>
-          {panel(panes[0])}<ResizableHandle withHandle />
-          <ResizablePanel id="stack" minSize="20%">
-            <ResizablePanelGroup orientation="vertical" defaultLayout={session.sizes["stack"]} onLayoutChanged={next => usePanelTabStore.getState().setPaneSizes(sessionId, "stack", next)}>{panels(panes.slice(1))}</ResizablePanelGroup>
-          </ResizablePanel>
-        </> : panels(panes)}
-      </ResizablePanelGroup>
+      {portaledHeader && <PanelHeaderPortal target={portaledHeader}>{renderHeader(tree)}</PanelHeaderPortal>}
+      <div className="min-h-0 flex-1">{renderLayout(tree)}</div>
       {tabs.flatMap(tab => {
         const pane = panes.find(pane => pane.activeTabId === tab.id);
         if (tab.type !== "artifact" || !pane) return [];
         return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={destinations[pane.id] ?? null}>
           <ControlActionScope active={tab.id === focusedId}><div className="h-full" onFocusCapture={() => setFocusedTabId(tab.id)} onPointerDownCapture={() => setFocusedTabId(tab.id)}>
-            <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeTab(tab)} />
+            <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
           </div></ControlActionScope>
         </DocumentPane>];
       })}

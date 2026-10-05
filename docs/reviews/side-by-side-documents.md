@@ -12,49 +12,47 @@ Local branch: `feat/side-by-side-documents`, based on `dev` at `f64d51b9`. Nothi
 - The first save retains the loaded original in local history. Rapid autosaves share five-minute checkpoints rather than consuming all five retained versions within seconds. Manual saves remain distinct. A history browsing/restoration UI is still outside this change.
 - Autosave is currently offered for editable local workspace DOCX files. Connected-storage checkout/publish flows, remote/read-only documents, PDF, Markdown, spreadsheets and presentations do not acquire this switch.
 
-## Split workspace
+## Split workspace — free layouts (5 October)
 
-Use the single **Document layout** menu at the workspace's top-right: one pane, two columns, two rows, three columns, or a large left pane with two stacked on the right. **Expand document workspace** expands all panes; **Return to chat** restores the ordinary viewer. Divider positions are remembered per session/layout using the resizable-panel library's `defaultLayout` API; storage updates when resizing finishes.
+The preset menu is removed. Drop a document tab, Project File or Memory Drive file at the **left, right, top or bottom edge of any pane** to split that pane in half. Drop in the centre or its tab strip to add/move the document as a tab. Right-click a tab for the same four split directions (when that group has another tab) or to move to another existing pane. No new keyboard shortcuts are added. Fullscreen remains available, with shared controls at the overall top-right even in nested layouts and docked headers.
 
-A stable portal host moves with each visible document. Moving a dirty document between panes, or promoting the remaining document, preserves its editor, draft and Undo history. Only an editor actually leaving the mounted set needs a discard guard. At most three document editors are mounted. Closing or switching away from a dirty editor still uses the existing guard; hidden tabs do not keep every editor alive.
+The outer quarter of each pane chooses the nearest relative edge; the middle half is the centre target. The indicator previews the destination half with a rounded solid outline, translucent fill, compact label and a short reduced-motion-aware transition. Its inset keeps it away from document toolbars. The temporary drag shield still places it above PDFium and other iframe viewers; it clears on drop, drag end, Escape, leaving the window or blur.
 
-Workspace file tabs, pane membership and selected tabs survive reload. Transient search/review sources and connected-storage working copies are excluded from restoration. Browser/task tabs remain in the main pane. The focused pane determines unqualified document-agent commands and Ctrl+Tab navigation. Native drop listeners follow the physical pane around portaled editors.
+Up to **six visible panes** are allowed. Additional documents can remain as tabs. Relocating the sole tab of an existing pane is allowed at the limit because its old pane disappears. A drop that would actually create a seventh pane is refused with an explanation; it does not silently replace a document or change the layout. Splitting a pane's only tab against itself is a no-op, not a duplicate view.
 
-Individual tab move arrows are removed. Right-click a document tab to move it to an existing pane, create a supported split, or close it. No new keyboard shortcuts are introduced. Detached app windows seed their layout from the main window once and then keep an independent sessionStorage layout. Synchronized scrolling, automatic comparison and dragging tabs between actual windows are not included.
+### Moving and closing rules
 
-### Top/bottom layout
+| Action | Result |
+| --- | --- |
+| Close an inactive tab | Remove only that tab; keep the visible document and geometry. |
+| Close/move the active tab when its group has other tabs | Activate the next tab to its right, otherwise its left neighbour. |
+| Close/move the last tab in a pane | Its sibling fills their shared rectangle. A sibling subtree expands as a unit, retaining its internal proportions. |
+| Close a bottom pane in one column | The pane/subtree directly above fills that column; the other column stays in place. The reverse applies to top/left/right panes. |
+| Move the last tab from the original main pane | Allowed; no special main-pane exemption and no arbitrary global rearrangement. |
+| Drop onto the centre of another pane | Move once, activate at the destination, and collapse the emptied source. Existing destination tabs remain available. |
+| Move a visible dirty document or expand a surviving sibling | Keep the same editor host, draft and Undo history. |
+| Hide or close a different dirty editor | Run its existing discard guard before changing the tree or tab membership. Cancellation leaves both unchanged. |
+| Close the focused document/pane | Focus its replacement tab or the nearest surviving sibling, rather than an unrelated first pane. |
+| Finish a cloud import after its target closes | Do not recreate the removed pane; explain that a new drop target is needed. |
+| Drop multiple files at an edge | Create one split, then add the remaining files as tabs in that group. |
+| Close the final tab | Return to one empty viewer. |
 
-Choose **Two rows** in the layout menu for a top/bottom split. Each document keeps its own tab strip; the lower strip stays with its pane even when the upper strip uses the window header. All panes expand together.
+Each split stores its own direction, children and divider ratio. Pane ids stay stable; surviving split ratios are remapped when a child is split or removed. Delayed resize callbacks from obsolete children are ignored. Only visible document editors are mounted. The existing one-editor-per-file ownership and controlled cross-window handoff are unchanged; this is not collaborative editing or cross-window tab dragging.
 
-The shared layout, expand/restore and close-viewer buttons always sit at the workspace's top-right: in the upper tab strip for stacked documents and in the right strip for side-by-side documents. The follow-up positioning change passed typecheck and browser checks for both layouts, docked headers and the expanded workspace; each has exactly one shared control group.
+Workspace tabs, arbitrary split geometry, selected tabs and divider ratios survive reload. Old two-pane and preset layouts migrate, including their proportions. Transient evidence views and connected-storage working copies still do not restore. Removing those leaves collapses just their branch. Browser/task/workflow tabs remain in one integration group, which can sit anywhere in the tree. Detached windows retain their independent sessionStorage layouts.
 
-With a single pane, dropping a file or movable document tab on its bottom 30% opens a vertical split; the right 30% opens a horizontal split. In the overlapping corner the nearer relative edge wins. Existing panes accept files into the indicated pane. At two panes, a right-edge split creates three columns; splitting below the last pane creates the large-left/stacked-right layout. Three panes accept moves without creating further panes. Empty panes chosen through the layout menu remain usable drop targets.
+### Validation
 
-Earlier vertical-layout validation (4 October): **778 tests passed, 0 failed**, across 115 files. Typecheck, production UI build, the English/German audit (5,069 keys each) and whitespace checks passed. Browser checks with synthetic DOCX files covered bottom-edge event routing, both layout directions, docked/inline tab strips, expansion and resize/reload restoration. The same live editor id, draft revision and unsaved text survived a layout switch; Undo then removed the test edit. Pointer gestures remain a manual check. No selection-highlighting fix is included.
+- **807 app tests passed**, including the final stale-resize guard; **50 focused tests** and app typecheck also passed. Production UI build and the **5,088-key English/German audit** passed. Existing build chunk-size warnings remain.
+- The geometry test enumerates every binary split shape/orientation up to six panes and verifies **9,373 individual leaf removals**. Store tests cover 500 successive operations, all four edges, left/right stacks, pane limits, relocation at the limit, cancelled dirty-document actions, neighbour selection, restoration, malformed persisted data, browser integration and cloud working-path retention.
+- Real browser checks with disposable documents: two stacked panes in both columns; four-direction file/tab drop listeners; six panes and rejected seventh pane; relocation at the cap; close/collapse; docked headers; a resized 55/45 divider and four-pane tree restored on reload.
+- A typed unsaved DOCX draft survived multiple cross-pane moves, promotion after closing the pane beneath it, and fullscreen/restore. Undo removed the edit, Redo restored it, and Save wrote it once. No false Edit here appeared.
+- An isolated Electron instance visibly rendered the rounded preview above native PDFium and completed the synthetic drop. Actual pointer automation did not establish a successful native drag, so native mouse/Finder gestures remain a manual check. A connected Memory Drive download/publish was not exercised; its routing and retained working path are covered by tests.
+- No client documents, DOCX selection-rendering CSS, autosave cadence or multi-window ownership code were changed.
 
-![Documents stacked vertically in the test workspace](./document-workspace-stacked.png)
+![Four freely arranged panes in fullscreen, using synthetic documents](./document-workspace-free-layout.png)
 
-### File drops and smaller drop indicators
-
-The document drop indicator uses a top inset of `min(10rem, 35%)` and a 16px bottom inset, leaving room for the Word toolbar while fitting short stacked panes without measuring the editor layout. Tab-strip indicators retain their original height. The target still accepts drops throughout the document pane.
-
-Project Files and Memory Drive files can be dropped into either pane or its tab strip. With only one pane open, its rightmost 30% opens a file beside the current document. Project files open their existing workspace path; Memory Drive files use the existing storage viewer with its cloud-save actions. LegalMemory materialization and external-file working copies remain supported. An existing file reuses its tab/editor, including legacy tab ids and cloud working paths. A new side drop does not replace the main editor; replacing a dirty target still requires the existing discard confirmation.
-
-Follow-up validation: **773 tests passed, 0 failed**, across 113 files; app typecheck, production UI build and the translation audit (5,064 keys per language) passed. Added tests cover source routing, cross-workspace rejection, disconnected cloud roots, incremental external-file imports, dirty targets, original-tab reuse and retained cloud working paths. The build retains its existing chunk-size warnings.
-
-In the real DOCX review harness, synthetic native `dragover`/`drop` events dispatched through the portaled editor verified the smaller indicator, opening a new split and moving the same file back without duplicating it. These checks validate event routing, not a native mouse gesture. Pointer automation still did not produce a successful drag. A real connected Memory Drive download/publish was not exercised in this follow-up; its source metadata is covered by automated tests.
-
-![Drop indicator below the Word toolbar, using a synthetic document and drag event](./document-drop-inset.png)
-
-### PDF drop overlays
-
-PDFium lives in an iframe, whose drag events do not bubble into the containing document pane. A recognized file or document-tab drag now activates a temporary transparent surface over the pane before the pointer enters that iframe. The existing inset indicator and drop handlers then receive the events. The surface disappears on drop, drag end, Escape, window exit or blur. Plain text/link drags do not activate it, and the PDF iframe is not reloaded. The indicator label has a background so it remains readable over PDFium's dark sidebar.
-
-Validation: app typecheck and `git diff --check` passed; **43 tests passed, 0 failed** across `viewer-file-drop`, `panel-side-pane`, `document-split-drop`, `document-preferences`, `storage-file-drag` and `storage-file-tabs`. The full suite was not rerun for this follow-up. In a separate Electron window using the installed runtime with `plugins: true`, a generated three-page PDF visibly rendered below the indicator. Canceling restored PDF navigation (page 1 to page 2); a subsequent drop moved the existing Precedent DOCX into the targeted pane. Browser hit-testing confirmed the transparent surface replaced the iframe as the event target, Escape/drop removed it, and a right-edge drop opened a split while retaining the PDF blob URL. These drag events were explicitly synthetic; native mouse and Finder gestures remain manual checks.
-
-The isolated harness now includes **Open PDF** and **PDF drag checks**. Use **Enter file drag**, then **Hover over PDF**, followed by **Drop over PDF** or **Cancel file drag**. Unlike the older direct-pane buttons, these hover/drop controls use `elementFromPoint` and refuse to dispatch into an unshielded iframe. PDF visual checks require a browser/Electron window with the built-in PDF viewer enabled. No client documents or DOCX selection-rendering code were changed.
-
-![Drop indicator above the Electron PDF viewer, with synthetic documents and drag events](./document-pdf-drop.png)
+![Rounded drop preview above native PDFium, using synthetic documents](./document-workspace-free-split-pdf.png)
 
 ## Editing in multiple app windows
 
@@ -139,6 +137,6 @@ PORT=5174 pnpm dev:ui
 
 Open `http://localhost:5174/document-workspace-review.html`. The server logs its temporary workspace directory, copies the synthetic fixture into two originals, and uses the real authenticated file routes on localhost:5175. The development-only page exposes failed/held writes, a release button, original-file readback and active-document metadata. **Hold writes** waits until **Release write** is clicked; turn holding off before releasing to let subsequent saves finish normally. The harness is not a production build entry and uses no model calls or client documents.
 
-For file-drop checks, close the Precedent tab and drag it from the fixture's Project Files list to the document's right edge. The explicitly labeled synthetic-event buttons provide a separate check of the production drop listeners and the portaled editor path. Use **Preview right-edge drop** to inspect the indicator, **Drop precedent at right edge** to open the split and **Drop precedent into main** to move it back.
+For file-drop checks, drag a fixture from the Project Files list to any document edge. The explicitly labeled synthetic-event buttons provide a separate check of the production drop listeners and the portaled editor path. Use **Preview right-edge drop** to inspect the indicator, **Drop precedent at right edge** to open the split and **Drop precedent into main** to move it back.
 
-The bottom-edge buttons exercise vertical creation. **Dock tabs in header** reproduces the desktop header placement; use the production layout menu to choose a preset. **Open second window** opens an independent detached view using the same test files; use **Edit here** on a read-only document to test handoff. **Open note** supplies a synthetic Markdown fixture. Hold/fail controls affect writes originating in their own test view, so enable them in the editing owner when checking handoff failure or waiting.
+The bottom-edge buttons exercise vertical creation. **Dock tabs in header** reproduces the desktop header placement; use tab context menus or **Free split checks** to arrange panes. The latter sends explicitly synthetic project-file or tab drag events through the production listeners, with a selectable source, target and edge. **Open second window** opens an independent detached view using the same test files; use **Edit here** on a read-only document to test handoff. **Open note** supplies a synthetic Markdown fixture. Hold/fail controls affect writes originating in their own test view, so enable them in the editing owner when checking handoff failure or waiting.

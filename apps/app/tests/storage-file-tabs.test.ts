@@ -103,7 +103,7 @@ describe("connected storage document tabs", () => {
     store.openTab("session", other);
     store.openTab("session", tab);
     store.setStorageWorkingPath("session", tab.id, ".legalwork/storage-downloads/copy/Contract.docx");
-    store.openTab("session", storageFileTab("workspace", root, file), "side");
+    store.openTab("session", storageFileTab("workspace", root, file), "main", "right");
     const session = usePanelTabStore.getState().sessions.session;
     expect(session.tabs).toHaveLength(2);
     expect(session.sideActiveTabId).toBe(tab.id);

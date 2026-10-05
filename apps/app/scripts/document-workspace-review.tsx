@@ -9,7 +9,8 @@ import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { writeWorkspaceFileDrag } from "../src/app/lib/workspace-file-drag";
 import { classifyOpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
 import { SidePanel } from "../src/react-app/domains/session/panel/side-panel";
-import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
+import { usePanelTabStore, useSessionPanelState } from "../src/react-app/domains/session/panel/panel-tab-store";
+import { type DocumentDropEdge } from "../src/react-app/domains/session/panel/document-layout";
 import { LegalworkControlProvider, useLegalworkControl } from "../src/react-app/shell/control/control-provider";
 import { Toaster } from "../src/components/ui/sonner";
 import { initLocale } from "../src/i18n";
@@ -48,7 +49,51 @@ function frameDrop(type: "dragenter" | "dragover" | "drop" | "dragend") {
 }
 if (!usePanelTabStore.getState().sessions[sessionId]?.tabs.length) {
   open("Agreement.docx"); open("Precedent.docx");
-  usePanelTabStore.getState().moveTabToSide(sessionId, "file:Precedent.docx");
+  usePanelTabStore.getState().moveTab(sessionId, "file:Precedent.docx", "main", "right");
+}
+
+function FreeSplitChecks() {
+  const session = useSessionPanelState(sessionId);
+  const [file, setFile] = useState("Notes.md");
+  const [targetId, setTargetId] = useState("");
+  const [edge, setEdge] = useState<DocumentDropEdge | "center">("bottom");
+  const [sourceKind, setSourceKind] = useState("project");
+  const drag = useRef<DataTransfer | null>(null);
+  const target = session.panes.find(pane => pane.id === targetId) ?? session.panes[0];
+  const dispatch = (type: "dragover" | "drop") => {
+    const pane = [...document.querySelectorAll<HTMLElement>("[data-document-drop-pane]")].find(element => element.dataset.documentDropPane === target.id);
+    if (!pane) return;
+    const dataTransfer = drag.current ?? new DataTransfer();
+    if (sourceKind === "project") writeWorkspaceFileDrag(dataTransfer, { workspaceId, path: file, name: file });
+    const rect = pane.getBoundingClientRect();
+    const clientX = rect.left + rect.width * (edge === "left" ? 0.1 : edge === "right" ? 0.9 : 0.5);
+    const clientY = rect.top + rect.height * (edge === "top" ? 0.1 : edge === "bottom" ? 0.9 : 0.5);
+    document.documentElement.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer }));
+    pane.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, clientX, clientY }));
+    if (type === "drop") { document.documentElement.dispatchEvent(new DragEvent("dragend", { bubbles: true })); drag.current = null; }
+  };
+  return <details><summary>Free split checks</summary><div className="space-y-2 text-xs">
+    <label>Source<select aria-label="Drop source" value={file} onChange={event => setFile(event.target.value)}>
+      {["Agreement.docx", "Precedent.docx", "Reference.pdf", "Notes.md", "Clauses.md", "Timeline.md", "Checklist.md"].map(name => <option key={name}>{name}</option>)}
+    </select></label>
+    <label>Kind<select aria-label="Drag kind" value={sourceKind} onChange={event => setSourceKind(event.target.value)}><option value="project">Project file</option><option value="tab">Tab</option></select></label>
+    <label>Target<select aria-label="Drop target" value={target.id} onChange={event => setTargetId(event.target.value)}>
+      {session.panes.map(pane => <option key={pane.id} value={pane.id}>{session.tabs.find(tab => tab.id === pane.activeTabId)?.label ?? "Empty"}</option>)}
+    </select></label>
+    <label>Edge<select aria-label="Drop edge" value={edge} onChange={event => {
+      const value = event.target.value;
+      if (value === "left" || value === "right" || value === "top" || value === "bottom" || value === "center") setEdge(value);
+    }}>{["left", "right", "top", "bottom", "center"].map(value => <option key={value}>{value}</option>)}</select></label>
+    <button onClick={() => {
+      const tab = [...document.querySelectorAll('[draggable="true"]')].find(element => element.querySelector(`[aria-label="Select tab: ${file}"]`));
+      drag.current = new DataTransfer();
+      tab?.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: drag.current }));
+    }}>Begin tab drag</button>
+    <button onClick={() => dispatch("dragover")}>Preview free drop</button>
+    <button onClick={() => dispatch("drop")}>Perform free drop</button>
+    <button onClick={() => { document.documentElement.dispatchEvent(new DragEvent("dragend", { bubbles: true })); drag.current = null; }}>Cancel drag</button>
+    <output aria-label="Pane count">{session.panes.length} panes</output>
+  </div></details>;
 }
 
 function Harness() {
@@ -95,8 +140,9 @@ function Harness() {
     {dockHeader && <div ref={setHeaderTarget} className="ml-48 h-11 shrink-0 border-b" />}
     <div className="flex min-h-0 flex-1">
       <aside className="w-48 shrink-0 space-y-3 border-r p-5 text-sm text-muted-foreground">
-        <p>Project files — drag into either pane. The right or bottom edge opens a split.</p>
+        <p>Project files — drop at any edge to split; in the centre to add a tab.</p>
         {["Agreement.docx", "Precedent.docx"].map((name) => <div key={name} draggable className="cursor-grab rounded border p-2" onDragStart={(event) => writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: name, name })}>{name}</div>)}
+        <FreeSplitChecks />
         <p className="text-xs">Synthetic drop events:</p>
         <button onClick={() => projectDrop("dragover", "right")}>Preview right-edge drop</button>
         <button onClick={() => projectDrop("drop", "right")}>Drop precedent at right edge</button>

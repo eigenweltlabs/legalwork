@@ -4,12 +4,16 @@
  */
 
 export default {
-  "side_panel.document_layout": "Document layout",
-  "side_panel.layout_single": "One pane",
-  "side_panel.layout_columns": "Two columns",
-  "side_panel.layout_rows": "Two rows",
-  "side_panel.layout_three-columns": "Three columns",
-  "side_panel.layout_main-and-stack": "One left, two on the right",
+  "side_panel.split_left": "Split left",
+  "side_panel.split_right": "Split right",
+  "side_panel.split_top": "Split above",
+  "side_panel.split_bottom": "Split below",
+  "side_panel.drop_left": "Open to the left",
+  "side_panel.drop_right": "Open to the right",
+  "side_panel.drop_top": "Open above",
+  "side_panel.drop_bottom": "Open below",
+  "side_panel.pane_limit": "Up to {count} panes. Drop in the centre to add a tab.",
+  "side_panel.drop_target_closed": "That pane was closed. Drop the file into another pane.",
   "side_panel.move_to_pane": "Move to pane {number}",
 
   "document_access.read_only": "Read-only in this view. Saved changes appear automatically. Choose Edit here to take over.",

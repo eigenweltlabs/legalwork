@@ -14,12 +14,16 @@
  */
 
 const de = {
-  "side_panel.document_layout": "Dokumentanordnung",
-  "side_panel.layout_single": "Ein Bereich",
-  "side_panel.layout_columns": "Zwei nebeneinander",
-  "side_panel.layout_rows": "Zwei übereinander",
-  "side_panel.layout_three-columns": "Drei nebeneinander",
-  "side_panel.layout_main-and-stack": "Eines links, zwei rechts",
+  "side_panel.split_left": "Links teilen",
+  "side_panel.split_right": "Rechts teilen",
+  "side_panel.split_top": "Nach oben teilen",
+  "side_panel.split_bottom": "Nach unten teilen",
+  "side_panel.drop_left": "Links öffnen",
+  "side_panel.drop_right": "Rechts öffnen",
+  "side_panel.drop_top": "Oben öffnen",
+  "side_panel.drop_bottom": "Unten öffnen",
+  "side_panel.pane_limit": "Bis zu {count} Bereiche. In der Mitte als Tab ablegen.",
+  "side_panel.drop_target_closed": "Dieser Bereich wurde geschlossen. Legen Sie die Datei in einem anderen Bereich ab.",
   "side_panel.move_to_pane": "In Bereich {number} verschieben",
   "document_access.read_only": "Hier schreibgeschützt. Gespeicherte Änderungen erscheinen automatisch. Mit „Hier bearbeiten“ übernehmen Sie die Bearbeitung.",
   "document_access.edit_here": "Hier bearbeiten",
