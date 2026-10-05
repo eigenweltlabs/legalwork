@@ -206,12 +206,12 @@ export async function requireHubInstallAllowed(config: ServerConfig, hubKind: st
   if (kind) await requireOrgPolicyAllows(config, kind === "mcp" ? "connectors.allowCustom" : kind === "plugin" ? "plugins.allowCustom" : "skills.allowCustom");
 }
 
-/** The firm's connectors as shared, without their credentials. */
 /** The firm's plugins, listed beside the member's own. */
 export async function orgPolicyPlugins(dir: string): Promise<PluginItem[]> {
   return ((await readManifest(dir))?.items ?? []).flatMap((item) => (item.kind === "plugin" ? [{ spec: item.spec ?? item.name, source: "org", scope: "global" }] : []));
 }
 
+/** The firm's connectors as shared, without their credentials. */
 export async function orgPolicyConnectors(dir: string): Promise<Array<{ name: string; config: Record<string, unknown> }>> {
   return ((await readManifest(dir))?.items ?? []).flatMap((item) => (item.mcp ? [{ name: item.mcp.key, config: item.mcp.config }] : []));
 }
