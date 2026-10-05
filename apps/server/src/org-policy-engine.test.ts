@@ -14,7 +14,7 @@ import type { ServerConfig } from "./types.js";
 import { OcrManager } from "./ocr/manager.js";
 import { orgOcr } from "./org-policy-ai.js";
 import { readSystemOneSettings, saveSystemOneProvider, selectSystemOneProvider } from "./systemone.js";
-import { orgPolicyItemsLayer, requireConnectorAllowed, requireHubInstallAllowed, syncOrgPolicyItems } from "./org-policy-items.js";
+import { orgPolicyItemsLayer, orgPolicyPlugins, requireConnectorAllowed, requireHubInstallAllowed, syncOrgPolicyItems } from "./org-policy-items.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 
 const realFetch = globalThis.fetch;
@@ -219,6 +219,7 @@ describe("the firm's Firm Hub items", () => {
     const layer = await readJson(join(dir, "opencode.json"));
     expect(layer.mcp).toEqual({ crm: { type: "remote", url: "https://crm.example.com/mcp", headers: { Authorization: "Bearer firm" } } });
     expect(layer.plugin).toEqual(["firm-plugin@1.0.0"]);
+    expect(await orgPolicyPlugins(dir)).toEqual([{ spec: "firm-plugin@1.0.0", source: "org", scope: "project" }]);
     expect(await readFile(join(dir, "skills", "due-diligence-firm", "SKILL.md"), "utf8")).toContain("Steps");
     // The member's own connector is left out; LegalWork's own stays.
     expect(Object.keys((await readJson(legalworkRuntimeConfigFilePath(config))).mcp ?? {})).toEqual(["legalwork-ui"]);

@@ -107,6 +107,7 @@ import { useMessagingViewProps } from "@/react-app/domains/settings/state/messag
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
 import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { useSyncEvents } from "@/react-app/kernel/sync-events";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "@/react-app/domains/settings/state/extensions-store";
@@ -427,6 +428,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [legalworkClient, setLegalworkClient] = useState<LegalworkServerClient | null>(null);
+  // On its own route, Settings keeps the window's line to the server (inside a session, that has it).
+  useSyncEvents(props.embedded ? null : legalworkClient);
   const [activeClient, setActiveClient] = useState<Client | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -832,7 +835,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const effectiveUpdateAutoDownload = firmAutoDownload ? firmAutoDownload.value : updateAutoDownload;
   const releaseChannel = firmReleaseChannel ? firmReleaseChannel.value : local.prefs.releaseChannel ?? "stable";
   // The firm can only switch anonymous usage sharing off.
-  const analyticsEnabled = local.prefs.analyticsEnabled === true && useOrgPolicy("privacy.shareAnonymousUsage")?.value !== false;
+  const firmAnalytics = useOrgPolicy("privacy.shareAnonymousUsage");
+  const analyticsEnabled = local.prefs.analyticsEnabled === true && firmAnalytics?.value !== false;
   const onReleaseChannelChange = useCallback(
     (next: "stable" | "alpha") => {
       local.setPrefs((previous) => ({ ...previous, releaseChannel: next }));

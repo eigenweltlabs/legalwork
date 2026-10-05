@@ -98,6 +98,10 @@ export function FirmInstructions() {
 }
 
 /** Atop Settings while the firm manages anything here. */
+// The action sits below the text: the buttons are wider than the room the alert keeps for one.
+const BANNER_CLASS = "w-full lg:max-w-3xl has-data-[slot=alert-action]:pe-4";
+const BANNER_ACTION_CLASS = "static col-start-2 mt-2";
+
 export function OrgPolicyBanner() {
   const view = useOrgPolicyStore((state) => state.view);
   const navigate = useNavigate();
@@ -105,10 +109,10 @@ export function OrgPolicyBanner() {
   if (!view || view.state === "none") return null;
   if (view.state === "lapsed") {
     return (
-      <Alert className="w-full lg:max-w-3xl">
+      <Alert className={BANNER_CLASS}>
         <Building2 aria-hidden />
         <AlertDescription>{t("org_policy.banner_lapsed", { org })}</AlertDescription>
-        <AlertAction>
+        <AlertAction className={BANNER_ACTION_CLASS}>
           <Button size="sm" variant="outline" onClick={() => navigate(globalSettingsRoute("account"))}>
             {t("org_policy.sign_in")}
           </Button>
@@ -118,11 +122,11 @@ export function OrgPolicyBanner() {
   }
   const manage = view.role === "admin" && view.platformURL ? `${view.platformURL.replace(/\/+$/, "")}/policies` : null;
   return (
-    <Alert className="w-full lg:max-w-3xl">
+    <Alert className={BANNER_CLASS}>
       <Building2 aria-hidden />
       <AlertDescription>{t("org_policy.banner_active", { org })}</AlertDescription>
       {manage ? (
-        <AlertAction>
+        <AlertAction className={BANNER_ACTION_CLASS}>
           <Button size="sm" variant="outline" onClick={() => void openDesktopUrl(manage)}>
             {t("org_policy.manage")}
           </Button>
