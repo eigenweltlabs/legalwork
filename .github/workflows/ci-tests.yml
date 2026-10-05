@@ -146,6 +146,19 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm --filter @legalwork/desktop test:preview-security
 
+      - name: Verify browser batches and project downloads in Electron
+        if: runner.os == 'macOS'
+        env:
+          LEGALWORK_BROWSER_TEST_SCREENSHOT: ${{ runner.temp }}/browser-workflow.png
+        run: pnpm --filter @legalwork/desktop test:browser-workflow
+
+      - name: Upload browser workflow evidence
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-workflow-evidence
+          path: ${{ runner.temp }}/browser-workflow.png
+
       - name: Run release tooling tests
         run: node --test scripts/release/*.test.mjs
 
