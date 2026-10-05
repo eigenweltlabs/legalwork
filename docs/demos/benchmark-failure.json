@@ -1,0 +1,33 @@
+{
+  "label": "Recorded benchmark failure, not a live run",
+  "benchmark": "DeadlineBench v0.8.0",
+  "model": "DeepSeek V4.1 Flash",
+  "source_report": "results/deepseek-v4.1-flash/v0.8.0/skills-off-uncapped-20261002T1250/task-results.json",
+  "result": {
+    "task": "tasks/germany/missing-facts--docket-payment-order-longstop",
+    "country": "DE",
+    "type": "missing-facts",
+    "evaluation_mode": "document-docketing",
+    "evidence_kind": "synthetic",
+    "result_kind": "insufficient-information",
+    "primary_pass": false,
+    "final_date_pass": null,
+    "output_status": "present",
+    "config_verified": true,
+    "expected_status": "needs_information",
+    "expected_deadlines": [],
+    "actual_status": "calculated",
+    "actual_deadlines": [
+      {
+        "id": "d01",
+        "date": "2026-01-26",
+        "cutoff_local": "2026-01-27T00:00:00",
+        "timezone": "Europe/Berlin",
+        "cutoff_utc": "2026-01-26T23:00:00Z"
+      }
+    ],
+    "finish_reason": "finish_tool",
+    "reported_cost_usd": 0.005254896,
+    "run_id": "ablations/20261002T125319Z-a8056dc3/germany/missing-facts--docket-payment-order-longstop/r01/off"
+  }
+}

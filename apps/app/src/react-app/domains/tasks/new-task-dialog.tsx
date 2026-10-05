@@ -1,40 +1,16 @@
 /** @jsxImportSource react */
-/**
- * "New task": a title, and optionally a description, priority, due date and —
- * once the firm is connected and its members are known — an assignee. Without
- * a connection there is nobody to hand a task to, so the field stays away
- * rather than offering an empty list.
- */
 import { useId, useState, type FormEvent } from "react";
-import { Loader2 } from "lucide-react";
-
+import { Loader2, SquareCheck, Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ItemDetailLabel, ItemDescriptionInput, ItemDialogContent, ItemTitleInput } from "@/react-app/design-system/item-detail";
 import type { LegalworkTaskCreate, LegalworkTaskMember, LegalworkTaskPriority } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
-import { TASK_PRIORITIES, priorityForKey, taskMemberOptions, taskPriorityLabel } from "./task-format";
-import { AssigneeMark, OptionText, PriorityMark, PriorityOption } from "./task-glyphs";
+import { TASK_PRIORITIES, taskMemberOptions, taskPriorityLabel } from "./task-format";
+import { AssigneeMark, PriorityMark } from "./task-glyphs";
+import { DueDateChip, PropertyChip } from "./task-property-chip";
 import { TaskTagInput } from "./task-tag-input";
 
-/** The "unassigned" choice needs a non-empty Select value of its own. */
 const UNASSIGNED = "__unassigned__";
 
 export type NewTaskDialogProps = {
@@ -50,23 +26,18 @@ export type NewTaskDialogProps = {
 };
 
 export function NewTaskDialog(props: NewTaskDialogProps) {
-  const ids = { title: useId(), description: useId(), priority: useId(), due: useId(), assignee: useId() };
+  const titleId = useId();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<LegalworkTaskPriority>(2);
-  const [priorityOpen, setPriorityOpen] = useState(false);
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState<string | null>(null);
   const [assignee, setAssignee] = useState(UNASSIGNED);
   const [tags, setTags] = useState<string[]>([]);
-
-  const priorityItems = TASK_PRIORITIES.map((value) => ({ value: String(value), label: taskPriorityLabel(value) }));
   const showAssignee = props.connected && props.members.length > 0;
   const assigneeItems = [
     { value: UNASSIGNED, label: t("tasks.unassigned"), primary: t("tasks.unassigned") },
     ...taskMemberOptions(props.members),
   ];
-  const chosenAssignee = assigneeItems.find((item) => item.value === assignee);
-
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim() || props.busy) return;
@@ -80,117 +51,40 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
     });
   };
 
-  return (
-    <Dialog open={props.open} onOpenChange={(open) => (open ? undefined : props.onClose())}>
-      <DialogContent className="sm:max-w-lg">
-        <form className="contents" onSubmit={submit}>
-          <DialogHeader>
-            <DialogTitle>{t("tasks.new_task")}</DialogTitle>
-            <DialogDescription>{t("tasks.new_task_desc")}</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-4 py-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={ids.title}>{t("tasks.field_title")}</Label>
-              <Input
-                id={ids.title}
-                autoFocus
-                required
-                maxLength={500}
-                value={title}
-                placeholder={t("tasks.field_title_placeholder")}
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={ids.description}>{t("tasks.field_description")}</Label>
-              <Textarea
-                id={ids.description}
-                rows={4}
-                value={description}
-                placeholder={t("tasks.field_description_placeholder")}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>{t("tasks.tags")}</Label>
-              <TaskTagInput tags={tags} suggestions={props.tagSuggestions} onChange={setTags} />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={ids.priority}>{t("tasks.field_priority")}</Label>
-                <Select
-                  value={String(priority)}
-                  items={priorityItems}
-                  open={priorityOpen}
-                  onOpenChange={setPriorityOpen}
-                  onValueChange={(value) => {
-                    const next = Number(value);
-                    if (next === 0 || next === 1 || next === 2 || next === 3 || next === 4) setPriority(next);
-                  }}
-                >
-                  <SelectTrigger id={ids.priority} className="w-full">
-                    <PriorityMark priority={priority} />
-                    <SelectValue />
-                  </SelectTrigger>
-                  {/* Digits pick a priority while the menu is open, as in Linear. */}
-                  <SelectContent
-                    onKeyDown={(event) => {
-                      const next = priorityForKey(event);
-                      if (next === null) return;
-                      event.preventDefault();
-                      setPriority(next);
-                      setPriorityOpen(false);
-                    }}
-                  >
-                    <SelectGroup>
-                      {TASK_PRIORITIES.map((value) => (
-                        <SelectItem key={value} value={String(value)}>
-                          <PriorityOption priority={value} />
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={ids.due}>{t("tasks.field_due")}</Label>
-                <Input id={ids.due} type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-              </div>
-            </div>
-            {showAssignee ? (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={ids.assignee}>{t("tasks.column_assignee")}</Label>
-                <Select value={assignee} items={assigneeItems} onValueChange={(value) => setAssignee(value ?? UNASSIGNED)}>
-                  <SelectTrigger id={ids.assignee} className="w-full">
-                    <AssigneeMark name={assignee === UNASSIGNED ? null : (chosenAssignee?.primary ?? null)} />
-                    <SelectValue />
-                  </SelectTrigger>
-                  {/* As wide as the names need, not as the trigger. */}
-                  <SelectContent className="w-auto min-w-(--anchor-width) max-w-80">
-                    <SelectGroup>
-                      {assigneeItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          <AssigneeMark name={item.value === UNASSIGNED ? null : item.primary} />
-                          <OptionText primary={item.primary} detail={item.detail} />
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
+  return <Dialog open={props.open} onOpenChange={open => { if (!open && !props.busy) props.onClose(); }}>
+    <ItemDialogContent>
+      <form className="flex min-h-0 flex-col" onSubmit={submit}>
+        <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-3.5 pe-14">
+          <DialogTitle><ItemDetailLabel icon={<SquareCheck />}>{t("tasks.new_task")}</ItemDetailLabel></DialogTitle>
+          <DialogDescription className="sr-only">{t("tasks.field_title_placeholder")}</DialogDescription>
+        </DialogHeader>
+        <fieldset disabled={props.busy} className="min-h-0 space-y-5 overflow-y-auto px-5 py-6 sm:px-8">
+          <div className="space-y-4">
+            <ItemTitleInput id={titleId} aria-label={t("tasks.field_title")} autoFocus required maxLength={500}
+              value={title} placeholder={t("tasks.field_title_placeholder")} onChange={event => setTitle(event.target.value)} />
+            <ItemDescriptionInput aria-label={t("tasks.field_description")} value={description}
+              placeholder={t("calendar.description_placeholder")} onChange={event => setDescription(event.target.value)} />
           </div>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={props.onClose} disabled={props.busy}>
-              {t("tasks.cancel")}
-            </Button>
-            <Button type="submit" disabled={props.busy || !title.trim()} aria-busy={props.busy}>
-              {props.busy ? <Loader2 className="animate-spin" /> : null}
-              {t("tasks.create")}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
+          <div className="flex flex-wrap items-center gap-2 [&>[data-slot=select-trigger]]:max-w-72">
+            <DueDateChip value={dueDate} disabled={props.busy} onChange={setDueDate} />
+            {showAssignee && <PropertyChip label={t("tasks.column_assignee")} value={assignee} disabled={props.busy}
+              items={assigneeItems.map(item => ({ ...item, leading: <AssigneeMark name={item.value === UNASSIGNED ? null : item.primary} /> }))} onChange={setAssignee} />}
+            <PropertyChip label={t("tasks.field_priority")} value={String(priority)} disabled={props.busy}
+              items={TASK_PRIORITIES.map(value => ({ value: String(value), key: String(value), label: taskPriorityLabel(value), leading: <PriorityMark priority={value} /> }))}
+              onChange={value => { const next = TASK_PRIORITIES.find(item => String(item) === value); if (next !== undefined) setPriority(next); }} />
+          </div>
+          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-t border-border/60 pt-3">
+            <Tags className="size-3.5 text-muted-foreground" />
+            <TaskTagInput tags={tags} suggestions={props.tagSuggestions} disabled={props.busy} onChange={setTags} />
+          </div>
+        </fieldset>
+        <DialogFooter className="m-0 shrink-0 border-border/60 bg-muted/20 px-6 py-3.5">
+          <Button type="button" variant="ghost" onClick={props.onClose} disabled={props.busy}>{t("tasks.cancel")}</Button>
+          <Button type="submit" disabled={props.busy || !title.trim()} aria-busy={props.busy}>
+            {props.busy && <Loader2 className="animate-spin" />}{t("tasks.create")}
+          </Button>
+        </DialogFooter>
+      </form>
+    </ItemDialogContent>
+  </Dialog>;
 }

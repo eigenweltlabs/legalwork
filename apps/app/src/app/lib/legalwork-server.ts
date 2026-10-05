@@ -1,3 +1,5 @@
+import type { CalculationPresentation } from "@legalwork/types/calculation";
+import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
@@ -19,7 +21,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
-import { desktopFetch } from "./desktop";
+import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
@@ -2654,7 +2656,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
      */
     syncEvents: async (onPoke: (poke: SyncPoke) => void, signal: AbortSignal) => {
       const url = `${baseUrl}/sync/events`;
-      const response = await resolveFetch(url)(url, {
+      const response = await (isDesktopRuntime() ? desktopStreamFetch : globalThis.fetch)(url, {
         headers: buildAuthHeaders(token, hostToken, { Accept: "text/event-stream" }),
         signal,
       });
@@ -2671,6 +2673,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     },
     runProjectSync: () =>
       requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
+    calculationPresentation: (workspaceId: string, id: string) => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}`, { token, hostToken }),
+    decideCalculation: (workspaceId: string, id: string, action: "save" | "reject" | "acknowledge") => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}/decision`, { token, hostToken, method: "POST", body: { action } }),
+    calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
+      requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
+    calendarLinks: (workspaceId: string, search = "") => requestJson<{ projectName: string; sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/links?search=${encodeURIComponent(search)}`, { token, hostToken }),
+    calendarItems: (workspaceId: string, includeDeleted = false) => requestJson<{ items: CalendarItem[]; conflicts: CalendarItem[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${includeDeleted ? "?deleted=include" : ""}`, { token, hostToken }),
+    calendarSubscription: (workspaceId: string | null, method = "GET") => requestJson<{ available: boolean; url: string | null; lastSyncedAt: string | null }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/subscription`, { token, hostToken, method }),
+    calendarItem: (workspaceId: string, itemId: string) => requestJson<{ item: CalendarItem }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/${encodeURIComponent(itemId)}`, { token, hostToken }),
+    calendarWrite: (workspaceId: string, path: string, body: unknown, method = "POST") => requestJson<{ item?: CalendarItem; items?: CalendarItem[]; calculation?: DeadlineCalculation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${path}`, { token, hostToken, method, body }),
+    calendarExport: async (workspaceId: string) => {
+      const file = await requestBinary(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/export`, { token, hostToken });
+      return new TextDecoder().decode(file.data);
+    },
+    claimCalendarReminders: () => requestJson<{ reminders: { id: string; itemId: string; projectId: string; title: string; deadline: string }[] }>(baseUrl, "/calendar/reminders/claim", { token, hostToken, method: "POST" }),
     projectSyncStatus: (workspaceId: string) =>
       requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
         token,

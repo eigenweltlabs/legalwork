@@ -1,6 +1,6 @@
 import { createOpencodeClient, type Message, type Part, type Session, type Todo } from "@opencode-ai/sdk/v2/client";
 
-import { desktopFetch } from "./desktop";
+import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { createLegalworkServerClient, LegalworkServerError } from "./legalwork-server";
 import { isDesktopRuntime } from "./runtime-env";
 import { t } from "@/i18n";
@@ -277,12 +277,8 @@ const resolveAuthHeader = (auth?: OpencodeAuth) => {
 
 /**
  * URLs whose response body we must stream chunk-by-chunk (SSE, long-running
- * message streams, event subscriptions). The Tauri HTTP plugin's
- * `fetch_read_body` IPC call blocks until the entire body is delivered, so
- * pointing it at an infinite stream freezes the webview's main thread for
- * minutes. For these endpoints we always use the webview's native fetch —
- * CORS is already wide open on the legalwork/opencode stack, so there's no
- * reason to route them through the plugin.
+ * message streams, event subscriptions). These need the pull-based stream
+ * bridge; the ordinary text fetch helper waits for the complete body.
  */
 const STREAM_URL_RE = /\/(event|stream)(\b|\/|$|\?)/;
 
@@ -296,11 +292,6 @@ function requestIsStreaming(input: RequestInfo | URL, init?: RequestInit): boole
   return typeof accept === "string" && accept.toLowerCase().includes("text/event-stream");
 }
 
-function nativeFetchRef(): typeof globalThis.fetch {
-  if (typeof window !== "undefined" && typeof window.fetch === "function") return window.fetch.bind(window);
-  return globalThis.fetch as typeof globalThis.fetch;
-}
-
 const createDesktopFetch = (auth?: OpencodeAuth) => {
   const authHeader = resolveAuthHeader(auth);
   const addAuth = (headers: Headers) => {
@@ -309,11 +300,11 @@ const createDesktopFetch = (auth?: OpencodeAuth) => {
   };
 
   return (input: RequestInfo | URL, init?: RequestInit) => {
-    // Streams must go through the webview's native fetch to avoid the
-    // Tauri HTTP plugin's `fetch_read_body` hang on never-closing bodies.
+    // Pull stream chunks through Electron instead of occupying Chromium's
+    // shared HTTP pool for the lifetime of every open app window.
     const shouldStream = requestIsStreaming(input, init);
     const underlyingFetch = shouldStream
-      ? nativeFetchRef()
+      ? desktopStreamFetch
       : desktopFetch;
     // Streams should never be timed out at the transport layer; the caller
     // aborts via AbortSignal when the subscription unmounts.

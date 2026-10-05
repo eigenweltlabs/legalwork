@@ -166,6 +166,7 @@ const scopeSchema = z.object({
   metadata: z.boolean(),
   // Shared before reviews were part of it: they stay out until the owner adds them.
   reviews: z.boolean().default(false),
+  calendar: z.boolean().default(true),
 });
 
 export const projectSyncSettingsSchema = z.object({
@@ -259,7 +260,7 @@ function parseJson<T>(schema: z.ZodType<T>, value: unknown): T | null {
   }
 }
 
-const NO_SCOPE = { documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false };
+const NO_SCOPE = { calendar: false, documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false };
 
 export type ProjectOffer = {
   projectId: string;

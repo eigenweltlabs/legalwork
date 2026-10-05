@@ -5,23 +5,25 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navCalendar", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
-export type ProjectNavKey = "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
+export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
 const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionProjects", "sectionRecent"];
-const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
+const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
   navHome: boolean;
+  navCalendar: boolean;
   navProjects: boolean;
   chatSectionOrder: ChatSectionKey[];
   sectionPinned: boolean;
   sectionProjects: boolean;
   sectionRecent: boolean;
   projectNavOrder: ProjectNavKey[];
+  projectCalendar: boolean;
   projectHome: boolean;
   projectReviews: boolean;
   projectTasks: boolean;
@@ -70,12 +72,14 @@ export type ShellConfig = {
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navOrder: DEFAULT_NAV_ORDER,
   navHome: true,
+  navCalendar: true,
   navProjects: true,
   chatSectionOrder: DEFAULT_CHAT_ORDER,
   sectionPinned: true,
   sectionProjects: true,
   sectionRecent: true,
   projectNavOrder: DEFAULT_PROJECT_ORDER,
+  projectCalendar: true,
   projectHome: true,
   projectReviews: true,
   projectTasks: true,
@@ -123,9 +127,16 @@ function readShellConfig(): ShellConfig {
     if (!raw) return DEFAULT_SHELL_CONFIG;
     const parsed = JSON.parse(raw);
     const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
+    const savedNavOrder = Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder;
+    const navOrder = readOrder(savedNavOrder, DEFAULT_NAV_ORDER);
+    // Add Calendar beside Home for existing profiles without changing saved ordering.
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
+      navOrder.splice(navOrder.indexOf("navCalendar"), 1);
+      navOrder.splice(navOrder.indexOf("navHome") + 1, 0, "navCalendar");
+    }
     return {
       ...next,
-      navOrder: readOrder(Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder, DEFAULT_NAV_ORDER),
+      navOrder,
       chatSectionOrder: readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER),
       projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
       projectSessions: true,

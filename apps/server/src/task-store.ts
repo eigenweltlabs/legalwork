@@ -520,7 +520,7 @@ function iso(ms: number | null | undefined): string | null {
 
 function epoch(value: string | null | undefined): number | null {
   if (!value) return null;
-  const ms = Date.parse(value);
+  const ms = value.length === 10 ? new Date(`${value}T00:00:00`).getTime() : Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
 }
 

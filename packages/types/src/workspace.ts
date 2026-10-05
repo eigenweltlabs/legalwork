@@ -83,6 +83,7 @@ export type ProjectDetails = {
  * each chat is shared on its own, through its own sharing.
  */
 export type ProjectSyncScope = {
+  calendar?: boolean;
   documents: boolean;
   notes: boolean;
   tasks: boolean;

@@ -107,6 +107,12 @@ describe("requireIntakeClient", () => {
 });
 
 describe("intakeListTasks", () => {
+  test("uses date-only deadlines from a new platform and retains old-platform timestamps", async () => {
+    stubFetch(() => jsonResponse({ tasks: [{ ...TASK, dueDate: "2026-10-07T00:00:00", dueDateDay: "2026-10-07" }], nextCursor: null }));
+    expect((await intakeListTasks(client)).tasks[0].dueDate).toBe("2026-10-07");
+    stubFetch(() => jsonResponse({ tasks: [{ ...TASK, dueDate: "2026-10-07T14:30:00.000Z" }], nextCursor: null }));
+    expect((await intakeListTasks(client)).tasks[0].dueDate).toBe("2026-10-07T14:30:00.000Z");
+  });
   test("shapes the filter/sort/paging query and carries the bearer token", async () => {
     stubFetch(() => jsonResponse({ tasks: [TASK], nextCursor: "cur_2" }));
     const page = await intakeListTasks(client, {
@@ -388,4 +394,3 @@ describe("error mapping", () => {
     });
   });
 });
-

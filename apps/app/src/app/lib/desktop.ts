@@ -1,5 +1,6 @@
 import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
+import { fetchDesktopStream } from "./desktop-stream-fetch";
 
 export type * from "./desktop-types";
 export type {
@@ -303,6 +304,11 @@ export const desktopFetch: typeof globalThis.fetch = async (input, init) => {
     statusText: result.statusText,
     headers: result.headers,
   });
+};
+
+export const desktopStreamFetch: typeof globalThis.fetch = (input, init) => {
+  if (!window.__LEGALWORK_ELECTRON__?.invokeDesktop) return globalThis.fetch(input, init);
+  return fetchDesktopStream(desktopBridge, input, init);
 };
 
 export async function desktopFetchViaMain(input: RequestInfo | URL, init?: RequestInit, timeoutMs?: number): Promise<Response> {

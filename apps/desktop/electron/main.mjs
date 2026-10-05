@@ -52,6 +52,7 @@ import {
 } from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
+import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
@@ -758,7 +759,8 @@ const IDLE_ROUTER_INFO = Object.freeze({
 });
 
 let mainWindow = null;
-const detachedSessionWindows = new Map();
+const secondaryWindows = new Set();
+const eventStreams = createEventStreams();
 const pendingDeepLinks = [];
 
 // Relay a content-free error signal to the renderer, which turns it into an
@@ -1583,7 +1585,8 @@ async function listLocalSkills(projectDir) {
         path: skillDir,
         description,
         trigger: extractTrigger(raw) ?? undefined,
-        kind: extractFrontmatterValue(raw, ["kind"]) ?? undefined,
+        // Saved corrections belong in Workflows, including older unprefixed packages.
+        kind: await pathExists(path.join(skillDir, "legalwork-extension.json")) ? "workflow" : extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,
       });
     }
@@ -1653,7 +1656,7 @@ function applyNativeTheme(mode) {
 
   mainWindow?.setVibrancy(macosVibrancyForCurrentTheme());
   mainWindow?.setBackgroundColor("#00000001");
-  for (const window of detachedSessionWindows.values()) {
+  for (const window of secondaryWindows.values()) {
     if (window.isDestroyed()) continue;
     window.setVibrancy(macosVibrancyForCurrentTheme());
     window.setBackgroundColor("#00000001");
@@ -1678,29 +1681,21 @@ async function openDetachedSessionWindow(event, input = {}) {
     throw new Error("A workspace and chat session are required to open a new window.");
   }
 
-  return openDetachedWindow(event, `${workspaceId}:${sessionId}`, sessionWindowRoute(workspaceId, sessionId), input.title);
+  return openAppWindow(event, sessionWindowRoute(workspaceId, sessionId), input.title);
 }
 
 async function openDetachedProjectWindow(event, input) {
   const workspaceId = String(input?.workspaceId ?? "").trim();
   const page = input?.page;
-  if (!workspaceId || !["home", "reviews", "tasks", "files"].includes(page)) {
+  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files"].includes(page)) {
     throw new Error("A workspace and valid project page are required to open a new window.");
   }
   const path = page === "home" || page === "files" ? "project" : page;
   const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
-  return openDetachedWindow(event, `project:${workspaceId}:${page}`, route, input.title);
+  return openAppWindow(event, route, input.title);
 }
 
-async function openDetachedWindow(event, key, route, title) {
-  const existing = detachedSessionWindows.get(key);
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.show();
-    existing.focus();
-    return true;
-  }
-
+async function openAppWindow(event, route, title = "") {
   const preloadPath = path.join(__dirname, "preload.cjs");
   const windowAppearanceOptions = {};
   if (process.platform === "darwin") {
@@ -1713,8 +1708,8 @@ async function openDetachedWindow(event, key, route, title) {
   }
 
   const sessionWindow = new BrowserWindow({
-    width: 980,
-    height: 760,
+    width: 1180,
+    height: 820,
     minWidth: 640,
     minHeight: 480,
     title: detachedWindowTitle(title),
@@ -1730,7 +1725,7 @@ async function openDetachedWindow(event, key, route, title) {
       plugins: true,
     },
   });
-  detachedSessionWindows.set(key, sessionWindow);
+  secondaryWindows.add(sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
   logWindowErrors(sessionWindow.webContents);
@@ -1744,9 +1739,7 @@ async function openDetachedWindow(event, key, route, title) {
     sessionWindow.focus();
   });
   sessionWindow.on("closed", () => {
-    if (detachedSessionWindows.get(key) === sessionWindow) {
-      detachedSessionWindows.delete(key);
-    }
+    secondaryWindows.delete(sessionWindow);
   });
 
   guardPreviewNavigation(sessionWindow.webContents);
@@ -1781,6 +1774,15 @@ async function openDetachedWindow(event, key, route, title) {
 // typecheck:electron`.
 /** @type {import("@legalwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
+  "__streamOpen": (event, id, url, headers) => eventStreams.open(event.sender, id, url, headers),
+  "__streamRead": (event, id) => eventStreams.read(event.sender, id),
+  "__streamCancel": async (event, id) => eventStreams.cancel(event.sender, id),
+  "openAppWindow": async (event, input) => {
+    if (!["home", "calendar", "projects", "workflows", "tasks", "recorder", "evals"].includes(input?.page)) {
+      throw new Error("A valid app page is required to open a new window.");
+    }
+    return openAppWindow(event, `/${input.page}?detached=1`);
+  },
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },

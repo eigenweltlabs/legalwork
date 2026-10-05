@@ -15,6 +15,7 @@ export type AppHomeProps = {
   workspaces: WorkspaceInfo[];
   projectId: string | null;
   onProjectChange: (id: string | null) => void;
+  onCreateProject: () => void;
   onSend: (text: string, files: File[]) => Promise<void>;
   disabled: boolean;
   providerConnectedCount: number;
@@ -111,7 +112,7 @@ export function AppHome(props: AppHomeProps) {
                   <Folder size={18} /><span>{project ? project.displayName || project.name : t("home.choose_project")}</span><ChevronDown size={14} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-80 min-w-64 overflow-y-auto">
-                  <DropdownMenuItem onClick={() => props.onProjectChange(null)}><Plus size={16} />{t("home.new_project")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={props.onCreateProject}><Plus size={16} />{t("home.new_project")}</DropdownMenuItem>
                   {props.workspaces.length ? <DropdownMenuSeparator /> : null}
                   {props.workspaces.map((workspace) => <DropdownMenuItem key={workspace.id} onClick={() => props.onProjectChange(workspace.id)}><Folder size={16} /><span className="truncate">{workspace.displayName || workspace.name}</span></DropdownMenuItem>)}
                 </DropdownMenuContent>
