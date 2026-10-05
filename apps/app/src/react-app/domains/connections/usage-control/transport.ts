@@ -17,6 +17,6 @@ export function parseUsageAmount(value: FormDataEntryValue | null) {
 export function responseUrl(value: unknown) {
   if (typeof value !== "object" || value === null || !("url" in value) || typeof value.url !== "string") throw new Error("response");
   const url = new URL(value.url);
-  if (url.protocol !== "https:" || url.hostname !== "checkout.stripe.com") throw new Error("checkout");
+  if (url.protocol !== "https:" || !["checkout.stripe.com", "invoice.stripe.com"].includes(url.hostname)) throw new Error("payment");
   return url.toString();
 }

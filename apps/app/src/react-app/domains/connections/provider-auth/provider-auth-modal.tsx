@@ -970,11 +970,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       oauthStartBusyRef.current = false;
     }
     try {
-      await props.onEigenweltWait?.(sessionId, {
+      const result = await props.onEigenweltWait?.(sessionId, {
         cancelled: () => eigenweltWaitTokenRef.current !== waitToken,
       });
-      // Success: the provider flips connected; the oauth-view provider
-      // polling picks it up and closes the modal.
+      if (eigenweltWaitTokenRef.current !== waitToken) return;
+      // Sync can connect its account with an empty hosted-model list. Close
+      // on the finalized account result instead of waiting for an AI provider.
+      if (result?.connected) props.onClose();
+      else if (!result?.cancelled && result?.message) setLocalError(result.message);
     } catch (error) {
       if (eigenweltWaitTokenRef.current === waitToken) {
         setLocalError(
@@ -1785,7 +1788,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <Button
                       variant="outline"
                       onClick={() => {
-                        void openOauthUrl(oauthSession.authorization.url ?? "");
+                        if (isEigenweltOauthSession) void startEigenweltOauth(selectedEntry);
+                        else void openOauthUrl(oauthSession.authorization.url ?? "");
                       }}
                     >
                       {isOpenAiHeadlessSession

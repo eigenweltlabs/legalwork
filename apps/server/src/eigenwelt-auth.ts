@@ -419,6 +419,7 @@ export async function startEigenweltSignIn(opts?: {
   // Set once a valid browser callback arrived: the exchange is running, so a
   // newer sign-in must not replace this one.
   let exchanging = false;
+  let callbackExchange: { code: string; result: Promise<{ ok: true } | { ok: false; message: string }> } | null = null;
   const settleOk = (payload: EigenweltSignInPayload) => {
     if (settled) return;
     settled = true;
@@ -514,9 +515,18 @@ export async function startEigenweltSignIn(opts?: {
     }
     // Answer the browser only once the exchange settled — the old
     // "You're connected" page lied whenever the exchange then failed.
+    if (callbackExchange && callbackExchange.code !== code) {
+      res.writeHead(400, { "Content-Type": "text/plain" }).end("Invalid callback.");
+      return;
+    }
     exchanging = true;
+    // Browser reloads and duplicate redirects share the same exchange. An
+    // OAuth code and platform state are single-use; a second exchange could
+    // otherwise turn a successful connection into a failure.
+    callbackExchange ??= { code, result: exchange(code, boundPort) };
+    const result = callbackExchange.result;
     void (async () => {
-      const outcome = await exchange(code, boundPort);
+      const outcome = await result;
       const html = outcome.ok ? CALLBACK_HTML : callbackErrorHtml(outcome.message);
       res.writeHead(200, { "Content-Type": "text/html" }).end(html);
       teardown();

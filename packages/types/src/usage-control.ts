@@ -41,6 +41,7 @@ export type MemberPlanTarget =
       kind: "plan";
       userId: string;
       plan: "sync" | "plus" | "pro" | "none";
+      role?: "org:member" | "org:admin";
       limitCents?: number | null;
       requestId?: string;
       note?: string;
@@ -52,6 +53,7 @@ export type MemberPlanQuote = {
   amountCents: number;
   recurringAmountCents: number;
   billingInterval: "month" | "year";
+  paymentMethodRequired?: boolean;
 };
 export type UsageControlView = {
   invitations?: {
@@ -61,7 +63,7 @@ export type UsageControlView = {
     plan: "sync" | "plus" | "pro" | "none";
     createdAt: string;
   }[];
-  pendingMemberChanges?: (MemberPlanQuote & { target: MemberPlanTarget })[];
+  pendingMemberChanges?: (MemberPlanQuote & { target: MemberPlanTarget; hostedPayment?: boolean })[];
   version: 1;
   enabled: boolean;
   isAdmin: boolean;
@@ -95,7 +97,10 @@ export type UsageControlAction =
       preview: boolean;
       quoteId?: string;
       expectedAmountCents?: number;
+      hostedPayment?: boolean;
     }
+  | { action: "resumeMemberChange"; quoteId: string }
+  | { action: "cancelMemberChange"; quoteId: string }
   | { action: "memberRole"; userId: string; role: "org:member" | "org:admin" }
   | {
       action: "request";

@@ -9,7 +9,7 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { eigenweltBillingUrl } from "../eigenwelt-entitlements";
 import { useDesktopUsageTransport } from "./desktop-transport";
-import { SeatPlanUpgrade } from "./seat-plan-upgrade";
+import { SeatPlanUpgrade, pendingSeatUpgrade } from "./seat-plan-upgrade";
 import { usageBlockMessageKey } from "./usage-block";
 import { planChangeRecovery } from "./usage-recovery";
 
@@ -65,6 +65,7 @@ export function AiPlanUpgradeDialog({ client, workspaceId, platformURL, onClose 
         : !view.enabled ? <Button onClick={() => void openDesktopUrl(eigenweltBillingUrl(platformURL))}>{t("firm_hub.billing")}</Button>
         : view.isAdmin ? <SeatPlanUpgrade transport={transport} refresh={refresh} t={t}
           userId={view.me.userId} initialPlan="plus" allowedPlans={["plus", "pro"]}
+          pendingChange={pendingSeatUpgrade(view)}
           onBusyChange={setBusy} onComplete={plan => {
             setView(null);
             setConfirmedPlan(plan);

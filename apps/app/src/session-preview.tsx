@@ -52,6 +52,7 @@ const intentPreview = previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
 let failNextUsageRead = false;
+let hostedUpgrade: { plan: "plus" | "pro"; readyAt: number } | null = null;
 if (upgradePreview) limitFixture.usage.me.blockedReason = "wallet_empty";
 if (topUpPreview) {
   limitFixture.usage.walletCents = 0;
@@ -288,7 +289,20 @@ const fixtureClient: LegalworkServerClient = {
     }
     if (action.action === "memberChange" && action.preview) return {
       quoteId: "visual-quote", amountCents: 1500, recurringAmountCents: 12800, billingInterval: "month",
+      paymentMethodRequired: previewParams.has("no-card"),
     };
+    if (action.action === "cancelMemberChange" && upgradePreview) {
+      hostedUpgrade = null;
+      return { status: "canceled", quoteId: action.quoteId };
+    }
+    if (action.action === "resumeMemberChange" && hostedUpgrade && Date.now() < hostedUpgrade.readyAt)
+      return { status: "processing", quoteId: action.quoteId };
+    if (action.action === "memberChange" && action.hostedPayment && action.target.kind === "plan" &&
+        (action.target.plan === "plus" || action.target.plan === "pro")) {
+      // Offline simulation of an in-progress invoice payment. It never opens Stripe.
+      hostedUpgrade = { plan: action.target.plan, readyAt: Date.now() + (upgradePreview === "payment-pending" ? Infinity : 15_000) };
+      return { status: "processing", quoteId: "visual-quote" };
+    }
     if (action.action === "memberChange" && !action.preview && upgradePreview && action.target.kind === "plan" && action.target.plan !== "none") {
       const used = limitFixture.usage.me.allowanceCents - limitFixture.usage.me.remainingCents;
       const updated = usageLimitFixture(action.target.plan, true, model.providerID);
@@ -302,6 +316,13 @@ const fixtureClient: LegalworkServerClient = {
       limitFixture.usage = updated.usage;
       limitFixture.entitlements = updated.entitlements;
       failNextUsageRead = upgradePreview === "refresh-failed";
+      return { ok: true };
+    }
+    if (action.action === "resumeMemberChange" && hostedUpgrade) {
+      const updated = usageLimitFixture(hostedUpgrade.plan, true, model.providerID);
+      limitFixture.usage = updated.usage;
+      limitFixture.entitlements = updated.entitlements;
+      hostedUpgrade = null;
       return { ok: true };
     }
     throw new Error("Billing changes and payments are disabled in this visual preview.");
