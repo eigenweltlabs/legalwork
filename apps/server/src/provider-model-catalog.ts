@@ -3,7 +3,7 @@ import type { ProviderConfig } from "@opencode-ai/sdk/v2/client";
 
 export function modelCatalogBaseURL(): string {
   return process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") ||
-    (process.env.LEGALWORK_DEV_MODE === "1" ? "http://localhost:8791/models" : "https://models.eigenweltlabs.com");
+    "https://models.opencode.ai";
 }
 
 const cost = z.object({
