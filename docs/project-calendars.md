@@ -44,7 +44,7 @@ Regular server tests cover primary-source examples, refusals, actual installed-c
 
 `pnpm --dir apps/server test:deadline-oracles` performs ten live comparisons against LTO's published calculator and Gebühren-Portal's calculation endpoint. It uses HTTP and only the hash-pinned, reviewed calculation functions in an isolated adapter; it never opens a browser or executes widget initialization/ads. Responses are recorded in `src/calendar/fixtures/deadline-oracles.json` for offline regressions. Changing the LTO executable requires review before updating its hash. Calculator agreement complements primary-law tests; it is not evidence that every legal edge case is supported. For example, the inspected LTO widget misclassified Berlin's one-off 8 May 2020 holiday; the primary-law regression correctly retains 11 May as the adjusted endpoint.
 
-Deploy model-api migrations `0031_project_calendars.sql` and `0032_calendar_subscriptions.sql`, plus the platform routes, authentication proxy and jobs, before releasing cloud calendar sync and subscription links. This development work does not deploy either repository. Local calendars and skills run in the Electron development app immediately.
+Verify the model-api calendar logging guard, then deploy model-api migrations `0035_project_calendars.sql` and `0036_calendar_subscriptions.sql`, plus the platform routes, authentication proxy and jobs, before releasing cloud calendar sync and subscription links. This development work does not deploy either repository. Local calendars and skills run in the Electron development app immediately.
 
 Development commands:
 
