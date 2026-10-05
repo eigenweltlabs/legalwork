@@ -77,9 +77,10 @@ describe("artifact file routes", () => {
     const { base, token } = await startLegalworkServer(root);
     const path = "reports/artifact-eval.md";
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const loaded = await fetch(`${base}/workspace/ws_1/files/raw?path=${path}`, { headers: auth(token) });
-      const baseUpdatedAt = Number(loaded.headers.get("X-LegalWork-Updated-At"));
-      await loaded.arrayBuffer();
+      // Read the revision without coupling this write race to streamed-download timing.
+      const loaded = await fetch(`${base}/workspace/ws_1/files/stat?path=${path}`, { headers: auth(token) });
+      expect(loaded.status).toBe(200);
+      const { updatedAt: baseUpdatedAt } = await loaded.json();
       const writes = await Promise.all([
         fetch(`${base}/workspace/ws_1/files/raw`, { method: "POST", headers: auth(token), body: JSON.stringify({ path, baseUpdatedAt, dataBase64: Buffer.from(`Window A ${attempt}`).toString("base64") }) }),
         fetch(`${base}/workspace/ws_1/files/content`, { method: "POST", headers: auth(token), body: JSON.stringify({ path, baseUpdatedAt, content: `Window B ${attempt}` }) }),
