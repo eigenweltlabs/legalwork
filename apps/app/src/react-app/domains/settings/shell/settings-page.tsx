@@ -396,8 +396,6 @@ export function SettingsPage(props: SettingsPageProps) {
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>
         </SettingsPanelHeading>
 
-        <OrgPolicyBanner />
-
         {props.showUpdateToolbar && props.activeTab === "general" ? (
           <SettingsPanelToolbar>
             <SettingsPanelToolbarActions>
@@ -424,6 +422,8 @@ export function SettingsPage(props: SettingsPageProps) {
           </SettingsPanelToolbar>
         ) : null}
       </SettingsPanel>
+
+      <OrgPolicyBanner />
 
       {props.children}
     </SettingsContent>

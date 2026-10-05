@@ -104,13 +104,14 @@ const engineCache = new Map<string, { at: number; rules: Rule[] }>();
 
 /** The running engine's rules for `permission`: top level and per agent. */
 async function engineRules(input: PluginInput | undefined, permission: string): Promise<Rule[] | null> {
-  const get = input?.client?.config?.get;
-  if (!get) return null;
+  // Called on the SDK's config object: its methods need their `this`.
+  const sdkConfig = input?.client?.config;
+  if (!sdkConfig?.get) return null;
   const key = `${input?.directory ?? ""}:${permission}`;
   const cached = engineCache.get(key);
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.rules;
   try {
-    const result = await get({ query: input?.directory ? { directory: input.directory } : undefined });
+    const result = await sdkConfig.get({ query: input?.directory ? { directory: input.directory } : undefined });
     const config = isRecord(result.data) ? result.data : {};
     const rules: Rule[] = [];
     const top = isRecord(config.permission) ? ruleOf(config.permission[permission]) : null;

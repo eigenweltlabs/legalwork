@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { buildOrgPolicyEngineLayerFor, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { appliedOrgPolicy, releaseOrgPolicyKey, requireOrgPolicyUnmanaged, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
-import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { orgPolicyEngineDir, orgPolicyEngineLayerIntact } from "./org-policy-engine.js";
 import { LegalWorkOrgPolicyGuard } from "./opencode-plugins/legalwork-org-policy-guard.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
@@ -75,9 +75,12 @@ describe("the firm's tool permissions in the engine", () => {
     expect(runtime.permission).toMatchObject({ bash: "deny", edit: "ask", webfetch: "allow" });
     const layer = await readJson(join(orgPolicyEngineDir(config), "opencode.json"));
     expect(layer).toEqual({
+      // Already there, so the engine never rewrites the file to add it.
+      $schema: "https://opencode.ai/config.json",
       permission: { bash: "deny", edit: "ask" },
       agent: { legalwork: { permission: { bash: "deny", edit: "ask" } } },
     });
+    expect(await orgPolicyEngineLayerIntact(config, await buildOrgPolicyEngineLayerFor(config, "ws_1"))).toBe(true);
   });
 
   test("defaults replace the member's rule, and nothing is enforced once taken back", async () => {
@@ -85,7 +88,7 @@ describe("the firm's tool permissions in the engine", () => {
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "allow" } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     expect((await readJson(legalworkRuntimeConfigFilePath(config))).permission).toMatchObject({ webfetch: "deny" });
-    expect(await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).toEqual({});
+    expect(await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).toEqual({ $schema: "https://opencode.ai/config.json" });
 
     await releaseOrgPolicyKey(config, "tools.permissions");
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
@@ -99,7 +102,14 @@ describe("the guard plugin", () => {
     let guard: Record<string, unknown> = { orgName: "Kanzlei", permission: { bash: { "*": "ask", "rm *": "deny" }, edit: "ask" }, blockedMcpServers: ["crm"] };
     fakeFetch((url) => (url.endsWith("/org-policy/guard") ? Response.json(guard) : new Response(null, { status: 404 })));
     let engine: Record<string, unknown> = { permission: { bash: { "*": "ask", "rm *": "deny" }, edit: "ask" } };
-    const hooks = await LegalWorkOrgPolicyGuard({ client: { config: { get: async () => ({ data: engine }) } } });
+    // Like the engine's SDK: its methods read their own `this`.
+    class SdkConfig {
+      private readonly source = () => engine;
+      async get() {
+        return { data: this.source() };
+      }
+    }
+    const hooks = await LegalWorkOrgPolicyGuard({ client: { config: new SdkConfig() } });
     const call = (tool: string, args: Record<string, unknown>) => hooks["tool.execute.before"]({ tool }, { args });
 
     await call("bash", { command: "ls -la" });

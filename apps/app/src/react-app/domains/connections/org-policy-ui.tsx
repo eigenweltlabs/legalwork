@@ -105,7 +105,7 @@ export function OrgPolicyBanner() {
   if (!view || view.state === "none") return null;
   if (view.state === "lapsed") {
     return (
-      <Alert>
+      <Alert className="w-full lg:max-w-3xl">
         <Building2 aria-hidden />
         <AlertDescription>{t("org_policy.banner_lapsed", { org })}</AlertDescription>
         <AlertAction>
@@ -118,7 +118,7 @@ export function OrgPolicyBanner() {
   }
   const manage = view.role === "admin" && view.platformURL ? `${view.platformURL.replace(/\/+$/, "")}/policies` : null;
   return (
-    <Alert>
+    <Alert className="w-full lg:max-w-3xl">
       <Building2 aria-hidden />
       <AlertDescription>{t("org_policy.banner_active", { org })}</AlertDescription>
       {manage ? (

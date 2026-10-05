@@ -86,10 +86,16 @@ export async function buildOrgPolicyEngineLayer(
   return layer;
 }
 
+// The engine adds a `$schema` line to a config file without one; with it
+// already there, the file stays exactly as written.
+function serializeLayer(layer: Record<string, unknown>): string {
+  return JSON.stringify({ $schema: "https://opencode.ai/config.json", ...layer });
+}
+
 /** Whether the folder holds exactly `layer`. */
 export async function orgPolicyEngineLayerIntact(config: ServerConfig, layer: Record<string, unknown>): Promise<boolean> {
   try {
-    return (await readFile(orgPolicyEngineFile(config), "utf8")) === JSON.stringify(layer);
+    return (await readFile(orgPolicyEngineFile(config), "utf8")) === serializeLayer(layer);
   } catch {
     return false;
   }
@@ -99,6 +105,6 @@ export async function writeOrgPolicyEngineLayer(config: ServerConfig, layer: Rec
   const path = orgPolicyEngineFile(config);
   await mkdir(orgPolicyEngineDir(config), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(layer), { encoding: "utf8", mode: 0o600 });
+  await writeFile(temporary, serializeLayer(layer), { encoding: "utf8", mode: 0o600 });
   await rename(temporary, path);
 }
