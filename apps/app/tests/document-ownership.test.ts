@@ -103,3 +103,33 @@ test("a failed refresh never enables editing and can be retried", async () => {
   fail = false; a.owner.request();
   await until(() => a.state.access === "owner");
 });
+
+test("reopening a view waits for its local predecessor to drain and acquires without handoff", async () => {
+  const locks = new Locks(), key = crypto.randomUUID();
+  let finish = () => {};
+  const drained = new Promise<void>(resolve => { finish = resolve; });
+  const first = instance(locks, key, { drain: () => drained });
+  await until(() => first.state.access === "owner");
+  const closed = first.owner.dispose();
+  const reopened = instance(locks, key);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(reopened.state.access).toBe("checking");
+    expect(reopened.owner.canWrite()).toBe(false);
+    finish(); await closed;
+    await until(() => reopened.state.access === "owner");
+    expect(reopened.state.failed).toBe(0);
+  } finally { finish(); }
+});
+
+test("immediate effect teardown and recreation never leaves an orphaned lock", async () => {
+  const locks = new Locks(), key = crypto.randomUUID();
+  const first = instance(locks, key);
+  const closing = first.owner.dispose();
+  const reopened = instance(locks, key);
+  await closing;
+  await until(() => reopened.state.access === "owner");
+  expect(first.owner.canWrite()).toBe(false);
+  await reopened.owner.dispose();
+  expect(locks.held.size).toBe(0);
+});

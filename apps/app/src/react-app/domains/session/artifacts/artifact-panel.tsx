@@ -583,13 +583,14 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         meta={<>
           {target.exists === false ? "missing" : target.size !== undefined ? formatFileSize(target.size) : null}
           {isEditableDocument && documentSnapshot ? (
-            <span className="ms-2" role="status">
-              {documentSaving || isSaving ? t("common.saving") : autosaveError ? t("artifact.autosave_paused") : documentDirty ? t("common.unsaved_changes") : t("common.saved")}
+            <span className="ms-2 inline-grid text-end" role="status">
+              <span aria-hidden className="invisible col-start-1 row-start-1">{t("common.unsaved_changes")}</span>
+              <span className="col-start-1 row-start-1">{documentSaving || isSaving ? t("common.saving") : autosaveError ? t("artifact.autosave_paused") : documentDirty ? t("common.unsaved_changes") : t("common.saved")}</span>
             </span>
           ) : null}
         </>}
         actions={<>
-          {canAutosave && access.editable && <label className="flex shrink-0 items-center gap-2 text-xs" title={t("artifact.autosave_description")}>
+          {canAutosave && access.editable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
             <Switch size="sm" checked={autosave} onCheckedChange={(enabled) => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
             {t("artifact.autosave")}
           </label>}

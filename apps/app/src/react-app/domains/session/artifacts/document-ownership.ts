@@ -13,6 +13,10 @@ type Options = {
   failed: (error?: unknown) => void;
 };
 
+// A remounted view must wait for its own renderer's previous editor to finish
+// closing before checking for a writer in another view. Also covers StrictMode.
+const closing = new Map<string, Promise<void>>();
+
 /** One writer per original file in the app's browser profile. Web Locks release
  * on renderer termination; broadcasts are notifications, never the lock itself. */
 export function createDocumentOwnership(options: Options) {
@@ -23,6 +27,8 @@ export function createDocumentOwnership(options: Options) {
   let request: AbortController | null = null;
   let timeout: ReturnType<typeof setTimeout> | null = null;
   let transfer: Promise<void> | null = null;
+  let lockOperation: Promise<unknown> = Promise.resolve();
+  let disposal: Promise<void> | null = null;
   const set = (next: DocumentAccess) => { access = next; if (!disposed) options.changed(next); };
   const send = (type: Message["type"], recipient?: string) => options.channel.postMessage({ type, sender: id, recipient } satisfies Message);
   const clearTimeoutRequest = () => { if (timeout) clearTimeout(timeout); timeout = null; };
@@ -33,6 +39,9 @@ export function createDocumentOwnership(options: Options) {
     request = controller;
     if (!initial) set("requesting");
     try {
+      const predecessor = closing.get(options.key);
+      if (predecessor) await predecessor;
+      if (disposed || controller.signal.aborted) return;
       const held = options.locks.request(`legalwork:document:${options.key}`, initial ? { ifAvailable: true } : { signal: controller.signal }, async (lock) => {
         clearTimeoutRequest();
         request = null;
@@ -45,6 +54,7 @@ export function createDocumentOwnership(options: Options) {
           await untilReleased;
         } finally { release = null; }
       });
+      lockOperation = held;
       if (!initial) {
         send("request");
         // An unresponsive window must never be forcibly stripped of its draft.
@@ -90,15 +100,29 @@ export function createDocumentOwnership(options: Options) {
     request: () => { if (access === "reader" || access === "unavailable") void take(false); },
     canWrite: () => !disposed && (access === "owner" || access === "releasing"),
     saved: () => { if (!disposed) send("saved"); },
-    dispose: async () => {
+    dispose: () => {
+      if (disposal) return disposal;
       disposed = true;
       request?.abort();
       clearTimeoutRequest();
       options.channel.removeEventListener("message", receive);
       // Keep ownership until already-started writes and checkpoints finish.
       const draining = options.drain();
-      try { await transfer; await draining; }
-      finally { release?.(); options.channel.close(); }
+      const releasing = (async () => {
+        try { await transfer; await draining; }
+        finally {
+          release?.();
+          // Resolving the callback is not yet the browser's lock release.
+          await lockOperation.catch(() => {});
+          options.channel.close();
+        }
+      })();
+      const predecessor = closing.get(options.key);
+      disposal = Promise.allSettled([predecessor, releasing]).then(() => {
+        if (closing.get(options.key) === disposal) closing.delete(options.key);
+      });
+      closing.set(options.key, disposal);
+      return disposal;
     },
   };
 }

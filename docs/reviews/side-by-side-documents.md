@@ -82,6 +82,18 @@ Scope: ownership covers these app views in the same profile/origin, not Word, di
 
 ![A second Electron window owns Agreement while Precedent remains read-only](./document-workspace-window-handoff.png)
 
+## Lifecycle follow-up — 5 October
+
+The first ownership implementation could leave a reopened viewer read-only even without another window. Its one-time `ifAvailable` check ran while the previous local instance was still draining and releasing its lock. React StrictMode's effect teardown/recreation exposed this consistently with cached file identity. The review harness had omitted StrictMode, unlike the actual app.
+
+Local disposals are now awaited by file identity before a new instance checks for another writer. Cleanup is idempotent and waits for the browser lock operation to finish, not merely the callback's release signal. It still drains pending writes/recovery and never steals a live writer. The harness now runs under StrictMode and has Hide/Show viewer controls. A regression test failed before this change and passes afterward.
+
+Autosave's caption is 6px from its switch and separated from Save by 14px. Save-status text reserves the width of the unsaved label, keeping the adjacent controls still when status changes. The save timing and dirty-detection logic are unchanged: idle synthetic documents stayed saved; a real edit produced one save, and expansion generated no new change events. The user also confirmed the reported status flicker had stopped.
+
+Validation: **791 app tests passed**, app typecheck/build and whitespace checks passed (existing build chunk warnings). Three consecutive Hide/Show cycles produced no Edit here button; a genuine second view remained read-only, and a dirty DOCX handoff saved and transferred the new text. Save-button coordinates were identical in saved and unsaved states. No selection-rendering change.
+
+![Save controls and per-file editing ownership after the lifecycle fix](./document-workspace-lifecycle.png)
+
 ## Editor documentation checked
 
 The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.

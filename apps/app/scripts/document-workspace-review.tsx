@@ -1,6 +1,6 @@
 // Development-only harness; absent from production build inputs. The matching
 // server script creates disposable original DOCX files and uses real API routes.
-import { useMemo, useRef, useState } from "react";
+import { StrictMode, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -58,6 +58,7 @@ function Harness() {
   const [writes, setWrites] = useState<string[]>([]);
   const [contents, setContents] = useState("");
   const [dockHeader, setDockHeader] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(true);
   const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
   const client = useMemo(() => ({ ...server, writeWorkspaceBinaryFile: async (...args: Parameters<typeof server.writeWorkspaceBinaryFile>) => {
     if (slow) await new Promise<void>((resolve) => { pendingWrite.current = resolve; });
@@ -71,6 +72,7 @@ function Harness() {
     <div className="flex flex-wrap items-center gap-4 border-b p-2 text-xs">
       <span>Disposable DOCX workspace</span>
       <button onClick={() => window.open(`${window.location.pathname}?detached=1`, "_blank")}>Open second window</button>
+      <button onClick={() => setViewerOpen(open => !open)}>{viewerOpen ? "Hide viewer" : "Show viewer"}</button>
       <label><input type="checkbox" checked={dockHeader} onChange={(event) => setDockHeader(event.target.checked)} /> Dock tabs in header</label>
       <label><input type="checkbox" checked={fail} onChange={(event) => setFail(event.target.checked)} /> Fail writes</label>
       <label><input type="checkbox" checked={slow} onChange={(event) => setSlow(event.target.checked)} /> Hold writes</label>
@@ -109,11 +111,11 @@ function Harness() {
         </details>
         <p>All documents are synthetic.</p>
       </aside>
-      <main className="min-w-0 flex-1"><SidePanel headerTarget={dockHeader ? headerTarget : null} sessionId={sessionId} workspaceId={workspaceId} workspaceRoot="" client={client} onClose={() => {}} /></main>
+      <main className="min-w-0 flex-1">{viewerOpen && <SidePanel headerTarget={dockHeader ? headerTarget : null} sessionId={sessionId} workspaceId={workspaceId} workspaceRoot="" client={client} onClose={() => setViewerOpen(false)} />}</main>
     </div><Toaster />
   </div>;
 }
 
 const root = createRoot(document.getElementById("root")!);
-root.render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><LegalworkControlProvider><Harness /></LegalworkControlProvider></QueryClientProvider></MemoryRouter>);
+root.render(<StrictMode><MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><LegalworkControlProvider><Harness /></LegalworkControlProvider></QueryClientProvider></MemoryRouter></StrictMode>);
 import.meta.hot?.dispose(() => root.unmount());
