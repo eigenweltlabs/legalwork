@@ -4,7 +4,7 @@ Implementation: LegalWork `feat/project-calendars-deadline-skills` and model-api
 
 ## Calendar behavior
 
-Each project's Calendar shows original calendar records and projections of dated project tasks. The separate Calendar icon in the small left sidebar opens the aggregate calendar at `/calendar`, covering local projects, shared project replicas, connected remote workers and dated inbox tasks. Week is the default, with month and agenda views available through the standard view selector. Compact filters share the Tasks control, and deadline creation/editing uses the standard dialog, inputs, assignee picker and reminders. Project Home shows the next five active deadlines within 90 days, with direct create/edit and View all actions. Home retains its new-chat composer. Opening a task goes to its project task view. These projections do not create duplicate tasks or deadlines.
+Each project's Calendar shows original calendar records and projections of dated project tasks. The separate Calendar icon in the small left sidebar opens the aggregate calendar at `/calendar`, covering local projects, shared project replicas, connected remote workers and dated inbox tasks. Week is the default, with month and agenda views available through the standard view selector. Compact filters share the Tasks control, and deadline creation/editing uses the standard dialog, inputs, assignee picker and reminders. Project Home shows the next five active deadlines within 90 days, with direct create/edit and View all actions. Home retains its new-chat composer. Opening a task in Week, Month or Agenda opens its standard task dialog and preserves the calendar view. These projections do not create duplicate tasks or deadlines.
 
 Manual Fristende is always available. A calculated deadline needs a server-issued receipt from an installed jurisdiction skill. New deadlines start unreviewed; completing a linked task never completes a legal deadline. Date overrides require a reason and retain the original calculation in revision history. Whole-record revisions prevent concurrent date edits from silently overwriting each other. Conflicts and deleted entries have explicit resolution/restore controls.
 
@@ -45,6 +45,12 @@ Regular server tests cover primary-source examples, refusals, actual installed-c
 `pnpm --dir apps/server test:deadline-oracles` performs ten live comparisons against LTO's published calculator and Gebühren-Portal's calculation endpoint. It uses HTTP and only the hash-pinned, reviewed calculation functions in an isolated adapter; it never opens a browser or executes widget initialization/ads. Responses are recorded in `src/calendar/fixtures/deadline-oracles.json` for offline regressions. Changing the LTO executable requires review before updating its hash. Calculator agreement complements primary-law tests; it is not evidence that every legal edge case is supported. For example, the inspected LTO widget misclassified Berlin's one-off 8 May 2020 holiday; the primary-law regression correctly retains 11 May as the adjusted endpoint.
 
 Verify the model-api calendar logging guard, then deploy model-api migrations `0035_project_calendars.sql` and `0036_calendar_subscriptions.sql`, plus the platform routes, authentication proxy and jobs, before releasing cloud calendar sync and subscription links. This development work does not deploy either repository. Local calendars and skills run in the Electron development app immediately.
+
+Calculated recurring all-day reminders retain the receipt's local cutoff clock
+on each occurrence, including across daylight-saving changes. Future occurrences
+are not queued at the first occurrence's cutoff. Timed recurrence instances use
+their own filing time. This schedules reminders; it does not calculate a new
+legal period for every recurrence.
 
 Development commands:
 

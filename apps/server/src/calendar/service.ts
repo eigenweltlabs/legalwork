@@ -6,7 +6,8 @@ import { projectSyncStore } from "../project-sync-store.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { connectedTaskOrgId } from "../tasks-api.js";
 import { calendarStore } from "./store.js";
-import { addDays, dayInZone, zonedInstant } from "./dates.js";
+import { addDays, dayInZone } from "./dates.js";
+import { reminderInstant } from "./reminder-dates.js";
 import { occurrences, exportCalendar, itemCalendar } from "./ical.js";
 
 export async function calendarVisible(config: ServerConfig, workspace: WorkspaceInfo) {
@@ -67,7 +68,7 @@ export async function collectCalendarReminders(config: ServerConfig, now = Date.
     for (const item of store.list(workspace.id)) {
       if (item.status !== "active") continue;
       for (const occurrence of occurrences(item, workspace.name || workspace.id, addDays(today, -30), addDays(today, 366))) {
-        const instant = Date.parse(item.provenance.kind === "calculated" ? item.provenance.calculation.cutoff : zonedInstant(occurrence.start, occurrence.timeZone));
+        const instant = Date.parse(reminderInstant(occurrence.start, occurrence.timeZone, occurrence.recurring, item.provenance.kind === "calculated" ? item.provenance.calculation : undefined));
         for (const minutes of item.reminders) {
           const at = instant - minutes * 60000;
           if (at > now || at < now - 30 * 86400000) continue;
