@@ -70,6 +70,7 @@ function Harness() {
   return <div className="flex h-screen flex-col bg-background text-foreground">
     <div className="flex flex-wrap items-center gap-4 border-b p-2 text-xs">
       <span>Disposable DOCX workspace</span>
+      <button onClick={() => window.open(`${window.location.pathname}?detached=1`, "_blank")}>Open second window</button>
       <label><input type="checkbox" checked={dockHeader} onChange={(event) => setDockHeader(event.target.checked)} /> Dock tabs in header</label>
       <label><input type="checkbox" checked={fail} onChange={(event) => setFail(event.target.checked)} /> Fail writes</label>
       <label><input type="checkbox" checked={slow} onChange={(event) => setSlow(event.target.checked)} /> Hold writes</label>
@@ -77,6 +78,7 @@ function Harness() {
       <button onClick={() => open("Agreement.docx")}>Open agreement</button>
       <button onClick={() => open("Precedent.docx")}>Open precedent</button>
       <button onClick={() => open("Reference.pdf")}>Open PDF</button>
+      <button onClick={() => open("Notes.md")}>Open note</button>
       <button onClick={async () => {
         const reports = await Promise.all(["Agreement.docx", "Precedent.docx"].map(async (path) => {
           const file = await server.downloadWorkspaceFile(workspaceId, path);

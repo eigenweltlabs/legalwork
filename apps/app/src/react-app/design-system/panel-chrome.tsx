@@ -35,7 +35,7 @@ export function PanelHeader({ title, icon, meta, children, className, wrapAction
           {children ? (
             <div className={cn(
               "flex shrink-0 items-center gap-0.5",
-              wrapActions && !headerTarget && "w-full justify-end border-t border-border/50 pt-1 @min-[400px]/panel-header:w-auto @min-[400px]/panel-header:border-t-0 @min-[400px]/panel-header:pt-0",
+              wrapActions && !headerTarget && "w-full flex-wrap justify-end border-t border-border/50 pt-1 @min-[400px]/panel-header:w-auto @min-[400px]/panel-header:flex-nowrap @min-[400px]/panel-header:border-t-0 @min-[400px]/panel-header:pt-0",
             )}>{children}</div>
           ) : null}
         </div>

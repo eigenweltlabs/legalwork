@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { loadFontsFromGoogle, rememberFontDecision, unresolvedDocumentFonts } from "./docx-font-consent";
-import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
+import { drainDocxRecovery, keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
 import { useDocxPageFit } from "./use-docx-page-fit";
 import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
@@ -35,6 +35,8 @@ setGoogleFontsEnabled(false);
 export type DocxEditorApi = {
   /** Serialize and persist the current document. Never clears edits made during a save. */
   save: () => Promise<boolean>;
+  flushSave: () => Promise<boolean>;
+  drain: () => Promise<void>;
   /** Serialize the live draft without writing to the workspace or clearing its dirty state. */
   getBuffer: () => Promise<ArrayBuffer | null>;
   executeAgentTool: (toolName: string, args: Record<string, unknown>) => Promise<DocxEditorToolResult>;
@@ -54,6 +56,8 @@ type ArtifactDocxEditorProps = {
   content: ArrayBuffer;
   author?: string;
   readOnly?: boolean;
+  interactionLocked?: boolean;
+  legacyRecoveryKey?: string;
   onSave?: (buffer: ArrayBuffer) => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   apiRef?: RefObject<DocxEditorApi | null>;
@@ -137,13 +141,23 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
   useEffect(() => {
     if (!props.recoveryKey || props.readOnly) { setChecked(true); return; }
     let active = true;
-    void readDocxRecovery(props.recoveryKey).then((draft) => {
+    const key = props.recoveryKey;
+    void (async () => {
+      const current = await readDocxRecovery(key);
+      if (current || !props.legacyRecoveryKey) return current;
+      const legacy = await readDocxRecovery(props.legacyRecoveryKey);
+      if (!legacy || !active) return null;
+      const migrated = { ...legacy, key };
+      await writeDocxRecovery(migrated);
+      await removeDocxRecovery(legacy.key);
+      return migrated;
+    })().then((draft) => {
       if (active) { setRecovery(draft); setChecked(true); }
     }).catch(() => {
       if (active) { setChecked(true); toast.error(t("docx.recovery_unavailable")); }
     });
     return () => { active = false; };
-  }, [props.recoveryKey, props.readOnly]);
+  }, [props.recoveryKey, props.legacyRecoveryKey, props.readOnly]);
   if (!checked) return <div className="p-6 text-sm" role="status">{t("docx.checking_draft")}</div>;
   if (recovery) return <div className="space-y-4 p-6">
     <h3 className="font-medium">{t("docx.recover_prompt")}</h3>
@@ -159,7 +173,7 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
   return <LiveDocxEditor {...props} content={restored?.buffer ?? props.content} recovered={!!restored} />;
 }
 
-function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered, autosave = false, onAutosaveError }: ArtifactDocxEditorProps & { recovered: boolean }) {
+function LiveDocxEditor({ name, content, author, readOnly = false, interactionLocked = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered, autosave = false, onAutosaveError }: ArtifactDocxEditorProps & { recovered: boolean }) {
   const colorMode = useThemeColorMode();
   const [documentBuffer] = useState(() => content.slice(0));
   const [documentId] = useState(() => `${Date.now()}:${++documentInstance}`);
@@ -167,6 +181,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   const checkpointTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(recovered);
   const checkpoint = useRef<() => Promise<void>>(async () => {});
+  const checkpointWork = useRef<Promise<void>>(Promise.resolve());
   const checkpointed = useRef<{ revision: number; base: number | null } | null>(null);
   const [reviewer] = useState(() => {
     if (author) return author;
@@ -264,20 +279,24 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
     try { return await operation; } finally { if (serialization.current === operation) serialization.current = null; }
   }, []);
 
-  checkpoint.current = async () => {
-    if (!recoveryKey || !dirty.current || readOnly) return;
-    const checkpointRevision = revision.current;
-    if (checkpointed.current?.revision === checkpointRevision && checkpointed.current.base === baseUpdatedAt) return;
-    try {
-      const buffer = await getBuffer();
-      if (!buffer || !dirty.current || checkpointRevision !== revision.current) return;
-      await writeDocxRecovery({ key: recoveryKey, buffer, baseUpdatedAt, savedAt: Date.now() });
-      checkpointed.current = { revision: checkpointRevision, base: baseUpdatedAt };
-      recoveryFailed.current = false;
-    } catch {
-      if (!recoveryFailed.current) toast.error(t("docx.recovery_unavailable_save"));
-      recoveryFailed.current = true;
-    }
+  checkpoint.current = () => {
+    const work = (async () => {
+      if (!recoveryKey || !dirty.current || readOnly) return;
+      const checkpointRevision = revision.current;
+      if (checkpointed.current?.revision === checkpointRevision && checkpointed.current.base === baseUpdatedAt) return;
+      try {
+        const buffer = await getBuffer();
+        if (!buffer || !dirty.current || checkpointRevision !== revision.current) return;
+        await writeDocxRecovery({ key: recoveryKey, buffer, baseUpdatedAt, savedAt: Date.now() });
+        checkpointed.current = { revision: checkpointRevision, base: baseUpdatedAt };
+        recoveryFailed.current = false;
+      } catch {
+        if (!recoveryFailed.current) toast.error(t("docx.recovery_unavailable_save"));
+        recoveryFailed.current = true;
+      }
+    })();
+    checkpointWork.current = work;
+    return work;
   };
 
   useLayoutEffect(() => {
@@ -332,8 +351,19 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   useEffect(() => {
     if (!apiRef) return;
     apiRef.current = { save, getBuffer,
+      flushSave: async () => {
+        if (pendingSave.current && !await pendingSave.current) return false;
+        checkDocument();
+        if (dirty.current && !await save()) return false;
+        await checkpointWork.current;
+        await drainDocxRecovery();
+        return ready.current && !dirty.current;
+      },
+      drain: async () => {
+        try { await pendingSave.current; } finally { await checkpointWork.current; await drainDocxRecovery(); }
+      },
       executeAgentTool: async (toolName, args) => {
-        if (readOnly) return { success: false, error: t("docx.read_only") };
+        if (readOnly || interactionLocked) return { success: false, error: t("docx.read_only") };
         if (!ready.current) return { success: false, error: t("docx.editor_not_ready") };
         const isReviewDecision = REVIEW_TOOL_NAMES.has(toolName);
         let result: DocxEditorToolResult;
@@ -364,7 +394,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       if (recoveryKey) void removeDocxRecovery(recoveryKey).catch(() => toast.error(t("docx.recovery_not_cleared")));
     } };
     return () => { apiRef.current = null; };
-  }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly]);
+  }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly, interactionLocked, checkDocument]);
 
   useControlActions([
     {
@@ -391,12 +421,12 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       },
     },
     {
-      id: "document.propose_change", label: "Propose a change in the open document", sideEffect: "mutation", disabled: readOnly,
+      id: "document.propose_change", label: "Propose a change in the open document", sideEffect: "mutation", disabled: readOnly || interactionLocked,
       description: "Apply a tracked proposal to the current draft. Requires name, documentId and draftRevision from document.read_draft. The lawyer reviews it with Accept/Reject. Saving follows the document's Autosave setting; saving does not accept the proposal.",
       requiresArgs: true,
       args: [{ name: "name", type: "string", required: true }, { name: "documentId", type: "string", required: true }, { name: "draftRevision", type: "number", required: true }, { name: "paraId", type: "string", required: true }, { name: "search", type: "string", required: true }, { name: "replaceWith", type: "string", required: true }],
       execute: (args) => {
-        if (readOnly) throw new Error(t("docx.read_only"));
+        if (readOnly || interactionLocked) throw new Error(t("docx.read_only"));
         if (!args || typeof args !== "object" || !("name" in args) || args.name !== name ||
           !("documentId" in args) || args.documentId !== documentId ||
           !("draftRevision" in args) || args.draftRevision !== revision.current ||
@@ -416,7 +446,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s" || event.altKey) return;
       event.preventDefault();
       event.stopPropagation();
-      if (readOnly) return;
+      if (readOnly || interactionLocked) return;
       void save().then((saved) => {
         if (!saved) toast.error(t("docx.save_failed_draft_open"));
       }).catch((error: unknown) => {

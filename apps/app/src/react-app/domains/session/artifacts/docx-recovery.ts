@@ -83,3 +83,6 @@ export async function keepDocxVersion(key: string, buffer: ArrayBuffer, automati
     return request;
   }, "versions");
 }
+
+/** Await queued draft writes before giving another window editing ownership. */
+export async function drainDocxRecovery() { await queue; }

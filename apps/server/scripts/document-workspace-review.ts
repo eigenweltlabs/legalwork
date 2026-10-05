@@ -10,6 +10,7 @@ for (const key of ["LEGALWORK_STORAGE_STORE", "LEGALWORK_TOKEN_STORE", "LEGALWOR
   process.env[key] = join(root, key);
 for (const name of ["Agreement.docx", "Precedent.docx"])
   await copyFile(resolve("apps/app/scripts/fixtures/legal-review.docx"), join(root, name));
+await writeFile(join(root, "Notes.md"), "# Handoff note\n\nThis is a synthetic note.\n");
 const pdf = await PDFDocument.create();
 for (let page = 1; page <= 3; page++) {
   const sheet = pdf.addPage();

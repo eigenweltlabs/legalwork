@@ -14,6 +14,21 @@
  */
 
 const de = {
+  "side_panel.document_layout": "Dokumentanordnung",
+  "side_panel.layout_single": "Ein Bereich",
+  "side_panel.layout_columns": "Zwei nebeneinander",
+  "side_panel.layout_rows": "Zwei übereinander",
+  "side_panel.layout_three-columns": "Drei nebeneinander",
+  "side_panel.layout_main-and-stack": "Eines links, zwei rechts",
+  "side_panel.move_to_pane": "In Bereich {number} verschieben",
+  "document_access.read_only": "Hier schreibgeschützt. Gespeicherte Änderungen erscheinen automatisch. Mit „Hier bearbeiten“ übernehmen Sie die Bearbeitung.",
+  "document_access.edit_here": "Hier bearbeiten",
+  "document_access.releasing": "Änderungen werden vor der Übergabe gespeichert…",
+  "document_access.requesting": "Warte, bis das andere Fenster gespeichert hat…",
+  "document_access.checking": "Bearbeitungszugriff wird geprüft…",
+  "document_access.unavailable": "Schreibgeschützt: Bearbeitungszugriff konnte nicht geprüft werden. Öffnen Sie die Datei nach dem erneuten Verbinden noch einmal.",
+  "document_access.handoff_failed": "Die Bearbeitung konnte nicht übergeben werden. Der Entwurf bleibt im bisherigen Fenster. Bitte dort prüfen und erneut versuchen.",
+  "document_access.refresh_failed": "Die gespeicherte Version konnte nicht geladen werden. Erneut verbinden, um diese Ansicht zu aktualisieren.",
   "artifact.autosave": "Automatisch speichern",
   "docx.recover_saved_draft": "Ein Entwurf von {name} wurde am {time} auf diesem Gerät gesichert. Stellen Sie ihn wieder her, um weiterzuarbeiten. Wenn automatisches Speichern aktiviert ist, wird der wiederhergestellte Entwurf in der Originaldatei gespeichert.",
   "artifact.autosave_description": "Änderungen automatisch in dieser Originaldatei speichern. Die Einstellung wird für dieses Dokument auf diesem Gerät gespeichert.",

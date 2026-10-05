@@ -14,29 +14,29 @@ Local branch: `feat/side-by-side-documents`, based on `dev` at `f64d51b9`. Nothi
 
 ## Split workspace
 
-Open a document beside another with its tab arrow. Both panes can expand together using **Expand document workspace**, with **Return to chat** restoring the ordinary viewer. The divider width is remembered using the resizable-panel library's `defaultLayout` API; storage updates when resizing finishes.
+Use the single **Document layout** menu at the workspace's top-right: one pane, two columns, two rows, three columns, or a large left pane with two stacked on the right. **Expand document workspace** expands all panes; **Return to chat** restores the ordinary viewer. Divider positions are remembered per session/layout using the resizable-panel library's `defaultLayout` API; storage updates when resizing finishes.
 
-A stable portal host moves with each visible document. Moving a dirty document between panes, or promoting the remaining side document, preserves its editor, draft and Undo history. Only an editor actually leaving the mounted set needs a discard guard. At most two document editors are mounted. Closing or switching away from a dirty editor still uses the existing guard; hidden tabs do not keep every editor alive.
+A stable portal host moves with each visible document. Moving a dirty document between panes, or promoting the remaining document, preserves its editor, draft and Undo history. Only an editor actually leaving the mounted set needs a discard guard. At most three document editors are mounted. Closing or switching away from a dirty editor still uses the existing guard; hidden tabs do not keep every editor alive.
 
 Workspace file tabs, pane membership and selected tabs survive reload. Transient search/review sources and connected-storage working copies are excluded from restoration. Browser/task tabs remain in the main pane. The focused pane determines unqualified document-agent commands and Ctrl+Tab navigation. Native drop listeners follow the physical pane around portaled editors.
 
-This is a two-pane workspace within one window. Cross-window document transfer, synchronized scrolling and an automatic document comparison are not included.
+Individual tab move arrows are removed. Right-click a document tab to move it to an existing pane, create a supported split, or close it. No new keyboard shortcuts are introduced. Detached app windows seed their layout from the main window once and then keep an independent sessionStorage layout. Synchronized scrolling, automatic comparison and dragging tabs between actual windows are not included.
 
 ### Top/bottom layout
 
-The layout button beside Expand switches between **Stack documents vertically** and **Arrange documents side by side**. The document arrow changes to **Open below** / **Move to the top pane** in the stacked layout. Each document keeps its own tab strip; the lower strip stays with its pane even when the upper strip uses the window header. Both panes still expand together.
+Choose **Two rows** in the layout menu for a top/bottom split. Each document keeps its own tab strip; the lower strip stays with its pane even when the upper strip uses the window header. All panes expand together.
 
 The shared layout, expand/restore and close-viewer buttons always sit at the workspace's top-right: in the upper tab strip for stacked documents and in the right strip for side-by-side documents. The follow-up positioning change passed typecheck and browser checks for both layouts, docked headers and the expanded workspace; each has exactly one shared control group.
 
-With a single pane, dropping a file or movable document tab on its bottom 30% opens a vertical split; the right 30% opens a horizontal split. In the overlapping corner the nearer relative edge wins. Existing splits accept files into the indicated pane. Orientation and separate width/height divider positions persist on this device; old preferences retain the horizontal default.
+With a single pane, dropping a file or movable document tab on its bottom 30% opens a vertical split; the right 30% opens a horizontal split. In the overlapping corner the nearer relative edge wins. Existing panes accept files into the indicated pane. At two panes, a right-edge split creates three columns; splitting below the last pane creates the large-left/stacked-right layout. Three panes accept moves without creating further panes. Empty panes chosen through the layout menu remain usable drop targets.
 
-Vertical-layout validation: **778 tests passed, 0 failed**, across 115 files. Typecheck, production UI build, the English/German audit (5,069 keys each) and whitespace checks passed. Browser checks with synthetic DOCX files covered bottom-edge event routing, both layout directions, docked/inline tab strips, expansion and resize/reload restoration. The same live editor id, draft revision and unsaved text survived a layout switch; Undo then removed the test edit. Pointer gestures remain a manual check. No selection-highlighting fix is included.
+Earlier vertical-layout validation (4 October): **778 tests passed, 0 failed**, across 115 files. Typecheck, production UI build, the English/German audit (5,069 keys each) and whitespace checks passed. Browser checks with synthetic DOCX files covered bottom-edge event routing, both layout directions, docked/inline tab strips, expansion and resize/reload restoration. The same live editor id, draft revision and unsaved text survived a layout switch; Undo then removed the test edit. Pointer gestures remain a manual check. No selection-highlighting fix is included.
 
 ![Documents stacked vertically in the test workspace](./document-workspace-stacked.png)
 
 ### File drops and smaller drop indicators
 
-The document drop indicator has a fixed 160px top inset and 32px bottom inset, keeping it below the Word toolbar without measuring the editor layout. Tab-strip indicators retain their original height. The target still accepts drops throughout the document pane.
+The document drop indicator uses a top inset of `min(10rem, 35%)` and a 16px bottom inset, leaving room for the Word toolbar while fitting short stacked panes without measuring the editor layout. Tab-strip indicators retain their original height. The target still accepts drops throughout the document pane.
 
 Project Files and Memory Drive files can be dropped into either pane or its tab strip. With only one pane open, its rightmost 30% opens a file beside the current document. Project files open their existing workspace path; Memory Drive files use the existing storage viewer with its cloud-save actions. LegalMemory materialization and external-file working copies remain supported. An existing file reuses its tab/editor, including legacy tab ids and cloud working paths. A new side drop does not replace the main editor; replacing a dirty target still requires the existing discard confirmation.
 
@@ -55,6 +55,32 @@ Validation: app typecheck and `git diff --check` passed; **43 tests passed, 0 fa
 The isolated harness now includes **Open PDF** and **PDF drag checks**. Use **Enter file drag**, then **Hover over PDF**, followed by **Drop over PDF** or **Cancel file drag**. Unlike the older direct-pane buttons, these hover/drop controls use `elementFromPoint` and refuse to dispatch into an unshielded iframe. PDF visual checks require a browser/Electron window with the built-in PDF viewer enabled. No client documents or DOCX selection-rendering code were changed.
 
 ![Drop indicator above the Electron PDF viewer, with synthetic documents and drag events](./document-pdf-drop.png)
+
+## Editing in multiple app windows
+
+One view owns editing for each original file; other views are read-only and refresh after successful saves/autosaves. **Edit here** requests a handoff. The current owner blocks new input, waits for in-flight writes, saves any later edits, and drains recovery checkpoints before releasing ownership. A failed save refuses the handoff and retains the original draft. The receiving view reloads the original before enabling editing. A handoff does not transfer Undo history; moving panes within one window still preserves it.
+
+The server returns an opaque canonical file identity, so workspace/directory aliases share an ownership key. Web Locks provide exclusivity in the app's origin/profile; BroadcastChannel carries handoff/save notifications. Closing a mounted editor drains pending work before releasing; renderer termination releases the browser lock. A waiting request times out without forcibly taking a dirty editor. DOCX recovery is accessed only by the owner under the canonical key, with migration from the former workspace/path key. Autosave preferences synchronize between windows.
+
+Both raw and text original-file writes now serialize the baseline check and replacement within one server process, preventing two overlapping requests from both passing the same baseline check. Existing text merge/conflict semantics remain intact. This also protects writes from clients outside the cooperating renderer flow when they supply a baseline.
+
+Scope: ownership covers these app views in the same profile/origin, not Word, direct filesystem tools, other browser profiles, or independent server processes. Existing conflict checks remain necessary. Live refresh happens after saving, not for every unsaved keystroke. The desktop agent-control server still targets its existing main window; it does not silently redirect commands to a detached window. An action aimed at a read-only document is refused. This is not collaborative editing. The updated app requires the updated server's file identity response; unavailable identity/locking leaves the file read-only.
+
+## Validation on 5 October 2026
+
+- Full app suite: **789 passed, 0 failed**, 116 files. New tests cover ownership/handoff/failure/draining, independent files, three-pane restoration, explicit empty drop targets, and dirty-pane collapse guards.
+- File API integration suite: **8 passed, 0 failed**. Concurrent raw/text writes with the same baseline return one success and one conflict in ten repetitions. Canonical identity survives atomic replacement and matches a directory symlink alias.
+- App/server typechecks and English/German audit passed (5,084 keys each). Production UI build passed with existing large-chunk warnings; whitespace checks passed.
+- Real DOCX editor and server in two browser views: clean handoff, dirty handoff, read-only save refresh, failed-save refusal, and an in-flight save followed by later edits and a second drained save all passed. The receiver contained both edits. Autosave-off persisted across the handoff. Markdown dirty handoff also saved and transferred the latest text.
+- Two isolated Electron BrowserWindows using the installed runtime: both views initially showed the same documents, only one could edit each file, and **Edit here** transferred Agreement while Precedent remained independently editable in the first window.
+- Native Electron visual checks covered three columns, large-left/stacked-right, top-right controls, right-click tab actions, and the overlay above PDFium. Narrow-pane document actions now wrap rather than overflow beneath the adjacent pane.
+- All fixtures were synthetic. Native mouse/Finder drag gestures, a live connected-storage publish, and Office-format handoff UI are not claimed as manually verified. No DOCX selection-rendering code, page-fit hook, layout stylesheet, editor version or patch was changed.
+
+![Three document panes in the isolated Electron test workspace](./document-workspace-three-columns.png)
+
+![One large document and two stacked documents, with controls at the top-right](./document-workspace-main-and-stack.png)
+
+![A second Electron window owns Agreement while Precedent remains read-only](./document-workspace-window-handoff.png)
 
 ## Editor documentation checked
 
@@ -87,6 +113,8 @@ pnpm --filter @legalwork/app typecheck
 pnpm --filter @legalwork/app test:i18n
 pnpm --filter @legalwork/app exec bun test tests/document-autosave.test.ts tests/document-version-history.test.ts tests/panel-side-pane.test.ts tests/storage-file-tabs.test.ts
 pnpm --filter @legalwork/app test
+pnpm --filter legalwork-server typecheck
+pnpm --filter legalwork-server exec bun test src/artifact-files.e2e.test.ts
 pnpm build:ui
 ```
 
@@ -101,4 +129,4 @@ Open `http://localhost:5174/document-workspace-review.html`. The server logs its
 
 For file-drop checks, close the Precedent tab and drag it from the fixture's Project Files list to the document's right edge. The explicitly labeled synthetic-event buttons provide a separate check of the production drop listeners and the portaled editor path. Use **Preview right-edge drop** to inspect the indicator, **Drop precedent at right edge** to open the split and **Drop precedent into main** to move it back.
 
-The bottom-edge buttons exercise vertical creation. **Dock tabs in header** reproduces the desktop header placement; use the production layout button to switch orientations, and the separator's arrow keys to verify resizing and restoration.
+The bottom-edge buttons exercise vertical creation. **Dock tabs in header** reproduces the desktop header placement; use the production layout menu to choose a preset. **Open second window** opens an independent detached view using the same test files; use **Edit here** on a read-only document to test handoff. **Open note** supplies a synthetic Markdown fixture. Hold/fail controls affect writes originating in their own test view, so enable them in the editing owner when checking handoff failure or waiting.

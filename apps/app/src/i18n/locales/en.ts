@@ -4,6 +4,23 @@
  */
 
 export default {
+  "side_panel.document_layout": "Document layout",
+  "side_panel.layout_single": "One pane",
+  "side_panel.layout_columns": "Two columns",
+  "side_panel.layout_rows": "Two rows",
+  "side_panel.layout_three-columns": "Three columns",
+  "side_panel.layout_main-and-stack": "One left, two on the right",
+  "side_panel.move_to_pane": "Move to pane {number}",
+
+  "document_access.read_only": "Read-only in this view. Saved changes appear automatically. Choose Edit here to take over.",
+  "document_access.edit_here": "Edit here",
+  "document_access.releasing": "Saving changes before handing over editing…",
+  "document_access.requesting": "Waiting for the other window to save…",
+  "document_access.checking": "Checking editing access…",
+  "document_access.unavailable": "Read-only: editing access could not be verified. Reopen this file after reconnecting.",
+  "document_access.handoff_failed": "Editing could not be handed over. The current editor keeps its draft. Check that window and retry.",
+  "document_access.refresh_failed": "The saved version could not be loaded. Reconnect to refresh this view.",
+
   "artifact.autosave": "Autosave",
   "docx.recover_saved_draft": "A draft of {name} was kept on this device at {time}. Restore it to continue editing. If Autosave is on, the restored draft will be saved to the original file.",
   "artifact.autosave_description": "Automatically save changes to this original file. Remembered for this document on this device.",

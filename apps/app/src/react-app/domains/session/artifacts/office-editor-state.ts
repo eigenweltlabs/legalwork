@@ -5,6 +5,7 @@ import { t } from "@/i18n";
 export type OfficeAgentResult = { success: boolean; data?: unknown; saved?: boolean; error?: string };
 export type OfficeEditorApi = {
   save: () => Promise<boolean>;
+  drain: () => Promise<void>;
   getBuffer: () => Promise<ArrayBuffer | null>;
   executeAgentTool: (toolName: string, args: Record<string, unknown>) => Promise<OfficeAgentResult>;
 };
@@ -27,6 +28,8 @@ export function useOfficeEditor(props: OfficeEditorProps) {
   latest.current = props;
   const revision = useRef(0);
   const busy = useRef(false);
+  const idle = useRef<Array<() => void>>([]);
+  const finish = () => { busy.current = false; idle.current.splice(0).forEach(resolve => resolve()); };
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const changed = useCallback(() => {
@@ -42,7 +45,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
         if (document.activeElement instanceof HTMLElement && host.current?.contains(document.activeElement)) document.activeElement.blur();
         await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         return await serialize.current();
-      } finally { busy.current = false; setSaving(false); latest.current.onSavingChange?.(false); }
+      } finally { finish(); setSaving(false); latest.current.onSavingChange?.(false); }
     };
     const save = async () => {
       if (latest.current.readOnly || busy.current || !serialize.current) return false;
@@ -55,7 +58,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
         await latest.current.onSave(buffer);
         if (version === revision.current) { afterSave.current?.(); latest.current.onDirtyChange(false); }
         return true;
-      } finally { busy.current = false; setSaving(false); latest.current.onSavingChange?.(false); }
+      } finally { finish(); setSaving(false); latest.current.onSavingChange?.(false); }
     };
     const executeAgentTool = async (toolName: string, args: Record<string, unknown>): Promise<OfficeAgentResult> => {
       if (toolName === "save") {
@@ -87,11 +90,11 @@ export function useOfficeEditor(props: OfficeEditorProps) {
       } catch (cause) {
         return { success: false, saved: false, error: `${cause instanceof Error ? cause.message : t("office_editor.tool_failed")}${mutated ? " The edit remains in the open draft. Retry Save; do not repeat the edit." : ""}` };
       } finally {
-        busy.current = false;
+        finish();
         if (!reading) { setSaving(false); latest.current.onSavingChange?.(false); }
       }
     };
-    const api = { save, getBuffer, executeAgentTool };
+    const api = { save, getBuffer, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
     props.apiRef.current = api;
     const element = host.current;
     const keydown = (event: KeyboardEvent) => {

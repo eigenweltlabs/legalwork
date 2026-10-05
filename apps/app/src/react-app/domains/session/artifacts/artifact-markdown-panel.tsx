@@ -13,6 +13,7 @@ import { artifactDocumentKey, registerUnsavedDocument } from "./docx-document-st
 import { loadMarkdownDraft, savedMarkdownDraft, replaceMarkdownText, type MarkdownDraft } from "./markdown-draft";
 import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "./open-target";
+import { DocumentAccessBanner, useDocumentOwnership } from "./use-document-ownership";
 import { t } from "@/i18n";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
 
@@ -44,12 +45,13 @@ type Props = {
   onClose: () => void;
 };
 
-export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace, target, localReadOnly = false, saveActions, onClose }: Props) {
+export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace, target, localReadOnly: sourceReadOnly = false, saveActions, onClose }: Props) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<MarkdownDraft | null>(null);
   const draftRef = useRef<MarkdownDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const pendingSave = useRef<Promise<boolean> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [clash, setClash] = useState<{ content: string; updatedAt: number } | null>(null);
   const imageUrls = useRef(new Map<string, string>());
@@ -62,6 +64,21 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     queryFn: () => client.readWorkspaceFile(workspaceId, target.value),
     refetchOnWindowFocus: true,
   });
+  const access = useDocumentOwnership({
+    enabled: !sourceReadOnly && target.kind === "file",
+    client, workspaceId, path: target.value,
+    refresh: async () => {
+      const loaded = await query.refetch();
+      if (loaded.error) throw loaded.error;
+      if (loaded.data) update(current => loadMarkdownDraft(current, loaded.data.content, loaded.data.updatedAt ?? null));
+    },
+    flush: async () => {
+      if (pendingSave.current && !await pendingSave.current) return false;
+      return save();
+    },
+    drain: async () => { await pendingSave.current; },
+  });
+  const localReadOnly = sourceReadOnly || !access.ownsFile;
   useEffect(() => {
     if (query.data) update((current) => loadMarkdownDraft(current, query.data.content, query.data.updatedAt ?? null));
   }, [query.data, update]);
@@ -82,7 +99,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, []);
 
-  const save = useCallback(async () => {
+  const doSave = useCallback(async () => {
     if (localReadOnly || savingRef.current || !draftRef.current) return false;
     savingRef.current = true;
     setSaving(true);
@@ -92,6 +109,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       const snapshot = draftRef.current;
       if (snapshot.content === snapshot.baseline) return true;
       // With the text as loaded: a file changed since (a colleague's edit synced in) is merged, not refused.
+      access.assertWrite();
       const result = await client.writeWorkspaceFile(workspaceId, { path: target.value, content: snapshot.content, baseUpdatedAt: snapshot.updatedAt, baseContent: snapshot.baseline });
       const written = result.content ?? snapshot.content;
       update((current) => {
@@ -104,6 +122,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
       void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
       if (result.merged) toast.info(t("markdown.merged_changes"));
+      access.saved();
       setSaveError(null);
       setClash(null);
       return true;
@@ -122,6 +141,13 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       setSaving(false);
     }
   }, [client, workspaceId, target.value, target.id, queryClient, update, localReadOnly]);
+
+  const save = useCallback((): Promise<boolean> => {
+    if (pendingSave.current) return pendingSave.current;
+    const operation = doSave().finally(() => { pendingSave.current = null; });
+    pendingSave.current = operation;
+    return operation;
+  }, [doSave]);
 
   /** Changed in the same place elsewhere: keep both (mine as a copy beside it), take theirs, or keep mine over it. */
   const resolveClash = async (choice: "both" | "theirs" | "mine") => {
@@ -173,8 +199,8 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
 
   const surface = useMemo<LegalworkControlSurface>(() => ({
     id: target.id, kind: "document", format: "md",
-    sessionId, workspaceId, name: target.name, path: target.value, editable: Boolean(draft) && !localReadOnly, agentEditsTracked: false,
-  }), [target.id, target.name, target.value, sessionId, workspaceId, Boolean(draft), localReadOnly]);
+    sessionId, workspaceId, name: target.name, path: target.value, editable: Boolean(draft) && !localReadOnly && access.editable, agentEditsTracked: false,
+  }), [target.id, target.name, target.value, sessionId, workspaceId, Boolean(draft), localReadOnly, access.editable]);
   useControlSurface(surface);
   const action = useMemo<LegalworkControlAction>(() => ({
     id: "markdown.agent_tool", label: `Edit ${target.name}`, sideEffect: "mutation", requiresArgs: true,
@@ -185,7 +211,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       if (!current) return { ok: false, error: t("markdown.still_loading") };
       const tool = Reflect.get(args, "toolName");
       if (tool === "read") return { ok: true, data: { markdown: current.content, unsavedChanges: current.content !== current.baseline } };
-      if (localReadOnly) return { ok: false, error: t("storage.read_only") };
+      if (localReadOnly || !access.editable) return { ok: false, error: t("storage.read_only") };
       if (savingRef.current) return { ok: false, error: t("markdown.save_in_progress") };
       if (tool === "save") return { ok: await save() };
       const values: unknown = Reflect.get(args, "args");
@@ -199,7 +225,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         return { ok: saved, saved, ...(saved ? {} : { error: t("markdown.edit_remains") }) };
       } catch (error) { return { ok: false, error: error instanceof Error ? error.message : t("markdown.edit_failed") }; }
     },
-  }), [target.name, target.value, sessionId, save, onChange, localReadOnly]);
+  }), [target.name, target.value, sessionId, save, onChange, localReadOnly, access.editable]);
   useControlAction(action);
 
   const download = () => {
@@ -213,12 +239,12 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     try { await action(); } catch (error) { toast.error(error instanceof Error ? error.message : t("markdown.open_file_failed")); }
   };
   return <div className="h-full min-h-0" onKeyDownCapture={(event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void save(); }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); if (access.editable) void save(); }
   }}>
     <ArtifactFrame expandable title={projectFileDisplayName(target.value, target.name)} icon={<ArtifactIcon type="markdown" className="size-5" />}
       meta={<span role="status">{saving ? t("common.saving") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
       actions={<>
-        {saveActions ? saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}
+        {saveActions ? access.editable && saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}
         <Button variant="ghost" size="icon-sm" aria-label={t("artifact.download")} title={t("artifact.download_markdown")} onClick={download} disabled={!draft}><Download /></Button>
         {!isRemoteWorkspace && <>
           <Button variant="ghost" size="icon-sm" aria-label={t("artifact.show_in_folder")} title={t("artifact.show_in_folder")} onClick={() => void runFileAction(() => revealDesktopItemInDir(absolutePath))}><FolderOpen /></Button>
@@ -232,6 +258,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         <Button variant="ghost" size="icon-sm" aria-label={t("artifact.close")} title={t("artifact.close")} onClick={onClose} disabled={saving}><X /></Button>
       </>}
     >
+      <DocumentAccessBanner access={access} />
       {clash ? <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-4 py-2 text-xs">
           <span className="min-w-0 flex-1">{t("markdown.conflict_body")}</span>
           <Button size="sm" variant="outline" disabled={saving} onClick={() => void resolveClash("both")}>{t("markdown.keep_both")}</Button>
@@ -240,7 +267,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         </div> : saveError && <div role="alert" className="border-b border-border bg-muted px-4 py-2 text-xs">
           {t("markdown.edits_still_here_download", { error: saveError })}
         </div>}
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "releasing"}>
         {draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={localReadOnly} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} />
           : query.isError ? <PreviewError message={query.error instanceof Error ? query.error.message : t("markdown.open_failed")} /> : <PreviewLoading />}
       </div>

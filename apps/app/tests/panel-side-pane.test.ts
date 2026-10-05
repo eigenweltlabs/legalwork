@@ -346,3 +346,67 @@ describe("documents side by side", () => {
     }
   });
 });
+
+
+describe("three document panes", () => {
+  beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
+  test("layout expansion keeps the active document and fills new panes without duplicates", () => {
+    open(document("A.docx"), document("B.docx"), document("C.docx"));
+    const store = usePanelTabStore.getState();
+    store.setLayout("session", "three-columns");
+    expect(session().panes.map(pane => pane.activeTabId)).toEqual(["file:C.docx", "file:A.docx", "file:B.docx"]);
+    expect(new Set(session().panes.flatMap(pane => pane.tabIds)).size).toBe(3);
+    store.setLayout("session", "main-and-stack");
+    expect(session().panes.map(pane => pane.activeTabId)).toEqual(["file:C.docx", "file:A.docx", "file:B.docx"]);
+    store.selectTab("session", "file:B.docx");
+    expect(session().activeTabId).toBe("file:C.docx");
+  });
+  test("an explicitly chosen empty pane receives the first file", () => {
+    const store = usePanelTabStore.getState();
+    store.setLayout("session", "three-columns");
+    store.openTab("session", document("A.docx"), "third");
+    expect(session().panes[2].activeTabId).toBe("file:A.docx");
+    expect(session().activeTabId).toBeNull();
+  });
+  test("empty drop targets survive transcript and browser refreshes", () => {
+    open(document("A.docx"));
+    const store = usePanelTabStore.getState();
+    store.setLayout("session", "three-columns");
+    store.syncTranscriptArtifacts("session", []);
+    store.syncBrowserTabs("session", [], null);
+    expect(session().panes).toHaveLength(3);
+    store.openTab("session", document("B.docx"), "third");
+    expect(session().panes[2].activeTabId).toBe("file:B.docx");
+  });
+  test("a third pane can move to the first while keeping the other document visible", () => {
+    open(document("A.docx"), document("B.docx"), document("C.docx"));
+    const store = usePanelTabStore.getState();
+    store.setLayout("session", "three-columns");
+    store.moveTab("session", "file:B.docx", "main");
+    expect(session().panes).toHaveLength(2);
+    expect(session().activeTabId).toBe("file:B.docx");
+    expect(session().sideActiveTabId).toBe("file:A.docx");
+  });
+  test("collapsing a dirty pane can be refused without changing layout or tabs", () => {
+    open(document("A.docx"), document("B.docx"), document("C.docx"));
+    const store = usePanelTabStore.getState();
+    store.setLayout("session", "three-columns");
+    const before = session();
+    const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", "file:B.docx"), "B.docx", () => true);
+    const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => false } });
+    try { store.setLayout("session", "single"); expect(session()).toEqual(before); }
+    finally { unregister(); if (previous) Object.defineProperty(globalThis, "window", previous); else Reflect.deleteProperty(globalThis, "window"); }
+  });
+  test("all three groups and their layout survive restoration", async () => {
+    open(document("A.docx"), document("B.docx"), document("C.docx"));
+    usePanelTabStore.getState().setLayout("session", "main-and-stack");
+    const before = session();
+    const saved = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of saved) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(session().panes).toEqual(before.panes);
+    expect(session().layout).toBe("main-and-stack");
+  });
+});

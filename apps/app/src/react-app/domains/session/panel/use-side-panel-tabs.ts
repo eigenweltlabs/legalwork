@@ -96,7 +96,7 @@ export function useSelectTab() {
 
     selectTab(sessionId, tabId);
     const session = usePanelTabStore.getState().sessions[sessionId];
-    if (session?.activeTabId !== tabId && session?.sideActiveTabId !== tabId) return;
+    if (!session?.panes.some(pane => pane.activeTabId === tabId)) return;
 
     if (tab.type === "browser") {
       void getElectronBrowser()?.selectTab?.(tabId);
