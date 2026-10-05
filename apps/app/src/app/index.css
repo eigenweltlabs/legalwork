@@ -671,3 +671,13 @@ select:disabled {
   white-space: nowrap;
   color: #E95700;
 }
+
+/* Shiki emits both palettes, allowing already-rendered code to follow theme changes. */
+[data-theme="dark"] [data-legalwork-shiki] .shiki,
+[data-theme="dark"] [data-legalwork-shiki] .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+[data-theme="dark"] [data-legalwork-shiki] .shiki {
+  background-color: transparent !important;
+}

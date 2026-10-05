@@ -179,7 +179,7 @@ const highlightedMarkdownParser = new Marked<string, string>({
       return codeToHtml(code, {
         lang: language,
         meta: { __raw: props.join(" ") },
-        theme: "github-light",
+        themes: { light: "github-light", dark: "github-dark" },
         transformers: [
           transformerNotationDiff({ matchAlgorithm: "v3" }),
           transformerNotationHighlight({ matchAlgorithm: "v3" }),

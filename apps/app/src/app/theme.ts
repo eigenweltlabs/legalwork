@@ -1,4 +1,5 @@
-export type ThemeMode = "light" | "dark" | "system";
+export type AppearanceMode = "light" | "dark" | "blackout";
+export type ThemeMode = AppearanceMode | "system";
 export type ResolvedThemeMode = "light" | "dark";
 
 const THEME_PREF_KEY = "legalwork.react.settings.theme-mode";
@@ -16,7 +17,7 @@ const getMediaQueryList = () =>
     : window.matchMedia(mediaQuery);
 
 const isThemeMode = (value: string | null): value is ThemeMode =>
-  value === "light" || value === "dark" || value === "system";
+  value === "light" || value === "dark" || value === "blackout" || value === "system";
 
 const readStoredMode = (): ThemeMode => {
   // Light remains the default until the user chooses a theme in Customization.
@@ -41,6 +42,7 @@ const readStoredMode = (): ThemeMode => {
 };
 
 const resolveMode = (mode: ThemeMode): ResolvedThemeMode => {
+  if (mode === "blackout") return "dark";
   if (mode !== "system") return mode;
   return getMediaQueryList()?.matches ? "dark" : "light";
 };
@@ -49,6 +51,8 @@ const applyTheme = (mode: ThemeMode) => {
   if (typeof document === "undefined") return;
   const resolved = resolveMode(mode);
   document.documentElement.dataset.theme = resolved;
+  // Blackout is a dark palette, so existing editor and component dark styles still apply.
+  document.documentElement.dataset.appearance = mode === "blackout" ? "blackout" : resolved;
   document.documentElement.style.colorScheme = resolved;
 };
 
@@ -60,7 +64,7 @@ const emitThemeChange = () => {
 
 const syncNativeTheme = (mode: ThemeMode) => {
   if (typeof window === "undefined") return;
-  void window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("__setNativeTheme", mode);
+  void window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("__setNativeTheme", mode === "blackout" ? "dark" : mode);
 };
 
 const getCurrentMode = () => {
@@ -113,6 +117,9 @@ export const bootstrapTheme = () => {
 export const getInitialThemeMode = () => getCurrentMode();
 
 export const getResolvedThemeMode = () => resolveMode(getCurrentMode());
+
+export const getResolvedAppearance = (): AppearanceMode =>
+  getCurrentMode() === "blackout" ? "blackout" : getResolvedThemeMode();
 
 const persistThemeMode = (mode: ThemeMode) => {
   if (typeof window === "undefined") return;

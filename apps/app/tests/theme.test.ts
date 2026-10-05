@@ -16,7 +16,7 @@ function createWindow(values: Record<string, string> = {}, dark = false) {
   const storageListeners: Array<(event: { key: string | null; storageArea: unknown }) => void> = [];
   const systemListeners = new Set<() => void>();
   const nativeModes: string[] = [];
-  const documentElement = { dataset: { theme: "" }, style: { colorScheme: "" } };
+  const documentElement = { dataset: { theme: "", appearance: "" }, style: { colorScheme: "" } };
   const localStorage = {
     getItem: (name: string) => stored.get(name) ?? null,
     setItem: (name: string, value: string) => { stored.set(name, value); },
@@ -55,16 +55,52 @@ function createWindow(values: Record<string, string> = {}, dark = false) {
 }
 
 test("first paint and runtime agree on defaults, persisted choices and legacy preferences", () => {
-  for (const values of [{}, { [key]: "dark" }, { [key]: "light", [legacyKey]: "dark" }, { [key]: "system" }, { [legacyKey]: "dark" }, { [key]: "invalid", [legacyKey]: "system" }]) {
+  for (const values of [{}, { [key]: "dark" }, { [key]: "blackout" }, { [key]: "light", [legacyKey]: "dark" }, { [key]: "system" }, { [legacyKey]: "dark" }, { [key]: "invalid", [legacyKey]: "system" }]) {
     for (const systemDark of [false, true]) {
       const win = createWindow(values, systemDark);
       runInNewContext(prepaint, win.context);
       const firstPaint = win.documentElement.dataset.theme;
+      const firstAppearance = win.documentElement.dataset.appearance;
       win.theme.bootstrapTheme();
       expect(win.documentElement.dataset.theme).toBe(firstPaint);
       expect(win.documentElement.style.colorScheme).toBe(firstPaint);
+      expect(win.documentElement.dataset.appearance).toBe(firstAppearance);
+      expect(win.theme.getResolvedAppearance()).toBe(firstAppearance);
     }
   }
+});
+
+test("Blackout persists as a palette while native controls and editors receive dark", () => {
+  const win = createWindow();
+  win.theme.bootstrapTheme();
+  win.theme.setThemeMode("blackout");
+  expect(win.stored.get(key)).toBe("blackout");
+  expect(win.nativeModes.at(-1)).toBe("dark");
+  expect(win.theme.getResolvedThemeMode()).toBe("dark");
+  expect(win.theme.getResolvedAppearance()).toBe("blackout");
+  const reopened = createWindow(Object.fromEntries(win.stored));
+  reopened.theme.bootstrapTheme();
+  expect(reopened.documentElement.dataset).toEqual({ theme: "dark", appearance: "blackout" });
+  reopened.systemChange(true);
+  reopened.systemChange(false);
+  expect(reopened.theme.getResolvedAppearance()).toBe("blackout");
+});
+
+test("Blackout changes reach other windows even when the binary dark theme stays the same", () => {
+  const win = createWindow({ [key]: "dark" });
+  win.theme.bootstrapTheme();
+  let notifications = 0;
+  win.theme.subscribeToTheme(() => { notifications++; });
+  win.storageChange(key, "blackout");
+  expect(notifications).toBe(1);
+  expect(win.documentElement.dataset.appearance).toBe("blackout");
+  win.storageChange(key, "dark");
+  expect(notifications).toBe(2);
+  expect(win.documentElement.dataset.appearance).toBe("dark");
+  win.storageChange(key, "system");
+  expect(win.documentElement.dataset).toEqual({ theme: "light", appearance: "light" });
+  win.systemChange(true);
+  expect(win.documentElement.dataset).toEqual({ theme: "dark", appearance: "dark" });
 });
 
 test("dark choice persists and restores in a new renderer", () => {
