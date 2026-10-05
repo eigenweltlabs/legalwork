@@ -10,6 +10,7 @@ import type { RemoteProjectFile } from "./eigenwelt-projects.js";
 import { openSqlite, runtimeDbPath, type Row, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
 
 /**
  * What this machine knows about its synced projects, in runtime.sqlite beside
@@ -165,6 +166,7 @@ const scopeSchema = z.object({
   metadata: z.boolean(),
   // Shared before reviews were part of it: they stay out until the owner adds them.
   reviews: z.boolean().default(false),
+  calendar: z.boolean().default(true),
 });
 
 export const projectSyncSettingsSchema = z.object({
@@ -189,6 +191,7 @@ const opSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("create") }),
   z.object({ kind: z.literal("remote"), remote: projectRemoteSchema, changedAt: z.string() }),
   z.object({ kind: z.literal("rename"), name: z.string(), changedAt: z.string() }),
+  z.object({ kind: z.literal("personalization"), prompt: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH), changedAt: z.string() }),
   z.object({
     kind: z.literal("fields"),
     changes: z.array(fieldChangeSchema),
@@ -257,7 +260,7 @@ function parseJson<T>(schema: z.ZodType<T>, value: unknown): T | null {
   }
 }
 
-const NO_SCOPE = { documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false };
+const NO_SCOPE = { calendar: false, documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false };
 
 export type ProjectOffer = {
   projectId: string;

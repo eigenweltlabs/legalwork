@@ -369,6 +369,9 @@ importers:
       gray-matter:
         specifier: 4.0.3
         version: 4.0.3
+      ical.js:
+        specifier: 2.2.1
+        version: 2.2.1
       image-size:
         specifier: 2.0.4
         version: 2.0.4
@@ -555,6 +558,9 @@ importers:
       gray-matter:
         specifier: 4.0.3
         version: 4.0.3
+      ical.js:
+        specifier: 2.2.1
+        version: 2.2.1
       image-size:
         specifier: 2.0.4
         version: 2.0.4
@@ -5714,6 +5720,9 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
+
+  ical.js@2.2.1:
+    resolution: {integrity: sha512-yK/UlPbEs316igb/tjRgbFA8ZV75rCsBJp/hWOatpyaPNlgw0dGDmU+FoicOcwX4xXkeXOkYiOmCqNPFpNPkQg==}
 
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
@@ -14439,6 +14448,8 @@ snapshots:
   i18next@26.4.2(typescript@5.9.3):
     optionalDependencies:
       typescript: 5.9.3
+
+  ical.js@2.2.1: {}
 
   iconv-lite@0.6.3:
     dependencies:

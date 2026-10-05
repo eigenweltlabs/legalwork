@@ -56,6 +56,7 @@ import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVIDER_ID, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
+import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
 import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
@@ -437,6 +438,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const remoteWorkspaceCheckRunRef = useRef<Record<string, string>>({});
   const remoteWorkspaceCheckRunCounterRef = useRef(0);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
+  const [providerListLoaded, setProviderListLoaded] = useState(false);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
@@ -694,7 +696,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           routeStateRef.current.selectedWorkspaceId.trim() ||
           null,
         legalworkServer: legalworkServerStore,
-        setProviders,
+        setProviders: items => { setProviders(items); setProviderListLoaded(true); },
         setProviderDefaults,
         setProviderConnectedIds,
         setDisabledProviders,
@@ -768,8 +770,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [providerAuthStore]);
 
   const [customProviderEdit, setCustomProviderEdit] = useState<CustomProviderEditData | null>(null);
+  const [customProviderModelsOnly, setCustomProviderModelsOnly] = useState(false);
   const [customProviderEditError, setCustomProviderEditError] = useState<string | null>(null);
-  const handleEditCustomProvider = useCallback(async (providerId: string) => {
+  const handleEditCustomProvider = useCallback(async (providerId: string, modelsOnly = false) => {
     setCustomProviderEditError(null);
     try {
       const data = await providerAuthStore.readCustomProviderForEdit(providerId);
@@ -778,11 +781,35 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return;
       }
       setCustomProviderEdit(data);
+      setCustomProviderModelsOnly(modelsOnly);
       await providerAuthStore.openProviderAuthModal();
     } catch (error) {
       setCustomProviderEditError(describeRouteError(error));
     }
   }, [providerAuthStore]);
+
+  const [refreshingProviderModels, setRefreshingProviderModels] = useState(false);
+  const handleRefreshProvider = useCallback(async (providerId: string) => {
+    if (refreshingProviderModels) return;
+    setRefreshingProviderModels(true);
+    try {
+      const result = await providerAuthStore.refreshProviderModels(providerId);
+      if (!result) throw new Error(t("app.error_connect_first"));
+      const status = result.providers[providerId];
+      if (status?.lastError) throw new Error(status.lastError);
+      if (status?.availableModels) {
+        await handleEditCustomProvider(providerId, true);
+      } else if (status?.pendingReload) {
+        toast.info(t("provider_auth.models_waiting"));
+      } else {
+        toast.success(t("provider_auth.models_refreshed"));
+      }
+    } catch (error) {
+      toast.error(describeRouteError(error));
+    } finally {
+      setRefreshingProviderModels(false);
+    }
+  }, [providerAuthStore, refreshingProviderModels, handleEditCustomProvider]);
 
   const debugViewProps = useDebugViewModel({
     developerMode,
@@ -984,11 +1011,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     workspaceRoot: selectedWorkspaceRoot,
     onLoadError: handleModelPickerLoadError,
   });
-  // Settings refreshes provider auth whenever the picker opens (the session
-  // route does not need this; its provider state is kept fresh elsewhere).
+  // Refresh auth and check opted-in endpoints when the picker opens.
   useEffect(() => {
     if (!modelPicker.open) return;
     void providerAuthStore.refreshProviders();
+    void providerAuthStore.refreshCustomProviderModels().catch(() => undefined);
   }, [modelPicker.open, providerAuthStore]);
 
   useEffect(() => {
@@ -1551,6 +1578,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   useEffect(() => {
     if (!activeClient) {
       setProviders([]);
+      setProviderListLoaded(false);
       setProviderDefaults({});
       setProviderConnectedIds([]);
       setDisabledProviders([]);
@@ -1994,7 +2022,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <AiSettingsView
             busy={busy}
-            providerAuthBusy={providerAuthSnapshot.providerAuthBusy}
+            providerAuthBusy={providerAuthSnapshot.providerAuthBusy || refreshingProviderModels}
             providerStatusLabel={providerStatusLabel}
             providerStatusStyle={providerStatusStyle}
             providerSummary={providerSummary}
@@ -2007,6 +2035,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onDisconnectProvider={handleDisconnectProvider}
             onReplaceProviderKey={handleReplaceProviderKey}
             onEditProvider={handleEditCustomProvider}
+            onRefreshProvider={handleRefreshProvider}
             canDisconnectProvider={(source) => source !== "env"}
             eigenweltConnected={eigenweltConnected}
             onManageEigenweltAccount={() => navigateSettingsPath("account")}
@@ -2045,6 +2074,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         );
       case "account":
         return (
+          <>
           <EigenweltAccountView
             legalworkClient={legalworkClient}
             workspaceId={hubWorkspaceId}
@@ -2061,6 +2091,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void reloadWorkspaceEngineFromUi();
             }}
           />
+          <SyncProviderSetup
+            client={legalworkClient}
+            workspaceId={hubWorkspaceId}
+            connection={eigenweltAccount}
+            connectedProviders={providerListLoaded ? providers.filter(provider => providerConnectedIdSet.has(provider.id)) : null}
+            paused={providerAuthSnapshot.providerAuthModalOpen}
+            onChooseProvider={(preferredProviderId, startOAuth) => {
+              void providerAuthStore.openProviderAuthModal({ preferredProviderId, startOAuth }).catch(() => toast.error(t("providers.load_failed")));
+            }}
+          />
+          </>
         );
       case "personalisation":
         return (
@@ -2073,7 +2114,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 action: "updated",
               });
             }}
-            onOpenLink={(url) => platform.openLink(url)}
           />
         );
       case "benchmark":
@@ -2484,10 +2524,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
       <ProviderAuthModal
         open={providerAuthSnapshot.providerAuthModalOpen}
+        allowChatGptSubscription={Boolean(
+          eigenweltAccount?.connected && hasEigenweltFeature(eigenweltAccount.entitlements, "org_management"),
+        )}
         loading={false}
         submitting={providerAuthSnapshot.providerAuthBusy}
         error={providerAuthSnapshot.providerAuthError}
         preferredProviderId={providerAuthSnapshot.providerAuthPreferredProviderId}
+        startOAuth={providerAuthSnapshot.providerAuthStartOAuth}
         workerType={providerAuthSnapshot.providerAuthWorkerType}
         providers={providerAuthSnapshot.providerAuthProviders}
         connectedProviderIds={providerConnectedIds}
@@ -2496,8 +2540,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         onSubmitApiKey={providerAuthStore.submitProviderApiKey}
         onSubmitCustomProvider={providerAuthStore.submitCustomProvider}
         onFetchCustomModels={providerAuthStore.fetchCustomProviderModels}
+        onRefreshCustomProvider={providerAuthStore.refreshCustomProvider}
         onReadCustomProvider={providerAuthStore.readCustomProviderForEdit}
         customEdit={customProviderEdit}
+        customModelsOnly={customProviderEdit !== null && customProviderModelsOnly}
         onSubmitOAuth={providerAuthStore.completeProviderAuthOAuth}
         onRefreshProviders={providerAuthStore.refreshProviders}
         onClose={() => {

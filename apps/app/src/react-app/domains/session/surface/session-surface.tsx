@@ -1,5 +1,8 @@
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
+import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
+import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
+import { isProviderUsageLimitError, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
@@ -13,12 +16,7 @@ import { cn } from "@/lib/utils";
 import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import {
-  EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
-  eigenweltBudgetLimitDisplay,
-  eigenweltBudgetRetryAction,
-  isEigenweltBudgetError,
-  markEigenweltBudgetStop,
-  shouldStopEigenweltBudgetRetry,
+  isEigenweltBudgetExceededErrorText,
 } from "@/app/lib/eigenwelt-budget";
 import {
   eigenweltBillingUrl,
@@ -26,7 +24,6 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { eigenweltPlanWithoutModels, eigenweltTrialState } from "@/app/lib/eigenwelt-trial";
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { eigenweltPremiumPlatformUrl } from "@/react-app/domains/recorder/model-tiers";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
@@ -83,6 +80,8 @@ import {
   storageComposerDisplayText,
   reviewComposerDisplayText,
   reviewComposerInstruction,
+  calendarComposerDisplayText,
+  calendarComposerInstruction,
   taskComposerDisplayText,
   taskComposerInstruction,
   type ComposerMentionKind,
@@ -108,7 +107,6 @@ import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-m
 import { deriveOpenTargets, resolvePathOpenTarget, selectAutoOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import {
-  injectSessionErrorMessage,
   seedSessionState,
   seedTodoState,
   captureRunOutcome,
@@ -170,6 +168,7 @@ export type SessionSurfaceProps = {
   selectedModel: ModelRef;
   /** Open the connect-AI flow from the notice above the composer. */
   onConnectAi?: (action: ConnectAiAction) => void;
+  onChooseAiPlan?: (plan: "plus" | "pro") => Promise<void>;
   /**
    * The route lays the plan screen over the app whenever no model is usable,
    * so the notice above the composer only covers what that screen leaves
@@ -753,9 +752,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
   const initializedAutoOpenSessionRef = useRef<string | null>(null);
-  // One daily-limit / budget-exceeded stop per failing run (re-armed by
-  // session switch, a new busy attempt, or a failed abort).
-  const budgetStopFiredRef = useRef(false);
   const snapshotQueryKey = useMemo(
     () => reactSnapshotKey(props.workspaceId, props.sessionId),
     [props.workspaceId, props.sessionId],
@@ -820,7 +816,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // switching sessions preserves each session's own in-progress composer.
     autoOpenedTargetRef.current = null;
     initializedAutoOpenSessionRef.current = null;
-    budgetStopFiredRef.current = false;
     setVerifiedOpenTargets([]);
   }, [props.sessionId]);
 
@@ -902,68 +897,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     return "ready";
   }, [liveStatus, sending, chatStreaming]);
 
-  // --- Eigenwelt budget retries --------------------------------------------
-  // Gateway budget errors (LiteLLM 429 "Budget has been exceeded" — the free
-  // key's daily budget or the paid org budget) never resolve on their own, so
-  // the engine's endless retry/backoff loop is pointless. Policy: let it
-  // retry up to 3 attempts (with an upgrade / top-up action on the banner),
-  // then abort the run and surface the matching terminal card. Gated on the
-  // session's selected provider being `eigenwelt` (org budget); every
-  // other provider/error keeps the engine's
-  // default retry behavior.
-  const paidBudgetRetryActive =
-    liveStatus.type === "retry" &&
-    isEigenweltBudgetError(props.selectedModel.providerID, liveStatus.message);
-  const retryStatusForDisplay = useMemo(() => {
-    if (liveStatus.type !== "retry") return null;
-    if (liveStatus.action) return liveStatus;
-    if (paidBudgetRetryActive) {
-      return {
-        ...liveStatus,
-        action: eigenweltBudgetRetryAction(eigenweltBillingUrl(eigenweltPremiumPlatformUrl())),
-      };
-    }
-    return liveStatus;
-  }, [eigenweltPlan, paidBudgetRetryActive, liveStatus]);
-  useEffect(() => {
-    // A fresh attempt (busy) re-arms the guard so a later prompt that hits
-    // the limit / budget wall again is stopped again.
-    if (liveStatus.type === "busy") budgetStopFiredRef.current = false;
-  }, [liveStatus.type]);
-  useEffect(() => {
-    if (liveStatus.type !== "retry") return;
-    const stopPaid = shouldStopEigenweltBudgetRetry(props.selectedModel.providerID, liveStatus.message, liveStatus.attempt);
-    if (!stopPaid) return;
-    if (budgetStopFiredRef.current) return;
-    budgetStopFiredRef.current = true;
-    const attempt = liveStatus.attempt;
-    // Pause follow-ups before stopping; keep their contents available to edit.
-    setQueuePaused(props.sessionId, true);
-    // Render the terminal card immediately; the engine's abort error for the
-    // same turn reconciles into this message (see session-sync's
-    // budget-stop substitution).
-    injectSessionErrorMessage(
-      props.workspaceId,
-      props.sessionId,
-      EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
-    );
-    markEigenweltBudgetStop(props.sessionId);
-    void (async () => {
-      const aborted = await abortSessionSafe(
-        opencodeClient,
-        props.sessionId,
-        props.workspaceRoot.trim() || undefined,
-      );
-      if (!aborted) {
-        // Engine unreachable or scope mismatch — re-arm so the next retry
-        // event tries the abort again instead of backing off forever.
-        budgetStopFiredRef.current = false;
-        return;
-      }
-      captureAnalyticsEvent("task_run_budget_stopped", { attempts: attempt });
-      await snapshotQuery.refetch();
-    })();
-  }, [setQueuePaused, liveStatus, opencodeClient, props.selectedModel.providerID, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch]);
+  // A quota failure requires user action. Stop on its first retry event.
+  const paidBudgetRetryActive = liveStatus.type === "retry" && isProviderUsageLimitError(liveStatus.message, props.selectedModel.providerID);
+  const retryStatusForDisplay = liveStatus.type === "retry" && !paidBudgetRetryActive ? liveStatus : null;
   const renderedMessages = useMemo(
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
@@ -1112,6 +1048,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(reviewComposerInstruction(value));
           return [{ type: "text", text: reviewComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "calendar") {
+          modelContexts.push(calendarComposerInstruction(value));
+          return [{ type: "text", text: calendarComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "task") {
           modelContexts.push(taskComposerInstruction(value));
           return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
@@ -1136,6 +1076,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
             ? storageComposerDisplayText(value)
             : kind === "review"
               ? reviewComposerDisplayText(value)
+            : kind === "calendar"
+              ? calendarComposerDisplayText(value)
             : kind === "task"
               ? taskComposerDisplayText(value)
               : kind === "upload"
@@ -2111,6 +2053,19 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     >
                       <MessageList
                         eigenweltPlan={eigenweltPlan}
+                        renderUsageLimit={(error, messageId) => {
+                          const provider = providerFromUsageLimitError(error);
+                          const legacyBudget = isEigenweltBudgetExceededErrorText(error);
+                          if (!isProviderUsageLimitError(error, props.selectedModel.providerID) && provider === null && !legacyBudget) return null;
+                          return <ProviderLimitMessage
+                            client={props.client}
+                            workspaceId={props.workspaceId}
+                            plan={eigenweltPlan}
+                            providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
+                            onChoosePlan={props.onChooseAiPlan}
+                            resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
+                          />;
+                        }}
                         messages={renderedMessages}
                         status={status}
                         retryStatus={retryStatusForDisplay}

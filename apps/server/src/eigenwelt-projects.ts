@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { intakeRequest, type IntakeClient } from "./eigenwelt-intake.js";
 import { ApiError } from "./errors.js";
+import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
 import { receiveFile } from "./file-storage/common.js";
 
 /**
@@ -31,6 +32,7 @@ const scopeSchema = z.object({
   metadata: z.boolean(),
   // A platform from before reviews were part of the scope syncs none.
   reviews: z.boolean().default(false),
+  calendar: z.boolean().default(true),
 });
 
 const fieldSchema = z.object({
@@ -51,6 +53,8 @@ const projectSchema = z.object({
   memberIds: z.array(z.string()),
   scope: scopeSchema,
   fields: z.array(fieldSchema),
+  // Absent on older services; null on projects that have not shared instructions yet.
+  personalizationPrompt: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH).nullable().optional(),
   remote: projectRemoteSchema.nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -99,6 +103,7 @@ export async function listRemoteProjects(
 }
 
 export type RemoteProjectCreate = {
+  personalizationPrompt?: string;
   remote?: ProjectRemote;
   id: string;
   name: string;
@@ -115,6 +120,7 @@ export async function createRemoteProject(client: IntakeClient, input: RemotePro
 }
 
 export type RemoteProjectPatch = {
+  personalizationPrompt?: string;
   remote?: ProjectRemote;
   name?: string;
   fieldChanges?: { id: string; field: z.infer<typeof fieldSchema> | null }[];

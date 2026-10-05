@@ -18,7 +18,7 @@ import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ComposerDraft, WorkspaceSessionGroup } from "@/app/types";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { initLocale } from "@/i18n";
+import { initLocale, setLocale } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
 import { ProviderAuthModal } from "@/react-app/domains/connections/provider-auth";
@@ -32,12 +32,40 @@ import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator"
 import { WorkspaceProvider } from "@/react-app/shell/workspace-provider";
 import "./app/index.css";
 import { WorkflowsPreview } from "./workflows-preview";
+import { providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
+import { usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
 
 if (!import.meta.env.DEV) throw new Error("The session fixture is available only in development.");
 initLocale();
 
 const now = Date.now();
-const model = { providerID: "openai", modelID: "Preview model" };
+const previewParams = new URLSearchParams(window.location.search);
+if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
+if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
+const limitParam = previewParams.get("limit");
+const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
+const model = { providerID: previewParams.get("provider") ?? "openai", modelID: "Preview model" };
+const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
+const upgradePreview = previewParams.get("upgrade");
+const topUpPreview = previewParams.get("topup");
+const intentPreview = previewParams.get("intent");
+let topUpPending: { operationId: string; amountCents: number } | null = null;
+let topUpReadyAt = 0;
+let failNextUsageRead = false;
+let hostedUpgrade: { plan: "plus" | "pro"; readyAt: number } | null = null;
+if (upgradePreview) limitFixture.usage.me.blockedReason = "wallet_empty";
+if (topUpPreview) {
+  limitFixture.usage.walletCents = 0;
+  limitFixture.usage.me.blockedReason = "wallet_empty";
+  limitFixture.usage.me.extraUsedCents = 0;
+  limitFixture.usage.me.extraRemainingCents = 0;
+}
+if (intentPreview === "personal" || intentPreview === "organization" || intentPreview === "enable") {
+  limitFixture.usage.me.blockedReason = intentPreview === "personal" ? "member_limit" : intentPreview === "organization" ? "organization_limit" : "extra_disabled";
+  if (intentPreview !== "personal") limitFixture.usage.me.extraUsedCents = 0;
+  if (intentPreview === "organization") limitFixture.usage.orgExtraLimitCents = limitFixture.usage.orgExtraUsedCents;
+  if (intentPreview === "enable") limitFixture.usage.extraEnabled = false;
+}
 const workspace: WorkspaceInfo = {
   id: "visual-workspace", name: "Northstar Legal", displayName: "Northstar Legal",
   path: "/workspaces/northstar-legal", preset: "starter", workspaceType: "local",
@@ -86,6 +114,20 @@ saveSnapshot(snapshot(welcomeId, "New task"));
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
+if (limitParam) {
+  const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
+  saveSnapshot({
+    ...item,
+    messages: item.messages.map(message => message.info.role === "assistant" ? {
+      ...message, parts: [], info: { ...message.info, error: { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID) } } },
+    } : message),
+  });
+  if (previewParams.has("continued")) {
+    const previous = snapshots.get("visual-limit");
+    const continued = snapshot("visual-limit", "Review supplier agreement", "Hallo?");
+    saveSnapshot({ ...continued, messages: [...(previous?.messages ?? []), ...continued.messages] });
+  }
+}
 
 const files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Contracts", path: "Contracts", kind: "dir" },
@@ -101,7 +143,7 @@ const memoryFiles: LegalMemoryTreeFile[] = files.filter((file) => file.kind === 
   source_object_id: file.path, source_id: "visual-drive", name: file.name, path: file.path,
   mime_type: null, size_bytes: file.size ?? null, mtime: new Date(now).toISOString(), document_id: file.path,
 }));
-const previewNotice = () => toast("Visual preview", { description: "This action needs the running desktop app or a connected service." });
+const previewNotice = () => { toast("Visual preview", { description: "This action needs the running desktop app or a connected service." }); };
 
 // `?plans=new|signed-out|ended|no-models|onboarding` lays the plan screen over
 // the session. Sign-in and upgrades are simulated: nothing leaves the page
@@ -128,7 +170,7 @@ const previewDelay = (ms: number, cancelled: () => boolean) =>
 
 function PlansPreview() {
   const [plans, setPlans] = useState(initialPlans);
-  const [providersOpen, setProvidersOpen] = useState(false);
+  const [providersOpen, setProvidersOpen] = useState(previewParams.get("connect") === "openai");
   const upgradeChecks = useRef(0);
   if (!plans) return null;
   const close = () => window.setTimeout(() => setPlans(null), 1_200);
@@ -161,9 +203,11 @@ function PlansPreview() {
       {providersOpen ? (
         <ProviderAuthModal
           open
+          allowChatGptSubscription={limitPlan !== null}
           loading={false}
           submitting={false}
           error={null}
+          preferredProviderId={previewParams.get("connect") === "openai" ? "openai" : undefined}
           providers={[
             { id: "openai", name: "OpenAI", env: [] },
             { id: "anthropic", name: "Anthropic", env: [] },
@@ -171,12 +215,12 @@ function PlansPreview() {
           ]}
           connectedProviderIds={[]}
           authMethods={{
-            openai: [{ type: "api", label: "API key" }],
+            openai: [{ type: "oauth", label: "ChatGPT Plus/Pro (browser)", methodIndex: 0 }, { type: "api", label: "API key", methodIndex: 1 }],
             anthropic: [{ type: "api", label: "API key" }],
             mistral: [{ type: "api", label: "API key" }],
           }}
-          onSelect={async () => {
-            throw new Error("Sign-in with a provider needs the running desktop app.");
+          onSelect={async (providerId, methodIndex) => {
+            throw new Error(`Preview only: ${providerId} sign-in method ${methodIndex} selected. No account is connected.`);
           }}
           onSubmitApiKey={async () => {
             // A connected provider makes a model usable: the plan screen goes.
@@ -199,6 +243,91 @@ function PlansPreview() {
 // existing server connection or provider credential is used by this fixture.
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  eigenweltEntitlements: async () => limitFixture.entitlements,
+  eigenweltUsage: async () => {
+    if (failNextUsageRead) { failNextUsageRead = false; throw new Error("Simulated usage refresh failure"); }
+    return limitFixture.usage;
+  },
+  eigenweltUsageAction: async (_workspaceId, action) => {
+    if (intentPreview && (action.action === "increaseLimit" || action.action === "enableExtraUsage")) {
+      const previous = limitFixture.usage;
+      const personal = action.action === "increaseLimit" && action.scope === "personal";
+      const organization = action.action === "increaseLimit" && action.scope === "organization";
+      const me = { ...previous.me,
+        baseExtraLimitCents: personal ? action.limitCents : previous.me.baseExtraLimitCents,
+        extraLimitCents: personal ? action.limitCents : previous.me.extraLimitCents,
+        inheritsLimit: personal ? false : previous.me.inheritsLimit,
+      };
+      const orgLimit = organization ? action.limitCents : previous.orgExtraLimitCents;
+      const wallet = previewParams.get("intentRecovery") === "blocked" ? 0 : previous.walletCents ?? 0;
+      me.extraRemainingCents = Math.max(0, Math.min(me.extraLimitCents - me.extraUsedCents, orgLimit === null ? Infinity : orgLimit - (previous.orgExtraUsedCents ?? 0), wallet));
+      me.blockedReason = me.extraRemainingCents > 0 ? null : "wallet_empty";
+      limitFixture.usage = { ...previous, me, members: [me], orgExtraLimitCents: orgLimit, walletCents: wallet,
+        extraEnabled: action.action === "enableExtraUsage" || previous.extraEnabled };
+      failNextUsageRead = previewParams.get("intentRecovery") === "refresh-failed";
+      return { ok: true };
+    }
+    if (action.action === "paymentDetails") {
+      if (topUpPending && Date.now() >= topUpReadyAt) {
+        const me = { ...limitFixture.usage.me,
+          extraRemainingCents: topUpPreview === "blocked" ? 0 : topUpPending.amountCents,
+          blockedReason: topUpPreview === "blocked" ? "member_limit" : null,
+        };
+        limitFixture.usage = { ...limitFixture.usage, me, members: [me], walletCents: topUpPending.amountCents };
+        topUpPending = null;
+      }
+      return {
+        card: { id: "visual-card", brand: "visa", last4: "4242", expMonth: 9, expYear: 2027 },
+        pendingTopUps: topUpPending ? [topUpPending] : [],
+      };
+    }
+    // Explicit dev-only simulation. No payment service, account, or credentials are used.
+    if (action.action === "topUp" && topUpPreview) {
+      topUpPending = { operationId: action.operationId, amountCents: action.amountCents };
+      topUpReadyAt = Date.now() + (topUpPreview === "delayed" ? 10_000 : 0);
+      failNextUsageRead = topUpPreview === "refresh-failed";
+      return { status: "paid", operationId: action.operationId };
+    }
+    if (action.action === "memberChange" && action.preview) return {
+      quoteId: "visual-quote", amountCents: 1500, recurringAmountCents: 12800, billingInterval: "month",
+      paymentMethodRequired: previewParams.has("no-card"),
+    };
+    if (action.action === "cancelMemberChange" && upgradePreview) {
+      hostedUpgrade = null;
+      return { status: "canceled", quoteId: action.quoteId };
+    }
+    if (action.action === "resumeMemberChange" && hostedUpgrade && Date.now() < hostedUpgrade.readyAt)
+      return { status: "processing", quoteId: action.quoteId };
+    if (action.action === "memberChange" && action.hostedPayment && action.target.kind === "plan" &&
+        (action.target.plan === "plus" || action.target.plan === "pro")) {
+      // Offline simulation of an in-progress invoice payment. It never opens Stripe.
+      hostedUpgrade = { plan: action.target.plan, readyAt: Date.now() + (upgradePreview === "payment-pending" ? Infinity : 15_000) };
+      return { status: "processing", quoteId: "visual-quote" };
+    }
+    if (action.action === "memberChange" && !action.preview && upgradePreview && action.target.kind === "plan" && action.target.plan !== "none") {
+      const used = limitFixture.usage.me.allowanceCents - limitFixture.usage.me.remainingCents;
+      const updated = usageLimitFixture(action.target.plan, true, model.providerID);
+      const remaining = upgradePreview === "blocked" ? 0 : Math.max(0, updated.usage.me.allowanceCents - used);
+      updated.usage.me.remainingCents = remaining;
+      updated.usage.me.blockedReason = remaining > 0 ? null : "wallet_empty";
+      if (updated.entitlements.entitlements) {
+        updated.entitlements.entitlements.usage.remainingCents = remaining;
+        updated.entitlements.entitlements.usage.dailyRemainingCents = remaining;
+      }
+      limitFixture.usage = updated.usage;
+      limitFixture.entitlements = updated.entitlements;
+      failNextUsageRead = upgradePreview === "refresh-failed";
+      return { ok: true };
+    }
+    if (action.action === "resumeMemberChange" && hostedUpgrade) {
+      const updated = usageLimitFixture(hostedUpgrade.plan, true, model.providerID);
+      limitFixture.usage = updated.usage;
+      limitFixture.entitlements = updated.entitlements;
+      hostedUpgrade = null;
+      return { ok: true };
+    }
+    throw new Error("Billing changes and payments are disabled in this visual preview.");
+  },
   getSessionSnapshot: async (_workspaceId, sessionId) => {
     const item = snapshots.get(sessionId);
     if (!item) throw new Error("Unknown preview session");
@@ -208,7 +337,7 @@ const fixtureClient: LegalworkServerClient = {
   getVoiceRealtimeCapability: async () => ({ supported: false, providerId: null, model: null, reason: "Voice is unavailable in the visual fixture." }),
   getUserEnvStatus: async () => ({ runtimeKey: "visual-fixture", pendingChanges: false }),
   listUserEnv: async () => ({ items: [] }),
-  listSkills: async () => ({ items: [] }),
+  listSkills: async () => ({ items: [], skipped: [] }),
   listMcp: async () => ({ items: [] }),
   resolveArtifacts: async () => ({ items: [] }),
   listWorkspaceDirectory: async (_workspaceId, path) => ({
@@ -235,7 +364,7 @@ const fixtureClient: LegalworkServerClient = {
 function SessionPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState(welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState(limitParam ? "visual-limit" : welcomeId);
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   const groups: WorkspaceSessionGroup[] = [
@@ -263,12 +392,12 @@ function SessionPreview() {
       <div className="min-h-0 flex-1">
         <SessionPage
           mainView={showWorkflows ? <WorkflowsPreview /> : undefined}
-          selectedSessionId={selectedSessionId} selectedWorkspaceId={workspace.id} selectedWorkspaceDisplay={workspace}
+          selectedSessionId={selectedSessionId} selectedWorkspaceId={workspace.id} selectedWorkspaceDisplay={{ ...workspace, displayName: "Northstar Legal" }}
           selectedWorkspaceRoot={workspace.path} runtimeWorkspaceId={workspace.id} workspaces={[workspace, otherWorkspace]}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
-          hasUsableModel mcpConnectedCount={0} onOpenSettings={previewNotice} todos={[]} sessionLoadingById={() => false}
+          mcpConnectedCount={0} onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
           onRenameSession={(id, title) => {
             const item = snapshots.get(id);
             if (item) saveSnapshot({ ...item, session: { ...item.session, title } });
@@ -285,7 +414,8 @@ function SessionPreview() {
             activeNav: showWorkflows ? "workflows" : null,
           }}
           surface={{
-            workspaceRoot: workspace.path, developerMode: false, modelLabel: "Preview model", onModelClick: previewNotice,
+            workspaceRoot: workspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
+            onChooseAiPlan: async () => previewNotice(),
             modelPickerOpen: false, modelSelectorLocked: true, selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,

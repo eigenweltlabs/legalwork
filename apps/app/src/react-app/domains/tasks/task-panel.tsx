@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ListTodo, Loader2 } from "lucide-react";
 
 import type { LegalworkTaskAttachment, LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -7,9 +7,14 @@ import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
+import { resolveWorkspaceEndpoint, workspaceServerId } from "@/app/lib/workspace-endpoint";
+import { useWorkspace } from "@/react-app/shell/workspace-provider";
+import { startTaskWorkflow } from "./start-workflow";
+import { StartWorkflowDialog, type StartWorkflowSelection } from "./start-workflow-dialog";
+import { useTaskRunStore } from "./task-run-store";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { importViewerFile } from "@/react-app/domains/session/panel/import-viewer-file";
-import { type TaskPanelTab, usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
+import { type ArtifactPanelTab, type TaskPanelTab, usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import { TaskDetail } from "./task-detail";
 import {
   useDeleteTask,
@@ -34,9 +39,29 @@ type TaskPanelProps = {
 };
 
 export function TaskPanel(props: TaskPanelProps) {
+  const onTitleChange = useCallback((title: string) => {
+    if (title !== props.tab.label) usePanelTabStore.getState().openTab(props.sessionId, { ...props.tab, label: title });
+  }, [props.sessionId, props.tab]);
+  return <TaskContent {...props} taskId={props.tab.taskId} onTitleChange={onTitleChange}
+    onOpenAttachment={tab => usePanelTabStore.getState().openTab(props.sessionId, tab)} />;
+}
+
+type TaskContentProps = Omit<TaskPanelProps, "sessionId" | "tab"> & {
+  taskId: string;
+  inDialog?: boolean;
+  onTitleChange?: (title: string) => void;
+  onOpenAttachment: (tab: ArtifactPanelTab) => void;
+};
+
+/** Shared task editor for the side panel and calendar dialog. */
+export function TaskContent(props: TaskContentProps) {
+  const sessionContext = useWorkspace();
+  const [choosingProject, setChoosingProject] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const startingRef = useRef(false);
   const workspaceId = props.workspaceId ?? "";
   const context = { client: props.client, workspaceId };
-  const detailQuery = useTask(context, props.tab.taskId);
+  const detailQuery = useTask(context, props.taskId);
   const membersQuery = useTaskMembers(context);
   const tagsQuery = useTaskTags(context);
   const access = useTaskAccess(context);
@@ -47,11 +72,11 @@ export function TaskPanel(props: TaskPanelProps) {
   const uploadAttachments = useUploadTaskAttachments(context);
   const deleteAttachment = useDeleteTaskAttachment(context);
   const task = detailQuery.data?.task ?? null;
+  const title = task?.title;
 
   useEffect(() => {
-    if (!task || task.title === props.tab.label) return;
-    usePanelTabStore.getState().openTab(props.sessionId, { ...props.tab, label: task.title });
-  }, [props.sessionId, props.tab, task]);
+    if (title !== undefined) props.onTitleChange?.(title);
+  }, [props.onTitleChange, title]);
 
   if (!props.client || !workspaceId) {
     return <PanelEmptyState icon={<ListTodo />} title={t("tasks.load_failed")} description={t("side_panel.wait_for_workspace")} />;
@@ -80,6 +105,32 @@ export function TaskPanel(props: TaskPanelProps) {
   }
 
   const client = props.client;
+  const sessionProjects = sessionContext.workspaces.filter(workspace =>
+    resolveWorkspaceEndpoint(workspace, sessionContext)?.baseUrl === client.baseUrl);
+  const startSession = async (selection: StartWorkflowSelection) => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setStarting(true);
+    try {
+      // Read again after inline edits have saved, including newly added files.
+      const current = await client.getTask(workspaceId, task.id);
+      const result = await startTaskWorkflow({
+        relay: { client, workspaceId }, task: current.task, workspace: selection.workspace,
+        baseUrl: sessionContext.baseUrl, token: sessionContext.token, workflowName: null, model: null,
+      });
+      useTaskRunStore.getState().recordRun(task.id, { ...result, startedAt: Date.now(), workflowName: null, taskTitle: current.task.title });
+      props.onClose();
+      sessionContext.onOpenSession(result.workspaceId, result.sessionId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("tasks.session_failed"));
+    } finally { startingRef.current = false; setStarting(false); }
+  };
+  const requestSession = () => {
+    if (!task.projectId) { setChoosingProject(true); return; }
+    const workspace = sessionProjects.find(project => workspaceServerId(project) === task.projectId);
+    if (!workspace) { toast.error(t("tasks.linked_project_unavailable")); return; }
+    void startSession({ workspace, workflowName: null });
+  };
 
   const downloadAttachment = async (attachment: LegalworkTaskAttachment) => {
     const file = await client.downloadTaskAttachment(workspaceId, task.id, attachment.id);
@@ -97,14 +148,16 @@ export function TaskPanel(props: TaskPanelProps) {
     const file = await client.downloadTaskAttachment(workspaceId, task.id, attachment.id);
     const copy = new File([file.data], attachment.filename, { type: attachment.contentType });
     const tab = await importViewerFile(client, workspaceId, copy);
-    usePanelTabStore.getState().openTab(props.sessionId, tab);
+    props.onOpenAttachment(tab);
   };
 
-  const busy = deleteTask.isPending || restoreTask.isPending;
+  const busy = deleteTask.isPending || restoreTask.isPending || starting;
 
   return (
-    <TaskDetail
+    <><TaskDetail
       inPanel
+      inDialog={props.inDialog}
+      saving={updateTask.isPending || resolveConflict.isPending}
       projects={props.projects}
       task={task}
       submission={detailQuery.data?.submission}
@@ -115,6 +168,8 @@ export function TaskPanel(props: TaskPanelProps) {
       busy={busy}
       accountUserId={access.accountUserId}
       onBack={props.onClose}
+      onStartSession={requestSession}
+      onOpenSession={link => { props.onClose(); sessionContext.onOpenSession(link.workspaceId, link.sessionId); }}
       onPatch={(patch) => updateTask.mutateAsync({ taskId: task.id, patch })}
       conflicts={detailQuery.data?.conflicts}
       onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: task.id, choice })}
@@ -141,5 +196,10 @@ export function TaskPanel(props: TaskPanelProps) {
       }}
       onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: task.id, attachmentId: attachment.id })}
     />
+    <StartWorkflowDialog mode={choosingProject ? "session" : null} taskTitle={task.title}
+      onClose={() => { if (!starting) setChoosingProject(false); }} workspaces={sessionProjects}
+      defaultWorkspaceId={workspaceId} baseUrl={sessionContext.baseUrl} token={sessionContext.token}
+      busy={starting} onStart={selection => void startSession(selection)} />
+    </>
   );
 }

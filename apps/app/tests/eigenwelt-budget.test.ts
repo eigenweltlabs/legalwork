@@ -2,14 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT,
-  EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS,
-  consumeEigenweltBudgetStop,
+  consumeProviderUsageLimitStop,
   eigenweltBudgetLimitDisplay,
-  eigenweltBudgetRetryAction,
   isEigenweltBudgetError,
   isEigenweltBudgetExceededErrorText,
   markEigenweltBudgetStop,
-  shouldStopEigenweltBudgetRetry,
 } from "../src/app/lib/eigenwelt-budget";
 
 const BUDGET_MESSAGE =
@@ -36,23 +33,6 @@ describe("isEigenweltBudgetError", () => {
   });
 });
 
-describe("shouldStopEigenweltBudgetRetry", () => {
-  test("allows exactly the configured attempts, then stops", () => {
-    for (let attempt = 1; attempt < EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS; attempt++) {
-      expect(shouldStopEigenweltBudgetRetry("eigenwelt", BUDGET_MESSAGE, attempt)).toBe(false);
-    }
-    expect(
-      shouldStopEigenweltBudgetRetry("eigenwelt", BUDGET_MESSAGE, EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS),
-    ).toBe(true);
-    expect(shouldStopEigenweltBudgetRetry("eigenwelt", BUDGET_MESSAGE, 5)).toBe(true);
-  });
-
-  test("never stops other providers regardless of attempts", () => {
-    expect(shouldStopEigenweltBudgetRetry("anthropic", BUDGET_MESSAGE, 99)).toBe(false);
-    expect(shouldStopEigenweltBudgetRetry("eigenwelt", "some other error", 99)).toBe(false);
-  });
-});
-
 describe("terminal error text", () => {
   test("round-trips through the matcher", () => {
     expect(isEigenweltBudgetExceededErrorText(EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT)).toBe(true);
@@ -65,32 +45,15 @@ describe("terminal error text", () => {
   });
 });
 
-describe("retry banner action", () => {
-  test("defaults to the prod billing page when no platform is connected", () => {
-    const action = eigenweltBudgetRetryAction();
-    expect(action.link).toBe("https://platform.eigenweltlabs.com/billing");
-    expect(action.provider).toBe("eigenwelt");
-    expect(action.label).toBe("Open Billing");
-    expect(action.message).toBe(
-      "It resets next week. Your firm's billing shows this week's usage in detail.",
-    );
-  });
-
-  test("uses the connected platform's billing URL when provided", () => {
-    const action = eigenweltBudgetRetryAction("https://acme.example.com/billing");
-    expect(action.link).toBe("https://acme.example.com/billing");
-  });
-});
-
-describe("plan-aware limit display", () => {
-  test("offers Plus users an upgrade to Pro", () => {
+describe("standalone legacy limit display", () => {
+  test("links standalone legacy errors to billing", () => {
     const expected = {
       title: "Your seat's included usage for this week is used up",
       body: "It resets next week. Your firm's billing shows this week's usage in detail.",
       upgradeLabel: "Open Billing",
     };
     expect(eigenweltBudgetLimitDisplay("plus")).toEqual(expected);
-    // Single-plan world: legacy "pro" payloads see the same copy.
+    // Saved legacy payloads use the same standalone fallback.
     expect(eigenweltBudgetLimitDisplay("pro")).toEqual(expected);
     expect(eigenweltBudgetLimitDisplay(null)).toEqual(expected);
   });
@@ -99,23 +62,23 @@ describe("plan-aware limit display", () => {
 describe("pending-stop registry", () => {
   test("consume is single-use", () => {
     markEigenweltBudgetStop("ses_a");
-    expect(consumeEigenweltBudgetStop("ses_a")).toBe(true);
-    expect(consumeEigenweltBudgetStop("ses_a")).toBe(false);
+    expect(consumeProviderUsageLimitStop("ses_a")).toBe(EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT);
+    expect(consumeProviderUsageLimitStop("ses_a")).toBeNull();
   });
 
   test("unmarked sessions never consume", () => {
-    expect(consumeEigenweltBudgetStop("ses_never")).toBe(false);
+    expect(consumeProviderUsageLimitStop("ses_never")).toBeNull();
   });
 
   test("marks expire after the TTL", () => {
     const t0 = 1_000_000;
     markEigenweltBudgetStop("ses_b", t0);
-    expect(consumeEigenweltBudgetStop("ses_b", t0 + 61_000)).toBe(false);
+    expect(consumeProviderUsageLimitStop("ses_b", t0 + 61_000)).toBeNull();
   });
 
   test("marks within the TTL are honored", () => {
     const t0 = 2_000_000;
     markEigenweltBudgetStop("ses_c", t0);
-    expect(consumeEigenweltBudgetStop("ses_c", t0 + 59_000)).toBe(true);
+    expect(consumeProviderUsageLimitStop("ses_c", t0 + 59_000)).toBe(EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT);
   });
 });

@@ -5,11 +5,11 @@ import type { OcrContent } from "../ocr/types.js";
 /** Match literal wording, allowing only layout whitespace to differ. */
 export function quoteRange(text: string, quote: string) {
   if (!quote.trim()) return null;
-  const exact = text.indexOf(quote);
-  if (exact >= 0) return { start: exact, end: exact + quote.length };
   const words = quote.trim().split(/\s+/u).map(word => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const match = new RegExp(words.join("\\s+"), "u").exec(text);
-  return match ? { start: match.index, end: match.index + match[0].length } : null;
+  const matches = [...text.matchAll(new RegExp(words.join("\\s+"), "gu"))];
+  if (matches.length !== 1) return null;
+  const match = matches[0];
+  return { start: match.index!, end: match.index! + match[0].length };
 }
 
 /** OCR engines provide line/word boxes; use only boxes intersecting the quote. */

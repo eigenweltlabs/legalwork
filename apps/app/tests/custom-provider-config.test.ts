@@ -53,6 +53,15 @@ describe("custom provider model config", () => {
     // would leave the engine no room for input at all.
     expect(customProviderModelEntry(row).limit).toEqual({ context: 4096, output: 2048 });
   });
+
+  test("editing a model preserves its display name and exact API ID", () => {
+    const id = "accounts/fireworks/models/deepseek-v4-pro";
+    const stored = { name: "DeepSeek V4 Pro", tool_call: false, reasoning: true };
+    const row = customProviderModelFromEntry(id, stored);
+    expect(row.id).toBe(id);
+    expect(row.name).toBe("DeepSeek V4 Pro");
+    expect(customProviderModelEntry(row)).toEqual(stored);
+  });
 });
 
 describe("findCustomModelLimitProblem", () => {

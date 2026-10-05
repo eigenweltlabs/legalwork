@@ -28,6 +28,7 @@ import {
   legalworkSkillToolsPluginPath,
   legalworkStorageToolsPluginPath,
   legalworkTaskToolsPluginPath,
+  legalworkCalendarToolsPluginPath,
   legalworkProjectToolsPluginPath,
   legalworkReviewToolsPluginPath,
   legalworkExcelToolsPluginPath,
@@ -51,7 +52,7 @@ import {
   runtimePluginList,
   runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
-import { AGENT_MEMORY_PLUGIN_SPEC, buildPersonalizedAgentPrompt } from "./personalization.js";
+import { buildPersonalizedAgentPrompt } from "./personalization.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
 const OPENCODE_ZEN_PROVIDER_ID = "opencode";
@@ -218,21 +219,31 @@ export async function buildLegalworkRuntimeConfigObject(
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
   ].filter((item, index, list) => list.indexOf(item) === index);
+  const storedProviders = repairRuntimeProviders(runtimeConfig.provider ?? {}).providers;
+  // An account manifest is authoritative even when empty (unfunded Sync or
+  // all models disabled). Never resurrect a stale per-workspace paid model.
+  if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];
   const providerMap = {
     // Never let a retired or unparsable stored block reach the engine: it
     // would invalidate this whole file. The startup repair also removes such
     // blocks from the DB and notifies the app.
-    ...repairRuntimeProviders(runtimeConfig.provider ?? {}).providers,
+    ...storedProviders,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
+  const permission = { ...runtimeConfig.permission };
+  const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
+  // Append the specific rule after wildcard rules; approvals cannot be saved
+  // for this tool, so every proposed instructions change is reviewed.
+  delete permission.legalwork_project_set_instructions;
   return {
     ...runtimeConfig,
+    permission: { ...permission, legalwork_project_set_instructions: instructionPermission },
     // A refusal remains a tool error visible to the model. The engine should
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
     tools: { legalwork_jev_corpus_question: jevSearchEnabled },
-    ...(Object.keys(providerMap).length ? { provider: providerMap } : {}),
+    provider: providerMap,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
       ...runtimeAgentMap(runtimeConfig),
@@ -263,9 +274,9 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkSkillToolsPluginPath(), config),
       bundledPluginSpec(legalworkStorageToolsPluginPath(), config),
       bundledPluginSpec(legalworkTaskToolsPluginPath(), config),
+      bundledPluginSpec(legalworkCalendarToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
-      ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),
       ...runtimePluginList(runtimeConfig),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),

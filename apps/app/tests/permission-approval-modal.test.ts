@@ -94,4 +94,25 @@ describe("permission approval modal helpers", () => {
     expect(html).toContain("Approve Todo write?");
     expect(html).not.toContain("Approve todowrite?");
   });
+
+  test("project instruction approval shows both texts and only permits a single change", () => {
+    const render = (proposedInstructions: string) => renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: pendingPermission({
+        permission: "legalwork_project_set_instructions", patterns: ["/workspace/matter"], always: [],
+        metadata: { previousInstructions: "Formal English", proposedInstructions },
+      }),
+      respondPermission: () => {},
+    }));
+    const html = render("Use short paragraphs. <script>alert('test')</script>");
+    expect(html).toContain("Update project instructions?");
+    expect(html).toContain("Current instructions");
+    expect(html).toContain("Formal English");
+    expect(html).toContain("Proposed instructions");
+    expect(html).toContain("Use short paragraphs.");
+    expect(html).not.toContain("<script>");
+    const labels = Array.from(html.matchAll(/<button\b[\s\S]*?<\/button>/g)).map(match => match[0].replace(/<[^>]*>/g, "").trim());
+    expect(labels).toEqual(["Deny", "Allow once"]);
+    expect(html).not.toContain("Approval applies to this change only.");
+    expect(render("")).toContain("Use global defaults");
+  });
 });

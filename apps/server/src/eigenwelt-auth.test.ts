@@ -39,6 +39,8 @@ type FakePlatform = {
   desktopModelsAuth: Array<string | undefined>;
   close: () => Promise<void>;
   failModels: boolean;
+  exchangeDelayMs?: number;
+  preferredAiProvider?: string;
 };
 
 /** The firm's own list: the admin turned "ewl-small" off on the platform. */
@@ -65,10 +67,11 @@ async function startFakePlatform(): Promise<FakePlatform> {
       req.on("data", (chunk) => {
         body += chunk;
       });
-      req.on("end", () => {
+      req.on("end", async () => {
+        if (platform.exchangeDelayMs) await new Promise(resolve => setTimeout(resolve, platform.exchangeDelayMs));
         exchangeCalls.push(JSON.parse(body) as Record<string, unknown>);
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(EXCHANGE_PAYLOAD));
+        res.end(JSON.stringify({ ...EXCHANGE_PAYLOAD, ...(platform.preferredAiProvider ? { preferredAiProvider: platform.preferredAiProvider } : {}) }));
       });
       return;
     }
@@ -252,6 +255,9 @@ describe("eigenwelt sign-in", () => {
     expect(pro.searchParams.get("plan")).toBe("pro");
     expect(pro.searchParams.has("intent")).toBe(false);
 
+    const sync = await finish(await startEigenweltSignIn({ plan: "sync" }));
+    expect(sync.searchParams.get("plan")).toBe("sync");
+
     const returning = await finish(await startEigenweltSignIn({ intent: "sign-in", plan: "plus" }));
     expect(returning.searchParams.get("intent")).toBe("sign-in");
     expect(returning.searchParams.get("plan")).toBe("plus");
@@ -261,6 +267,16 @@ describe("eigenwelt sign-in", () => {
       await startEigenweltSignIn({ plan: "hub" as unknown as "plus" }),
     );
     expect(unknown.searchParams.has("plan")).toBe(false);
+  });
+
+  test("returns the provider choice from Sync checkout without provider credentials", async () => {
+    const platform = await setupPlatform();
+    platform.preferredAiProvider = "openai";
+    const started = await startEigenweltSignIn({ plan: "sync" });
+    const url = new URL(started.authorizeUrl);
+    await fetch(`http://127.0.0.1:${url.searchParams.get("port")}/callback?code=test-code&state=${url.searchParams.get("state")}`);
+    const result = await waitForEigenweltSignIn(started.sessionId);
+    expect(result).toEqual({ ...EXCHANGE_PAYLOAD, preferredAiProvider: "openai" });
   });
 
   test("waiting on an unknown session fails", async () => {
@@ -462,4 +478,16 @@ describe("refreshEigenweltProviderModels", () => {
     const refreshed = await refreshEigenweltProviderModels(config, "ws_refresh_3");
     expect(refreshed).toBe(false);
   });
+});
+
+test("duplicate loopback callbacks exchange the single-use code once and both show success", async () => {
+  const platform = await setupPlatform();
+  platform.exchangeDelayMs = 50;
+  const started = await startEigenweltSignIn();
+  const url = new URL(started.authorizeUrl);
+  const callback = `http://127.0.0.1:${url.searchParams.get("port")}/callback?code=same-code&state=${url.searchParams.get("state")}`;
+  const responses = await Promise.all([fetch(callback), fetch(callback)]);
+  for (const response of responses) expect(await response.text()).toContain("You're connected");
+  expect(await waitForEigenweltSignIn(started.sessionId)).toEqual(EXCHANGE_PAYLOAD);
+  expect(platform.exchangeCalls).toHaveLength(1);
 });

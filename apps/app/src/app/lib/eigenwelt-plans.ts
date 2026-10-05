@@ -7,7 +7,7 @@
  * Pure and dependency-free, so the plan screen and its tests share it.
  */
 
-export type EigenweltPlanId = "plus" | "pro";
+export type EigenweltPlanId = "sync" | "plus" | "pro";
 
 export type EigenweltPlan = {
   id: EigenweltPlanId;
@@ -22,6 +22,7 @@ export type EigenweltPlan = {
 };
 
 export const EIGENWELT_PLANS: readonly EigenweltPlan[] = [
+  { id: "sync", name: "Sync", yearlyPerMonthCents: 1500, monthlyCents: 2000, includedMonthlyUsageCents: 0 },
   {
     id: "plus",
     name: "Plus",
@@ -39,7 +40,7 @@ export const EIGENWELT_PLANS: readonly EigenweltPlan[] = [
 ];
 
 export function isEigenweltPlanId(value: unknown): value is EigenweltPlanId {
-  return value === "plus" || value === "pro";
+  return value === "sync" || value === "plus" || value === "pro";
 }
 
 /**
