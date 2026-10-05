@@ -121,6 +121,16 @@ Validation with synthetic originals:
 
 ![Selection across a narrow three-page synthetic document](./document-selection-fixed.png)
 
+## Maximized header and remaining toolbar analysis — 5 October
+
+The session's titlebar retains its native drag strip/window-control space while an entire document workspace or a single artifact is expanded. Its child headings, pane headers and controls become hidden, including from keyboard focus/accessibility; their portals remain mounted. Restoration brings the same headers back. A scoped CSS selector derives this directly from the existing expansion attributes, without adding a second expansion state or remounting chat/file browsers.
+
+Verified in the running detached Electron document chat with Project Files open: expand workspace → chat/file headings disappear; restore → both return; expand individual document → both disappear; restore → both return. The original view was restored without editing its documents. The 807-test, typecheck and build results above also cover this change.
+
+The user confirmed actual drag-and-drop works well. This is user acceptance evidence in addition to the earlier synthetic event/geometry tests; connected Memory Drive publication remains a separate unverified integration.
+
+**Toolbar analysis only; no toolbar change:** `PanelHeader` wraps document actions below 400px, then forces one row from 400px upward. In the English synthetic DOCX view, 380/399px panes had an 82px-high header and no clipped controls; at 400px, the externally-open/close/expand buttons exceeded the right edge; at 435px, close and expand did; at 480px, expand exceeded it by 6.42px; at 489px all fit. This concerns LegalWork's Save/Autosave/file-action row, not Eigenpal's formatting toolbar or document content. File-size labels, language and available actions can shift the exact fit threshold. A future fix should make this app-owned row wrap according to its contents, and should leave the editor toolbar alone. No such fix is included here.
+
 ## Editor documentation checked
 
 The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.

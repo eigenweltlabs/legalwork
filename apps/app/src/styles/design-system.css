@@ -200,6 +200,12 @@
   height: var(--lw-window-bar-height);
   background: var(--lw-window-chrome);
 }
+/* Expanded documents cover the workspace but leave the macOS drag strip and
+   native window buttons above it. Hide the covered panes' header controls
+   without unmounting their portals or losing chat/file-browser state. */
+.lw-workspace-shell:has([data-document-workspace-expanded="true"], [data-artifact-expanded="true"]) > .lw-window-topbar > * {
+  visibility: hidden;
+}
 /* Header widths follow their resizable panes. The short separators stay above
    the continuous workspace arch; panel controls add no surface or border over it. */
 .lw-window-panel-header {
