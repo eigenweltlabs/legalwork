@@ -2524,6 +2524,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
       <ProviderAuthModal
         open={providerAuthSnapshot.providerAuthModalOpen}
+        allowChatGptSubscription={Boolean(
+          eigenweltAccount?.connected && hasEigenweltFeature(eigenweltAccount.entitlements, "org_management"),
+        )}
         loading={false}
         submitting={providerAuthSnapshot.providerAuthBusy}
         error={providerAuthSnapshot.providerAuthError}
