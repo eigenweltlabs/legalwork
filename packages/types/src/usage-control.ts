@@ -52,6 +52,7 @@ export type MemberPlanQuote = {
   amountCents: number;
   recurringAmountCents: number;
   billingInterval: "month" | "year";
+  paymentMethodRequired?: boolean;
 };
 export type UsageControlView = {
   invitations?: {

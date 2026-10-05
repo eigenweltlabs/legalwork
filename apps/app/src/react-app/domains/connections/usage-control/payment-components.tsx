@@ -416,7 +416,7 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
     );
   return (
     <form
-      className="space-y-5"
+      className="min-w-0 space-y-5"
       onSubmit={(event) => {
         event.preventDefault();
         if (!details || busy || submitted) return;
@@ -498,7 +498,7 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
       <Button
         type="submit"
         disabled={busy || submitted || !details}
-        className="w-full"
+        className="h-auto min-h-9 w-full whitespace-normal py-2"
       >
         <CreditCard />
         {!details || details.card
@@ -511,7 +511,7 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
         <Button
           type="button"
           variant="ghost"
-          className="w-full"
+          className="h-auto min-h-9 w-full whitespace-normal py-2"
           disabled={busy}
           onClick={() => {
             const raw = value.trim().replace(",", ".");

@@ -15,7 +15,9 @@
 
 const de = {
   "limits.member_change_error": "Die Änderung konnte nicht abgeschlossen werden. Versuchen Sie es ohne doppelte Zahlung erneut. Prüfen Sie bei abgelehnter Zahlung oder Preisänderung den Preis erneut.",
+  "limits.add_card": "Zahlungsmittel hinzufügen",
   "limits.quote_hint": "Der heutige Betrag berücksichtigt die anteilige Änderung. Der wiederkehrende Gesamtpreis versteht sich vor Steuern und Rabatten. Ihr Abrechnungstag bleibt unverändert.",
+  "limits.member_card_required": "Fügen Sie zuerst ein Zahlungsmittel in Stripe hinzu. Prüfen und bestätigen Sie danach den Preis erneut. Es wird noch nichts berechnet.",
   "limits.organization_total": "Neuer Gesamtpreis",
   "limits.due_today": "Heute fällig",
   "limits.confirm_change": "Änderung bestätigen",
@@ -30,7 +32,7 @@ const de = {
     "limits.no_card_checkout": "Laden Sie Guthaben über Stripe Checkout auf. Unter Zahlungsmethode können Sie eine Karte für künftige Aufladungen speichern.",
     "limits.confirm_topup": "Bezahlen und Guthaben aufladen",
     "limits.continue_checkout": "Weiter zur Zahlung",
-    "limits.other_payment": "Andere Zahlungsmethode verwenden",
+    "limits.other_payment": "Andere Zahlungsmethode oder Aktionscode verwenden",
     "limits.invalid_topup": "Geben Sie einen Betrag zwischen 20 € und 50.000 € mit höchstens zwei Nachkommastellen ein.",
     "limits.pending_topup_hint": "Eine frühere Aufladung ist noch offen. Prüfen Sie zuerst deren Zahlungsstatus.",
     "limits.resume_topup": "Aufladung fortsetzen",

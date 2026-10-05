@@ -39,6 +39,7 @@ type FakePlatform = {
   desktopModelsAuth: Array<string | undefined>;
   close: () => Promise<void>;
   failModels: boolean;
+  exchangeDelayMs?: number;
   preferredAiProvider?: string;
 };
 
@@ -66,7 +67,8 @@ async function startFakePlatform(): Promise<FakePlatform> {
       req.on("data", (chunk) => {
         body += chunk;
       });
-      req.on("end", () => {
+      req.on("end", async () => {
+        if (platform.exchangeDelayMs) await new Promise(resolve => setTimeout(resolve, platform.exchangeDelayMs));
         exchangeCalls.push(JSON.parse(body) as Record<string, unknown>);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ...EXCHANGE_PAYLOAD, ...(platform.preferredAiProvider ? { preferredAiProvider: platform.preferredAiProvider } : {}) }));
@@ -476,4 +478,16 @@ describe("refreshEigenweltProviderModels", () => {
     const refreshed = await refreshEigenweltProviderModels(config, "ws_refresh_3");
     expect(refreshed).toBe(false);
   });
+});
+
+test("duplicate loopback callbacks exchange the single-use code once and both show success", async () => {
+  const platform = await setupPlatform();
+  platform.exchangeDelayMs = 50;
+  const started = await startEigenweltSignIn();
+  const url = new URL(started.authorizeUrl);
+  const callback = `http://127.0.0.1:${url.searchParams.get("port")}/callback?code=same-code&state=${url.searchParams.get("state")}`;
+  const responses = await Promise.all([fetch(callback), fetch(callback)]);
+  for (const response of responses) expect(await response.text()).toContain("You're connected");
+  expect(await waitForEigenweltSignIn(started.sessionId)).toEqual(EXCHANGE_PAYLOAD);
+  expect(platform.exchangeCalls).toHaveLength(1);
 });

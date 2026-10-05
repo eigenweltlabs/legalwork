@@ -288,6 +288,7 @@ const fixtureClient: LegalworkServerClient = {
     }
     if (action.action === "memberChange" && action.preview) return {
       quoteId: "visual-quote", amountCents: 1500, recurringAmountCents: 12800, billingInterval: "month",
+      paymentMethodRequired: previewParams.has("no-card"),
     };
     if (action.action === "memberChange" && !action.preview && upgradePreview && action.target.kind === "plan" && action.target.plan !== "none") {
       const used = limitFixture.usage.me.allowanceCents - limitFixture.usage.me.remainingCents;
