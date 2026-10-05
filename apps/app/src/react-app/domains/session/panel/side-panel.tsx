@@ -262,6 +262,9 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
     <PanelTabItem
       value={tab.id}
       id={tab.id}
+      // Pane resizing must move the strip and its tabs together, without
+      // Reorder.Item springing back from their previous screen positions.
+      transition={{ layout: { duration: 0 } }}
       dragControls={tab.type === "browser" ? dragControls : undefined}
       onContextMenu={tab.type === "browser" ? (event: React.MouseEvent<HTMLDivElement>) => {
         event.preventDefault();

@@ -583,7 +583,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         meta={<>
           {target.exists === false ? "missing" : target.size !== undefined ? formatFileSize(target.size) : null}
           {isEditableDocument && documentSnapshot ? (
-            <span className="ms-2 inline-grid text-end" role="status">
+            <span className="ms-2 inline-grid whitespace-nowrap text-end" role="status">
               <span aria-hidden className="invisible col-start-1 row-start-1">{t("common.unsaved_changes")}</span>
               <span className="col-start-1 row-start-1">{documentSaving || isSaving ? t("common.saving") : autosaveError ? t("artifact.autosave_paused") : documentDirty ? t("common.unsaved_changes") : t("common.saved")}</span>
             </span>
@@ -621,7 +621,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
                 {!saveActions && <Tooltip>
                   <TooltipTrigger
                     render={(
-                      <Button variant="default" size="sm" onClick={() => void save()} disabled={isSaving || draft === data.data}>{isSaving ? "Saving" : "Save"}</Button>
+                      <Button variant="default" size="sm" onClick={() => void save()} disabled={isSaving || draft === data.data} aria-busy={isSaving} className={isSaving ? "disabled:opacity-100" : undefined}>{t("common.save")}</Button>
                     )}
                   />
                   <TooltipContent>{t("artifact.save_changes")}</TooltipContent>
@@ -642,8 +642,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
             <Tooltip>
               <TooltipTrigger
                 render={(
-                  <Button variant="default" size="sm" onClick={() => void saveDocument()} disabled={documentSaving || isSaving || !documentSnapshot}>
-                    {documentSaving || isSaving ? "Saving" : "Save"}
+                  <Button variant="default" size="sm" onClick={() => void saveDocument()} disabled={documentSaving || isSaving || !documentSnapshot} aria-busy={documentSaving || isSaving} className={documentSaving || isSaving ? "disabled:opacity-100" : undefined}>
+                    {t("common.save")}
                   </Button>
                 )}
               />

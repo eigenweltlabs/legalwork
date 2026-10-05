@@ -92,6 +92,18 @@ Validation: **791 app tests passed**, app typecheck/build and whitespace checks 
 
 ![Save controls and per-file editing ownership after the lifecycle fix](./document-workspace-lifecycle.png)
 
+## Tab and save-control stability — 5 October
+
+Document tab positions no longer use the shared spring during pane resizing. The override is scoped to the viewer's tabs; native file dragging and browser-tab drag controls remain unchanged. Before the fix, a divider step left the tab with a temporary 30.7px translation. Afterward, immediate measurements in both resize directions and in the expanded workspace returned no translation.
+
+The original-file Save caption stays constant while saving; the adjacent status reports progress and the disabled button exposes `aria-busy`. Busy saves no longer dim the button. Status text stays on one line. Previously, Save grew from 58.16px to 70.52px when its label became Saving, potentially changing flex wrapping. Held real-server saves now preserve the header, icon, Autosave and Save bounding boxes at 489px and 380px pane widths. An actual DOCX edit with Autosave enabled also preserved those boxes through saved → saving → saved at 435px. The button remained disabled while the write was held. These are synthetic fixtures; no user document was edited.
+
+Validation: app typecheck and production UI build passed (existing build warnings); **23 focused tests passed** across `document-autosave`, `document-ownership`, `docx-document-state`, `document-layout` and `document-split-drop`. No save cadence, ownership, document-selection rendering or editor-library change.
+
+Maximized-header analysis only: both the workspace overlay and the existing individual-artifact overlay use `mac:top-11`, leaving the macOS title strip visible. The session header independently renders chat and Project Files headings and does not consume expansion state. Recommended follow-up: hide those content-specific header elements and their interactions while expanded, retaining native window controls and a drag region; restore them on exit without unmounting chat/files. That behavior is not changed here.
+
+![Stable tab and save controls during a held synthetic DOCX save](./document-workspace-stable-chrome.png)
+
 ## Editor documentation checked
 
 The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.
