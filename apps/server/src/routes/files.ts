@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -6,6 +7,7 @@ import { recordAudit } from "../audit.js";
 import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
+import { canonicalFilePath, withFileWriteLock } from "../file-write-lock.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { mergeableText, mergeText } from "../text-merge.js";
@@ -1114,6 +1116,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       ok: true,
       path: relativePath,
       exists: true,
+      fileId: createHash("sha256").update(await canonicalFilePath(absPath)).digest("hex"),
       kind: info.isFile() ? "file" : info.isDirectory() ? "dir" : "other",
       size: info.size,
       updatedAt: info.mtimeMs,
@@ -1232,15 +1235,6 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
-    const before = (await exists(absPath)) ? await stat(absPath) : null;
-    if (before && !before.isFile()) {
-      throw new ApiError(400, "invalid_path", "Path must point to a file");
-    }
-    const beforeUpdatedAt = before ? before.mtimeMs : null;
-    if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      throw new ApiError(409, "conflict", "File changed since it was loaded", { baseUpdatedAt, currentUpdatedAt: beforeUpdatedAt });
-    }
-
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1248,23 +1242,34 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [absPath],
     });
 
-    await ensureDir(dirname(absPath));
-    const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, bytes);
-    await rename(tmp, absPath);
-    const after = await stat(absPath);
-    const revision = fileRevision(after);
-    recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "workspace.file.write",
-      target: absPath,
-      summary: `Wrote ${relativePath}`,
-      timestamp: Date.now(),
+    return withFileWriteLock(absPath, async () => {
+      const before = (await exists(absPath)) ? await stat(absPath) : null;
+      if (before && !before.isFile()) {
+        throw new ApiError(400, "invalid_path", "Path must point to a file");
+      }
+      const beforeUpdatedAt = before ? before.mtimeMs : null;
+      if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
+        throw new ApiError(409, "conflict", "File changed since it was loaded", { baseUpdatedAt, currentUpdatedAt: beforeUpdatedAt });
+      }
+
+      await ensureDir(dirname(absPath));
+      const tmp = `${absPath}.tmp-${shortId()}`;
+      await writeFile(tmp, bytes);
+      await rename(tmp, absPath);
+      const after = await stat(absPath);
+      const revision = fileRevision(after);
+      recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "remote" },
+        action: "workspace.file.write",
+        target: absPath,
+        summary: `Wrote ${relativePath}`,
+        timestamp: Date.now(),
+      });
+      return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
     });
-    return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
   });
 
   addRoute(routes, "POST", "/workspace/:id/files/content", "client", async (ctx) => {
@@ -1299,28 +1304,6 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
 
-    const before = (await exists(absPath)) ? await stat(absPath) : null;
-    if (before && !before.isFile()) {
-      throw new ApiError(400, "invalid_path", "Path must point to a file");
-    }
-    const beforeUpdatedAt = before ? before.mtimeMs : null;
-    let written = content;
-    let merged = false;
-    if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
-      const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
-      if (combined === null) {
-        throw new ApiError(409, "conflict", "File changed since it was loaded", {
-          baseUpdatedAt,
-          currentUpdatedAt: beforeUpdatedAt,
-          // Changed in the same place: the editor asks which version to keep.
-          ...(current === null ? {} : { reason: "overlap", current: { content: current, updatedAt: beforeUpdatedAt } }),
-        });
-      }
-      written = combined;
-      merged = combined !== content;
-    }
-
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1328,36 +1311,60 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [absPath],
     });
 
-    await ensureDir(dirname(absPath));
-    const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, written, "utf8");
-    await rename(tmp, absPath);
-    const after = await stat(absPath);
-    const revision = fileRevision(after);
+    return withFileWriteLock(absPath, async () => {
+      const before = (await exists(absPath)) ? await stat(absPath) : null;
+      if (before && !before.isFile()) {
+        throw new ApiError(400, "invalid_path", "Path must point to a file");
+      }
+      const beforeUpdatedAt = before ? before.mtimeMs : null;
+      let written = content;
+      let merged = false;
+      if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
+        const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
+        const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
+        if (combined === null) {
+          throw new ApiError(409, "conflict", "File changed since it was loaded", {
+            baseUpdatedAt,
+            currentUpdatedAt: beforeUpdatedAt,
+            // Changed in the same place: the editor asks which version to keep.
+            ...(current === null ? {} : { reason: "overlap", current: { content: current, updatedAt: beforeUpdatedAt } }),
+          });
+        }
+        written = combined;
+        merged = combined !== content;
+      }
 
-    recordWorkspaceFileEvent(workspace.id, {
-      type: "write",
-      path: relativePath,
-      revision,
-    });
+      await ensureDir(dirname(absPath));
+      const tmp = `${absPath}.tmp-${shortId()}`;
+      await writeFile(tmp, written, "utf8");
+      await rename(tmp, absPath);
+      const after = await stat(absPath);
+      const revision = fileRevision(after);
 
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "workspace.file.write",
-      target: absPath,
-      summary: `Wrote ${relativePath}`,
-      timestamp: Date.now(),
-    });
+      recordWorkspaceFileEvent(workspace.id, {
+        type: "write",
+        path: relativePath,
+        revision,
+      });
 
-    return jsonResponse({
-      ok: true,
-      path: relativePath,
-      bytes: Buffer.byteLength(written, "utf8"),
-      updatedAt: after.mtimeMs,
-      revision,
-      ...(merged ? { merged: true, content: written } : {}),
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "remote" },
+        action: "workspace.file.write",
+        target: absPath,
+        summary: `Wrote ${relativePath}`,
+        timestamp: Date.now(),
+      });
+
+      return jsonResponse({
+        ok: true,
+        path: relativePath,
+        bytes: Buffer.byteLength(written, "utf8"),
+        updatedAt: after.mtimeMs,
+        revision,
+        ...(merged ? { merged: true, content: written } : {}),
+      });
     });
   });
 }

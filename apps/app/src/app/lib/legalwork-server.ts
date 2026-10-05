@@ -907,6 +907,8 @@ export type LegalworkWorkspaceFileStat = {
   ok: boolean;
   path: string;
   exists: boolean;
+  /** Stable across workspace aliases and atomic file replacements. */
+  fileId?: string;
   kind?: "file" | "dir" | "other";
   size?: number;
   updatedAt?: number;
