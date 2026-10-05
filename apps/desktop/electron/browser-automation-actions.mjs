@@ -35,11 +35,17 @@ function readControls() {
     return parts.join(" > ");
   }
   return Array.from(document.querySelectorAll('input,textarea,select,button,a,[role="button"],[role="checkbox"]'))
-    .filter((element) => element.getClientRects().length).slice(0, 200).map((element) => ({
-      selector: selectorFor(element), tag: element.tagName.toLowerCase(),
-      name: element.getAttribute("aria-label") || element.labels?.[0]?.innerText || element.innerText?.slice(0, 160) || "",
-      type: element.getAttribute("type"),
-    }));
+    .filter((element) => element.getClientRects().length).slice(0, 200).map((element) => {
+      const label = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        || element instanceof HTMLSelectElement || element instanceof HTMLButtonElement
+        ? element.labels?.[0]?.innerText : "";
+      const text = element instanceof HTMLElement ? element.innerText.slice(0, 160) : "";
+      return {
+        selector: selectorFor(element), tag: element.tagName.toLowerCase(),
+        name: element.getAttribute("aria-label") || label || text || "",
+        type: element.getAttribute("type"),
+      };
+    });
 }
 
 async function evaluate(send, expression) {

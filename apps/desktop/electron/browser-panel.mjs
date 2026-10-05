@@ -19,7 +19,7 @@ const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 
-export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppNavigation, safeOpen }) {
+export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory }) {
   const browserTabs = new Map();
   const automationBroker = createBrowserAutomationBroker();
   app.once("will-quit", () => { void automationBroker.close(); });
