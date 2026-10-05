@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { documentIdentityKey } from "./document-identity";
 export type DocxRecovery = {
   key: string;
   buffer: ArrayBuffer;
@@ -22,12 +23,12 @@ function database(): Promise<IDBDatabase> {
   });
 }
 
-function operation<T>(run: (store: IDBObjectStore) => IDBRequest<T>, storeName = "drafts"): Promise<T> {
+function operation<T>(run: (store: IDBObjectStore, transaction: IDBTransaction) => IDBRequest<T>, storeName = "drafts", additionalStores: string[] = []): Promise<T> {
   const next = queue.catch(() => undefined).then(async () => {
     const db = await database();
     return new Promise<T>((resolve, reject) => {
-      const transaction = db.transaction(storeName, "readwrite");
-      const request = run(transaction.objectStore(storeName));
+      const transaction = db.transaction([storeName, ...additionalStores], "readwrite");
+      const request = run(transaction.objectStore(storeName), transaction);
       transaction.oncomplete = () => { db.close(); resolve(request.result); };
       transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error(t("artifact.draft_recovery_failed"))); };
       transaction.onerror = () => { /* onabort handles the failure. */ };
@@ -37,12 +38,61 @@ function operation<T>(run: (store: IDBObjectStore) => IDBRequest<T>, storeName =
   return next;
 }
 
-export async function readDocxRecovery(key: string): Promise<DocxRecovery | null> {
-  const value: unknown = await operation((store) => store.get(key));
+export function matchesDocxRecoveryKey(candidate: string, key: string, legacyKey?: string) {
+  if (candidate === key || candidate === legacyKey) return true;
+  try {
+    const parsed: unknown = JSON.parse(candidate);
+    if (!Array.isArray(parsed) || parsed.length !== 2 || typeof parsed[0] !== "string" || typeof parsed[1] !== "string") return false;
+    const url = new URL(parsed[0]);
+    // Only local workspaces could create DOCX checkpoints under the old scheme.
+    // Never infer a remote worker's identity from a loopback forwarding address.
+    return ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) && url.pathname === "/" && documentIdentityKey(parsed[0], parsed[1], true) === key;
+  } catch { return false; }
+}
+
+function recoveryFromRecord(value: unknown): DocxRecovery | null {
   if (!value || typeof value !== "object" || !("buffer" in value) || !(value.buffer instanceof ArrayBuffer) ||
-      !("key" in value) || value.key !== key || !("savedAt" in value) || typeof value.savedAt !== "number" ||
+      !("key" in value) || typeof value.key !== "string" || !("savedAt" in value) || typeof value.savedAt !== "number" ||
       !("baseUpdatedAt" in value) || (value.baseUpdatedAt !== null && typeof value.baseUpdatedAt !== "number")) return null;
-  return { key, buffer: value.buffer, savedAt: value.savedAt, baseUpdatedAt: value.baseUpdatedAt };
+  return { key: value.key, buffer: value.buffer, savedAt: value.savedAt, baseUpdatedAt: value.baseUpdatedAt };
+}
+
+export async function readDocxRecovery(key: string, legacyKey?: string): Promise<DocxRecovery | null> {
+  let recovered: DocxRecovery | null = null;
+  // Migrate atomically, including checkpoints from earlier local API ports.
+  // Delete migrated aliases so a later save/discard cannot resurrect them.
+  await operation((store, transaction) => {
+    const keys = store.getAllKeys();
+    keys.onsuccess = () => {
+      const matching = keys.result.filter((candidate): candidate is string => typeof candidate === "string" && matchesDocxRecoveryKey(candidate, key, legacyKey));
+      let remaining = matching.length;
+      const drafts: DocxRecovery[] = [];
+      for (const candidate of matching) {
+        const request = store.get(candidate);
+        request.onsuccess = () => {
+          const draft = recoveryFromRecord(request.result);
+          if (draft) drafts.push(draft);
+          if (--remaining || !drafts.length) return;
+          drafts.sort((a, b) => b.savedAt - a.savedAt);
+          recovered = { ...drafts[0], key };
+          if (drafts.every(item => item.key === key)) return;
+          store.put(recovered);
+          for (const item of drafts) if (item.key !== key) store.delete(item.key);
+          // Retain superseded checkpoints in the existing bounded local history.
+          if (drafts.length > 1) {
+            const versions = transaction.objectStore("versions");
+            const history = versions.get(key);
+            history.onsuccess = () => versions.put({ key, versions: [
+              ...drafts.slice(1).map(item => ({ savedAt: item.savedAt, buffer: item.buffer })),
+              ...versionsFromRecord(history.result),
+            ].sort((a, b) => b.savedAt - a.savedAt).slice(0, 5) });
+          }
+        };
+      }
+    };
+    return keys;
+  }, "drafts", ["versions"]);
+  return recovered;
 }
 
 export async function writeDocxRecovery(draft: DocxRecovery) {

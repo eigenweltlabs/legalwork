@@ -66,6 +66,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   });
   const access = useDocumentOwnership({
     enabled: !sourceReadOnly && target.kind === "file",
+    isLocalWorkspace: !isRemoteWorkspace,
     client, workspaceId, path: target.value,
     refresh: async () => {
       const loaded = await query.refetch();

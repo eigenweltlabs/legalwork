@@ -1,6 +1,6 @@
 # Document workspace and original-file autosave
 
-Local branch: `feat/side-by-side-documents`, based on `dev` at `f64d51b9`. Nothing has been pushed or published.
+Local branch: `feat/side-by-side-documents`, originally based on `dev` at `f64d51b9`, now merged with `origin/dev` at `b8845a43` (5 October). Nothing has been pushed or published.
 
 ## Behavior
 
@@ -130,6 +130,27 @@ Verified in the running detached Electron document chat with Project Files open:
 The user confirmed actual drag-and-drop works well. This is user acceptance evidence in addition to the earlier synthetic event/geometry tests; connected Memory Drive publication remains a separate unverified integration.
 
 **Toolbar analysis only; no toolbar change:** `PanelHeader` wraps document actions below 400px, then forces one row from 400px upward. In the English synthetic DOCX view, 380/399px panes had an 82px-high header and no clipped controls; at 400px, the externally-open/close/expand buttons exceeded the right edge; at 435px, close and expand did; at 480px, expand exceeded it by 6.42px; at 489px all fit. This concerns LegalWork's Save/Autosave/file-action row, not Eigenpal's formatting toolbar or document content. File-size labels, language and available actions can shift the exact fit threshold. A future fix should make this app-owned row wrap according to its contents, and should leave the editor toolbar alone. No such fix is included here.
+
+## Adversarial review corrections and upstream integration — 5 October
+
+An Astra review of the complete branch found two draft-safety defects. A clean plain-text editor in Edit mode could remain writable after handing off its ownership, while its Save controls disappeared. Handoff now exits Edit mode even without a write; the source editor also receives an explicit read-only flag and rejects changes when it does not own editing.
+
+DOCX checkpoints formerly included the API URL in their key, so an embedded-server port change could make a retained draft unreachable. Local workspace ownership and recovery now share the canonical file identity independently of transport ports. Local versus remote comes explicitly from workspace routing, not a hostname guess; remote endpoints, including loopback tunnels, retain separate namespaces. This also prevents two local URL aliases from holding independent locks over the same recovery record.
+
+Recovery migrates prior loopback URL keys and the former workspace/path key in one IndexedDB transaction. It chooses the newest valid checkpoint, retains its conflict baseline, removes migrated aliases to prevent resurrection after Save/Discard, and retains superseded checkpoints in the existing bounded local history. It does not modify the original document or enable autosave. A targeted Astra follow-up found no remaining actionable issue in this revision.
+
+The six new upstream commits add project calendars/deadline calculations, personalization, model-catalogue fixes, and Sync/provider/usage changes. They do not change the document pane or artifact directories or introduce a competing document split-screen implementation. `git pull --no-rebase --no-commit origin dev` required only additive English/German translation conflict resolution; both sets of keys were retained. Dependencies were installed with the frozen upstream lockfile. The pre-pull branch is retained as `backup/side-by-side-before-upstream-20261005`.
+
+Validation of the combined result:
+
+- **880 app tests passed**, 131 files; app and server typechecks, production UI build and the **5,451-key English/German audit** passed. Existing build chunk-size warnings remain.
+- **8 artifact API integration tests passed** against isolated temporary state. The initial run had a socket `ECONNRESET` during concurrent writes; the full repeat passed unchanged with 202 assertions. This is recorded rather than hidden as a clean first-run result.
+- Real browser views and CodeMirror: enter Edit on unchanged `Plain.txt`, hand off, confirm the former editor is gone; edit/save in the new owner and observe the former owner's read-only refresh. A second handoff saved and transferred an unsaved text draft.
+- Real IndexedDB: old-port recovery preserved exact bytes and baseline; superseded checkpoints moved to history; unrelated-server draft remained intact; reloading the stable key worked; removal did not resurrect old aliases; an existing newer checkpoint won.
+- Separate browser views using `127.0.0.1:5175` and `localhost:5175` shared one writer; Edit here transferred it and demoted the former owner.
+- The merged Electron app started and restored the existing document layout. Client documents were not edited. No new connected-storage publication or renderer-crash simulation is claimed.
+
+The development harness offers **Open plain text**, **Check recovery migration**, and the `?detached=1&localAlias=1` URL for the alias check. Its IndexedDB checks use unique disposable identities and clean them afterward. The known narrow action-row clipping remains intentionally deferred.
 
 ## Editor documentation checked
 

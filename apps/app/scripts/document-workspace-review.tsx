@@ -14,12 +14,14 @@ import { type DocumentDropEdge } from "../src/react-app/domains/session/panel/do
 import { LegalworkControlProvider, useLegalworkControl } from "../src/react-app/shell/control/control-provider";
 import { Toaster } from "../src/components/ui/sonner";
 import { initLocale } from "../src/i18n";
+import { checkDocumentRecovery } from "./document-recovery-review";
 import "../src/app/index.css";
 
 initLocale();
 const sessionId = "document-workspace-validation";
 const workspaceId = "document-validation";
-const server = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:5175", token: "document-validation-client" });
+const baseUrl = new URLSearchParams(window.location.search).has("localAlias") ? "http://localhost:5175" : "http://127.0.0.1:5175";
+const server = createLegalworkServerClient({ baseUrl, token: "document-validation-client" });
 const open = (name: string) => usePanelTabStore.getState().openTab(sessionId, { id: `file:${name}`, type: "artifact", label: name, value: name, preview: classifyOpenTarget(name, "file") });
 // Test native event routing through a portaled editor without depending on OS
 // pointer automation. These controls are not evidence of a native mouse gesture.
@@ -126,6 +128,12 @@ function Harness() {
       <button onClick={() => open("Precedent.docx")}>Open precedent</button>
       <button onClick={() => open("Reference.pdf")}>Open PDF</button>
       <button onClick={() => open("Notes.md")}>Open note</button>
+      <button onClick={() => open("Plain.txt")}>Open plain text</button>
+      <button onClick={() => void checkDocumentRecovery().then(setContents).catch(error => setContents(`FAILED: ${error}`))}>Check recovery migration</button>
+      <label><input type="checkbox" onChange={event => {
+        document.documentElement.classList.toggle("legalwork-electron", event.target.checked);
+        document.documentElement.classList.toggle("legalwork-platform-mac", event.target.checked);
+      }} /> Preview macOS title strip</label>
       <button onClick={async () => {
         const reports = await Promise.all(["Agreement.docx", "Precedent.docx"].map(async (path) => {
           const file = await server.downloadWorkspaceFile(workspaceId, path);

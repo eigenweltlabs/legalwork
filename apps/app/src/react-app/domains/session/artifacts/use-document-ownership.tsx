@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { createDocumentOwnership, type DocumentAccess } from "./document-ownership";
+import { documentIdentityKey } from "./document-identity";
 
 type Options = {
   enabled: boolean;
   client: LegalworkServerClient;
   workspaceId: string;
   path: string;
+  isLocalWorkspace: boolean;
   refresh: () => Promise<void>;
   flush: () => Promise<boolean>;
   drain: () => Promise<void>;
@@ -28,7 +30,7 @@ export function useDocumentOwnership(options: Options) {
     enabled: options.enabled,
     staleTime: Infinity,
   });
-  const key = identity.data?.fileId ? JSON.stringify([options.client.baseUrl, identity.data.fileId]) : null;
+  const key = identity.data?.fileId ? documentIdentityKey(options.client.baseUrl, identity.data.fileId, options.isLocalWorkspace) : null;
 
   useEffect(() => {
     if (!options.enabled || !key) return;

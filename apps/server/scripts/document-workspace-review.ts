@@ -11,6 +11,7 @@ for (const key of ["LEGALWORK_STORAGE_STORE", "LEGALWORK_TOKEN_STORE", "LEGALWOR
 for (const name of ["Agreement.docx", "Precedent.docx"])
   await copyFile(resolve("apps/app/scripts/fixtures/legal-review.docx"), join(root, name));
 await writeFile(join(root, "Notes.md"), "# Handoff note\n\nThis is a synthetic note.\n");
+await writeFile(join(root, "Plain.txt"), "Synthetic plain text for ownership handoff.\n");
 for (const name of ["Clauses", "Timeline", "Checklist"]) await writeFile(join(root, `${name}.md`), `# ${name}\n\nSynthetic document for split workspace validation.\n`);
 const pdf = await PDFDocument.create();
 for (let page = 1; page <= 3; page++) {

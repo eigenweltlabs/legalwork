@@ -265,6 +265,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   const access = useDocumentOwnership({
     enabled: isEditableDocument || (writableFile && isTextContent(target)),
+    isLocalWorkspace: !isRemoteWorkspace,
     client, workspaceId, path: target.value,
     refresh: async () => {
       const loaded = await refetch();
@@ -284,8 +285,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       if (isTextSheet && !editing) return await sheetApi.current?.save() ?? false;
       if (data?.kind === "text" && draft !== data.data) {
         await mutateAsync({ kind: "text", data: draft, baseUpdatedAt: data.updatedAt });
-        setEditing(false);
       }
+      setEditing(false);
       return true;
     },
     drain: async () => {
@@ -711,7 +712,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : t("artifact.load_failed") } />
         ) : data?.kind === "text" && (editing || isDirectTextEdit) ? (
-          <TextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} onChange={setDraft} />
+          <TextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} readOnly={localReadOnly || !access.editable} onChange={value => { if (!localReadOnly && access.editable) setDraft(value); }} />
         ) : target.preview === "markdown" && data?.kind === "text" ? (
           <MarkdownPreview content={data.data} />
         ) : isOfficeEditor && documentSnapshot ? (

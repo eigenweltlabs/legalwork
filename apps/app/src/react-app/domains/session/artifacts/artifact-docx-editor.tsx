@@ -142,16 +142,7 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
     if (!props.recoveryKey || props.readOnly) { setChecked(true); return; }
     let active = true;
     const key = props.recoveryKey;
-    void (async () => {
-      const current = await readDocxRecovery(key);
-      if (current || !props.legacyRecoveryKey) return current;
-      const legacy = await readDocxRecovery(props.legacyRecoveryKey);
-      if (!legacy || !active) return null;
-      const migrated = { ...legacy, key };
-      await writeDocxRecovery(migrated);
-      await removeDocxRecovery(legacy.key);
-      return migrated;
-    })().then((draft) => {
+    void readDocxRecovery(key, props.legacyRecoveryKey).then((draft) => {
       if (active) { setRecovery(draft); setChecked(true); }
     }).catch(() => {
       if (active) { setChecked(true); toast.error(t("docx.recovery_unavailable")); }
