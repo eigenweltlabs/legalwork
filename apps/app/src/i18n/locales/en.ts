@@ -4,10 +4,14 @@
  */
 
 export default {
+    "limits.member_payment_hint": "Finish the payment in Stripe. The plan changes automatically after payment is confirmed.",
+    "limits.member_payment_check_error": "We could not confirm the payment yet. Check its status to continue the same purchase without paying twice.",
+    "limits.member_payment_canceled_hint": "No plan change was made. You can review the price again when you are ready.",
+  "limits.cancel_member_payment": "Cancel upgrade",
   "limits.member_change_error": "We could not complete the change. Retry to finish without paying twice. If payment was declined or the price changed, review the price again.",
   "limits.add_card": "Add payment method",
   "limits.quote_hint": "Includes the prorated change today. The recurring total is before taxes and discounts. Your billing date stays the same.",
-  "limits.member_card_required": "Add a payment method in Stripe first. Then review and confirm the price again. Nothing is charged during card setup.",
+  "limits.member_card_required": "Confirm and pay for this change in Stripe. Your payment method will be saved for future billing.",
   "limits.organization_total": "New organization total",
   "limits.due_today": "Due today",
   "limits.confirm_change": "Confirm change",

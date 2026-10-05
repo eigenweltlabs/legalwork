@@ -14,10 +14,14 @@
  */
 
 const de = {
+    "limits.member_payment_hint": "Schließen Sie die Zahlung bei Stripe ab. Der Plan ändert sich automatisch nach der Zahlungsbestätigung.",
+    "limits.member_payment_check_error": "Die Zahlung konnte noch nicht bestätigt werden. Prüfen Sie den Status, um denselben Kauf ohne doppelte Zahlung fortzusetzen.",
+    "limits.member_payment_canceled_hint": "Der Plan wurde nicht geändert. Sie können den Preis erneut prüfen, wenn Sie bereit sind.",
+  "limits.cancel_member_payment": "Upgrade abbrechen",
   "limits.member_change_error": "Die Änderung konnte nicht abgeschlossen werden. Versuchen Sie es ohne doppelte Zahlung erneut. Prüfen Sie bei abgelehnter Zahlung oder Preisänderung den Preis erneut.",
   "limits.add_card": "Zahlungsmittel hinzufügen",
   "limits.quote_hint": "Der heutige Betrag berücksichtigt die anteilige Änderung. Der wiederkehrende Gesamtpreis versteht sich vor Steuern und Rabatten. Ihr Abrechnungstag bleibt unverändert.",
-  "limits.member_card_required": "Fügen Sie zuerst ein Zahlungsmittel in Stripe hinzu. Prüfen und bestätigen Sie danach den Preis erneut. Es wird noch nichts berechnet.",
+  "limits.member_card_required": "Bestätigen und bezahlen Sie diese Änderung bei Stripe. Ihre Zahlungsmethode wird für künftige Zahlungen gespeichert.",
   "limits.organization_total": "Neuer Gesamtpreis",
   "limits.due_today": "Heute fällig",
   "limits.confirm_change": "Änderung bestätigen",

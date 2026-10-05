@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { useDesktopUsageTransport } from "./desktop-transport";
 import { CardTopUp } from "./payment-components";
-import { SeatPlanUpgrade } from "./seat-plan-upgrade";
+import { SeatPlanUpgrade, pendingSeatUpgrade } from "./seat-plan-upgrade";
 import { AdminUsageIntent } from "./admin-usage-intent";
 import { usageIntentForReason, type UsageIntent } from "./usage-intent";
 import { usageBlockMessageKey, usageBlockNeedsSettings } from "./usage-block";
@@ -302,6 +302,7 @@ export function ProviderLimitMessage({
               userId={managed.me.userId}
               initialPlan={offeredPlans[0] ?? "pro"}
               allowedPlans={offeredPlans}
+              pendingChange={pendingSeatUpgrade(managed)}
               onBusyChange={setBusy}
               onComplete={plan => {
                 setView(null);
