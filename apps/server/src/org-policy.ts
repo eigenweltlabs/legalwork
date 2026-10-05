@@ -287,7 +287,8 @@ async function syncOnce(config: ServerConfig): Promise<void> {
   // Signed out, or another firm: the previous firm's secrets go now.
   if (runtime.secrets && (afterState !== "active" || runtime.secrets.orgId !== after?.snapshot.orgId)) runtime.secrets = null;
   const scopes = changedScopes(before, runtime.lastState, after, afterState);
-  if (JSON.stringify(beforeSecrets) !== JSON.stringify(runtime.secrets)) scopes.add("engine").add("server");
+  // Only the values matter: knowing there are none (after a start) changes nothing.
+  if (JSON.stringify(beforeSecrets?.values ?? {}) !== JSON.stringify(runtime.secrets?.values ?? {})) scopes.add("engine").add("server");
   if (runtime.lastState !== null && runtime.lastState !== afterState) scopes.add("app");
   runtime.lastState = afterState;
   notify(config, scopes);

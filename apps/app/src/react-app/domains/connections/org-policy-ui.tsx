@@ -139,7 +139,6 @@ export function OrgPolicyBanner() {
  */
 export function OrgPolicyRoot() {
   useOrgPolicyListener();
-  const confirm = useOrgPolicyStore((state) => state.confirm);
   const restored = useOrgPolicyStore((state) => state.view?.restored);
   const org = useOrgName();
   const language = useOrgPolicy("language")?.value ?? null;
@@ -164,6 +163,13 @@ export function OrgPolicyRoot() {
     toast(t("org_policy.restored", { org, count: restored.count }));
   }, [restored, org]);
 
+  return <OrgPolicyConfirmDialog />;
+}
+
+/** Asks before the member takes back a setting their firm enforces (after sign-out). */
+export function OrgPolicyConfirmDialog() {
+  const confirm = useOrgPolicyStore((state) => state.confirm);
+  const org = useOrgName();
   return (
     <AlertDialog open={confirm !== null} onOpenChange={(open) => { if (!open) answerOrgPolicyConfirm(false); }}>
       <AlertDialogContent>
