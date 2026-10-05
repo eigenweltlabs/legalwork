@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
+import { ExpandedDocumentBar } from "../artifacts/expanded-document-bar";
 import { MAX_DOCUMENT_PANES, layoutLeaves, siblingPaneIds, topLayoutLeaves, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 import { documentSplitDropEdge } from "./document-split-drop";
 import {
@@ -896,6 +897,7 @@ export function SidePanel({
 
   return <TooltipProvider delay={1000}>
     <div data-viewer-drop-target data-document-layout="free" data-document-workspace-expanded={expanded} className={cn("flex h-full min-h-0 flex-col bg-background", expanded ? "fixed inset-0 z-40 mac:top-11" : "relative")}>
+      {expanded && <ExpandedDocumentBar label={t("side_panel.restore_workspace")} onRestore={() => setExpanded(false)} />}
       <input ref={fileInputRef} type="file" multiple className="hidden" aria-label={t("side_panel.open_in_viewer")} onChange={event => {
         const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
         void openFilesInViewer({ workspace: null, storage: null, memory: null, files });

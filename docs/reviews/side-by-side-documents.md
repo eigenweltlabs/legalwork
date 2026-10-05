@@ -152,6 +152,14 @@ Validation of the combined result:
 
 The development harness offers **Open plain text**, **Check recovery migration**, and the `?detached=1&localAlias=1` URL for the alias check. Its IndexedDB checks use unique disposable identities and clean them afterward. The known narrow action-row clipping remains intentionally deferred.
 
+## Visible return action in expanded documents — 5 October
+
+The macOS 44px title strip now contains a visible centered **Return to chat** button for an expanded workspace, or **Exit fullscreen** for an individually expanded document. Native window-control space and the draggable title area remain available. The button itself is not a drag region. Other platforms retain their existing edge-to-edge layout.
+
+When an individual document is expanded inside an expanded workspace, only its return action is visible; exiting reveals the workspace return action again. Browser checks confirmed the top strip at y=0, both actions working, and the original panes restored. The actual Electron app also passed expand-workspace → click the new Return to chat button → restore. The screenshot below uses only disposable synthetic documents. The combined 880-test/typecheck/build validation above includes this UI change.
+
+![Expanded workspace with a visible return action in the title strip](./document-workspace-fullscreen-return.png)
+
 ## Editor documentation checked
 
 The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.

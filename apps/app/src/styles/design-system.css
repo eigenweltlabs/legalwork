@@ -206,6 +206,10 @@
 .lw-workspace-shell:has([data-document-workspace-expanded="true"], [data-artifact-expanded="true"]) > .lw-window-topbar > * {
   visibility: hidden;
 }
+/* An expanded document inside an expanded workspace owns the return action. */
+[data-document-workspace-expanded="true"]:has([data-artifact-expanded="true"]) > [data-expanded-document-bar] {
+  visibility: hidden;
+}
 /* Header widths follow their resizable panes. The short separators stay above
    the continuous workspace arch; panel controls add no surface or border over it. */
 .lw-window-panel-header {
