@@ -313,3 +313,19 @@ describe("eigenwelt paid provider injection", () => {
     expect(Object.keys(providers.eigenwelt?.models ?? {})).toEqual(["Eigenwelt Europe"]);
   });
 });
+
+test.each([false, true])("an empty Sync manifest removes stale workspace models (BYO connected: %s)", async (byo) => {
+  const { config } = await setup();
+  await writeCachedEigenweltPaidManifest(config, { baseURL: "https://paid.gateway.test/v1", apiKey: "paid-key", models: [] });
+  await writeEigenweltConnection(config, { platformToken: "access",
+    entitlements: parseEigenweltEntitlements({ plan: "sync", features: ["premium_models"] }) ?? null });
+  await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, provider: {
+    eigenwelt: { npm: "@ai-sdk/openai-compatible", models: { "Eigenwelt Europe": { name: "Old model" } } },
+    ...(byo ? { openai: { models: { "gpt-test": { name: "My OpenAI model" } } } } : {}),
+  } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const providers = (await readConfigFile(config)).provider;
+  if (byo) expect(providers).toMatchObject({ openai: { models: { "gpt-test": { name: "My OpenAI model" } } } });
+  else expect(providers).toEqual({});
+  expect(providers).not.toHaveProperty("eigenwelt");
+});

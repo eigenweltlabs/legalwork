@@ -669,7 +669,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             variant="outline"
             size="lg"
             className="mt-6 h-10 w-full rounded-full"
-            onClick={() => void openDesktopUrl(phase.authorizeUrl)}
+            onClick={() => void signIn(phase.plan)}
           >
             {t("ai_plans.open_again")}
           </Button>

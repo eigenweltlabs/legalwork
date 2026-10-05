@@ -219,11 +219,15 @@ export async function buildLegalworkRuntimeConfigObject(
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
   ].filter((item, index, list) => list.indexOf(item) === index);
+  const storedProviders = repairRuntimeProviders(runtimeConfig.provider ?? {}).providers;
+  // An account manifest is authoritative even when empty (unfunded Sync or
+  // all models disabled). Never resurrect a stale per-workspace paid model.
+  if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];
   const providerMap = {
     // Never let a retired or unparsable stored block reach the engine: it
     // would invalidate this whole file. The startup repair also removes such
     // blocks from the DB and notifies the app.
-    ...repairRuntimeProviders(runtimeConfig.provider ?? {}).providers,
+    ...storedProviders,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
@@ -239,7 +243,7 @@ export async function buildLegalworkRuntimeConfigObject(
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
     tools: { legalwork_jev_corpus_question: jevSearchEnabled },
-    ...(Object.keys(providerMap).length ? { provider: providerMap } : {}),
+    provider: providerMap,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
       ...runtimeAgentMap(runtimeConfig),
