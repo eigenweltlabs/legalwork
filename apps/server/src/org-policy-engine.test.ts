@@ -152,7 +152,10 @@ describe("the firm's AI providers", () => {
 
   test("chat providers reach the engine with their key while signed in, and only the firm's are enabled", async () => {
     const { config } = await setup(entries, secrets);
+    // A member's disconnect does not switch the firm's provider off.
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ disabled_providers: ["org-azure", "openai"] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await readJson(legalworkRuntimeConfigFilePath(config))).disabled_providers).toEqual(["openai", "opencode"]);
     const layer = await readJson(join(orgPolicyEngineDir(config), "opencode.json"));
     expect(layer.enabled_providers).toEqual(["eigenwelt", "org-azure"]);
     expect(layer.provider).toMatchObject({

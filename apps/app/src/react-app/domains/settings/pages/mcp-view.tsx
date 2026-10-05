@@ -62,7 +62,7 @@ import {
   type McpViewLocalState,
 } from "./mcp-view-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
-import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import { orgPolicyAllows, useOrgPolicyForbids, useOrgPolicyStore } from "../../connections/org-policy";
 import { FirmItemNote, OrgPolicyNote } from "../../connections/org-policy-ui";
 
 export type ReactMcpStatus =
@@ -291,6 +291,7 @@ type ExtensionFilter = "all" | "mcp" | "skill" | "plugin";
 export function McpView(props: McpViewProps) {
   const showHeader = props.showHeader !== false;
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
+  const firmName = useOrgPolicyStore((state) => state.view?.orgName) || t("org_policy.your_firm");
   const policyDisabled = (entry: McpDirectoryInfo) => isBuiltInLegalWorkExtension(entry) && props.builtInExtensionDisabled?.(entry) === true;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
   const [setupEntry, setSetupEntry] = useState<McpDirectoryInfo | null>(null);
@@ -694,7 +695,9 @@ export function McpView(props: McpViewProps) {
         disabledReasonForEntry={(entry) =>
           policyDisabled(entry)
             ? builtInExtensionDisabledReason
-            : null
+            : connectorsForbidden && !isBuiltInLegalWorkExtension(entry) && entry.kind !== "ui-control"
+              ? t("org_policy.disallowed", { org: firmName })
+              : null
         }
         isConfigured={(entry) => {
           if (policyDisabled(entry)) return false;

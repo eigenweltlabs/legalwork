@@ -16,8 +16,8 @@ import {
   LayoutSectionTitle,
   LayoutStack,
 } from "../settings-layout";
-import { useOrgPolicyForbids } from "../../connections/org-policy";
-import { OrgPolicyNote, OrgPolicySignInHint } from "../../connections/org-policy-ui";
+import { useOrgPolicy, useOrgPolicyForbids } from "../../connections/org-policy";
+import { FirmItemNote, OrgPolicyNote, OrgPolicySignInHint } from "../../connections/org-policy-ui";
 
 type ConnectedProvider = {
   id: string;
@@ -69,6 +69,8 @@ function providerSourceLabel(source?: ConnectedProvider["source"]) {
 
 export function AiSettingsView(props: AiSettingsViewProps) {
   const providersForbidden = useOrgPolicyForbids("ai.allowCustomProviders");
+  // The firm's own providers are neither edited nor disconnected here.
+  const firmProviderIds = new Set(useOrgPolicy("ai.chat.providers")?.value.map((provider) => provider.id));
   return (
     <LayoutStack>
       {/* ---- Providers ---- */}
@@ -123,10 +125,14 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                     <SettingsStatusBadge label="Cloud" tone="neutral" className="min-h-6 px-2" />
                   ) : null}
                 </div>
-                <p className="text-xs text-dls-secondary">{providerSourceLabel(provider.source) ?? provider.id}</p>
+                {firmProviderIds.has(provider.id) ? (
+                  <FirmItemNote />
+                ) : (
+                  <p className="text-xs text-dls-secondary">{providerSourceLabel(provider.source) ?? provider.id}</p>
+                )}
               </div>
             </div>
-            {!props.cloudProviderIds?.has(provider.id) && (
+            {!props.cloudProviderIds?.has(provider.id) && !firmProviderIds.has(provider.id) && (
               (provider.source === "env" && props.onReplaceProviderKey) ||
               (provider.editableAsCustom && props.onEditProvider) || props.onRefreshProvider ||
               props.canDisconnectProvider(provider.source)

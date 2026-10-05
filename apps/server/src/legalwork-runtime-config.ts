@@ -221,8 +221,12 @@ export async function buildLegalworkRuntimeConfigObject(
   const jevSettings = config ? await readSystemOneSettings(config).catch(() => null) : null;
   const jevSearchEnabled = process.env.LEGALWORK_DISABLE_JEV_SEARCH !== "1" && !!jevSettings?.providers.some(provider => provider.status === "ready" && provider.id === jevSettings.selection.providerId
     && provider.models.some(model => model.id === jevSettings.selection.model && model.questionTypes.includes("noul") && model.questionTypes.includes("choice")));
+  // The firm's providers stay on, whatever the member disconnected.
+  const firmProviderIds = config
+    ? ((await appliedOrgPolicy(config, "ai.chat.providers"))?.value ?? []).map((provider) => provider.id)
+    : [];
   const disabledProviders = [
-    ...runtimeDisabledProviderList(runtimeConfig),
+    ...runtimeDisabledProviderList(runtimeConfig).filter((id) => !firmProviderIds.includes(id)),
     // The free tier is retired: the engine's anonymous OpenCode Zen provider
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
