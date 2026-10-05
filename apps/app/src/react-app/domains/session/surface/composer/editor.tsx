@@ -40,6 +40,7 @@ import {
   parseLegalMemoryFolderComposerMention,
   parseStorageComposerMention,
   parseReviewComposerMention,
+  parseCalendarComposerMention,
   parseTaskComposerMention,
   type ComposerMentionKind,
 } from "./mention-encoding";
@@ -108,6 +109,7 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
   app: "inline-flex items-center rounded-full border border-cyan-6/35 bg-cyan-3/20 px-2.5 py-1 text-xs font-medium text-cyan-11",
   review: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   task: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
+  calendar: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
@@ -123,6 +125,10 @@ function mentionPillText(value: string, kind: ComposerMentionKind) {
     if (storage) return `@${storage.label}`;
   }
   if (kind === "review") return `@${parseReviewComposerMention(value)?.label ?? value}`;
+  if (kind === "calendar") {
+    const label = parseCalendarComposerMention(value)?.label ?? value;
+    return `@${label.length > TASK_PILL_MAX_CHARS ? `${label.slice(0, TASK_PILL_MAX_CHARS).trimEnd()}…` : label}`;
+  }
   if (kind === "task") {
     const task = parseTaskComposerMention(value);
     if (task) {

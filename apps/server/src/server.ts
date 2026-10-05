@@ -1,3 +1,5 @@
+import { composedSkill } from "./skill-composition.js";
+import { projectSyncStore } from "./project-sync-store.js";
 import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
@@ -97,6 +99,7 @@ import { DocumentPreparation } from "./document-preparation/service.js";
 import { ReviewService } from "./reviews/service.js";
 import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
+import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 import { ReviewLibrary } from "./reviews/library.js";
@@ -1571,6 +1574,13 @@ function createRoutes(
     };
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
+    listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
+    getSession: async (workspace, id) => {
+      const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
+      return result.response?.status === 404 ? null : unwrapOpencodeResult(result, "/session");
+    },
+  });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
@@ -3551,8 +3561,13 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const parsed = projectSyncSettingsSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024));
+    const rawSettings = await readJsonBodyLimited(ctx.request, 64 * 1024);
+    const parsed = projectSyncSettingsSchema.safeParse(rawSettings);
     if (!parsed.success) throw new ApiError(400, "invalid_project_sync_settings", "Choose who sees the project and what it syncs.");
+    const originalScope = rawSettings.scope;
+    if (typeof originalScope === "object" && originalScope !== null && !("calendar" in originalScope)) {
+      parsed.data.scope.calendar = (await projectSyncStore(config)).linkByWorkspace(workspace.id)?.settings.scope.calendar !== false;
+    }
     return jsonResponse(await saveProjectSyncSettings(config, workspace, parsed.data));
   });
 
@@ -3950,6 +3965,12 @@ function createRoutes(
     return jsonResponse({ item, content });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await composedSkill(workspace.path, ctx.params.name));
+  });
+
   addRoute(routes, "POST", "/workspace/:id/skills", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -3967,7 +3988,7 @@ function createRoutes(
       summary: `Upsert skill ${name}`,
       paths: [join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")],
     });
-    const result = await upsertSkill(workspace.path, { name, content, description, scope });
+    const result = await upsertSkill(workspace.path, { name, content, description, scope, lesson: body.lesson });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,

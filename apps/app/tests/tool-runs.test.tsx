@@ -149,3 +149,11 @@ test("file discovery is browsing and Jev qualification is search, never tabular 
   expect(summary).toContain("Browsed files"); expect(summary).toContain("Searched");
   expect(summary).not.toContain("Tabular review"); expect(summary).not.toContain("Used tools");
 });
+
+test("opt-in calculation cards stay visible outside collapsed tool activity", () => {
+  const card: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_calculation_present", toolCallId: "calculation-1", state: "output-available", input: {}, output: JSON.stringify({ ok: true, referenceData: { presentation: { id: "d3937858-a2ba-41b5-8ae1-e6c2c5f60c11", workspaceId: "demo", title: "Response period" } } }) };
+  const groups = getAssistantRenderGroups([bash, card, appTool], false);
+  expect(groups.map(group => group.kind)).toEqual(["tools", "calculation", "tools"]);
+  const ordinaryCalculator = { ...card, toolName: "legalwork_deadline_calculate" };
+  expect(getAssistantRenderGroups([ordinaryCalculator], false)[0].kind).toBe("tools");
+});

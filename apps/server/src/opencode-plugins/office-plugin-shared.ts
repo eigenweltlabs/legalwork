@@ -8,6 +8,8 @@
  * that relay -> Office.js -> result back through the same chain.
  */
 
+import { isAbsolute, relative, resolve, sep } from "node:path";
+
 export type OpenCodeContext = {
   agent?: string;
   sessionID?: string;
@@ -60,16 +62,18 @@ export async function listWorkspaces(): Promise<Array<{ id: string; path: string
   return items;
 }
 
-export async function resolveWorkspaceId(context: OpenCodeContext): Promise<string> {
+export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<string> {
   const directory = context.directory?.trim() ?? "";
   const items = await listWorkspaces();
   if (directory) {
-    const match =
-      items.find((item) => item.path === directory) ??
-      items.find((item) => directory.startsWith(`${item.path}/`));
+    const match = [...items].sort((a, b) => b.path.length - a.path.length).find((item) => {
+      if (!item.path) return false;
+      const path = relative(resolve(item.path), resolve(directory));
+      return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
+    });
     if (match) return match.id;
   }
-  if (items.length === 1) return items[0]!.id;
+  if (!options.requireDirectory && items.length === 1) return items[0]!.id;
   throw new Error(
     directory
       ? `No LegalWork workspace matches the working directory ${directory}.`

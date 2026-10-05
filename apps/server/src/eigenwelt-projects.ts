@@ -32,6 +32,7 @@ const scopeSchema = z.object({
   metadata: z.boolean(),
   // A platform from before reviews were part of the scope syncs none.
   reviews: z.boolean().default(false),
+  calendar: z.boolean().default(true),
 });
 
 const fieldSchema = z.object({
