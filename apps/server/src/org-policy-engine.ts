@@ -5,6 +5,7 @@ import { PermissionActionSchema, type PermissionAction, type PermissionRule } fr
 
 import { appliedOrgPolicy } from "./org-policy.js";
 import { orgChatProviderBlocks, orgEnabledProviders } from "./org-policy-ai.js";
+import { orgPolicyItemsLayer } from "./org-policy-items.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -75,6 +76,9 @@ export async function buildOrgPolicyEngineLayer(
     // A project's own definition of the default agent could carry looser rules.
     layer.agent = { legalwork: { permission: enforced } };
   }
+  const items = await orgPolicyItemsLayer(config, orgPolicyEngineDir(config));
+  if (Object.keys(items.mcp).length > 0) layer.mcp = items.mcp;
+  if (items.plugin.length > 0) layer.plugin = items.plugin;
   const providers = await orgChatProviderBlocks(config);
   if (Object.keys(providers).length > 0) layer.provider = providers;
   const enabledProviders = await orgEnabledProviders(config);

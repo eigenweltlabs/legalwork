@@ -53,8 +53,10 @@ import {
   runtimeStorageDir,
   type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
-import { buildPersonalizedAgentPrompt } from "./personalization.js";
+import { buildPersonalizedAgentPrompt, withFirmInstructions } from "./personalization.js";
 import { buildOrgPolicyEngineLayer, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { appliedOrgPolicy } from "./org-policy.js";
+import { allowedMemberConnectors } from "./org-policy-items.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
 const OPENCODE_ZEN_PROVIDER_ID = "opencode";
@@ -260,9 +262,12 @@ export async function buildLegalworkRuntimeConfigObject(
         description: "LegalWork default agent",
         mode: "primary",
         temperature: 0.2,
-        prompt: personalization
-          ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization)
-          : LEGALWORK_AGENT_PROMPT,
+        prompt: withFirmInstructions(
+          personalization
+            ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization)
+            : LEGALWORK_AGENT_PROMPT,
+          config ? (await appliedOrgPolicy(config, "personalization.firmInstructions"))?.value : undefined,
+        ),
       },
     },
     plugin: (await Promise.all([
@@ -286,10 +291,13 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
-      ...runtimePluginList(runtimeConfig),
+      // The member's own plugins, unless the firm allows none.
+      ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
-    mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
+    mcp: config
+      ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
+      : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
 }
 

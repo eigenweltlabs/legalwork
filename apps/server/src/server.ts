@@ -56,7 +56,7 @@ import { startReloadWatchers } from "./reload-watcher.js";
 import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
-import { sanitizeCommandName, validateMcpConfig, validateMcpName } from "./validators.js";
+import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
@@ -183,6 +183,7 @@ import {
   installWorkflowFiles,
   parseIntegrationPayload,
   parsePluginPayload,
+  parseSharedMcpSecret,
   requireHubClient,
   serializeLocalFolder,
   serializeWorkflowSkill,
@@ -193,9 +194,10 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
-import { onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
-import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
+import { orgPolicyEngineDir, orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { orgOcr } from "./org-policy-ai.js";
+import { allowedMemberConnectors, orgPolicyConnectors, requireConnectorAllowed, requireHubInstallAllowed, syncOrgPolicyItems } from "./org-policy-items.js";
 import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
@@ -790,7 +792,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   // The firm's policy: pulled now and whenever the firm pokes; what changes
   // the engine's settings reloads the engines once they are idle.
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
-    if (scopes.has("engine")) applyOrgPolicyToEngines(config);
+    if (scopes.has("engine")) refreshOrgPolicyItems(config, { force: true });
   });
   void scheduleOrgPolicySync(config, { force: true });
   // Due days are checked every minute, connected or not, for the app to announce.
@@ -817,7 +819,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
-  const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
+  const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config), {
+    settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
+    requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
+  }));
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus);
 
   const serverOptions: {
@@ -1835,6 +1840,7 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const resolved = readCloudPluginResolved(body.resolved);
@@ -2303,21 +2309,6 @@ function createRoutes(
     return entry;
   };
 
-  const parseSharedMcpSecret = (secretJson: string): Record<string, unknown> => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(secretJson);
-    } catch {
-      throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not valid JSON.");
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not a valid configuration.");
-    }
-    const config = parsed as Record<string, unknown>;
-    validateMcpConfig(config);
-    return config;
-  };
-
   // Derive a valid hub item name ([a-z0-9][a-z0-9-_]*) from a plugin spec/path.
   const deriveHubName = (ref: string): string => {
     const base = basename(ref.replace(/^file:\/\//, "")).replace(/\.(js|ts|mjs|cjs)$/i, "");
@@ -2505,7 +2496,17 @@ function createRoutes(
       }
     }
     const view = await readOrgPolicyView(config);
-    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers: [] });
+    // The member's connectors the firm does not allow, as the engine prefixes their tools.
+    // (Each workspace's map holds the shared connectors too.)
+    const memberConnectors = new Set<string>();
+    for (const workspace of config.workspaces) {
+      for (const name of Object.keys(await runtimeMcpMapForWorkspace(config, workspace.id))) memberConnectors.add(name);
+    }
+    const allowed = new Set(Object.keys(await allowedMemberConnectors(config, Object.fromEntries([...memberConnectors].map((name) => [name, true])))));
+    const blockedMcpServers = [...memberConnectors]
+      .filter((name) => !allowed.has(name))
+      .map((name) => name.replace(/[^a-zA-Z0-9_-]/g, "_"));
+    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers });
   });
   addRoute(routes, "POST", "/org-policy/release", "client", async (ctx) => {
     requireClientScope(ctx, "owner");
@@ -2531,6 +2532,7 @@ function createRoutes(
       // a good moment to bring the tasks, and the firm's policy, up to date too.
       scheduleTaskSync(config);
       void scheduleOrgPolicySync(config);
+      refreshOrgPolicyItems(config);
     }
     const cachedManifest = await readCachedEigenweltPaidManifest(config);
     const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
@@ -2872,6 +2874,7 @@ function createRoutes(
     }
     const allowOverwrite = body.allowOverwrite === true;
     const item = await hubGet(client, ctx.params.itemId);
+    await requireHubInstallAllowed(config, item.kind);
     if (item.kind === "review_set") {
       const entry = await installReviewSet(workspace.id, item);
       return jsonResponse({ ok: true, kind: item.kind, name: entry.name, version: item.version });
@@ -3125,6 +3128,7 @@ function createRoutes(
     for (const itemId of itemIds) {
       try {
         const item = await hubGet(client, itemId);
+        await requireHubInstallAllowed(config, item.kind);
         if (item.kind === "review_set") {
           const entry = await installReviewSet(workspace.id, item);
           results.push({ id: item.id, kind: item.kind, name: entry.name, ok: true });
@@ -3805,6 +3809,7 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/plugins", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const spec = String(body.spec ?? "");
@@ -3888,13 +3893,14 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
-    const items = await listSkills(workspace.path, includeGlobal, skipped);
+    const items = await listSkills(workspace.path, includeGlobal, skipped, join(orgPolicyEngineDir(config), "skills"));
     return jsonResponse({ items, skipped });
   });
 
   addRoute(routes, "POST", "/workspace/:id/skills/hub/:name", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyAllows(config, "skills.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = String(ctx.params.name ?? "").trim();
     if (!name) {
@@ -3953,6 +3959,7 @@ function createRoutes(
   // dir on desktop, project for remote workspaces), so this is a read-only fetch.
   addRoute(routes, "POST", "/workspace/:id/github-skills/install", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);
+    await requireOrgPolicyAllows(config, "skills.allowCustom");
     const body = await readJsonBody(ctx.request);
     const url = String(body?.url ?? "").trim();
     if (!url) throw new ApiError(400, "invalid_github_url", "A GitHub repo URL is required");
@@ -4015,6 +4022,10 @@ function createRoutes(
     // "global" writes into the shared library the desktop Skills/Workflows
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
+    // The firm may allow no new skills of the member's own; existing ones stay editable.
+    if (!(await exists(join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")))) {
+      await requireOrgPolicyAllows(config, "skills.allowCustom");
+    }
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
@@ -4168,6 +4179,10 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listMcp(config, workspace.id, workspace.path);
+    // The firm's connectors, as shared (their credentials never leave the server).
+    for (const { name, config: entry } of await orgPolicyConnectors(orgPolicyEngineDir(config))) {
+      items.push({ name, config: entry, source: "org" });
+    }
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
   });
 
@@ -4213,6 +4228,7 @@ function createRoutes(
     if (!configPayload) {
       throw new ApiError(400, "invalid_payload", "MCP config is required");
     }
+    await requireConnectorAllowed(config, name);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "mcp.add",
@@ -4940,6 +4956,22 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
   });
 }
 
+// The firm's Firm Hub items follow its policy (installed, updated, removed),
+// then the engines reload. Asked for by a policy change, and every few
+// minutes by the entitlements poll for items updated on the hub.
+const ORG_POLICY_ITEMS_THROTTLE_MS = 60_000;
+const orgPolicyItemsSyncedAt = new WeakMap<ServerConfig, number>();
+
+function refreshOrgPolicyItems(config: ServerConfig, options: { force?: boolean } = {}): void {
+  if (!options.force && Date.now() - (orgPolicyItemsSyncedAt.get(config) ?? 0) < ORG_POLICY_ITEMS_THROTTLE_MS) return;
+  orgPolicyItemsSyncedAt.set(config, Date.now());
+  void syncOrgPolicyItems(config, orgPolicyEngineDir(config))
+    .catch(() => false)
+    .then((changed) => {
+      if (changed || options.force) applyOrgPolicyToEngines(config);
+    });
+}
+
 // The firm's policy changed the engine's settings: the config file is
 // rebuilt, and every local workspace's engine reloads once no task runs in
 // it. A busy one is tried again every half minute, for up to half an hour;
@@ -5053,7 +5085,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
 
-  const entries = Object.entries(await runtimeMcpMapForWorkspace(config, workspace.id)).filter(
+  const entries = Object.entries(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(
     ([name]) => !onlyNames || onlyNames.includes(name),
   );
   if (entries.length === 0) return;

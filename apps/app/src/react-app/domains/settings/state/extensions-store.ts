@@ -54,6 +54,7 @@ import type {
   LegalworkServerStatus,
 } from "../../../../app/lib/legalwork-server";
 import type { LegalworkServerStore } from "../../connections/legalwork-server-store";
+import { orgPolicyAllows } from "../../connections/org-policy";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -592,6 +593,7 @@ export function createExtensionsStore(options: {
   }
 
   async function installHubSkill(name: string): Promise<{ ok: boolean; message: string }> {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: t("org_policy.disallowed", { org: t("org_policy.your_firm") }) };
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const repo = snapshot.hubRepo;
@@ -646,6 +648,7 @@ export function createExtensionsStore(options: {
     paths: string[];
     asWorkflow?: boolean;
   }): Promise<{ ok: boolean; message: string }> {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: t("org_policy.disallowed", { org: t("org_policy.your_firm") }) };
     const { legalworkClient, legalworkWorkspaceId } = await resolveWorkspaceServerTarget();
     if (!legalworkClient || !legalworkWorkspaceId) {
       return { ok: false, message: t("extensions.server_unavailable_github_import") };
@@ -825,6 +828,7 @@ export function createExtensionsStore(options: {
               trigger: entry.trigger,
               kind: (entry as { kind?: string }).kind,
               workflowType: (entry as { workflowType?: string }).workflowType,
+              managed: entry.managed,
             }))
           : [];
         // The legalwork list doesn't surface SKILL.md frontmatter `kind`/`workflow_type`,
@@ -1322,6 +1326,7 @@ export function createExtensionsStore(options: {
   }
 
   async function addPlugin(pluginNameOverride?: string) {
+    if (!(await orgPolicyAllows("plugins.allowCustom"))) return;
     const pluginName = (pluginNameOverride ?? snapshot.pluginInput).trim();
     const isManualInput = pluginNameOverride == null;
     const triggerName = stripPluginVersion(pluginName);
@@ -1496,6 +1501,7 @@ export function createExtensionsStore(options: {
   }
 
   async function importLocalSkill(opts?: { asWorkflow?: boolean }) {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return;
     if (!isDesktopRuntime()) {
       options.setError(t("skills.desktop_required"));
       return;
@@ -1548,6 +1554,7 @@ export function createExtensionsStore(options: {
   // exported workflows round-trip. The main process detects the folder name,
   // applies the workflow- prefix, and writes into the global skills dir.
   async function importLocalSkillZip(opts?: { asWorkflow?: boolean }) {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return;
     if (!isDesktopRuntime()) {
       options.setError(t("skills.desktop_required"));
       return;
@@ -1871,6 +1878,7 @@ export function createExtensionsStore(options: {
   // writeLocalSkill and only UPDATES an existing SKILL.md), this uses
   // installSkillTemplate which mkdir's + writes a fresh .opencode/skills/<name>/SKILL.md.
   async function createSkill(input: { name: string; content: string; description?: string }): Promise<{ ok: boolean; message: string }> {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: t("org_policy.disallowed", { org: t("org_policy.your_firm") }) };
     const trimmed = input.name.trim();
     if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const root = options.selectedWorkspaceRoot().trim();

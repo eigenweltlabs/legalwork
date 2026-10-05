@@ -43,7 +43,8 @@ const orgId = z.string().regex(/^org-[a-z0-9][a-z0-9-]{0,59}$/);
 /** Names an encrypted value kept by the platform; never the value itself. */
 export const OrgPolicySecretRefSchema = z.string().regex(/^[a-z0-9][a-z0-9:_-]{0,127}$/);
 const secretRef = OrgPolicySecretRefSchema.nullable();
-const httpsUrl = z.url().refine((value) => {
+// `abort`: the refinement parses the URL, so it must not run on a string that is none.
+const httpsUrl = z.url({ abort: true }).refine((value) => {
   const url = new URL(value);
   return url.protocol === "https:" && !url.username && !url.password && !url.hash;
 }, "Use an HTTPS URL without credentials or a fragment.");

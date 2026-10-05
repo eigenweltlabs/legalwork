@@ -5448,4 +5448,7 @@ export default {
   "org_policy.restored_other": "{org} restored {count} settings you had changed.",
   "org_policy.disallowed": "{org} does not allow this.",
   "org_policy.providers_sign_in": "The AI providers of {org} are available again after you sign in.",
+  "org_policy.firm_item": "Added by {org} for everyone",
+  "org_policy.sharing_off": "{org} does not allow sharing projects.",
+  "org_policy.firm_instructions": "Instructions from {org}, added after yours",
 } as const;

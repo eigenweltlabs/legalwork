@@ -4,6 +4,7 @@ import { Cpu, Share2 } from "lucide-react";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 // Explicit, prop-driven shape of the extensions store. The Solid
 // PluginsView pulled this from useExtensions(); in React we pass it
@@ -294,6 +295,7 @@ export function PluginsView(props: PluginsViewProps) {
         )}
 
         <div className="flex flex-col gap-3">
+          <OrgPolicyNote policyKey="plugins.allowCustom" />
           <div className="flex flex-col md:flex-row gap-3">
             <div className="flex-1">
               <TextInput

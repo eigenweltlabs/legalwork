@@ -106,7 +106,7 @@ import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
-import { changeOrgPolicySetting, useOrgPolicy } from "@/react-app/domains/connections/org-policy";
+import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "@/react-app/domains/settings/state/extensions-store";
@@ -880,7 +880,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     client: legalworkClient,
     workspaceId: hubWorkspaceId,
   });
-  const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
+  // The firm's policy may leave sharing to its admins.
+  const firmShareAdminsOnly = useOrgPolicy("hub.whoCanShare")?.value === "admins";
+  const firmRole = useOrgPolicyStore((state) => state.view?.role);
+  const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub") && (!firmShareAdminsOnly || firmRole === "admin");
   // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
   const [teamShareOpen, setTeamShareOpen] = useState(false);
   const [teamShareInitial, setTeamShareInitial] = useState<{
@@ -1700,7 +1703,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       },
     };
   }, [computerUsePermissions, connectionsSnapshot, extensionStateVersion, providerConnectedIds, userEnvKeys]);
-  const builtInExtensionsDisabled = false;
+  // Built-in extensions the firm's policy switched off.
+  const firmBuiltIn = useOrgPolicy("extensions.builtIn")?.value;
+  const builtInExtensionDisabled = useCallback(
+    (entry: { id?: string }) => Object.entries(firmBuiltIn ?? {}).some(([id, enabled]) => enabled === false && id === entry.id),
+    [firmBuiltIn],
+  );
   const restartExtensionLocalServer = useCallback(async () => {
     if (!isDesktopRuntime()) return false;
     try {
@@ -2306,7 +2314,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
                 quickConnect={extensionItems.quickConnectEntries}
                 enablementContext={enablementContext}
-                builtInExtensionsDisabled={builtInExtensionsDisabled}
+                builtInExtensionDisabled={builtInExtensionDisabled}
                 connectMcp={connectionsStore.connectMcp}
                 probeMcp={connectionsStore.probeMcp}
                 registerMcpClient={connectionsStore.registerMcpClient}

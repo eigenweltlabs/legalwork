@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
-import { releaseOrgPolicyKey, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
+import { appliedOrgPolicy, releaseOrgPolicyKey, requireOrgPolicyUnmanaged, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { LegalWorkOrgPolicyGuard } from "./opencode-plugins/legalwork-org-policy-guard.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -14,6 +14,8 @@ import type { ServerConfig } from "./types.js";
 import { OcrManager } from "./ocr/manager.js";
 import { orgOcr } from "./org-policy-ai.js";
 import { readSystemOneSettings, saveSystemOneProvider, selectSystemOneProvider } from "./systemone.js";
+import { orgPolicyItemsLayer, requireConnectorAllowed, requireHubInstallAllowed, syncOrgPolicyItems } from "./org-policy-items.js";
+import { ReviewDefaults } from "./reviews/storage.js";
 
 const realFetch = globalThis.fetch;
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -172,5 +174,77 @@ describe("the firm's AI providers", () => {
     expect(view.engines.find((engine) => engine.id === "org-ocr")).toMatchObject({ managed: true, keyConfigured: true, status: "ready" });
     await expect(ocr.saveServer({ label: "Mine", endpoint: "https://mine.example.com/ocr", model: "m", languages: null, apiKey: "k" }))
       .rejects.toMatchObject({ code: "org_policy_disallowed" });
+  });
+});
+
+describe("the firm's Firm Hub items", () => {
+  test("connectors, skills and plugins arrive in the firm's folder, follow the policy and keep credentials in memory", async () => {
+    const entries: Record<string, unknown> = {
+      "connectors.managed": { mode: "enforced", value: ["hub-crm"] },
+      "skills.managed": { mode: "enforced", value: ["hub-dd"] },
+      "plugins.managed": { mode: "enforced", value: ["hub-plugin"] },
+      "connectors.allowCustom": { mode: "enforced", value: false },
+    };
+    const { config } = await setup(entries);
+    const hub: Record<string, unknown> = {
+      "hub-crm": { id: "hub-crm", kind: "mcp", name: "crm", version: 1, hasSecret: true, canAccessSecret: true, payload: { key: "crm", mcp: { type: "remote", url: "https://crm.example.com/mcp" } } },
+      "hub-dd": { id: "hub-dd", kind: "workflow", name: "due-diligence-firm", version: 2, payload: { files: [{ path: "SKILL.md", contentBase64: Buffer.from("---\nname: due-diligence-firm\ndescription: DD\n---\nSteps").toString("base64") }] } },
+      "hub-plugin": { id: "hub-plugin", kind: "plugin", name: "firm-plugin", version: 1, pinned: true, payload: { spec: "firm-plugin@1.0.0" } },
+    };
+    const policy = () => Response.json({ schemaVersion: 1, orgId: "org_kanzlei", orgName: "Kanzlei", revision: 1, role: "member", updatedAt: null, entries });
+    fakeFetch((url) => {
+      if (url.endsWith("/api/desktop/policy")) return policy();
+      if (url.endsWith("/api/hub/hub-crm/secret")) return Response.json({ secret: JSON.stringify({ type: "remote", url: "https://crm.example.com/mcp", headers: { Authorization: "Bearer firm" } }) });
+      const id = url.split("/api/hub/")[1];
+      return id && hub[id] ? Response.json(hub[id]) : new Response(null, { status: 404 });
+    });
+    const dir = orgPolicyEngineDir(config);
+    expect(await syncOrgPolicyItems(config, dir)).toBe(true);
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { mine: { type: "remote", url: "https://mine.example.com" }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+
+    const layer = await readJson(join(dir, "opencode.json"));
+    expect(layer.mcp).toEqual({ crm: { type: "remote", url: "https://crm.example.com/mcp", headers: { Authorization: "Bearer firm" } } });
+    expect(layer.plugin).toEqual(["firm-plugin@1.0.0"]);
+    expect(await readFile(join(dir, "skills", "due-diligence-firm", "SKILL.md"), "utf8")).toContain("Steps");
+    // The member's own connector is left out; LegalWork's own stays.
+    expect(Object.keys((await readJson(legalworkRuntimeConfigFilePath(config))).mcp ?? {})).toEqual(["legalwork-ui"]);
+    await expect(requireHubInstallAllowed(config, "mcp")).rejects.toMatchObject({ code: "org_policy_disallowed" });
+    await requireHubInstallAllowed(config, "skill");
+
+    // Signed out: the connector stays, its credentials go.
+    await writeEigenweltConnection(config, { platformToken: null, account: null, platformURL: null });
+    await scheduleOrgPolicySync(config, { force: true });
+    expect(await syncOrgPolicyItems(config, dir)).toBe(true);
+    expect((await orgPolicyItemsLayer(config, dir)).mcp).toEqual({ crm: { type: "remote", url: "https://crm.example.com/mcp" } });
+
+    // Taken back: the firm's items leave.
+    await releaseOrgPolicyKey(config, "skills.managed");
+    await syncOrgPolicyItems(config, dir);
+    expect(await readFile(join(dir, "skills", "due-diligence-firm", "SKILL.md"), "utf8").catch(() => null)).toBeNull();
+  });
+});
+
+describe("the firm's workspace settings", () => {
+  test("firm instructions follow the agent's, a switched-off extension leaves the engine, and review defaults apply", async () => {
+    const { config, root } = await setup({
+      "personalization.firmInstructions": { mode: "enforced", value: "Cite German law with paragraph numbers." },
+      "extensions.builtIn": { mode: "enforced", value: { "computer-use": false } },
+      "reviews.defaults": { mode: "enforced", value: { mode: "llm", minDecisionProbability: 0.9 } },
+    });
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { "computer-use": { type: "local", command: ["npx"] }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const runtime = await readJson(legalworkRuntimeConfigFilePath(config));
+    expect(JSON.stringify(runtime.agent)).toContain("## Firm instructions");
+    expect(JSON.stringify(runtime.agent)).toContain("Cite German law with paragraph numbers.");
+    expect(Object.keys(runtime.mcp ?? {})).toEqual(["legalwork-ui"]);
+    await expect(requireConnectorAllowed(config, "computer-use")).rejects.toMatchObject({ code: "org_policy_disallowed" });
+
+    const defaults = new ReviewDefaults(root, {
+      settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
+      requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
+    });
+    expect(await defaults.settings({ mode: "jev", jev: null, llm: null })).toEqual({ mode: "llm", jev: null, llm: null, minDecisionProbability: 0.9 });
+    await expect(defaults.saveSettings({ mode: "jev", jev: null, llm: null })).rejects.toMatchObject({ code: "org_policy_managed" });
   });
 });

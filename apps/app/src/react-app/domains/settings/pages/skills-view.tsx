@@ -73,6 +73,7 @@ import {
   type SkillResourcesStore,
   type StagedResourceFile,
 } from "./skill-resources-panel";
+import { orgPolicyAllows, useOrgPolicyStore } from "../../connections/org-policy";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -254,6 +255,7 @@ function skillsViewLocalReducer(
 }
 
 export function SkillsView(props: SkillsViewProps) {
+  const firmName = useOrgPolicyStore((state) => state.view?.orgName) || t("org_policy.your_firm");
   const { extensions } = props;
   const [localState, dispatchLocal] = useReducer(
     skillsViewLocalReducer,
@@ -819,7 +821,7 @@ export function SkillsView(props: SkillsViewProps) {
               <div className="grid gap-3 sm:grid-cols-2">
                 {pagedWorkflows.map((skill) => {
                   const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
-                  const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
+                  const typeLabel = skill.managed ? firmName : isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
                   return (
                     <div
@@ -843,7 +845,7 @@ export function SkillsView(props: SkillsViewProps) {
                         {skill.description || t("skills.no_description")}
                       </p>
                       {/* Actions sit in their own reserved row so they never cover the description text. */}
-                      <div className="mt-2.5 flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      {skill.managed ? null : <div className="mt-2.5 flex items-center justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                         <button
                           type="button"
                           className={rowIconBtnClass}
@@ -909,7 +911,7 @@ export function SkillsView(props: SkillsViewProps) {
                         >
                           <Trash2 size={15} />
                         </button>
-                      </div>
+                      </div>}
                     </div>
                   );
                 })}
@@ -1282,7 +1284,14 @@ function SkillCreatorButton(props: {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} disabled={props.disabled} className={pillPrimaryClass}>
+      <button
+        type="button"
+        onClick={async () => {
+          if (await orgPolicyAllows("skills.allowCustom")) setOpen(true);
+        }}
+        disabled={props.disabled}
+        className={pillPrimaryClass}
+      >
         <Plus size={14} />
         {t("skills.new_skill")}
       </button>

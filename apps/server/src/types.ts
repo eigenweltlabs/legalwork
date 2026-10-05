@@ -230,7 +230,8 @@ export interface PluginItem {
 export interface McpItem {
   name: string;
   config: Record<string, unknown>;
-  source: "config.project" | "config.global" | "config.remote";
+  /** `org`: one of the firm's connectors, installed by its policy. */
+  source: "config.project" | "config.global" | "config.remote" | "org";
   disabledByTools?: boolean;
 }
 
@@ -242,6 +243,8 @@ export interface SkillItem {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
+  /** Installed by the firm's policy: neither edited nor removed here. */
+  managed?: boolean;
 }
 
 export interface HubSkillItem {

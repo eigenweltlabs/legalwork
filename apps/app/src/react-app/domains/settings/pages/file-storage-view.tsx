@@ -51,6 +51,8 @@ import {
 import { StorageOAuthSignIn } from "./storage-oauth-signin";
 import { useHubScope } from "./hub-scope-context";
 import { storageConnectionsForScope } from "./storage-scope";
+import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 export function FileStorageView({
   client,
@@ -80,7 +82,13 @@ export function FileStorageView({
     enabled: Boolean(client && workspaceId),
   });
   const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope);
-  const canAdd = scope === "local" || connections.data?.team?.canManage === true;
+  // The firm may allow no connections of the member's own.
+  const personalForbidden = useOrgPolicyForbids("storage.allowPersonal");
+  const canAdd = (scope === "local" && !personalForbidden) || (scope === "team" && connections.data?.team?.canManage === true);
+  const openNewEditor = async (next: NonNullable<typeof editor>) => {
+    if (scope === "local" && !(await orgPolicyAllows("storage.allowPersonal"))) return;
+    setEditor(next);
+  };
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["storage-connections"] });
     void queryClient.invalidateQueries({ queryKey: ["storage-roots"] });
@@ -114,6 +122,7 @@ export function FileStorageView({
           <p className="text-sm leading-6 text-muted-foreground">
             {t(scope === "team" ? "storage.team_intro" : "storage.local_intro")}
           </p>
+          {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
         </div>
         {canAdd && (
           <Button onClick={() => addSection.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
@@ -259,7 +268,7 @@ export function FileStorageView({
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {providers.data?.providers.map((provider) => (
-              <button key={provider.id} type="button" onClick={() => setEditor({ kind: "oauth", provider })}
+              <button key={provider.id} type="button" onClick={() => void openNewEditor({ kind: "oauth", provider })}
                 className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <ArrowUpRight className="mb-4 size-5 text-muted-foreground" />
                 <span className="text-sm font-medium">{provider.name}</span>
@@ -272,7 +281,7 @@ export function FileStorageView({
                 <button
                   key={kind}
                   type="button"
-                  onClick={() => setEditor({ kind })}
+                  onClick={() => void openNewEditor({ kind })}
                   className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <div className="mb-4 flex w-full items-center justify-between">

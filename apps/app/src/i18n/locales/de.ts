@@ -5839,6 +5839,9 @@ const de = {
   "org_policy.restored_other": "{org} hat {count} Einstellungen wiederhergestellt, die Sie geändert hatten.",
   "org_policy.disallowed": "{org} erlaubt dies nicht.",
   "org_policy.providers_sign_in": "Die KI-Anbieter von {org} stehen wieder zur Verfügung, sobald Sie sich anmelden.",
+  "org_policy.firm_item": "Von {org} für alle hinzugefügt",
+  "org_policy.sharing_off": "{org} erlaubt nicht, Projekte zu teilen.",
+  "org_policy.firm_instructions": "Anweisungen von {org}, nach Ihren eigenen ergänzt",
 } as const;
 
 export default de;

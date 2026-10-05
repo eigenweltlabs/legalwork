@@ -28,6 +28,7 @@ import {
 } from "../settings-layout";
 import { SettingsNotice } from "../settings-section";
 import { t } from "@/i18n";
+import { FirmInstructions } from "../../connections/org-policy-ui";
 
 const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   customInstructions: "",
@@ -183,6 +184,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
               {t("personalisation.characters_remaining", { count: remainingCharacters.toLocaleString() })}
             </div>
           </div>
+          <FirmInstructions />
         </LayoutSection>
 
         <LayoutSection>

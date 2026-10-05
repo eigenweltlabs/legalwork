@@ -11,6 +11,7 @@ import {
   OPENAI_IMAGE_GENERATION_EXTENSION_ACTIONS,
   OPENAI_IMAGE_GENERATION_EXTENSION_ID,
 } from "./openai-image-generation.js";
+import { appliedOrgPolicy } from "../org-policy.js";
 
 const LEGALWORK_EXPERIMENTAL_EXTENSION_ACTIONS = [
   ...GOOGLE_WORKSPACE_EXTENSION_ACTIONS,
@@ -51,6 +52,9 @@ export async function callExperimentalExtensionAction(config: ServerConfig, env:
   }
 
   if (extensionId === GOOGLE_WORKSPACE_EXTENSION_ID) {
+    if ((await appliedOrgPolicy(config, "extensions.builtIn"))?.value["google-workspace"] === false) {
+      throw new ApiError(403, "org_policy_disallowed", "Your organization has switched off Google Workspace.", { key: "extensions.builtIn" });
+    }
     const result = await callGoogleWorkspaceExtensionAction(config, action, args, context);
     if (result) return result;
   }

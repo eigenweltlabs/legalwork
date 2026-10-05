@@ -577,6 +577,8 @@ export type LegalworkSkillItem = {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
+  /** Installed by the firm's policy. Older servers omit it. */
+  managed?: boolean;
 };
 
 export type LegalworkSkillContent = {
@@ -743,7 +745,7 @@ export type LegalworkCommandItem = {
 export type LegalworkMcpItem = {
   name: string;
   config: Record<string, unknown>;
-  source: "config.project" | "config.global" | "config.remote";
+  source: "config.project" | "config.global" | "config.remote" | "org";
   disabledByTools?: boolean;
 };
 

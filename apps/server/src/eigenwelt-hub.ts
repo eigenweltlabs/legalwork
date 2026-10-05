@@ -387,6 +387,22 @@ export function parseIntegrationPayload(payload: unknown): EigenweltIntegrationP
   return { mcp, key };
 }
 
+/** A shared MCP credential: the full server entry, keys included. */
+export function parseSharedMcpSecret(secretJson: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(secretJson);
+  } catch {
+    throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not valid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not a valid configuration.");
+  }
+  const config = parsed as Record<string, unknown>;
+  validateMcpConfig(config);
+  return config;
+}
+
 // ---------------------------------------------------------------------------
 // Platform hub HTTP client
 // ---------------------------------------------------------------------------

@@ -70,6 +70,33 @@ export function OrgPolicySignInHint({ policyKey }: { policyKey: "ai.chat.provide
   );
 }
 
+/** On a connector, skill or plugin the firm installed for every member. */
+export function FirmItemNote() {
+  const org = useOrgName();
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+      <Building2 className="size-3.5 shrink-0" aria-hidden />
+      {t("org_policy.firm_item", { org })}
+    </span>
+  );
+}
+
+/** The firm's instructions, read-only, below the member's own. */
+export function FirmInstructions() {
+  const instructions = useOrgPolicy("personalization.firmInstructions")?.value;
+  const org = useOrgName();
+  if (!instructions) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="flex items-center gap-1.5 text-[13px] font-medium">
+        <Building2 className="size-3.5 shrink-0" aria-hidden />
+        {t("org_policy.firm_instructions", { org })}
+      </p>
+      <p className="whitespace-pre-wrap rounded-2xl border border-border bg-muted px-4 py-3.5 text-sm text-muted-foreground">{instructions}</p>
+    </div>
+  );
+}
+
 /** Atop Settings while the firm manages anything here. */
 export function OrgPolicyBanner() {
   const view = useOrgPolicyStore((state) => state.view);

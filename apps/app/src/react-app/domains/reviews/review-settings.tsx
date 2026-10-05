@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { ReviewError, ReviewSelect } from "./review-ui";
+import { changeOrgPolicySetting, useOrgPolicy } from "../connections/org-policy";
+import { OrgPolicyNote } from "../connections/org-policy-ui";
 
 export function ReviewSettingsDialog({ client, workspaceId, review, onClose }: { client: LegalworkServerClient; workspaceId: string; review?: SavedReview; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -39,9 +41,19 @@ export function ReviewSettingsForm({ client, workspaceId, review, onClose, onBus
   const thresholdValid = thresholdPercent.trim() !== "" && Number.isFinite(Number(thresholdPercent)) && Number(thresholdPercent) >= 50 && Number(thresholdPercent) <= 100;
   const valid = (settings?.mode === "llm" || thresholdValid) && available && (settings?.mode === "mixed" ? available.some(Boolean) : available.every(Boolean));
   const [saved, setSaved] = useState(false);
+  // The firm's review defaults (not a single review's settings) may be managed.
+  const firm = useOrgPolicy("reviews.defaults");
+  const firmLocked = !review && firm?.locked === true;
   const mutation = useMutation({ mutationFn: async (reset: boolean) => {
-    if (reset) return client.resetReviewDefaults(workspaceId);
-    if (settings) return client.saveReviewSettings(workspaceId, settings, review);
+    const save = async () => {
+      if (reset) return client.resetReviewDefaults(workspaceId);
+      if (settings) return client.saveReviewSettings(workspaceId, settings, review);
+    };
+    if (!review && firm) {
+      await changeOrgPolicySetting("reviews.defaults", async () => { await save(); });
+      return;
+    }
+    return save();
   }, onMutate: () => onBusyChange?.(true), onSettled: () => onBusyChange?.(false), onSuccess: async () => {
     await queryClient.invalidateQueries({ queryKey: ["project-reviews", workspaceId] });
     await queryClient.invalidateQueries({ queryKey: ["review-capabilities"] });
@@ -52,7 +64,8 @@ export function ReviewSettingsForm({ client, workspaceId, review, onClose, onBus
   const Stack = page ? LayoutSection : DialogFields;
   return <div className="space-y-5">
       <ReviewError error={query.error || mutation.error} />
-      {settings ? <fieldset disabled={mutation.isPending} className="min-w-0 space-y-5"><Stack>
+      {page && !review ? <OrgPolicyNote policyKey="reviews.defaults" /> : null}
+      {settings ? <fieldset disabled={mutation.isPending || firmLocked} className="min-w-0 space-y-5"><Stack>
         <Section className="space-y-2"><Label>{t("review.mode")}</Label><ReviewSelect label={t("review.mode")} value={settings.mode} onChange={value => change({ ...settings, mode: ReviewModeSchema.parse(value) })} options={ReviewModeSchema.options.map(value => ({ value, label: reviewModeLabel(value) }))} /><p className="text-sm leading-relaxed text-muted-foreground">{t(settings.mode === "jev" ? "review.jev_body" : settings.mode === "mixed" ? "review.mixed_body" : "review.llm_body")}</p></Section>
         {excluded.length > 0 && <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground"><p>{t("review.jev_excluded_columns")}</p><ul className="mt-2 max-h-24 space-y-1 overflow-y-auto">{excluded.map(column => <li key={column.key}>{column.label}</li>)}</ul></div>}
         {backends.filter(backend => settings.mode === "mixed" || settings.mode === backend).map(backend => {
@@ -87,9 +100,9 @@ export function ReviewSettingsForm({ client, workspaceId, review, onClose, onBus
         <p className="border-t pt-4 text-xs leading-relaxed text-muted-foreground">{t("review.ocr_hint")}</p>
       </fieldset> : <p className="text-muted-foreground">{t("review.loading")}</p>}
       {page ? <div className="flex items-center justify-between gap-3">
-        <Button variant="ghost" disabled={mutation.isPending || !settings} onClick={() => mutation.mutate(true)}>{t("review.reset_defaults")}</Button>
+        <Button variant="ghost" disabled={mutation.isPending || !settings || firmLocked} onClick={() => mutation.mutate(true)}>{t("review.reset_defaults")}</Button>
         <div className="flex items-center gap-3">{saved && <span role="status" className="text-sm text-muted-foreground">{t("review.defaults_saved")}</span>}
-          <Button disabled={!valid || mutation.isPending || (!draft && thresholdText === null)} onClick={() => mutation.mutate(false)}>{t("review.save")}</Button>
+          <Button disabled={!valid || mutation.isPending || firmLocked || (!draft && thresholdText === null)} onClick={() => mutation.mutate(false)}>{t("review.save")}</Button>
         </div>
       </div> : <DialogFooter><Button variant="ghost" onClick={onClose} disabled={mutation.isPending}>{t("review.cancel")}</Button><Button onClick={() => mutation.mutate(false)} disabled={!valid || mutation.isPending}>{t("review.save")}</Button></DialogFooter>}
     </div>;
