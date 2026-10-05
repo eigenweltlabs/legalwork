@@ -1061,6 +1061,7 @@ export default {
   "storage.team_intro": "Choose shared storage to add to Memory Drive. Admins manage these connections for your firm.",
   "storage.shared_count": "Shared storage ({count})",
   "storage.local_empty": "No storage connected here yet. Add a connection below or choose one from the Team tab.",
+  "storage.local_empty_team_only": "No storage connected here yet. Choose one from the Team tab.",
   "storage.team_empty": "Your firm's shared file storage will appear here when it is available.",
   "storage.team_optional": "Shared by your firm · Optional",
   "storage.team_automatic": "Added automatically by your firm",

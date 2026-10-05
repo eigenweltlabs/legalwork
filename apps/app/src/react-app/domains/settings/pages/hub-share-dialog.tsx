@@ -141,7 +141,8 @@ export function HubShareDialog(props: {
           loadReviewSets ? client.reviewLibrary(workspaceId, currentLocale()) : Promise.resolve(null),
         ]);
         if (cancelled) return;
-        setSkills(s ? s.items.filter((it) => !initialSelection || it.name === initialSelection.ref).map((it) => {
+        // The firm's own items are already in the Firm Hub.
+        setSkills(s ? s.items.filter((it) => !it.managed && (!initialSelection || it.name === initialSelection.ref)).map((it) => {
           const initialKind = initialSelection?.ref === it.name
             && (initialSelection.kind === "skill" || initialSelection.kind === "workflow")
             ? initialSelection.kind
@@ -153,10 +154,10 @@ export function HubShareDialog(props: {
           };
         }) : []);
         setMcps(m ? m.items
-          .filter((it) => !initialSelection || it.name === initialSelection.ref)
+          .filter((it) => it.source !== "org" && (!initialSelection || it.name === initialSelection.ref))
           .map((it) => ({ ref: it.name, label: it.name, kind: "mcp" as const, hasSecret: mcpHasSecret(it.config) })) : []);
         setPlugins(p ? p.items
-          .filter((it) => !initialSelection || it.spec === initialSelection.ref || it.path === initialSelection.ref)
+          .filter((it) => it.source !== "org" && (!initialSelection || it.spec === initialSelection.ref || it.path === initialSelection.ref))
           .map((it) => ({ ref: it.spec, label: it.path ?? it.spec, kind: "plugin" as const })) : []);
         setReviewSets(r ? r.entries
           .filter((entry) => entry.source === "personal" && reviewLibraryKind(entry) === "set")

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { SectionHeading } from "@/react-app/design-system/surface";
 
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
+import { useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { BUNDLED_PLUGINS } from "../bundled-plugins";
@@ -91,6 +93,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   useEffect(() => setTab(initialTab), [initialTab]);
   const [importOpen, setImportOpen] = useState(false);
+  const pluginsForbidden = useOrgPolicyForbids("plugins.allowCustom");
   // Local | Team is the OUTER toggle for the whole Integrations page; the
   // Connectors/Skills/Plugins tabs sit inside it. The sub-views follow this
   // scope via HubScopeContext.
@@ -161,10 +164,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
               </p>
             ) : null}
             {props.previewClaudePlugin && props.installClaudePlugin ? (
-              <Button variant="outline" onClick={() => setImportOpen(true)}>
-                <Download size={14} />
-                {t("extensions.import_from_github")}
-              </Button>
+              <div className="flex flex-col items-end gap-1.5">
+                <Button variant="outline" onClick={() => setImportOpen(true)} disabled={pluginsForbidden}>
+                  <Download size={14} />
+                  {t("extensions.import_from_github")}
+                </Button>
+                <OrgPolicyNote policyKey="plugins.allowCustom" />
+              </div>
             ) : null}
           </div>
 

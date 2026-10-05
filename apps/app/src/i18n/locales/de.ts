@@ -1069,6 +1069,7 @@ const de = {
   "storage.team_intro": "Wählen Sie freigegebenen Speicher für Memory Drive. Admins verwalten diese Verbindungen für Ihre Kanzlei.",
   "storage.shared_count": "Freigegebener Speicher ({count})",
   "storage.local_empty": "Noch kein Speicher verbunden. Fügen Sie unten eine Verbindung hinzu oder wählen Sie eine im Team-Tab.",
+  "storage.local_empty_team_only": "Noch kein Speicher verbunden. Wählen Sie einen im Team-Tab.",
   "storage.team_empty": "Hier erscheint der freigegebene Dateispeicher Ihrer Kanzlei, sobald er verfügbar ist.",
   "storage.team_optional": "Von Ihrer Kanzlei freigegeben · Optional",
   "storage.team_automatic": "Von Ihrer Kanzlei automatisch hinzugefügt",

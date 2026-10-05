@@ -222,7 +222,7 @@ export interface ApiErrorBody {
 
 export interface PluginItem {
   spec: string;
-  source: "config" | "dir.project" | "dir.global";
+  source: "config" | "dir.project" | "dir.global" | "org";
   scope: "project" | "global";
   path?: string;
 }

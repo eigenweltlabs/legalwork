@@ -1774,7 +1774,15 @@ export function ImportSkillsButton(props: {
 
   return (
     <>
-      <button hidden={props.open !== undefined} type="button" onClick={() => setOpen(true)} disabled={props.busy} className={ghostActionClass}>
+      <button
+        hidden={props.open !== undefined}
+        type="button"
+        onClick={async () => {
+          if (await orgPolicyAllows("skills.allowCustom")) setOpen(true);
+        }}
+        disabled={props.busy}
+        className={ghostActionClass}
+      >
         <Download size={14} />
         {t("skills.import")}
       </button>

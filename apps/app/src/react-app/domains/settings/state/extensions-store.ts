@@ -67,7 +67,7 @@ type SetStateAction<T> = T | ((current: T) => T);
 
 type PluginListEntry = {
   name: string;
-  source: "config" | "dir.project" | "dir.global";
+  source: "config" | "dir.project" | "dir.global" | "org";
   removable: boolean;
 };
 
@@ -161,7 +161,7 @@ function toProjectPluginListEntries(
     const name = item.spec.trim();
     if (!name) continue;
     const source: PluginListEntry["source"] =
-      item.source === "dir.project" || item.source === "dir.global"
+      item.source === "dir.project" || item.source === "dir.global" || item.source === "org"
         ? item.source
         : "config";
     const entry: PluginListEntry = {
@@ -765,18 +765,26 @@ export function createExtensionsStore(options: {
       try {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills("");
+        // The firm's skills live in the server's own folder, not the shared one.
+        const firm = canUseLegalworkServer && legalworkClient && legalworkWorkspaceId
+          ? ((await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: true }).catch(() => null))?.items ?? [])
+              .filter((entry) => entry.managed)
+          : [];
         if (refreshSkillsAborted) return;
         notifySkippedSkills("desktop-global", local.skipped);
-        const next: SkillCard[] = Array.isArray(local.items)
-          ? local.items.map((entry) => ({
+        const next: SkillCard[] = [
+          ...firm.map((entry) => ({ name: entry.name, description: entry.description, path: entry.path, trigger: entry.trigger, managed: true })),
+          ...(Array.isArray(local.items) ? local.items : [])
+            .filter((entry) => !firm.some((item) => item.name === entry.name))
+            .map((entry) => ({
               name: entry.name,
               description: entry.description,
               path: entry.path,
               trigger: entry.trigger,
               kind: (entry as { kind?: string }).kind,
               workflowType: (entry as { workflowType?: string }).workflowType,
-            }))
-          : [];
+            })),
+        ];
         mutateState((current) => ({
           ...current,
           skills: next,

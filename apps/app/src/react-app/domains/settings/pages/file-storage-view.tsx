@@ -257,7 +257,7 @@ export function FileStorageView({
         </section>
       ) : !connections.isLoading && !connections.error ? (
         <div className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-          {t(scope === "team" ? "storage.team_empty" : "storage.local_empty")}
+          {t(scope === "team" ? "storage.team_empty" : personalForbidden ? "storage.local_empty_team_only" : "storage.local_empty")}
         </div>
       ) : null}
       {canAdd && (

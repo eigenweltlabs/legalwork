@@ -197,7 +197,7 @@ import { startSyncEvents } from "./eigenwelt-sync-events.js";
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineDir, orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { orgOcr } from "./org-policy-ai.js";
-import { allowedMemberConnectors, orgPolicyConnectors, requireConnectorAllowed, requireHubInstallAllowed, syncOrgPolicyItems } from "./org-policy-items.js";
+import { allowedMemberConnectors, orgPolicyConnectors, orgPolicyPlugins, requireConnectorAllowed, requireHubInstallAllowed, syncOrgPolicyItems } from "./org-policy-items.js";
 import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
@@ -1899,6 +1899,7 @@ function createRoutes(
   // preview without writing anything; install reuses the cloud-plugin
   // machinery, so uninstall goes through DELETE /cloud-plugins/:pluginId.
   addRoute(routes, "POST", "/workspace/:id/claude-plugins", "client", async (ctx) => {
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const url = typeof body.url === "string" ? body.url.trim() : "";
@@ -3803,7 +3804,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const result = await listPlugins(config, workspace.id, workspace.path, includeGlobal);
-    return jsonResponse(result);
+    return jsonResponse({ ...result, items: [...result.items, ...(await orgPolicyPlugins(orgPolicyEngineDir(config)))] });
   });
 
   addRoute(routes, "POST", "/workspace/:id/plugins", "client", async (ctx) => {

@@ -16,7 +16,7 @@ import {
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { ApiError } from "./errors.js";
 import { appliedOrgPolicy, readOrgPolicyState, readOrgPolicyView, requireOrgPolicyAllows } from "./org-policy.js";
-import type { ServerConfig } from "./types.js";
+import type { PluginItem, ServerConfig } from "./types.js";
 
 /**
  * The Firm Hub items the firm's policy installs for every member: connectors
@@ -207,6 +207,11 @@ export async function requireHubInstallAllowed(config: ServerConfig, hubKind: st
 }
 
 /** The firm's connectors as shared, without their credentials. */
+/** The firm's plugins, listed beside the member's own. */
+export async function orgPolicyPlugins(dir: string): Promise<PluginItem[]> {
+  return ((await readManifest(dir))?.items ?? []).flatMap((item) => (item.kind === "plugin" ? [{ spec: item.spec ?? item.name, source: "org", scope: "project" }] : []));
+}
+
 export async function orgPolicyConnectors(dir: string): Promise<Array<{ name: string; config: Record<string, unknown> }>> {
   return ((await readManifest(dir))?.items ?? []).flatMap((item) => (item.mcp ? [{ name: item.mcp.key, config: item.mcp.config }] : []));
 }
