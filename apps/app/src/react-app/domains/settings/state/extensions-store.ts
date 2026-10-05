@@ -740,7 +740,7 @@ export function createExtensionsStore(options: {
     );
     mutateState((current) => ({
       ...current,
-      pluginList: toConfigPluginListEntries(nextPluginNames),
+      pluginList: [...toConfigPluginListEntries(nextPluginNames), ...current.pluginList.filter((entry) => entry.source === "org")],
       pluginStatus: nextPluginStatus,
     }));
   };
@@ -1197,7 +1197,8 @@ export function createExtensionsStore(options: {
         if (refreshPluginsAborted) return;
         const result = await legalworkClient.listPlugins(legalworkWorkspaceId, { includeGlobal: false });
         if (refreshPluginsAborted) return;
-        const projectItems = result.items.filter((item) => item.scope === "project");
+        // The firm's plugins apply everywhere: listed in both views.
+        const projectItems = result.items.filter((item) => item.scope === "project" || item.source === "org");
         const list = toProjectPluginListEntries(projectItems);
         mutateState((current) => ({
           ...current,
@@ -1273,6 +1274,9 @@ export function createExtensionsStore(options: {
     try {
       mutateState((current) => ({ ...current, pluginStatus: null, sidebarPluginStatus: null }));
       if (refreshPluginsAborted) return;
+      const firmPlugins = canUseLegalworkServer && legalworkClient && legalworkWorkspaceId
+        ? toProjectPluginListEntries(((await legalworkClient.listPlugins(legalworkWorkspaceId).catch(() => null))?.items ?? []).filter((item) => item.source === "org"))
+        : [];
       const config = (await readOpencodeConfig(scope, targetDir)) as OpencodeConfigFile;
       if (refreshPluginsAborted) return;
       mutateState((current) => ({ ...current, pluginConfig: (config as OpencodeConfigFile | null), pluginConfigPath: config.path ?? null }));
@@ -1280,7 +1284,7 @@ export function createExtensionsStore(options: {
       if (!config.exists) {
         mutateState((current) => ({
           ...current,
-          pluginList: [],
+          pluginList: firmPlugins,
           pluginStatus: t("skills.no_opencode_found"),
           sidebarPluginList: [],
           sidebarPluginStatus: t("skills.no_opencode_workspace"),
@@ -1311,7 +1315,7 @@ export function createExtensionsStore(options: {
 
       mutateState((current) => ({
         ...current,
-        pluginList: toConfigPluginListEntries(nextPluginNames),
+        pluginList: [...toConfigPluginListEntries(nextPluginNames), ...firmPlugins],
         pluginStatus: nextPluginStatus,
         sidebarPluginList: nextSidebarPluginList,
         sidebarPluginStatus: nextSidebarPluginStatus,

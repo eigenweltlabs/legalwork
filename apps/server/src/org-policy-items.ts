@@ -209,7 +209,7 @@ export async function requireHubInstallAllowed(config: ServerConfig, hubKind: st
 /** The firm's connectors as shared, without their credentials. */
 /** The firm's plugins, listed beside the member's own. */
 export async function orgPolicyPlugins(dir: string): Promise<PluginItem[]> {
-  return ((await readManifest(dir))?.items ?? []).flatMap((item) => (item.kind === "plugin" ? [{ spec: item.spec ?? item.name, source: "org", scope: "project" }] : []));
+  return ((await readManifest(dir))?.items ?? []).flatMap((item) => (item.kind === "plugin" ? [{ spec: item.spec ?? item.name, source: "org", scope: "global" }] : []));
 }
 
 export async function orgPolicyConnectors(dir: string): Promise<Array<{ name: string; config: Record<string, unknown> }>> {

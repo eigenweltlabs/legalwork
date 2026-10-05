@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Blocks, Cpu, Download, HardDrive, Package, Plug, type LucideIcon } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -100,7 +100,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [selectedScope, setHubScope] = useState<HubScope>("local");
   const teamHub = props.hasTeamHub === true;
   const hubScope = teamHub || tab === "storage" ? selectedScope : "local";
-  const pluginCount = useMemo(() => props.extensions.pluginList().length, [props.extensions]);
+  const pluginCount = props.extensions.pluginList().length;
 
   const selectTab = (next: ExtensionsTab) => {
     setTab(next);
