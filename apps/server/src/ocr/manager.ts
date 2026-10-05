@@ -5,7 +5,8 @@ import { z } from "zod";
 import type { OcrSettingsView } from "@legalwork/types/ocr";
 import { ApiError } from "../errors.js";
 import { createConfiguredOcrService } from "./index.js";
-import { isLoopbackOcrEndpoint, OcrSettingsStore, serverEngineSchema } from "./settings.js";
+import { isLoopbackOcrEndpoint, OcrSettingsStore, serverEngineSchema, type OcrSettings, type ServerEngineSettings } from "./settings.js";
+import type { OcrSecretResolver } from "./server-engine.js";
 import { OcrRuntime, ocrTestPage } from "./runtime.js";
 import { layoutModelAsset } from "./models.js";
 import { OcrVault, vaultLock } from "./vault.js";
@@ -18,6 +19,17 @@ const serverInput = z.strictObject({
   apiKey: z.string().trim().min(1).max(16_384).optional(),
 });
 
+/**
+ * What a firm's policy adds: its engines (keys resolved through `org:`
+ * references), its default, and whether members may add their own.
+ */
+export type FirmOcr = {
+  engines: ServerEngineSettings[];
+  defaultEngineId: string | null;
+  allowCustom: boolean;
+  resolveApiKey: OcrSecretResolver;
+};
+
 /** Host-owned configuration, independent of any document tool. Never exposes credentials. */
 export class OcrManager {
   readonly store: OcrSettingsStore;
@@ -29,33 +41,47 @@ export class OcrManager {
   private automaticPending = false;
   private automaticCancelled = false;
   private stopped = false;
-  constructor(root: string) {
+  constructor(root: string, private readonly firm?: () => Promise<FirmOcr>) {
     this.store = new OcrSettingsStore(join(root, "settings.json"));
     this.vault = new OcrVault(join(root, "keys.vault"));
     this.runtime = new OcrRuntime(root);
   }
+  /** The member's settings with the firm's engines and default applied. */
+  private async effective(): Promise<{ settings: OcrSettings; resolveApiKey: OcrSecretResolver; managed: Set<string> }> {
+    const settings = await this.store.read();
+    const own: OcrSecretResolver = (reference) => this.vault.get(reference);
+    const firm = await this.firm?.();
+    if (!firm) return { settings, resolveApiKey: own, managed: new Set() };
+    const engines = [...settings.engines.filter((engine) => engine.kind === "local" || firm.allowCustom), ...firm.engines];
+    const ids = engines.map((engine) => engine.id);
+    const defaultEngineId = firm.defaultEngineId && ids.includes(firm.defaultEngineId) ? firm.defaultEngineId
+      : ids.includes(settings.defaultEngineId) ? settings.defaultEngineId : "local-fast";
+    return {
+      settings: { ...settings, engines, defaultEngineId },
+      resolveApiKey: (reference) => (reference.startsWith("org:") ? firm.resolveApiKey(reference) : own(reference)),
+      managed: new Set(firm.engines.map((engine) => engine.id)),
+    };
+  }
   async service() {
-    return createConfiguredOcrService(await this.store.read(), {
-      localRuntime: this.runtime.local, resolveApiKey: (reference) => this.vault.get(reference),
-    });
+    const { settings, resolveApiKey } = await this.effective();
+    return createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey });
   }
   async view(readOnly = false): Promise<OcrSettingsView> {
-    const settings = await this.store.read();
-    const info = createConfiguredOcrService(settings, {
-      localRuntime: this.runtime.local, resolveApiKey: (reference) => this.vault.get(reference),
-    }).listEngines();
+    const { settings, resolveApiKey, managed } = await this.effective();
+    const info = createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey }).listEngines();
     return {
       defaultEngineId: settings.defaultEngineId, readOnly,
       installerAvailable: await this.runtime.available(), installation: this.runtime.installation ?? (this.automaticPending ? { engineId: "local-fast", stage: "runtime" } : null),
       layout: { model: "pp-doclayout-v3-onnx", bytes: layoutModelAsset.bytes, status: await this.runtime.layoutReady() ? "ready" : "not-installed" },
       engines: await Promise.all(settings.engines.map(async (engine) => {
-        const keyConfigured = engine.kind !== "local" && engine.apiKeyRef !== null && Boolean(await this.vault.get(engine.apiKeyRef));
+        const keyConfigured = engine.kind !== "local" && engine.apiKeyRef !== null && Boolean(await resolveApiKey(engine.apiKeyRef));
         return {
           id: engine.id, label: engine.label, kind: engine.kind, model: engine.model,
           endpoint: engine.kind !== "local" ? engine.endpoint : undefined,
           authentication: engine.kind === "local" ? undefined : engine.apiKeyRef === null ? "none" : "api-key",
           languages: info.find((item) => item.id === engine.id)?.languages?.slice() ?? null,
           keyConfigured,
+          managed: managed.has(engine.id),
           status: engine.kind !== "local" ? (engine.apiKeyRef === null || keyConfigured ? "ready" : "missing-key")
             : !this.runtime.supported(engine.model) ? "unsupported"
             : await this.runtime.ready(engine.model) ? "ready" : "not-installed",
@@ -77,6 +103,7 @@ export class OcrManager {
     });
   }
   async saveServer(input: unknown, id?: string) {
+    if ((await this.firm?.())?.allowCustom === false) throw new ApiError(403, "org_policy_disallowed", "Your organization does not allow adding OCR providers.");
     const parsed = serverInput.safeParse(input);
     if (!parsed.success) throw new ApiError(400, "ocr_invalid_settings", "Check the name, model, language codes and endpoint. Use HTTPS or loopback HTTP, without URL credentials or query parameters.");
     return vaultLock(this.store.path, async () => {

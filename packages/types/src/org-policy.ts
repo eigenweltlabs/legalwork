@@ -80,6 +80,8 @@ export const OrgChatProviderSchema = z.strictObject({
   id: orgId,
   name,
   baseURL: httpsUrl,
+  /** The endpoint it speaks: `/chat/completions` (default) or `/responses` (OpenAI, Azure OpenAI). */
+  apiType: z.enum(["chat", "responses"]).optional(),
   models: z.array(OrgModelSchema).min(1).max(200),
   secretRef,
 });

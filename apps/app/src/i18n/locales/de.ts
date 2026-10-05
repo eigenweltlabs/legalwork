@@ -5837,6 +5837,8 @@ const de = {
   "org_policy.confirm_change": "Trotzdem ändern",
   "org_policy.restored_one": "{org} hat {count} Einstellung wiederhergestellt, die Sie geändert hatten.",
   "org_policy.restored_other": "{org} hat {count} Einstellungen wiederhergestellt, die Sie geändert hatten.",
+  "org_policy.disallowed": "{org} erlaubt dies nicht.",
+  "org_policy.providers_sign_in": "Die KI-Anbieter von {org} stehen wieder zur Verfügung, sobald Sie sich anmelden.",
 } as const;
 
 export default de;

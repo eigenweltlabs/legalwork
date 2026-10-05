@@ -54,6 +54,7 @@ export type ProviderAuthLegalworkServer = {
 };
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
+import { orgPolicyAllows } from "../org-policy";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -1362,6 +1363,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     preferredProviderId?: string;
     startOAuth?: boolean;
   }) {
+    // Every way to add a provider leads here: the firm may not allow members' own.
+    if (!(await orgPolicyAllows("ai.allowCustomProviders"))) return;
     mutateState((current) => ({
       ...current,
       providerAuthReturnFocusTarget: optionsArg?.returnFocusTarget ?? "none",

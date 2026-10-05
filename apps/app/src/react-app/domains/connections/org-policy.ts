@@ -4,6 +4,8 @@ import type { OrgPolicyKey } from "@legalwork/types/org-policy";
 import type { OrgPolicyView, OrgPolicyViewEntry } from "@legalwork/types/org-policy-view";
 
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
+import { toast } from "@/components/ui/sonner";
+import { t } from "@/i18n";
 import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 
@@ -68,6 +70,30 @@ export async function changeOrgPolicySetting(key: OrgPolicyKey, change: () => vo
   }
   await change();
   return true;
+}
+
+type AllowKey = "connectors.allowCustom" | "plugins.allowCustom" | "skills.allowCustom" | "storage.allowPersonal" | "ai.allowCustomProviders";
+
+/**
+ * Before an action the firm may switch off; true when it may go ahead.
+ * Switched off while signed in: says so and refuses. After sign-out: asks,
+ * then takes the setting back.
+ */
+export async function orgPolicyAllows(key: AllowKey): Promise<boolean> {
+  const view = useOrgPolicyStore.getState().view;
+  const entry = appliedOrgPolicy(view, key);
+  if (entry?.value !== false) return true;
+  if (entry.locked) {
+    toast(t("org_policy.disallowed", { org: view?.orgName || t("org_policy.your_firm") }));
+    return false;
+  }
+  return changeOrgPolicySetting(key, () => undefined);
+}
+
+/** Whether the firm switched an action off while signed in (its control shows disabled). */
+export function useOrgPolicyForbids(key: AllowKey): boolean {
+  const entry = useOrgPolicy(key);
+  return entry?.locked === true && entry.value === false;
 }
 
 export function answerOrgPolicyConfirm(confirmed: boolean): void {

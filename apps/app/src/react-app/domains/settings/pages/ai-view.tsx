@@ -16,6 +16,8 @@ import {
   LayoutSectionTitle,
   LayoutStack,
 } from "../settings-layout";
+import { useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote, OrgPolicySignInHint } from "../../connections/org-policy-ui";
 
 type ConnectedProvider = {
   id: string;
@@ -66,6 +68,7 @@ function providerSourceLabel(source?: ConnectedProvider["source"]) {
 }
 
 export function AiSettingsView(props: AiSettingsViewProps) {
+  const providersForbidden = useOrgPolicyForbids("ai.allowCustomProviders");
   return (
     <LayoutStack>
       {/* ---- Providers ---- */}
@@ -77,7 +80,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
               variant="default"
               size="sm"
               onClick={() => void props.onOpenProviderAuth()}
-              disabled={props.busy || props.providerAuthBusy}
+              disabled={props.busy || props.providerAuthBusy || providersForbidden}
             >
               {props.providerAuthBusy
                 ? t("settings.loading_providers")
@@ -85,6 +88,8 @@ export function AiSettingsView(props: AiSettingsViewProps) {
             </Button>
           </div>
           <LayoutSectionDescription>{t("settings.providers_desc")}</LayoutSectionDescription>
+          <OrgPolicyNote policyKey="ai.allowCustomProviders" />
+          <OrgPolicySignInHint policyKey="ai.chat.providers" />
         </LayoutSectionHeader>
 
         <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3">

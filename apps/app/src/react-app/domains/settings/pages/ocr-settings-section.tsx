@@ -16,6 +16,8 @@ import {
   LayoutSection, LayoutSectionDescription, LayoutSectionHeader, LayoutSectionItem,
   LayoutSectionTitle,
 } from "../settings-layout";
+import { changeOrgPolicySetting, orgPolicyAllows, useOrgPolicy, useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote, OrgPolicySignInHint } from "../../connections/org-policy-ui";
 
 type Engine = OcrSettingsView["engines"][number];
 type Draft = { id?: string; kind: OcrApiType; authentication: "api-key" | "none"; label: string; endpoint: string; model: string; apiKey: string; languages: string[] | null };
@@ -60,6 +62,8 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
   const [formError, setFormError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Engine | null>(null);
   const [showInstallSuccess, setShowInstallSuccess] = useState(false);
+  const providersForbidden = useOrgPolicyForbids("ai.allowCustomProviders");
+  const defaultLocked = useOrgPolicy("ai.ocr.defaultEngine")?.locked === true;
   const installing = activeInstall(settings);
   const installStage = settings?.installation?.stage;
   const layoutInstalling = installing && settings?.installation?.engineId === "local-layout";
@@ -159,7 +163,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
           {engine.kind === "local" ? <p className="mt-1 text-xs text-dls-secondary">{t(engine.model === "pp-ocrv6-small" ? "ocr.fast_description" : "ocr.quality_description")}</p> : null}
         </div>
         <ProviderActionsMenu name={engine.kind === "local" ? engineLabel(engine) : engine.model} disabled={disabled}>
-          {!selected ? <DropdownMenuItem disabled={engine.status !== "ready" || (engine.kind === "local" && installing)} onClick={() => client && void update(() => client.setDefaultOcrEngine(engine.id))}>{t("ocr.use_default")}</DropdownMenuItem> : null}
+          {!selected && !defaultLocked ? <DropdownMenuItem disabled={engine.status !== "ready" || (engine.kind === "local" && installing)} onClick={() => client && void changeOrgPolicySetting("ai.ocr.defaultEngine", () => update(() => client.setDefaultOcrEngine(engine.id)))}>{t("ocr.use_default")}</DropdownMenuItem> : null}
           {engine.kind === "local" && engine.status !== "unsupported" && engine.status !== "ready" ? <DropdownMenuItem disabled={installing || !settings.installerAvailable} onClick={() => client && void update(() => client.installOcrEngine(engine.id))}>{t("ocr.download")}</DropdownMenuItem> : null}
           <DropdownMenuItem disabled={engine.status !== "ready" || installing} onClick={() => void test(engine)}>{t("ocr.test")}</DropdownMenuItem>
         </ProviderActionsMenu>
@@ -174,9 +178,14 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
       <LayoutSectionHeader>
         <div className="flex items-center justify-between gap-3">
           <LayoutSectionTitle>{t("ocr.title")}</LayoutSectionTitle>
-          {client ? <Button variant="default" size="sm" disabled={disabled} onClick={() => { setFormError(null); setDraft(emptyDraft()); }}>{t("ocr.add_provider")}</Button> : null}
+          {client ? <Button variant="default" size="sm" disabled={disabled || providersForbidden} onClick={async () => {
+            if (!(await orgPolicyAllows("ai.allowCustomProviders"))) return;
+            setFormError(null); setDraft(emptyDraft());
+          }}>{t("ocr.add_provider")}</Button> : null}
         </div>
         <LayoutSectionDescription>{t("ocr.description")}</LayoutSectionDescription>
+        <OrgPolicyNote policyKey="ai.ocr.defaultEngine" />
+        <OrgPolicySignInHint policyKey="ai.ocr.engines" />
       </LayoutSectionHeader>
       {!client ? <SettingsNotice>{t("ocr.no_server")}</SettingsNotice> : null}
       {client && !settings && !error ? <SettingsNotice>{t("ocr.loading")}</SettingsNotice> : null}
@@ -205,13 +214,13 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
             <ScanText size={20} className="shrink-0 text-dls-text" />
             <div className="min-w-0"><p className="truncate text-sm font-medium">{engine.label}</p><p className="truncate text-xs text-dls-secondary" title={engine.endpoint}>{engine.endpoint}</p></div>
           </div>
-          <ProviderActionsMenu name={engine.label} disabled={disabled}>
+          {engine.managed ? null : <ProviderActionsMenu name={engine.label} disabled={disabled}>
             <DropdownMenuItem onClick={() => {
               if (engine.kind === "local") return;
               setFormError(null); setDraft({ id: engine.id, kind: engine.kind, authentication: engine.authentication ?? "api-key", label: engine.label, endpoint: engine.endpoint ?? "", model: engine.model, languages: engine.languages, apiKey: "" });
             }}>{t("ocr.edit")}</DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={() => setRemoving(engine)}>{t("ocr.remove")}</DropdownMenuItem>
-          </ProviderActionsMenu>
+          </ProviderActionsMenu>}
         </div>
         <div className="mt-3 w-full border-t border-dls-border">{engineRow(engine)}</div>
       </LayoutSectionItem>)}

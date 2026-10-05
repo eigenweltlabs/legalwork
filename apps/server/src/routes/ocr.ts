@@ -2,6 +2,7 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
 import { OcrManager } from "../ocr/manager.js";
 import { OcrError } from "../ocr/types.js";
+import { requireOrgPolicyUnmanaged } from "../org-policy.js";
 import { addRoute, type Route, type RequestContext } from "./registry.js";
 
 export function registerOcrRoutes(options: {
@@ -28,6 +29,7 @@ export function registerOcrRoutes(options: {
   route("PUT", "/ocr/default", async (ctx) => {
     const input = await body(ctx);
     if (typeof input.engineId !== "string") throw new ApiError(400, "ocr_invalid_settings", "Choose an OCR model.");
+    await requireOrgPolicyUnmanaged(config, "ai.ocr.defaultEngine");
     await ocr.setDefault(input.engineId); return ocr.view(config.readOnly);
   });
   route("POST", "/ocr/servers", async (ctx) => { await ocr.saveServer(await body(ctx)); return ocr.view(config.readOnly); });

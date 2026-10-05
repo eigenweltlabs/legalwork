@@ -193,8 +193,9 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
-import { onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyToolsUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
+import { onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { orgOcr } from "./org-policy-ai.js";
 import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
@@ -802,7 +803,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const corpus = new CorpusService({
     selection: async () => {
@@ -3653,6 +3654,10 @@ function createRoutes(
       const logicalUpdates: Record<string, unknown> = { ...topLevelUpdates };
 
       const providerUpdate = ensurePlainObject(provider);
+      // Removing a provider is always possible; adding one the firm may not allow.
+      if (Object.values(providerUpdate).some((entry) => entry !== null)) {
+        await requireOrgPolicyAllows(config, "ai.allowCustomProviders");
+      }
       if (Object.keys(providerUpdate).length) {
         // Mark disconnections before deleting config: the engine may still
         // return its old provider until the client finishes reloading it.
@@ -4953,16 +4958,20 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
     state.timer = null;
     idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
       if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
+      let reloaded = false;
       for (const id of [...state.pending]) {
         const workspace = config.workspaces.find((candidate) => candidate.id === id);
         try {
           if (workspace && await workspaceEngineBusy(config, workspace)) continue;
           if (workspace) await reloadOpencodeEngine(config, workspace);
           state.pending.delete(id);
+          reloaded = true;
         } catch {
           // Unreachable now: tried again with the busy ones.
         }
       }
+      // The windows re-read what the engine offers (the firm's providers, its rules).
+      if (reloaded) announceSyncChange(config, "policy");
       state.attempts += 1;
       if (state.pending.size > 0 && state.attempts < ORG_POLICY_RELOAD_ATTEMPTS) {
         state.timer = setTimeout(run, ORG_POLICY_RELOAD_RETRY_MS);

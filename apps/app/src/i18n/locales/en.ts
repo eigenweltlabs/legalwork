@@ -5446,4 +5446,6 @@ export default {
   "org_policy.confirm_change": "Change anyway",
   "org_policy.restored_one": "{org} restored {count} setting you had changed.",
   "org_policy.restored_other": "{org} restored {count} settings you had changed.",
+  "org_policy.disallowed": "{org} does not allow this.",
+  "org_policy.providers_sign_in": "The AI providers of {org} are available again after you sign in.",
 } as const;
