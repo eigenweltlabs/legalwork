@@ -104,6 +104,23 @@ Maximized-header analysis only: both the workspace overlay and the existing indi
 
 ![Stable tab and save controls during a held synthetic DOCX save](./document-workspace-stable-chrome.png)
 
+## DOCX selection clipping repair — 5 October
+
+The earlier selection investigation is now repaired in LegalWork's layout adapter for the pinned Eigenpal 1.8.3 editor. No editor package, existing package patch, document model, selection mapping or save code was changed.
+
+The fitted scroll track could be narrower than the unscaled page stack. Eigenpal's overlay clipped otherwise correct selection rectangles to that track. The adapter now measures the native stack and extends **only the overlay's bounded paint clip** by half the excess width. Its coordinate origin stays unchanged, and the outer scrolling viewport still clips to the document pane. The stack is observed so wider sections and later page layout changes can update the bound; text/selection changes do not add a new subtree observer.
+
+Resizing also exposed stale selection positions during the existing animated scale and the adapter's frame-delayed zoom override. The adapter now leaves Eigenpal's native zoom transform intact, cancels only the narrow-pane sidebar offset using the library's exported `SIDEBAR_DOCUMENT_SHIFT`, and disables the scale transition. Native selection geometry therefore sees the displayed scale immediately. This uses the installed package's source/types, not assumptions about a newer upstream API.
+
+Validation with synthetic originals:
+
+- Before: 26 of 33 selection rectangles extended beyond the clip at a 489px pane width. After: zero outside the effective clip at widths 217, 272, 326, 380, 435, 489 and 544px; selection remained aligned through divider resizing. The title rectangle differed from its painted text by less than 0.01px.
+- Native 50% and 100% zoom, automatic 25% minimum zoom, and the 899/900/901px comment-rail boundary in both directions retained the selection and its alignment. Both horizontal and vertical split layouts and an expanded document were checked; comments were toggled in the wide view.
+- A three-page fixture with tracked revisions, comments and a table produced 91 selection rectangles, none outside the effective clip; scrolling to page 2 retained them. A native mouse double-click and keyboard line selection worked. The caret at the left text edge in a 489px pane was inside the clip and exactly aligned with the text.
+- **807 app tests passed**, including the 17 focused DOCX state, round-trip and performance tests; app typecheck, production UI build (existing warnings) and whitespace checks passed. No user document was edited.
+
+![Selection across a narrow three-page synthetic document](./document-selection-fixed.png)
+
 ## Editor documentation checked
 
 The pinned packages are `@eigenpal/docx-editor-react`, `core` and `agents` **1.8.3**, including this repository's existing patches. The [published React package documentation](https://www.npmjs.com/package/%40eigenpal/docx-editor-react) exposes change/save APIs and `useAutoSave`. The installed `dist/hooks.d.ts` documents `useAutoSave`'s localStorage recovery manager, with a storage key, recovery/discard operations and a save timestamp callback. It does not provide LegalWork's original-file persistence or conflict checks.
