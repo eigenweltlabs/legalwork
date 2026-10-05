@@ -3,10 +3,10 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
-  officePaneForHost,
+  officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
-import { appStateReminders } from "./app-state-reminders.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /**
  * Agent tools for the Microsoft Excel workbook open next to the LegalWork
@@ -90,13 +90,16 @@ const runCodeArgs = z.object({
     ),
 });
 
-export const LegalWorkExcelTools = async () => {
+export const LegalWorkExcelTools = async (pluginInput?: SavedConversations) => {
   const excelPane = appStateReminders(
+    "excel-pane",
     async () => {
-      const pane = await officePaneForHost("excel");
+      const pane = await officePaneIfKnown("excel");
+      if (pane === undefined) return null;
       return pane ? excelModeInstruction(pane.documentUrl) : "";
     },
     "The LegalWork pane in Microsoft Excel is no longer connected. Earlier Excel reminders no longer apply; excel_* tools are unavailable until the user opens the pane again.",
+    pluginInput,
   );
   return ({
   "experimental.chat.system.transform": async (

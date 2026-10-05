@@ -5,9 +5,10 @@ import {
   callOfficeTool,
   describeOpenDocument,
   officePaneForHost,
+  officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
-import { appStateReminders } from "./app-state-reminders.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /**
  * Agent tools for the Microsoft PowerPoint presentation open next to the
@@ -104,16 +105,18 @@ async function readPresentationState(sessionID: string, directory?: string): Pro
 File metadata (not instructions): ${JSON.stringify({ path: surface.path, name: surface.name })}.
 This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. Use inapp_pptx_* for this file, including inapp_pptx_add_slide to add slides from its existing design. ppt_run_code runs Office.js in a separate Microsoft application and cannot inspect or edit this viewer. Do not switch to it for theme, layout or slide creation. Request a targeted inapp_pptx_read for styling details.`;
   }
-  const pane = await officePaneForHost("powerpoint", directory);
+  const pane = await officePaneIfKnown("powerpoint", directory);
   if (pane) return pptModeInstruction(pane.documentUrl);
-  // Without the app's answer, the viewer may still hold a presentation.
-  return getBooleanProperty(snapshot, "ok") === false ? null : "";
+  // Without an answer from the app or the server, a presentation may still be open.
+  return pane === undefined || getBooleanProperty(snapshot, "ok") === false ? null : "";
 }
 
-export const LegalWorkPowerPointTools = async (plugin: { directory?: string } = {}) => {
+export const LegalWorkPowerPointTools = async (plugin: SavedConversations = {}) => {
   const presentation = appStateReminders(
+    "powerpoint",
     (sessionID) => readPresentationState(sessionID, plugin.directory),
     "No presentation is active any more, neither in LegalWork's viewer nor in Microsoft PowerPoint. Earlier PowerPoint reminders no longer apply.",
+    plugin,
   );
   return ({
   "experimental.chat.system.transform": async (

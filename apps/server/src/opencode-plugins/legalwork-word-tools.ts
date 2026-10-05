@@ -4,9 +4,10 @@ import {
   callOfficeTool,
   describeOpenDocument,
   officePaneForHost,
+  officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
-import { appStateReminders } from "./app-state-reminders.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /**
  * Agent tools for editing the Microsoft Word document that is open next to
@@ -139,13 +140,16 @@ export function isOpenWordFilePipelineCall(
   return text.includes(documentUrl.toLowerCase()) || text.includes(decodedUrl) || Boolean(name && text.includes(name));
 }
 
-export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) => {
+export const LegalWorkWordTools = async (pluginInput?: SavedConversations) => {
   const wordPane = appStateReminders(
+    "word-pane",
     async () => {
-      const pane = await officePaneForHost("word", pluginInput?.directory);
+      const pane = await officePaneIfKnown("word", pluginInput?.directory);
+      if (pane === undefined) return null;
       return pane ? wordModeInstruction(pane.documentUrl) : "";
     },
     "The LegalWork pane in Microsoft Word is no longer connected. Earlier Word reminders no longer apply; word_* tools are unavailable until the user opens the pane again.",
+    pluginInput,
   );
   return ({
   "experimental.chat.system.transform": async (

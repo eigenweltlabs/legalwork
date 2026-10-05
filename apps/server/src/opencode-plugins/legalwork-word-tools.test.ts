@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import {
   isOpenWordFilePipelineCall,
   LegalWorkWordTools,
@@ -53,6 +53,47 @@ describe("LegalWork Word tools", () => {
       expect(system).toContain("## Microsoft Word document tools");
       expect(system).not.toContain("NDA Example.docx");
     } finally {
+      globalThis.fetch = originalFetch;
+      if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
+      else process.env.LEGALWORK_SERVER_URL = originalUrl;
+      if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
+      else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+    }
+  });
+
+  test("treats a failed pane check as no change, not as a disconnect", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalUrl = process.env.LEGALWORK_SERVER_URL;
+    const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+    process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
+    process.env.LEGALWORK_SERVER_TOKEN = "test-token";
+    let pane: "connected" | "failing" | "closed" = "connected";
+    globalThis.fetch = Object.assign(
+      async (input: Parameters<typeof fetch>[0]) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url.endsWith("/workspaces")) return Response.json({ items: [{ id: "matter", path: "/Users/lawyer/Matter" }] });
+        if (pane === "failing") return new Response("Unavailable", { status: 503 });
+        return Response.json(pane === "connected" ? { connected: true, hosts: [{ host: "word", documentUrl: OPEN_DOCUMENT }] } : { connected: false, hosts: [] });
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    try {
+      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
+      expect((await modelContext(plugin)).reminder).toContain("NDA Example.docx");
+      // Past the short cache for a connected pane.
+      setSystemTime(new Date(Date.now() + 10_000));
+      pane = "failing";
+      const failed = { output: "read" };
+      await plugin["tool.execute.after"]({ sessionID: "ses_word" }, failed);
+      expect(failed.output).toBe("read");
+
+      pane = "closed";
+      const closed = { output: "read" };
+      await plugin["tool.execute.after"]({ sessionID: "ses_word" }, closed);
+      expect(closed.output).toContain("no longer connected");
+    } finally {
+      setSystemTime();
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
