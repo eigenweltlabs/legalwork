@@ -91,7 +91,15 @@ export function setAnalyticsConsentOverride(enabled: boolean): void {
   consentOverride = enabled;
 }
 
+// The firm's policy may switch sharing off (never on); while it does, nothing is sent.
+let firmRefused = false;
+export function setFirmAnalyticsRefused(refused: boolean): void {
+  if (refused) queue = [];
+  firmRefused = refused;
+}
+
 export function isAnalyticsEnabled(): boolean {
+  if (firmRefused) return false;
   if (consentOverride !== null) return consentOverride;
   return getStoredAnalyticsConsent() === true;
 }
@@ -103,6 +111,7 @@ export function isAnalyticsEnabled(): boolean {
  * silences — from that moment captures are discarded and the queue is purged.
  */
 function isAnalyticsRefused(): boolean {
+  if (firmRefused) return true;
   if (consentOverride !== null) return !consentOverride;
   return getStoredAnalyticsConsent() === false;
 }

@@ -192,6 +192,8 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
+import { onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, scheduleOrgPolicySync } from "./org-policy.js";
+import { isOrgPolicyKey } from "@legalwork/types/org-policy";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
   EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
@@ -782,6 +784,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   const stopProjectSyncTimer = startProjectSyncTimer(config);
   // The firm pokes this computer when something changed, so rounds start at once.
   const stopSyncEvents = startSyncEvents(config);
+  // The firm's policy: pulled now and whenever the firm pokes; what changes
+  // the engine's settings reloads the engines once they are idle.
+  const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
+    if (scopes.has("engine")) applyOrgPolicyToEngines(config);
+  });
+  void scheduleOrgPolicySync(config, { force: true });
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
@@ -1027,6 +1035,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopTaskSync();
       stopProjectSyncTimer();
       stopSyncEvents();
+      stopOrgPolicy();
       stopTaskReminders();
       benchmarkRunner.dispose();
       watcherHandle.close();
@@ -2412,6 +2421,8 @@ function createRoutes(
       }
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
+      // The firm's settings stay; its secrets go, and enforced settings unlock.
+      await scheduleOrgPolicySync(config, { force: true });
       await rebuildEngineConfigFile(workspace);
       return jsonResponse(await readEigenweltEntitlementsView(config));
     }
@@ -2452,6 +2463,7 @@ function createRoutes(
       }
       return view;
     });
+    if (view.connected) void scheduleOrgPolicySync(config, { force: true });
     return jsonResponse(view);
   });
 
@@ -2470,6 +2482,21 @@ function createRoutes(
     return jsonResponse(await eigenweltUsageRequest(config, body));
   });
 
+  // The firm's policy as it applies on this computer. Taking a setting back
+  // is the device owner's choice, made in the app: never an agent's or a
+  // remote collaborator's.
+  addRoute(routes, "GET", "/org-policy", "client", async () => jsonResponse(await readOrgPolicyView(config)));
+  addRoute(routes, "POST", "/org-policy/release", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const body = await readJsonBodyLimited(ctx.request, 1024);
+    if (typeof body.key !== "string" || !isOrgPolicyKey(body.key)) {
+      throw new ApiError(400, "invalid_org_policy_key", "Unknown setting.");
+    }
+    await releaseOrgPolicyKey(config, body.key);
+    return jsonResponse(await readOrgPolicyView(config));
+  });
+
   addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     // Opportunistically refresh (rotate the token + pull current entitlements)
@@ -2480,8 +2507,9 @@ function createRoutes(
     if (view.connected) {
       await syncEigenweltModels(force);
       // The app reads this right after a sign-in and every few minutes after:
-      // a good moment to bring the tasks up to date too.
+      // a good moment to bring the tasks, and the firm's policy, up to date too.
       scheduleTaskSync(config);
+      void scheduleOrgPolicySync(config);
     }
     const cachedManifest = await readCachedEigenweltPaidManifest(config);
     const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
@@ -4884,6 +4912,45 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
       }
     }
   });
+}
+
+// The firm's policy changed the engine's settings: the config file is
+// rebuilt, and every local workspace's engine reloads once no task runs in
+// it. A busy one is tried again every half minute, for up to half an hour;
+// an engine instance built later reads the new file anyway.
+const ORG_POLICY_RELOAD_RETRY_MS = 30_000;
+const ORG_POLICY_RELOAD_ATTEMPTS = 60;
+const orgPolicyReloads = new WeakMap<ServerConfig, { pending: Set<string>; attempts: number; timer: ReturnType<typeof setTimeout> | null }>();
+
+function applyOrgPolicyToEngines(config: ServerConfig): void {
+  const primary = config.workspaces?.[0]?.id;
+  const state = orgPolicyReloads.get(config) ?? { pending: new Set<string>(), attempts: 0, timer: null };
+  orgPolicyReloads.set(config, state);
+  for (const workspace of config.workspaces) if (workspace.workspaceType !== "remote") state.pending.add(workspace.id);
+  state.attempts = 0;
+  const run = () => {
+    state.timer = null;
+    idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+      if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
+      for (const id of [...state.pending]) {
+        const workspace = config.workspaces.find((candidate) => candidate.id === id);
+        try {
+          if (workspace && await workspaceEngineBusy(config, workspace)) continue;
+          if (workspace) await reloadOpencodeEngine(config, workspace);
+          state.pending.delete(id);
+        } catch {
+          // Unreachable now: tried again with the busy ones.
+        }
+      }
+      state.attempts += 1;
+      if (state.pending.size > 0 && state.attempts < ORG_POLICY_RELOAD_ATTEMPTS) {
+        state.timer = setTimeout(run, ORG_POLICY_RELOAD_RETRY_MS);
+        state.timer.unref?.();
+      }
+    });
+  };
+  if (state.timer) clearTimeout(state.timer);
+  run();
 }
 
 // Whether a session in the workspace's engine instance is running (busy or

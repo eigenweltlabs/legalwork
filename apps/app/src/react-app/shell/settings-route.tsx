@@ -106,6 +106,7 @@ import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
+import { changeOrgPolicySetting, useOrgPolicy } from "@/react-app/domains/connections/org-policy";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "@/react-app/domains/settings/state/extensions-store";
@@ -823,6 +824,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       }
     },
   });
+  // The firm's update settings apply over the member's own while it manages them.
+  const firmAutoCheck = useOrgPolicy("updates.autoCheck");
+  const firmAutoDownload = useOrgPolicy("updates.autoDownload");
+  const firmReleaseChannel = useOrgPolicy("updates.channel");
+  const effectiveUpdateAutoCheck = firmAutoCheck ? firmAutoCheck.value : updateAutoCheck;
+  const effectiveUpdateAutoDownload = firmAutoDownload ? firmAutoDownload.value : updateAutoDownload;
+  const releaseChannel = firmReleaseChannel ? firmReleaseChannel.value : local.prefs.releaseChannel ?? "stable";
+  // The firm can only switch anonymous usage sharing off.
+  const analyticsEnabled = local.prefs.analyticsEnabled === true && useOrgPolicy("privacy.shareAnonymousUsage")?.value !== false;
   const onReleaseChannelChange = useCallback(
     (next: "stable" | "alpha") => {
       local.setPrefs((previous) => ({ ...previous, releaseChannel: next }));
@@ -830,10 +840,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     [local],
   );
   const electronUpdaterState = useElectronUpdaterState({
-    releaseChannel: local.prefs.releaseChannel ?? "stable",
+    releaseChannel,
     onReleaseChannelChange,
-    updateAutoCheck,
-    updateAutoDownload,
+    updateAutoCheck: effectiveUpdateAutoCheck,
+    updateAutoDownload: effectiveUpdateAutoDownload,
     setError: (message) => {
       if (message) {
         // Auto-checks can fail without any user action; alert + log to the
@@ -2158,12 +2168,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             autoCompactContext={autoCompactContext}
             autoCompactContextBusy={autoCompactContextBusy}
             onToggleAutoCompactContext={toggleAutoCompactContext}
-            analyticsEnabled={local.prefs.analyticsEnabled === true}
-            onToggleAnalytics={() => {
-              const turningOff = local.prefs.analyticsEnabled === true;
-              if (turningOff) discardPendingAnalytics();
-              local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
-            }}
+            analyticsEnabled={analyticsEnabled}
+            onToggleAnalytics={() => void changeOrgPolicySetting("privacy.shareAnonymousUsage", () => {
+              if (analyticsEnabled) discardPendingAnalytics();
+              local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !analyticsEnabled }));
+            })}
             hideAppMode={local.prefs.hideAppMode}
             onChangeHideAppMode={(mode) => {
               local.setPrefs((previous) => ({ ...previous, hideAppMode: mode }));
@@ -2436,17 +2445,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             webDeployment={platform.platform === "web"}
             appVersion={electronUpdaterState.appVersion}
             updateEnv={electronUpdaterState.updateEnv}
-            updateAutoCheck={updateAutoCheck}
-            toggleUpdateAutoCheck={() => setUpdateAutoCheck((current) => !current)}
-            updateAutoDownload={updateAutoDownload}
-            toggleUpdateAutoDownload={() => setUpdateAutoDownload((current) => !current)}
+            updateAutoCheck={effectiveUpdateAutoCheck}
+            toggleUpdateAutoCheck={() => void changeOrgPolicySetting("updates.autoCheck", () => setUpdateAutoCheck(!effectiveUpdateAutoCheck))}
+            updateAutoDownload={effectiveUpdateAutoDownload}
+            toggleUpdateAutoDownload={() => void changeOrgPolicySetting("updates.autoDownload", () => setUpdateAutoDownload(!effectiveUpdateAutoDownload))}
             updateStatus={electronUpdaterState.updateStatus}
             anyActiveRuns={activeReloadBlockingSessions.length > 0}
             checkForUpdates={electronUpdaterState.checkForUpdates}
             downloadUpdate={electronUpdaterState.downloadUpdate}
             installUpdateAndRestart={electronUpdaterState.installUpdateAndRestart}
-            releaseChannel={local.prefs.releaseChannel ?? "stable"}
-            onReleaseChannelChange={electronUpdaterState.setReleaseChannel}
+            releaseChannel={releaseChannel}
+            onReleaseChannelChange={(next) => void changeOrgPolicySetting("updates.channel", () => electronUpdaterState.setReleaseChannel(next))}
             alphaChannelSupported={isElectronRuntime() && (isMacPlatform() || isWindowsPlatform())}
           />
         );

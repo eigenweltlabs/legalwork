@@ -30,6 +30,8 @@ import {
   LayoutStack,
 } from "../settings-layout";
 import { Spinner } from "../settings-section";
+import { useOrgPolicy } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 const RELEASE_CHANNEL_OPTIONS: { label: string; value: ReleaseChannel }[] = [
   { label: "Stable", value: "stable" },
@@ -142,6 +144,9 @@ export type UpdatesViewProps = {
 
 export function UpdatesView(props: UpdatesViewProps) {
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
+  const channelLocked = useOrgPolicy("updates.channel")?.locked === true;
+  const autoCheckLocked = useOrgPolicy("updates.autoCheck")?.locked === true;
+  const autoDownloadLocked = useOrgPolicy("updates.autoDownload")?.locked === true;
   const updateState = props.updateStatus?.state ?? "idle";
   const updateVersion = props.updateStatus?.version ?? null;
   const updateDate = props.updateStatus?.date ?? null;
@@ -287,6 +292,7 @@ export function UpdatesView(props: UpdatesViewProps) {
                 <LayoutSectionItemDescription>
                   {t("updates.channel_note")}
                 </LayoutSectionItemDescription>
+                <OrgPolicyNote policyKey="updates.channel" />
                 <LayoutSectionItemHeaderActions>
                   <Select
                     value={props.releaseChannel}
@@ -296,7 +302,7 @@ export function UpdatesView(props: UpdatesViewProps) {
                         props.onReleaseChannelChange?.(value);
                       }
                     }}
-                    disabled={!props.onReleaseChannelChange}
+                    disabled={!props.onReleaseChannelChange || channelLocked}
                   >
                     <SelectTrigger aria-label={t("updates.release_channel")} className="w-48">
                       <SelectValue />
@@ -320,10 +326,12 @@ export function UpdatesView(props: UpdatesViewProps) {
               <LayoutSectionItemHeader>
                 <LayoutSectionItemTitle>{t("settings.background_checks_title")}</LayoutSectionItemTitle>
                 <LayoutSectionItemDescription>{t("settings.background_checks_desc")}</LayoutSectionItemDescription>
+                <OrgPolicyNote policyKey="updates.autoCheck" />
                 <LayoutSectionItemHeaderActions>
                   <Switch
                     aria-label={t("settings.background_checks_title")}
                     checked={props.updateAutoCheck}
+                    disabled={autoCheckLocked}
                     onCheckedChange={props.toggleUpdateAutoCheck}
                   />
                 </LayoutSectionItemHeaderActions>
@@ -334,10 +342,12 @@ export function UpdatesView(props: UpdatesViewProps) {
               <LayoutSectionItemHeader>
                 <LayoutSectionItemTitle>{t("settings.auto_update_title")}</LayoutSectionItemTitle>
                 <LayoutSectionItemDescription>{t("settings.auto_update_desc")}</LayoutSectionItemDescription>
+                <OrgPolicyNote policyKey="updates.autoDownload" />
                 <LayoutSectionItemHeaderActions>
                   <Switch
                     aria-label={t("settings.auto_update_title")}
                     checked={props.updateAutoDownload}
+                    disabled={autoDownloadLocked}
                     onCheckedChange={props.toggleUpdateAutoDownload}
                   />
                 </LayoutSectionItemHeaderActions>

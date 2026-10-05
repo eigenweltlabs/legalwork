@@ -151,6 +151,17 @@ const applyLocale = (next: Language) => {
 };
 
 /**
+ * The firm's language while its policy sets one: it shows over the member's
+ * choice, which applies again once this is null.
+ */
+let firmLanguage: Language | null = null;
+export const setFirmLanguage = (language: Language | null) => {
+  if (firmLanguage === language) return;
+  firmLanguage = language;
+  applyLocale(language ?? (preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue));
+};
+
+/**
  * Set locale and persist to localStorage
  */
 export const setLocale = (newLocale: Language) => {
@@ -183,7 +194,7 @@ export const setLanguagePreference = (preference: LanguagePreference) => {
     }
   }
 
-  applyLocale(preference === SYSTEM_LANGUAGE ? detectSystemLanguage() : preference);
+  applyLocale(firmLanguage ?? (preference === SYSTEM_LANGUAGE ? detectSystemLanguage() : preference));
   // The resolved locale can be unchanged (picking "German" while the system is
   // already German), but the Settings row still has to redraw.
   if (previousPreference !== preference) notify();

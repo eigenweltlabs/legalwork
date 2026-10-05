@@ -5823,6 +5823,20 @@ const de = {
   "tasks.due_label": "Fällig {date}",
   "tasks.due_none": "Keine Frist",
   "tasks.due_clear": "Entfernen",
+  "org_policy.your_firm": "Ihre Kanzlei",
+  "org_policy.managed": "Von {org} verwaltet",
+  "org_policy.default": "Voreinstellung von {org}",
+  "org_policy.lapsed": "Von {org} festgelegt. Da Sie abgemeldet sind, können Sie es ändern.",
+  "org_policy.released": "Von Ihnen geändert. {org} verwaltet diese Einstellung; melden Sie sich an, um sie wiederherzustellen.",
+  "org_policy.banner_active": "Einige Einstellungen werden von {org} verwaltet.",
+  "org_policy.banner_lapsed": "Sie sind bei {org} abgemeldet. Die Einstellungen der Kanzlei gelten hier weiter, und Sie können sie ändern. Melden Sie sich an, damit sie aktuell bleiben.",
+  "org_policy.manage": "Richtlinien verwalten",
+  "org_policy.sign_in": "Anmelden",
+  "org_policy.confirm_title": "Diese Einstellung wird von {org} verwaltet",
+  "org_policy.confirm_body": "Ihre Kanzlei hat dies für alle festgelegt. Da Sie abgemeldet sind, können Sie es hier ändern. Sobald Sie sich wieder anmelden, gilt wieder die Einstellung Ihrer Kanzlei.",
+  "org_policy.confirm_change": "Trotzdem ändern",
+  "org_policy.restored_one": "{org} hat {count} Einstellung wiederhergestellt, die Sie geändert hatten.",
+  "org_policy.restored_other": "{org} hat {count} Einstellungen wiederhergestellt, die Sie geändert hatten.",
 } as const;
 
 export default de;

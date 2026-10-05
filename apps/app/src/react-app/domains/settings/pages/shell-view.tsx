@@ -27,6 +27,8 @@ import { LanguageSection } from "../appearance/language-section";
 import { useShellConfig, DEFAULT_SHELL_CONFIG } from "../../../shell/shell-config";
 import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 import { t } from "@/i18n";
 
 /* ------------------------------------------------------------------ */
@@ -39,6 +41,8 @@ export function ShellCustomizationView() {
   const [brandLogoError, setBrandLogoError] = useState<string | null>(null);
   const logoInputId = useId();
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const brandingLocked = useOrgPolicy("branding")?.locked === true;
+  const updateBranding = (patch: Partial<typeof config>) => changeOrgPolicySetting("branding", () => update(patch));
 
   const handleSidebarBrandLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0] ?? null;
@@ -48,7 +52,7 @@ export function ShellCustomizationView() {
     void (async () => {
       try {
         const dataUrl = await readSidebarBrandLogo(file);
-        update({ sidebarBrandLogoDataUrl: dataUrl });
+        await updateBranding({ sidebarBrandLogoDataUrl: dataUrl });
         captureAnalyticsEvent("branding_customized", {
           has_custom_name: config.sidebarBrandName.trim().length > 0,
           has_custom_logo: dataUrl.trim().length > 0,
@@ -105,6 +109,7 @@ export function ShellCustomizationView() {
           <LayoutSectionDescription>
             {t("settings.customization.branding_desc")}
           </LayoutSectionDescription>
+          <OrgPolicyNote policyKey="branding" />
         </LayoutSectionHeader>
 
         <LayoutSectionItem>
@@ -123,7 +128,8 @@ export function ShellCustomizationView() {
                   className="h-8 text-xs"
                   value={config.sidebarBrandName}
                   placeholder={DEFAULT_SHELL_CONFIG.sidebarBrandName}
-                  onChange={(event) => update({ sidebarBrandName: event.currentTarget.value })}
+                  disabled={brandingLocked}
+                  onChange={(event) => void updateBranding({ sidebarBrandName: event.currentTarget.value })}
                   onBlur={(event) =>
                     captureAnalyticsEvent("branding_customized", {
                       has_custom_name: event.currentTarget.value.trim().length > 0,
@@ -147,6 +153,7 @@ export function ShellCustomizationView() {
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={brandingLocked}
                   onClick={() => logoInputRef.current?.click()}
                 >
                   <span>{t("settings.customization.upload_logo")}</span>
@@ -155,8 +162,9 @@ export function ShellCustomizationView() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    disabled={brandingLocked}
                     onClick={() => {
-                      update({ sidebarBrandLogoDataUrl: "" });
+                      void updateBranding({ sidebarBrandLogoDataUrl: "" });
                       setBrandLogoError(null);
                     }}
                   >

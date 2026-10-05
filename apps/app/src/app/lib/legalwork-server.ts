@@ -1,4 +1,6 @@
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
+import type { OrgPolicyKey } from "@legalwork/types/org-policy";
+import type { OrgPolicyView } from "@legalwork/types/org-policy-view";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
@@ -2737,6 +2739,17 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
      * Take the task notifications noted since the last call. Each is handed
      * out once: whoever claims it is the one to show it.
      */
+    // The firm's policy as it applies on this computer; taking a setting back
+    // needs the owner (host) token.
+    orgPolicy: () => requestJson<OrgPolicyView>(baseUrl, "/org-policy", { token, hostToken, timeoutMs: timeouts.status }),
+    releaseOrgPolicy: (key: OrgPolicyKey) =>
+      requestJson<OrgPolicyView>(baseUrl, "/org-policy/release", {
+        token,
+        hostToken,
+        method: "POST",
+        body: { key },
+        timeoutMs: timeouts.status,
+      }),
     claimTaskNotifications: () =>
       requestJson<{ notifications: LegalworkTaskNotification[] }>(baseUrl, "/task-notifications/claim", {
         token,

@@ -16,6 +16,7 @@ import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import { isDesktopRuntime } from "../../app/lib/runtime-env";
 import { resolveLegalworkConnection } from "../shell/legalwork-connection";
+import { useOrgPolicy } from "../domains/connections/org-policy";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import { readStoredDefaultModel } from "./model-config";
 
@@ -206,6 +207,9 @@ export function LocalProvider({ children }: LocalProviderProps) {
     writePersisted(PREFS_STORAGE_KEY, prefs);
   }, [prefs]);
 
+  // The firm's policy may switch anonymous usage sharing off.
+  const firmAnalyticsOff = useOrgPolicy("privacy.shareAnonymousUsage")?.value === false;
+
   // The preference has been persisted, so leaving the welcome toggle on can
   // release events held while the choice was pending.
   useEffect(() => {
@@ -234,7 +238,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
               token: resolvedToken || undefined,
               hostToken: resolvedHostToken || undefined,
             }).setAnalyticsIdentity({
-              analyticsEnabled: prefs.analyticsEnabled === true,
+              analyticsEnabled: prefs.analyticsEnabled === true && !firmAnalyticsOff,
               distinctId: getAnalyticsDistinctId(),
             });
             if (typeof result?.distinctId === "string") setAnalyticsDistinctId(result.distinctId);
@@ -249,7 +253,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
     return () => {
       cancelled = true;
     };
-  }, [prefs.analyticsEnabled]);
+  }, [prefs.analyticsEnabled, firmAnalyticsOff]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -5,6 +5,7 @@ import { isAlphaUpdateAllowed, isUpdateAllowed } from "../../../../app/lib/versi
 import type { ReleaseChannel } from "../../../../app/types";
 import { isElectronRuntime, safeStringify } from "../../../../app/utils";
 import { useUpdateCheckRequestStore } from "./update-check-request";
+import { appliedOrgPolicy, useOrgPolicyStore } from "../../connections/org-policy";
 import {
   UPDATE_AUTO_CHECK_STORAGE_KEY,
   useUpdateStatusStore,
@@ -91,12 +92,21 @@ function updateProgress(event: unknown): { downloaded?: number; total?: number }
 
 function readAutoCheckEnabled(): boolean {
   if (typeof window === "undefined") return false;
+  const firm = appliedOrgPolicy(useOrgPolicyStore.getState().view, "updates.autoCheck");
+  if (firm) return firm.value;
   try {
     const raw = window.localStorage.getItem(UPDATE_AUTO_CHECK_STORAGE_KEY);
     return raw == null ? true : raw === "1";
   } catch {
     return true;
   }
+}
+
+/** The firm's release channel: the updater follows it, the startup check included. */
+export async function applyFirmReleaseChannel(channel: ReleaseChannel): Promise<void> {
+  const bridge = electronUpdaterBridge();
+  if (!bridge?.getChannel || !bridge.setChannel) return;
+  if ((await bridge.getChannel()).channel !== channel) await bridge.setChannel(channel);
 }
 
 let backgroundUpdateCheckStarted = false;
