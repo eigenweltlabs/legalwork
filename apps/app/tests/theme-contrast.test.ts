@@ -18,7 +18,7 @@ function luminance(hex: string) {
 }
 
 const dark = palette('[data-theme="dark"] {');
-const blackout = { ...dark, ...palette('[data-theme="dark"][data-appearance="blackout"] {') };
+const blackout = { ...dark, ...palette('[data-theme="dark"][data-appearance="blackout"] .dark {') };
 
 for (const [name, tokens] of Object.entries({ dark, blackout })) {
   test(`${name}: readable text on every main application surface (WCAG AA)`, () => {

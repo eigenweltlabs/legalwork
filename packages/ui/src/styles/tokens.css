@@ -252,8 +252,10 @@
   --lw-shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
 }
 
-/* Blackout shares dark semantics; only the material and luminance change. */
-[data-theme="dark"][data-appearance="blackout"] {
+/* Nested vendor .dark roots also declare the dark palette locally. Reapply
+   Blackout there so they do not shadow the application's inherited colors. */
+[data-theme="dark"][data-appearance="blackout"],
+[data-theme="dark"][data-appearance="blackout"] .dark {
   --lw-chrome: #111111;
   --lw-canvas: #080808;
   --lw-surface: #101010;

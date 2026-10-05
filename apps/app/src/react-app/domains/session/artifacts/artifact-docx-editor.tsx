@@ -18,6 +18,7 @@ import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecover
 import { useDocxPageFit } from "./use-docx-page-fit";
 import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
+import "./docx-editor-theme.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 import { t } from "@/i18n";
 
