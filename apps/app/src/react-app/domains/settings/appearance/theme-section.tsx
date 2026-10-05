@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
+import { getInitialThemeMode, setThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
 import { t } from "@/i18n";
 import {
   LayoutSectionItem,
@@ -11,17 +12,12 @@ import {
   LayoutSectionItemTitle,
 } from "../settings-layout";
 
-type ThemeMode = "light" | "dark" | "system";
-
-// The theme is currently fixed to Light, so nothing renders this yet; the
-// section keeps its own props so it stays compilable and reusable.
 interface ThemeSectionProps {
-  busy: boolean;
-  themeMode: ThemeMode;
-  setThemeMode: (value: ThemeMode) => void;
+  busy?: boolean;
 }
 
 export function ThemeSection(props: ThemeSectionProps) {
+  const themeMode = useSyncExternalStore(subscribeToTheme, getInitialThemeMode, getInitialThemeMode);
   return (
     <LayoutSectionItem className="items-center">
       <LayoutSectionItemHeader className="w-full">
@@ -31,9 +27,9 @@ export function ThemeSection(props: ThemeSectionProps) {
 
       <ThemePicker
         className="pt-1"
-        busy={props.busy}
-        themeMode={props.themeMode}
-        setThemeMode={props.setThemeMode}
+        busy={props.busy ?? false}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
       />
 
       <LayoutSectionItemFootnote>{t("settings.theme_system_hint")}</LayoutSectionItemFootnote>
@@ -53,11 +49,10 @@ function ThemePicker(props: ThemePickerProps) {
     <ToggleGroup
       value={[props.themeMode]}
       onValueChange={(value) => {
-        if (value[0] === null) {
-          return;
+        const mode = value[0];
+        if (mode === "light" || mode === "dark" || mode === "system") {
+          props.setThemeMode(mode);
         }
-
-        props.setThemeMode(value[0] as ThemeMode);
       }}
       disabled={props.busy}
       className={cn("w-full gap-6 max-w-xl", props.className)}

@@ -12,7 +12,10 @@
     <script>
       (function () {
         try {
-          var mode = localStorage.getItem("legalwork.themePref") || "system";
+          var validMode = function (value) { return value === "light" || value === "dark" || value === "system"; };
+          var stored = localStorage.getItem("legalwork.react.settings.theme-mode");
+          var legacy = localStorage.getItem("legalwork.themePref");
+          var mode = validMode(stored) ? stored : validMode(legacy) ? legacy : "light";
           var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           var resolved = mode === "dark" || (mode === "system" && prefersDark) ? "dark" : "light";
           document.documentElement.dataset.theme = resolved;

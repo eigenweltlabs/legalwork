@@ -235,7 +235,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
-  // Appearance/Language and Recovery are hidden (theme is fixed to Light).
+  // Appearance/Language live in Customization. Recovery is hidden.
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.

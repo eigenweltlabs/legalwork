@@ -8,6 +8,7 @@ const mediaQuery = "(prefers-color-scheme: dark)";
 const listeners = new Set<() => void>();
 let currentMode: ThemeMode | null = null;
 let systemThemeCleanup: (() => void) | null = null;
+let storageSubscribed = false;
 
 const getMediaQueryList = () =>
   typeof window === "undefined" || typeof window.matchMedia !== "function"
@@ -18,8 +19,7 @@ const isThemeMode = (value: string | null): value is ThemeMode =>
   value === "light" || value === "dark" || value === "system";
 
 const readStoredMode = (): ThemeMode => {
-  // Light is the product default. The Appearance tab is hidden, so the theme is
-  // effectively fixed to Light unless a value was previously stored.
+  // Light remains the default until the user chooses a theme in Customization.
   if (typeof window === "undefined") return "light";
   try {
     const stored = window.localStorage.getItem(THEME_PREF_KEY);
@@ -87,11 +87,27 @@ const ensureSystemThemeSubscription = () => {
   systemThemeCleanup = () => list.removeEventListener("change", handleSystemThemeChange);
 };
 
+const ensureStorageSubscription = () => {
+  if (storageSubscribed || typeof window === "undefined") return;
+  window.addEventListener("storage", (event) => {
+    if (event.storageArea !== window.localStorage) return;
+    if (event.key !== null && event.key !== THEME_PREF_KEY && !LEGACY_THEME_PREF_KEYS.includes(event.key)) return;
+    const mode = readStoredMode();
+    if (mode === getCurrentMode()) return;
+    currentMode = mode;
+    applyTheme(mode);
+    syncNativeTheme(mode);
+    emitThemeChange();
+  });
+  storageSubscribed = true;
+};
+
 export const bootstrapTheme = () => {
   const mode = getCurrentMode();
   applyTheme(mode);
   syncNativeTheme(mode);
   ensureSystemThemeSubscription();
+  ensureStorageSubscription();
 };
 
 export const getInitialThemeMode = () => getCurrentMode();
@@ -109,6 +125,7 @@ const persistThemeMode = (mode: ThemeMode) => {
 
 export const subscribeToTheme = (onChange: () => void) => {
   ensureSystemThemeSubscription();
+  ensureStorageSubscription();
   listeners.add(onChange);
   return () => {
     listeners.delete(onChange);

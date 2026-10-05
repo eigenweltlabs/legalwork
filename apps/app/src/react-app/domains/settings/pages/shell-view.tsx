@@ -24,6 +24,7 @@ import {
 } from "../settings-layout";
 import { ProjectDefaultsSection } from "./project-defaults-section";
 import { LanguageSection } from "../appearance/language-section";
+import { ThemeSection } from "../appearance/theme-section";
 import { useShellConfig, DEFAULT_SHELL_CONFIG } from "../../../shell/shell-config";
 import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 import { useLocal } from "@/react-app/kernel/local-provider";
@@ -72,6 +73,7 @@ export function ShellCustomizationView() {
 
   return (
     <LayoutStack>
+      <ThemeSection />
       <LayoutSection>
         <LayoutSectionHeader>
           <LayoutSectionTitle>{t("projects.customize_nav")}</LayoutSectionTitle>

@@ -1,17 +1,17 @@
 /** @jsxImportSource react */
 import { LanguageSection } from "../appearance/language-section";
+import { ThemeSection } from "../appearance/theme-section";
 import { LayoutStack } from "../settings-layout";
 
 export type AppearanceViewProps = {
   busy: boolean;
 };
 
-// The theme is fixed to Light (see app/theme.ts) and the window/frame controls
-// are hidden, so this tab now surfaces only the language picker. The same
-// picker also lives in Settings -> Customization, which is the reachable tab.
+// Keep older Appearance routes working; these controls also live in Customization.
 export function AppearanceView(props: AppearanceViewProps) {
   return (
     <LayoutStack>
+      <ThemeSection busy={props.busy} />
       <LanguageSection busy={props.busy} />
     </LayoutStack>
   );
