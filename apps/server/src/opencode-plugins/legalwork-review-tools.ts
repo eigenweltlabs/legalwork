@@ -140,7 +140,7 @@ export const LegalWorkReviewTools = async (context: OpenCodeContext & { client?:
     }
     return folderContext.value;
   };
-  const folders = appStateReminders(readFolders, "The project folder listing is no longer available.");
+  const folders = appStateReminders("project-folders", readFolders, "The project folder listing is no longer available.", context);
   const recover = context.client ? recoverEmptyReviewResponse(context.client, context.directory) : null;
   const ddSessions = new Set<string>(), draftingSessions = new Set<string>();
   const ddSkills = ["workflow-assistant-due-diligence", "saas-acquisition-dd", "workflow-assistant-saas-acquisition-dd"];

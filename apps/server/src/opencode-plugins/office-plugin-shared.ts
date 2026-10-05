@@ -123,6 +123,8 @@ export type OfficePaneStatus = {
   connected: boolean;
   /** One entry per connected pane — Word and Excel can be open at once. */
   hosts: OfficePaneInfo[];
+  /** The server could not be asked: unknown, not disconnected. */
+  failed?: true;
 };
 
 const paneStatusCache = new Map<string, { at: number; status: OfficePaneStatus }>();
@@ -163,7 +165,10 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
           `${url}/workspace/${encodeURIComponent(item.id)}/office-tools/status`,
           { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3_000) },
         );
-        if (!response.ok) continue;
+        if (!response.ok) {
+          status = { connected: false, hosts: [], failed: true };
+          continue;
+        }
         const payload = (await response.json()) as {
           connected?: unknown;
           hosts?: unknown;
@@ -185,7 +190,7 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
       }
     }
   } catch {
-    status = { connected: false, hosts: [] };
+    status = { connected: false, hosts: [], failed: true };
   }
   paneStatusCache.set(cacheKey, { at: Date.now(), status });
   return status;
@@ -195,6 +200,12 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
 export async function officePaneForHost(host: string, directory?: string): Promise<OfficePaneInfo | null> {
   const status = await officePaneStatus(directory);
   return status.hosts.find((entry) => entry.host === host) ?? null;
+}
+
+/** The connected pane for a host, null without one, undefined when the server could not be asked. */
+export async function officePaneIfKnown(host: string, directory?: string): Promise<OfficePaneInfo | null | undefined> {
+  const status = await officePaneStatus(directory);
+  return status.failed ? undefined : status.hosts.find((entry) => entry.host === host) ?? null;
 }
 
 export function describeOpenDocument(documentUrl: string | null): string {

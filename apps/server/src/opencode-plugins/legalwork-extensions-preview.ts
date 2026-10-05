@@ -1,5 +1,5 @@
 import { uiBridgeRequest, inAppDocumentSurface, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
-import { appStateReminders } from "./app-state-reminders.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
 import { officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxAddSlideSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
 
@@ -77,7 +77,7 @@ const LEGALWORK_EXTENSION_DISCOVERY_INSTRUCTION =
   "If the user asks for something you cannot do with obvious built-in tools, check LegalWork extensions before saying the capability is unavailable. Use legalwork_extension_list_actions to inspect available extension actions, then call the matching action with legalwork_extension_call.";
 
 const APP_STATE_INSTRUCTION = `## Live app state
-What is open in LegalWork right now (files in the sidebar, Microsoft Office panes, project details, connected sources) is reported in <system-reminder> blocks inside user messages and tool results. LegalWork adds them; they are not written by the user and not part of the tool's output. The most recent reminder on a topic is current and replaces earlier ones on that topic. Without a reminder on a topic, assume nothing is open or connected there. Several can be open at once, for example a Word document and an Excel workbook: choose tools by which document a request is about; reading from one and editing another in the same task is expected.`;
+What is open in LegalWork right now (files in the sidebar, Microsoft Office panes, project details, connected sources) is reported in <system-reminder topic="..."> blocks inside user messages and tool results. LegalWork adds them; they are not written by the user and not part of the tool's output. The most recent reminder on a topic is current and replaces all earlier ones on the same topic. Without a reminder on a topic, assume nothing is open or connected there. Several can be open at once, for example a Word document and an Excel workbook: choose tools by which document a request is about; reading from one and editing another in the same task is expected.`;
 
 const LEGALWORK_UI_CONTROL_INSTRUCTION =
   `IMPORTANT: You are running inside the LegalWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the LegalWork UI in any way, ALWAYS use the legalwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The legalwork_ui_* tools control the app directly and are instant (one tool call).
@@ -307,8 +307,8 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
   return sections.join("\n\n");
 }
 
-export const LegalWorkExtensionsPreview = async () => {
-  const sidebar = appStateReminders(readSidebarState, "No files are open in this session's sidebar any more. Earlier sidebar reminders no longer apply.");
+export const LegalWorkExtensionsPreview = async (input: SavedConversations = {}) => {
+  const sidebar = appStateReminders("sidebar", readSidebarState, "No files are open in this session's sidebar any more. Earlier sidebar reminders no longer apply.", input);
   return ({
   // Fixed text only: what is open arrives as reminders (see app-state-reminders.ts).
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {

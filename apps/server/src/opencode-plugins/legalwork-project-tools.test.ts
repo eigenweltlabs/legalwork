@@ -79,7 +79,7 @@ test("sessions receive folder configuration and can finish setup without storing
 
     const result = { output: await plugin.tool.legalwork_project_complete_setup.execute({ revision: 2, name: "New matter name" }, { directory: "/mapped-project" }) };
     await plugin["tool.execute.after"]({ sessionID: "ses_project" }, result);
-    expect(result.output).toContain('<system-reminder>');
+    expect(result.output).toContain('<system-reminder topic="project">');
     expect(result.output).toContain('"initialization":"ready"');
     expect(result.output).not.toContain("saved context");
     expect(await systemText()).toBe(before);

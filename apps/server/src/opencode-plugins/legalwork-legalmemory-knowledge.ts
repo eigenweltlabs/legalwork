@@ -11,7 +11,7 @@
  * not change within a conversation (see app-state-reminders.ts).
  */
 
-import { appStateReminders } from "./app-state-reminders.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /** Server names under which firms connect the appliance: the LegalWork
  * quick-connect catalog uses "legalmemory"; the appliance's own admin UI
@@ -48,7 +48,7 @@ LegalMemory is this firm's institutional memory. Use it BY DEFAULT — the user 
 
 Tool names may carry the server prefix (e.g. legalmemory_search_semantic); use whatever form the tool list shows.`;
 
-type McpStatusClient = {
+type McpStatusClient = NonNullable<SavedConversations["client"]> & {
   mcp?: {
     status?: (options: { directory?: string }) => Promise<unknown>;
   };
@@ -82,12 +82,14 @@ export const LegalWorkLegalMemoryKnowledge = async (pluginInput?: {
   const connected = async () => (await status()) ?? new Set<string>();
   // A failed status check is not a disconnect: report nothing rather than flip.
   const legalMemory = appStateReminders(
+    "legalmemory",
     async () => {
       const names = await status();
       if (!names) return null;
       return LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name)) ? LEGALMEMORY_CONNECTED_INSTRUCTION : "";
     },
     "LegalMemory is no longer connected. Earlier LegalMemory reminders no longer apply: do not call its tools, and ask the user to reconnect it in Settings when firm knowledge is needed.",
+    pluginInput,
   );
   const serverForTool = (tool: string) => LEGALMEMORY_SERVER_NAMES.find(
     (name) => tool.startsWith(`${name}_`) || tool.startsWith(`${name.replaceAll("-", "_")}_`),

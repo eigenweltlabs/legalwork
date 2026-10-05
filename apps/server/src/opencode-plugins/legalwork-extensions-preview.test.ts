@@ -128,7 +128,7 @@ describe("in-app Word document routing", () => {
 
     const { system, reminder } = await modelContext(plugin, "ses_open");
 
-    expect(reminder).toStartWith("<system-reminder>");
+    expect(reminder).toStartWith('<system-reminder topic="sidebar">');
     expect(reminder).toContain("compensation-memo.docx");
     expect(reminder).toContain("inapp_docx_suggest_change");
     expect(reminder).toContain("inapp_docx_reject_changes");

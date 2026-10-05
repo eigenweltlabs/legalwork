@@ -27,7 +27,7 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
     expect("experimental.chat.system.transform" in plugin).toBe(false);
 
     const reminder = await userMessageReminder(plugin);
-    expect(reminder).toStartWith("<system-reminder>");
+    expect(reminder).toStartWith('<system-reminder topic="legalmemory">');
     expect(reminder).toContain("LegalMemory is connected");
     expect(reminder).toContain("SEARCH LEGALMEMORY FIRST");
     expect(reminder).toContain("Do NOT search LegalMemory for a direct, fully specified edit");
@@ -79,7 +79,7 @@ describe("LegalWork LegalMemory knowledge plugin", () => {
     // The disconnect reaches the model on the next tool result of the same run.
     const result = { output: "search done" };
     await plugin["tool.execute.after"]({ tool: "storage_search", sessionID: "ses_1" }, result);
-    expect(result.output).toStartWith("search done\n\n<system-reminder>");
+    expect(result.output).toStartWith('search done\n\n<system-reminder topic="legalmemory">');
     expect(result.output).toContain("LegalMemory is no longer connected");
     await plugin["tool.execute.before"]({ tool: "storage_search" });
     statuses.legalmemory.status = "connected";
