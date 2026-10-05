@@ -7,9 +7,12 @@ const key = "legalwork.react.settings.theme-mode";
 const legacyKey = "legalwork.themePref";
 const source = readFileSync(new URL("../src/app/theme.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ESNext } }).outputText;
-const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const prepaint = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-if (!prepaint) throw new Error("Missing theme bootstrap script");
+const prepaints = ["index", "overlay", "live-overlay", "taskpane"].map((entry) => {
+  const html = readFileSync(new URL(`../${entry}.html`, import.meta.url), "utf8");
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  if (!script) throw new Error(`Missing theme bootstrap script: ${entry}`);
+  return { entry, script };
+});
 
 function createWindow(values: Record<string, string> = {}, dark = false) {
   const stored = new Map(Object.entries(values));
@@ -54,21 +57,23 @@ function createWindow(values: Record<string, string> = {}, dark = false) {
   };
 }
 
-test("first paint and runtime agree on defaults, persisted choices and legacy preferences", () => {
-  for (const values of [{}, { [key]: "dark" }, { [key]: "blackout" }, { [key]: "light", [legacyKey]: "dark" }, { [key]: "system" }, { [legacyKey]: "dark" }, { [key]: "invalid", [legacyKey]: "system" }]) {
-    for (const systemDark of [false, true]) {
-      const win = createWindow(values, systemDark);
-      runInNewContext(prepaint, win.context);
-      const firstPaint = win.documentElement.dataset.theme;
-      const firstAppearance = win.documentElement.dataset.appearance;
-      win.theme.bootstrapTheme();
-      expect(win.documentElement.dataset.theme).toBe(firstPaint);
-      expect(win.documentElement.style.colorScheme).toBe(firstPaint);
-      expect(win.documentElement.dataset.appearance).toBe(firstAppearance);
-      expect(win.theme.getResolvedAppearance()).toBe(firstAppearance);
+for (const { entry, script } of prepaints) {
+  test(`${entry}: first paint and runtime agree on defaults, persisted choices and legacy preferences`, () => {
+    for (const values of [{}, { [key]: "dark" }, { [key]: "blackout" }, { [key]: "light", [legacyKey]: "dark" }, { [key]: "system" }, { [legacyKey]: "dark" }, { [key]: "invalid", [legacyKey]: "system" }]) {
+      for (const systemDark of [false, true]) {
+        const win = createWindow(values, systemDark);
+        runInNewContext(script, win.context);
+        const firstPaint = win.documentElement.dataset.theme;
+        const firstAppearance = win.documentElement.dataset.appearance;
+        win.theme.bootstrapTheme();
+        expect(win.documentElement.dataset.theme).toBe(firstPaint);
+        expect(win.documentElement.style.colorScheme).toBe(firstPaint);
+        expect(win.documentElement.dataset.appearance).toBe(firstAppearance);
+        expect(win.theme.getResolvedAppearance()).toBe(firstAppearance);
+      }
     }
-  }
-});
+  });
+}
 
 test("Blackout persists as a palette while native controls and editors receive dark", () => {
   const win = createWindow();
