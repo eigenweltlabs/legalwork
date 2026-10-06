@@ -4,6 +4,9 @@
  */
 
 export default {
+  "side_panel.copy_link": "Copy link",
+  "side_panel.copy_failed": "Could not copy the link.",
+  "side_panel.close_browser_tabs": "Close all browser tabs",
   "side_panel.split_left": "Split left",
   "side_panel.split_right": "Split right",
   "side_panel.split_top": "Split above",
@@ -30,8 +33,8 @@ export default {
   "artifact.autosave_description": "Automatically save changes to this original file. Remembered for this document on this device.",
   "artifact.autosave_paused": "Autosave paused",
   "artifact.autosave_failed": "Your changes are still open. Save manually to retry autosave.",
-  "side_panel.expand_workspace": "Expand document workspace",
-  "side_panel.restore_workspace": "Return to chat",
+  "side_panel.expand_workspace": "Expand workspace",
+  "side_panel.restore_workspace": "Restore workspace",
   "calc.period_days_one": "{count} day",
   "calc.period_weeks_one": "{count} week",
   "calc.period_months_one": "{count} month",

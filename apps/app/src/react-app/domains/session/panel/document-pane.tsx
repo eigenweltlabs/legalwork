@@ -10,7 +10,8 @@ export function DocumentPane({ destination, children }: { destination: HTMLEleme
     return element;
   });
   useLayoutEffect(() => {
-    if (!destination || host.parentElement === destination) return;
+    if (!destination) { host.remove(); return; }
+    if (host.parentElement === destination) return;
     const focused = host.contains(document.activeElement) && document.activeElement instanceof HTMLElement ? document.activeElement : null;
     destination.appendChild(host);
     focused?.focus({ preventScroll: true });

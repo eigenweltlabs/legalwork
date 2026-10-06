@@ -15,9 +15,11 @@ import {
   RotateCw,
   X,
   Workflow,
+  MessageSquare,
+  Table2,
 } from "lucide-react";
-import { useDragControls } from "motion/react";
 
+import { openDesktopUrl } from "@/app/lib/desktop";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
 import { toast } from "@/components/ui/sonner";
@@ -60,12 +62,12 @@ import { WorkflowResourceEditorPanel } from "@/react-app/domains/settings/pages/
 import {
   computeBounds,
   getElectronBrowser,
-  getNativeMenuPoint,
   hasNativeBrowserOccluder,
   sameBounds,
 } from "./utils";
 
 import { DocumentPane } from "./document-pane";
+import { ProjectReviews } from "../../reviews/project-reviews";
 
 type SidePanelProps = {
   headerTarget?: HTMLElement | null;
@@ -76,6 +78,11 @@ type SidePanelProps = {
   workspaceRoot: string;
   isRemoteWorkspace?: boolean;
   onClose: () => void;
+  visible?: boolean;
+  renderChat?: (sessionId: string, active: boolean) => React.ReactNode;
+  onFocusChat?: (sessionId: string) => void;
+  onCloseChat?: (sessionId: string, nextSessionId: string | null) => void;
+  onNewChat?: (pane: string) => void;
 };
 
 // HMR can remount this module without unmounting BrowserPanelContent, leaving
@@ -88,8 +95,7 @@ if (import.meta.hot) {
 
 type ViewerPane = string;
 
-// Document tabs travel between panes as a native drag, apart from the
-// pointer drag that reorders browser tabs within a strip.
+// All workspace tabs travel between panes using the same native drag payload.
 const TAB_DRAG_TYPE = "application/x-legalwork-panel-tab";
 
 const DROP_LABELS: Record<DocumentDropEdge, () => string> = {
@@ -252,25 +258,15 @@ type SidePanelTabProps = {
 };
 
 function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSelect, onClose, onMove, onSplit, onDragChange }: SidePanelTabProps) {
-  const dragControls = useDragControls();
   const tabRef = React.useRef<HTMLDivElement>(null);
   const label = tab.type === "artifact" && tab.value && !tab.storage
     ? projectFileDisplayName(tab.value, tab.label) : tab.label;
-  const fileTab = tab.type === "artifact" ? tab : null;
-
 
   React.useEffect(() => {
     if (active) {
       tabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
   }, [active]);
-
-  const showBrowserTabContextMenu = (point?: { clientX: number; clientY: number }) => {
-    void getElectronBrowser()?.showTabContextMenu?.(
-      tab.id,
-      getNativeMenuPoint(tabRef.current, point),
-    );
-  };
 
   const item = (
     <PanelTabItem
@@ -279,42 +275,21 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
       // Pane resizing must move the strip and its tabs together, without
       // Reorder.Item springing back from their previous screen positions.
       transition={{ layout: { duration: 0 } }}
-      dragControls={tab.type === "browser" ? dragControls : undefined}
-      onContextMenu={tab.type === "browser" ? (event: React.MouseEvent<HTMLDivElement>) => {
-        event.preventDefault();
-        event.stopPropagation();
-        showBrowserTabContextMenu({ clientX: event.clientX, clientY: event.clientY });
-      } : undefined}
     >
       <div
         ref={tabRef}
         className="relative"
-        draggable={fileTab !== null && canMove}
-        onDragStart={fileTab ? (event) => {
-          event.dataTransfer.setData(TAB_DRAG_TYPE, fileTab.id);
+        draggable={canMove}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
           event.dataTransfer.effectAllowed = "move";
-          onDragChange(fileTab.id);
-        } : undefined}
-        onDragEnd={fileTab ? () => onDragChange(null) : undefined}
+          onDragChange(tab.id);
+        }}
+        onDragEnd={() => onDragChange(null)}
       >
         <PanelTab
           active={active}
           onClick={() => onSelect(tab.id)}
-          onPointerDown={tab.type === "browser" ? (event) => {
-            if (event.button !== 0) {
-              return;
-            }
-
-            dragControls.start(event);
-          } : undefined}
-          onKeyDown={tab.type === "browser" ? (event: React.KeyboardEvent<HTMLButtonElement>) => {
-            if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
-              return;
-            }
-
-            event.preventDefault();
-            showBrowserTabContextMenu();
-          } : undefined}
           title={label}
           aria-label={t("side_panel.select_tab", { label })}
         >
@@ -326,7 +301,7 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
             ) : (
               <Globe />
             )
-          ) : tab.type === "task" ? (
+          ) : tab.type === "chat" ? <MessageSquare /> : tab.type === "review" ? <Table2 /> : tab.type === "task" ? (
             <ListTodo />
           ) : tab.type === "workflow" ? (
             <Workflow />
@@ -345,10 +320,14 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
       </div>
     </PanelTabItem>
   );
-  if (!fileTab) return item;
   return <ContextMenu>
     <ContextMenuTrigger render={<div className="contents" />}>{item}</ContextMenuTrigger>
     <ContextMenuContent>
+      {tab.type === "browser" && <>
+        <ContextMenuItem disabled={!tab.url} onClick={() => void navigator.clipboard.writeText(tab.url).catch(() => toast.error(t("side_panel.copy_failed")))}>{t("side_panel.copy_link")}</ContextMenuItem>
+        <ContextMenuItem disabled={!/^https?:\/\//i.test(tab.url)} onClick={() => void openDesktopUrl(tab.url)}>{t("markdown.open_externally")}</ContextMenuItem>
+        <ContextMenuSeparator />
+      </>}
       {destinations.map((destination, index) => <ContextMenuItem key={destination.id} disabled={!canMove || destination.id === pane} onClick={() => onMove(tab.id, destination.id)}>
         {t("side_panel.move_to_pane", { number: index + 1 })}
       </ContextMenuItem>)}
@@ -357,6 +336,7 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
       </>}
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => onClose(tab)}>{t("panel_tabs.close_tab")}</ContextMenuItem>
+      {tab.type === "browser" && <ContextMenuItem onClick={() => void getElectronBrowser()?.closeAllTabs?.()}>{t("side_panel.close_browser_tabs")}</ContextMenuItem>}
     </ContextMenuContent>
   </ContextMenu>;
 }
@@ -364,11 +344,13 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
 type BrowserPanelContentProps = {
   tab: BrowserPanelTab;
   onClose: () => void;
+  visible: boolean;
 };
 
 function BrowserPanelContent({
   tab,
   onClose,
+  visible,
 }: BrowserPanelContentProps) {
   const isAvailable = Boolean(getElectronBrowser());
   const [urlInput, setUrlInput] = React.useState(tab.url);
@@ -386,20 +368,20 @@ function BrowserPanelContent({
   }, [tab.id, tab.url]);
 
   const navigate = React.useCallback(() => {
-    void getElectronBrowser()?.navigate?.(urlInput);
-  }, [urlInput]);
+    void getElectronBrowser()?.navigate?.(urlInput, tab.id);
+  }, [urlInput, tab.id]);
 
   const back = React.useCallback(() => {
-    void getElectronBrowser()?.back?.();
-  }, []);
+    void getElectronBrowser()?.back?.(tab.id);
+  }, [tab.id]);
 
   const forward = React.useCallback(() => {
-    void getElectronBrowser()?.forward?.();
-  }, []);
+    void getElectronBrowser()?.forward?.(tab.id);
+  }, [tab.id]);
 
   const reload = React.useCallback(() => {
-    void getElectronBrowser()?.reload?.();
-  }, []);
+    void getElectronBrowser()?.reload?.(tab.id);
+  }, [tab.id]);
 
   const handleUrlKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
@@ -412,7 +394,7 @@ function BrowserPanelContent({
   React.useLayoutEffect(() => {
     const browser = getElectronBrowser();
     const content = contentRef.current;
-    if (!browser || !content || !isAvailable) {
+    if (!browser || !content || !isAvailable || !visible) {
       return;
     }
 
@@ -421,7 +403,7 @@ function BrowserPanelContent({
       return;
     }
 
-    browser.setBounds?.(bounds);
+    browser.setBounds?.(bounds, tab.id);
     lastBoundsRef.current = bounds;
   });
 
@@ -429,8 +411,8 @@ function BrowserPanelContent({
     const browser = getElectronBrowser();
     const content = contentRef.current;
 
-    if (!browser || !content || !isAvailable) {
-      browser?.hide?.();
+    if (!browser || !content || !isAvailable || !visible) {
+      browser?.hide?.(tab.id);
       shownRef.current = false;
       lastBoundsRef.current = null;
 
@@ -445,7 +427,7 @@ function BrowserPanelContent({
     let disposed = false;
 
     const resetNativeView = async () => {
-      await browser.hide?.();
+      await browser.hide?.(tab.id);
 
       if (disposed) {
         return;
@@ -461,7 +443,7 @@ function BrowserPanelContent({
 
       if (bounds.width < 1 || bounds.height < 1 || hasNativeBrowserOccluder()) {
         if (shownRef.current) {
-          browser.hide?.();
+          browser.hide?.(tab.id);
           shownRef.current = false;
           lastBoundsRef.current = null;
         }
@@ -470,14 +452,14 @@ function BrowserPanelContent({
       }
 
       if (!shownRef.current) {
-        browser.show?.(bounds);
+        browser.show?.(bounds, tab.id);
         shownRef.current = true;
         lastBoundsRef.current = bounds;
         return;
       }
 
       if (!sameBounds(lastBoundsRef.current, bounds)) {
-        browser.setBounds?.(bounds);
+        browser.setBounds?.(bounds, tab.id);
         lastBoundsRef.current = bounds;
       }
     };
@@ -492,12 +474,15 @@ function BrowserPanelContent({
     const observer = new ResizeObserver(syncBounds);
 
     observer.observe(content);
+    const restoreHost = () => { shownRef.current = false; syncBounds(); };
+    window.addEventListener("focus", restoreHost);
     window.addEventListener("resize", syncBounds);
     window.addEventListener("scroll", syncBounds, true);
 
     return () => {
       disposed = true;
       observer.disconnect();
+      window.removeEventListener("focus", restoreHost);
       window.removeEventListener("resize", syncBounds);
       window.removeEventListener("scroll", syncBounds, true);
 
@@ -506,11 +491,11 @@ function BrowserPanelContent({
         boundsFrameRef.current = null;
       }
 
-      browser.hide?.();
+      browser.hide?.(tab.id);
       shownRef.current = false;
       lastBoundsRef.current = null;
     };
-  }, [isAvailable]);
+  }, [isAvailable, visible, tab.id]);
 
   return (
     <>
@@ -624,6 +609,11 @@ export function SidePanel({
   workspaceRoot,
   isRemoteWorkspace = false,
   onClose,
+  renderChat,
+  visible: workspaceVisible = true,
+  onFocusChat,
+  onCloseChat,
+  onNewChat,
 }: SidePanelProps) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = React.useState(false);
@@ -639,8 +629,20 @@ export function SidePanel({
     }
     return ref;
   };
-  const [focusedTabId, setFocusedTabId] = React.useState<string | null>(null);
+  const unified = Boolean(renderChat);
+  const [visited, setVisited] = React.useState<Set<string>>(() => new Set());
+  React.useEffect(() => {
+    setVisited(current => {
+      const next = new Set([...current].filter(id => tabs.some(tab => tab.id === id)));
+      panes.forEach(pane => { if (pane.activeTabId) next.add(pane.activeTabId); });
+      return next.size === current.size && [...next].every(id => current.has(id)) ? current : next;
+    });
+  }, [tabs, panes]);
+  const setFocusedTabId = (id: string | null) => {
+    if (id) usePanelTabStore.getState().selectTab(sessionId, id);
+  };
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const fileInputPane = React.useRef<string | undefined>(undefined);
   const [openingFile, setOpeningFile] = React.useState<string | null>(null);
   const importing = React.useRef(false);
   const mounted = React.useRef(true);
@@ -682,36 +684,44 @@ export function SidePanel({
     } finally { importing.current = false; if (mounted.current) setOpeningFile(null); }
   }, [client, workspaceId, sessionId, queryClient]);
 
-  const visibleIds = panes.flatMap(pane => pane.activeTabId ? [pane.activeTabId] : []);
-  const focusedId = focusedTabId && visibleIds.includes(focusedTabId) ? focusedTabId : panes[0].activeTabId;
+  const focusedId = panes.find(pane => pane.id === session.focusedPaneId)?.activeTabId ?? panes[0].activeTabId;
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId]);
   const openFiles = React.useMemo(() => tabs.flatMap((tab) => {
     if (tab.type !== "artifact") return [];
     const path = tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
-    const active = tab.id === focusedId;
+    const active = workspaceVisible && tab.id === focusedId;
     return path ? [{ id: tab.id, sessionId, name: tab.label, path, active }] : [];
-  }), [tabs, transcriptTargets, sessionId, focusedId]);
+  }), [tabs, transcriptTargets, sessionId, focusedId, workspaceVisible]);
   useControlOpenFiles(openFiles);
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
-  const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
+  const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId, workspaceVisible);
   const closeDocumentTab = React.useCallback((tab: PanelTabEntry) => {
     const source = panes.find(pane => pane.tabIds.includes(tab.id));
     closeTab(tab);
     const next = usePanelTabStore.getState().sessions[sessionId];
-    if (!source || !next || next.tabs.some(entry => entry.id === tab.id) || focusedId !== tab.id) return;
+    if (!next || next.tabs.some(entry => entry.id === tab.id)) return;
+    if (tab.type === "chat") {
+      const replacementChat = next.tabs.find(entry => entry.type === "chat" && next.panes.some(pane => pane.activeTabId === entry.id));
+      onCloseChat?.(tab.sessionId, replacementChat?.type === "chat" ? replacementChat.sessionId : null);
+    }
+    if (!source || focusedId !== tab.id) return;
     const replacement = next.panes.find(pane => pane.id === source.id) ??
       siblingPaneIds(tree, source.id).flatMap(id => next.panes.filter(pane => pane.id === id))[0];
     setFocusedTabId(replacement?.activeTabId ?? next.activeTabId);
-  }, [closeTab, focusedId, panes, sessionId, tree]);
+  }, [closeTab, focusedId, panes, sessionId, tree, onCloseChat]);
   const moveToPane = React.useCallback((tabId: string, pane: string, split?: DocumentDropEdge) => {
     const store = usePanelTabStore.getState();
     const before = store.sessions[sessionId];
     store.moveTab(sessionId, tabId, pane, split);
     const next = usePanelTabStore.getState().sessions[sessionId];
-    if (next !== before && next?.panes.some(pane => pane.activeTabId === tabId)) setFocusedTabId(tabId);
+    if (next !== before && next?.panes.some(pane => pane.activeTabId === tabId)) {
+      setFocusedTabId(tabId);
+      const moved = next.tabs.find(tab => tab.id === tabId);
+      if (moved?.type === "chat") onFocusChat?.(moved.sessionId);
+    }
     else if (split && before?.panes.length >= MAX_DOCUMENT_PANES) toast.info(t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }));
-  }, [sessionId]);
+  }, [sessionId, onFocusChat]);
   const [draggingTabId, setDraggingTabId] = React.useState<string | null>(null);
   React.useEffect(() => {
     const stop = () => setDraggingTabId(null);
@@ -743,7 +753,7 @@ export function SidePanel({
       if (!visible) {
         const session = usePanelTabStore.getState().sessions[sessionId];
         const replaced = session?.panes.find(pane => pane.tabIds.includes(file.id))?.activeTabId ?? null;
-        if (!confirmDiscardSessionDocuments(sessionId, [replaced], () => false)) return { ok: false, error: "Save the current draft before switching files." };
+        if (!unified && !confirmDiscardSessionDocuments(sessionId, [replaced], () => false)) return { ok: false, error: "Save the current draft before switching files." };
       }
       setFocusedTabId(file.id);
       selectTab(file.id);
@@ -751,7 +761,7 @@ export function SidePanel({
       if (!session?.panes.some(pane => pane.activeTabId === file.id)) return { ok: false, error: "The file could not be selected." };
       return { ok: true, file: { ...file, active: true }, message: "Read the document after the editor finishes loading." };
     },
-  }), [openFiles, sessionId, selectTab, panes]);
+  }), [openFiles, sessionId, selectTab, panes, unified]);
   useControlAction(selectFileAction);
 
   const seedArtifactOverflowControlAction = React.useMemo<LegalworkControlAction | null>(() => {
@@ -815,6 +825,7 @@ export function SidePanel({
   useControlAction(seedArtifactOverflowControlAction);
 
   React.useEffect(() => {
+    if (!workspaceVisible) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const pane = panes.find(pane => pane.activeTabId === focusedId) ?? panes[0];
       const paneTabs = tabs.filter(tab => pane.tabIds.includes(tab.id));
@@ -823,10 +834,11 @@ export function SidePanel({
       event.preventDefault();
       const next = paneTabs[(index + (event.shiftKey ? -1 : 1) + paneTabs.length) % paneTabs.length];
       selectTab(next.id); setFocusedTabId(next.id);
+      if (next.type === "chat") onFocusChat?.(next.sessionId);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [panes, tabs, focusedId, selectTab]);
+  }, [panes, tabs, focusedId, selectTab, onFocusChat, workspaceVisible]);
 
   const portaledHeader = expanded ? null : headerTarget;
   const [liveSizes, setLiveSizes] = React.useState<Record<string, Record<string, number>>>({});
@@ -837,7 +849,7 @@ export function SidePanel({
     <Button variant="ghost" size="icon-sm" onClick={() => setExpanded(!expanded)} aria-label={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")} title={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")}>
       {expanded ? <Minimize2 /> : <Maximize2 />}
     </Button>
-    <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}><X /></Button>
+    {!unified && <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}><X /></Button>}
   </div>;
 
   const strip = (pane: DocumentPaneState, docked = false) => {
@@ -848,16 +860,17 @@ export function SidePanel({
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
             {paneTabs.map(tab => <SidePanelTab key={tab.id} tab={tab} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove}
-              onSelect={id => { selectTab(id); setFocusedTabId(id); }} onClose={closeDocumentTab} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
+              onSelect={id => { selectTab(id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); }} onClose={closeDocumentTab} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
           </PanelTabList>
         </div>
-        {pane.id === panes[0].id && <DropdownMenu>
+        <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
           <DropdownMenuContent align="end">
-            <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => fileInputRef.current?.click()}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
-            <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab()}><Globe /> {t("side_panel.browser")}</DropdownMenuItem>
+            {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
+            <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => { fileInputPane.current = pane.id; fileInputRef.current?.click(); }}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
+            <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab(undefined, pane.id)}><Globe /> {t("side_panel.browser")}</DropdownMenuItem>
           </DropdownMenuContent>
-        </DropdownMenu>}
+        </DropdownMenu>
         {pane.id === controlsPane && workspaceControls}
       </div>
     </TabDropZone>;
@@ -868,12 +881,8 @@ export function SidePanel({
     const sameLoneTab = draggingTab?.pane === pane.id && pane.tabIds.length === 1;
     return <TabDropZone pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
-      {tab?.type === "browser" ? <BrowserPanelContent tab={tab} onClose={onClose} />
-        : tab?.type === "artifact" ? <div ref={destinationRef(pane.id)} className="min-h-0 flex-1 overflow-hidden" />
-        : tab?.type === "task" ? <TaskPanel projects={projects} sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} onClose={() => closeDocumentTab(tab)} />
-        : tab?.type === "workflow" ? <WorkflowEditorPanel key={tab.id} id={tab.id} onClose={() => closeDocumentTab(tab)} />
-        : tab?.type === "workflow-resource" ? <WorkflowResourceEditorPanel key={tab.id} id={tab.id} onClose={() => closeDocumentTab(tab)} />
-        : <PanelEmpty />}
+      {tab ? <div ref={destinationRef(pane.id)} className="min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty />}
+
     </TabDropZone>;
   };
   const renderLayout = (node: DocumentLayoutNode): React.ReactNode => {
@@ -913,7 +922,7 @@ export function SidePanel({
       {expanded && <ExpandedDocumentBar label={t("side_panel.restore_workspace")} onRestore={() => setExpanded(false)} />}
       <input ref={fileInputRef} type="file" multiple className="hidden" aria-label={t("side_panel.open_in_viewer")} onChange={event => {
         const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
-        void openFilesInViewer({ workspace: null, storage: null, memory: null, files });
+        void openFilesInViewer({ workspace: null, storage: null, memory: null, files }, fileInputPane.current);
       }} />
       {openingFile && <div role="status" className="pointer-events-none absolute bottom-4 left-1/2 z-50 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs shadow-sm">
         <Loader2 className="size-4 shrink-0 animate-spin" /><span className="truncate">{t("side_panel.opening_file", { name: openingFile })}</span>
@@ -922,10 +931,20 @@ export function SidePanel({
       <div className="min-h-0 flex-1">{renderLayout(tree)}</div>
       {tabs.flatMap(tab => {
         const pane = panes.find(pane => pane.activeTabId === tab.id);
-        if (tab.type !== "artifact" || !pane) return [];
-        return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={destinations[pane.id] ?? null}>
-          <ControlActionScope active={tab.id === focusedId}><div className="h-full" onFocusCapture={() => setFocusedTabId(tab.id)} onPointerDownCapture={() => setFocusedTabId(tab.id)}>
-            <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+        if (!pane && (!sessionId.startsWith("workspace:") || !visited.has(tab.id))) return [];
+        const visible = workspaceVisible && Boolean(pane);
+        const active = visible && tab.id === focusedId;
+        const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
+        const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
+          : tab.type === "browser" ? <BrowserPanelContent tab={tab} visible={visible} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "task" ? <TaskPanel projects={projects} sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "review" && client && workspaceId ? <ProjectReviews client={client} workspaceId={workspaceId} projectName="" reviewId={tab.reviewId} onTitleChange={label => usePanelTabStore.getState().updateTabLabel(sessionId, tab.id, label)} onClose={() => closeDocumentTab(tab)} onOpenSession={id => onFocusChat?.(id)} />
+          : tab.type === "workflow" ? <WorkflowEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "workflow-resource" ? <WorkflowResourceEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} /> : null;
+        return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={pane ? destinations[pane.id] ?? null : null}>
+          <ControlActionScope active={active}><div className="flex h-full min-h-0 flex-col" onFocusCapture={focus} onPointerDownCapture={focus}>
+            {body}
           </div></ControlActionScope>
         </DocumentPane>];
       })}

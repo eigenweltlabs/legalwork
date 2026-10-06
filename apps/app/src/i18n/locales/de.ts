@@ -14,6 +14,9 @@
  */
 
 const de = {
+  "side_panel.copy_link": "Link kopieren",
+  "side_panel.copy_failed": "Der Link konnte nicht kopiert werden.",
+  "side_panel.close_browser_tabs": "Alle Browser-Tabs schließen",
   "side_panel.split_left": "Links teilen",
   "side_panel.split_right": "Rechts teilen",
   "side_panel.split_top": "Nach oben teilen",
@@ -38,8 +41,8 @@ const de = {
   "artifact.autosave_description": "Änderungen automatisch in dieser Originaldatei speichern. Die Einstellung wird für dieses Dokument auf diesem Gerät gespeichert.",
   "artifact.autosave_paused": "Automatisches Speichern pausiert",
   "artifact.autosave_failed": "Ihre Änderungen sind weiterhin geöffnet. Speichern Sie manuell, um das automatische Speichern fortzusetzen.",
-  "side_panel.expand_workspace": "Dokumentarbeitsbereich vergrößern",
-  "side_panel.restore_workspace": "Zurück zum Chat",
+  "side_panel.expand_workspace": "Arbeitsbereich vergrößern",
+  "side_panel.restore_workspace": "Arbeitsbereich wiederherstellen",
   "calc.period_days_one": "{count} Tag",
   "calc.period_weeks_one": "{count} Woche",
   "calc.period_months_one": "{count} Monat",

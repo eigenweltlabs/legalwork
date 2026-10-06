@@ -8,7 +8,7 @@ import {
 } from "./panel-tab-store";
 import { getElectronBrowser } from "./utils";
 
-export function useSidePanelTabs(sessionId: string) {
+export function useSidePanelTabs(sessionId: string, active = true) {
   const syncBrowserTabs = usePanelTabStore((state) => state.syncBrowserTabs);
 
   const applyBrowserState = React.useCallback((browserState: BrowserStatePayload) => {
@@ -16,25 +16,31 @@ export function useSidePanelTabs(sessionId: string) {
     const activeTabId = browserState.activeTabId ?? tabs[0]?.id ?? null;
 
     syncBrowserTabs(sessionId, tabs, activeTabId);
+    if (browserState.focusedTabId) {
+      const store = usePanelTabStore.getState();
+      const id = browserState.focusedTabId;
+      if (store.sessions[sessionId]?.panes.some(pane => pane.activeTabId === id)) store.selectTab(sessionId, id);
+    }
   }, [sessionId, syncBrowserTabs]);
 
   React.useEffect(() => {
     const browser = getElectronBrowser();
 
-    if (!browser) {
+    if (!browser || !active) {
       return;
     }
 
     const unsub = browser.onStateChange?.(applyBrowserState);
 
-    void browser.getState?.().then((browserState) => {
+    const refresh = () => { void browser.getState?.().then((browserState) => {
       if (browserState) {
         applyBrowserState(browserState);
       }
-    });
-
-    return unsub;
-  }, [applyBrowserState]);
+    }); };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => { unsub?.(); window.removeEventListener("focus", refresh); };
+  }, [applyBrowserState, active]);
 
   const createTab = useCreateTab();
 
@@ -45,7 +51,12 @@ export function useSidePanelTabs(sessionId: string) {
   const reorderTabs = useReorderTabs();
 
   return {
-    createTab: (url?: string) => createTab(url),
+    createTab: async (url?: string, pane?: string) => {
+      const result = await createTab(url);
+      const state = await getElectronBrowser()?.getState?.();
+      if (state) applyBrowserState(state);
+      if (result && pane) usePanelTabStore.getState().moveTab(sessionId, result.tabId, pane);
+    },
     closeTab: (tab: PanelTab) => closeTab(sessionId, tab),
     selectTab: (tabId: string) => selectTab(sessionId, tabId),
     reorderTabs: (tabIds: string[]) => reorderTabs(sessionId, tabIds),
@@ -54,7 +65,7 @@ export function useSidePanelTabs(sessionId: string) {
 
 export function useCreateTab() {
   return React.useCallback((url?: string) => {
-    void getElectronBrowser()?.createTab?.(url);
+    return getElectronBrowser()?.createTab?.(url);
   }, []);
 }
 

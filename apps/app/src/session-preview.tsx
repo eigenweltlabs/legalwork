@@ -1,9 +1,9 @@
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
 
@@ -19,6 +19,8 @@ import type { ComposerDraft, WorkspaceSessionGroup } from "@/app/types";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale, setLocale } from "@/i18n";
+import { SavedReviewSchema } from "@legalwork/types/reviews";
+import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
 import { ProviderAuthModal } from "@/react-app/domains/connections/provider-auth";
@@ -243,8 +245,27 @@ function PlansPreview() {
 
 // Unimplemented operations point only at the reserved .invalid domain. No
 // existing server connection or provider credential is used by this fixture.
+const previewReview = SavedReviewSchema.parse({
+  id: "11111111-1111-4111-8111-111111111111", name: "Supplier terms", revision: 1, createdAt: now, updatedAt: now,
+  settings: { mode: "llm", jev: null, llm: { providerId: model.providerID, model: model.modelID } }, status: "draft", runId: null,
+  columns: [{ key: "notice", kind: "text", label: "Notice period", question: "What notice is required?" }],
+  documents: [{ id: "memo", name: "review-notes.md", path: "review-notes.md", status: "ready", sourceHash: null }], cells: [],
+});
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  getReview: async (_workspaceId, id) => ({ ...previewReview, id }),
+  listReviews: async () => ({ reviews: [] }),
+  queryReviewRows: async () => ({ revision: 1, documentIds: ["memo"] }),
+  getReviewSession: async () => ({ sessionId: null }),
+  openReviewSession: async () => ({ sessionId: "visual-contract", prefill: true }),
+  listTaskMembers: async () => ({ members: [] }), listTaskTags: async () => ({ tags: [] }),
+  getTask: async () => ({ task: {
+    id: "visual-task", projectId: workspace.id, origin: "desktop", title: "Review supplier notice", description: "Check the notice period against the playbook.",
+    status: "open", priority: 2, tags: [], dueDate: null, assigneeUserId: null, assigneeName: null, createdByUserId: null,
+    endpointId: null, endpointName: null, submissionId: null, assignmentNote: null, workflowHubItemId: null, workflowVersion: null,
+    cloudRunId: null, lastLocalRunAt: null, attachments: [], createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(),
+    deletedAt: null, sync: { orgId: null, syncedAt: null, pending: false, error: null }, sessions: [], createdSession: null,
+  }, submission: null, notes: [], conflicts: [] }),
   eigenweltEntitlements: async () => limitFixture.entitlements,
   eigenweltUsage: async () => {
     if (failNextUsageRead) { failNextUsageRead = false; throw new Error("Simulated usage refresh failure"); }
@@ -350,10 +371,10 @@ const fixtureClient: LegalworkServerClient = {
     if (!path.endsWith(".md")) throw new Error("Binary documents are illustrative. Open review-notes.md to inspect the document panel.");
     return { data: await new Blob([`# Review notes\n\n${reply}`]).arrayBuffer(), contentType: "text/markdown", filename: "review-notes.md", updatedAt: now };
   },
-  statWorkspaceFile: async (_workspaceId, path) => ({ ok: true, path, exists: true, kind: "file", size: 4820, updatedAt: now }),
+  statWorkspaceFile: async (_workspaceId, path) => ({ ok: true, path, exists: true, kind: "file", size: 4820, updatedAt: now, fileId: `synthetic:${path}` }),
   writeWorkspaceBinaryFile: async (_workspaceId, payload) => ({ ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: now }),
   storageRoots: async () => ({ roots: [{ id: "visual-cloud", name: "Northstar cloud files", kind: "s3", writable: true }] }),
-  storageChildren: async () => ({ entries: [{ name: "Cloud review.md", path: "Cloud review.md", kind: "file", size: 4820, modifiedAt: null }], nextCursor: null }),
+  storageChildren: async () => ({ entries: [{ name: "Cloud review.md", path: "Cloud review.md", kind: "file", size: 4820, modifiedAt: null }] }),
   checkoutStorageFile: async () => ({ localPath: ".legalwork/storage/Cloud review.md", contentType: "text/markdown", version: "1", size: 4820, updatedAt: now, writable: true, localWritable: true }),
   legalMemoryTreeRoots: async () => ({ roots: [{ source_id: "visual-drive", display_name: "Northstar shared drive", kind: "gdrive", project_id: null, status: "ready", files: memoryFiles.length }] }),
   legalMemoryTreeChildren: async (_workspaceId, payload) => ({
@@ -370,9 +391,16 @@ const fixtureClient: LegalworkServerClient = {
 function SessionPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState(limitParam ? "visual-limit" : welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(limitParam ? "visual-limit" : welcomeId);
+  const location = useLocation();
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
+  useEffect(() => {
+    const route = location.pathname.match(/^\/workspace\/[^/]+\/session(?:\/([^/]+))?$/);
+    if (!route) return;
+    setSelectedSessionId(route[1] ? decodeURIComponent(route[1]) : null);
+    setShowWorkflows(false);
+  }, [location.pathname, location.search, location.key]);
   const [showHome, setShowHome] = useState(previewParams.has("home"));
   const [homeProject, setHomeProject] = useState<string | null>(workspace.id);
   const pendingHome = useRef<PendingHomeMessage>({ sessionId: null, uploads: new Map() });
@@ -382,10 +410,12 @@ function SessionPreview() {
     { workspace: otherWorkspace, status: "ready", sessions: [] },
   ];
   const newTask = () => {
-    queryClient.setQueryData(transcriptKey(workspace.id, welcomeId), []);
-    saveSnapshot(snapshot(welcomeId, "New task"));
-    setSelectedSessionId(welcomeId);
+    const id = `visual-new-${crypto.randomUUID()}`;
+    queryClient.setQueryData(transcriptKey(workspace.id, id), []);
+    saveSnapshot(snapshot(id, "New task"));
+    setSelectedSessionId(id);
     setRevision((value) => value + 1);
+    return id;
   };
   const sendDraft = (draft: ComposerDraft, sessionId: string) => {
     const previous = snapshots.get(sessionId);
@@ -398,6 +428,11 @@ function SessionPreview() {
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
+        {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">
+          <button onClick={() => requestPanelTab({ id: `review:${previewReview.id}`, type: "review", reviewId: previewReview.id, label: previewReview.name })}>Open sample review</button>
+          <button onClick={() => requestPanelTab({ id: "task:visual-task", type: "task", taskId: "visual-task", label: "Review supplier notice" })}>Open sample task</button>
+          <button onClick={() => setShowWorkflows(true)}>Open workflow library</button>
+        </span>}
       </div>
       <div className="min-h-0 flex-1">
         <SessionPage
@@ -464,14 +499,16 @@ function SessionPreview() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Preview root element not found");
-createRoot(root).render(
+const previewRoot = createRoot(root);
+if (import.meta.hot) import.meta.hot.dispose(() => previewRoot.unmount());
+previewRoot.render(
   <QueryClientProvider client={queryClient}>
     <MotionConfig reducedMotion="user">
       <TooltipProvider>
         <LocalProvider>
           <ShellConfigProvider>
             <ReloadCoordinatorProvider>
-              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path}>
+              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
                 <MemoryRouter>
                   <SessionPreview />
                   <PlansPreview />

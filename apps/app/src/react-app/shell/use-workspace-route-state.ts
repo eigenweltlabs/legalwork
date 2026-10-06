@@ -62,7 +62,7 @@ export type UseWorkspaceRouteStateInput = {
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const { onServerSettingsChanged, onHostInfo } = input;
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const local = useLocal();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
@@ -698,7 +698,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
       return;
     }
-    if (selectedSessionId || !isSessionIndexRoute(pathname)) return;
+    if (selectedSessionId || !isSessionIndexRoute(pathname) || new URLSearchParams(search).get("view") === "workspace") return;
     if (!selectedWorkspaceId) return;
     const remembered = readLastSessionFor(selectedWorkspaceId);
     if (!remembered) return;
@@ -716,6 +716,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     sessionsByWorkspaceId,
     workspaces,
     pathname,
+    search,
   ]);
 
   // Redirect to /welcome when no workspaces exist and the user hasn't

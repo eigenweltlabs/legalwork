@@ -4,7 +4,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, WebContentsView, clipboard, session } from "electron";
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,7 +17,7 @@ const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 
-export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppNavigation, safeOpen }) {
+export function createBrowserPanel({ app, WebContentsView, clipboard, session, getWindow, getWindowForEvent, isAllowedAppNavigation, safeOpen }) {
   const browserTabs = new Map();
   const automationBroker = createBrowserAutomationBroker();
   app.once("will-quit", () => { void automationBroker.close(); });
@@ -28,6 +27,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
   // Last browser panel bounds reported by the renderer, in renderer CSS pixels.
   // Converted to window device-independent pixels at every setBounds call.
   let lastBrowserBounds = null;
+  const paneBounds = new Map();
   let browserTabCounter = 0;
   // Active proxy for the built-in browser session: { rules, username, password }.
   let browserProxy = null;
@@ -68,8 +68,9 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
         }
       }
     }
+    paneBounds.clear();
+    browserViewVisible = false;
     hostWindow = nextWindow;
-    attachActiveBrowserView();
   }
 
   function resetMenuOverlayReady({ resolvePending = false } = {}) {
@@ -494,6 +495,10 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
       }
       sendToRenderer("legalwork:browser:panel-opened");
     });
+    view.webContents.on("focus", () => {
+      activeBrowserTabId = tabId;
+      sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tabId });
+    });
     view.webContents.on("did-navigate", () => sendBrowserState());
     view.webContents.on("did-navigate-in-page", () => sendBrowserState());
     view.webContents.on("page-title-updated", () => sendBrowserState());
@@ -505,6 +510,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     view.webContents.on("did-stop-loading", () => sendBrowserState());
     view.webContents.once("destroyed", () => {
       browserTabs.delete(tabId);
+      paneBounds.delete(tabId);
       browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
       if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder[0] ?? null;
       sendBrowserState();
@@ -567,16 +573,11 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
   function attachActiveBrowserView() {
     const mainWindow = window();
     if (!mainWindow || !browserViewVisible) return;
-    const view = getActiveBrowserView();
-    if (!view) return;
-    for (const tab of browserTabs.values()) {
-      if (tab.view !== view) detachBrowserView(tab.view);
-    }
-    if (!mainWindow.contentView.children.includes(view)) {
-      mainWindow.contentView.addChildView(view);
-    }
-    if (lastBrowserBounds && lastBrowserBounds.width > 0 && lastBrowserBounds.height > 0) {
-      view.setBounds(scaleRendererBounds(lastBrowserBounds));
+    for (const [id, tab] of browserTabs) {
+      const bounds = paneBounds.size ? paneBounds.get(id) : id === activeBrowserTabId ? lastBrowserBounds : null;
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) { detachBrowserView(tab.view); continue; }
+      if (!mainWindow.contentView.children.includes(tab.view)) mainWindow.contentView.addChildView(tab.view);
+      tab.view.setBounds(scaleRendererBounds(bounds));
     }
   }
 
@@ -585,7 +586,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     hideMenuOverlay();
     const previousView = getActiveBrowserView();
     activeBrowserTabId = tabId;
-    if (previousView && previousView !== getActiveBrowserView()) {
+    if (previousView && previousView !== getActiveBrowserView() && ![...paneBounds.keys()].some(id => browserTabs.get(id)?.view === previousView)) {
       detachBrowserView(previousView);
     }
     attachActiveBrowserView();
@@ -601,6 +602,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     const wasActive = activeBrowserTabId === tabId;
     detachBrowserView(tab.view);
     browserTabs.delete(tabId);
+    paneBounds.delete(tabId);
     browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
     if (wasActive) {
       const nextTabId =
@@ -684,7 +686,15 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     sendBrowserState();
   }
 
-  function hideBrowserView() {
+  function hideBrowserView(tabId) {
+    if (tabId) {
+      paneBounds.delete(tabId);
+      const tab = getBrowserTab(tabId);
+      if (tab) detachBrowserView(tab.view);
+      if (!paneBounds.size) browserViewVisible = false;
+      return;
+    }
+    paneBounds.clear();
     hideMenuOverlay();
     browserViewVisible = false;
     if (!window()) return;
@@ -709,42 +719,65 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     sendBrowserState();
   }
 
+  function validBounds(bounds) {
+    return bounds && [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) && bounds.width > 0 && bounds.height > 0;
+  }
+
   function registerIpc(ipcMain) {
-    ipcMain.handle("legalwork:browser:show", (event, bounds) => {
+    ipcMain.handle("legalwork:browser:show", (event, bounds, tabId) => {
+      if (!validBounds(bounds)) return;
+      const targetWindow = getWindowForEvent?.(event);
+      // Layout updates from a background window must not steal native views.
+      if (tabId && targetWindow && targetWindow !== window() && !targetWindow.isFocused()) return;
       selectHostWindow(event);
+      if (tabId) {
+        if (!browserTabs.has(tabId)) return;
+        paneBounds.set(tabId, bounds);
+        browserViewVisible = true;
+        attachActiveBrowserView();
+        return;
+      }
       return attachBrowserView(bounds);
     });
-    ipcMain.handle("legalwork:browser:hide", (event) => {
+    ipcMain.handle("legalwork:browser:hide", (event, tabId) => {
       if (event.sender !== window()?.webContents) return;
-      return hideBrowserView();
+      return hideBrowserView(tabId);
     });
     ipcMain.handle("legalwork:browser:openUrl", (event, url, provider) => {
       selectHostWindow(event);
       return openBrowserUrlForAutomation(url, provider);
     });
-    ipcMain.handle("legalwork:browser:navigate", (event, url) => {
+    ipcMain.handle("legalwork:browser:navigate", (event, url, tabId) => {
       selectHostWindow(event);
-      const view = getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true }).view;
-      view.webContents.loadURL(normalizeBrowserUrl(url));
+      const view = tabId ? getBrowserTab(tabId)?.view : getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true }).view;
+      view?.webContents.loadURL(normalizeBrowserUrl(url));
     });
-    ipcMain.handle("legalwork:browser:back", (event) => {
+    ipcMain.handle("legalwork:browser:back", (event, tabId) => {
       selectHostWindow(event);
-      const webContents = getActiveWebContents();
+      const webContents = tabId ? getBrowserTab(tabId)?.view.webContents : getActiveWebContents();
       if (webContents?.canGoBack()) webContents.goBack();
     });
-    ipcMain.handle("legalwork:browser:forward", (event) => {
+    ipcMain.handle("legalwork:browser:forward", (event, tabId) => {
       selectHostWindow(event);
-      const webContents = getActiveWebContents();
+      const webContents = tabId ? getBrowserTab(tabId)?.view.webContents : getActiveWebContents();
       if (webContents?.canGoForward()) webContents.goForward();
     });
-    ipcMain.handle("legalwork:browser:reload", (event) => {
+    ipcMain.handle("legalwork:browser:reload", (event, tabId) => {
       selectHostWindow(event);
-      return getActiveWebContents()?.reload();
+      return (tabId ? getBrowserTab(tabId)?.view.webContents : getActiveWebContents())?.reload();
     });
-    ipcMain.handle("legalwork:browser:bounds", (event, bounds) => {
+    ipcMain.handle("legalwork:browser:bounds", (event, bounds, tabId) => {
+      if (!validBounds(bounds)) return;
       // Both chat windows rerender while messages stream. A background
       // window's layout update must not take the native view from its host.
       if (event.sender !== window()?.webContents) return;
+      if (tabId) {
+        if (!paneBounds.has(tabId)) return;
+        paneBounds.set(tabId, bounds);
+        const view = getBrowserTab(tabId)?.view;
+        if (view && bounds.width > 0 && bounds.height > 0) view.setBounds(scaleRendererBounds(bounds));
+        return;
+      }
       lastBrowserBounds = bounds;
       const view = getActiveBrowserView();
       if (view && browserViewVisible && bounds.width > 0 && bounds.height > 0) {

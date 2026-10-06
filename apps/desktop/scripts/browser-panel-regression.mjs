@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, session } from "electron";
 import { createBrowserPanel } from "../electron/browser-panel.mjs";
 
 const userData = mkdtempSync(path.join(os.tmpdir(), "legalwork-browser-test-"));
@@ -11,6 +11,7 @@ app.whenReady().then(() => {
   const main = new BrowserWindow({ show: false });
   const detached = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
+    app, WebContentsView, clipboard, session,
     getWindow: () => main,
     getWindowForEvent: (event) => BrowserWindow.fromWebContents(event.sender),
     isAllowedAppNavigation: () => false,
@@ -66,11 +67,30 @@ app.whenReady().then(() => {
     console.log("PASS: the owning window can hide and reopen the same page");
 
     invoke(main, "selectTab", tabId);
-    invoke(main, "bounds", mainBounds);
+    // Selecting changes ownership; the receiving renderer must first report
+    // its own geometry. Never flash the previous window's layout.
+    assert.deepEqual(main.contentView.children, []);
+    assert.deepEqual(detached.contentView.children, []);
+    invoke(main, "show", mainBounds, tabId);
     assert.deepEqual(main.contentView.children, [view]);
     assert.deepEqual(detached.contentView.children, []);
     assert.deepEqual(view.getBounds(), mainBounds);
-    console.log("PASS: selecting a tab in another window reattaches its page");
+    console.log("PASS: handoff waits for the receiving pane's geometry");
+
+    const secondId = invoke(main, "createTab", "about:blank").tabId;
+    const rightBounds = { ...mainBounds, x: 920, width: 350 };
+    invoke(main, "show", rightBounds, secondId);
+    assert.equal(main.contentView.children.length, 2);
+    const secondView = main.contentView.children.find(child => child !== view);
+    assert.deepEqual(secondView.getBounds(), rightBounds);
+    invoke(main, "bounds", { ...mainBounds, height: 300 }, tabId);
+    assert.deepEqual(secondView.getBounds(), rightBounds);
+    invoke(main, "hide", tabId);
+    assert.deepEqual(main.contentView.children, [secondView]);
+    invoke(main, "show", mainBounds, tabId);
+    invoke(main, "closeTab", secondId);
+    assert.deepEqual(main.contentView.children, [view]);
+    console.log("PASS: two real native panes resize, hide and close independently");
   } catch (error) {
     console.error(error);
     exitCode = 1;

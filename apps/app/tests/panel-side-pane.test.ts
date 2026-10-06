@@ -163,13 +163,15 @@ describe("free document splits", () => {
     close("F"); move("G", "B", "left"); expect(session().panes).toHaveLength(6);
     invariants();
   });
-  test("native browser tabs stay in their integration pane, regardless of geometry", () => {
+  test("native browser tabs keep their chosen pane through synchronization", () => {
     add("A"); open(browser); add("B", "A", "left");
     store().moveTab("session", browser.id, paneOf("B").id, "bottom");
-    expect(session().panes[0].tabIds).toContain(browser.id);
+    const browserPane = session().panes.find(pane => pane.tabIds.includes(browser.id));
+    expect(browserPane?.id).not.toBe(paneOf("A").id);
     store().syncBrowserTabs("session", [browser], browser.id);
     store().syncTranscriptArtifacts("session", []);
-    expect(shape()).toEqual(["horizontal", "file:B.docx", browser.id]);
+    expect(shape()).toEqual(["horizontal", ["vertical", "file:B.docx", browser.id], "file:A.docx"]);
+    expect(session().panes.find(pane => pane.tabIds.includes(browser.id))?.id).toBe(browserPane?.id);
     invariants();
   });
 });
@@ -328,5 +330,142 @@ describe("restoration and repeated moves", () => {
       }
       invariants();
     }
+  });
+});
+
+describe("unified workspace tabs", () => {
+  const scope = "workspace:project";
+  const state = () => store().sessions[scope];
+  const chat = (id: string) => ({ id: `chat:${id}`, type: "chat", sessionId: id, label: id } as const);
+  const review = { id: "review:terms", type: "review", reviewId: "terms", label: "Terms" } as const;
+  const task = { id: "task:todo", type: "task", taskId: "todo", label: "Task" } as const;
+  const pane = (id: string) => state().panes.find(pane => pane.tabIds.includes(id))!;
+
+  test("chats, reviews, tasks, workflows, files and browsers share the six-pane limit", () => {
+    const entries = [chat("one"), review, task, { id: "workflow:one", type: "workflow", label: "Workflow" } as const, document("terms.docx"), browser];
+    store().openTab(scope, entries[0]);
+    for (const entry of entries.slice(1)) store().openTab(scope, entry, pane(entries[0].id).id, "bottom");
+    expect(state().panes).toHaveLength(6);
+    store().openTab(scope, chat("two"), pane(review.id).id, "right");
+    expect(state().tabs).toHaveLength(6);
+    // Moving a lone pane frees its original slot, including at capacity.
+    store().moveTab(scope, browser.id, pane(task.id).id, "left");
+    expect(state().panes).toHaveLength(6);
+    const geometry = state().tree;
+    store().syncBrowserTabs(scope, [{ ...browser, label: "New title" }], browser.id);
+    expect(state().tree).toEqual(geometry);
+    expect(new Set(state().panes.flatMap(pane => pane.tabIds)).size).toBe(6);
+    for (const entry of entries) store().closeTab(scope, entry.id);
+    expect(state().panes).toEqual([{ id: "main", tabIds: [], activeTabId: null }]);
+  });
+
+  test("default source opening preserves a review and reuses its document pane", () => {
+    store().adoptChat(scope, "one", "Discussion");
+    store().openTab(scope, review);
+    const reviewPane = pane(review.id).id;
+    store().openTab(scope, document("source.docx"));
+    expect(state().panes).toHaveLength(3);
+    expect(pane(review.id).activeTabId).toBe(review.id);
+    store().selectTab(scope, review.id);
+    store().openTab(scope, document("second.docx"));
+    expect(pane("file:second.docx").id).toBe(pane("file:source.docx").id);
+    expect(pane(review.id).id).toBe(reviewPane);
+    expect(state().panes).toHaveLength(3);
+  });
+
+  test("adopting an old chat keeps its layout and resolves transcript files", () => {
+    store().openTab("one", { id: "output", type: "artifact", label: "memo.md", preview: "markdown" });
+    store().syncTranscriptArtifacts("one", [{ id: "output", kind: "file", value: "memo.md", name: "memo.md", preview: "markdown", confidence: 100, reason: "test", exists: true }]);
+    store().adoptChat(scope, "one", "Discussion");
+    const file = state().tabs.find(tab => tab.id === "output");
+    expect(file).toMatchObject({ value: "memo.md", sourceSessionId: "one" });
+    expect(store().sessions.one).toBeUndefined();
+    expect(state().panes).toHaveLength(2);
+    const geometry = state().tree;
+    store().adoptChat(scope, "two", "Second chat");
+    expect(state().panes).toHaveLength(2);
+    expect(state().tree).toEqual(geometry);
+    expect(pane("chat:one").id).toBe(pane("chat:two").id);
+    // Updating an inactive title does not steal focus.
+    store().updateTabLabel(scope, "chat:one", "Renamed");
+    expect(pane("chat:one").activeTabId).toBe("chat:two");
+  });
+
+  test("migrates the project layout once and keeps projects independent", () => {
+    store().openTab("project:project", document("source.docx"));
+    store().openTab("project:project", document("memo.docx"), "main", "top");
+    const oldTree = store().sessions["project:project"].tree;
+    store().migrateWorkspace("project");
+    expect(state().tree).toEqual(oldTree);
+    expect(store().sessions["project:project"]).toBeUndefined();
+    store().migrateWorkspace("project");
+    expect(state().tabs).toHaveLength(2);
+    store().adoptChat("workspace:other", "other", "Other project");
+    expect(state().tabs).toHaveLength(2);
+    expect(store().sessions["workspace:other"].tabs).toHaveLength(1);
+  });
+
+  test("deleting a chat closes only its views and keeps files and other chats", () => {
+    store().adoptChat(scope, "one", "First chat");
+    store().adoptChat(scope, "two", "Second chat");
+    store().openTab(scope, document("retained.docx"));
+    store().moveTab(scope, "chat:one", pane("file:retained.docx").id, "bottom");
+    store().clearSession("one");
+    expect(state().tabs.map(tab => tab.id)).toEqual(["chat:two", "file:retained.docx"]);
+    expect(state().panes).toHaveLength(2);
+    expect(layoutLeaves(state().tree).sort()).toEqual(state().panes.map(pane => pane.id).sort());
+  });
+
+  test("native browser updates do not import another project's tabs", () => {
+    store().adoptChat(scope, "one", "First project");
+    store().syncBrowserTabs(scope, [browser], browser.id);
+    const other = "workspace:other";
+    store().adoptChat(other, "two", "Second project");
+    store().syncBrowserTabs(other, [browser], browser.id);
+    expect(store().sessions[other].tabs.map(tab => tab.type)).toEqual(["chat"]);
+    const second = { ...browser, id: "browser:second" };
+    store().syncBrowserTabs(other, [browser, second], second.id);
+    store().syncBrowserTabs(scope, [browser, second], second.id);
+    expect(state().tabs.filter(tab => tab.type === "browser").map(tab => tab.id)).toEqual([browser.id]);
+    expect(store().sessions[other].tabs.filter(tab => tab.type === "browser").map(tab => tab.id)).toEqual([second.id]);
+    store().syncBrowserTabs(scope, [second], second.id);
+    expect(state().tabs.map(tab => tab.type)).toEqual(["chat"]);
+  });
+
+  test("hidden dirty files stay open on a tab switch but cannot close without consent", () => {
+    store().openTab(scope, document("source.docx"));
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    let asked = 0;
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => { asked++; return false; } } });
+    const unregister = registerUnsavedDocument(artifactDocumentKey("project", scope, "file:source.docx"), "source", () => true);
+    try {
+      store().openTab(scope, review, "main");
+      expect(pane(review.id).activeTabId).toBe(review.id);
+      expect(asked).toBe(0);
+      store().closeTab(scope, "file:source.docx");
+      expect(asked).toBe(1);
+      expect(state().tabs).toHaveLength(2);
+    } finally {
+      unregister();
+      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
+
+  test("restores mixed layout and focus, omitting transient workflow editors", async () => {
+    store().adoptChat(scope, "one", "Discussion");
+    store().openTab(scope, review);
+    store().openTab(scope, task);
+    store().openTab(scope, { id: "workflow:one", type: "workflow", label: "Workflow" });
+    store().selectTab(scope, review.id);
+    const focused = state().focusedPaneId;
+    const persisted = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of persisted) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(state().focusedPaneId).toBe(focused);
+    expect(state().tabs.map(tab => tab.type)).toEqual(["chat", "review", "task"]);
+    expect(state().panes).toHaveLength(3);
+    expect(layoutLeaves(state().tree).sort()).toEqual(state().panes.map(pane => pane.id).sort());
   });
 });

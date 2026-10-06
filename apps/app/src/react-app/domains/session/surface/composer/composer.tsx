@@ -791,7 +791,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   useEffect(() => {
     const handleFocus = () => {
       const root = rootRef.current;
-      if (!root) return;
+      if (!root || !root.isConnected || root.closest('[data-workspace-tab-active="false"]')) return;
       const editable = root.querySelector<HTMLElement>("[contenteditable='true']");
       editable?.focus();
     };

@@ -1316,7 +1316,7 @@ export function SessionRoute() {
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
   const surfaceProps = useMemo(() => {
-    if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !opencodeClient) {
+    if (!client || !selectedWorkspaceId || !opencodeBaseUrl || !token || !opencodeClient) {
       return null;
     }
 
@@ -1776,6 +1776,7 @@ export function SessionRoute() {
       navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
+      return session.id;
     } catch (error) {
       const message = describeTaskCreateError(error);
       setRouteError(message);
@@ -2179,7 +2180,7 @@ export function SessionRoute() {
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
   const calendarPage = location.pathname === "/calendar";
-  const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
+  const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname) && new URLSearchParams(location.search).get("view") !== "workspace");
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
   const homeSending = useRef(false);
@@ -2730,9 +2731,7 @@ export function SessionRoute() {
           navigateToWorkspaceSession(workspaceId, sessionId);
         },
         onPrefetchSession: () => {},
-        onCreateChatInWorkspace: (workspaceId) => {
-          void handleCreateChatInWorkspace(workspaceId);
-        },
+        onCreateChatInWorkspace: handleCreateChatInWorkspace,
         onCreateChatWithPrompt: (workspaceId, prompt) => {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);

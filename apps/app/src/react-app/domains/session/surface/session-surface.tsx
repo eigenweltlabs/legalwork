@@ -152,6 +152,8 @@ type SessionError = {
 };
 
 export type SessionSurfaceProps = {
+  /** Only the focused chat handles window-wide composer and voice events. */
+  active?: boolean;
   client: LegalworkServerClient;
   environmentClient?: LegalworkServerClient | null;
   workspaceId: string;
@@ -935,11 +937,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   useEffect(() => {
+    if (props.active === false) return;
     if (!autoOpenTarget || chatStreaming) return;
     if (autoOpenedTargetRef.current === autoOpenTarget.id) return;
     autoOpenedTargetRef.current = autoOpenTarget.id;
     props.onOpenTarget?.(autoOpenTarget, { auto: true }, props.sessionId);
-  }, [autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId]);
+  }, [props.active, autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1636,6 +1639,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   useEffect(() => {
     const handleVoiceTranscript = (event: Event) => {
+      if (props.active === false) return;
       if (!(event instanceof CustomEvent)) return;
       const detail: unknown = event.detail;
       if (!detail || typeof detail !== "object" || Array.isArray(detail) || !("text" in detail) || typeof detail.text !== "string") return;
@@ -1650,7 +1654,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
     window.addEventListener("legalwork:voice-transcript", handleVoiceTranscript);
     return () => window.removeEventListener("legalwork:voice-transcript", handleVoiceTranscript);
-  }, [attachments, buildDraft, props.onDraftChange, props.sessionId, props.workspaceId, typeComposerText]);
+  }, [props.active, attachments, buildDraft, props.onDraftChange, props.sessionId, props.workspaceId, typeComposerText]);
 
   // A LegalMemory reference chip in the transcript was clicked: send the
   // built fetch/preview prompt as its own turn (steering mid-run is fine —
@@ -1658,6 +1662,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // composer so the click still visibly did something.
   useEffect(() => {
     const handleLegalMemoryRef = (event: Event) => {
+      if (props.active === false) return;
       if (!(event instanceof CustomEvent)) return;
       const detail: unknown = event.detail;
       if (!detail || typeof detail !== "object" || Array.isArray(detail) || !("prompt" in detail) || typeof detail.prompt !== "string") return;
@@ -1674,13 +1679,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
     window.addEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
     return () => window.removeEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
-  }, [attachments, buildDraft, sendBlocked, props.onDraftChange, sendDraft, typeComposerText]);
+  }, [props.active, attachments, buildDraft, sendBlocked, props.onDraftChange, sendDraft, typeComposerText]);
 
   // A LegalMemory source was clicked. The server pulls the original over MCP
   // and drops it in the workspace, then we open it. The agent is not involved:
   // fetching a file the user asked for is the app's job, not a task for a model.
   useEffect(() => {
     const handleLegalMemoryOpen = (event: Event) => {
+      if (props.active === false) return;
       if (!(event instanceof CustomEvent)) return;
       const detail: unknown = event.detail;
       if (!detail || typeof detail !== "object" || !("documentId" in detail) || typeof detail.documentId !== "string") return;
@@ -1708,7 +1714,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
     window.addEventListener(LEGALMEMORY_OPEN_EVENT, handleLegalMemoryOpen);
     return () => window.removeEventListener(LEGALMEMORY_OPEN_EVENT, handleLegalMemoryOpen);
-  }, [openTargets, props.client, props.onOpenTarget, props.workspaceId, queryClient]);
+  }, [props.active, openTargets, props.client, props.onOpenTarget, props.workspaceId, queryClient]);
 
   const composerSetTextControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "composer.set_text",
