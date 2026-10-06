@@ -87,10 +87,6 @@ export const OrgChatProviderSchema = z.strictObject({
   secretRef,
 });
 export type OrgChatProvider = z.infer<typeof OrgChatProviderSchema>;
-const ModelChoiceSchema = z.strictObject({
-  providerID: z.string().min(1).max(100),
-  modelID: z.string().min(1).max(200),
-});
 
 const SystemOneQuestionTypeSchema = z.enum(["noul", "choice", "score"]);
 export const OrgSystemOneProviderSchema = z.strictObject({
@@ -161,13 +157,14 @@ export const orgPolicyDefinitions = {
   "storage.allowPersonal": { section: "connectors", scope: "server", modes: enforced, schema: z.boolean() },
 
   "ai.chat.providers": { section: "ai", scope: "engine", modes: enforced, schema: z.array(OrgChatProviderSchema).max(20) },
-  "ai.chat.model": { section: "ai", scope: "app", modes: both, schema: ModelChoiceSchema },
   "ai.systemOne.providers": { section: "ai", scope: "server", modes: enforced, schema: z.array(OrgSystemOneProviderSchema).max(10) },
   "ai.systemOne.model": { section: "ai", scope: "server", modes: both, schema: z.strictObject({ providerId: z.string().min(1), model: z.string().min(1) }) },
   "ai.ocr.engines": { section: "ai", scope: "server", modes: enforced, schema: z.array(OrgOcrEngineSchema).max(10) },
   "ai.ocr.defaultEngine": { section: "ai", scope: "server", modes: both, schema: z.string().min(1).max(64) },
-  /** Whether members may add their own providers, for chat, SystemOne and OCR. */
-  "ai.allowCustomProviders": { section: "ai", scope: "engine", modes: enforced, schema: z.boolean() },
+  /** Whether members may add their own chat providers, SystemOne providers and OCR engines. */
+  "ai.chat.allowCustom": { section: "ai", scope: "engine", modes: enforced, schema: z.boolean() },
+  "ai.systemOne.allowCustom": { section: "ai", scope: "server", modes: enforced, schema: z.boolean() },
+  "ai.ocr.allowCustom": { section: "ai", scope: "server", modes: enforced, schema: z.boolean() },
 
   "branding": { section: "branding", scope: "app", modes: both, schema: BrandingSchema },
   /** Enforced only as false: admins may switch sharing off, never force it on. */

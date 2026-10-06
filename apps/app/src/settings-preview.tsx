@@ -47,7 +47,7 @@ if (policyState === "active" || policyState === "lapsed") {
     platformURL: "https://platform.eigenweltlabs.com", restored: null,
     entries: {
       "privacy.shareAnonymousUsage": { mode: "enforced", value: false, locked, released: false },
-      "ai.allowCustomProviders": { mode: "enforced", value: false, locked, released: false },
+      "ai.chat.allowCustom": { mode: "enforced", value: false, locked, released: false },
       "ai.systemOne.model": { mode: "default", value: { providerId: "eigenwelt", model: "EigenJev" }, locked: false, released: false },
       "ai.ocr.defaultEngine": { mode: "enforced", value: "remote-sample", locked, released: false },
       language: { mode: "default", value: "de", locked: false, released: false },

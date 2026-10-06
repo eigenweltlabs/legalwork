@@ -72,7 +72,14 @@ export async function changeOrgPolicySetting(key: OrgPolicyKey, change: () => vo
   return true;
 }
 
-type AllowKey = "connectors.allowCustom" | "plugins.allowCustom" | "skills.allowCustom" | "storage.allowPersonal" | "ai.allowCustomProviders";
+type AllowKey =
+  | "connectors.allowCustom"
+  | "plugins.allowCustom"
+  | "skills.allowCustom"
+  | "storage.allowPersonal"
+  | "ai.chat.allowCustom"
+  | "ai.systemOne.allowCustom"
+  | "ai.ocr.allowCustom";
 
 /**
  * Before an action the firm may switch off; true when it may go ahead.

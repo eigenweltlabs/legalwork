@@ -41,13 +41,9 @@ export async function orgChatProviderBlocks(config: ServerConfig): Promise<Recor
 
 /** While the firm allows no providers of the member's own: the providers the engine may use. */
 export async function orgEnabledProviders(config: ServerConfig): Promise<string[] | null> {
-  if ((await appliedOrgPolicy(config, "ai.allowCustomProviders"))?.value !== false) return null;
+  if ((await appliedOrgPolicy(config, "ai.chat.allowCustom"))?.value !== false) return null;
   const providers = (await appliedOrgPolicy(config, "ai.chat.providers"))?.value ?? [];
   return [EIGENWELT_PROVIDER_ID, ...providers.map((provider) => provider.id)];
-}
-
-export async function orgAllowsCustomProviders(config: ServerConfig): Promise<boolean> {
-  return (await appliedOrgPolicy(config, "ai.allowCustomProviders"))?.value !== false;
 }
 
 /** The firm's SystemOne providers; `apiKey` is null while their key is unavailable. */
@@ -83,7 +79,7 @@ export async function orgOcr(config: ServerConfig): Promise<{
       maxTokens: 8192,
     })),
     defaultEngineId: (await appliedOrgPolicy(config, "ai.ocr.defaultEngine"))?.value ?? null,
-    allowCustom: await orgAllowsCustomProviders(config),
+    allowCustom: (await appliedOrgPolicy(config, "ai.ocr.allowCustom"))?.value !== false,
     resolveApiKey: async (reference) => (await orgPolicySecret(config, reference.slice("org:".length))) ?? undefined,
   };
 }

@@ -1364,7 +1364,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     startOAuth?: boolean;
   }) {
     // Every way to add a provider leads here: the firm may not allow members' own.
-    if (!(await orgPolicyAllows("ai.allowCustomProviders"))) return;
+    if (!(await orgPolicyAllows("ai.chat.allowCustom"))) return;
     mutateState((current) => ({
       ...current,
       providerAuthReturnFocusTarget: optionsArg?.returnFocusTarget ?? "none",

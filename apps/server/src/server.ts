@@ -3661,7 +3661,7 @@ function createRoutes(
       const providerUpdate = ensurePlainObject(provider);
       // Removing a provider is always possible; adding one the firm may not allow.
       if (Object.values(providerUpdate).some((entry) => entry !== null)) {
-        await requireOrgPolicyAllows(config, "ai.allowCustomProviders");
+        await requireOrgPolicyAllows(config, "ai.chat.allowCustom");
       }
       if (Object.keys(providerUpdate).length) {
         // Mark disconnections before deleting config: the engine may still

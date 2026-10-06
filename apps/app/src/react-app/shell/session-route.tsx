@@ -207,7 +207,6 @@ import {
   RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
-import { changeOrgPolicySetting, useOrgPolicy } from "@/react-app/domains/connections/org-policy";
 
 /** How long a task opened on arrival from another screen outlasts the route settling. */
 const TASK_OPEN_SETTLE_MS = 4_000;
@@ -736,17 +735,13 @@ export function SessionRoute() {
   // Eigenwelt is the only connected provider and serves exactly one model:
   // there is nothing to pick and nothing to fuse, so the composer shows a
   // plain model label and hides the Fusion toggle.
-  // The firm's chat model, or the only model Eigenwelt serves: either way the
-  // composer shows a plain model label.
-  const firmChatModel = useOrgPolicy("ai.chat.model");
   const soloEigenweltModel = useMemo(() => {
-    if (firmChatModel?.locked) return true;
     const list = providerListQuery.data;
     if (!list) return false;
     const connected = getConnectedProviderItems(list);
     if (connected.length !== 1 || connected[0]?.id !== "eigenwelt") return false;
     return Object.keys(connected[0]?.models ?? {}).length === 1;
-  }, [firmChatModel?.locked, providerListQuery.data]);
+  }, [providerListQuery.data]);
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
   // How many providers are actually connected, read from the SAME provider
   // list that decides `selectedModelUnavailable`. The composer's red "model
@@ -831,34 +826,6 @@ export function SessionRoute() {
       return { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null };
     });
   }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
-  // The firm's chat model is selected while it can be used here. A default
-  // stays until the member picks another; an enforced one stays selected.
-  useEffect(() => {
-    const list = providerListQuery.data;
-    const model = firmChatModel?.value;
-    if (!list || !model || !isModelAvailableInConnectedProviders(list, model)) return;
-    setPrefs((previous) =>
-      previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
-        ? previous
-        : { ...previous, defaultModel: model, modelVariant: null },
-    );
-  }, [firmChatModel, providerListQuery.data, setPrefs]);
-  // Picking another model than the firm's default takes the firm's choice back.
-  const selectModel = useCallback((model: ModelRef) => {
-    const apply = () => setPrefs((previous) => ({
-      ...previous,
-      defaultModel: model,
-      modelVariant: previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
-        ? previous.modelVariant
-        : null,
-    }));
-    const firm = firmChatModel?.value;
-    if (firm && (firm.providerID !== model.providerID || firm.modelID !== model.modelID)) {
-      void changeOrgPolicySetting("ai.chat.model", apply);
-      return;
-    }
-    apply();
-  }, [firmChatModel, setPrefs]);
   // Creating a chat only needs a reachable workspace — `session.create` never
   // touches a model. A missing or dead model selection must NOT block it: the
   // new chat opens with the connect-AI bar above the composer, which is where
@@ -1396,7 +1363,13 @@ export function SessionRoute() {
       },
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
-        selectModel(model);
+        local.setPrefs((previous) => ({
+          ...previous,
+          defaultModel: model,
+          modelVariant: previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
+            ? previous.modelVariant
+            : null,
+        }));
         modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: usableProviderCount,
@@ -1580,7 +1553,15 @@ export function SessionRoute() {
           }
         })();
       },
-      onChangeModel: (model: { providerID: string; modelID: string }) => selectModel(model),
+      onChangeModel: (model: { providerID: string; modelID: string }) => {
+        local.setPrefs((previous) => ({
+          ...previous,
+          defaultModel: model,
+          modelVariant: previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
+            ? previous.modelVariant
+            : null,
+        }));
+      },
       environmentRuntimeKey,
       onApplyEnvironmentChanges: isDesktopRuntime() && selectedWorkspace?.workspaceType !== "remote"
         ? handleApplyEnvironmentChanges
@@ -1609,7 +1590,6 @@ export function SessionRoute() {
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
-    selectModel,
     soloEigenweltModel,
     selectedWorkspace,
     selectedWorkspaceId,
@@ -2540,7 +2520,7 @@ export function SessionRoute() {
             onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
             selectedModel={local.prefs.defaultModel}
             modelLocked={soloEigenweltModel}
-            onModelChange={selectModel}
+            onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
             modelVariant={modelVariantValue}
             modelVariantLabel={modelVariantLabel}
             modelBehaviorOptions={modelBehaviorOptions}

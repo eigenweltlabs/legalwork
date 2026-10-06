@@ -132,7 +132,9 @@ describe("the guard plugin", () => {
 
 describe("the firm's AI providers", () => {
   const entries = {
-    "ai.allowCustomProviders": { mode: "enforced", value: false },
+    "ai.chat.allowCustom": { mode: "enforced", value: false },
+    "ai.systemOne.allowCustom": { mode: "enforced", value: false },
+    "ai.ocr.allowCustom": { mode: "enforced", value: false },
     "ai.chat.providers": {
       mode: "enforced",
       value: [{ id: "org-azure", name: "Kanzlei Azure", baseURL: "https://azure.example.com/v1", apiType: "responses", models: [{ id: "gpt-5", contextLimit: 200000 }], secretRef: "chat:org-azure" }],

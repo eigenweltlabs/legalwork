@@ -67,7 +67,7 @@ export function SystemOneSettingsSection({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const providersForbidden = useOrgPolicyForbids("ai.allowCustomProviders");
+  const providersForbidden = useOrgPolicyForbids("ai.systemOne.allowCustom");
   const selectionLocked = useOrgPolicy("ai.systemOne.model")?.locked === true;
   const [draft, setDraft] = useState<SystemOneProviderInput | null>(null);
   const [modelIds, setModelIds] = useState("");
@@ -157,7 +157,7 @@ export function SystemOneSettingsSection({
               size="sm"
               disabled={busy || providersForbidden}
               onClick={async () => {
-                if (!(await orgPolicyAllows("ai.allowCustomProviders"))) return;
+                if (!(await orgPolicyAllows("ai.systemOne.allowCustom"))) return;
                 setError(null);
                 setPreset("typesafe");
                 setDraft(newProvider());

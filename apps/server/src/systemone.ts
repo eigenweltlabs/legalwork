@@ -23,7 +23,7 @@ import {
 } from "./systemone-schema.js";
 import type { ServerConfig } from "./types.js";
 import { appliedOrgPolicy, requireOrgPolicyAllows, requireOrgPolicyUnmanaged } from "./org-policy.js";
-import { orgAllowsCustomProviders, orgSystemOneProviders } from "./org-policy-ai.js";
+import { orgSystemOneProviders } from "./org-policy-ai.js";
 
 const CurrentStoredProviderSchema = SystemOneProviderInputSchema.extend({ apiKey: z.string().min(1) });
 // Read older one-model connections without changing IDs, keys, or the selected model.
@@ -194,7 +194,7 @@ async function customProviderView(
  */
 async function effectiveProviders(config: ServerConfig, store: Store) {
   const firm = await orgSystemOneProviders(config);
-  const own = (await orgAllowsCustomProviders(config))
+  const own = (await appliedOrgPolicy(config, "ai.systemOne.allowCustom"))?.value !== false
     ? store.providers.filter((provider) => !firm.some((entry) => entry.id === provider.id))
     : [];
   const selection = (await appliedOrgPolicy(config, "ai.systemOne.model"))?.value ?? store.selection;
@@ -235,7 +235,7 @@ export async function saveSystemOneProvider(
   config: ServerConfig,
   input: SystemOneProviderInput,
 ) {
-  await requireOrgPolicyAllows(config, "ai.allowCustomProviders");
+  await requireOrgPolicyAllows(config, "ai.systemOne.allowCustom");
   const parsed = SystemOneProviderInputSchema.safeParse(input);
   if (!parsed.success)
     throw new ApiError(

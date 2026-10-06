@@ -62,7 +62,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
   const [formError, setFormError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Engine | null>(null);
   const [showInstallSuccess, setShowInstallSuccess] = useState(false);
-  const providersForbidden = useOrgPolicyForbids("ai.allowCustomProviders");
+  const providersForbidden = useOrgPolicyForbids("ai.ocr.allowCustom");
   const defaultLocked = useOrgPolicy("ai.ocr.defaultEngine")?.locked === true;
   const installing = activeInstall(settings);
   const installStage = settings?.installation?.stage;
@@ -179,7 +179,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
         <div className="flex items-center justify-between gap-3">
           <LayoutSectionTitle>{t("ocr.title")}</LayoutSectionTitle>
           {client ? <Button variant="default" size="sm" disabled={disabled || providersForbidden} onClick={async () => {
-            if (!(await orgPolicyAllows("ai.allowCustomProviders"))) return;
+            if (!(await orgPolicyAllows("ai.ocr.allowCustom"))) return;
             setFormError(null); setDraft(emptyDraft());
           }}>{t("ocr.add_provider")}</Button> : null}
         </div>

@@ -68,7 +68,7 @@ function providerSourceLabel(source?: ConnectedProvider["source"]) {
 }
 
 export function AiSettingsView(props: AiSettingsViewProps) {
-  const providersForbidden = useOrgPolicyForbids("ai.allowCustomProviders");
+  const providersForbidden = useOrgPolicyForbids("ai.chat.allowCustom");
   // The firm's own providers are neither edited nor disconnected here.
   const firmProviderIds = new Set(useOrgPolicy("ai.chat.providers")?.value.map((provider) => provider.id));
   return (
@@ -90,7 +90,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
             </Button>
           </div>
           <LayoutSectionDescription>{t("settings.providers_desc")}</LayoutSectionDescription>
-          <OrgPolicyNote policyKey="ai.allowCustomProviders" />
+          <OrgPolicyNote policyKey="ai.chat.allowCustom" />
           <OrgPolicySignInHint policyKey="ai.chat.providers" />
         </LayoutSectionHeader>
 
