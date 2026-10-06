@@ -670,6 +670,7 @@ export default {
   "sidebar.pinned_sessions": "Pinned Sessions",
   "sidebar.recent_sessions": "Recent Sessions",
   "sidebar.main_actions": "Main actions",
+  "sidebar.pinned_projects": "Pinned Projects",
   "sidebar.chat_sections": "Chat sidebar",
   "sidebar.project_items": "Inside projects",
   "sidebar.collapse_sessions": "Collapse Sessions",

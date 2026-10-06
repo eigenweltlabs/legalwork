@@ -679,6 +679,7 @@ const de = {
   "sidebar.pinned_sessions": "Angeheftete Sitzungen",
   "sidebar.recent_sessions": "Letzte Sitzungen",
   "sidebar.main_actions": "Hauptaktionen",
+  "sidebar.pinned_projects": "Angeheftete Projekte",
   "sidebar.chat_sections": "Chat-Seitenleiste",
   "sidebar.project_items": "Innerhalb von Projekten",
   "sidebar.collapse_sessions": "Sitzungen einklappen",

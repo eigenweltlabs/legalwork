@@ -16,6 +16,7 @@ export const SIDEBAR_ITEMS = {
   navCalendar: { label: "calendar.title", icon: CalendarDays },
   navProjects: { label: "projects.plural", icon: LayoutGrid },
   sectionPinned: { label: "sidebar.pinned_sessions", icon: Pin },
+  sectionPinnedProjects: { label: "sidebar.pinned_projects", icon: FolderOpen },
   sectionProjects: { label: "projects.plural", icon: FolderOpen },
   sectionRecent: { label: "sidebar.recent_sessions", icon: Clock },
   projectCalendar: { label: "calendar.title", icon: CalendarDays },

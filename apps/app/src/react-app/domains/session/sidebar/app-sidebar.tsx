@@ -130,6 +130,7 @@ import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
+import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
 
 interface SessionStatusIndicatorProps {
   className?: string;
@@ -435,6 +436,8 @@ type WorkspaceActionsMenuProps = {
 
 function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProps) {
   const ctx = useSidebarContext();
+  const pinned = useProjectFavoritesStore(state => state.favoriteIds.includes(workspace.id));
+  const toggleFavorite = useProjectFavoritesStore(state => state.toggleFavorite);
   const openPersonalisation = useProjectPersonalisation();
   const shared = useProjectSyncStore((store) => store.states[workspace.id] !== undefined);
   const share = useProjectSyncStore((store) => store.share);
@@ -457,6 +460,10 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="w-56">
+        <DropdownMenuItem onClick={() => toggleFavorite(workspace.id)}>
+          {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+          {t(pinned ? "sidebar.unpin_project" : "sidebar.pin_project")}
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => ctx.onOpenRenameWorkspace(workspace.id)}>
           <Pencil className="size-4" />
           {t("workspace_list.edit_name")}
@@ -690,6 +697,8 @@ export function AppSidebar(props: AppSidebarProps) {
             </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
           </SidebarMenuItem> : null;
   const pinned = usePinnedSessionIds();
+  const favoriteIds = useProjectFavoritesStore(state => state.favoriteIds);
+  const pinnedProjects = props.workspaceSessionGroups.filter(group => favoriteIds.includes(group.workspace.id));
   const allSessions = React.useMemo(() => allProjectSessions(props.workspaceSessionGroups, pinned, props.selectedSessionId), [props.workspaceSessionGroups, pinned, props.selectedSessionId]);
   const [recentLimit, setRecentLimit] = React.useState(10);
   const [closedSections, setClosedSections] = React.useState<Set<string>>(() => new Set());
@@ -810,6 +819,12 @@ export function AppSidebar(props: AppSidebarProps) {
         </div>
         <div data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
           {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
+            if (key === "sectionPinnedProjects") return pinnedProjects.length ? <section key={key} className="px-2.5 pb-3">
+              <button className="flex h-9 w-full items-center gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => toggleSection(key)} aria-expanded={!closedSections.has(key)}>
+                {t("sidebar.pinned_projects")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} />
+              </button>
+              {!closedSections.has(key) && <SidebarMenu className="gap-0.5">{pinnedProjects.map(({ workspace }) => <PinnedProjectRow key={workspace.id} workspace={workspace} />)}</SidebarMenu>}
+            </section> : null;
             if (key !== "sectionProjects") return sessionSection(key);
             return <section key={key} className="pb-3">
               <div className="flex h-9 items-center gap-1 px-4">
@@ -1701,6 +1716,25 @@ function WorkspaceSessions({ group, loading = false, showAll = false }: {
       {archived.length ? <ArchivedSessionsSection sessions={archived} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} expanded={archivedOpen} onToggle={() => setArchivedOpen((value) => !value)} /> : null}
     </SidebarMenuSub>
   );
+}
+
+function PinnedProjectRow({ workspace }: { workspace: WorkspaceInfo }) {
+  const ctx = useSidebarContext();
+  const location = useLocation();
+  const toggleFavorite = useProjectFavoritesStore(state => state.toggleFavorite);
+  const active = location.pathname === workspaceProjectRoute(workspace.id);
+  return <SidebarMenuItem className="group/project-row">
+    <ContextMenu>
+      <ContextMenuTrigger render={<SidebarMenuButton className="h-8 pr-9 text-[13px]" isActive={active} aria-current={active ? "page" : undefined} onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><span className="truncate">{workspaceLabel(workspace)}</span></SidebarMenuButton>} />
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")}><FolderOpen className="size-4" />{t("projects.open_project")}</ContextMenuItem>
+        {ctx.onOpenProjectWindow && <ContextMenuItem onClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><AppWindowMac className="size-4" />{t("sidebar.open_in_new_window")}</ContextMenuItem>}
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => toggleFavorite(workspace.id)}><PinOff className="size-4" />{t("sidebar.unpin_project")}</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+    <WorkspaceActionsMenu workspace={workspace} className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100" />
+  </SidebarMenuItem>;
 }
 
 function GlobalSessionRow({ session, workspace }: { session: SessionListItem; workspace: WorkspaceInfo }) {

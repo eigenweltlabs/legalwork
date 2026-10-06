@@ -9,9 +9,9 @@ export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProje
 
 const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navEvaluations"];
 
-export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
+export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
-const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionProjects", "sectionRecent"];
+const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionProjects", "sectionRecent"];
 const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
@@ -21,6 +21,7 @@ export type ShellConfig = {
   navProjects: boolean;
   chatSectionOrder: ChatSectionKey[];
   sectionPinned: boolean;
+  sectionPinnedProjects: boolean;
   sectionProjects: boolean;
   sectionRecent: boolean;
   projectNavOrder: ProjectNavKey[];
@@ -78,6 +79,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navProjects: true,
   chatSectionOrder: DEFAULT_CHAT_ORDER,
   sectionPinned: true,
+  sectionPinnedProjects: true,
   sectionProjects: true,
   sectionRecent: true,
   projectNavOrder: DEFAULT_PROJECT_ORDER,
@@ -140,10 +142,15 @@ function readShellConfig(): ShellConfig {
       navOrder.splice(navOrder.indexOf("navScheduled"), 1);
       navOrder.splice(navOrder.indexOf("navTasks") + 1, 0, "navScheduled");
     }
+    const chatSectionOrder = readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER);
+    if (Array.isArray(next.chatSectionOrder) && !next.chatSectionOrder.includes("sectionPinnedProjects")) {
+      chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinnedProjects"), 1);
+      chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinned") + 1, 0, "sectionPinnedProjects");
+    }
     return {
       ...next,
       navOrder,
-      chatSectionOrder: readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER),
+      chatSectionOrder,
       projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
       projectSessions: true,
       // The notifications bell has no UI toggle anymore, so force it off even if
