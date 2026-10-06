@@ -389,7 +389,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 export function SettingsPage(props: SettingsPageProps) {
   return (
     <SettingsContent>
-      <SettingsPanel key={props.activeTab} className="lw-enter">
+      <SettingsPanel key={props.activeTab} className={props.activeTab === "extensions" ? "lw-enter lg:max-w-5xl" : "lw-enter"}>
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

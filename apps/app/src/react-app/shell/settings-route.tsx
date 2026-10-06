@@ -2250,7 +2250,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <ExtensionsView
             busy={busy}
-            showHeader={props.singleView}
+            showHeader={props.singleView === true}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
             canEditPlugins={canWriteWorkspacePlugins}
