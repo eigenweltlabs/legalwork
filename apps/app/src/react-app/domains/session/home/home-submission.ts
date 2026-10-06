@@ -1,4 +1,5 @@
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { createHomeMessage, type HomeMessage } from "./home-message";
 import { replaceHomeAttachmentTokens, resolveHomeFileReference, type HomeDraftAttachment, type HomeFileClient, type HomeFileContent, type HomeFileReference } from "./home-attachments";
 import {
   uploadWorkspaceAttachment,
@@ -9,6 +10,7 @@ import {
 /** Keep completed steps so a failed upload or send can be retried safely. */
 export type PendingHomeMessage = {
   sessionId: string | null;
+  message?: HomeMessage;
   uploads: Map<File, string>;
   references?: Map<HomeFileReference, HomeFileContent>;
 };
@@ -23,7 +25,7 @@ export async function submitHomeMessage(input: {
   pending: PendingHomeMessage;
   client: Pick<LegalworkServerClient, "writeWorkspaceBinaryFile">;
   createSession: () => Promise<{ id: string }>;
-  sendPrompt: (sessionId: string, text: string, fileContext: string) => Promise<void>;
+  sendPrompt: (sessionId: string, text: string, fileContext: string, message: HomeMessage) => Promise<void>;
 }) {
   const content = new Map<File | HomeFileReference, HomeFileContent>();
   for (const file of input.files) {
@@ -57,6 +59,7 @@ export async function submitHomeMessage(input: {
         })
       : [input.text.trim(), ...Array.from(content.values(), (file) => file.text)].filter(Boolean).join("\n\n"),
     Array.from(content.values(), (file) => file.context).join("\n\n"),
+    input.pending.message ??= createHomeMessage(),
   );
   return input.pending.sessionId;
 }

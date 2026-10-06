@@ -115,7 +115,7 @@ import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/ch
 import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { replaceHomeAttachmentTokens, type HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
-import { seedSessionState, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
+import { seedSubmittedMessage } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -2250,36 +2250,36 @@ export function SessionRoute() {
           captureAnalyticsEvent("task_created", { source: "home", surface: analyticsSurface() });
           return session;
         },
-        sendPrompt: async (sessionId, prompt, fileContext) => {
+        sendPrompt: async (sessionId, prompt, fileContext, message) => {
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
           const system = [environmentContext, fileContext].filter(Boolean).join("\n\n");
           const result = await workspaceClient.session.promptAsync({
             sessionID: sessionId,
-            parts: [{ type: "text", text: prompt }],
+            messageID: message.id,
+            parts: [{ id: message.partId, type: "text", text: prompt }],
             model,
             agent: selectedAgent ?? undefined,
             ...(modelVariantValue ? { variant: modelVariantValue } : {}),
             ...(system ? { system } : {}),
           });
           if (result.error) throw new Error(serializeSDKError(result.error));
+          seedSubmittedMessage(endpoint.workspaceId, sessionId, {
+            id: message.id,
+            role: "user",
+            metadata: { opencode: { created: message.created } },
+            parts: [{ type: "text", text: prompt, state: "done", providerMetadata: { opencode: { partId: message.partId } } }],
+          });
           markTaskRunStart(sessionId);
           captureAnalyticsEvent("task_message_sent", { session_id: sessionId, provider_id: model.providerID, model_id: model.modelID, surface: analyticsSurface() });
         },
       });
-      // Populate the destination before navigating so the sent message does not
-      // disappear into an empty-session welcome/loading view during the handoff.
-      // A snapshot failure must never turn an accepted send into a retry.
-      await getReactQueryClient().fetchQuery({
-        queryKey: snapshotKey(endpoint.workspaceId, sessionId),
-        queryFn: async () => (await endpoint.client.getSessionSnapshot(endpoint.workspaceId, sessionId, { limit: 140 })).item,
-        retry: false,
-      }).then((snapshot) => seedSessionState(endpoint.workspaceId, snapshot)).catch(() => undefined);
       pendingHomeMessage.current = null;
       setLegacySelectedWorkspaceId(targetWorkspace.id);
       writeActiveWorkspaceId(targetWorkspace.id);
       writeLastSessionFor(targetWorkspace.id, sessionId);
       navigateToWorkspaceSession(targetWorkspace.id, sessionId);
-      void refreshRouteState();
+      // The workspace and session lists were already updated above. A full
+      // refresh here remounts the just-opened transcript behind loading UI.
     } finally {
       homeSending.current = false;
     }
