@@ -5859,6 +5859,8 @@ const de = {
   "org_policy.auto_download_off": "Das automatische Herunterladen von Updates wurde von Ihrem Admin deaktiviert.",
   "org_policy.usage_off": "Das Teilen anonymer Nutzungsdaten wurde von Ihrem Admin deaktiviert.",
   "org_policy.default_reviews": "Die Standardeinstellungen für die tabellarische Prüfung wurden von Ihrem Admin festgelegt.",
+  "org_policy.set_notifications": "Die Benachrichtigungseinstellungen wurden von Ihrem Admin festgelegt.",
+  "org_policy.default_notifications": "Die Standard-Benachrichtigungseinstellungen wurden von Ihrem Admin festgelegt.",
   "org_policy.default_branding": "Das Standard-Branding wurde von Ihrem Admin festgelegt.",
   "org_policy.default_personality": "Die Standard-Persönlichkeit wurde von Ihrem Admin festgelegt.",
   "org_policy.default_language": "Die Standardsprache wurde von Ihrem Admin festgelegt.",

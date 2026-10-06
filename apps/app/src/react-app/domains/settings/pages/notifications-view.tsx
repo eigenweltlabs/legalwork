@@ -3,9 +3,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n";
 
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 import {
-  useTaskNotificationPreferences,
-  type TaskNotificationPreferences,
+  changeTaskNotificationPreferences,
+  useTaskNotificationPreference,
   type TaskNotificationScope,
 } from "../../tasks/task-notification-preferences";
 import {
@@ -28,8 +29,7 @@ type ToggleKey = "arrivals" | "dueToday" | "overdue" | "system" | "appBadge";
  * call site: the section groups only its direct rows into one card.
  */
 function ToggleRow(props: { field: ToggleKey; title: string; description: string }) {
-  const checked = useTaskNotificationPreferences((state) => state[props.field]);
-  const update = useTaskNotificationPreferences((state) => state.update);
+  const { value, locked } = useTaskNotificationPreference(props.field);
   return (
     <LayoutSectionItemHeader>
       <LayoutSectionItemTitle>{props.title}</LayoutSectionItemTitle>
@@ -37,8 +37,9 @@ function ToggleRow(props: { field: ToggleKey; title: string; description: string
       <LayoutSectionItemHeaderActions>
         <Switch
           aria-label={props.title}
-          checked={checked}
-          onCheckedChange={(next: boolean) => update({ [props.field]: next } as Partial<TaskNotificationPreferences>)}
+          checked={value}
+          disabled={locked}
+          onCheckedChange={(next: boolean) => void changeTaskNotificationPreferences({ [props.field]: next })}
         />
       </LayoutSectionItemHeaderActions>
     </LayoutSectionItemHeader>
@@ -50,8 +51,7 @@ function ToggleRow(props: { field: ToggleKey; title: string; description: string
  * runs, and whether it uses the system's notifications for it.
  */
 export function NotificationsView() {
-  const scope = useTaskNotificationPreferences((state) => state.scope);
-  const update = useTaskNotificationPreferences((state) => state.update);
+  const scope = useTaskNotificationPreference("scope");
   const scopes: Array<{ value: TaskNotificationScope; label: string }> = [
     { value: "mine", label: t("settings.notifications_scope_mine") },
     { value: "unassigned", label: t("settings.notifications_scope_unassigned") },
@@ -64,6 +64,7 @@ export function NotificationsView() {
         <LayoutSectionHeader>
           <LayoutSectionTitle>{t("settings.notifications_tasks_title")}</LayoutSectionTitle>
           <LayoutSectionDescription>{t("settings.notifications_tasks_desc")}</LayoutSectionDescription>
+          <OrgPolicyNote policyKey="notifications" />
         </LayoutSectionHeader>
 
         <LayoutSectionItem>
@@ -94,10 +95,11 @@ export function NotificationsView() {
             <LayoutSectionItemDescription>{t("settings.notifications_scope_desc")}</LayoutSectionItemDescription>
             <LayoutSectionItemHeaderActions>
               <Select
-                value={scope}
+                value={scope.value}
                 // Base UI resolves the trigger label from `items`.
                 items={scopes}
-                onValueChange={(value) => update({ scope: value as TaskNotificationScope })}
+                disabled={scope.locked}
+                onValueChange={(value) => void changeTaskNotificationPreferences({ scope: value as TaskNotificationScope })}
               >
                 <SelectTrigger size="sm" className="w-[220px]" aria-label={t("settings.notifications_scope")}>
                   <SelectValue />

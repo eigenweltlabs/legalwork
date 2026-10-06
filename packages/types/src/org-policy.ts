@@ -40,7 +40,8 @@ export type OrgPolicySection =
   | "personalisation"
   | "reviews"
   | "customization"
-  | "language";
+  | "language"
+  | "notifications";
 
 export const PermissionActionSchema = z.enum(["allow", "ask", "deny"]);
 export type PermissionAction = z.infer<typeof PermissionActionSchema>;
@@ -73,6 +74,16 @@ const ReviewDefaultsSchema = z.strictObject({
   llm: ReviewModelSchema.optional(),
   minDecisionProbability: z.number().min(0.5).max(1).optional(),
   ocr: z.enum(["always", "missing-text"]).optional(),
+});
+
+/** Task notifications, as in Settings → Notifications; a field left out stays the member's. */
+const NotificationsSchema = z.strictObject({
+  arrivals: z.boolean().optional(),
+  dueToday: z.boolean().optional(),
+  overdue: z.boolean().optional(),
+  scope: z.enum(["mine", "unassigned", "all"]).optional(),
+  system: z.boolean().optional(),
+  appBadge: z.boolean().optional(),
 });
 
 type OrgPolicyDefinition = {
@@ -130,6 +141,7 @@ export const orgPolicyDefinitions = {
   "reviews.defaults": { section: "reviews", scope: "server", modes: both, schema: ReviewDefaultsSchema },
   "branding": { section: "customization", scope: "app", modes: both, schema: BrandingSchema },
   "language": { section: "language", scope: "app", modes: both, schema: z.enum(["en", "de"]) },
+  "notifications": { section: "notifications", scope: "app", modes: both, schema: NotificationsSchema },
 } as const satisfies Record<string, OrgPolicyDefinition>;
 
 type Definitions = typeof orgPolicyDefinitions;

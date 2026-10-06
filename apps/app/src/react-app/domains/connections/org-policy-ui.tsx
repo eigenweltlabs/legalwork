@@ -49,6 +49,7 @@ const ENFORCED_TEXT = {
   "updates.autoCheck": { on: "org_policy.auto_check_on", off: "org_policy.auto_check_off" },
   "updates.autoDownload": { on: "org_policy.auto_download_on", off: "org_policy.auto_download_off" },
   "privacy.shareAnonymousUsage": "org_policy.usage_off",
+  notifications: "org_policy.set_notifications",
 } satisfies Partial<Record<OrgPolicyKey, Text>>;
 
 type NoteKey = AllowKey | keyof typeof ENFORCED_TEXT;
@@ -59,6 +60,7 @@ const DEFAULT_TEXT: Partial<Record<NoteKey, string>> = {
   "personalization.personality": "org_policy.default_personality",
   branding: "org_policy.default_branding",
   "reviews.defaults": "org_policy.default_reviews",
+  notifications: "org_policy.default_notifications",
 };
 
 function isAllowKey(key: NoteKey): key is AllowKey {

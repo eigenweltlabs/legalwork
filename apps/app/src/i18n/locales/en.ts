@@ -5468,6 +5468,8 @@ export default {
   "org_policy.auto_download_off": "Downloading updates automatically was deactivated by your admin.",
   "org_policy.usage_off": "Sharing anonymous usage data was deactivated by your admin.",
   "org_policy.default_reviews": "The default tabular review settings were set by your admin.",
+  "org_policy.set_notifications": "Notification settings were set by your admin.",
+  "org_policy.default_notifications": "Default notification settings were set by your admin.",
   "org_policy.default_branding": "The default branding was set by your admin.",
   "org_policy.default_personality": "The default personality was set by your admin.",
   "org_policy.default_language": "The default language was set by your admin.",

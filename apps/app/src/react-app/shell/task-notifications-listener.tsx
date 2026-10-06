@@ -10,7 +10,7 @@ import { useNotificationStore, useUnreadTaskCount } from "@/react-app/kernel/not
 import { usePlatform, type Platform } from "@/react-app/kernel/platform";
 import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
 
-import { useTaskNotificationPreferences } from "../domains/tasks/task-notification-preferences";
+import { taskNotificationPreferences, useTaskNotificationPreference } from "../domains/tasks/task-notification-preferences";
 import {
   selectTaskAnnouncements,
   taskAnnouncementActionLabel,
@@ -71,7 +71,7 @@ export function TaskNotificationsListener() {
   });
 
   const unreadTasks = useUnreadTaskCount();
-  const appBadge = useTaskNotificationPreferences((state) => state.appBadge);
+  const appBadge = useTaskNotificationPreference("appBadge").value;
   useEffect(() => {
     if (detached || !isDesktopRuntime()) return;
     void setAppBadge(appBadge ? unreadTasks : 0).catch(() => undefined);
@@ -95,7 +95,7 @@ export function TaskNotificationsListener() {
     let timer: number | undefined;
 
     const announce = (notifications: LegalworkTaskNotification[]) => {
-      const preferences = useTaskNotificationPreferences.getState();
+      const preferences = taskNotificationPreferences();
       const announcements = selectTaskAnnouncements(notifications, preferences);
       if (announcements.length === 0) return;
       const inFront = windowInFront();
