@@ -1,0 +1,42 @@
+/* Eigenpal 1.8.3 owns the document's dark rendering. Customize its palette,
+   including nested editor roots, without changing filters or document styles.
+   Screen-only: the editor's native print palette must remain untouched. */
+@media screen {
+  html[data-appearance="blackout"] .ep-root.dark,
+  html[data-appearance="blackout"] .ep-root.dark .ep-root {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 89%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 89%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 89%;
+    --secondary: 0 0% 8%;
+    --secondary-foreground: 0 0% 89%;
+    --muted: 0 0% 8%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 10%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+
+    --doc-surface: var(--lw-surface);
+    --doc-card: var(--lw-surface-hover);
+    --doc-bg: var(--lw-canvas);
+    --doc-bg-subtle: var(--lw-sunken);
+    --doc-bg-hover: var(--lw-surface-hover);
+    --doc-bg-input: var(--lw-sunken);
+    --doc-text: var(--lw-text-primary);
+    --doc-text-muted: var(--lw-text-secondary);
+    --doc-text-subtle: var(--lw-text-tertiary);
+    --doc-text-placeholder: var(--lw-text-placeholder);
+    --doc-border: var(--lw-border);
+    --doc-border-light: var(--lw-border);
+    --doc-border-dark: var(--lw-border-strong);
+    --doc-border-input: var(--lw-border-strong);
+    --doc-caret: var(--lw-text-primary);
+
+    /* The editor applies invert(1) hue-rotate(180deg) contrast(.92) to pages.
+       #fafafa becomes approximately #0f0f0f after that native filter. A dark
+       input here would turn the page light. Image counter-filters stay native. */
+    --doc-page-bg: #fafafa;
+  }
+}
