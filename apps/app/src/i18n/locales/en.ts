@@ -4748,7 +4748,7 @@ export default {
   "settings.tab_preferences": "Privacy",
   "settings.tab_description_preferences": "Usage analytics and data sharing",
   "settings.tab_shell": "Customization",
-  "settings.tab_description_shell": "Appearance, branding and task suggestions",
+  "settings.tab_description_shell": "Appearance and task suggestions",
   "settings.tab_permissions": "Permissions",
   "settings.tab_description_permissions": "Authorized folders and file access",
   "settings.tab_safety": "Tool Permissions",

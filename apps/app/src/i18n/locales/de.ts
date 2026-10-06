@@ -5102,7 +5102,7 @@ const de = {
   "settings.tab_preferences": "Datenschutz",
   "settings.tab_description_preferences": "Nutzungsanalyse und Datenweitergabe",
   "settings.tab_shell": "Anpassung",
-  "settings.tab_description_shell": "Darstellung, Branding und Aufgabenvorschläge",
+  "settings.tab_description_shell": "Darstellung und Aufgabenvorschläge",
   "settings.tab_permissions": "Berechtigungen",
   "settings.tab_description_permissions": "Freigegebene Ordner und Dateizugriff",
   "settings.tab_safety": "Tool-Berechtigungen",

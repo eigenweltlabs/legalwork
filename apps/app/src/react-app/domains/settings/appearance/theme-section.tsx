@@ -7,10 +7,11 @@ import { Switch } from "@/components/ui/switch";
 import { getInitialThemeMode, getResolvedAppearance, setThemeMode, subscribeToTheme, type AppearanceMode } from "@/app/theme";
 import { t } from "@/i18n";
 import {
+  LayoutSection,
+  LayoutSectionDescription,
+  LayoutSectionHeader,
   LayoutSectionItem,
-  LayoutSectionItemDescription,
-  LayoutSectionItemHeader,
-  LayoutSectionItemTitle,
+  LayoutSectionTitle,
 } from "../settings-layout";
 import "./theme-section.css";
 
@@ -32,64 +33,66 @@ export function ThemeSection({ busy = false }: { busy?: boolean }) {
       : t("settings.theme_light_description");
 
   return (
-    <LayoutSectionItem className="theme-settings">
-      <LayoutSectionItemHeader>
-        <LayoutSectionItemTitle><span id={titleId}>{t("settings.theme_title")}</span></LayoutSectionItemTitle>
-        <LayoutSectionItemDescription>{t("settings.appearance_hint")}</LayoutSectionItemDescription>
-      </LayoutSectionItemHeader>
-      <RadioGroup
-        className="theme-segments"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        value={appearance}
-        disabled={busy}
-        onValueChange={(value) => {
-          if (value === "light" || value === "dark" || value === "blackout") setThemeMode(value);
-        }}
-      >
-        {modes.map(({ value, label, icon: Icon }) => (
-          <Radio.Root
-            key={value}
-            value={value}
-            className="theme-segment"
-            data-appearance-option={value}
-            onClick={() => {
-              // Clicking the already-selected system appearance makes it an explicit choice too.
-              if (themeMode === "system" && value === appearance) setThemeMode(value);
-            }}
-          >
-            <Icon size={16} strokeWidth={1.6} aria-hidden="true" />
-            <span>{label}</span>
-          </Radio.Root>
-        ))}
-      </RadioGroup>
-      <div className="theme-preview" aria-hidden="true">
-        <div className="theme-preview-bar"><span /><span /><span /></div>
-        <div className="theme-preview-body">
-          <div className="theme-preview-sidebar">
-            <div className="theme-preview-brand" />
-            <i /><i /><i />
-          </div>
-          <div className="theme-preview-chat">
-            <div className="theme-preview-bubble"><i /><i /></div>
-            <div className="theme-preview-answer"><i /><i /><i /></div>
-            <div className="theme-preview-composer"><i /><ArrowUp size={14} /></div>
-          </div>
-          <div className="theme-preview-document"><i /><i /><i /><i /><i /></div>
-        </div>
-      </div>
-      <p id={descriptionId} className="theme-description">{description}</p>
-      <div className="theme-system-row">
-        <label htmlFor={systemId}>{t("settings.theme_follow_system")}</label>
-        <Switch
-          id={systemId}
-          size="sm"
+    <LayoutSection>
+      <LayoutSectionHeader>
+        <LayoutSectionTitle><span id={titleId}>{t("settings.theme_title")}</span></LayoutSectionTitle>
+        <LayoutSectionDescription>{t("settings.appearance_hint")}</LayoutSectionDescription>
+      </LayoutSectionHeader>
+      <LayoutSectionItem className="theme-settings">
+        <RadioGroup
+          className="theme-segments"
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          value={appearance}
           disabled={busy}
-          checked={themeMode === "system"}
-          onCheckedChange={(checked) => setThemeMode(checked ? "system" : appearance)}
-        />
-      </div>
-      <p className="theme-system-hint">{t("settings.theme_follow_system_hint")}</p>
-    </LayoutSectionItem>
+          onValueChange={(value) => {
+            if (value === "light" || value === "dark" || value === "blackout") setThemeMode(value);
+          }}
+        >
+          {modes.map(({ value, label, icon: Icon }) => (
+            <Radio.Root
+              key={value}
+              value={value}
+              className="theme-segment"
+              data-appearance-option={value}
+              onClick={() => {
+                // Clicking the already-selected system appearance makes it an explicit choice too.
+                if (themeMode === "system" && value === appearance) setThemeMode(value);
+              }}
+            >
+              <Icon size={16} strokeWidth={1.6} aria-hidden="true" />
+              <span>{label}</span>
+            </Radio.Root>
+          ))}
+        </RadioGroup>
+        <div className="theme-preview" aria-hidden="true">
+          <div className="theme-preview-bar"><span /><span /><span /></div>
+          <div className="theme-preview-body">
+            <div className="theme-preview-sidebar">
+              <div className="theme-preview-brand" />
+              <i /><i /><i />
+            </div>
+            <div className="theme-preview-chat">
+              <div className="theme-preview-bubble"><i /><i /></div>
+              <div className="theme-preview-answer"><i /><i /><i /></div>
+              <div className="theme-preview-composer"><i /><ArrowUp size={14} /></div>
+            </div>
+            <div className="theme-preview-document"><i /><i /><i /><i /><i /></div>
+          </div>
+        </div>
+        <p id={descriptionId} className="theme-description">{description}</p>
+        <div className="theme-system-row">
+          <label htmlFor={systemId}>{t("settings.theme_follow_system")}</label>
+          <Switch
+            id={systemId}
+            size="sm"
+            disabled={busy}
+            checked={themeMode === "system"}
+            onCheckedChange={(checked) => setThemeMode(checked ? "system" : appearance)}
+          />
+        </div>
+        <p className="theme-system-hint">{t("settings.theme_follow_system_hint")}</p>
+      </LayoutSectionItem>
+    </LayoutSection>
   );
 }
