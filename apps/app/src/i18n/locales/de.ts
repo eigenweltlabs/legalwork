@@ -54,6 +54,7 @@ const de = {
   "scheduled.project": "Projekt",
   "scheduled.same_chat_each": "Derselbe Chat bei jedem Lauf",
   "scheduled.same_chat_hint": "Beim ersten Lauf wird ein Chat erstellt und für alle weiteren Läufe wiederverwendet.",
+  "scheduled.choose_project": "Projekt auswählen",
   "scheduled.search_projects": "Projekte suchen",
   "scheduled.no_projects_found": "Keine passenden Projekte.",
   "scheduled.new_chat_each": "Neuer Chat bei jedem Lauf",

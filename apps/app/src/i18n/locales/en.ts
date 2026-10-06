@@ -44,6 +44,7 @@ export default {
   "scheduled.project": "Project",
   "scheduled.same_chat_each": "Same chat each run",
   "scheduled.same_chat_hint": "A chat is created on the first run and reused for every following run.",
+  "scheduled.choose_project": "Choose a project",
   "scheduled.search_projects": "Search projects",
   "scheduled.no_projects_found": "No matching projects.",
   "scheduled.new_chat_each": "New chat each run",

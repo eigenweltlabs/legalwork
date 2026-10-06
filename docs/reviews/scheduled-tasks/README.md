@@ -8,7 +8,7 @@ The welcome view includes an example week and four editable presets: Morning mat
 
 ## Project access
 
-New tasks default to **Daily**, **Same chat each run** and **This project only**. Project selection and Project access are under Advanced. The single Runs in picker replaces the redundant toggle, and the searchable project menu has a bounded, scrolling list.
+New tasks default to **Daily**, **Same chat each run** and **This project only**. Creation starts with a visible, required Project picker above the task name. The global Scheduled page has no implied project, so neither blank tasks nor presets preselect one. Project access stays under Advanced; existing tasks show their fixed project in the inline editor header. The single Runs in picker replaces the redundant toggle, and the searchable project menu has a bounded, scrolling list.
 
 A reusable chat is created only on the first due run and its ID is saved on the task, so subsequent runs continue the same chat after an app restart. Existing chats can also be selected, and New chat each run remains available. Legacy tasks retain their saved destination behavior.
 
@@ -39,12 +39,13 @@ Calendar repeats retain their wall time through daylight-saving changes. Ambiguo
 - `pnpm --filter legalwork-server exec bun test src/scheduled-tasks src/opencode-plugins/legalwork-scheduled-task-tools.test.ts src/legalwork-runtime-config.test.ts`: 40 passed, the opt-in engine test skipped in this command. Includes reopening five minutes late for one-time, interval, daily and final calendar occurrences; several missed days; delayed engine startup; no duplicate dispatch on another restart; and paused tasks staying paused.
 - `LEGALWORK_TEST_OPENCODE_BIN=/Applications/LegalWork.app/Contents/Resources/sidecars/opencode pnpm --filter legalwork-server exec bun test src/scheduled-tasks/engine.test.ts`: passed against engine 1.18.29 with a local model fixture. Verifies actual tool filtering and blocked/allowed cross-project reads through the bundled plugin.
 - App, server and Electron TypeScript checks passed. App and server builds passed. The app build reports existing large-bundle and dependency warnings.
-- `pnpm --filter @legalwork/app test:i18n`: 5,551 keys across English and German passed.
+- `pnpm --filter @legalwork/app test:i18n`: 5,552 keys across English and German passed.
 - `node scripts/i18n-audit.mjs --ci`: passed after replacing dynamically constructed scheduling translation keys with static calls. Scheduled card tests and app/server typechecks were rerun for this follow-up.
 - Follow-up regression tests cover reusing a newly created chat across a database reopen, switching to new chats, preserving the mode on partial HTTP edits, stale-editor conflicts, and failure or pause during initial chat creation.
 - Follow-up UI checks verified Daily defaults, both chat choices, save/reload persistence, Advanced placement, project search with the existing desktop profile, a bounded project menu, and the German editor at 390 px. The development Electron app was restarted with the rebuilt server and the same profile.
 - Follow-up UI checks verified the 06:00 brief, 08:00 deadline check, Friday 16:00 review and Monday 09:00 planning previews in Europe/Berlin, including saving/reloading the planning preset. Verified sidebar right-click and visible menus, Edit on an unselected task, Pause/Resume, deletion from sidebar/detail, canceling deletion, preserving the selected task when deleting another, and deletion persistence after reload. Checked the welcome and detail views in German, dark mode and at 390 px with no horizontal overflow. The existing dev Electron instance hot-loaded these renderer changes.
 - Inline editor checks verified Save updates both sidebar and detail immediately and survives reload, Cancel restores the saved values, unsaved drafts stay open when switching tasks, invalid zones/rules disable Save, and revision conflicts preserve the draft with an error beside Save. Verified creation still defaults to Daily and Same chat each run, plus German dark mode at 390 px with sticky actions and no horizontal overflow. Weekly edit regressions keep the saved BYDAY when changing only the time or time zone.
+- Project-picker follow-up verified blank tasks and presets start without a project, Save stays disabled until selection, project search works, and the chosen project and scope survive saving and reloading. Checked the German dark picker at 390 px with no horizontal overflow. All 858 app tests, app typecheck/build and translation checks passed again.
 - The desktop plugin bundle checker passed against `apps/server/dist/opencode-plugins`.
 - Browser checks passed for create, custom recurrence, invalid time zone/rule validation, searchable chat selection, access scope changes, pause/resume, reload persistence and deletion. Checked desktop and 390 px German editor layouts.
 - Development Electron was launched on the merged branch with the existing profile and renderer origin preserved. Verified that the Scheduled sidebar link opens `/scheduled`, the page stays there after a full reload, the window heading says Scheduled, and the editor defaults to This project only. The legacy chat-restoration redirect explicitly excludes Scheduled.
@@ -79,7 +80,7 @@ Open `http://localhost:5197/scheduled-tasks-preview.html` (append `?lang=de` for
 
 ![Daily is the default](daily-default.jpg)
 
-![Project settings are under Advanced](project-access.jpg)
+![Choose the project when creating a task](create-project.jpg)
 
 ![Searchable chat destination picker](chat-picker.jpg)
 
