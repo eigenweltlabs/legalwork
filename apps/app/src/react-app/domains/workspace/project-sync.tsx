@@ -477,10 +477,8 @@ function ProjectShareDialog(props: {
   const added = settings ? colleagues.filter((member) => settings.memberIds.includes(member.userId)) : [];
   const addable = settings ? colleagues.filter((member) => !settings.memberIds.includes(member.userId)) : [];
   const alone = settings?.access === "members" && settings.memberIds.length === 0;
-  // The firm's policy may allow no sharing, or none with everyone in the firm.
-  const firmSharing = useOrgPolicy("sharing.projects")?.value;
-  const sharingOff = firmSharing?.allow === false;
-  const firmWideOff = firmSharing?.allowFirmWide === false;
+  // The firm's policy may allow no sharing.
+  const sharingOff = useOrgPolicy("sharing.projects")?.value.allow === false;
   const firmName = useOrgPolicyStore((state) => state.view?.orgName) || t("org_policy.your_firm");
   const nameOf = (member: LegalworkTaskMember | undefined, fallback: string) => {
     const name = member ? memberName(member) : fallback;
@@ -561,7 +559,7 @@ function ProjectShareDialog(props: {
                   <ChevronDown />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-72 w-(--anchor-width) overflow-y-auto">
-                  {settings.access === "members" && !firmWideOff ? (
+                  {settings.access === "members" ? (
                     <>
                       <DropdownMenuItem onClick={() => update({ access: "org" })}>
                         <Mark className="size-6 [&>svg]:size-3.5"><Building2 /></Mark>

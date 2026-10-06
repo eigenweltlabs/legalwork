@@ -168,7 +168,7 @@ export const orgPolicyDefinitions = {
   /** Enforced only as false: admins may switch sharing off, never force it on. */
   "privacy.shareAnonymousUsage": { section: "privacy", scope: "app", modes: both, schema: z.boolean() },
 
-  "sharing.projects": { section: "sharing", scope: "server", modes: enforced, schema: z.strictObject({ allow: z.boolean(), allowFirmWide: z.boolean() }) },
+  "sharing.projects": { section: "sharing", scope: "server", modes: enforced, schema: z.strictObject({ allow: z.boolean() }) },
   "hub.whoCanShare": { section: "sharing", scope: "server", modes: enforced, schema: z.enum(["members", "admins"]) },
 
   /** Built-in extensions by id; false switches one off. */
