@@ -262,6 +262,15 @@ describe("eigenwelt sign-in", () => {
     expect(returning.searchParams.get("intent")).toBe("sign-in");
     expect(returning.searchParams.get("plan")).toBe("plus");
 
+    const confirmed = await finish(await startEigenweltSignIn({
+      intent: "sign-in", plan: "pro", checkout: { interval: "month", seats: 4 },
+    }));
+    expect(confirmed.searchParams.get("confirmed")).toBe("1");
+    expect(confirmed.searchParams.get("interval")).toBe("month");
+    expect(confirmed.searchParams.get("seats")).toBe("4");
+    expect(confirmed.searchParams.has("regions")).toBe(false);
+    expect(pro.searchParams.has("confirmed")).toBe(false);
+
     // A value from an untyped caller never reaches the platform.
     const unknown = await finish(
       await startEigenweltSignIn({ plan: "hub" as unknown as "plus" }),
