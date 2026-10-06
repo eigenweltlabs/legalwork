@@ -1,20 +1,20 @@
 import { useEffect, useId, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Clock3, Loader2, Search, Trash2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Clock3, FolderOpen, Loader2, Search } from "lucide-react";
 import type { ScheduledTask, ScheduledTaskInput, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Surface } from "@/react-app/design-system/surface";
+import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
-import { DeleteScheduledTaskDialog } from "./delete-scheduled-task-dialog";
-import { formatRunTime, localDateTime, repeatMode, repeatOptions } from "./schedule-format";
+import { cn } from "@/lib/utils";
+import { formatRunTime, localDateTime, repeatMode, repeatOptions, weeklyRuleForStart } from "./schedule-format";
 
 export type ScheduledTaskDraft = { title: string; prompt: string; schedule?: TaskSchedule };
 export type ScheduleProject = { id: string; name: string };
@@ -27,11 +27,26 @@ export function ScheduleSelect({ label, value, options, onChange, disabled }: { 
   </Select>;
 }
 
-export function ScheduledTaskDialog({ client, projects, task, initial, defaultModel, onClose, onSaved }: {
+type ScheduledTaskEditorProps = {
   client: ScheduleClient; projects: ScheduleProject[]; task: ScheduledTask | null;
   initial?: ScheduledTaskDraft; defaultModel?: ScheduledTaskInput["model"];
-  onClose: () => void; onSaved: () => void;
-}) {
+  onClose: () => void; onSaved: (task: ScheduledTask) => void;
+  inline?: boolean; onBusyChange?: (busy: boolean) => void; onDirtyChange?: (dirty: boolean) => void;
+};
+
+/** Creation uses a dialog; existing tasks are edited in the detail pane. */
+export function ScheduledTaskDialog(props: Omit<ScheduledTaskEditorProps, "task" | "inline" | "onBusyChange" | "onDirtyChange">) {
+  const [busy, setBusy] = useState(false);
+  return <Dialog open onOpenChange={open => { if (!open && !busy) props.onClose(); }}>
+    <DialogContent className="flex max-h-[90dvh] flex-col gap-0 p-0 sm:max-w-2xl" showCloseButton={!busy}>
+      <DialogHeader className="shrink-0 px-6 pb-5 pt-6"><DialogTitle>{t("scheduled.new")}</DialogTitle><DialogDescription>{t("scheduled.local_hint")}</DialogDescription></DialogHeader>
+      <ScheduledTaskEditor {...props} task={null} inline={false} onBusyChange={setBusy} />
+    </DialogContent>
+  </Dialog>;
+}
+
+export function ScheduledTaskEditor({ client, projects, task, initial, defaultModel, onClose, onSaved, inline = true, onBusyChange, onDirtyChange }: ScheduledTaskEditorProps) {
+  const cache = useQueryClient();
   const id = useId();
   const initialSchedule = task?.schedule ?? initial?.schedule;
   const [workspaceId, setWorkspaceId] = useState(task?.workspaceId ?? projects[0]?.id ?? "");
@@ -43,19 +58,17 @@ export function ScheduledTaskDialog({ client, projects, task, initial, defaultMo
   const [mode, setMode] = useState<string>(initialSchedule ? repeatMode(initialSchedule) : "daily");
   const [minutes, setMinutes] = useState(initialSchedule?.kind === "interval" ? String(initialSchedule.minutes) : "60");
   const [rule, setRule] = useState(initialSchedule?.kind === "rrule" ? initialSchedule.rrule : "FREQ=WEEKLY;BYDAY=MO");
-  const [ruleDraft, setRuleDraft] = useState(rule), [ruleOpen, setRuleOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(task?.sessionId ?? null);
   const [reuseChat, setReuseChat] = useState(task ? Boolean(task.sessionId) || task.reuseChat : true);
   const [projectOpen, setProjectOpen] = useState(false), [projectSearch, setProjectSearch] = useState("");
   const [selectedChatTitle, setSelectedChatTitle] = useState<string>();
   const [chatOpen, setChatOpen] = useState(false), [search, setSearch] = useState("");
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const [scheduleEdited, setScheduleEdited] = useState(false);
-  const weekday = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][new Date(`${start.slice(0, 10)}T12:00:00Z`).getUTCDay()];
   const common = { startAt: `${start}:00`, timeZone: zone };
   const draftSchedule: TaskSchedule = mode === "once" ? { kind: "once", ...common }
     : mode === "interval" ? { kind: "interval", ...common, minutes: Number(minutes) }
-    : { kind: "rrule", ...common, rrule: mode === "daily" ? "FREQ=DAILY" : mode === "weekdays" ? "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" : mode === "weekly" ? `FREQ=WEEKLY;BYDAY=${weekday}` : rule };
+    : { kind: "rrule", ...common, rrule: mode === "daily" ? "FREQ=DAILY" : mode === "weekdays" ? "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" : mode === "weekly" ? weeklyRuleForStart(start, initialSchedule) : rule };
   const schedule = task && !scheduleEdited ? task.schedule : draftSchedule;
   const scheduleKey = JSON.stringify(schedule);
   const [previewKey, setPreviewKey] = useState(scheduleKey);
@@ -65,30 +78,41 @@ export function ScheduledTaskDialog({ client, projects, task, initial, defaultMo
   const chats = useQuery({ queryKey: ["scheduled-chats", client.baseUrl, workspaceId, search], enabled: Boolean(workspaceId), queryFn: () => client.scheduledTaskChats(workspaceId, search) });
   const selectedChat = chats.data?.sessions.find(chat => chat.id === sessionId)?.title ?? selectedChatTitle;
   const changed = (action: () => void) => { setScheduleEdited(true); action(); };
-  const save = async (status?: "active" | "paused") => {
-    setBusy(true); setError(null);
+  const dirty = Boolean(task && (title !== task.title || prompt !== task.prompt || projectAccess !== task.projectAccess || sessionId !== task.sessionId || reuseChat !== (Boolean(task.sessionId) || task.reuseChat) || scheduleKey !== JSON.stringify(task.schedule)));
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  const save = async () => {
+    setBusy(true); onBusyChange?.(true); setError(null);
     try {
       const input: ScheduledTaskInput = { title, prompt, schedule, sessionId, reuseChat, projectAccess, model: task ? task.model : defaultModel ?? null };
-      if (task) await client.updateScheduledTask(workspaceId, task.id, task.revision, status ? { status } : input);
-      else await client.createScheduledTask(workspaceId, input);
-      onSaved(); onClose();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : t("scheduled.save_failed")); }
-    finally { setBusy(false); }
+      const saved = task ? await client.updateScheduledTask(workspaceId, task.id, task.revision, input) : await client.createScheduledTask(workspaceId, input);
+      onSaved(saved.task); onClose();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : t("scheduled.save_failed"));
+      // Keep this draft's revision fixed, but make reopening use the latest task.
+      if (task) {
+        void cache.invalidateQueries({ queryKey: ["scheduled-task", client.baseUrl, workspaceId, task.id] });
+        void cache.invalidateQueries({ queryKey: ["scheduled-tasks", client.baseUrl] });
+      }
+    }
+    finally { setBusy(false); onBusyChange?.(false); }
   };
   const valid = title.trim() && prompt.trim() && workspaceId && !preview.isError && (task && !scheduleEdited || preview.data?.occurrences.length) && previewKey === scheduleKey && !preview.isFetching;
-  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
-    <DialogContent className="flex max-h-[90dvh] flex-col gap-0 p-0 sm:max-w-2xl">
-      <DialogHeader className="shrink-0 px-6 pb-5 pt-6"><DialogTitle>{t(task ? "scheduled.edit" : "scheduled.new")}</DialogTitle><DialogDescription>{t("scheduled.local_hint")}</DialogDescription></DialogHeader>
-      <form className="flex min-h-0 flex-1 flex-col" onSubmit={event => { event.preventDefault(); if (valid && !busy) void save(); }}>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4"><fieldset disabled={busy} className="min-w-0 space-y-5">
+  const actions = <><Button type="button" variant="outline" disabled={busy} onClick={onClose}>{t("scheduled.cancel")}</Button><Button type="submit" disabled={!valid || busy} aria-busy={busy}>{busy && <Loader2 className="size-4 animate-spin" />}{t("scheduled.save")}</Button></>;
+  return <form aria-label={t(task ? "scheduled.edit" : "scheduled.new")} className={cn("@container/editor flex min-h-0 flex-col", inline ? "mx-auto max-w-4xl gap-6 py-6 @3xl:py-10" : "flex-1")} onSubmit={event => { event.preventDefault(); if (valid && !busy) void save(); }}>
+        {inline && <header className="sticky top-0 z-10 space-y-3 border-b border-border bg-background pb-4 pt-1">
+          <SectionHeading size="page" title={t("scheduled.edit")} action={actions} />
+          <p className="flex items-start gap-2 text-xs text-muted-foreground"><FolderOpen className="size-4 shrink-0" /><span className="min-w-0 flex-1 break-words">{t("scheduled.project")}: {projects.find(project => project.id === workspaceId)?.name ?? workspaceId}</span>{dirty && <span className="shrink-0" role="status">{t("common.unsaved_changes")}</span>}</p>
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        </header>}
+        <div className={cn("min-h-0", !inline && "flex-1 overflow-y-auto px-6 pb-4")}><fieldset disabled={busy} className="min-w-0 space-y-5">
           <div className="space-y-2"><Label htmlFor={`${id}-title`}>{t("scheduled.name")}</Label><Input autoFocus id={`${id}-title`} value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder={t("scheduled.name_placeholder")} required /></div>
           <div className="space-y-2"><Label htmlFor={`${id}-prompt`}>{t("scheduled.instructions")}</Label><Textarea id={`${id}-prompt`} className="min-h-32 max-h-64 resize-y leading-relaxed" value={prompt} maxLength={30000} onChange={event => setPrompt(event.target.value)} placeholder={t("scheduled.prompt_placeholder")} required /></div>
           <Surface className="divide-y divide-border">
             <div className="flex items-center justify-between gap-3 p-4"><Label>{t("scheduled.repeat")}</Label><ScheduleSelect label={t("scheduled.repeat")} value={mode} options={repeatOptions()} onChange={value => changed(() => setMode(value))} /></div>
             {mode === "interval" && <div className="flex items-center justify-between gap-4 p-4"><Label htmlFor={`${id}-minutes`}>{t("scheduled.interval_minutes")}</Label><Input id={`${id}-minutes`} type="number" min={1} max={525600} className="w-28" value={minutes} onChange={event => changed(() => setMinutes(event.target.value))} /></div>}
-            <div className="grid gap-3 p-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor={`${id}-start`}>{t(mode === "once" ? "scheduled.run_at" : "scheduled.starts")}</Label><Input id={`${id}-start`} type="datetime-local" value={start} onChange={event => changed(() => setStart(event.target.value))} required /></div>
+            <div className="grid gap-3 p-4 @md/editor:grid-cols-2"><div className="space-y-2"><Label htmlFor={`${id}-start`}>{t(mode === "once" ? "scheduled.run_at" : "scheduled.starts")}</Label><Input id={`${id}-start`} type="datetime-local" value={start} onChange={event => changed(() => setStart(event.target.value))} required /></div>
               <div className="space-y-2"><Label htmlFor={`${id}-zone`}>{t("scheduled.time_zone")}</Label><Input id={`${id}-zone`} value={zone} onChange={event => changed(() => setZone(event.target.value))} required /></div></div>
-            {mode === "custom" && <div className="flex min-w-0 items-center gap-3 p-4"><code className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={rule}>{rule}</code><Button type="button" variant="ghost" size="sm" onClick={() => { setRuleDraft(rule); setRuleOpen(true); }}>{t("scheduled.edit_rule")}</Button></div>}
+            {mode === "custom" && <div className="space-y-2 p-4"><Label htmlFor={`${id}-rule`}>RRULE</Label><Input id={`${id}-rule`} className="font-mono text-xs" value={rule} onChange={event => changed(() => setRule(event.target.value))} /><p className="text-xs text-muted-foreground">{t("scheduled.rule_hint")}</p></div>}
           </Surface>
           <div aria-live="polite" className="flex gap-2 text-xs leading-relaxed text-muted-foreground"><Clock3 className="mt-0.5 size-3.5 shrink-0" />
             <div>{previewKey !== scheduleKey || preview.isFetching ? t("scheduled.loading") : preview.isError ? <span className="text-destructive">{preview.error.message}</span> : preview.data?.occurrences[0] ? <>{t("scheduled.next_run")}: {formatRunTime(preview.data.occurrences[0], schedule.timeZone)} · {schedule.timeZone}</> : t("scheduled.no_future_run")}</div>
@@ -96,7 +120,7 @@ export function ScheduledTaskDialog({ client, projects, task, initial, defaultMo
           <Collapsible><CollapsibleTrigger render={<Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground" />}><ChevronDown className="size-4" />{t("scheduled.advanced")}</CollapsibleTrigger>
             <CollapsibleContent className="space-y-3 pt-3">
               <Surface className="flex items-center justify-between gap-4 p-4"><Label>{t("scheduled.project")}</Label>
-                <Popover open={projectOpen} onOpenChange={setProjectOpen}><PopoverTrigger disabled={Boolean(task)} render={<Button type="button" variant="ghost" aria-label={t("scheduled.project")} className="min-w-0 max-w-[70%] font-normal" />}><span className="truncate">{projects.find(project => project.id === workspaceId)?.name}</span><ChevronDown className="size-4 shrink-0" /></PopoverTrigger>
+                <Popover open={projectOpen} onOpenChange={setProjectOpen}><PopoverTrigger disabled={Boolean(task)} render={<Button type="button" variant="ghost" aria-label={t("scheduled.project")} className="min-w-0 max-w-[70%] font-normal" />}><span className="truncate">{projects.find(project => project.id === workspaceId)?.name ?? workspaceId}</span><ChevronDown className="size-4 shrink-0" /></PopoverTrigger>
                   <PopoverContent align="end" className="flex max-h-[min(18rem,var(--available-height))] w-80 max-w-[calc(100vw-3rem)] flex-col gap-2 p-2">
                     <Input autoFocus aria-label={t("scheduled.search_projects")} placeholder={t("scheduled.search_projects")} value={projectSearch} onChange={event => setProjectSearch(event.target.value)} />
                     <div className="min-h-0 overflow-y-auto">{projects.filter(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase())).map(project => <Button type="button" key={project.id} variant={project.id === workspaceId ? "secondary" : "ghost"} aria-pressed={project.id === workspaceId} className="h-auto min-h-9 w-full justify-start whitespace-normal text-left font-normal" onClick={() => { setWorkspaceId(project.id); setSessionId(null); setSelectedChatTitle(undefined); setSearch(""); setProjectOpen(false); setProjectSearch(""); }}><span className="min-w-0 break-words">{project.name}</span></Button>)}
@@ -125,16 +149,8 @@ export function ScheduledTaskDialog({ client, projects, task, initial, defaultMo
               {!sessionId && reuseChat && <p className="px-1 text-xs leading-relaxed text-muted-foreground">{t("scheduled.same_chat_hint")}</p>}
             </CollapsibleContent>
           </Collapsible>
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          {error && !inline && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </fieldset></div>
-        <DialogFooter className="mx-0 mb-0 shrink-0 flex-row justify-end border-t border-border px-6 py-4">
-          {task && <Button type="button" variant="ghost" size="sm" className="mr-auto text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 className="size-4" />{t("scheduled.delete")}</Button>}
-          {task && task.status !== "completed" && <Button type="button" variant="secondary" disabled={busy} onClick={() => void save(task.status === "active" ? "paused" : "active")}>{t(task.status === "active" ? "scheduled.pause" : "scheduled.resume")}</Button>}
-          <Button type="submit" disabled={!valid || busy} aria-busy={busy}>{busy && <Loader2 className="size-4 animate-spin" />}{t("scheduled.save")}</Button>
-        </DialogFooter>
-      </form>
-      <Dialog open={ruleOpen} onOpenChange={setRuleOpen}><DialogContent><DialogHeader><DialogTitle>{t("scheduled.edit_rule")}</DialogTitle><DialogDescription>{t("scheduled.rule_hint")}</DialogDescription></DialogHeader><Label htmlFor={`${id}-rule`}>RRULE</Label><Input id={`${id}-rule`} className="font-mono text-xs" value={ruleDraft} onChange={event => setRuleDraft(event.target.value)} /><DialogFooter><Button variant="ghost" onClick={() => setRuleOpen(false)}>{t("scheduled.cancel")}</Button><Button onClick={() => { changed(() => setRule(ruleDraft)); setRuleOpen(false); }}>{t("scheduled.apply")}</Button></DialogFooter></DialogContent></Dialog>
-      {confirmDelete && task && <DeleteScheduledTaskDialog client={client} task={task} onClose={() => setConfirmDelete(false)} onDeleted={() => { onSaved(); onClose(); }} />}
-    </DialogContent>
-  </Dialog>;
+        {!inline && <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">{actions}</div>}
+      </form>;
 }

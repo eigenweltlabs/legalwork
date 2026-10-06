@@ -30,6 +30,13 @@ export function localDateTime(value: string, timeZone: string) {
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
 }
 
+/** Changing only the time or zone must not replace a saved weekly day. */
+export function weeklyRuleForStart(start: string, original?: TaskSchedule) {
+  if (original?.kind === "rrule" && repeatMode(original) === "weekly" && start.slice(0, 10) === localDateTime(original.startAt, original.timeZone).slice(0, 10)) return original.rrule;
+  const weekday = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][new Date(`${start.slice(0, 10)}T12:00:00Z`).getUTCDay()];
+  return `FREQ=WEEKLY;BYDAY=${weekday}`;
+}
+
 /** Start at the next matching local wall time, including later today. */
 export function suggestedSchedule(cadence: "daily" | "weekdays" | "monday" | "friday", hour: number, now = new Date()): TaskSchedule {
   const start = new Date(now);

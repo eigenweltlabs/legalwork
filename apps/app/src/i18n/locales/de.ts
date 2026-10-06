@@ -14,6 +14,7 @@
  */
 
 const de = {
+  "scheduled.finish_editing": "Speichern oder verwerfen Sie Ihre Änderungen, bevor Sie die Aufgabe wechseln.",
   "scheduled.task": "Geplante Aufgabe",
   "scheduled.task_actions": "Aktionen für {title}",
   "scheduled.detail_access_project": "Zugriff: nur {project}",

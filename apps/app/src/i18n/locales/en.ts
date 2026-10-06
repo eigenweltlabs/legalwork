@@ -4,6 +4,7 @@
  */
 
 export default {
+  "scheduled.finish_editing": "Save or cancel your changes before switching tasks.",
   "scheduled.task": "Scheduled task",
   "scheduled.task_actions": "Actions for {title}",
   "scheduled.detail_access_project": "Access: {project} only",

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ScheduledTaskSchema } from "@legalwork/types/scheduled-tasks";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
@@ -22,13 +23,13 @@ test("Open cards use the current server task, and cannot open from a different p
     const cache = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } });
     cache.setQueryData(["scheduled-task", client.baseUrl, "matter", task.id], { task: { ...task, title: "Edited title", projectAccess: "all" }, runs: [] });
     const noop = () => {};
-    const html = renderToStaticMarkup(<QueryClientProvider client={cache}>
+    const html = renderToStaticMarkup(<QueryClientProvider client={cache}><MemoryRouter>
       <MessageListProvider legalworkClient={client} workspaceId={workspaceId} sessionId="chat" showThinking={false} developerMode={false}
         displaySuggestions={false} providerConnectedCount={1} dispatchAction={noop} setPrompt={noop}
         onRevertToUserMessage={noop} onForkAtMessage={noop} onEditUserMessage={noop}>
         <ScheduledTaskToolCard part={{ type: "dynamic-tool", toolName: "legalwork_schedule_create", toolCallId: "create", state: "output-available", input: {}, output: { ok: true, referenceData: { task } } }} />
       </MessageListProvider>
-    </QueryClientProvider>);
+    </MemoryRouter></QueryClientProvider>);
     if (workspaceId === "matter") { expect(html).toContain("Edited title"); expect(html).toContain("All projects"); expect(html).not.toContain('disabled=""'); }
     else { expect(html).toContain('disabled=""'); expect(html).not.toContain("Edited title"); }
     cache.clear();
