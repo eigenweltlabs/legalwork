@@ -45,6 +45,7 @@ function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0
   const legalworkClient = createLegalworkServerClient({ baseUrl: server.url.href });
   const store = createProviderAuthStore({
     client: () => client,
+    baseUrl: () => server.url.href,
     providers: () => [],
     providerDefaults: () => ({}),
     providerConnectedIds: () => [],

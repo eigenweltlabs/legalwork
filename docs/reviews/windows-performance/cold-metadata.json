@@ -1,0 +1,13 @@
+{
+  "method": "Windows dev Electron with current renderer. CDP delays provider response by 13 seconds, then the model picker opens. One provider request survives the previous 10-second deadline.",
+  "label": "cold-window",
+  "beforePicker": 1,
+  "afterPicker": 1,
+  "requests": [
+    {
+      "ms": 14233,
+      "status": 200
+    }
+  ],
+  "dialogVisible": true
+}

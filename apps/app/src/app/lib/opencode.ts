@@ -63,6 +63,7 @@ export type OpencodeAuth = {
 };
 
 const DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS = 10_000;
+const ENGINE_BOOTSTRAP_TIMEOUT_MS = 90_000;
 const OAUTH_OPENCODE_REQUEST_TIMEOUT_MS = 5 * 60_000;
 const MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS = 90_000;
 const SESSION_LONG_RUNNING_URL_RE = /\/session\/[^/?#]+\/(?:command|prompt_async|summarize)(?:[?#]|$)/;
@@ -76,6 +77,12 @@ function getRequestUrl(input: RequestInfo | URL): string {
 
 export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number): number {
   const url = getRequestUrl(input);
+  // The first metadata read initializes plugins and their dependencies. On a
+  // fresh Windows profile this took over a minute. Avoid timing out and
+  // queueing retries behind the same initialization work.
+  if (!(input instanceof Request && input.method !== "GET") && /\/(?:provider(?:\/auth)?|config(?:\/providers)?|mcp|session)(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, ENGINE_BOOTSTRAP_TIMEOUT_MS);
+  }
   if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
     return 0;
   }
@@ -234,9 +241,10 @@ async function fetchWithTimeout(
     return fetchImpl(input, init);
   }
 
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const signal = controller?.signal;
-  const initWithSignal = signal && !init?.signal ? { ...(init ?? {}), signal } : init;
+  const controller = new AbortController();
+  const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+  const signal = callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal;
+  const initWithSignal = { ...init, signal };
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -253,8 +261,7 @@ async function fetchWithTimeout(
   try {
     return await Promise.race([fetchImpl(input, initWithSignal), timeoutPromise]);
   } catch (error) {
-    const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
-    if (name === "AbortError") {
+    if (controller.signal.aborted) {
       throw new Error(t("app.request_timed_out"));
     }
     throw error;

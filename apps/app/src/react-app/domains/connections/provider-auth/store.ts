@@ -166,6 +166,7 @@ export type ProviderAuthStoreSnapshot = {
 
 type CreateProviderAuthStoreOptions = {
   client: () => Client | null;
+  baseUrl: () => string;
   providers: () => ProviderListItem[];
   providerDefaults: () => Record<string, string>;
   providerConnectedIds: () => string[];
@@ -785,9 +786,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       } catch {
         // ignore health wait failures and still attempt provider reads
       }
-      // The composer and model picker cache the list under a key that carries
-      // the engine URL, which this store does not know. Refetch every cached
-      // list, or they keep showing the engine as it was before the reload.
+      // Refresh active observers and drop inactive lists before reading the
+      // same cache below. A forced second fetch would enumerate models twice.
       await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);
     }
 
@@ -809,8 +809,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const updated = filterProviderList(
         await ensureProviderListQuery(getReactQueryClient(), {
           client: activeClient,
+          baseUrl: options.baseUrl(),
           directory: options.selectedWorkspaceRoot(),
-          force: Boolean(optionsArg?.dispose),
         }),
         disabledProviders,
       );

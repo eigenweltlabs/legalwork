@@ -481,6 +481,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
   const routeStateRef = useRef({
     activeClient: null as Client | null,
+    opencodeBaseUrl: "",
     selectedWorkspaceId: "",
     selectedWorkspaceRoot: "",
     selectedWorkspaceType: "local" as "local" | "remote",
@@ -531,8 +532,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     [emptyWorkspaceDisplay, selectedWorkspace],
   );
 
+  const selectedWorkspaceEndpoint = useMemo(
+    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
+    [baseUrl, selectedWorkspace, token],
+  );
+  const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
+
   routeStateRef.current = {
     activeClient,
+    opencodeBaseUrl,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     selectedWorkspaceType: selectedWorkspace?.workspaceType ?? "local",
@@ -670,6 +678,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     () =>
       createProviderAuthStore({
         client: () => routeStateRef.current.activeClient,
+        baseUrl: () => routeStateRef.current.opencodeBaseUrl,
         providers: () => routeStateRef.current.providerItems,
         providerDefaults: () => routeStateRef.current.providerDefaults,
         providerConnectedIds: () => routeStateRef.current.providerConnectedIds,
@@ -841,11 +850,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     [errorsByWorkspaceId, sessionsByWorkspaceId, workspaces],
   );
 
-  const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
-    [baseUrl, selectedWorkspace, token],
-  );
-  const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
   const runtimeWorkspaceId = selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspace?.id ?? null;
   routeStateRef.current.runtimeWorkspaceId = runtimeWorkspaceId;
 

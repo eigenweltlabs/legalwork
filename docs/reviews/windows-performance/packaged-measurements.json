@@ -1,0 +1,845 @@
+{
+  "warm": {
+    "commit": "d24f287cf",
+    "method": "2000 synthetic files, unmodified CI packages; warm runs reuse the initialized profile. OS disk cache is not cleared. Navigation includes control-surface timing and waits for the requested route.",
+    "results": [
+      {
+        "arch": "x64",
+        "index": 0,
+        "warm": true,
+        "files": 2000,
+        "rendererControlsReadyMs": 3733.5,
+        "serverReadyMs": 9016.3,
+        "requests": [
+          {
+            "endpoint": "files/list",
+            "repeat": 0,
+            "ms": 470.2,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 0,
+            "ms": 1135.3,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 0,
+            "ms": 2295.6,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 0,
+            "ms": 575.4,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 1,
+            "ms": 138.1,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 1,
+            "ms": 38.1,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 1,
+            "ms": 971.4,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 1,
+            "ms": 27,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 2,
+            "ms": 134.5,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 2,
+            "ms": 48.6,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 2,
+            "ms": 1284.7,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 2,
+            "ms": 36.1,
+            "bytes": 2
+          }
+        ],
+        "reload": {
+          "ms": 422,
+          "bytes": 38
+        },
+        "providerAfterReload": {
+          "ms": 1125,
+          "bytes": 6606543
+        },
+        "navigation": [
+          {
+            "panel": "general",
+            "ms": 437.3,
+            "route": "/workspace/ws_speed/settings/general"
+          },
+          {
+            "panel": "account",
+            "ms": 437.5,
+            "route": "/workspace/ws_speed/settings/account"
+          },
+          {
+            "panel": "ai",
+            "ms": 390.6,
+            "route": "/workspace/ws_speed/settings/ai"
+          },
+          {
+            "panel": "extensions",
+            "ms": 648.6,
+            "route": "/workspace/ws_speed/settings/extensions"
+          },
+          {
+            "panel": "appearance",
+            "ms": 525.6,
+            "route": "/workspace/ws_speed/settings/appearance"
+          }
+        ],
+        "mainCpuSeconds": 8.859375
+      },
+      {
+        "arch": "arm64",
+        "index": 0,
+        "warm": true,
+        "files": 2000,
+        "rendererControlsReadyMs": 2329.3,
+        "serverReadyMs": 4426.7,
+        "requests": [
+          {
+            "endpoint": "files/list",
+            "repeat": 0,
+            "ms": 229.2,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 0,
+            "ms": 903.8,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 0,
+            "ms": 1561.1,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 0,
+            "ms": 337.1,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 1,
+            "ms": 62.5,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 1,
+            "ms": 18.4,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 1,
+            "ms": 591.1,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 1,
+            "ms": 13.5,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 2,
+            "ms": 74,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 2,
+            "ms": 12.3,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 2,
+            "ms": 614.5,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 2,
+            "ms": 24.1,
+            "bytes": 2
+          }
+        ],
+        "reload": {
+          "ms": 93.3,
+          "bytes": 38
+        },
+        "providerAfterReload": {
+          "ms": 782.6,
+          "bytes": 6606543
+        },
+        "navigation": [
+          {
+            "panel": "general",
+            "ms": 379.4,
+            "route": "/workspace/ws_speed/settings/general"
+          },
+          {
+            "panel": "account",
+            "ms": 407.5,
+            "route": "/workspace/ws_speed/settings/account"
+          },
+          {
+            "panel": "ai",
+            "ms": 393.3,
+            "route": "/workspace/ws_speed/settings/ai"
+          },
+          {
+            "panel": "extensions",
+            "ms": 391.2,
+            "route": "/workspace/ws_speed/settings/extensions"
+          },
+          {
+            "panel": "appearance",
+            "ms": 389.7,
+            "route": "/workspace/ws_speed/settings/appearance"
+          }
+        ],
+        "mainCpuSeconds": 4.546875
+      },
+      {
+        "arch": "arm64",
+        "index": 1,
+        "warm": true,
+        "files": 2000,
+        "rendererControlsReadyMs": 2238.6,
+        "serverReadyMs": 3691.4,
+        "requests": [
+          {
+            "endpoint": "files/list",
+            "repeat": 0,
+            "ms": 126.9,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 0,
+            "ms": 425.3,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 0,
+            "ms": 1047.2,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 0,
+            "ms": 378.4,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 1,
+            "ms": 70,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 1,
+            "ms": 14.7,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 1,
+            "ms": 580.2,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 1,
+            "ms": 14.8,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 2,
+            "ms": 52.8,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 2,
+            "ms": 9.4,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 2,
+            "ms": 506.6,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 2,
+            "ms": 17.5,
+            "bytes": 2
+          }
+        ],
+        "reload": {
+          "ms": 78.3,
+          "bytes": 38
+        },
+        "providerAfterReload": {
+          "ms": 716.8,
+          "bytes": 6606543
+        },
+        "navigation": [
+          {
+            "panel": "general",
+            "ms": 379,
+            "route": "/workspace/ws_speed/settings/general"
+          },
+          {
+            "panel": "account",
+            "ms": 385.8,
+            "route": "/workspace/ws_speed/settings/account"
+          },
+          {
+            "panel": "ai",
+            "ms": 408,
+            "route": "/workspace/ws_speed/settings/ai"
+          },
+          {
+            "panel": "extensions",
+            "ms": 408.3,
+            "route": "/workspace/ws_speed/settings/extensions"
+          },
+          {
+            "panel": "appearance",
+            "ms": 413.3,
+            "route": "/workspace/ws_speed/settings/appearance"
+          }
+        ],
+        "mainCpuSeconds": 3.65625
+      },
+      {
+        "arch": "x64",
+        "index": 1,
+        "warm": true,
+        "files": 2000,
+        "rendererControlsReadyMs": 3642.2,
+        "serverReadyMs": 9146.9,
+        "requests": [
+          {
+            "endpoint": "files/list",
+            "repeat": 0,
+            "ms": 237.5,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 0,
+            "ms": 948.2,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 0,
+            "ms": 2329.7,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 0,
+            "ms": 565.2,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 1,
+            "ms": 154.6,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 1,
+            "ms": 38.2,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 1,
+            "ms": 1062.1,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 1,
+            "ms": 14.1,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 2,
+            "ms": 132.7,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 2,
+            "ms": 33.7,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 2,
+            "ms": 900.9,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 2,
+            "ms": 25.2,
+            "bytes": 2
+          }
+        ],
+        "reload": {
+          "ms": 343.1,
+          "bytes": 38
+        },
+        "providerAfterReload": {
+          "ms": 2097.4,
+          "bytes": 6606543
+        },
+        "navigation": [
+          {
+            "panel": "general",
+            "ms": 472.5,
+            "route": "/workspace/ws_speed/settings/general"
+          },
+          {
+            "panel": "account",
+            "ms": 456.8,
+            "route": "/workspace/ws_speed/settings/account"
+          },
+          {
+            "panel": "ai",
+            "ms": 394.1,
+            "route": "/workspace/ws_speed/settings/ai"
+          },
+          {
+            "panel": "extensions",
+            "ms": 420.3,
+            "route": "/workspace/ws_speed/settings/extensions"
+          },
+          {
+            "panel": "appearance",
+            "ms": 407.6,
+            "route": "/workspace/ws_speed/settings/appearance"
+          }
+        ],
+        "mainCpuSeconds": 8.1875
+      },
+      {
+        "arch": "x64",
+        "index": 2,
+        "error": "TypeError: fetch failed"
+      },
+      {
+        "arch": "arm64",
+        "index": 2,
+        "warm": true,
+        "files": 2000,
+        "rendererControlsReadyMs": 2583.7,
+        "serverReadyMs": 4447,
+        "requests": [
+          {
+            "endpoint": "files/list",
+            "repeat": 0,
+            "ms": 91,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 0,
+            "ms": 539.8,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 0,
+            "ms": 1265,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 0,
+            "ms": 340.6,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 1,
+            "ms": 88.9,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 1,
+            "ms": 14.4,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 1,
+            "ms": 560.3,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 1,
+            "ms": 21.5,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 2,
+            "ms": 48,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 2,
+            "ms": 19.1,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 2,
+            "ms": 559.6,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 2,
+            "ms": 28.9,
+            "bytes": 2
+          }
+        ],
+        "reload": {
+          "ms": 81.8,
+          "bytes": 38
+        },
+        "providerAfterReload": {
+          "ms": 681.6,
+          "bytes": 6606543
+        },
+        "navigation": [
+          {
+            "panel": "general",
+            "ms": 381.2,
+            "route": "/workspace/ws_speed/settings/general"
+          },
+          {
+            "panel": "account",
+            "ms": 400.7,
+            "route": "/workspace/ws_speed/settings/account"
+          },
+          {
+            "panel": "ai",
+            "ms": 405.3,
+            "route": "/workspace/ws_speed/settings/ai"
+          },
+          {
+            "panel": "extensions",
+            "ms": 405.3,
+            "route": "/workspace/ws_speed/settings/extensions"
+          },
+          {
+            "panel": "appearance",
+            "ms": 389.7,
+            "route": "/workspace/ws_speed/settings/appearance"
+          }
+        ],
+        "mainCpuSeconds": 4.34375
+      }
+    ],
+    "limitations": "Three attempts per architecture, two completed x64 and three completed ARM64. The failed x64 attempt hit EPERM replacing legalwork-ui-control.json while the harness polled it. The app itself continued serving requests. Navigation includes 360ms of control-surface waits and is not raw click latency."
+  },
+  "cold": {
+    "commit": "d24f287cf",
+    "method": "Fresh profiles, 2000 synthetic files, unmodified CI packages; OS disk cache is not cleared. Navigation includes control-surface timing.",
+    "results": [
+      {
+        "arch": "x64",
+        "index": 0,
+        "files": 2000,
+        "rendererControlsReadyMs": 31605.6,
+        "serverReadyMs": 41556.1,
+        "requests": [
+          {
+            "endpoint": "files/list",
+            "repeat": 0,
+            "ms": 739.3,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 0,
+            "ms": 64834.1,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 0,
+            "ms": 5752.7,
+            "bytes": 6606530
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 0,
+            "ms": 517.8,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 1,
+            "ms": 129.4,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 1,
+            "ms": 63.3,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 1,
+            "ms": 1535.7,
+            "bytes": 6606530
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 1,
+            "ms": 26.1,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 2,
+            "ms": 128.5,
+            "bytes": 211321
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 2,
+            "ms": 36.3,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 2,
+            "ms": 756.2,
+            "bytes": 6606530
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 2,
+            "ms": 41.4,
+            "bytes": 2
+          }
+        ],
+        "reload": {
+          "ms": 611.7,
+          "bytes": 38
+        },
+        "providerAfterReload": {
+          "ms": 1233.1,
+          "bytes": 6606530
+        },
+        "navigation": [
+          {
+            "panel": "general",
+            "ms": 531.7,
+            "route": "/settings/general"
+          },
+          {
+            "panel": "account",
+            "ms": 823.6,
+            "route": "/workspace/ws_speed/settings/general"
+          },
+          {
+            "panel": "ai",
+            "ms": 900,
+            "route": "/workspace/ws_speed/settings/account"
+          },
+          {
+            "panel": "extensions",
+            "ms": 620.1,
+            "route": "/settings/ai"
+          },
+          {
+            "panel": "appearance",
+            "ms": 433.3,
+            "route": "/settings/ai"
+          }
+        ],
+        "mainCpuSeconds": 32.96875
+      },
+      {
+        "arch": "arm64",
+        "index": 0,
+        "files": 2000,
+        "rendererControlsReadyMs": 21084.7,
+        "serverReadyMs": 24366.2,
+        "requests": [
+          {
+            "endpoint": "files/list",
+            "repeat": 0,
+            "ms": 142.6,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 0,
+            "ms": 42973.3,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 0,
+            "ms": 2701.1,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 0,
+            "ms": 439.9,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 1,
+            "ms": 105.5,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 1,
+            "ms": 16.6,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 1,
+            "ms": 956.2,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 1,
+            "ms": 26.3,
+            "bytes": 2
+          },
+          {
+            "endpoint": "files/list",
+            "repeat": 2,
+            "ms": 71.1,
+            "bytes": 210973
+          },
+          {
+            "endpoint": "sessions",
+            "repeat": 2,
+            "ms": 18,
+            "bytes": 12
+          },
+          {
+            "endpoint": "opencode/provider",
+            "repeat": 2,
+            "ms": 482.4,
+            "bytes": 6606543
+          },
+          {
+            "endpoint": "opencode/mcp",
+            "repeat": 2,
+            "ms": 26.4,
+            "bytes": 2
+          }
+        ],
+        "reload": {
+          "ms": 81.2,
+          "bytes": 38
+        },
+        "providerAfterReload": {
+          "ms": 679.3,
+          "bytes": 6606543
+        },
+        "navigation": [
+          {
+            "panel": "general",
+            "ms": 375.4,
+            "route": "/workspace/ws_speed/settings/general"
+          },
+          {
+            "panel": "account",
+            "ms": 401.7,
+            "route": "/workspace/ws_speed/settings/account"
+          },
+          {
+            "panel": "ai",
+            "ms": 388.7,
+            "route": "/workspace/ws_speed/settings/ai"
+          },
+          {
+            "panel": "extensions",
+            "ms": 391.9,
+            "route": "/workspace/ws_speed/settings/extensions"
+          },
+          {
+            "panel": "appearance",
+            "ms": 397.3,
+            "route": "/workspace/ws_speed/settings/appearance"
+          }
+        ],
+        "mainCpuSeconds": 7.25
+      }
+    ],
+    "limitations": "One fresh profile per architecture, no OS cache reset. serverReadyMs was based on persisted discovery, not an authenticated readiness probe. Cold navigation did not wait for the requested route, so exclude it from comparisons."
+  }
+}
