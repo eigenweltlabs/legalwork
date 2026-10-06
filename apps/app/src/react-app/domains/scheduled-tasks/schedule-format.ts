@@ -29,3 +29,13 @@ export function localDateTime(value: string, timeZone: string) {
   const part = (key: string) => parts.find(p => p.type === key)!.value;
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
 }
+
+/** Start at the next matching local wall time, including later today. */
+export function suggestedSchedule(cadence: "daily" | "weekdays" | "monday" | "friday", hour: number, now = new Date()): TaskSchedule {
+  const start = new Date(now);
+  start.setHours(hour, 0, 0, 0);
+  const weekday = cadence === "monday" ? 1 : cadence === "friday" ? 5 : null;
+  while (start <= now || (cadence === "weekdays" && [0, 6].includes(start.getDay())) || (weekday !== null && start.getDay() !== weekday)) start.setDate(start.getDate() + 1);
+  return { kind: "rrule", startAt: start.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    rrule: cadence === "daily" ? "FREQ=DAILY" : cadence === "weekdays" ? "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" : cadence === "monday" ? "FREQ=WEEKLY;BYDAY=MO" : "FREQ=WEEKLY;BYDAY=FR" };
+}

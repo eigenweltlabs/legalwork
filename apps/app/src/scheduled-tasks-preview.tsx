@@ -9,6 +9,7 @@ import { Toaster, toast } from "@/components/ui/sonner";
 import "./app/index.css";
 
 if (!import.meta.env.DEV) throw new Error("This fixture is only available in development.");
+document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
 initLocale();
 setLocale(new URLSearchParams(location.search).get("lang") === "de" ? "de" : "en");
 const client = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:8798", token: "scheduled-preview" });

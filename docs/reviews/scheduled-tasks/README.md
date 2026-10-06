@@ -1,6 +1,10 @@
 # Local scheduled tasks
 
-LegalWork can schedule a prompt once or repeatedly, reuse one project chat or create a chat for each run, and pause, resume, edit or delete the schedule. The Scheduled page, inline Open cards and editor use the existing Surface, IconTile, Base UI controls and semantic design tokens. English and German are supported.
+LegalWork can schedule a prompt once or repeatedly, reuse one project chat or create a chat for each run, and pause, resume, edit or delete the schedule. The Scheduled page, inline Open cards and editor use the existing Surface, IconTile, Base UI controls and semantic design tokens. English and German are supported. Task details group the next run, named project and explicit access scope. Edit, Pause/Resume and Delete are visible in the detail header; sidebar tasks show their project and offer the same actions through right-click or the visible menu button. Deletion confirms the task name and retains existing chats.
+
+## Suggested routines
+
+The welcome view includes an example week and four editable presets: Morning matter brief at 06:00 on weekdays, Upcoming deadline check at 08:00 on weekdays, End of Week review on Friday at 16:00, and Weekly planning on Monday at 09:00. Presets choose the next matching local date and use the computer's IANA time zone, saved with the task. Existing task schedules are unchanged; the blank New task editor still defaults to Daily.
 
 ## Project access
 
@@ -31,14 +35,15 @@ Calendar repeats retain their wall time through daylight-saving changes. Ambiguo
 
 ## Verification, 2026-10-06
 
-- `pnpm --filter @legalwork/app test`: 852 tests passed after merging `dev` at `6ea529d7d`, including persisted cards, current server data and cross-project Open prevention. The scheduled card and Home message handoff tests also passed after correcting the Scheduled navigation guard.
+- `pnpm --filter @legalwork/app test`: 856 tests passed, including preset weekday/weekend/year rollover, persisted cards, current server data, cross-project Open prevention and Home message handoff.
 - `pnpm --filter legalwork-server exec bun test src/scheduled-tasks src/opencode-plugins/legalwork-scheduled-task-tools.test.ts src/legalwork-runtime-config.test.ts`: 40 passed, the opt-in engine test skipped in this command. Includes reopening five minutes late for one-time, interval, daily and final calendar occurrences; several missed days; delayed engine startup; no duplicate dispatch on another restart; and paused tasks staying paused.
 - `LEGALWORK_TEST_OPENCODE_BIN=/Applications/LegalWork.app/Contents/Resources/sidecars/opencode pnpm --filter legalwork-server exec bun test src/scheduled-tasks/engine.test.ts`: passed against engine 1.18.29 with a local model fixture. Verifies actual tool filtering and blocked/allowed cross-project reads through the bundled plugin.
 - App, server and Electron TypeScript checks passed. App and server builds passed. The app build reports existing large-bundle and dependency warnings.
-- `pnpm --filter @legalwork/app test:i18n`: 5,526 keys across English and German passed.
+- `pnpm --filter @legalwork/app test:i18n`: 5,550 keys across English and German passed.
 - `node scripts/i18n-audit.mjs --ci`: passed after replacing dynamically constructed scheduling translation keys with static calls. Scheduled card tests and app/server typechecks were rerun for this follow-up.
 - Follow-up regression tests cover reusing a newly created chat across a database reopen, switching to new chats, preserving the mode on partial HTTP edits, stale-editor conflicts, and failure or pause during initial chat creation.
 - Follow-up UI checks verified Daily defaults, both chat choices, save/reload persistence, Advanced placement, project search with the existing desktop profile, a bounded project menu, and the German editor at 390 px. The development Electron app was restarted with the rebuilt server and the same profile.
+- Follow-up UI checks verified the 06:00 brief, 08:00 deadline check, Friday 16:00 review and Monday 09:00 planning previews in Europe/Berlin, including saving/reloading the planning preset. Verified sidebar right-click and visible menus, Edit on an unselected task, Pause/Resume, deletion from sidebar/detail/editor, canceling deletion, preserving the selected task when deleting another, and deletion persistence after reload. Checked the welcome and detail views in German, dark mode and at 390 px with no horizontal overflow. The existing dev Electron instance hot-loaded these renderer changes.
 - The desktop plugin bundle checker passed against `apps/server/dist/opencode-plugins`.
 - Browser checks passed for create, custom recurrence, invalid time zone/rule validation, searchable chat selection, access scope changes, pause/resume, reload persistence and deletion. Checked desktop and 390 px German editor layouts.
 - Development Electron was launched on the merged branch with the existing profile and renderer origin preserved. Verified that the Scheduled sidebar link opens `/scheduled`, the page stays there after a full reload, the window heading says Scheduled, and the editor defaults to This project only. The legacy chat-restoration redirect explicitly excludes Scheduled.
@@ -55,11 +60,17 @@ pnpm exec bun scripts/preview-scheduled-tasks.ts
 pnpm --filter @legalwork/app dev --port 5197
 ```
 
-Open `http://localhost:5197/scheduled-tasks-preview.html` (append `?lang=de` for German). The fixture seeds synthetic tasks in a temporary directory and simulates the model engine. It does not touch personal schedules or send messages to a real account. Stop the fixture with Ctrl+C to remove its temporary data. The preview entry is development-only and excluded from the production build.
+Open `http://localhost:5197/scheduled-tasks-preview.html` (append `?lang=de` for German or `?lang=de&theme=dark` for German dark mode). The fixture seeds synthetic tasks in a temporary directory and simulates the model engine. It does not touch personal schedules or send messages to a real account. Stop the fixture with Ctrl+C to remove its temporary data. The preview entry is development-only and excluded from the production build.
 
 ## Screenshots
 
-![Scheduled overview](overview.png)
+![Scheduled overview](overview.jpg)
+
+![Task detail with project and visible actions](task-detail.jpg)
+
+![Sidebar right-click actions](task-context-menu.jpg)
+
+[German dark detail](task-detail-dark-de.jpg) · [German detail at 390 px](task-detail-mobile-de.jpg)
 
 ![Daily is the default](daily-default.jpg)
 

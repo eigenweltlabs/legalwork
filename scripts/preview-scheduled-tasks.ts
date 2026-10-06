@@ -34,8 +34,8 @@ const config: ServerConfig = {
 };
 const store = await ScheduledTaskStore.open(process.env.LEGALWORK_RUNTIME_DB);
 const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-store.create("preview", { title: "Morning matter brief", prompt: "Review this project's tasks and calendar. Summarize upcoming deadlines, open work and items that need my attention. Link to the source records.", sessionId: "chat-0", model: null, schedule: { kind: "rrule", startAt: `${tomorrow}T09:00:00`, timeZone: "Europe/Berlin", rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" } });
-store.create("preview", { title: "Weekly project review", prompt: "Summarize this week's progress, outstanding questions and decisions needed from me.", sessionId: null, model: null, schedule: { kind: "rrule", startAt: `${tomorrow}T16:00:00`, timeZone: "Europe/Berlin", rrule: "FREQ=WEEKLY;BYDAY=FR" } });
+store.create("preview", { title: "Morning matter brief", prompt: "Review this project's tasks and calendar. Summarize upcoming deadlines, open work and items that need my attention. Link to the source records.", sessionId: "chat-0", model: null, schedule: { kind: "rrule", startAt: `${tomorrow}T06:00:00`, timeZone: "Europe/Berlin", rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" } });
+store.create("preview", { title: "End of Week review", prompt: "Summarize this week's progress, outstanding questions and decisions needed from me.", sessionId: null, model: null, schedule: { kind: "rrule", startAt: `${tomorrow}T16:00:00`, timeZone: "Europe/Berlin", rrule: "FREQ=WEEKLY;BYDAY=FR" } });
 const paused = store.create("preview", { title: "Check document intake", prompt: "Summarize newly received documents. Flag missing information for review.", sessionId: "chat-2", model: null, schedule: { kind: "interval", startAt: `${tomorrow}T10:00:00`, timeZone: "Europe/Berlin", minutes: 120 } });
 store.update("preview", paused.id, paused.revision, { status: "paused" });
 const server = await startServer(config);

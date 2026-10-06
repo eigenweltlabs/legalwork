@@ -13,8 +13,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Surface } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
+import { DeleteScheduledTaskDialog } from "./delete-scheduled-task-dialog";
 import { formatRunTime, localDateTime, repeatMode, repeatOptions } from "./schedule-format";
 
+export type ScheduledTaskDraft = { title: string; prompt: string; schedule?: TaskSchedule };
 export type ScheduleProject = { id: string; name: string };
 export type ScheduleClient = Pick<LegalworkServerClient, "baseUrl" | "scheduledTasks" | "scheduledTask" | "scheduledTaskChats" | "previewTaskSchedule" | "createScheduledTask" | "updateScheduledTask" | "deleteScheduledTask">;
 
@@ -27,19 +29,20 @@ export function ScheduleSelect({ label, value, options, onChange, disabled }: { 
 
 export function ScheduledTaskDialog({ client, projects, task, initial, defaultModel, onClose, onSaved }: {
   client: ScheduleClient; projects: ScheduleProject[]; task: ScheduledTask | null;
-  initial?: { title: string; prompt: string }; defaultModel?: ScheduledTaskInput["model"];
+  initial?: ScheduledTaskDraft; defaultModel?: ScheduledTaskInput["model"];
   onClose: () => void; onSaved: () => void;
 }) {
   const id = useId();
+  const initialSchedule = task?.schedule ?? initial?.schedule;
   const [workspaceId, setWorkspaceId] = useState(task?.workspaceId ?? projects[0]?.id ?? "");
   const [projectAccess, setProjectAccess] = useState<ScheduledTaskInput["projectAccess"]>(task?.projectAccess ?? "project");
   const [title, setTitle] = useState(task?.title ?? initial?.title ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? initial?.prompt ?? "");
-  const [zone, setZone] = useState(task?.schedule.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const [start, setStart] = useState(() => localDateTime(task?.schedule.startAt ?? new Date(Date.now() + 3600000).toISOString(), zone));
-  const [mode, setMode] = useState<string>(task ? repeatMode(task.schedule) : "daily");
-  const [minutes, setMinutes] = useState(task?.schedule.kind === "interval" ? String(task.schedule.minutes) : "60");
-  const [rule, setRule] = useState(task?.schedule.kind === "rrule" ? task.schedule.rrule : "FREQ=WEEKLY;BYDAY=MO");
+  const [zone, setZone] = useState(initialSchedule?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [start, setStart] = useState(() => localDateTime(initialSchedule?.startAt ?? new Date(Date.now() + 3600000).toISOString(), zone));
+  const [mode, setMode] = useState<string>(initialSchedule ? repeatMode(initialSchedule) : "daily");
+  const [minutes, setMinutes] = useState(initialSchedule?.kind === "interval" ? String(initialSchedule.minutes) : "60");
+  const [rule, setRule] = useState(initialSchedule?.kind === "rrule" ? initialSchedule.rrule : "FREQ=WEEKLY;BYDAY=MO");
   const [ruleDraft, setRuleDraft] = useState(rule), [ruleOpen, setRuleOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(task?.sessionId ?? null);
   const [reuseChat, setReuseChat] = useState(task ? Boolean(task.sessionId) || task.reuseChat : true);
@@ -125,13 +128,13 @@ export function ScheduledTaskDialog({ client, projects, task, initial, defaultMo
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </fieldset></div>
         <DialogFooter className="mx-0 mb-0 shrink-0 flex-row justify-end border-t border-border px-6 py-4">
-          {task && <Button type="button" variant="ghost" size="icon" aria-label={t("scheduled.delete")} className="mr-auto text-muted-foreground" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 className="size-4" /></Button>}
+          {task && <Button type="button" variant="ghost" size="sm" className="mr-auto text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 className="size-4" />{t("scheduled.delete")}</Button>}
           {task && task.status !== "completed" && <Button type="button" variant="secondary" disabled={busy} onClick={() => void save(task.status === "active" ? "paused" : "active")}>{t(task.status === "active" ? "scheduled.pause" : "scheduled.resume")}</Button>}
           <Button type="submit" disabled={!valid || busy} aria-busy={busy}>{busy && <Loader2 className="size-4 animate-spin" />}{t("scheduled.save")}</Button>
         </DialogFooter>
       </form>
       <Dialog open={ruleOpen} onOpenChange={setRuleOpen}><DialogContent><DialogHeader><DialogTitle>{t("scheduled.edit_rule")}</DialogTitle><DialogDescription>{t("scheduled.rule_hint")}</DialogDescription></DialogHeader><Label htmlFor={`${id}-rule`}>RRULE</Label><Input id={`${id}-rule`} className="font-mono text-xs" value={ruleDraft} onChange={event => setRuleDraft(event.target.value)} /><DialogFooter><Button variant="ghost" onClick={() => setRuleOpen(false)}>{t("scheduled.cancel")}</Button><Button onClick={() => { changed(() => setRule(ruleDraft)); setRuleOpen(false); }}>{t("scheduled.apply")}</Button></DialogFooter></DialogContent></Dialog>
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>{t("scheduled.delete_title")}</DialogTitle><DialogDescription>{t("scheduled.delete_hint")}</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" disabled={busy} onClick={() => setConfirmDelete(false)}>{t("scheduled.cancel")}</Button><Button variant="destructive" disabled={busy} onClick={async () => { if (!task) return; setBusy(true); try { await client.deleteScheduledTask(workspaceId, task.id, task.revision); onSaved(); onClose(); } catch (failure) { setConfirmDelete(false); setError(failure instanceof Error ? failure.message : t("scheduled.save_failed")); } finally { setBusy(false); } }}>{t("scheduled.delete")}</Button></DialogFooter></DialogContent></Dialog>
+      {confirmDelete && task && <DeleteScheduledTaskDialog client={client} task={task} onClose={() => setConfirmDelete(false)} onDeleted={() => { onSaved(); onClose(); }} />}
     </DialogContent>
   </Dialog>;
 }
