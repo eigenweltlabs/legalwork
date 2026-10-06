@@ -27,7 +27,7 @@ Calendar repeats retain their wall time through daylight-saving changes. Ambiguo
 
 ## Verification, 2026-10-06
 
-- `pnpm --filter @legalwork/app test`: 823 tests passed, including persisted cards, current server data and cross-project Open prevention. The two card tests also passed after the final editor snapshot fix.
+- `pnpm --filter @legalwork/app test`: 852 tests passed after merging `dev` at `6ea529d7d`, including persisted cards, current server data and cross-project Open prevention. The scheduled card and Home message handoff tests also passed after correcting the Scheduled navigation guard.
 - `pnpm --filter legalwork-server exec bun test src/scheduled-tasks src/opencode-plugins/legalwork-scheduled-task-tools.test.ts src/legalwork-runtime-config.test.ts`: 37 passed, the opt-in engine test skipped in this command. Includes reopening five minutes late for one-time, interval, daily and final calendar occurrences; several missed days; delayed engine startup; no duplicate dispatch on another restart; and paused tasks staying paused.
 - `LEGALWORK_TEST_OPENCODE_BIN=/Applications/LegalWork.app/Contents/Resources/sidecars/opencode pnpm --filter legalwork-server exec bun test src/scheduled-tasks/engine.test.ts`: passed against engine 1.18.29 with a local model fixture. Verifies actual tool filtering and blocked/allowed cross-project reads through the bundled plugin.
 - App, server and Electron TypeScript checks passed. App and server builds passed. The app build reports existing large-bundle and dependency warnings.
@@ -35,6 +35,8 @@ Calendar repeats retain their wall time through daylight-saving changes. Ambiguo
 - `node scripts/i18n-audit.mjs --ci`: passed after replacing dynamically constructed scheduling translation keys with static calls. Scheduled card tests and app/server typechecks were rerun for this follow-up.
 - The desktop plugin bundle checker passed against `apps/server/dist/opencode-plugins`.
 - Browser checks passed for create, custom recurrence, invalid time zone/rule validation, searchable chat selection, access scope changes, pause/resume, reload persistence and deletion. Checked desktop and 390 px German editor layouts.
+- Development Electron was launched on the merged branch with the existing profile and renderer origin preserved. Verified that the Scheduled sidebar link opens `/scheduled`, the page stays there after a full reload, the window heading says Scheduled, and the editor defaults to This project only. The legacy chat-restoration redirect explicitly excludes Scheduled.
+- `pnpm --filter @legalwork/desktop test:native`: SQLite and native PTY checks passed under Electron 43.7.5. Server build and app/Electron typechecks passed after the merge.
 
 The UI checks use production components and the real local scheduling API/store in an isolated fixture. Engine integration uses simulated model responses. Live paid model execution and the complete packaged Electron navigation flow were not manually exercised.
 

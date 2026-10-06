@@ -1127,6 +1127,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.projectPage === "home" ? workspaceName
     : props.projectPage === "reviews" ? t("projects.tab_review")
     : props.projectPage === "tasks" ? t("projects.tasks")
+    : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
     : props.projectPage === "calendar" || props.sidebar.activeNav === "calendar" ? t("calendar.title")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
