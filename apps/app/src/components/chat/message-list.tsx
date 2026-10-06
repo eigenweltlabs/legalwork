@@ -1,5 +1,6 @@
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
+import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
 import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
 "use memo";
@@ -717,9 +718,7 @@ MessageComponent.displayName = "MessageComponent"
 const LoadingMessage = React.memo(({ label }: { label?: string }) => (
   <Message className="flex w-full min-w-0 flex-col items-start gap-2">
     <div className="group flex w-full flex-col gap-0">
-      <div className="flex items-center gap-1.5 px-1 py-1 text-sm text-muted-foreground">
-        <span className="lw-tool-shimmer">{label ?? t("session.thinking")}</span>
-      </div>
+      <PendingStatus label={label} />
     </div>
   </Message>
 ))

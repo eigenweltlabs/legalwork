@@ -1,141 +1,98 @@
 /** @jsxImportSource react */
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { cn } from "@/lib/utils";
-import type { ReactNode } from "react";
+import { Radio } from "@base-ui/react/radio";
+import { ArrowUp, Eclipse, Moon, Sun } from "lucide-react";
+import { useId, useSyncExternalStore } from "react";
+import { RadioGroup } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
+import { getInitialThemeMode, getResolvedAppearance, setThemeMode, subscribeToTheme, type AppearanceMode } from "@/app/theme";
 import { t } from "@/i18n";
 import {
+  LayoutSection,
+  LayoutSectionDescription,
+  LayoutSectionHeader,
   LayoutSectionItem,
-  LayoutSectionItemDescription,
-  LayoutSectionItemFootnote,
-  LayoutSectionItemHeader,
-  LayoutSectionItemTitle,
+  LayoutSectionTitle,
 } from "../settings-layout";
+import "./theme-section.css";
 
-type ThemeMode = "light" | "dark" | "system";
+export function ThemeSection({ busy = false }: { busy?: boolean }) {
+  const themeMode = useSyncExternalStore(subscribeToTheme, getInitialThemeMode, getInitialThemeMode);
+  const appearance = useSyncExternalStore(subscribeToTheme, getResolvedAppearance, getResolvedAppearance);
+  const titleId = useId();
+  const descriptionId = useId();
+  const systemId = useId();
+  const modes: Array<{ value: AppearanceMode; label: string; icon: typeof Sun }> = [
+    { value: "light", label: t("settings.theme_light"), icon: Sun },
+    { value: "dark", label: t("settings.theme_dark"), icon: Moon },
+    { value: "blackout", label: t("settings.theme_blackout"), icon: Eclipse },
+  ];
+  const description = appearance === "blackout"
+    ? t("settings.theme_blackout_description")
+    : appearance === "dark"
+      ? t("settings.theme_dark_description")
+      : t("settings.theme_light_description");
 
-// The theme is currently fixed to Light, so nothing renders this yet; the
-// section keeps its own props so it stays compilable and reusable.
-interface ThemeSectionProps {
-  busy: boolean;
-  themeMode: ThemeMode;
-  setThemeMode: (value: ThemeMode) => void;
-}
-
-export function ThemeSection(props: ThemeSectionProps) {
   return (
-    <LayoutSectionItem className="items-center">
-      <LayoutSectionItemHeader className="w-full">
-        <LayoutSectionItemTitle>{t("settings.theme_title")}</LayoutSectionItemTitle>
-        <LayoutSectionItemDescription>{t("settings.appearance_hint")}</LayoutSectionItemDescription>
-      </LayoutSectionItemHeader>
-
-      <ThemePicker
-        className="pt-1"
-        busy={props.busy}
-        themeMode={props.themeMode}
-        setThemeMode={props.setThemeMode}
-      />
-
-      <LayoutSectionItemFootnote>{t("settings.theme_system_hint")}</LayoutSectionItemFootnote>
-    </LayoutSectionItem>
-  );
-}
-
-interface ThemePickerProps {
-  className?: string;
-  busy: boolean;
-  themeMode: ThemeMode;
-  setThemeMode: (value: ThemeMode) => void;
-}
-
-function ThemePicker(props: ThemePickerProps) {
-  return (
-    <ToggleGroup
-      value={[props.themeMode]}
-      onValueChange={(value) => {
-        if (value[0] === null) {
-          return;
-        }
-
-        props.setThemeMode(value[0] as ThemeMode);
-      }}
-      disabled={props.busy}
-      className={cn("w-full gap-6 max-w-xl", props.className)}
-    >
-      <ThemePickerItem
-        value="system"
-        label={t("settings.theme_system")}
-      >
-        <ThemePreview value="system" />
-        <ThemePickerLabel>{t("settings.theme_system")}</ThemePickerLabel>
-      </ThemePickerItem>
-      <ThemePickerItem
-        value="light"
-        label={t("settings.theme_light")}
-      >
-        <ThemePreview value="light" className="bg-white" />
-        <ThemePickerLabel>{t("settings.theme_light")}</ThemePickerLabel>
-      </ThemePickerItem>
-      <ThemePickerItem
-        value="dark"
-        label={t("settings.theme_dark")}
-      >
-        <ThemePreview value="dark" className="bg-zinc-950" />
-        <ThemePickerLabel>{t("settings.theme_dark")}</ThemePickerLabel>
-      </ThemePickerItem>
-    </ToggleGroup>
-  );
-}
-
-interface ThemePickerItemProps {
-  value: ThemeMode;
-  label: string;
-  children: ReactNode;
-}
-
-function ThemePickerItem(props: ThemePickerItemProps) {
-  return (
-    <ToggleGroupItem
-      value={props.value}
-      aria-label={props.label}
-      className="group/theme h-auto flex-1 flex-col gap-3 rounded-sm p-0 hover:bg-transparent aria-pressed:bg-transparent"
-    >
-      {props.children}
-    </ToggleGroupItem>
-  );
-}
-
-interface ThemePreviewProps {
-  value: ThemeMode;
-  className?: string;
-}
-
-function ThemePreview(props: ThemePreviewProps) {
-  return (
-    <div
-      className={cn(
-        "aspect-4/3 w-full overflow-hidden rounded-md border transition-shadow group-data-pressed/theme:ring-2 group-data-pressed/theme:ring-primary group-data-pressed/theme:ring-offset-2 group-data-pressed/theme:ring-offset-background group-hover/theme:ring-1 group-hover/theme:ring-primary/40 group-hover/theme:ring-offset-2 group-hover/theme:ring-offset-background",
-        props.className,
-      )}
-    >
-      {props.value === "system" && (
-        <div className="flex h-full">
-          <div className="w-1/2 bg-white" />
-          <div className="w-1/2 bg-zinc-950" />
+    <LayoutSection>
+      <LayoutSectionHeader>
+        <LayoutSectionTitle><span id={titleId}>{t("settings.theme_title")}</span></LayoutSectionTitle>
+        <LayoutSectionDescription>{t("settings.appearance_hint")}</LayoutSectionDescription>
+      </LayoutSectionHeader>
+      <LayoutSectionItem className="theme-settings">
+        <RadioGroup
+          className="theme-segments"
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          value={appearance}
+          disabled={busy}
+          onValueChange={(value) => {
+            if (value === "light" || value === "dark" || value === "blackout") setThemeMode(value);
+          }}
+        >
+          {modes.map(({ value, label, icon: Icon }) => (
+            <Radio.Root
+              key={value}
+              value={value}
+              className="theme-segment"
+              data-appearance-option={value}
+              onClick={() => {
+                // Clicking the already-selected system appearance makes it an explicit choice too.
+                if (themeMode === "system" && value === appearance) setThemeMode(value);
+              }}
+            >
+              <Icon size={16} strokeWidth={1.6} aria-hidden="true" />
+              <span>{label}</span>
+            </Radio.Root>
+          ))}
+        </RadioGroup>
+        <div className="theme-preview" aria-hidden="true">
+          <div className="theme-preview-bar"><span /><span /><span /></div>
+          <div className="theme-preview-body">
+            <div className="theme-preview-sidebar">
+              <div className="theme-preview-brand" />
+              <i /><i /><i />
+            </div>
+            <div className="theme-preview-chat">
+              <div className="theme-preview-bubble"><i /><i /></div>
+              <div className="theme-preview-answer"><i /><i /><i /></div>
+              <div className="theme-preview-composer"><i /><ArrowUp size={14} /></div>
+            </div>
+            <div className="theme-preview-document"><i /><i /><i /><i /><i /></div>
+          </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-interface ThemePickerLabelProps {
-  children: string;
-}
-
-function ThemePickerLabel(props: ThemePickerLabelProps) {
-  return (
-    <span className="text-sm text-muted-foreground group-data-pressed/theme:text-foreground">
-      {props.children}
-    </span>
+        <p id={descriptionId} className="theme-description">{description}</p>
+        <div className="theme-system-row">
+          <label htmlFor={systemId}>{t("settings.theme_follow_system")}</label>
+          <Switch
+            id={systemId}
+            size="sm"
+            disabled={busy}
+            checked={themeMode === "system"}
+            onCheckedChange={(checked) => setThemeMode(checked ? "system" : appearance)}
+          />
+        </div>
+        <p className="theme-system-hint">{t("settings.theme_follow_system_hint")}</p>
+      </LayoutSectionItem>
+    </LayoutSection>
   );
 }

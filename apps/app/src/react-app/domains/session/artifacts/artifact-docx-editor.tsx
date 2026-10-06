@@ -9,7 +9,7 @@ import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/ut
 import "@eigenpal/docx-editor-react/styles.css";
 import "./office-fonts.css";
 
-import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
+import { getResolvedThemeMode, subscribeToTheme, type ResolvedThemeMode } from "@/app/theme";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
@@ -18,6 +18,7 @@ import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecover
 import { useDocxPageFit } from "./use-docx-page-fit";
 import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
+import "./docx-editor-theme.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 import { t } from "@/i18n";
 
@@ -123,8 +124,8 @@ function decideTrackedChanges(
   return { success: true, data: `${verb} ${applied} tracked-change revision${applied === 1 ? "" : "s"}.` };
 }
 
-function useThemeColorMode(): ThemeMode {
-  return useSyncExternalStore(subscribeToTheme, getInitialThemeMode, getInitialThemeMode);
+function useThemeColorMode(): ResolvedThemeMode {
+  return useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
 }
 
 export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {

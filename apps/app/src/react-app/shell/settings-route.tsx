@@ -19,11 +19,6 @@ import {
 } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { buildLegalworkEnvRuntimeKey } from "@/app/lib/legalwork-env-runtime";
-import {
-  getInitialThemeMode,
-  setThemeMode as setAppThemeMode,
-  type ThemeMode,
-} from "@/app/theme";
 import type {
   Client,
   ProviderListItem,
@@ -446,7 +441,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("legalwork.developerMode") === "1";
   });
-  const [themeMode, setThemeModeState] = useState<ThemeMode>(getInitialThemeMode);
   const [hideTitlebar, setHideTitlebar] = useState(() => readStoredBoolean(SETTINGS_HIDE_TITLEBAR_KEY, false));
   const [updateAutoCheck, setUpdateAutoCheck] = useState(() =>
     readStoredBoolean(SETTINGS_UPDATE_AUTO_CHECK_KEY, true),
@@ -1221,10 +1215,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     local.setUi((previous) => ({ ...previous, view: "settings", tab: route.tab }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- local is stable via context
   }, [route.tab]);
-
-  useEffect(() => {
-    setAppThemeMode(themeMode);
-  }, [themeMode]);
 
   useEffect(() => {
     writeStoredBoolean(SETTINGS_HIDE_TITLEBAR_KEY, hideTitlebar);
@@ -2260,7 +2250,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <ExtensionsView
             busy={busy}
-            showHeader={props.singleView}
+            showHeader={props.singleView === true}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
             canEditPlugins={canWriteWorkspacePlugins}

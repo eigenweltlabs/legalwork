@@ -9,6 +9,7 @@ import * as React from "react";
 import ReactDOM from "react-dom/client";
 import { EyeOff, Loader2, Radio, SendHorizontal, Sparkles, X } from "lucide-react";
 
+import { bootstrapTheme } from "../app/theme";
 import { initLocale, t } from "../i18n";
 import type { AudioRecorderEvent, AudioTranscriptSegment } from "@legalwork/types/audio";
 import "../app/index.css";
@@ -251,6 +252,7 @@ function OverlayApp() {
   );
 }
 
+bootstrapTheme();
 initLocale();
 const rootElement = document.getElementById("root");
 if (rootElement) {
