@@ -175,6 +175,12 @@ export const orgPolicyDefinitions = {
   "extensions.builtIn": { section: "workspace", scope: "app", modes: enforced, schema: z.strictObject({ "computer-use": z.boolean().optional(), "google-workspace": z.boolean().optional() }) },
   /** Added to every agent's instructions, after the member's own. */
   "personalization.firmInstructions": { section: "workspace", scope: "engine", modes: enforced, schema: z.string().trim().min(1).max(12_000) },
+  /** The tone of the agents' answers, as in Settings → Personalisation. */
+  "personalization.personality": { section: "workspace", scope: "server", modes: both, schema: z.enum(["pragmatic", "professional", "friendly", "candid"]) },
+  /** Whether members may use the recorder, install the Office add-ins and run evaluations. */
+  "recorder.allow": { section: "workspace", scope: "app", modes: enforced, schema: z.boolean() },
+  "officeAddins.allow": { section: "workspace", scope: "app", modes: enforced, schema: z.boolean() },
+  "evaluations.allow": { section: "workspace", scope: "app", modes: enforced, schema: z.boolean() },
   "reviews.defaults": { section: "workspace", scope: "server", modes: both, schema: ReviewDefaultsSchema },
   "language": { section: "workspace", scope: "app", modes: both, schema: z.enum(["en", "de"]) },
 
