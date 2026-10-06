@@ -30,22 +30,37 @@ async function download(url, sha256) {
   if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error(`Checksum mismatch: ${url}`);
   return bytes;
 }
-async function extract(url, name, sha256) {
+async function extract(url, name, sha256, members = []) {
   const bytes = await download(url, sha256);
   const archive = path.join(temporary, name);
   await writeFile(archive, bytes);
   // Git's GNU tar treats the drive letter in an absolute path as a remote host.
   // Windows ships bsdtar, which also supports the upstream bzip2 archive.
   const tar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
-  run(tar, ["-xf", name], { cwd: temporary });
+  run(tar, ["-xf", name, ...members], { cwd: temporary });
 }
 try {
+  const sourceName = `sherpa-onnx-${pin.version}`;
+  const cppPath = "harmony-os/SherpaOnnxHar/sherpa_onnx/src/main/cpp";
   const nativeName = `sherpa-onnx-v${pin.version}-win-arm64-shared-MD-Release-lib`;
-  await extract(`https://github.com/k2-fsa/sherpa-onnx/archive/refs/tags/v${pin.version}.tar.gz`, "source.tar.gz", pin.sourceSha256);
+  await extract(`https://github.com/k2-fsa/sherpa-onnx/archive/refs/tags/v${pin.version}.tar.gz`, "source.tar.gz", pin.sourceSha256, [
+    `--exclude=${sourceName}/${cppPath}/include`,
+    `${sourceName}/scripts/node-addon-api/CMakeLists.txt`, `${sourceName}/${cppPath}`,
+    `${sourceName}/sherpa-onnx/c-api/c-api.h`, `${sourceName}/LICENSE`,
+  ]);
   await extract(`https://github.com/k2-fsa/sherpa-onnx/releases/download/v${pin.version}/${nativeName}.tar.bz2`, "native.tar.bz2", pin.nativeSha256);
-  const source = path.join(temporary, `sherpa-onnx-${pin.version}`);
+  const source = path.join(temporary, sourceName);
   const addon = path.join(source, "scripts/node-addon-api");
   const native = path.join(temporary, nativeName);
+  // Upstream's addon source entries are symlinks. Copy their real sources so
+  // this build does not require Windows developer mode or symlink privileges.
+  await mkdir(path.join(addon, "src"), { recursive: true });
+  for (const name of await readdir(path.join(source, cppPath))) {
+    if (/\.(cc|h)$/.test(name)) await copyFile(path.join(source, cppPath, name), path.join(addon, "src", name));
+  }
+  // The prebuilt release contains libraries only; use the matching C API header.
+  await mkdir(path.join(native, "include/sherpa-onnx/c-api"), { recursive: true });
+  await copyFile(path.join(source, "sherpa-onnx/c-api/c-api.h"), path.join(native, "include/sherpa-onnx/c-api/c-api.h"));
   // Upstream's addon CMake file passes Unix rpath flags to every platform.
   const cmake = path.join(addon, "CMakeLists.txt");
   await writeFile(cmake, (await readFile(cmake, "utf8")).replace(/^\s*-Wl,-rpath,.*$/gm, ""));
