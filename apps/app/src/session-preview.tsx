@@ -255,7 +255,13 @@ const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
   getReview: async (_workspaceId, id) => ({ ...previewReview, id }),
   listReviews: async () => ({ reviews: [] }),
-  queryReviewRows: async () => ({ revision: 1, documentIds: ["memo"] }),
+  queryReviewRows: async () => ({ revision: previewReview.revision, documentIds: previewReview.documents.map(document => document.id) }),
+  editReview: async (_workspaceId, _id, input) => {
+    previewReview.documents = (input.files ?? previewReview.documents.map(document => document.path)).map(path =>
+      previewReview.documents.find(document => document.path === path) ?? { id: path, name: path.split("/").at(-1) ?? path, path, status: "ready", sourceHash: null, completedPages: 0, pageCount: 0, error: null });
+    previewReview.revision++;
+    return { ...previewReview };
+  },
   getReviewSession: async () => ({ sessionId: null }),
   openReviewSession: async () => ({ sessionId: "visual-contract", prefill: true }),
   listTaskMembers: async () => ({ members: [] }), listTaskTags: async () => ({ tags: [] }),
@@ -392,6 +398,7 @@ function SessionPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(limitParam ? "visual-limit" : welcomeId);
+  const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
@@ -436,6 +443,7 @@ function SessionPreview() {
       </div>
       <div className="min-h-0 flex-1">
         <SessionPage
+          workflowLibraryView={<WorkflowsPreview workspaceId={activeWorkspace.id} />}
           mainView={showHome ? <AppHome
             workspaces={[workspace, otherWorkspace]} projectId={homeProject}
             onProjectChange={(id) => { setHomeProject(id); pendingHome.current = { sessionId: null, uploads: new Map() }; }} onCreateProject={previewNotice}
@@ -460,8 +468,8 @@ function SessionPreview() {
               setShowHome(false);
             }}
           /> : showWorkflows ? <WorkflowsPreview /> : undefined}
-          selectedSessionId={selectedSessionId} selectedWorkspaceId={workspace.id} selectedWorkspaceDisplay={{ ...workspace, displayName: "Northstar Legal" }}
-          selectedWorkspaceRoot={workspace.path} runtimeWorkspaceId={workspace.id} workspaces={[workspace, otherWorkspace]}
+          selectedSessionId={selectedSessionId} selectedWorkspaceId={activeWorkspace.id} selectedWorkspaceDisplay={{ ...activeWorkspace, displayName: activeWorkspace.displayName ?? activeWorkspace.name }}
+          selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={[workspace, otherWorkspace]}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
@@ -472,17 +480,20 @@ function SessionPreview() {
             setRevision((value) => value + 1);
           }}
           sidebar={{
-            workspaceSessionGroups: groups, selectedWorkspaceId: workspace.id, selectedSessionId, developerMode: false,
+            workspaceSessionGroups: groups, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
             sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
-            sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: previewNotice,
-            onOpenSession: (_workspaceId, id) => { setShowWorkflows(false); setSelectedSessionId(id); }, onCreateChatInWorkspace: newTask,
+            sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
+              setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
+              setSelectedSessionId(id === workspace.id ? welcomeId : null); setShowWorkflows(false);
+            },
+            onOpenSession: (workspaceId, id) => { setActiveWorkspace(workspaceId === workspace.id ? workspace : otherWorkspace); setShowWorkflows(false); setSelectedSessionId(id); }, onCreateChatInWorkspace: newTask,
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
             onShowEvals: previewNotice, onShowWorkflows: () => setShowWorkflows(true), onShowExtensions: previewNotice, onShowRecorder: previewNotice,
             activeNav: showWorkflows ? "workflows" : null,
           }}
           surface={{
-            workspaceRoot: workspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
+            workspaceRoot: activeWorkspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
             onChooseAiPlan: async () => previewNotice(),
             modelPickerOpen: false, modelSelectorLocked: true, selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",

@@ -643,9 +643,6 @@ export function createBrowserPanel({ app, WebContentsView, clipboard, session, g
 
   function reorderBrowserTabs(tabIds) {
     const nextOrder = Array.isArray(tabIds) ? tabIds.map(String) : [];
-    if (nextOrder.length !== browserTabOrder.length) {
-      throw new Error("Tab order must include every open tab.");
-    }
     if (new Set(nextOrder).size !== nextOrder.length) {
       throw new Error("Tab order must not contain duplicate tabs.");
     }
@@ -653,7 +650,10 @@ export function createBrowserPanel({ app, WebContentsView, clipboard, session, g
     if (nextOrder.some((tabId) => !current.has(tabId))) {
       throw new Error("Tab order contains an unknown tab.");
     }
-    browserTabOrder = nextOrder;
+    // A renderer reorders one strip, not every pane and project in the app.
+    const moved = new Set(nextOrder);
+    let index = 0;
+    browserTabOrder = browserTabOrder.map(id => moved.has(id) ? nextOrder[index++] : id);
     sendBrowserState();
     return listBrowserTabs();
   }

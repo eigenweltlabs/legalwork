@@ -92,3 +92,17 @@ test("bad geometry and late resize reports never resurrect a hidden pane", t => 
   f.call("bounds", f.first, f.left, a);
   assert.equal(f.first.contentView.children.length, 0);
 });
+
+test("reordering one strip leaves other panes in place and rejects stale orders atomically", t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const ids = Array.from({ length: 4 }, () => f.call("createTab", f.first, "about:blank").tabId);
+  const order = () => f.call("state", f.first).tabs.map(tab => tab.id);
+  f.call("reorderTabs", f.first, [ids[2], ids[0]]);
+  assert.deepEqual(order(), [ids[2], ids[1], ids[0], ids[3]]);
+  f.call("reorderTabs", f.first, []);
+  assert.deepEqual(order(), [ids[2], ids[1], ids[0], ids[3]]);
+  assert.throws(() => f.call("reorderTabs", f.first, [ids[2], ids[2]]), /duplicate/);
+  f.call("closeTab", f.first, ids[2]);
+  assert.throws(() => f.call("reorderTabs", f.first, [ids[0], ids[2]]), /unknown/);
+  assert.deepEqual(order(), [ids[1], ids[0], ids[3]]);
+});

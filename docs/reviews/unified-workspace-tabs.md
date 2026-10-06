@@ -23,8 +23,8 @@ Checked on macOS with Node 24, pnpm and the repository's pinned Electron runtime
 
 | Command | Result |
 | --- | --- |
-| `pnpm --filter @legalwork/app test` | 926 passed, 0 failed |
-| `pnpm --filter @legalwork/desktop test` | 194 passed, 1 skipped, 0 failed |
+| `pnpm --filter @legalwork/app test` | 928 passed, 0 failed |
+| `pnpm --filter @legalwork/desktop test` | 195 passed, 1 skipped, 0 failed |
 | `pnpm --filter @legalwork/app typecheck` | Passed |
 | `pnpm --filter @legalwork/desktop typecheck:electron` | Passed |
 | `pnpm --filter @legalwork/desktop check:electron` | Passed; 110 bridge methods covered |
@@ -44,6 +44,11 @@ Interactive checks used the isolated development fixture at `/session-preview.ht
 5. Close the last chat while a task is open; the task remains and the chat does not reopen automatically.
 6. Create a chat from a pane's `+` menu; it groups into that pane.
 7. Reload the fixture to restore mixed pane geometry. Expand and restore the workspace; the project banner hides and returns.
+8. Drop a Project Files PDF onto the review: it becomes a second review source. Drop it onto the chat composer: it becomes a file reference. Neither drop is intercepted as a generic viewer open.
+9. Edit a workflow, switch to another project, and return directly through the original project's chat. The workflow draft remains editable and saves without revisiting the library.
+10. Drag a tab within its existing strip; the insertion marker and resulting order agree. Native subset-order tests also check that browser tabs in other panes keep their positions and stale orders are rejected atomically.
+
+The review follow-up fixes file-drop interception, rebinds workflow services from the current project rather than a cached library element, and restores same-strip tab ordering. Moving a browser tab also updates Electron's selected tab so a later native state event does not restore the previous selection. Redundant navigation when opening a work item was removed. The final code passed the full app suite, both type checks and the UI build. Manual browser-tab dragging in Electron remains unverified; native ordering and real-view lifecycle were tested separately.
 
 The fixture checks UI state and local interactions, not live agent execution, connected-storage writes or production review runs. The native harness tests view lifecycle without remote websites. Existing DOCX autosave and cross-window file-ownership tests remain in the app suite; this change does not replace their save protocol.
 

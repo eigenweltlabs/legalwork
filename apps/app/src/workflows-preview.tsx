@@ -61,8 +61,8 @@ function fixture(changed: () => void) {
   return store;
 }
 
-export function WorkflowsPreview() {
+export function WorkflowsPreview({ workspaceId = "visual-workspace" }: { workspaceId?: string }) {
   const [, setRevision] = useState(0);
   const extensions = useMemo(() => fixture(() => setRevision((value) => value + 1)), []);
-  return <WorkflowsView workspaceId="visual-workspace" workspaceName="Northstar Legal" busy={false} canInstallSkillCreator canUseDesktopTools extensions={extensions} onOpenLink={() => {}} createSessionAndOpen={() => {}} />;
+  return <WorkflowsView workspaceId={workspaceId} workspaceName="Northstar Legal" busy={false} canInstallSkillCreator canUseDesktopTools extensions={extensions} onOpenLink={() => {}} createSessionAndOpen={() => {}} />;
 }

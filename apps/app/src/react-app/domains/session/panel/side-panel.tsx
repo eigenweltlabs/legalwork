@@ -45,6 +45,7 @@ import { ArtifactPanel } from "../artifacts/artifact-panel";
 import { ExpandedDocumentBar } from "../artifacts/expanded-document-bar";
 import { MAX_DOCUMENT_PANES, layoutLeaves, siblingPaneIds, topLayoutLeaves, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 import { documentSplitDropEdge } from "./document-split-drop";
+import { insertTabBefore, tabStripInsertion } from "./tab-strip-drop";
 import {
   type DocumentPaneState,
   type BrowserPanelTab,
@@ -120,6 +121,9 @@ type TabDropZoneProps = {
   edge?: boolean;
   splitBlocked?: boolean;
   inset?: boolean;
+  /** Chats and reviews consume file drops themselves; tabs can still split them. */
+  acceptFileDrops?: boolean;
+  onTabInsert?: (tabId: string, beforeId: string | null) => void;
   label: string;
   onDrop: (tabId: string, split?: DocumentDropEdge) => void;
   onFileDrop: (drop: ReturnType<typeof readViewerFileDrop>, pane: ViewerPane, split?: DocumentDropEdge) => void;
@@ -127,8 +131,9 @@ type TabDropZoneProps = {
   children: React.ReactNode;
 };
 
-function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset = false, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
+function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset = false, acceptFileDrops = true, onTabInsert, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
   const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentDropEdge | null } | null>(null);
+  const [insertionX, setInsertionX] = React.useState<number | null>(null);
   const [dragActive, setDragActive] = React.useState(false);
   const zone = React.useRef<HTMLDivElement>(null);
   const accepts = dragging !== null && (edge || dragging.pane !== pane);
@@ -136,6 +141,11 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
   React.useEffect(() => {
     const element = zone.current;
     if (!element) return;
+    const insertion = (event: DragEvent, id: string) => tabStripInsertion(event.clientX,
+      Array.from(element.querySelectorAll<HTMLElement>("[data-panel-tab-id]")).map(tab => {
+        const { left, right } = tab.getBoundingClientRect();
+        return { id: tab.dataset.panelTabId!, left, right };
+      }), id);
     const splitEdge = (event: DragEvent) => {
       const rect = element.getBoundingClientRect();
       const split = edge ? documentSplitDropEdge(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height) : null;
@@ -145,6 +155,13 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
       const data = event.dataTransfer;
       if (!data) return;
       const file = hasViewerFileDrag(data);
+      if (file && !acceptFileDrops) { setOver(null); return; }
+      if (onTabInsert && dragging && data.types.includes(TAB_DRAG_TYPE)) {
+        event.preventDefault(); event.stopPropagation(); data.dropEffect = "move";
+        setInsertionX(insertion(event, dragging.id).x - element.getBoundingClientRect().left);
+        setOver(null);
+        return;
+      }
       const split = splitEdge(event);
       const hit = file || (accepts && data.types.includes(TAB_DRAG_TYPE) && (dragging?.pane !== pane || split));
       if (!hit) { setOver(null); return; }
@@ -156,15 +173,15 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
       // lone tab that can relocate even at the cap; the store decides atomically.
       data.dropEffect = file ? "copy" : split && splitBlocked ? "none" : "move";
     };
-    const stop = () => { setOver(null); setDragActive(false); };
+    const stop = () => { setOver(null); setInsertionX(null); setDragActive(false); };
     const leave = (event: DragEvent) => {
-      if (!(event.relatedTarget instanceof Node) || !element.contains(event.relatedTarget)) setOver(null);
+      if (!(event.relatedTarget instanceof Node) || !element.contains(event.relatedTarget)) { setOver(null); setInsertionX(null); }
     };
     // Arm before the pointer reaches a PDF/HTML iframe: events inside its
     // document cannot bubble to this pane. Text/link drags keep their usual path.
     const start = (event: DragEvent) => {
       const data = event.dataTransfer;
-      if (inset && data && (hasViewerFileDrag(data) || data.types.includes(TAB_DRAG_TYPE))) setDragActive(true);
+      if (inset && data && ((acceptFileDrops && hasViewerFileDrag(data)) || data.types.includes(TAB_DRAG_TYPE))) setDragActive(true);
     };
     const leaveWindow = (event: DragEvent) => {
       if (!event.relatedTarget && (event.target === document || event.target === document.documentElement)) stop();
@@ -176,12 +193,18 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
       if (!data) return;
       const split = splitEdge(event);
       if (hasViewerFileDrag(data)) {
+        if (!acceptFileDrops) return;
         event.preventDefault();
         event.stopPropagation();
         onFileDrop(readViewerFileDrop(data), pane, split ?? undefined);
         return;
       }
       const tabId = data.getData(TAB_DRAG_TYPE);
+      if (onTabInsert && dragging && tabId === dragging.id) {
+        event.preventDefault(); event.stopPropagation();
+        onTabInsert(tabId, insertion(event, tabId).beforeId);
+        return;
+      }
       if (!accepts || !tabId || (dragging?.pane === pane && !split)) return;
       event.preventDefault();
       event.stopPropagation();
@@ -211,11 +234,12 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
       window.removeEventListener("blur", stop);
       window.removeEventListener("keydown", cancel);
     };
-  }, [accepts, edge, splitBlocked, dragging?.pane, inset, pane, onDrop, onFileDrop]);
+  }, [accepts, edge, splitBlocked, dragging?.pane, dragging?.id, inset, acceptFileDrops, onTabInsert, pane, onDrop, onFileDrop]);
 
   return (
     <div ref={zone} data-document-drop-pane={inset ? pane : undefined} className={cn("relative", className)}>
       {children}
+      {insertionX !== null && <div aria-hidden data-tab-insertion className="pointer-events-none absolute inset-y-2 z-40 w-0.5 rounded-full bg-primary" style={{ left: insertionX }} />}
       {dragActive && <div aria-hidden data-viewer-drop-overlay data-viewer-drag-shield className="absolute inset-0 z-30" />}
       {over ? (
         <div
@@ -278,6 +302,7 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
     >
       <div
         ref={tabRef}
+        data-panel-tab-id={tab.id}
         className="relative"
         draggable={canMove}
         onDragStart={(event) => {
@@ -716,12 +741,14 @@ export function SidePanel({
     store.moveTab(sessionId, tabId, pane, split);
     const next = usePanelTabStore.getState().sessions[sessionId];
     if (next !== before && next?.panes.some(pane => pane.activeTabId === tabId)) {
-      setFocusedTabId(tabId);
+      // Keep native browser selection in step too, otherwise its next state
+      // event reselects the old browser tab after a move/reorder.
+      selectTab(tabId);
       const moved = next.tabs.find(tab => tab.id === tabId);
       if (moved?.type === "chat") onFocusChat?.(moved.sessionId);
     }
     else if (split && before?.panes.length >= MAX_DOCUMENT_PANES) toast.info(t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }));
-  }, [sessionId, onFocusChat]);
+  }, [sessionId, onFocusChat, selectTab]);
   const [draggingTabId, setDraggingTabId] = React.useState<string | null>(null);
   React.useEffect(() => {
     const stop = () => setDraggingTabId(null);
@@ -855,7 +882,12 @@ export function SidePanel({
   const strip = (pane: DocumentPaneState, docked = false) => {
     const paneTabs = tabs.filter(tab => pane.tabIds.includes(tab.id));
     const canMove = panes.length > 1 || paneTabs.length > 1;
-    return <TabDropZone pane={pane.id} dragging={draggingTab} label={t("side_panel.drop_to_move_here")} onDrop={id => moveToPane(id, pane.id)} onFileDrop={openFilesInViewer} className={cn("shrink-0 titlebar-no-drag", docked ? "h-full" : "bg-muted/35")}>
+    return <TabDropZone pane={pane.id} dragging={draggingTab} label={t("side_panel.drop_to_move_here")} onDrop={id => moveToPane(id, pane.id)} onTabInsert={(id, beforeId) => {
+      moveToPane(id, pane.id);
+      const current = usePanelTabStore.getState().sessions[sessionId];
+      const destination = current?.panes.find(item => item.id === pane.id);
+      if (destination) reorderTabs(insertTabBefore(current.tabs.filter(tab => destination.tabIds.includes(tab.id)).map(tab => tab.id), id, beforeId));
+    }} onFileDrop={openFilesInViewer} className={cn("shrink-0 titlebar-no-drag", docked ? "h-full" : "bg-muted/35")}>
       <div className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
@@ -880,6 +912,7 @@ export function SidePanel({
     const relocating = draggingTab && draggingTab.pane !== pane.id && panes.find(source => source.id === draggingTab.pane)?.tabIds.length === 1;
     const sameLoneTab = draggingTab?.pane === pane.id && pane.tabIds.length === 1;
     return <TabDropZone pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
+      acceptFileDrops={tab?.type !== "chat" && tab?.type !== "review"}
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
       {tab ? <div ref={destinationRef(pane.id)} className="min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty />}
 

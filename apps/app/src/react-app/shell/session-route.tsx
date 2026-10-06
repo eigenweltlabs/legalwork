@@ -2296,6 +2296,9 @@ export function SessionRoute() {
     if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(location.pathname === "/tasks");
   }, [location.pathname, selectedSessionId, selectedWorkspaceId]);
 
+  const workflowLibraryView = <SettingsSurface embedded singleView initialPath="workflows" workspaceId={selectedWorkspaceId}
+    onClose={() => { setShowWorkflows(false); navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }} />;
+
   return (
     <WorkspaceProvider
       client={opencodeClient}
@@ -2429,6 +2432,7 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
+      workflowLibraryView={workflowLibraryView}
       homePage={homePage}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
@@ -2592,13 +2596,7 @@ export function SessionRoute() {
           // opening the workflow-generation session) always reveal the chat —
           // even when the target session is already the selected one and the
           // route (and thus the pane-closing route effect) doesn't change.
-          <SettingsSurface
-            embedded
-            singleView
-            initialPath="workflows"
-            workspaceId={selectedWorkspaceId}
-            onClose={() => { setShowWorkflows(false); navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }}
-          />
+          workflowLibraryView
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showEvals ? (

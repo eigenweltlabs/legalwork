@@ -226,6 +226,8 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
+  /** Live workflow service host, also needed when returning to an open editor. */
+  workflowLibraryView?: React.ReactNode;
   projectsPage?: boolean;
   homePage?: boolean;
   projectPage?: "calendar" | "home" | "tasks" | "reviews";
@@ -342,12 +344,11 @@ export function SessionPage(props: SessionPageProps) {
   const [workspaceHost, setWorkspaceHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => { usePanelTabStore.getState().migrateWorkspace(props.selectedWorkspaceId); }, [props.selectedWorkspaceId]);
   const workflowsPage = props.sidebar.activeNav === "workflows";
-  // The library owns the existing workflow service bindings. Retain it while
-  // its editors are open, so moving to the workspace does not revoke saving.
-  const workflowLibrary = useRef<{ workspaceId: string; view: SessionPageProps["mainView"] } | null>(null);
+  // Bind from current project props, even on a direct return to an editor.
+  // Caching the last visited library would lose its services on project changes.
+  const workflowLibrary = workflowsPage || workspacePanel.tabs.some(tab => tab.type === "workflow" || tab.type === "workflow-resource")
+    ? props.workflowLibraryView : null;
   const [workflowLibraryHost, setWorkflowLibraryHost] = useState<HTMLDivElement | null>(null);
-  if (workflowsPage) workflowLibrary.current = { workspaceId: props.selectedWorkspaceId, view: props.mainView };
-  else if (workflowLibrary.current?.workspaceId !== props.selectedWorkspaceId || !workspacePanel.tabs.some(tab => tab.type === "workflow" || tab.type === "workflow-resource")) workflowLibrary.current = null;
   const mobile = useIsMobile();
   const sessionSidePanel = useUiStateStore((state) => (
     panelStateSessionId ? state.sidePanelState[panelStateSessionId] ?? null : null
@@ -442,7 +443,6 @@ export function SessionPage(props: SessionPageProps) {
       if (!tab) return;
       const scope = panelStateSessionId;
       openTab(scope, tab);
-      if (hasMainView && scope !== EVALS_PANEL_SESSION_ID) navigate(workspaceSessionRoute(props.selectedWorkspaceId, props.selectedSessionId) + (props.selectedSessionId ? "" : "?view=workspace"));
       preserveSidePanelOnPanelOpenRef.current = true;
       setCurrentSidePanel("panel");
     };
@@ -1543,7 +1543,7 @@ export function SessionPage(props: SessionPageProps) {
           />
         </ControlActionScope>
       </DocumentPane>}
-      {workflowLibrary.current && <DocumentPane key={workflowLibrary.current.workspaceId} destination={workflowsPage ? workflowLibraryHost : null}><ControlActionScope active={workflowsPage}>{workflowLibrary.current.view}</ControlActionScope></DocumentPane>}
+      {workflowLibrary && <DocumentPane key={props.selectedWorkspaceId} destination={workflowsPage ? workflowLibraryHost : null}><ControlActionScope active={workflowsPage}>{workflowLibrary}</ControlActionScope></DocumentPane>}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}
