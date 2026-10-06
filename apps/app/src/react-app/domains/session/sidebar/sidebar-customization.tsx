@@ -12,6 +12,7 @@ import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 
 export const SIDEBAR_ITEMS = {
   navHome: { label: "home.nav_label", icon: House },
+  navScheduled: { label: "scheduled.title", icon: Clock },
   navCalendar: { label: "calendar.title", icon: CalendarDays },
   navProjects: { label: "projects.plural", icon: LayoutGrid },
   sectionPinned: { label: "sidebar.pinned_sessions", icon: Pin },

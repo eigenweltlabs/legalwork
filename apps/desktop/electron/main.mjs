@@ -1774,7 +1774,7 @@ const desktopCommandHandlers = {
   "__streamRead": (event, id) => eventStreams.read(event.sender, id),
   "__streamCancel": async (event, id) => eventStreams.cancel(event.sender, id),
   "openAppWindow": async (event, input) => {
-    if (!["home", "calendar", "projects", "workflows", "tasks", "recorder", "evals"].includes(input?.page)) {
+    if (!["home", "scheduled", "calendar", "projects", "workflows", "tasks", "recorder", "evals"].includes(input?.page)) {
       throw new Error("A valid app page is required to open a new window.");
     }
     return openAppWindow(event, `/${input.page}?detached=1`);

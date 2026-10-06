@@ -5,9 +5,9 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navCalendar", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navScheduled", "navCalendar", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
@@ -17,6 +17,7 @@ const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar"
 export type ShellConfig = {
   navHome: boolean;
   navCalendar: boolean;
+  navScheduled: boolean;
   navProjects: boolean;
   chatSectionOrder: ChatSectionKey[];
   sectionPinned: boolean;
@@ -73,6 +74,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navOrder: DEFAULT_NAV_ORDER,
   navHome: true,
   navCalendar: true,
+  navScheduled: true,
   navProjects: true,
   chatSectionOrder: DEFAULT_CHAT_ORDER,
   sectionPinned: true,
@@ -133,6 +135,10 @@ function readShellConfig(): ShellConfig {
     if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
       navOrder.splice(navOrder.indexOf("navCalendar"), 1);
       navOrder.splice(navOrder.indexOf("navHome") + 1, 0, "navCalendar");
+    }
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navScheduled")) {
+      navOrder.splice(navOrder.indexOf("navScheduled"), 1);
+      navOrder.splice(navOrder.indexOf("navHome") + 1, 0, "navScheduled");
     }
     return {
       ...next,

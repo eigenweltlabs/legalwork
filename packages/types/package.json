@@ -51,7 +51,8 @@
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
-    "./calculation": "./src/calculation.ts"
+    "./calculation": "./src/calculation.ts",
+    "./scheduled-tasks": "./src/scheduled-tasks.ts"
   },
   "files": [
     "src",

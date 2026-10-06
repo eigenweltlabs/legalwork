@@ -1,0 +1,122 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ScheduledTaskInput, TaskSchedule } from "@legalwork/types/scheduled-tasks";
+import { nextOccurrence } from "./schedule.js";
+import { ScheduledTaskStore } from "./store.js";
+import { ScheduledTaskRunner, type ScheduledExecutor } from "./runner.js";
+
+const now = Date.parse("2026-10-06T10:00:00Z");
+const schedule: TaskSchedule = { kind: "once", startAt: "2026-10-06T13:00:00", timeZone: "Europe/Berlin" };
+const input: ScheduledTaskInput = { title: "Matter brief", prompt: "Summarize open work.", schedule, projectAccess: "project", sessionId: "chat", model: null };
+const open = async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "scheduled-test-")), "runtime.sqlite");
+  return { store: await ScheduledTaskStore.open(path), path };
+};
+const recurring = (rrule: string, startAt = "2026-10-06T09:00:00"): TaskSchedule => ({ kind: "rrule", rrule, startAt, timeZone: "Europe/Berlin" });
+
+describe("local task recurrence", () => {
+  test("one-time wall time and offset are resolved exactly, never early", () => {
+    expect(nextOccurrence(schedule, now)).toBe("2026-10-06T11:00:00.000Z");
+    expect(nextOccurrence(schedule, Date.parse("2026-10-06T11:00:00Z"))).toBeNull();
+    expect(nextOccurrence({ ...schedule, startAt: "2026-10-06T13:00:00+02:00" }, now)).toBe("2026-10-06T11:00:00.000Z");
+  });
+  test("intervals retain their anchor and coalesce downtime", () => {
+    const interval: TaskSchedule = { ...schedule, kind: "interval", minutes: 15 };
+    expect(nextOccurrence(interval, Date.parse("2026-10-07T11:09:00Z"))).toBe("2026-10-07T11:15:00.000Z");
+  });
+  test("daily wall clock stays at 9 through Berlin daylight-saving changes", () => {
+    expect(nextOccurrence(recurring("FREQ=DAILY"), Date.parse("2026-10-24T07:00:00Z"))).toBe("2026-10-25T08:00:00.000Z");
+    expect(nextOccurrence(recurring("FREQ=DAILY", "2026-03-27T09:00:00"), Date.parse("2026-03-28T08:00:00Z"))).toBe("2026-03-29T07:00:00.000Z");
+  });
+  test("weekdays, weekly intervals and negative monthly ordinals", () => {
+    expect(nextOccurrence(recurring("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"), Date.parse("2026-10-09T07:00:00Z"))).toBe("2026-10-12T07:00:00.000Z");
+    expect(nextOccurrence(recurring("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR"), now)).toBe("2026-10-09T07:00:00.000Z");
+    expect(nextOccurrence(recurring("FREQ=MONTHLY;BYDAY=-1FR"), now)).toBe("2026-10-30T08:00:00.000Z");
+    expect(nextOccurrence(recurring("FREQ=MONTHLY;BYMONTHDAY=-1"), now)).toBe("2026-10-31T08:00:00.000Z");
+  });
+  test("COUNT and UTC UNTIL end a recurrence", () => {
+    expect(nextOccurrence(recurring("FREQ=DAILY;COUNT=1"), now)).toBeNull();
+    expect(nextOccurrence(recurring("FREQ=DAILY;UNTIL=20261007T070000Z"), now)).toBe("2026-10-07T07:00:00.000Z");
+    expect(nextOccurrence(recurring("FREQ=DAILY;UNTIL=20261007T065959Z"), now)).toBeNull();
+  });
+  test("skips missing and ambiguous recurring wall times", () => {
+    expect(nextOccurrence(recurring("FREQ=DAILY", "2026-03-28T02:30:00"), Date.parse("2026-03-28T01:30:00Z"))).toBe("2026-03-30T00:30:00.000Z");
+    expect(nextOccurrence(recurring("FREQ=DAILY", "2026-10-24T02:30:00"), Date.parse("2026-10-24T00:30:00Z"))).toBe("2026-10-26T01:30:00.000Z");
+    expect(nextOccurrence(recurring("FREQ=DAILY;COUNT=2", "2026-03-28T02:30:00"), Date.parse("2026-03-28T01:30:00Z"))).toBe("2026-03-30T00:30:00.000Z");
+    expect(() => nextOccurrence({ ...schedule, startAt: "2026-10-25T02:30:00" }, now)).toThrow("ambiguous");
+  });
+  test("invalid, impossible and unsupported rules fail promptly", () => {
+    for (const rule of ["FREQ=SECONDLY", "FREQ=DAILY;INTERVAL=0", "FREQ=DAILY;BYHOUR=24", "FREQ=DAILY;BYDAY=XX", "FREQ=DAILY;BOGUS=2", "FREQ=DAILY;COUNT=1;UNTIL=20261007T000000Z", "FREQ=DAILY;UNTIL=20260230T000000Z", "FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30", "FREQ=DAILY;INTERVAL=7;BYDAY=MO"]) {
+      expect(() => nextOccurrence(recurring(rule), now)).toThrow();
+    }
+    expect(() => nextOccurrence({ ...schedule, timeZone: "Berlin" }, now)).toThrow("time zone");
+  });
+});
+
+describe("persistent scheduled task execution", () => {
+  test("persists edits, rejects stale revisions and cross-project access", async () => {
+    const { store, path } = await open(), task = store.create("project", input, now);
+    store.update("project", task.id, 1, { title: "Updated" }, now);
+    const reopened = await ScheduledTaskStore.open(path);
+    expect(reopened.get("project", task.id).title).toBe("Updated");
+    expect(() => store.update("project", task.id, 1, { title: "Stale" }, now)).toThrow("changed");
+    expect(() => store.get("other", task.id)).toThrow("not found");
+    expect(() => store.remove("other", task.id, 2)).toThrow("not found");
+  });
+  test("two connections cannot claim the same due task; restart never replays it", async () => {
+    const { store, path } = await open(), other = await ScheduledTaskStore.open(path), task = store.create("project", input, now);
+    expect(store.claim(task, now)).toBeNull();
+    expect(store.claim(task, now + 3600000)?.dueAt).toBe("2026-10-06T11:00:00.000Z");
+    expect(other.claim(task, now + 3600000)).toBeNull();
+    expect(other.get("project", task.id).status).toBe("completed");
+    expect(other.runs(task.id)[0].status).toBe("dispatching");
+  });
+  test("pause prevents a pending claim; resume skips missed repeats", async () => {
+    const { store } = await open(), task = store.create("project", { ...input, schedule: { ...schedule, kind: "interval", minutes: 60 } }, now);
+    const paused = store.update("project", task.id, 1, { status: "paused" }, now);
+    expect(store.claim(task, now + 7200000)).toBeNull();
+    const resumed = store.update("project", task.id, paused.revision, { status: "active" }, now + 7200000);
+    expect(resumed.nextRunAt).toBe("2026-10-06T13:00:00.000Z");
+  });
+  test("busy chats defer; missed runs coalesce; new chats are created only when due", async () => {
+    const { store } = await open(); let busy = true, time = now, created = 0, sent = 0;
+    const task = store.create("project", { ...input, sessionId: null, schedule: { ...schedule, kind: "interval", minutes: 15 } }, now);
+    const runner = new ScheduledTaskRunner(store, { available: async () => !busy, createSession: async () => `new-${++created}`, send: async () => { sent++; } }, () => time);
+    await runner.tick(); expect(created).toBe(0);
+    time += 86400000; await runner.tick(); expect(sent).toBe(0);
+    busy = false; await Promise.all([runner.tick(), runner.tick()]); expect(sent).toBe(1); expect(created).toBe(1);
+    await runner.tick(); expect(sent).toBe(1);
+    expect(store.runs(task.id)[0].sessionId).toBe("new-1");
+    expect(store.runs(task.id)[0].status).toBe("sent");
+  });
+  test("failed delivery pauses without retry; unrelated tasks still run", async () => {
+    const { store } = await open(), task = store.create("project", input, now);
+    const other = store.create("project", { ...input, sessionId: "other" }, now);
+    let sends = 0;
+    const executor: ScheduledExecutor = { available: async () => true, createSession: async () => "new", send: async task => { sends++; if (task.sessionId === "chat") throw new Error("Offline during delivery"); } };
+    const runner = new ScheduledTaskRunner(store, executor, () => now + 3600000);
+    await runner.tick(); await runner.tick();
+    expect(sends).toBe(2); expect(store.get("project", task.id).status).toBe("paused");
+    expect(store.runs(task.id)[0].error).toBe("Offline during delivery");
+    expect(store.runs(other.id)[0].status).toBe("sent");
+  });
+  test("pausing during chat creation cancels dispatch and preserves the edit", async () => {
+    const { store } = await open();
+    const task = store.create("project", { ...input, sessionId: null }, now); let sent = false;
+    const runner = new ScheduledTaskRunner(store, {
+      available: async () => true,
+      createSession: async () => { store.update("project", task.id, 2, { status: "paused", projectAccess: "all" }, now); return "new"; },
+      send: async () => { sent = true; },
+    }, () => now + 3600000);
+    await runner.tick(); expect(sent).toBe(false);
+    expect(store.get("project", task.id).projectAccess).toBe("all");
+    expect(store.runs(task.id)[0]).toMatchObject({ projectAccess: "project", status: "failed" });
+  });
+  test("pausing while availability is checked invalidates the snapshot", async () => {
+    const { store } = await open(), task = store.create("project", input, now); let sent = false;
+    const runner = new ScheduledTaskRunner(store, { available: async () => { store.update("project", task.id, 1, { status: "paused" }, now); return true; }, createSession: async () => "new", send: async () => { sent = true; } }, () => now + 3600000);
+    await runner.tick(); expect(sent).toBe(false); expect(store.runs(task.id)).toHaveLength(0);
+  });
+});

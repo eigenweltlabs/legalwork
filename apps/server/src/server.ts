@@ -1,3 +1,9 @@
+import { runtimeDbPath } from "./runtime-db.js";
+import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
+import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
+import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
+import { registerScheduledTaskRoutes } from "./routes/scheduled-tasks.js";
+import type { ScheduledTask } from "@legalwork/types/scheduled-tasks";
 import { composedSkill } from "./skill-composition.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
@@ -810,7 +816,42 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus);
+  const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config));
+  const scheduledWorkspace = async (task: ScheduledTask) => {
+    const workspace = await resolveWorkspace(config, task.workspaceId);
+    if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
+    return workspace;
+  };
+  const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
+    available: async task => {
+      if (config.readOnly) return false;
+      const workspace = await scheduledWorkspace(task);
+      const status = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
+      return !target || !status[target] || status[target].type === "idle";
+    },
+    createSession: async task => {
+      const client = createWorkspaceOpencodeClient(config, await scheduledWorkspace(task));
+      return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
+    },
+    send: async (task, sessionId) => {
+      const workspace = await scheduledWorkspace(task);
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
+      if (resolve(session.directory) !== resolve(workspace.path) || session.time.archived) throw new ApiError(400, "schedule_session", "The destination chat is no longer available in this project.");
+      const agent = task.projectAccess === "all" ? ALL_PROJECTS_TASK_AGENT : PROJECT_TASK_AGENT;
+      const agents = unwrapOpencodeResult(await client.app.agents({}, { signal: AbortSignal.timeout(10000) }), "/agent");
+      const selectedAgent = agents.find(item => item.name === agent);
+      if (!selectedAgent || (task.projectAccess === "project" && !hasProjectTaskBoundary(selectedAgent)))
+        throw new ApiError(409, "schedule_scope_unavailable", "The local engine needs to reload scheduled task permissions. Restart LegalWork before resuming this task.");
+      if (task.projectAccess === "project" && !hasProjectTaskBoundary({ name: agent, permission: [...selectedAgent.permission, ...(session.permission ?? [])] }))
+        throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
+      const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
+        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
+      if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
+    },
+  });
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks);
 
   const serverOptions: {
     hostname: string;
@@ -1018,6 +1059,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     }
   }
 
+  const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
   return {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
@@ -1031,6 +1073,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopProjectSyncTimer();
       stopSyncEvents();
       stopTaskReminders();
+      stopScheduledTasks();
       benchmarkRunner.dispose();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
@@ -1543,6 +1586,7 @@ function createRoutes(
   preparation: DocumentPreparation,
   reviews: ReviewService,
   corpus: CorpusService,
+  scheduledTasks: ScheduledTaskStore,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -1575,6 +1619,13 @@ function createRoutes(
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
+    listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
+    getSession: async (workspace, id) => {
+      const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
+      return result.response?.status === 404 ? null : unwrapOpencodeResult(result, "/session");
+    },
+  });
+  registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace,
     listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
     getSession: async (workspace, id) => {
       const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
