@@ -406,18 +406,17 @@ export function SessionRoute() {
     const pending = takePendingTasksPaneRequest();
     if (pending) {
       setOpenTask({ id: pending.taskId, at: Date.now() });
-      showTasksPane();
     }
     const handleRequest = (event: Event) => {
-      // Taken here: nothing is left for a later mount.
+      // useShowTasksPane owns navigation. Only consume the selection here,
+      // so a notification does not add the same page to history twice.
       takePendingTasksPaneRequest();
       const taskId = (event as CustomEvent<Partial<TasksPaneOpenDetail>>).detail?.taskId ?? null;
       setOpenTask({ id: taskId, at: Date.now() });
-      showTasksPane();
     };
     window.addEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
     return () => window.removeEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
-  }, [showTasksPane]);
+  }, []);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
