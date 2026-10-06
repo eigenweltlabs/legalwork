@@ -84,15 +84,15 @@ describe("the firm's tool permissions in the engine", () => {
   });
 
   test("defaults replace the member's rule, and nothing is enforced once taken back", async () => {
-    const { config } = await setup({ "tools.permissions": { mode: "default", value: { webfetch: "deny" } } });
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "allow" } }));
+    const { config } = await setup({ "tools.permissions": { mode: "default", value: { edit: "deny" } } });
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "allow" } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect((await readJson(legalworkRuntimeConfigFilePath(config))).permission).toMatchObject({ webfetch: "deny" });
+    expect((await readJson(legalworkRuntimeConfigFilePath(config))).permission).toMatchObject({ edit: "deny" });
     expect(await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).toEqual({ $schema: "https://opencode.ai/config.json" });
 
     await releaseOrgPolicyKey(config, "tools.permissions");
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect((await readJson(legalworkRuntimeConfigFilePath(config))).permission).toMatchObject({ webfetch: "allow" });
+    expect((await readJson(legalworkRuntimeConfigFilePath(config))).permission).toMatchObject({ edit: "allow" });
   });
 });
 

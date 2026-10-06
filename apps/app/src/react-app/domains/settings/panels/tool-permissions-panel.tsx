@@ -252,11 +252,13 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
   // The firm's rules show over the member's own while they apply; changing a
   // tool the firm manages takes them back first (asking after sign-out).
   const firm = useOrgPolicy("tools.permissions");
+  // By tool name: the firm sets only some of the tools listed here.
+  const firmRules: Partial<Record<string, unknown>> | undefined = firm?.value;
   const model = useMemo(
     () => (firm ? parseToolPermissions(withFirmPermissions(state.loadedPermission, firm)) : state.model),
     [firm, state.loadedPermission, state.model],
   );
-  const firmManages = (tool: ManagedPermissionTool) => firm?.value[tool] !== undefined;
+  const firmManages = (tool: ManagedPermissionTool) => firmRules?.[tool] !== undefined;
   const lockedTool = (tool: ManagedPermissionTool) => firm?.locked === true && firmManages(tool);
 
   const persistModel = useCallback(async (nextModel: ToolPermissionsModel) => {
@@ -287,16 +289,16 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
   }, [canWriteConfig, props.legalworkServerClient, props.onConfigUpdated, props.runtimeWorkspaceId, state.loadedPermission]);
 
   const commit = useCallback((tools: ManagedPermissionTool[], nextModel: ToolPermissionsModel) => {
-    if (tools.some((tool) => firm?.value[tool] !== undefined)) {
+    if (tools.some((tool) => firmRules?.[tool] !== undefined)) {
       void changeOrgPolicySetting("tools.permissions", () => persistModel(nextModel));
       return;
     }
     // Only the member's own tools change: the firm's keep the member's values underneath.
     const own = parseToolPermissions(state.loadedPermission);
     const next = { ...nextModel };
-    for (const tool of MANAGED_PERMISSION_TOOLS) if (firm?.value[tool] !== undefined) next[tool] = own[tool];
+    for (const tool of MANAGED_PERMISSION_TOOLS) if (firmRules?.[tool] !== undefined) next[tool] = own[tool];
     void persistModel(next);
-  }, [firm, persistModel, state.loadedPermission]);
+  }, [firmRules, persistModel, state.loadedPermission]);
 
   const setToolAction = useCallback((tool: ManagedPermissionTool, action: PermissionAction) => {
     captureAnalyticsEvent("tool_permission_changed", { tool, action });
