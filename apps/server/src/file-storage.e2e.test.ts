@@ -12,12 +12,16 @@ import {
   storageInputSchema,
   type StorageInput,
   type StoragePage,
+  storageTransferEventSchema,
+  type StorageTransferEvent,
 } from "@legalwork/types/file-storage";
+import { serverSentEvents } from "@legalwork/types/sync-events";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { withStorage } from "./file-storage/service.js";
 import { StorageStore, mergeStorageSecrets } from "./file-storage/store.js";
 import { storagePath, providerError } from "./file-storage/common.js";
+import { webdavFixture } from "./file-storage/testing/webdav.js";
 
 let temporary: string;
 let rootPath: string;
@@ -39,6 +43,7 @@ async function api(
   body?: unknown,
   scope: "owner" | "collaborator" | "viewer" | "none" = "owner",
   workspaceId = "storage-test",
+  extraHeaders: Record<string, string> = {},
 ) {
   const response = await fetch(`${base}/workspace/${workspaceId}/storage${suffix}`, {
     method,
@@ -46,6 +51,7 @@ async function api(
       "content-type": "application/json",
       ...(scope !== "none" ? { authorization: `Bearer ${scope === "viewer" ? viewerToken : config.token}` } : {}),
       ...(scope === "owner" ? { "x-legalwork-host-token": config.hostToken } : {}),
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -111,6 +117,73 @@ afterAll(async () => {
 });
 
 describe("storage API access and validation", () => {
+  test("streams folder progress before the transfer finishes, and reports the final path", async () => {
+    const dav = webdavFixture(20);
+    const ids: string[] = [];
+    try {
+      for (const folder of ["first", "second"])
+        ids.push(await connect(storageInputSchema.parse({ name: folder, config: { kind: "webdav", endpoint: `${dav.endpoint}/${folder}` } })));
+      const body = { path: "matter", kind: "folder", destinationId: ids[1], destinationPath: "", mode: "move" };
+      expect((await api("POST", `/${ids[0]}/transfer`, body, "viewer", "storage-test", { Accept: "text/event-stream" })).status).toBe(403);
+      const response = await api("POST", `/${ids[0]}/transfer`, body, "owner", "storage-test", { Accept: "text/event-stream" });
+      expect(response.headers.get("content-type")).toContain("text/event-stream");
+      if (!response.body) throw new Error("Missing stream");
+      const events: StorageTransferEvent[] = [];
+      let sawPartialCopy = false;
+      const feed = serverSentEvents((data) => {
+        const event = storageTransferEventSchema.parse(JSON.parse(data));
+        events.push(event);
+        if (event.type === "progress" && event.progress.phase === "transferring" && event.progress.completedFiles === 1) {
+          sawPartialCopy = true;
+          expect(dav.files.has("first/matter/a.txt")).toBe(true);
+          expect(dav.folders.has("second/matter")).toBe(true);
+        }
+      });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      for (let part = await reader.read(); !part.done; part = await reader.read()) feed(decoder.decode(part.value, { stream: true }));
+      expect(sawPartialCopy).toBe(true);
+      expect(events.at(-1)).toEqual({ type: "result", path: "matter" });
+      expect(events.some((event) => event.type === "progress" && event.progress.phase === "completed" && event.progress.completedFiles === 2)).toBe(true);
+      expect(dav.folders.has("first/matter")).toBe(false);
+    } finally {
+      for (const id of ids) await api("DELETE", `/${id}`);
+      await dav.server.stop(true);
+    }
+  });
+  test("moves files and nested folders through real WebDAV connections and enforces transfer access", async () => {
+    const dav = webdavFixture();
+    const ids: string[] = [];
+    try {
+      for (const [name, folder, readOnly] of [["First", "first", false], ["Second", "second", false], ["Reference", "readonly", true]]) {
+        ids.push(await connect(storageInputSchema.parse({ name, config: { kind: "webdav", endpoint: `${dav.endpoint}/${folder}` }, readOnly })));
+      }
+      const [first, second, reference] = ids;
+      const body = { path: "matter", kind: "folder", destinationId: second, destinationPath: "", mode: "move" };
+      expect((await api("POST", `/${first}/transfer`, body, "viewer")).status).toBe(403);
+      expect((await api("POST", `/${first}/transfer`, { ...body, path: "../outside" })).status).toBe(400);
+      expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: first, destinationPath: "matter/nested" })).status).toBe(400);
+      expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: reference })).status).toBe(403);
+      expect((await api("POST", `/${first}/transfer`, body)).status).toBe(200);
+      expect(dav.files.get("second/matter/nested/b.txt")?.toString()).toBe("beta");
+      expect(dav.folders.has("second/matter/empty")).toBe(true);
+      expect(dav.folders.has("first/matter")).toBe(false);
+      expect((await api("POST", `/${first}/transfer`, { path: "note.txt", kind: "file", destinationId: first, destinationPath: "archive", mode: "move" })).status).toBe(200);
+      expect(dav.files.get("first/archive/note.txt")?.toString()).toBe("note");
+      expect(dav.files.has("first/note.txt")).toBe(false);
+      const copy = { path: "reference.txt", kind: "file", destinationId: second, destinationPath: "", mode: "copy" };
+      expect((await api("POST", `/${reference}/transfer`, { ...copy, mode: "move" })).status).toBe(403);
+      expect((await api("POST", `/${reference}/transfer`, copy)).status).toBe(200);
+      expect(dav.files.get("second/reference.txt")?.toString()).toBe("reference");
+      expect(dav.files.has("readonly/reference.txt")).toBe(true);
+      expect((await api("POST", `/${reference}/transfer`, copy)).status).toBe(409);
+      expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: "missing" })).status).toBe(404);
+      expect((await api("POST", `/${first}/transfer`, body, "owner", "other-workspace")).status).toBe(404);
+    } finally {
+      for (const id of ids) await api("DELETE", `/${id}`);
+      await dav.server.stop(true);
+    }
+  });
   test("requires authentication and owner access for managing connections", async () => {
     expect((await api("POST", "/missing/filename-search", { query: "file" }, "none")).status).toBe(401);
     expect((await api("GET", "/roots", undefined, "none")).status).toBe(401);

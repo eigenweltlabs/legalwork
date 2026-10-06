@@ -8,6 +8,7 @@ import { ApiError } from "../errors.js";
 import {
   checkCondition,
   collectStream,
+  conflict,
   entry,
   hashVersion,
   missingAsNull,
@@ -104,13 +105,17 @@ export async function smbAdapter(input: StorageInput): Promise<StorageAdapter> {
       async rename(path, destination) {
         await client.rename(await remote(path), await remote(destination, true), { replace: false });
       },
-      async deleteFile(path) {
+      async deleteFile(path, condition) {
+        const version = condition?.version;
+        if (version && (await download(path)).version !== version) conflict();
         const target = await remote(path);
         if ((await client.stat(target)).isDirectory) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
         await client.rm(target);
       },
-      async deleteFolder(this: StorageAdapter, path) {
-        await deleteFolderTree(this, path, async (folder) => { await client.rmdir(await remote(folder)); });
+      async deleteFolder(this: StorageAdapter, path, recursive = true) {
+        const removeEmpty = async (folder: string) => { await client.rmdir(await remote(folder)); };
+        if (recursive) await deleteFolderTree(this, path, removeEmpty);
+        else await removeEmpty(path);
       },
       async read(path) {
         const data = await collectStream(client.createReadStream(await remote(path)));
