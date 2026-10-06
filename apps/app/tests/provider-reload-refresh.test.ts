@@ -121,3 +121,24 @@ test("an engine reload drops the cached lists of workspaces not on screen", asyn
 
   expect(getReactQueryClient().getQueryData(otherWorkspace)).toBeUndefined();
 });
+
+test("one refresh enumerates each active provider list only once", async () => {
+  const queryClient = getReactQueryClient();
+  const key = providerListQueryKey({ baseUrl: "http://localhost:4098", directory: "/tmp/single-refresh" });
+  let calls = 0;
+  const observer = new QueryObserver(queryClient, {
+    queryKey: key,
+    queryFn: async () => { calls += 1; return providerList([]); },
+    staleTime: Infinity,
+  });
+  const unsubscribe = observer.subscribe(() => undefined);
+  try {
+    await observer.refetch();
+    calls = 0;
+    await refreshProviderListQueries(queryClient);
+    expect(calls).toBe(1);
+  } finally {
+    unsubscribe();
+    queryClient.removeQueries({ queryKey: key });
+  }
+});

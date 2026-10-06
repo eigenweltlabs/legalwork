@@ -21,11 +21,18 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
+            arch: x64
             executable: linux-unpacked/legalwork
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             platform: win
+            arch: x64
             executable: win-unpacked/LegalWork.exe
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            platform: win
+            arch: arm64
+            executable: win-arm64-unpacked/LegalWork.exe
     defaults:
       run:
         shell: bash
@@ -56,7 +63,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Package desktop app
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --x64 --dir --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --${{ matrix.arch }} --dir --publish never
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never

@@ -71,8 +71,12 @@ declare global {
           mismatch: boolean;
           platform: "darwin" | "linux" | "windows";
           version: string;
-          downloadUrl: string;
+          downloadUrl: string | null;
           releaseUrl: string;
+        }>;
+        getArchitectureDownload?: () => Promise<{
+          status: "available" | "unavailable" | "error";
+          downloadUrl: string | null;
         }>;
         getMicrophoneStatus?: () => Promise<{
           platform: string;

@@ -2814,6 +2814,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         token,
         hostToken,
         method: "POST",
+        // The server waits for instance initialization and MCP restoration.
+        // Its readiness phase alone can outlast the normal 10-second request.
+        timeoutMs: 90_000,
       }),
     listPlugins: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
       const query = options?.includeGlobal ? "?includeGlobal=true" : "";

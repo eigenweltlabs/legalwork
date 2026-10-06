@@ -28,3 +28,10 @@ test("a queued prompt waits for the full turn while transcript reads stay bounde
   expect(resolveRequestTimeoutMs(new Request(url, { method: "POST" }), 10_000)).toBe(0);
   expect(resolveRequestTimeoutMs(new Request(url), 10_000)).toBe(10_000);
 });
+
+test("direct engine recovery allows OneDrive hydration without slowing ordinary reads", () => {
+  const url = "http://localhost:5421/workspace/ws_1/opencode/instance/dispose?directory=C%3A%5COneDrive";
+  expect(resolveRequestTimeoutMs(new Request(url, { method: "POST" }), 10_000)).toBe(90_000);
+  expect(resolveRequestTimeoutMs(url, 120_000)).toBe(120_000);
+  expect(resolveRequestTimeoutMs("http://localhost:5421/provider", 10_000)).toBe(10_000);
+});

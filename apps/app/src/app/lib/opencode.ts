@@ -79,6 +79,11 @@ export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: nu
   if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
     return 0;
   }
+  // Disposing an instance may wait for OneDrive-backed files. Give the
+  // direct recovery path the same window as the server-managed reload.
+  if (/\/instance\/dispose(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, 90_000);
+  }
   // The OAuth callback long-polls until the user finishes signing in. Cut
   // short, the app reloads the engine, which drops the pending sign-in.
   if (/\/provider\/[^/]+\/oauth\//.test(url) || /\/mcp\/auth\/callback\b/.test(url)) {
@@ -335,12 +340,14 @@ export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
   if (result.data !== undefined) {
     return result.data as NonNullable<T>;
   }
-  const message =
-    result.error instanceof Error
-      ? result.error.message
-      : typeof result.error === "string"
-        ? result.error
-        : JSON.stringify(result.error);
+  const error = result.error;
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error);
   throw new Error(message || t("app.unknown_error"));
 }
 

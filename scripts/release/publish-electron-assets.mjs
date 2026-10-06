@@ -176,6 +176,14 @@ function validateManifest(name, manifest) {
   if (name === "latest-linux-arm64.yml" && !urls.some((url) => url.includes("arm64"))) {
     throw new Error(`${name} is missing Linux arm64 artifacts.`);
   }
+  // NSIS does not filter the files array by CPU architecture. Mixing both
+  // installers here silently sends the first .exe to every Windows client.
+  if (name === "latest.yml" || name === "latest-arm64.yml") {
+    const arch = name === "latest-arm64.yml" ? "arm64" : "x64";
+    if (!urls.every((url) => url.includes(`win-${arch}-`) && url.endsWith(".exe"))) {
+      throw new Error(`${name} must contain only Windows ${arch} installers.`);
+    }
+  }
 }
 
 const files = walk(distRoot);
