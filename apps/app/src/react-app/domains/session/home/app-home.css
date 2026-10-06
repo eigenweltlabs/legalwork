@@ -28,7 +28,6 @@
 .lw-home-composer[data-dragging] { border-color: var(--lw-text-secondary); background: var(--lw-sunken); }
 .lw-home-sending { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .lw-home-pending-transcript { flex: 1; min-height: 0; overflow-y: auto; }
-.lw-home-pending-status { display: flex; align-items: center; gap: 8px; margin-top: 24px; color: var(--lw-text-secondary); font-size: 13px; }
 .lw-home-pending-composer { flex-shrink: 0; padding-block: 12px 20px; }
 .lw-home-pending-composer .lw-home-composer { opacity: .55; }
 .lw-home-composer-controls, .lw-home-model-controls { display: flex; align-items: center; gap: 4px; }

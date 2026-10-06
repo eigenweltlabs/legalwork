@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, Folder, Loader2, Paperclip, Plus } from "lucide-react";
+import { ArrowUp, ChevronDown, Folder, Paperclip, Plus } from "lucide-react";
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ModelRef } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { TaskSuggestionCards } from "@/components/chat/task-suggestions";
 import { WelcomeSurface } from "@/components/chat/session-welcome";
 import { MessageContent } from "@/components/ui/message";
+import { PendingStatus } from "@/components/chat/pending-status";
 import { LexicalPromptEditor } from "../surface/composer/editor";
 import { activeHomeAttachments, hasHomeFileDrop, homeAttachmentToken, readHomeFileReference, replaceHomeAttachmentTokens, stageHomeAttachment, type HomeDraftAttachment, type HomeFileReference } from "./home-attachments";
 import { t } from "@/i18n";
@@ -103,7 +104,7 @@ export function AppHome(props: AppHomeProps) {
             <div className="flex w-full flex-col items-end gap-2" data-message-role="user">
               <MessageContent className="bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]">{displayText.trim()}</MessageContent>
             </div>
-            <div role="status" className="lw-home-pending-status"><Loader2 className="animate-spin" size={16} aria-hidden="true" />{t("session.preparing_workspace")}</div>
+            <div className="mt-6"><PendingStatus preparing label={t("session.preparing_workspace")} /></div>
           </div>
         </div>
         <div className="lw-home-pending-composer px-4 md:px-8"><div className="lw-session-column lw-home-composer">{editor}{controls}</div></div>
