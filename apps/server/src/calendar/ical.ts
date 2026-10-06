@@ -29,6 +29,12 @@ export function parseCalendar(text: string): ICAL.Component {
 }
 /** RFC5545 folds at 75 octets, without splitting UTF-8 characters. */
 export function serializeCalendar(root: ICAL.Component): string {
+  // RFC 5545 section 3.6 requires a component even when the calendar has no entries.
+  // A UTC definition keeps the document valid without inventing an event or task.
+  if (!root.getAllSubcomponents().length) root.addSubcomponent(ICAL.Component.fromString([
+    "BEGIN:VTIMEZONE", "TZID:UTC", "BEGIN:STANDARD", "DTSTART:19700101T000000",
+    "TZOFFSETFROM:+0000", "TZOFFSETTO:+0000", "END:STANDARD", "END:VTIMEZONE",
+  ].join("\r\n")));
   const unfolded = root.toString().replace(/\r?\n[ \t]/g, "");
   return unfolded.split(/\r?\n/).map(line => {
     const parts: string[] = []; let current = "", bytes = 0;
@@ -115,7 +121,10 @@ export function updateCalendar(item: CalendarItem, changed: Set<string>): string
       master.addSubcomponent(reminderAlarm(item, minutes));
     }
   }
-  master.updatePropertyWithValue("sequence", Math.max(item.revision, Number(master.getFirstPropertyValue("sequence") ?? 0) + 1)); master.updatePropertyWithValue("last-modified", ICAL.Time.fromJSDate(new Date(item.updatedAt), true));
+  master.updatePropertyWithValue("sequence", Math.max(item.revision, Number(master.getFirstPropertyValue("sequence") ?? 0) + 1));
+  const updated = ICAL.Time.fromJSDate(new Date(item.updatedAt), true);
+  master.updatePropertyWithValue("dtstamp", updated);
+  master.updatePropertyWithValue("last-modified", updated);
   return serializeCalendar(root);
 }
 function wireTime(time: ICAL.Time, c: ICAL.Component, fallback: string, property = "dtstart"): string {
