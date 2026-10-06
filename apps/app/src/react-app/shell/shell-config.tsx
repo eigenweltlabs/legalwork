@@ -7,7 +7,7 @@ import { createContext, useCallback, use, useMemo, useState, type ReactNode } fr
 
 export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navScheduled", "navCalendar", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
@@ -131,14 +131,14 @@ function readShellConfig(): ShellConfig {
     const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
     const savedNavOrder = Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder;
     const navOrder = readOrder(savedNavOrder, DEFAULT_NAV_ORDER);
-    // Add Calendar beside Home for existing profiles without changing saved ordering.
+    // Place newly available items beside their default neighbors, preserving saved ordering.
     if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
       navOrder.splice(navOrder.indexOf("navCalendar"), 1);
-      navOrder.splice(navOrder.indexOf("navHome") + 1, 0, "navCalendar");
+      navOrder.splice(navOrder.indexOf("navProjects") + 1, 0, "navCalendar");
     }
     if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navScheduled")) {
       navOrder.splice(navOrder.indexOf("navScheduled"), 1);
-      navOrder.splice(navOrder.indexOf("navHome") + 1, 0, "navScheduled");
+      navOrder.splice(navOrder.indexOf("navTasks") + 1, 0, "navScheduled");
     }
     return {
       ...next,
