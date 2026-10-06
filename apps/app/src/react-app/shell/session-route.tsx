@@ -2563,7 +2563,7 @@ export function SessionRoute() {
           />
         ) : showRecorder && recorderOff ? (
           <div className="mx-auto w-full max-w-2xl p-6">
-            <OrgPolicyFeatureOff />
+            <OrgPolicyFeatureOff feature="recorder" />
           </div>
         ) : showRecorder ? (
           <RecorderPane

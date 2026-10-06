@@ -2142,7 +2142,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
         );
       case "benchmark":
-        if (evaluationsOff) return <SettingsStack><OrgPolicyFeatureOff /></SettingsStack>;
+        if (evaluationsOff) return <SettingsStack><OrgPolicyFeatureOff feature="evaluations" /></SettingsStack>;
         return (
           <BenchmarkView
             legalworkClient={legalworkClient}
@@ -2509,7 +2509,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "office-addins":
         return <OfficeAddinsView />;
       case "recorder":
-        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff /></SettingsStack> : <RecorderSettingsView />;
+        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff feature="recorder" /></SettingsStack> : <RecorderSettingsView />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:

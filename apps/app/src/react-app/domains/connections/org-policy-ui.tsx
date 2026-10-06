@@ -15,7 +15,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { openDesktopUrl } from "@/app/lib/desktop";
 import { toast } from "@/components/ui/sonner";
 import { globalSettingsRoute } from "@/react-app/shell/workspace-routes";
 
@@ -57,13 +56,17 @@ export function OrgPolicyNote({ policyKey }: { policyKey: OrgPolicyKey }) {
   );
 }
 
+const FEATURE_OFF = {
+  recorder: "org_policy.recorder_off",
+  evaluations: "org_policy.evaluations_off",
+} as const;
+
 /** In place of a feature the firm switched off for its members. */
-export function OrgPolicyFeatureOff() {
-  const org = useOrgName();
+export function OrgPolicyFeatureOff({ feature }: { feature: keyof typeof FEATURE_OFF }) {
   return (
     <Alert>
       <Lock />
-      <AlertDescription>{t("org_policy.disallowed", { org })}</AlertDescription>
+      <AlertDescription>{t(FEATURE_OFF[feature])}</AlertDescription>
     </Alert>
   );
 }
@@ -108,41 +111,22 @@ export function FirmInstructions() {
   );
 }
 
-/** Atop Settings while the firm manages anything here. */
-// The action sits below the text: the buttons are wider than the room the alert keeps for one.
-const BANNER_CLASS = "w-full lg:max-w-3xl has-data-[slot=alert-action]:pe-4";
-const BANNER_ACTION_CLASS = "static col-start-2 mt-2";
-
+/** Atop Settings while the member is signed out of the firm. */
 export function OrgPolicyBanner() {
-  const view = useOrgPolicyStore((state) => state.view);
+  const lapsed = useOrgPolicyStore((state) => state.view?.state === "lapsed");
   const navigate = useNavigate();
   const org = useOrgName();
-  if (!view || view.state === "none") return null;
-  if (view.state === "lapsed") {
-    return (
-      <Alert className={BANNER_CLASS}>
-        <Building2 aria-hidden />
-        <AlertDescription>{t("org_policy.banner_lapsed", { org })}</AlertDescription>
-        <AlertAction className={BANNER_ACTION_CLASS}>
-          <Button size="sm" variant="outline" onClick={() => navigate(globalSettingsRoute("account"))}>
-            {t("org_policy.sign_in")}
-          </Button>
-        </AlertAction>
-      </Alert>
-    );
-  }
-  const manage = view.role === "admin" && view.platformURL ? `${view.platformURL.replace(/\/+$/, "")}/policies` : null;
+  if (!lapsed) return null;
+  // The action sits below the text: the button is wider than the room the alert keeps for one.
   return (
-    <Alert className={BANNER_CLASS}>
+    <Alert className="w-full lg:max-w-3xl has-data-[slot=alert-action]:pe-4">
       <Building2 aria-hidden />
-      <AlertDescription>{t("org_policy.banner_active", { org })}</AlertDescription>
-      {manage ? (
-        <AlertAction className={BANNER_ACTION_CLASS}>
-          <Button size="sm" variant="outline" onClick={() => void openDesktopUrl(manage)}>
-            {t("org_policy.manage")}
-          </Button>
-        </AlertAction>
-      ) : null}
+      <AlertDescription>{t("org_policy.banner_lapsed", { org })}</AlertDescription>
+      <AlertAction className="static col-start-2 mt-2">
+        <Button size="sm" variant="outline" onClick={() => navigate(globalSettingsRoute("account"))}>
+          {t("org_policy.sign_in")}
+        </Button>
+      </AlertAction>
     </Alert>
   );
 }
