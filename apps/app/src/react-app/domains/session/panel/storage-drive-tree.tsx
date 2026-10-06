@@ -2,10 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw, Upload } from "lucide-react";
-import { type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
+import { type StorageEntry, type StorageRoot, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { writeStorageFileDrag } from "@/app/lib/storage-file-drag";
 import { readStorageDrop, storageUploadFiles, uploadStorageBatch, type StorageUploadBatch } from "@/app/lib/storage-upload";
+import { canDropStorageEntry, hasStorageEntryDrag, readStorageEntryDrag, writeStorageEntryDrag, type StorageEntryDragItem } from "@/app/lib/storage-entry-drag";
 import { hasTaskAttachmentDrag, readTaskAttachmentDrag, type TaskAttachmentDragItem } from "@/app/lib/task-attachment-drag";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,10 +21,12 @@ import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { StorageEntryMenu } from "./storage-entry-menu";
+import { StorageTransferStatus } from "./storage-transfer-status";
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
 
 type Location = { root: StorageRoot; path: string };
+type PendingTransfer = { rootId: string; parentPath: string; entry: StorageEntry; progress: StorageTransferProgress };
 type TreeProps = {
   client: LegalworkServerClient;
   workspaceId: string;
@@ -40,6 +42,10 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
   const [folderName, setFolderName] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [dragItem, setDragItem] = useState<StorageEntryDragItem | null>(null);
+  const [pendingTransfer, setPendingTransfer] = useState<PendingTransfer | null>(null);
+  const transferring = useRef(false);
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploading = useRef(false);
   const live = useRef(true);
@@ -56,6 +62,7 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
     uploading.current = true;
     setSelected(target);
     setError("");
+    setNotice("");
     setBusy(t("storage.preparing_upload"));
     let failures: StorageUploadBatch["failures"] = [];
     try {
@@ -83,6 +90,7 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
     if (busy || uploading.current || !target.root.writable) return;
     setSelected(target);
     setError("");
+    setNotice("");
     setBusy(t("storage.upload_progress", { current: 1, total: 1, name: attachment.filename }));
     try {
       const download = await client.downloadTaskAttachment(workspaceId, attachment.taskId, attachment.attachmentId);
@@ -99,6 +107,39 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
       setError(`${attachment.filename}: ${cause instanceof Error ? cause.message : t("storage.failed")}`);
     } finally {
       setBusy("");
+    }
+  };
+  const transfer = async (target: Location, item: StorageEntryDragItem) => {
+    if (busy || transferring.current || !canDropStorageEntry(item, workspaceId, target.root, target.path)) return;
+    const source = roots.find((root) => root.id === item.connectionId);
+    if (!source) return;
+    transferring.current = true;
+    const name = item.path.split("/").at(-1)!;
+    setSelected(target);
+    setError("");
+    setNotice("");
+    setBusy(t("storage.copying", { name }));
+    setPendingTransfer({
+      rootId: target.root.id, parentPath: target.path,
+      entry: { path: target.path ? `${target.path}/${name}` : name, name, kind: item.kind, size: null, modifiedAt: null },
+      progress: { phase: "scanning", completedFiles: 0, totalFiles: null, elapsedMs: 0 },
+    });
+    try {
+      await client.transferStorageEntry(workspaceId, item.connectionId, {
+        path: item.path, kind: item.kind, destinationId: target.root.id, destinationPath: target.path, mode: "copy",
+      }, (progress) => {
+        if (live.current) setPendingTransfer((current) => current ? { ...current, progress } : current);
+      });
+      if (live.current) setNotice(t("storage.copied", { name }));
+    } catch (cause) {
+      if (live.current) setError(cause instanceof Error ? cause.message : t("storage.failed"));
+    } finally {
+      await Promise.all([...new Set([source.id, target.root.id])].flatMap((id) => [
+        queryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId, id] }),
+        queryClient.invalidateQueries({ queryKey: ["storage-filename-search", workspaceId, id] }),
+      ]));
+      transferring.current = false;
+      if (live.current) { setBusy(""); setDragItem(null); setPendingTransfer(null); }
     }
   };
   return (
@@ -153,12 +194,13 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
           if (selected) void upload(selected, files);
         }}
       />
-      {busy && (
+      {busy && pendingTransfer ? <StorageTransferStatus label={busy} progress={pendingTransfer.progress} /> : busy && (
         <p role="status" className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
           <Loader2 className="size-3 animate-spin" />
           <span className="truncate">{busy}</span>
         </p>
       )}
+      {notice && !busy && <p role="status" className="px-2 py-1 text-xs text-muted-foreground">{notice}</p>}
       {error && (
         <div
           role="alert"
@@ -181,6 +223,10 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
           onFile={(entry) => onOpenFile(root, entry)}
           onUpload={upload}
           onTaskAttachmentDrop={copyTaskAttachment}
+          onEntryDrop={transfer}
+          dragItem={dragItem}
+          pendingTransfer={pendingTransfer}
+          onDragItem={setDragItem}
           onChooseUpload={(target) => { setSelected(target); uploadInput.current?.click(); }}
           onNewFolder={(target) => { setSelected(target); setFolderName(""); setError(""); setNewFolder(true); }}
           busy={Boolean(busy)}
@@ -265,6 +311,10 @@ type FolderProps = Location & {
   onFile: (entry: StorageEntry) => void;
   onUpload: (target: Location, source: File[] | DataTransfer) => Promise<void>;
   onTaskAttachmentDrop: (target: Location, attachment: TaskAttachmentDragItem) => Promise<void>;
+  onEntryDrop: (target: Location, item: StorageEntryDragItem) => Promise<void>;
+  dragItem: StorageEntryDragItem | null;
+  pendingTransfer: PendingTransfer | null;
+  onDragItem: (item: StorageEntryDragItem | null) => void;
   onChooseUpload: (target: Location) => void;
   onNewFolder: (target: Location) => void;
   busy: boolean;
@@ -273,12 +323,22 @@ function StorageFolder(props: FolderProps) {
   const { client, workspaceId, root, path, name, depth, selected, onSelect, onFile, onUpload, busy } = props;
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearExpandTimer = () => {
+    if (expandTimer.current) clearTimeout(expandTimer.current);
+    expandTimer.current = null;
+  };
+  useEffect(() => {
+    if (!props.dragItem) { setDragging(false); clearExpandTimer(); }
+    return clearExpandTimer;
+  }, [props.dragItem]);
+  const isPending = props.pendingTransfer?.rootId === root.id && props.pendingTransfer.entry.kind === "folder" && props.pendingTransfer.entry.path === path;
   const children = useInfiniteQuery({
     queryKey: ["storage-children", workspaceId, root.id, path, root.revision],
     queryFn: ({ pageParam }) => client.storageChildren(workspaceId, root.id, path, pageParam),
     initialPageParam: ((): string | undefined => undefined)(),
     getNextPageParam: (page) => page.nextCursor,
-    enabled: open,
+    enabled: open && !isPending,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -291,6 +351,11 @@ function StorageFolder(props: FolderProps) {
       ]),
     ).values(),
   ];
+  const incoming = props.pendingTransfer;
+  if (incoming?.rootId === root.id && incoming.parentPath === path && !entries.some((entry) => entry.path === incoming.entry.path)) {
+    entries.push(incoming.entry);
+    entries.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "folder" ? -1 : 1) || a.name.localeCompare(b.name));
+  }
   const isSelected = selected?.root.id === root.id && selected.path === path;
   return (
     <div>
@@ -305,7 +370,15 @@ function StorageFolder(props: FolderProps) {
         <button
           type="button"
           aria-expanded={open}
+          aria-busy={isPending || undefined}
+          disabled={isPending}
           title={path || name}
+          draggable={Boolean(path) && !busy}
+          onDragStart={(event) => {
+            event.stopPropagation();
+            props.onDragItem(writeStorageEntryDrag(event.dataTransfer, workspaceId, root, { path, name, kind: "folder", size: null, modifiedAt: null }));
+          }}
+          onDragEnd={() => props.onDragItem(null)}
           style={{ paddingLeft: 6 + depth * 15 }}
           className={cn(
             "flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg pr-2 text-left text-[13px] hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
@@ -317,23 +390,43 @@ function StorageFolder(props: FolderProps) {
             setOpen((value) => !value);
           }}
           onDragOver={(event) => {
+            const storageDrag = hasStorageEntryDrag(event.dataTransfer);
             if (
               root.writable &&
               !busy &&
-              (event.dataTransfer.types.includes("Files") || hasTaskAttachmentDrag(event.dataTransfer))
+              (storageDrag || event.dataTransfer.types.includes("Files") || hasTaskAttachmentDrag(event.dataTransfer)) &&
+              (!storageDrag || !props.dragItem || canDropStorageEntry(props.dragItem, workspaceId, root, path))
             ) {
               event.preventDefault();
               event.stopPropagation();
               event.dataTransfer.dropEffect = "copy";
               setDragging(true);
+              if (!open && !expandTimer.current) expandTimer.current = setTimeout(() => { setOpen(true); expandTimer.current = null; }, 600);
+            } else {
+              event.dataTransfer.dropEffect = "none";
+              setDragging(false);
+              clearExpandTimer();
             }
           }}
-          onDragLeave={() => setDragging(false)}
+          onDragLeave={(event) => {
+            if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+            setDragging(false); clearExpandTimer();
+          }}
           onDrop={(event) => {
             setDragging(false);
+            clearExpandTimer();
             if (!root.writable || busy) return;
             event.preventDefault();
             event.stopPropagation();
+            if (hasStorageEntryDrag(event.dataTransfer)) {
+              const item = readStorageEntryDrag(event.dataTransfer);
+              if (item && canDropStorageEntry(item, workspaceId, root, path)) {
+                setOpen(true);
+                void props.onEntryDrop({ root, path }, item);
+              }
+              props.onDragItem(null);
+              return;
+            }
             setOpen(true);
             const attachment = readTaskAttachmentDrag(event.dataTransfer);
             if (attachment) {
@@ -346,7 +439,10 @@ function StorageFolder(props: FolderProps) {
           <ChevronRight
             className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
           />
-          <FolderIcon open={open} />
+          <span className="relative flex size-5 shrink-0">
+            <FolderIcon open={open} />
+            {isPending && <span className="absolute -right-1 -bottom-1 flex size-3.5 items-center justify-center rounded-full bg-background text-foreground ring-2 ring-background"><Loader2 className="size-3 animate-spin" /></span>}
+          </span>
           <span className={cn("min-w-0 flex-1 truncate", depth === 0 && "font-medium")}>{name}</span>
           {!root.writable && depth === 0 && <LockKeyhole className="size-3 text-muted-foreground" />}
         </button>
@@ -389,14 +485,20 @@ function StorageFolder(props: FolderProps) {
               <div className="group flex items-center">
               <button
                 type="button"
-                draggable
-                onDragStart={(event) => writeStorageFileDrag(event.dataTransfer, root, entry)}
+                aria-busy={incoming?.rootId === root.id && incoming.entry.path === entry.path || undefined}
+                disabled={incoming?.rootId === root.id && incoming.entry.path === entry.path}
+                draggable={!busy}
+                onDragStart={(event) => props.onDragItem(writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry))}
+                onDragEnd={() => props.onDragItem(null)}
                 onClick={() => onFile(entry)}
                 title={entry.path}
                 style={{ paddingLeft: 40 + depth * 15 }}
                 className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg pr-2 text-left text-[13px] hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
-                <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5 shrink-0" />
+                <span className="relative flex size-5 shrink-0">
+                  <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5 shrink-0" />
+                  {incoming?.rootId === root.id && incoming.entry.path === entry.path && <span className="absolute -right-1 -bottom-1 flex size-3.5 items-center justify-center rounded-full bg-background ring-2 ring-background"><Loader2 className="size-3 animate-spin" /></span>}
+                </span>
                 <span className="truncate">{entry.name}</span>
               </button>
               </div>

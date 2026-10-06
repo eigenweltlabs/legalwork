@@ -195,6 +195,29 @@ export type StorageEntry = {
   version?: string;
 };
 export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
+export const storageTransferSchema = z.object({
+  path: z.string().min(1).max(4096),
+  kind: z.enum(["file", "folder"]),
+  destinationId: z.string().min(1).max(200),
+  destinationPath: z.string().max(4096),
+  mode: z.enum(["move", "copy"]).default("copy"),
+});
+export type StorageTransfer = z.infer<typeof storageTransferSchema>;
+export const storageTransferProgressSchema = z.object({
+  phase: z.enum(["scanning", "transferring", "verifying", "removing", "completed"]),
+  completedFiles: z.number().int().nonnegative(),
+  totalFiles: z.number().int().nonnegative().nullable(),
+  elapsedMs: z.number().nonnegative(),
+  currentFile: z.string().optional(),
+});
+export type StorageTransferProgress = z.infer<typeof storageTransferProgressSchema>;
+export type StorageTransferUpdate = Omit<StorageTransferProgress, "elapsedMs">;
+export const storageTransferEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("progress"), progress: storageTransferProgressSchema }),
+  z.object({ type: z.literal("result"), path: z.string() }),
+  z.object({ type: z.literal("error"), status: z.number(), code: z.string(), message: z.string() }),
+]);
+export type StorageTransferEvent = z.infer<typeof storageTransferEventSchema>;
 /** Literal, case-insensitive metadata search over files, including unopened folders. */
 export const storageFilenameSearchSchema = z.object({
   query: z.string().trim().min(1).max(512),

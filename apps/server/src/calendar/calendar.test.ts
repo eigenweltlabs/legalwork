@@ -3,12 +3,44 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CalendarStore } from "./store.js";
-import { exportCalendar, occurrences, parseCalendar } from "./ical.js";
+import { exportCalendar, occurrences, parseCalendar, updateCalendar } from "./ical.js";
 import { calculateDeadline } from "./deadline-rules.js";
 
 const store = async () => CalendarStore.open(join(await mkdtemp(join(tmpdir(), "calendar-test-")), "runtime.sqlite"));
 const fixture = (properties: string) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\nBEGIN:VEVENT\r\nUID:series@test\r\nDTSTAMP:20260901T000000Z\r\n${properties}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
 describe("calendar storage and RFC5545", () => {
+  test("empty calendars retain a required component without inventing an entry", () => {
+    for (const text of [exportCalendar([]), exportCalendar([], "native")]) {
+      const calendar = parseCalendar(text);
+      expect(calendar.getAllSubcomponents().map(component => component.name)).toEqual(["vtimezone"]);
+      expect(calendar.getTimeZoneByID("UTC")).toBeDefined();
+      expect(text).toContain("TZOFFSETFROM:+0000\r\nTZOFFSETTO:+0000");
+      expect(text.endsWith("END:VCALENDAR\r\n")).toBe(true);
+    }
+  });
+  test("deleting the final entry leaves a conforming empty export and restoring brings it back", async () => {
+    const db = await store(), item = db.create("project", { title: "Response", start: "2026-10-16" });
+    const removed = db.remove("project", item.id, item.revision);
+    for (const items of [db.list("project"), db.list("project", true)]) {
+      const text = exportCalendar(items), calendar = parseCalendar(text);
+      expect(calendar.getAllSubcomponents().map(component => component.name)).toEqual(["vtimezone"]);
+      expect(text).not.toContain(item.uid);
+      expect(text).not.toContain(item.title);
+    }
+    db.remove("project", item.id, removed.revision, true);
+    expect(parseCalendar(exportCalendar(db.list("project"))).getFirstSubcomponent("vevent")?.getFirstPropertyValue("uid")).toBe(item.uid);
+  });
+  test("editing a published entry advances DTSTAMP with LAST-MODIFIED and keeps its UID", async () => {
+    const db = await store(), item = db.create("project", { title: "Response", start: "2026-10-16" });
+    const updated = { ...item, title: "Updated response", updatedAt: "2026-10-05T18:35:00Z", revision: item.revision + 1 };
+    updated.ical = updateCalendar(updated, new Set(["title"]));
+    const event = parseCalendar(exportCalendar([updated])).getFirstSubcomponent("vevent");
+    expect(event?.getFirstPropertyValue("uid")).toBe(item.uid);
+    expect(event?.getFirstPropertyValue("summary")).toBe(updated.title);
+    expect(Number(event?.getFirstPropertyValue("sequence"))).toBe(updated.revision);
+    expect(String(event?.getFirstPropertyValue("dtstamp"))).toBe(updated.updatedAt);
+    expect(String(event?.getFirstPropertyValue("last-modified"))).toBe(updated.updatedAt);
+  });
   test("date-only deadline exports an exclusive next-day end and an actual native cutoff", async () => {
     const db = await store(), item = db.create("project", { title: "Fristende", start: "2026-09-30", timeZone: "Europe/Berlin" });
     const event = parseCalendar(exportCalendar([item])).getFirstSubcomponent("vevent");

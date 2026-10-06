@@ -1,5 +1,6 @@
 import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import { useSyncProviderSetupState } from "./sync-provider-setup-state";
 import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
 
@@ -1258,6 +1259,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     intent?: "sign-in";
     /** The plan picked on the plan screen: its checkout opens in the browser. */
     plan?: EigenweltPlanId;
+    checkout?: EigenweltCheckoutSelection;
   }): Promise<{ authorizeUrl: string; sessionId: string }> {
     setStateField("providerAuthError", null);
     try {

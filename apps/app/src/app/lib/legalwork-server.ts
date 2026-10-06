@@ -1,4 +1,5 @@
 import type { CalculationPresentation } from "@legalwork/types/calculation";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
@@ -19,7 +20,7 @@ import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, 
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
-import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
+import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1539,6 +1540,40 @@ async function requestStorageUpload(baseUrl: string, path: string, body: Blob | 
   return { ok: true, version: payload.version };
 }
 
+async function requestStorageTransfer(baseUrl: string, path: string, input: StorageTransfer, onProgress: (progress: StorageTransferProgress) => void, token?: string, hostToken?: string): Promise<{ ok: true; path: string }> {
+  // Like binary uploads, a POST stream must bypass the desktop text bridge so updates arrive immediately.
+  const response = await fetchWithTimeout(globalThis.fetch.bind(globalThis), `${baseUrl}${path}`, {
+    method: "POST", headers: { ...buildHeaders(token, hostToken), Accept: "text/event-stream" }, body: JSON.stringify(input),
+  }, 30_000);
+  if (!response.ok) {
+    const payload: unknown = await response.json();
+    throw new LegalworkServerError(response.status,
+      payload && typeof payload === "object" && "code" in payload && typeof payload.code === "string" ? payload.code : "request_failed",
+      payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string" ? payload.message : response.statusText);
+  }
+  if (!response.body) throw new Error(t("storage.transfer_interrupted"));
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let destination: string | null = null;
+  const feed = serverSentEvents((data) => {
+    const event = storageTransferEventSchema.safeParse(JSON.parse(data));
+    if (!event.success) throw new Error(t("storage.transfer_interrupted"));
+    const value = event.data;
+    if (value.type === "progress") onProgress(value.progress);
+    else if (value.type === "result") destination = value.path;
+    else throw new LegalworkServerError(value.status, value.code, value.message);
+  });
+  try {
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read())
+      feed(decoder.decode(chunk.value, { stream: true }));
+    if (destination === null) throw new Error(t("storage.transfer_interrupted"));
+    return { ok: true, path: destination };
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 async function requestMultipartRaw(
   baseUrl: string,
   path: string,
@@ -2248,7 +2283,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // exchange; the app opens the authorize URL and long-polls for the payload.
     // `plan` (from the plan screen) sends a firm without a subscription to that
     // plan's checkout; `intent` lands a signed-out browser on sign-in.
-    eigenweltOauthStart: (opts?: { intent?: "sign-in"; plan?: EigenweltPlanId }) =>
+    eigenweltOauthStart: (opts?: { intent?: "sign-in"; plan?: EigenweltPlanId; checkout?: EigenweltCheckoutSelection }) =>
       requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
         token,
         hostToken,
@@ -2258,6 +2293,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
               body: {
                 ...(opts.intent ? { intent: opts.intent } : {}),
                 ...(opts.plan ? { plan: opts.plan } : {}),
+                ...(opts.checkout ? { checkout: opts.checkout } : {}),
               },
             }
           : {}),
@@ -2440,6 +2476,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/folders?${new URLSearchParams({ path, recursive: "true" })}`, { token, hostToken, method: "DELETE", timeoutMs: 900_000 }),
     renameStorageEntry: (workspaceId: string, id: string, path: string, name: string, kind: "file" | "folder") =>
       requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/rename`, { token, hostToken, method: "POST", body: { path, name, kind }, timeoutMs: 900_000 }),
+    transferStorageEntry: (workspaceId: string, id: string, input: StorageTransfer, onProgress?: (progress: StorageTransferProgress) => void) => {
+      const path = `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/transfer`;
+      return onProgress ? requestStorageTransfer(baseUrl, path, input, onProgress, token, hostToken)
+        : requestJson<{ ok: true; path: string }>(baseUrl, path, { token, hostToken, method: "POST", body: input, timeoutMs: 900_000 });
+    },
 
     legalMemoryTreeRoots: (workspaceId: string) =>
       requestJson<{ roots: LegalMemoryTreeRoot[] }>(
