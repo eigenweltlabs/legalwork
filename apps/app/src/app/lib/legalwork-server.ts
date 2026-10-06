@@ -1,4 +1,5 @@
 import type { CalculationPresentation } from "@legalwork/types/calculation";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
@@ -2282,7 +2283,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // exchange; the app opens the authorize URL and long-polls for the payload.
     // `plan` (from the plan screen) sends a firm without a subscription to that
     // plan's checkout; `intent` lands a signed-out browser on sign-in.
-    eigenweltOauthStart: (opts?: { intent?: "sign-in"; plan?: EigenweltPlanId }) =>
+    eigenweltOauthStart: (opts?: { intent?: "sign-in"; plan?: EigenweltPlanId; checkout?: EigenweltCheckoutSelection }) =>
       requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
         token,
         hostToken,
@@ -2292,6 +2293,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
               body: {
                 ...(opts.intent ? { intent: opts.intent } : {}),
                 ...(opts.plan ? { plan: opts.plan } : {}),
+                ...(opts.checkout ? { checkout: opts.checkout } : {}),
               },
             }
           : {}),

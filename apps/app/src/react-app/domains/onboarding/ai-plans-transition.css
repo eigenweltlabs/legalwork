@@ -1,0 +1,26 @@
+html[data-ai-plan-transition]::view-transition-group(*) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
+html[data-ai-plan-transition]::view-transition-old(root) { animation: none; opacity: 0; }
+html[data-ai-plan-transition]::view-transition-new(root) { animation: none; }
+html[data-ai-plan-transition]::view-transition-old(ai-plan-card-sync),
+html[data-ai-plan-transition]::view-transition-old(ai-plan-card-plus),
+html[data-ai-plan-transition]::view-transition-old(ai-plan-card-pro) { object-fit: fill; animation: ai-plan-fade-out 140ms ease-out both; }
+html[data-ai-plan-transition]::view-transition-new(ai-plan-card-sync),
+html[data-ai-plan-transition]::view-transition-new(ai-plan-card-plus),
+html[data-ai-plan-transition]::view-transition-new(ai-plan-card-pro) { object-fit: fill; animation: ai-plan-fade-in 240ms ease-out 100ms both; }
+html[data-ai-plan-transition]::view-transition-old(ai-plan-name-sync),
+html[data-ai-plan-transition]::view-transition-old(ai-plan-name-plus),
+html[data-ai-plan-transition]::view-transition-old(ai-plan-name-pro),
+html[data-ai-plan-transition]::view-transition-old(ai-plan-price-sync),
+html[data-ai-plan-transition]::view-transition-old(ai-plan-price-plus),
+html[data-ai-plan-transition]::view-transition-old(ai-plan-price-pro) { animation: none; opacity: 0; }
+html[data-ai-plan-transition]::view-transition-new(ai-plan-name-sync),
+html[data-ai-plan-transition]::view-transition-new(ai-plan-name-plus),
+html[data-ai-plan-transition]::view-transition-new(ai-plan-name-pro),
+html[data-ai-plan-transition]::view-transition-new(ai-plan-price-sync),
+html[data-ai-plan-transition]::view-transition-new(ai-plan-price-plus),
+html[data-ai-plan-transition]::view-transition-new(ai-plan-price-pro) { animation: none; }
+@keyframes ai-plan-fade-out { to { opacity: 0; } }
+@keyframes ai-plan-fade-in { from { opacity: 0; } }
