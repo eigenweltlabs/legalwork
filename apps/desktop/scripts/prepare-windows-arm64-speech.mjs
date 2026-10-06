@@ -42,7 +42,8 @@ async function extract(url, name, sha256, members = []) {
 try {
   const sourceName = `sherpa-onnx-${pin.version}`;
   const cppPath = "harmony-os/SherpaOnnxHar/sherpa_onnx/src/main/cpp";
-  const nativeName = `sherpa-onnx-v${pin.version}-win-arm64-shared-MD-Release-lib`;
+  // Static CRT linkage also works on clean Windows machines without VC++ tools.
+  const nativeName = `sherpa-onnx-v${pin.version}-win-arm64-shared-MT-Release-lib`;
   await extract(`https://github.com/k2-fsa/sherpa-onnx/archive/refs/tags/v${pin.version}.tar.gz`, "source.tar.gz", pin.sourceSha256, [
     `--exclude=${sourceName}/${cppPath}/include`,
     `${sourceName}/scripts/node-addon-api/CMakeLists.txt`, `${sourceName}/${cppPath}`,
@@ -64,7 +65,7 @@ try {
   // Upstream's addon CMake file passes Unix rpath flags to every platform.
   const cmake = path.join(addon, "CMakeLists.txt");
   await writeFile(cmake, (await readFile(cmake, "utf8")).replace(/^\s*-Wl,-rpath,.*$/gm, ""));
-  run(process.execPath, [require.resolve("cmake-js/bin/cmake-js"), "compile", "--directory", addon, "--arch", "arm64"], {
+  run(process.execPath, [require.resolve("cmake-js/bin/cmake-js"), "compile", "--directory", addon, "--arch", "arm64", "--CDCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"], {
     env: { ...process.env, SHERPA_ONNX_INSTALL_DIR: native, NODE_PATH: path.join(desktop, "node_modules") },
   });
   const destination = path.dirname(require.resolve("sherpa-onnx-node/package.json"));
