@@ -81,6 +81,17 @@ jobs:
         if: runner.os == 'Windows'
         timeout-minutes: 3
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      - name: Verify Windows installer packaging
+        if: runner.os == 'Windows'
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --publish never
+      - name: Upload Windows test installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-${{ matrix.arch }}
+          path: apps/desktop/dist-electron/legalwork-win-${{ matrix.arch }}-*.exe
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify Linux native modules
         if: runner.os == 'Linux'
         timeout-minutes: 2

@@ -23,11 +23,15 @@ function run(command, args, options = {}) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}`);
 }
-async function extract(url, name, sha256) {
+async function download(url, sha256) {
   const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!response.ok) throw new Error(`Speech dependency download failed: HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
-  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error(`Checksum mismatch: ${name}`);
+  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error(`Checksum mismatch: ${url}`);
+  return bytes;
+}
+async function extract(url, name, sha256) {
+  const bytes = await download(url, sha256);
   const archive = path.join(temporary, name);
   await writeFile(archive, bytes);
   run("tar.exe", ["-xf", archive, "-C", temporary]);
@@ -53,6 +57,9 @@ try {
   const notices = path.join(destination, "arm64-notices");
   await mkdir(notices, { recursive: true });
   await copyFile(path.join(source, "LICENSE"), path.join(notices, "sherpa-onnx-LICENSE"));
+  const onnxSource = `https://raw.githubusercontent.com/microsoft/onnxruntime/v${pin.onnxruntimeVersion}`;
+  await writeFile(path.join(notices, "onnxruntime-LICENSE"), await download(`${onnxSource}/LICENSE`, pin.onnxruntimeLicenseSha256));
+  await writeFile(path.join(notices, "onnxruntime-ThirdPartyNotices.txt"), await download(`${onnxSource}/ThirdPartyNotices.txt`, pin.onnxruntimeNoticesSha256));
   // Prove that the generated adapter can load its native DLLs before packaging.
   run(process.execPath, ["-e", "const s=require('sherpa-onnx-node');console.log('ARM64 speech:',s.version)"] , { cwd: desktop });
 } finally {
