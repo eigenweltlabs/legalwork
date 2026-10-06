@@ -238,4 +238,18 @@ describe("office tool relay", () => {
     status = await readStatus(baseUrl);
     expect(status.hosts).toEqual([{ host: "excel", documentUrl: null }]);
   });
+
+  test("a pane that drops its open poll counts as disconnected right away", async () => {
+    const { baseUrl } = await startTestServer();
+    // The pane waits for work; closing Word ends that request.
+    const closed = new AbortController();
+    const poll = fetch(`${baseUrl}/poll?wait=25&host=Word`, { headers: AUTH, signal: closed.signal }).catch(() => null);
+    await Bun.sleep(100);
+    expect((await readStatus(baseUrl)).connected).toBe(true);
+
+    closed.abort();
+    await poll;
+    await Bun.sleep(100);
+    expect((await readStatus(baseUrl)).connected).toBe(false);
+  });
 });
