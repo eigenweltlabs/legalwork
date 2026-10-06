@@ -92,6 +92,19 @@ type ViewerPane = string;
 // pointer drag that reorders browser tabs within a strip.
 const TAB_DRAG_TYPE = "application/x-legalwork-panel-tab";
 
+const DROP_LABELS: Record<DocumentDropEdge, () => string> = {
+  left: () => t("side_panel.drop_left"),
+  right: () => t("side_panel.drop_right"),
+  top: () => t("side_panel.drop_top"),
+  bottom: () => t("side_panel.drop_bottom"),
+};
+const SPLIT_LABELS: Record<DocumentDropEdge, () => string> = {
+  left: () => t("side_panel.split_left"),
+  right: () => t("side_panel.split_right"),
+  top: () => t("side_panel.split_top"),
+  bottom: () => t("side_panel.split_bottom"),
+};
+
 type TabDrag = { id: string; pane: ViewerPane };
 
 type TabDropZoneProps = {
@@ -216,7 +229,7 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
         >
           <span className="flex max-w-full items-center gap-2 rounded-lg border border-border/50 bg-background/95 px-3 py-2 shadow-sm">
             <PanelsTopLeft className="size-4 shrink-0" />
-            {over.split && splitBlocked ? t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }) : over.split ? t(`side_panel.drop_${over.split}`) : over.file ? t("side_panel.drop_to_open_here") : label}
+            {over.split && splitBlocked ? t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }) : over.split ? DROP_LABELS[over.split]() : over.file ? t("side_panel.drop_to_open_here") : label}
           </span>
         </div>
       ) : null}
@@ -340,7 +353,7 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, onSe
         {t("side_panel.move_to_pane", { number: index + 1 })}
       </ContextMenuItem>)}
       {canSplit && <>
-        {(["left", "right", "top", "bottom"] satisfies DocumentDropEdge[]).map(edge => <ContextMenuItem key={edge} onClick={() => onSplit(tab.id, edge)}>{t(`side_panel.split_${edge}`)}</ContextMenuItem>)}
+        {(["left", "right", "top", "bottom"] satisfies DocumentDropEdge[]).map(edge => <ContextMenuItem key={edge} onClick={() => onSplit(tab.id, edge)}>{SPLIT_LABELS[edge]()}</ContextMenuItem>)}
       </>}
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => onClose(tab)}>{t("panel_tabs.close_tab")}</ContextMenuItem>
