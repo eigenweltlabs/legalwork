@@ -3991,7 +3991,7 @@ const de = {
   "ai_plans.confirm_trial": "7 Tage kostenlos testen",
   "ai_plans.confirm_footnote": "Umsatzsteuer und mögliche Testphase sehen Sie im Checkout.",
   "ai_plans.per_seat_month": "pro Platz / Monat",
-  "ai_plans.tagline_sync": "Alle Teamfunktionen. Bringen Sie Ihre eigene KI mit.",
+  "ai_plans.tagline_sync": "Alle LegalWork-Funktionen. Bringen Sie Ihre eigene KI mit.",
   "ai_plans.sync_no_usage": "Keine KI-Nutzung inklusive. Bei Bedarf Guthaben aufladen.",
   "ai_plans.sync_own_ai": "Eigenes KI-Abonnement oder API-Schlüssel nutzen. Ihren ChatGPT-Tarif verwenden.",
   "ai_plans.everything_in_sync": "Alles aus Sync inklusive",

@@ -3704,7 +3704,7 @@ export default {
   "ai_plans.confirm_trial": "Start 7-day free trial",
   "ai_plans.confirm_footnote": "VAT and any free trial are shown in checkout.",
   "ai_plans.per_seat_month": "per seat / month",
-  "ai_plans.tagline_sync": "All collaboration features. Bring your own AI",
+  "ai_plans.tagline_sync": "All LegalWork features. Bring your own AI",
   "ai_plans.sync_no_usage": "No AI usage included. Add credits whenever you need them.",
   "ai_plans.sync_own_ai": "Bring your own AI subscription or API key. Use your ChatGPT plan.",
   "ai_plans.everything_in_sync": "Everything included in Sync",
