@@ -1,7 +1,7 @@
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
-import { workspaceCalendarRoute } from "./workspace-routes";
+import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import {
@@ -215,9 +215,6 @@ import {
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
-/** How long a task opened on arrival from another screen outlasts the route settling. */
-const TASK_OPEN_SETTLE_MS = 4_000;
-
 /**
  * Serialize an SDK error value into a string that parseSessionError can parse.
  * Preserves the original shape (name, data, message) as JSON when possible,
@@ -361,56 +358,26 @@ export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const detached = useDetachedWindow();
-  const [showEvals, setShowEvals] = useState(location.pathname.endsWith("/evals"));
-  // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
-  // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
-  const [showWorkflows, setShowWorkflows] = useState(location.pathname === "/workflows");
-  const [showExtensions, setShowExtensions] = useState(false);
-  const [showRecorder, setShowRecorder] = useState(location.pathname === "/recorder");
+  // Page content and sidebar layout must change with the same route render.
+  // Mirroring the URL in state lets urgent updates reopen the chat sidebar
+  // while React Router is still committing a top-level navigation.
+  const mainPage = sessionMainPage(location.pathname);
+  const showEvals = mainPage === "evals";
+  const showWorkflows = mainPage === "workflows";
+  const showRecorder = mainPage === "recorder";
+  const showTasks = mainPage === "tasks";
   const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
   const recordingSessionStarting = useRef(false);
-  const [showTasks, setShowTasks] = useState(location.pathname === "/tasks");
-  // A task a notification asked to show: the pane opens on it (see
-  // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
-  // their task in the side panel instead.
+  // A task a notification asked to show: a null id opens the task list.
+  // Chat chips open their task in the side panel instead.
   const [openTask, setOpenTask] = useState<{ id: string | null; at: number } | null>(null);
-  // An ask made outside the session view (Settings) is taken when this route
-  // mounts, while it still settles on a session: the resets that follow must
-  // not close the pane it opened (see the pane-closing effect below).
-  const keepTasksPaneUntil = useRef(0);
-  const showEvalsPane = useCallback(() => {
-    navigate("/evals");
-    setShowEvals(true);
-    setShowWorkflows(false);
-    setShowExtensions(false);
-    setShowRecorder(false);
-    setShowTasks(false);
-  }, [navigate]);
-  const showWorkflowsPane = useCallback(() => {
-    navigate("/workflows");
-    setShowWorkflows(true);
-    setShowEvals(false);
-    setShowExtensions(false);
-    setShowRecorder(false);
-    setShowTasks(false);
-  }, [navigate]);
-  const showRecorderPane = useCallback(() => {
-    navigate("/recorder");
+  const showEvalsPane = () => navigate("/evals");
+  const showWorkflowsPane = () => navigate("/workflows");
+  const showRecorderPane = () => {
     setRecorderProject(null);
-    setShowRecorder(true);
-    setShowEvals(false);
-    setShowWorkflows(false);
-    setShowExtensions(false);
-    setShowTasks(false);
-  }, [navigate]);
-  const showTasksPane = useCallback(() => {
-    navigate("/tasks");
-    setShowTasks(true);
-    setShowEvals(false);
-    setShowWorkflows(false);
-    setShowExtensions(false);
-    setShowRecorder(false);
-  }, [navigate]);
+    navigate("/recorder");
+  };
+  const showTasksPane = useCallback(() => navigate("/tasks"), [navigate]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
@@ -438,7 +405,6 @@ export function SessionRoute() {
   useEffect(() => {
     const pending = takePendingTasksPaneRequest();
     if (pending) {
-      keepTasksPaneUntil.current = Date.now() + TASK_OPEN_SETTLE_MS;
       setOpenTask({ id: pending.taskId, at: Date.now() });
       showTasksPane();
     }
@@ -1992,10 +1958,9 @@ export function SessionRoute() {
   }, [workspaces, endpointForWorkspace]);
 
   const openSearchResult = useCallback((result: ContentSearchResult) => {
-    setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
     if (result.kind === "tasks") {
       setOpenTask({ id: result.id, at: Date.now() });
-      setShowTasks(true);
+      navigate("/tasks");
       return;
     }
     useSearchNavigation.getState().setTarget(result.messageId || result.kind === "files" ? result : null);
@@ -2181,8 +2146,8 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  const scheduledPage = location.pathname === "/scheduled";
-  const calendarPage = location.pathname === "/calendar";
+  const scheduledPage = mainPage === "scheduled";
+  const calendarPage = mainPage === "calendar";
   const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
@@ -2288,16 +2253,6 @@ export function SessionRoute() {
       homeSending.current = false;
     }
   };
-
-  // Main pages can also be reached from Settings or browser history.
-  // Keep the selected pane in step with the route after workspace hydration.
-  useEffect(() => {
-    setShowEvals(location.pathname.endsWith("/evals"));
-    setShowWorkflows(location.pathname === "/workflows");
-    setShowExtensions(false);
-    setShowRecorder(location.pathname === "/recorder");
-    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(location.pathname === "/tasks");
-  }, [location.pathname, selectedSessionId, selectedWorkspaceId]);
 
   return (
     <WorkspaceProvider
@@ -2495,8 +2450,8 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
-      projectsPage={location.pathname === "/projects" && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
-      projectPage={!calendarPage && (location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
+      projectsPage={mainPage === "projects"}
+      projectPage={!mainPage && (location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar")) ? location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
         if (recordingSessionStarting.current) return;
@@ -2597,19 +2552,13 @@ export function SessionRoute() {
             onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
           />
         ) : showWorkflows ? (
-          // onClose drops the pane so actions that navigate to a session (e.g.
-          // opening the workflow-generation session) always reveal the chat —
-          // even when the target session is already the selected one and the
-          // route (and thus the pane-closing route effect) doesn't change.
           <SettingsSurface
             embedded
             singleView
             initialPath="workflows"
             workspaceId={selectedWorkspaceId}
-            onClose={() => { setShowWorkflows(false); navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }}
+            onClose={() => navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId))}
           />
-        ) : showExtensions ? (
-          <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showEvals ? (
           <EvalsPane workspaceId={selectedWorkspaceId} />
         ) : showTasks ? (
@@ -2622,7 +2571,6 @@ export function SessionRoute() {
             defaultModel={local.prefs.defaultModel}
             openTask={openTask}
             onOpenSession={(workspaceId, sessionId) => {
-              setShowTasks(false);
               writeActiveWorkspaceId(workspaceId || null);
               writeLastSessionFor(workspaceId, sessionId);
               navigateToWorkspaceSession(workspaceId, sessionId);
@@ -2645,7 +2593,6 @@ export function SessionRoute() {
               // The composer's listener lives in SessionSurface, which is
               // unmounted while this pane is the main view — swap back to the
               // session first, then dispatch once it has remounted.
-              setShowRecorder(false);
               navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
               window.setTimeout(() => {
                 window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
@@ -2662,14 +2609,8 @@ export function SessionRoute() {
       sidebar={{
         onOpenSearch: () => setCommandPaletteOpen(true),
         onNewChat: () => setNewChatOpen(true),
-        onShowChats: () => {
-          setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
-          navigate("/home");
-        },
-        onShowProjects: () => {
-          setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
-          navigate("/projects");
-        },
+        onShowChats: () => navigate("/home"),
+        onShowProjects: () => navigate("/projects"),
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
@@ -2678,7 +2619,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: scheduledPage ? "scheduled" : calendarPage ? "calendar" : showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
+        activeNav: mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -2690,11 +2631,6 @@ export function SessionRoute() {
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
         onSelectWorkspace: async (workspaceId) => {
-          setShowEvals(false);
-          setShowWorkflows(false);
-          setShowExtensions(false);
-          setShowRecorder(false);
-          setShowTasks(false);
           if (workspaceId === selectedWorkspaceId) { navigate(workspaceProjectRoute(workspaceId)); return true; }
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
@@ -2726,14 +2662,6 @@ export function SessionRoute() {
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
-          // Opening a session returns to the chat view — drop any open top-level
-          // pane (Evals/Workflows/Integrations) so it doesn't stay rendered
-          // over the session.
-          setShowEvals(false);
-          setShowWorkflows(false);
-          setShowExtensions(false);
-          setShowRecorder(false);
-          setShowTasks(false);
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);
@@ -2778,12 +2706,6 @@ export function SessionRoute() {
         onRevealWorkspace: (id) => void handleRevealWorkspace(id),
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: () => {
-          // New Chat returns to the session view — drop any open top-level pane
-          // (Evals/Skills/Integrations) so it doesn't linger behind the modal.
-          setShowEvals(false);
-          setShowWorkflows(false);
-          setShowExtensions(false);
-          setShowTasks(false);
           handleOpenCreateWorkspace();
         },
         onCreateChatInNewWorkspace: () => {

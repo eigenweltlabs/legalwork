@@ -86,6 +86,12 @@ Open `http://localhost:5197/scheduled-tasks-preview.html` (append `?lang=de` for
 
 The sidebar integration fixture is at `http://localhost:5197/session-inbox-preview.html`. Click **Schedule preview run** and keep the page open; the chat appears within the scheduler's fifteen-second check interval. Open it in a foreground window to clear the dots. Both fixtures use the same temporary server and never create paid model calls.
 
+## Sidebar navigation follow-up
+
+The main page now comes directly from the route. Tasks and Projects no longer race against separately updated page flags, so the chat sidebar stays collapsed throughout navigation. Task search and notifications also navigate directly to `/tasks`, including when opened from Settings; the old four-second pane retention workaround is removed.
+
+Verified Tasks to Projects, back/forward navigation, and returning to Home in the running development Electron app with the existing profile. Home restores the saved expanded sidebar. `pnpm --filter @legalwork/app test` passed 869 tests; app typecheck and production build passed. Regression coverage distinguishes global main panes from project task/calendar pages and chats.
+
 ## Screenshots
 
 ![Scheduled chat automatically pinned, with unread and clock indicators](sidebar-unread-pinned.png)
