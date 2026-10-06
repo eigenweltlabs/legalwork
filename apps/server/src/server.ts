@@ -1,5 +1,5 @@
 import { composedSkill } from "./skill-composition.js";
-import { parseEigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import { parseEigenweltCheckoutSelection } from "./eigenwelt-checkout.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
 import { z } from "zod";
