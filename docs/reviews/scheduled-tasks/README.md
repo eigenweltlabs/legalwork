@@ -1,8 +1,12 @@
 # Local scheduled tasks
 
-LegalWork can schedule a prompt once or repeatedly, continue an existing project chat or create a chat for each run, and pause, resume, edit or delete the schedule. The Scheduled page, inline Open cards and editor use the existing Surface, IconTile, Base UI controls and semantic design tokens. English and German are supported.
+LegalWork can schedule a prompt once or repeatedly, reuse one project chat or create a chat for each run, and pause, resume, edit or delete the schedule. The Scheduled page, inline Open cards and editor use the existing Surface, IconTile, Base UI controls and semantic design tokens. English and German are supported.
 
 ## Project access
+
+New tasks default to **Daily**, **Same chat each run** and **This project only**. Project selection and Project access are under Advanced. The single Runs in picker replaces the redundant toggle, and the searchable project menu has a bounded, scrolling list.
+
+A reusable chat is created only on the first due run and its ID is saved on the task, so subsequent runs continue the same chat after an app restart. Existing chats can also be selected, and New chat each run remains available. Legacy tasks retain their saved destination behavior.
 
 Each task defaults to **This project only**. The selected project is also the destination for its chats. **All projects** permits access to other authorized local projects and keeps the user's normal tool permissions and approvals.
 
@@ -28,11 +32,13 @@ Calendar repeats retain their wall time through daylight-saving changes. Ambiguo
 ## Verification, 2026-10-06
 
 - `pnpm --filter @legalwork/app test`: 852 tests passed after merging `dev` at `6ea529d7d`, including persisted cards, current server data and cross-project Open prevention. The scheduled card and Home message handoff tests also passed after correcting the Scheduled navigation guard.
-- `pnpm --filter legalwork-server exec bun test src/scheduled-tasks src/opencode-plugins/legalwork-scheduled-task-tools.test.ts src/legalwork-runtime-config.test.ts`: 37 passed, the opt-in engine test skipped in this command. Includes reopening five minutes late for one-time, interval, daily and final calendar occurrences; several missed days; delayed engine startup; no duplicate dispatch on another restart; and paused tasks staying paused.
+- `pnpm --filter legalwork-server exec bun test src/scheduled-tasks src/opencode-plugins/legalwork-scheduled-task-tools.test.ts src/legalwork-runtime-config.test.ts`: 40 passed, the opt-in engine test skipped in this command. Includes reopening five minutes late for one-time, interval, daily and final calendar occurrences; several missed days; delayed engine startup; no duplicate dispatch on another restart; and paused tasks staying paused.
 - `LEGALWORK_TEST_OPENCODE_BIN=/Applications/LegalWork.app/Contents/Resources/sidecars/opencode pnpm --filter legalwork-server exec bun test src/scheduled-tasks/engine.test.ts`: passed against engine 1.18.29 with a local model fixture. Verifies actual tool filtering and blocked/allowed cross-project reads through the bundled plugin.
 - App, server and Electron TypeScript checks passed. App and server builds passed. The app build reports existing large-bundle and dependency warnings.
-- `pnpm --filter @legalwork/app test:i18n`: 5,489 keys across English and German passed.
+- `pnpm --filter @legalwork/app test:i18n`: 5,526 keys across English and German passed.
 - `node scripts/i18n-audit.mjs --ci`: passed after replacing dynamically constructed scheduling translation keys with static calls. Scheduled card tests and app/server typechecks were rerun for this follow-up.
+- Follow-up regression tests cover reusing a newly created chat across a database reopen, switching to new chats, preserving the mode on partial HTTP edits, stale-editor conflicts, and failure or pause during initial chat creation.
+- Follow-up UI checks verified Daily defaults, both chat choices, save/reload persistence, Advanced placement, project search with the existing desktop profile, a bounded project menu, and the German editor at 390 px. The development Electron app was restarted with the rebuilt server and the same profile.
 - The desktop plugin bundle checker passed against `apps/server/dist/opencode-plugins`.
 - Browser checks passed for create, custom recurrence, invalid time zone/rule validation, searchable chat selection, access scope changes, pause/resume, reload persistence and deletion. Checked desktop and 390 px German editor layouts.
 - Development Electron was launched on the merged branch with the existing profile and renderer origin preserved. Verified that the Scheduled sidebar link opens `/scheduled`, the page stays there after a full reload, the window heading says Scheduled, and the editor defaults to This project only. The legacy chat-restoration redirect explicitly excludes Scheduled.
@@ -55,8 +61,10 @@ Open `http://localhost:5197/scheduled-tasks-preview.html` (append `?lang=de` for
 
 ![Scheduled overview](overview.png)
 
-![Project access defaults to this project](project-access.png)
+![Daily is the default](daily-default.jpg)
 
-![Searchable chat destination picker](chat-picker.png)
+![Project settings are under Advanced](project-access.jpg)
 
-![German editor at 390 px](mobile-de.png)
+![Searchable chat destination picker](chat-picker.jpg)
+
+![German editor at 390 px](mobile-de.jpg)

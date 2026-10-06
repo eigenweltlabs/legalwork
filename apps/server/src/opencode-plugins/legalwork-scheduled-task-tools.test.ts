@@ -20,8 +20,8 @@ test("scheduling tools use the current project/chat, explicit new-chat mode, and
     await plugin.tool.legalwork_schedule_create.execute({ ...input, newChatEachRun: true }, context);
     const taskId = "08745cc6-4e59-4d81-953b-19d8ec595ee4";
     await plugin.tool.legalwork_schedule_update.execute({ taskId, revision: 3, patch: { status: "paused" } }, context);
-    expect(requests[0]).toMatchObject({ path: "/workspace/current/scheduled-tasks", body: { sessionId: "this-chat", projectAccess: "project" } });
-    expect(requests[1].body).toMatchObject({ sessionId: null });
+    expect(requests[0]).toMatchObject({ path: "/workspace/current/scheduled-tasks", body: { sessionId: "this-chat", reuseChat: true, projectAccess: "project" } });
+    expect(requests[1].body).toMatchObject({ sessionId: null, reuseChat: false });
     expect(requests[2]).toEqual({ path: `/workspace/current/scheduled-tasks/${taskId}`, method: "PATCH", body: { revision: 3, status: "paused" } });
     const denied = JSON.parse(await plugin.tool.legalwork_schedule_create.execute(input, { directory: "/elsewhere", sessionID: "unknown" }));
     expect(denied.ok).toBe(false); expect(requests).toHaveLength(3);

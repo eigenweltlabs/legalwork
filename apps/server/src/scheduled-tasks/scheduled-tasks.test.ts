@@ -9,7 +9,7 @@ import { ScheduledTaskRunner, type ScheduledExecutor } from "./runner.js";
 
 const now = Date.parse("2026-10-06T10:00:00Z");
 const schedule: TaskSchedule = { kind: "once", startAt: "2026-10-06T13:00:00", timeZone: "Europe/Berlin" };
-const input: ScheduledTaskInput = { title: "Matter brief", prompt: "Summarize open work.", schedule, projectAccess: "project", sessionId: "chat", model: null };
+const input: ScheduledTaskInput = { title: "Matter brief", prompt: "Summarize open work.", schedule, projectAccess: "project", sessionId: "chat", reuseChat: false, model: null };
 const open = async () => {
   const path = join(await mkdtemp(join(tmpdir(), "scheduled-test-")), "runtime.sqlite");
   return { store: await ScheduledTaskStore.open(path), path };
@@ -151,6 +151,38 @@ describe("persistent scheduled task execution", () => {
     expect(store.runs(task.id)[0].sessionId).toBe("new-1");
     expect(store.runs(task.id)[0].status).toBe("sent");
   });
+  test.each([true, false])("chat reuse=%s survives restart and partial edits", async reuseChat => {
+    const { store, path } = await open();
+    const task = store.create("project", { ...input, sessionId: null, reuseChat, schedule: { ...schedule, kind: "interval", minutes: 15 } }, now);
+    let created = 0;
+    const destinations: string[] = [];
+    const executor: ScheduledExecutor = { available: async () => true, createSession: async () => `new-${++created}`, send: async (_task, sessionId) => { destinations.push(sessionId); } };
+    const runner = new ScheduledTaskRunner(store, executor, () => now + 3600000);
+    await runner.tick();
+    const current = store.get("project", task.id);
+    expect(current.sessionId).toBe(reuseChat ? "new-1" : null);
+    // A dialog opened after the claim must not overwrite a newly bound chat.
+    if (reuseChat) expect(() => store.update("project", task.id, 2, { title: "Stale" }, now)).toThrow("changed");
+    store.update("project", task.id, current.revision, { title: "Updated" }, now);
+    const reopened = await ScheduledTaskStore.open(path);
+    expect(reopened.get("project", task.id).reuseChat).toBe(reuseChat);
+    await new ScheduledTaskRunner(reopened, executor, () => now + 4500000).tick();
+    expect(destinations).toEqual(reuseChat ? ["new-1", "new-1"] : ["new-1", "new-2"]);
+    expect(created).toBe(reuseChat ? 1 : 2);
+    // Switching to a fresh chat every run clears the durable destination.
+    const latest = reopened.get("project", task.id);
+    reopened.update("project", task.id, latest.revision, { reuseChat: false, sessionId: null }, now);
+    await new ScheduledTaskRunner(reopened, executor, () => now + 5400000).tick();
+    expect(destinations[2]).toBe(`new-${created}`);
+    expect(created).toBe(reuseChat ? 2 : 3);
+  });
+  test("failure after binding a reusable chat pauses and retains its destination", async () => {
+    const { store } = await open();
+    const task = store.create("project", { ...input, sessionId: null, reuseChat: true }, now);
+    await new ScheduledTaskRunner(store, { available: async () => true, createSession: async () => "first-chat", send: async () => { throw new Error("Offline"); } }, () => now + 3600000).tick();
+    expect(store.get("project", task.id)).toMatchObject({ status: "paused", sessionId: "first-chat" });
+    expect(store.runs(task.id)[0]).toMatchObject({ status: "failed", sessionId: "first-chat" });
+  });
   test("failed delivery pauses without retry; unrelated tasks still run", async () => {
     const { store } = await open(), task = store.create("project", input, now);
     const other = store.create("project", { ...input, sessionId: "other" }, now);
@@ -164,7 +196,7 @@ describe("persistent scheduled task execution", () => {
   });
   test("pausing during chat creation cancels dispatch and preserves the edit", async () => {
     const { store } = await open();
-    const task = store.create("project", { ...input, sessionId: null }, now); let sent = false;
+    const task = store.create("project", { ...input, sessionId: null, reuseChat: true }, now); let sent = false;
     const runner = new ScheduledTaskRunner(store, {
       available: async () => true,
       createSession: async () => { store.update("project", task.id, 2, { status: "paused", projectAccess: "all" }, now); return "new"; },
@@ -172,6 +204,7 @@ describe("persistent scheduled task execution", () => {
     }, () => now + 3600000);
     await runner.tick(); expect(sent).toBe(false);
     expect(store.get("project", task.id).projectAccess).toBe("all");
+    expect(store.get("project", task.id).sessionId).toBeNull();
     expect(store.runs(task.id)[0]).toMatchObject({ projectAccess: "project", status: "failed" });
   });
   test("pausing while availability is checked invalidates the snapshot", async () => {

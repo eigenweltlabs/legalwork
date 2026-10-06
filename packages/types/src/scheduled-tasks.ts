@@ -12,6 +12,8 @@ export const ScheduledTaskInputSchema = z.strictObject({
   schedule: TaskScheduleSchema,
   projectAccess: z.enum(["project", "all"]).default("project"),
   sessionId: z.string().min(1).max(200).nullable(),
+  // Older clients used a null sessionId to request a new chat on every run.
+  reuseChat: z.boolean().default(false),
   model: z.object({ providerID: z.string().min(1), modelID: z.string().min(1) }).nullable().default(null),
 });
 export const ScheduledTaskSchema = ScheduledTaskInputSchema.extend({

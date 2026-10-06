@@ -67,7 +67,7 @@ export function registerScheduledTaskRoutes(options: {
   });
   route("GET", "/:task", async (ctx, workspace) => ({ task: store.get(workspace.id, ctx.params.task), runs: store.runs(ctx.params.task) }));
   route("PATCH", "/:task", async (ctx, workspace) => {
-    const { revision, ...patch } = ScheduledTaskInputSchema.partial().extend({ model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), revision: z.number().int().positive(), status: z.enum(["active", "paused"]).optional() }).parse(await body(ctx));
+    const { revision, ...patch } = ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), revision: z.number().int().positive(), status: z.enum(["active", "paused"]).optional() }).parse(await body(ctx));
     const current = store.get(workspace.id, ctx.params.task);
     if (patch.sessionId !== undefined || patch.status === "active") await checkSession(workspace, patch.sessionId === undefined ? current.sessionId : patch.sessionId);
     return { task: store.update(workspace.id, ctx.params.task, revision, patch) };

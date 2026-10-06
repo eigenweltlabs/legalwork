@@ -24,16 +24,16 @@ export class ScheduledTaskRunner {
         if (!available || this.stopped) continue;
         const run = this.store.claim(task, this.now());
         if (!run) continue;
+        let deliveryRevision = task.revision + 1;
         try {
           run.sessionId = task.sessionId ?? await this.executor.createSession(task);
           this.store.record(run);
           // Creating a chat is asynchronous. Honor a pause, deletion or edit
           // that happened after the claim but before delivery began.
-          const current = this.store.get(task.workspaceId, task.id);
-          if (current.revision !== task.revision + 1 || current.status === "paused") throw new Error("The task changed before delivery. No message was sent.");
+          deliveryRevision = this.store.prepareDelivery(task, run);
           await this.executor.send(task, run.sessionId);
           this.store.record({ ...run, status: "sent" });
-        } catch (error) { this.store.fail(task, run, error); }
+        } catch (error) { this.store.fail(task, run, error, deliveryRevision); }
       }
     } finally { this.ticking = false; }
   }

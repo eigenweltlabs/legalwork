@@ -36,7 +36,7 @@ export class ScheduledTaskStore {
     return this.transaction(() => {
       const task = this.get(workspaceId, id);
       this.checkRevision(task, revision);
-      const input = ScheduledTaskInputSchema.parse({ title: task.title, prompt: task.prompt, schedule: task.schedule, sessionId: task.sessionId, model: task.model, projectAccess: task.projectAccess, ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "status")) });
+      const input = ScheduledTaskInputSchema.parse({ title: task.title, prompt: task.prompt, schedule: task.schedule, sessionId: task.sessionId, model: task.model, projectAccess: task.projectAccess, reuseChat: task.reuseChat, ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "status")) });
       const changedSchedule = JSON.stringify(input.schedule) !== JSON.stringify(task.schedule);
       const status = patch.status ?? (changedSchedule ? "active" : task.status);
       const recalculate = changedSchedule || (status === "active" && task.status !== "active");
@@ -70,18 +70,32 @@ export class ScheduledTaskStore {
       return run;
     });
   }
+  prepareDelivery(snapshot: ScheduledTask, run: ScheduledRun): number {
+    return this.transaction(() => {
+      const current = this.get(snapshot.workspaceId, snapshot.id);
+      if (current.revision !== snapshot.revision + 1 || current.status === "paused") throw new Error("The task changed before delivery. No message was sent.");
+      // Bind the first chat durably, so later runs and app restarts keep its context.
+      if (current.reuseChat && !current.sessionId && run.sessionId) {
+        current.sessionId = run.sessionId;
+        current.revision++;
+        this.write(current);
+      }
+      this.record(run);
+      return current.revision;
+    });
+  }
   record(run: ScheduledRun) {
     // UPDATE avoids resurrecting history after the user deletes a task mid-dispatch.
     this.db.run("UPDATE scheduled_task_runs SET data = ? WHERE id = ?", [JSON.stringify(run), run.id]);
   }
-  fail(task: ScheduledTask, run: ScheduledRun, error: unknown) {
+  fail(task: ScheduledTask, run: ScheduledRun, error: unknown, expectedRevision = task.revision + 1) {
     this.transaction(() => {
       this.record({ ...run, status: "failed", error: error instanceof Error ? error.message : "Could not send the scheduled task." });
       const row = this.db.get("SELECT data FROM scheduled_tasks WHERE id = ?", [task.id]);
       if (!row) return;
       const current = ScheduledTaskSchema.parse(JSON.parse(String(row.data)));
       // Preserve edits made while the request was in flight.
-      if (current.revision === task.revision + 1) this.write({ ...current, status: "paused", revision: current.revision + 1 });
+      if (current.revision === expectedRevision) this.write({ ...current, status: "paused", revision: current.revision + 1 });
     });
   }
   private checkRevision(task: ScheduledTask, revision: number) {

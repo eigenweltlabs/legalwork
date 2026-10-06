@@ -28,7 +28,7 @@ const engine = Bun.serve({ port: 0, fetch: async request => {
 } });
 const config: ServerConfig = {
   host: "127.0.0.1", port: 8798, token: "scheduled-preview", hostToken: "scheduled-preview-host", configPath: join(root, "server.json"),
-  approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["http://localhost:5197", "http://127.0.0.1:5197"],
+  approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["http://localhost:5197", "http://127.0.0.1:5197", "http://localhost:5213"],
   workspaces: [{ id: "preview", name: "Northstar Legal", path: folder, preset: "starter", workspaceType: "local", baseUrl: `http://127.0.0.1:${engine.port}` }],
   authorizedRoots: [folder], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
 };
