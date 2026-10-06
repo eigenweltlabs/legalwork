@@ -48,6 +48,7 @@ A native installer will become available after this change is merged and a relea
 - `pnpm --filter @legalwork/desktop typecheck:electron`: passed.
 - `pnpm --filter @legalwork/desktop check:electron`: passed, 110 renderer methods covered.
 - `node --test scripts/release/*.test.mjs`: three passed, including architecture-separated Windows feeds and rejection before upload when an x64 feed contains an ARM64 installer.
-- In the Windows dev app, architecture detection returned the correct mismatch in 11 ms through CDP. The explicit release check reported no ARM64 installer while account settings remained visible.
+- In the Windows dev app, architecture detection returned the correct mismatch in 7 ms through CDP. The explicit release check reported no ARM64 installer while account settings remained visible. See the [architecture notice](architecture.png) and [recorded result](architecture.json).
+- The full Windows account UI flow passed with local OAuth fixtures and a 10.25-second reload: one sign-in reload, one sign-out reload, no error toasts.
 
 The native ARM64 packaging job is the authoritative check for the new compiler/toolchain path. Signed release publication is not exercised by a pull request.

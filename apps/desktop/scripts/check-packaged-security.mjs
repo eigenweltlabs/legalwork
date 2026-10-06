@@ -47,6 +47,12 @@ if (process.platform === "win32") {
     } finally { await file.close(); }
   }
   console.log(`PASS: Windows app, Node and engine are all ${expectedArch}`);
+  const speech = spawnSync(path.join(nodeDirectory, "node.exe"), ["-e", "const s=require(process.argv[1]); if(typeof s.OfflineRecognizer.createAsync !== 'function' || typeof s.Vad !== 'function') process.exit(1); console.log(s.version)", path.join(resources, "app.asar.unpacked/node_modules/sherpa-onnx-node")], {
+    env: { ...process.env, NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "" }, encoding: "utf8", timeout: 30_000,
+  });
+  if (speech.error) throw speech.error;
+  assert.equal(speech.status, 0, speech.stderr);
+  console.log(`PASS: packaged ${expectedArch} speech addon loads with bundled Node (${speech.stdout.trim()})`);
 }
 if (process.platform === "linux") console.log("NOTE: Electron does not enforce ASAR integrity on Linux; the other fuse restrictions apply.");
 

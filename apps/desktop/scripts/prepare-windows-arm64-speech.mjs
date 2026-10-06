@@ -34,7 +34,10 @@ async function extract(url, name, sha256) {
   const bytes = await download(url, sha256);
   const archive = path.join(temporary, name);
   await writeFile(archive, bytes);
-  run("tar.exe", ["-xf", archive, "-C", temporary]);
+  // Git's GNU tar treats the drive letter in an absolute path as a remote host.
+  // Windows ships bsdtar, which also supports the upstream bzip2 archive.
+  const tar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+  run(tar, ["-xf", name], { cwd: temporary });
 }
 try {
   const nativeName = `sherpa-onnx-v${pin.version}-win-arm64-shared-MD-Release-lib`;
