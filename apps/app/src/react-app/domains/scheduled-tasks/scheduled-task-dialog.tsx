@@ -4,6 +4,7 @@ import { ChevronDown, Clock3, FolderOpen, Loader2, Search } from "lucide-react";
 import type { ScheduledTask, ScheduledTaskInput, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { ModelSelect } from "@/components/model-select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +52,8 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
   const initialSchedule = task?.schedule ?? initial?.schedule;
   const [workspaceId, setWorkspaceId] = useState(task?.workspaceId ?? "");
   const [projectAccess, setProjectAccess] = useState<ScheduledTaskInput["projectAccess"]>(task?.projectAccess ?? "project");
+  const [model, setModel] = useState<ScheduledTaskInput["model"]>(task ? task.model : defaultModel ?? null);
+  const [modelOpen, setModelOpen] = useState(false);
   const [title, setTitle] = useState(task?.title ?? initial?.title ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? initial?.prompt ?? "");
   const [zone, setZone] = useState(initialSchedule?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -78,12 +81,12 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
   const chats = useQuery({ queryKey: ["scheduled-chats", client.baseUrl, workspaceId, search], enabled: Boolean(workspaceId), queryFn: () => client.scheduledTaskChats(workspaceId, search) });
   const selectedChat = chats.data?.sessions.find(chat => chat.id === sessionId)?.title ?? selectedChatTitle;
   const changed = (action: () => void) => { setScheduleEdited(true); action(); };
-  const dirty = Boolean(task && (title !== task.title || prompt !== task.prompt || projectAccess !== task.projectAccess || sessionId !== task.sessionId || reuseChat !== (Boolean(task.sessionId) || task.reuseChat) || scheduleKey !== JSON.stringify(task.schedule)));
+  const dirty = Boolean(task && (title !== task.title || prompt !== task.prompt || projectAccess !== task.projectAccess || sessionId !== task.sessionId || reuseChat !== (Boolean(task.sessionId) || task.reuseChat) || scheduleKey !== JSON.stringify(task.schedule) || model?.providerID !== task.model?.providerID || model?.modelID !== task.model?.modelID));
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const save = async () => {
     setBusy(true); onBusyChange?.(true); setError(null);
     try {
-      const input: ScheduledTaskInput = { title, prompt, schedule, sessionId, reuseChat, projectAccess, model: task ? task.model : defaultModel ?? null };
+      const input: ScheduledTaskInput = { title, prompt, schedule, sessionId, reuseChat, projectAccess, model };
       const saved = task ? await client.updateScheduledTask(workspaceId, task.id, task.revision, input) : await client.createScheduledTask(workspaceId, input);
       onSaved(saved.task); onClose();
     } catch (failure) {
@@ -96,7 +99,8 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
     }
     finally { setBusy(false); onBusyChange?.(false); }
   };
-  const valid = title.trim() && prompt.trim() && workspaceId && !preview.isError && (task && !scheduleEdited || preview.data?.occurrences.length) && previewKey === scheduleKey && !preview.isFetching;
+  const valid = title.trim() && prompt.trim() && workspaceId && (task || model) && !preview.isError && (task && !scheduleEdited || preview.data?.occurrences.length) && previewKey === scheduleKey && !preview.isFetching;
+  const modelPicker = <Surface className="flex items-center justify-between gap-4 p-4"><Label>{t("settings.model")}</Label><div className="min-w-0 max-w-[70%]"><ModelSelect open={modelOpen} value={model ?? { providerID: "", modelID: "" }} onOpenChange={setModelOpen} onChange={setModel} disabled={busy} showManageModels={false} /></div></Surface>;
   const actions = <><Button type="button" variant="outline" disabled={busy} onClick={onClose}>{t("scheduled.cancel")}</Button><Button type="submit" disabled={!valid || busy} aria-busy={busy}>{busy && <Loader2 className="size-4 animate-spin" />}{t("scheduled.save")}</Button></>;
   return <form aria-label={t(task ? "scheduled.edit" : "scheduled.new")} className={cn("@container/editor flex min-h-0 flex-col", inline ? "mx-auto max-w-4xl gap-6 py-6 @3xl:py-10" : "flex-1")} onSubmit={event => { event.preventDefault(); if (valid && !busy) void save(); }}>
         {inline && <header className="sticky top-0 z-10 space-y-3 border-b border-border bg-background pb-4 pt-1">
@@ -117,6 +121,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
           </div>}
           <div className="space-y-2"><Label htmlFor={`${id}-title`}>{t("scheduled.name")}</Label><Input autoFocus={Boolean(task)} id={`${id}-title`} value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder={t("scheduled.name_placeholder")} required /></div>
           <div className="space-y-2"><Label htmlFor={`${id}-prompt`}>{t("scheduled.instructions")}</Label><Textarea id={`${id}-prompt`} className="min-h-32 max-h-64 resize-y leading-relaxed" value={prompt} maxLength={30000} onChange={event => setPrompt(event.target.value)} placeholder={t("scheduled.prompt_placeholder")} required /></div>
+          {!task && modelPicker}
           <Surface className="divide-y divide-border">
             <div className="flex items-center justify-between gap-3 p-4"><Label>{t("scheduled.repeat")}</Label><ScheduleSelect label={t("scheduled.repeat")} value={mode} options={repeatOptions()} onChange={value => changed(() => setMode(value))} /></div>
             {mode === "interval" && <div className="flex items-center justify-between gap-4 p-4"><Label htmlFor={`${id}-minutes`}>{t("scheduled.interval_minutes")}</Label><Input id={`${id}-minutes`} type="number" min={1} max={525600} className="w-28" value={minutes} onChange={event => changed(() => setMinutes(event.target.value))} /></div>}
@@ -129,7 +134,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
           </div>}
           <Collapsible><CollapsibleTrigger render={<Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground" />}><ChevronDown className="size-4" />{t("scheduled.advanced")}</CollapsibleTrigger>
             <CollapsibleContent className="space-y-3 pt-3">
-
+              {task && modelPicker}
               <Surface className="space-y-3 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3"><Label>{t("scheduled.project_access")}</Label><ScheduleSelect label={t("scheduled.project_access")} value={projectAccess} options={[{ value: "project", label: t("scheduled.access_project") }, { value: "all", label: t("scheduled.access_all") }]} onChange={value => setProjectAccess(value === "all" ? "all" : "project")} /></div>
                 <p className="text-xs leading-relaxed text-muted-foreground">{t(projectAccess === "project" ? "scheduled.access_project_hint" : "scheduled.access_all_hint", { project: projects.find(project => project.id === workspaceId)?.name ?? t("scheduled.project") })}</p>

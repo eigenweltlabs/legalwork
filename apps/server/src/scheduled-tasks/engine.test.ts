@@ -82,7 +82,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
         expect(first?.system).toContain("Do not ask the user for their time zone");
         expect(first?.system).toContain("use 06:00, starting at the next future morning");
         expect(created).toHaveLength(1);
-        expect(created[0]).toMatchObject({ sessionId: session.id, reuseChat: true, projectAccess: "project", schedule: { timeZone: "Europe/Berlin", startAt: "2026-10-25T06:00:00" } });
+        expect(created[0]).toMatchObject({ sessionId: session.id, reuseChat: true, projectAccess: "project", model: { providerID: "fixture", modelID: "fixture" }, schedule: { timeZone: "Europe/Berlin", startAt: "2026-10-25T06:00:00" } });
         expect(last?.toolResults.join(" ")).toContain("2026-10-25T05:00:00.000Z");
       } else if (agent === PROJECT_TASK_AGENT) {
         expect(first?.tools).not.toContain("bash"); expect(first?.tools).not.toContain("read"); expect(first?.tools).not.toContain("task");

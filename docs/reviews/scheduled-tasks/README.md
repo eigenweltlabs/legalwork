@@ -12,6 +12,8 @@ New tasks default to **Daily**, **Same chat each run** and **This project only**
 
 A reusable chat is created only on the first due run and its ID is saved on the task, so subsequent runs continue the same chat after an app restart. Existing chats can also be selected, and New chat each run remains available. Legacy tasks retain their saved destination behavior.
 
+The creation dialog shows a model picker directly below the instructions, initially set to the app's selected model. Existing tasks expose the picker under Advanced in the inline editor. The saved provider/model is used on future runs. Chat-created schedules capture the model handling the current tool call internally, including when creating a new chat for every run. The creation tool has no model argument and adds no model-selection guidance to the agent. Failure to resolve the current model prevents creation instead of silently choosing another model.
+
 Each task defaults to **This project only**. The selected project is also the destination for its chats. **All projects** permits access to other authorized local projects and keeps the user's normal tool permissions and approvals.
 
 Project-only runs use a hidden engine agent with an explicit allowlist of project-scoped tools: project records, notes, calendar reads, saved reviews and Jev document queries. Shell, native file tools, browser automation, delegation, global task search and unrestricted connectors are disabled in this mode. Cross-project read tools derive access from the trusted engine agent context, not model arguments. The server verifies the engine's effective agent and saved chat permissions before dispatch; a stale engine or a chat with broader saved permissions pauses the task with a recovery message.
@@ -36,6 +38,9 @@ Calendar repeats retain their wall time through daylight-saving changes. Ambiguo
 Chat scheduling automatically uses the computer's local time zone. The agent receives the current local date/time on each turn, and the creation tool fills in an omitted zone. Requests such as "every morning" default to 06:00 on the next future morning without asking for a time or zone. Explicit user times/zones take precedence; edits retain the task's saved zone.
 
 ## Verification, 2026-10-06
+
+- Model selection follow-up: all 861 app tests and all 42 scheduling/server tests passed, including the actual bundled engine with simulated responses. App typecheck, app/server builds and plugin bundle resolution passed. Regression assertions cover capturing the current model without an agent argument, a changed chat model, failure to resolve the model, and delivering with an edited model after server restart.
+- UI model checks verified visible selection during creation, selection under Advanced during inline editing, model-only unsaved draft protection, Cancel restoration, and save/reload persistence. Search and selection work in German dark mode at 390 px without horizontal overflow. The browser reported no console errors. Checks used the isolated fixture, with no paid model calls or real user schedules changed.
 
 - `pnpm --filter @legalwork/app test`: 858 tests passed, including preset weekday/weekend/year rollover, persisted cards, current server data, cross-project Open prevention and Home message handoff.
 - `pnpm --filter legalwork-server exec bun test src/scheduled-tasks src/opencode-plugins/legalwork-scheduled-task-tools.test.ts src/legalwork-runtime-config.test.ts`: 41 passed, the opt-in engine test skipped in this command. Includes reopening five minutes late for one-time, interval, daily and final calendar occurrences; several missed days; delayed engine startup; no duplicate dispatch on another restart; and paused tasks staying paused.
@@ -68,6 +73,12 @@ pnpm --filter @legalwork/app dev --port 5197
 Open `http://localhost:5197/scheduled-tasks-preview.html` (append `?lang=de` for German or `?lang=de&theme=dark` for German dark mode). The fixture seeds synthetic tasks in a temporary directory and simulates the model engine. It does not touch personal schedules or send messages to a real account. Stop the fixture with Ctrl+C to remove its temporary data. The preview entry is development-only and excluded from the production build.
 
 ## Screenshots
+
+![Model selection during creation](create-model.png)
+
+![Model selection in Advanced when editing](edit-model.png)
+
+[German model picker at 390 px](model-mobile-de.png)
 
 ![Scheduled overview](overview.jpg)
 

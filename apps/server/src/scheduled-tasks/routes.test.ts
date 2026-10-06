@@ -99,10 +99,13 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.match(store.runs(rejected.id)[0].error, /permissions/);
       await server.stop();
       const broad = store.create("project", { ...draft, projectAccess: "all", schedule: { kind: "once", startAt: new Date(Date.now()-1000).toISOString(), timeZone: "Europe/Berlin" } }, Date.now()-2000);
+      const chosenModel = { providerID: "selected-provider", modelID: "selected-model" };
+      store.update("project", broad.id, broad.revision, { model: chosenModel });
       server = await startServer(config);
       for (let i=0; i<100 && store.runs(broad.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 2);
       assert.equal(deliveries[1].agent, "legalwork-scheduled-all");
+      assert.deepEqual(deliveries[1].model, chosenModel);
       console.log("scheduled HTTP checks passed");
     } finally { await server.stop(); engine.stop(true); }
   `);
