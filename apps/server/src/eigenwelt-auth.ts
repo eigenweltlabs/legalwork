@@ -1,4 +1,5 @@
 import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 /**
  * Server-side "Sign in with Eigenwelt" + platform model manifest.
  *
@@ -398,6 +399,7 @@ export async function startEigenweltSignIn(opts?: {
   /** The plan picked on the app's plan screen. A firm without a subscription
    *  lands on that plan's checkout instead of the plan comparison. */
   plan?: EigenweltSignInPlan;
+  checkout?: EigenweltCheckoutSelection;
 }): Promise<{ sessionId: string; authorizeUrl: string }> {
   const platform = eigenweltPlatformUrl();
   const { verifier, challenge } = generatePkce();
@@ -576,6 +578,11 @@ export async function startEigenweltSignIn(opts?: {
   if (opts?.intent === "sign-in") authorizeUrl.searchParams.set("intent", "sign-in");
   // Platforms that predate the hint ignore it and show the plan comparison.
   if (opts?.plan && isEigenweltSignInPlan(opts.plan)) authorizeUrl.searchParams.set("plan", opts.plan);
+  if (opts?.plan && isEigenweltSignInPlan(opts.plan) && opts.checkout) {
+    authorizeUrl.searchParams.set("confirmed", "1");
+    authorizeUrl.searchParams.set("interval", opts.checkout.interval);
+    authorizeUrl.searchParams.set("seats", String(opts.checkout.seats));
+  }
 
   return { sessionId, authorizeUrl: authorizeUrl.toString() };
 }

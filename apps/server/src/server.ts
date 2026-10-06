@@ -1,4 +1,5 @@
 import { composedSkill } from "./skill-composition.js";
+import { parseEigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import { projectSyncStore } from "./project-sync-store.js";
 import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
 import { z } from "zod";
@@ -2234,8 +2235,10 @@ function createRoutes(
     const body = await readOptionalJsonBody(ctx.request);
     const intent = body.intent === "sign-in" ? ("sign-in" as const) : undefined;
     const plan = isEigenweltSignInPlan(body.plan) ? body.plan : undefined;
+    const checkout = body.checkout === undefined ? undefined : parseEigenweltCheckoutSelection(body.checkout);
+    if (body.checkout !== undefined && (!checkout || !plan)) return jsonResponse({ error: "Invalid checkout selection" }, 400);
     try {
-      return jsonResponse(await startEigenweltSignIn({ intent, plan }));
+      return jsonResponse(await startEigenweltSignIn({ intent, plan, ...(checkout ? { checkout } : {}) }));
     } catch (error) {
       throw new ApiError(
         409,
