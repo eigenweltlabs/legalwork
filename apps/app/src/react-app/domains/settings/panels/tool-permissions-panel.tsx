@@ -51,6 +51,13 @@ import {
   LayoutSectionItemTitle,
 } from "../settings-layout";
 
+/** What the admin set among the tools here: of these, the firm may set editing files and computer commands. */
+const FIRM_TOOLS_TEXT = {
+  edit: { enforced: "org_policy.set_tools_edit", default: "org_policy.default_tools_edit" },
+  bash: { enforced: "org_policy.set_tools_bash", default: "org_policy.default_tools_bash" },
+  both: { enforced: "org_policy.set_tools_edit_bash", default: "org_policy.default_tools_edit_bash" },
+};
+
 export type ToolPermissionsPanelProps = {
   legalworkServerClient: LegalworkServerClient | null;
   legalworkServerStatus: LegalworkServerStatus;
@@ -260,10 +267,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
   );
   const firmManages = (tool: ManagedPermissionTool) => firmRules?.[tool] !== undefined;
   const lockedTool = (tool: ManagedPermissionTool) => firm?.locked === true && firmManages(tool);
-  // Of the tools here, the firm may set editing files and computer commands.
-  const firmToolsText = firmManages("edit")
-    ? t(firmManages("bash") ? "org_policy.set_tools_edit_bash" : "org_policy.set_tools_edit")
-    : firmManages("bash") ? t("org_policy.set_tools_bash") : null;
+  const firmTools = firmManages("edit") ? (firmManages("bash") ? "both" : "edit") : firmManages("bash") ? "bash" : null;
 
   const persistModel = useCallback(async (nextModel: ToolPermissionsModel) => {
     const legalworkClient = props.legalworkServerClient;
@@ -371,7 +375,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
           <LayoutSectionItemDescription>
             {t("tool_permissions.desc")}
           </LayoutSectionItemDescription>
-          {firmToolsText ? <OrgPolicyNote policyKey="tools.permissions" locked={firmToolsText} /> : null}
+          {firmTools ? <OrgPolicyNote policyKey="tools.permissions" text={FIRM_TOOLS_TEXT[firmTools]} /> : null}
         </LayoutSectionItemHeader>
       )}
 

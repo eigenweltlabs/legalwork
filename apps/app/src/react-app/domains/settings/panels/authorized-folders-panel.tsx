@@ -295,7 +295,7 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
         <LayoutSectionItemDescription>
           {t("context_panel.authorized_folders_desc")}
         </LayoutSectionItemDescription>
-        {firmManagesFolders ? <OrgPolicyNote policyKey="tools.permissions" locked={t("org_policy.set_folders")} /> : null}
+        {firmManagesFolders ? <OrgPolicyNote policyKey="tools.permissions" text={{ enforced: "org_policy.set_folders", default: "org_policy.default_folders" }} /> : null}
         <LayoutSectionItemHeaderActions>
           <Button
             onClick={() => void pickAuthorizedFolder()}
