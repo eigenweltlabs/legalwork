@@ -54,7 +54,7 @@ import type {
   LegalworkServerStatus,
 } from "../../../../app/lib/legalwork-server";
 import type { LegalworkServerStore } from "../../connections/legalwork-server-store";
-import { orgPolicyAllows } from "../../connections/org-policy";
+import { orgPolicyAllows, orgPolicyOffText } from "../../connections/org-policy";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -593,7 +593,7 @@ export function createExtensionsStore(options: {
   }
 
   async function installHubSkill(name: string): Promise<{ ok: boolean; message: string }> {
-    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: t("org_policy.disallowed", { org: t("org_policy.your_firm") }) };
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: orgPolicyOffText("skills.allowCustom") };
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const repo = snapshot.hubRepo;
@@ -648,7 +648,7 @@ export function createExtensionsStore(options: {
     paths: string[];
     asWorkflow?: boolean;
   }): Promise<{ ok: boolean; message: string }> {
-    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: t("org_policy.disallowed", { org: t("org_policy.your_firm") }) };
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: orgPolicyOffText("skills.allowCustom") };
     const { legalworkClient, legalworkWorkspaceId } = await resolveWorkspaceServerTarget();
     if (!legalworkClient || !legalworkWorkspaceId) {
       return { ok: false, message: t("extensions.server_unavailable_github_import") };
@@ -1890,7 +1890,7 @@ export function createExtensionsStore(options: {
   // writeLocalSkill and only UPDATES an existing SKILL.md), this uses
   // installSkillTemplate which mkdir's + writes a fresh .opencode/skills/<name>/SKILL.md.
   async function createSkill(input: { name: string; content: string; description?: string }): Promise<{ ok: boolean; message: string }> {
-    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: t("org_policy.disallowed", { org: t("org_policy.your_firm") }) };
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: orgPolicyOffText("skills.allowCustom") };
     const trimmed = input.name.trim();
     if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const root = options.selectedWorkspaceRoot().trim();

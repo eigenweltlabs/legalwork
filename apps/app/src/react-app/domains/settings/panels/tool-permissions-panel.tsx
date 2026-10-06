@@ -260,6 +260,10 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
   );
   const firmManages = (tool: ManagedPermissionTool) => firmRules?.[tool] !== undefined;
   const lockedTool = (tool: ManagedPermissionTool) => firm?.locked === true && firmManages(tool);
+  // Of the tools here, the firm may set editing files and computer commands.
+  const firmToolsText = firmManages("edit")
+    ? t(firmManages("bash") ? "org_policy.set_tools_edit_bash" : "org_policy.set_tools_edit")
+    : firmManages("bash") ? t("org_policy.set_tools_bash") : null;
 
   const persistModel = useCallback(async (nextModel: ToolPermissionsModel) => {
     const legalworkClient = props.legalworkServerClient;
@@ -367,7 +371,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
           <LayoutSectionItemDescription>
             {t("tool_permissions.desc")}
           </LayoutSectionItemDescription>
-          <OrgPolicyNote policyKey="tools.permissions" />
+          {firmToolsText ? <OrgPolicyNote policyKey="tools.permissions" locked={firmToolsText} /> : null}
         </LayoutSectionItemHeader>
       )}
 

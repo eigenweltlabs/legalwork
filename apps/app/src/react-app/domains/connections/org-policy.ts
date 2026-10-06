@@ -72,7 +72,7 @@ export async function changeOrgPolicySetting(key: OrgPolicyKey, change: () => vo
   return true;
 }
 
-type AllowKey =
+export type AllowKey =
   | "connectors.allowCustom"
   | "plugins.allowCustom"
   | "skills.allowCustom"
@@ -84,17 +84,34 @@ type AllowKey =
   | "officeAddins.allow"
   | "evaluations.allow";
 
+/** What the admin switched off, in the member's words. */
+const OFF_TEXT = {
+  "connectors.allowCustom": "org_policy.connectors_off",
+  "plugins.allowCustom": "org_policy.plugins_off",
+  "skills.allowCustom": "org_policy.skills_off",
+  "storage.allowPersonal": "org_policy.storage_off",
+  "ai.chat.allowCustom": "org_policy.chat_providers_off",
+  "ai.systemOne.allowCustom": "org_policy.systemone_providers_off",
+  "ai.ocr.allowCustom": "org_policy.ocr_engines_off",
+  "recorder.allow": "org_policy.recorder_off",
+  "officeAddins.allow": "org_policy.office_addins_off",
+  "evaluations.allow": "org_policy.evaluations_off",
+} satisfies Record<AllowKey, string>;
+
+export function orgPolicyOffText(key: AllowKey): string {
+  return t(OFF_TEXT[key]);
+}
+
 /**
  * Before an action the firm may switch off; true when it may go ahead.
  * Switched off while signed in: says so and refuses. After sign-out: asks,
  * then takes the setting back.
  */
 export async function orgPolicyAllows(key: AllowKey): Promise<boolean> {
-  const view = useOrgPolicyStore.getState().view;
-  const entry = appliedOrgPolicy(view, key);
+  const entry = appliedOrgPolicy(useOrgPolicyStore.getState().view, key);
   if (entry?.value !== false) return true;
   if (entry.locked) {
-    toast(t("org_policy.disallowed", { org: view?.orgName || t("org_policy.your_firm") }));
+    toast(orgPolicyOffText(key));
     return false;
   }
   return changeOrgPolicySetting(key, () => undefined);

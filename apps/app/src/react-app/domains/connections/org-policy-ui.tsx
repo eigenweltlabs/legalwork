@@ -22,7 +22,14 @@ import { setFirmAnalyticsRefused } from "@/app/lib/analytics";
 import { setFirmLanguage, t } from "@/i18n";
 import { applyFirmReleaseChannel } from "@/react-app/domains/settings/state/electron-updater-state";
 
-import { answerOrgPolicyConfirm, useOrgPolicy, useOrgPolicyListener, useOrgPolicyStore } from "./org-policy";
+import {
+  answerOrgPolicyConfirm,
+  orgPolicyOffText,
+  useOrgPolicy,
+  useOrgPolicyListener,
+  useOrgPolicyStore,
+  type AllowKey,
+} from "./org-policy";
 
 const RESTORED_SEEN_KEY = "legalwork.orgPolicy.restoredSeen";
 
@@ -30,17 +37,49 @@ function useOrgName(): string {
   return useOrgPolicyStore((state) => state.view?.orgName) || t("org_policy.your_firm");
 }
 
+/** What the admin set, for the settings with a note that are not on/off switches of a feature; a switch says which way. */
+const SET_TEXT = {
+  language: "org_policy.set_language",
+  "personalization.personality": "org_policy.set_personality",
+  branding: "org_policy.set_branding",
+  "ai.systemOne.model": "org_policy.set_systemone_model",
+  "ai.ocr.defaultEngine": "org_policy.set_ocr_engine",
+  "updates.channel": "org_policy.set_release_channel",
+  "reviews.defaults": "org_policy.set_reviews",
+  "updates.autoCheck": { on: "org_policy.auto_check_on", off: "org_policy.auto_check_off" },
+  "updates.autoDownload": { on: "org_policy.auto_download_on", off: "org_policy.auto_download_off" },
+  "privacy.shareAnonymousUsage": { on: "org_policy.usage_on", off: "org_policy.usage_off" },
+} satisfies Partial<Record<OrgPolicyKey, string | { on: string; off: string }>>;
+
+type NoteKey = AllowKey | keyof typeof SET_TEXT;
+
+function isAllowKey(key: NoteKey): key is AllowKey {
+  return !Object.hasOwn(SET_TEXT, key);
+}
+
+/** What the admin did to a setting they locked; nothing for a feature they left on. */
+function lockedText(key: NoteKey, value: unknown): string | null {
+  if (isAllowKey(key)) return value === false ? orgPolicyOffText(key) : null;
+  const text: string | { on: string; off: string } = SET_TEXT[key];
+  return t(typeof text === "string" ? text : value === false ? text.off : text.on);
+}
+
 /**
- * Under a setting the firm manages: who set it, and whether the member can
- * change it. Nothing when the firm does not manage it.
+ * Under a setting the firm manages: what the admin set, and whether the member
+ * can change it. Nothing when the firm does not manage it.
  */
-export function OrgPolicyNote({ policyKey }: { policyKey: OrgPolicyKey }) {
-  const entry = useOrgPolicyStore((state) => state.view?.entries[policyKey]);
+export function OrgPolicyNote(
+  props:
+    | { policyKey: NoteKey }
+    // Where a page shows only some of the tools: what the admin set there.
+    | { policyKey: "tools.permissions"; locked: string },
+) {
+  const entry = useOrgPolicyStore((state) => state.view?.entries[props.policyKey]);
   const lapsed = useOrgPolicyStore((state) => state.view?.state === "lapsed");
   const org = useOrgName();
   if (!entry) return null;
   const text = entry.locked
-    ? t("org_policy.managed", { org })
+    ? props.policyKey === "tools.permissions" ? props.locked : lockedText(props.policyKey, entry.value)
     : entry.released
       ? entry.mode === "enforced" ? t("org_policy.released", { org }) : null
       : entry.mode === "default"
@@ -56,17 +95,12 @@ export function OrgPolicyNote({ policyKey }: { policyKey: OrgPolicyKey }) {
   );
 }
 
-const FEATURE_OFF = {
-  recorder: "org_policy.recorder_off",
-  evaluations: "org_policy.evaluations_off",
-} as const;
-
 /** In place of a feature the firm switched off for its members. */
-export function OrgPolicyFeatureOff({ feature }: { feature: keyof typeof FEATURE_OFF }) {
+export function OrgPolicyFeatureOff({ policyKey }: { policyKey: "recorder.allow" | "evaluations.allow" }) {
   return (
     <Alert>
       <Lock />
-      <AlertDescription>{t(FEATURE_OFF[feature])}</AlertDescription>
+      <AlertDescription>{orgPolicyOffText(policyKey)}</AlertDescription>
     </Alert>
   );
 }
