@@ -1,3 +1,4 @@
+import { readSessionInbox } from "../session-inbox.js";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { ScheduledTaskInputSchema } from "../scheduled-tasks/schema.js";
@@ -51,6 +52,14 @@ export function registerScheduledTaskRoutes(options: {
     }
     return options.jsonResponse({ projects });
   });
+  addRoute(options.routes, "GET", "/session-inbox", "client", async ctx => {
+    options.requireClientScope(ctx, "viewer");
+    const workspaces = [];
+    for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+      try { workspaces.push(await options.resolveWorkspace(config, item.id)); } catch { /* Not accessible. */ }
+    }
+    return options.jsonResponse({ sessions: await readSessionInbox(config, workspaces, store.sessionActivity()) });
+  });
   route("GET", "", async (_ctx, workspace) => ({ tasks: store.list(workspace.id) }));
   route("GET", "/chats", async (ctx, workspace) => ({ sessions: (await options.listSessions(await options.resolveWorkspace(config, workspace.id), ctx.url.searchParams.get("search")?.slice(0, 200)))
     .filter(session => resolve(session.directory) === resolve(workspace.path) && !session.time.archived).map(({ id, title }) => ({ id, title })) }));
@@ -67,7 +76,7 @@ export function registerScheduledTaskRoutes(options: {
   });
   route("GET", "/:task", async (ctx, workspace) => ({ task: store.get(workspace.id, ctx.params.task), runs: store.runs(ctx.params.task) }));
   route("PATCH", "/:task", async (ctx, workspace) => {
-    const { revision, ...patch } = ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), revision: z.number().int().positive(), status: z.enum(["active", "paused"]).optional() }).parse(await body(ctx));
+    const { revision, ...patch } = ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), pinSession: ScheduledTaskInputSchema.shape.pinSession.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), revision: z.number().int().positive(), status: z.enum(["active", "paused"]).optional() }).parse(await body(ctx));
     const current = store.get(workspace.id, ctx.params.task);
     if (patch.sessionId !== undefined || patch.status === "active") await checkSession(workspace, patch.sessionId === undefined ? current.sessionId : patch.sessionId);
     return { task: store.update(workspace.id, ctx.params.task, revision, patch) };

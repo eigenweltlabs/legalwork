@@ -3,6 +3,7 @@ import * as React from "react";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 import {
   Search,
+  Clock3,
   House,
   MessageSquare,
   Files,
@@ -130,7 +131,25 @@ import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
+import { unreadSession, useSessionInboxStore } from "./session-inbox-store";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
+
+function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
+  return unread ? <span className={cn("inline-block size-1.5 shrink-0 rounded-full bg-green-9", className)} role="img" aria-label={t("sidebar.unread_reply")} title={t("sidebar.unread_reply")} /> : null;
+}
+
+function useUnreadChats(sessions: SessionListItem[]) {
+  return useSessionInboxStore(state => sessions.some(session => !isSessionArchived(session) && unreadSession(state, session.id)));
+}
+
+function SessionInboxIndicators({ sessionId, unread, className, status, isStreaming, isActive }: SessionStatusIndicatorProps & { sessionId: string; unread: boolean }) {
+  const automated = useSessionInboxStore(state => Boolean(state.entries[sessionId]?.automation));
+  return <span className={cn("pointer-events-none flex items-center gap-1.5", className)}>
+    <UnreadDot unread={unread} />
+    <SessionStatusIndicator status={status} isStreaming={isStreaming} isActive={isActive} />
+    {automated && <Clock3 className="size-3.5 shrink-0 text-muted-foreground" role="img" aria-label={t("sidebar.automated_chat")}><title>{t("sidebar.automated_chat")}</title></Clock3>}
+  </span>;
+}
 
 interface SessionStatusIndicatorProps {
   className?: string;
@@ -697,6 +716,8 @@ export function AppSidebar(props: AppSidebarProps) {
             </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
           </SidebarMenuItem> : null;
   const pinned = usePinnedSessionIds();
+  const pinOrder = useSessionManagementStore(state => state.pinnedIds);
+  const inbox = useSessionInboxStore();
   const favoriteIds = useProjectFavoritesStore(state => state.favoriteIds);
   const pinnedProjects = props.workspaceSessionGroups.filter(group => favoriteIds.includes(group.workspace.id));
   const allSessions = React.useMemo(() => allProjectSessions(props.workspaceSessionGroups, pinned, props.selectedSessionId), [props.workspaceSessionGroups, pinned, props.selectedSessionId]);
@@ -725,11 +746,12 @@ export function AppSidebar(props: AppSidebarProps) {
   };
   const sessionSection = (key: "sectionPinned" | "sectionRecent") => {
     const sessions = allSessions.filter(({ session }) => key === "sectionPinned" ? pinned.has(session.id) : session.id === props.selectedSessionId || !pinned.has(session.id));
+    if (key === "sectionPinned") sessions.sort((a, b) => pinOrder.indexOf(a.session.id) - pinOrder.indexOf(b.session.id));
     if (key === "sectionPinned" && !sessions.length) return null;
     const visible = key === "sectionRecent" ? sessions.slice(0, recentLimit) : sessions;
     return <section key={key} className="px-2.5 pb-3">
       <button className="flex h-9 w-full items-center gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => toggleSection(key)} aria-expanded={!closedSections.has(key)}>
-        {t(SIDEBAR_ITEMS[key].label)}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} />
+        {t(SIDEBAR_ITEMS[key].label)}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && sessions.some(({ session }) => unreadSession(inbox, session.id))} />
       </button>
       {!closedSections.has(key) && <SidebarMenu className="gap-0.5">
         {visible.map(({ session, workspace }) => <GlobalSessionRow key={session.id} session={session} workspace={workspace} />)}
@@ -821,14 +843,14 @@ export function AppSidebar(props: AppSidebarProps) {
           {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
             if (key === "sectionPinnedProjects") return pinnedProjects.length ? <section key={key} className="px-2.5 pb-3">
               <button className="flex h-9 w-full items-center gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => toggleSection(key)} aria-expanded={!closedSections.has(key)}>
-                {t("sidebar.pinned_projects")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} />
+                {t("sidebar.pinned_projects")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && pinnedProjects.some(group => group.sessions.some(session => !isSessionArchived(session) && unreadSession(inbox, session.id)))} />
               </button>
               {!closedSections.has(key) && <SidebarMenu className="gap-0.5">{pinnedProjects.map(({ workspace }) => <PinnedProjectRow key={workspace.id} workspace={workspace} />)}</SidebarMenu>}
             </section> : null;
             if (key !== "sectionProjects") return sessionSection(key);
             return <section key={key} className="pb-3">
               <div className="flex h-9 items-center gap-1 px-4">
-                <button className="flex flex-1 items-center gap-1.5 text-xs text-muted-foreground" aria-expanded={!closedSections.has(key)} onClick={() => toggleSection(key)}>{t("projects.plural")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /></button>
+                <button className="flex flex-1 items-center gap-1.5 text-xs text-muted-foreground" aria-expanded={!closedSections.has(key)} onClick={() => toggleSection(key)}>{t("projects.plural")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && props.workspaceSessionGroups.some(group => group.sessions.some(session => !isSessionArchived(session) && unreadSession(inbox, session.id)))} /></button>
                 <Button variant="ghost" size="icon-xs" aria-label={t("sidebar.all_projects")} title={t("sidebar.all_projects")} onClick={() => props.onShowProjects?.()}><LayoutGrid className="size-3.5" /></Button>
                 <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>
               </div>
@@ -902,6 +924,7 @@ type WorkspaceHeaderProps = React.ComponentProps<typeof SidebarMenuButton> & {
   isError: boolean;
   isLoading: boolean;
   isRunning: boolean;
+  unread: boolean;
   onTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
 };
 
@@ -911,6 +934,7 @@ function WorkspaceHeader({
   isError,
   isLoading,
   isRunning,
+  unread,
   onTitlePointerDown,
   onClick,
   ...props
@@ -949,7 +973,7 @@ function WorkspaceHeader({
         )}
         onPointerDown={onTitlePointerDown}
       >
-        <span className="block truncate">{workspaceLabel(workspace)}</span>
+        <span className="flex min-w-0 items-center gap-2"><span className="truncate">{workspaceLabel(workspace)}</span><UnreadDot unread={unread} /></span>
         {statusLabel ? (
           <span className={cn("block text-xs", isError ? "text-destructive" : "text-muted-foreground")}>
             {statusLabel}
@@ -982,6 +1006,7 @@ function WorkspaceSidebarGroup({
 }: WorkspaceSidebarGroupProps) {
   const ctx = useSidebarContext();
   const workspace = group.workspace;
+  const unread = useUnreadChats(group.sessions);
   const isConnecting = ctx.connectingWorkspaceId === workspace.id;
   const connectionState: WorkspaceConnectionState = ctx.workspaceConnectionStateById[workspace.id] ?? {
     status: "idle",
@@ -1026,6 +1051,7 @@ function WorkspaceSidebarGroup({
             <div className="group/workspace-header relative">
               <WorkspaceHeader
                 workspace={workspace}
+                unread={unread}
                 isActive={isSelected}
                 aria-current={isSelected ? "location" : undefined}
                 statusLabel={statusLabel}
@@ -1104,7 +1130,7 @@ function WorkspaceSidebarGroup({
                         setSessionsOpen(!showSessions);
                       }}>
                         <MessageSquare className="size-4" strokeWidth={1.5} />
-                        <span className="min-w-0 truncate">{t("projects.sessions")}</span>
+                        <span className="min-w-0 truncate">{t("projects.sessions")}</span><UnreadDot unread={!showSessions && unread} />
                         <ChevronRight className={cn("absolute right-2.5 size-3.5 text-muted-foreground transition-transform", showSessions && "rotate-90")} />
                       </SidebarMenuSubButton>
                       <Button variant="ghost" size="icon-xs" className="absolute right-12 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" disabled={ctx.newChatDisabled} aria-label={t("session.new_task")} title={t("session.new_task")} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare className="size-3.5" strokeWidth={1.5} /></Button>
@@ -1130,8 +1156,9 @@ function WorkspaceSidebarGroup({
 
 const UNGROUPED_GROUP_ID = "__legalwork_ungrouped";
 
-function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onTitlePointerDown }: {
+function SessionGroupSeparator({ label, count, expanded, unread = false, onToggle, onRemove, onTitlePointerDown }: {
   label: string;
+  unread?: boolean;
   count: number;
   expanded: boolean;
   onToggle: () => void;
@@ -1153,7 +1180,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onT
         >
           {label}
         </span>
-        <span className="text-[10px] tabular-nums text-muted-foreground">{count}</span>
+        <UnreadDot unread={!expanded && unread} /><span className="text-[10px] tabular-nums text-muted-foreground">{count}</span>
       </button>
       {onRemove ? (
         <button
@@ -1224,6 +1251,8 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
   store: typeof useSessionManagementStore;
   showAll?: boolean;
 }) {
+  const inbox = useSessionInboxStore();
+  const rowUnread = (row: FlattenedSessionRow) => unreadSession(inbox, row.session.id) || [...tree.ancestorIdsBySessionId].some(([id, ancestors]) => ancestors.includes(row.session.id) && unreadSession(inbox, id));
   const [previewCountByGroup, setPreviewCountByGroup] = React.useState<Record<string, number>>({});
 
   const groupPreviewCount = (groupId: string) =>
@@ -1295,6 +1324,7 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
         key={group.id}
         group={group}
         rows={rows}
+        unread={rows.some(rowUnread)}
         expanded={expanded}
         workspaceId={workspaceId}
         store={store}
@@ -1331,6 +1361,7 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
             <SessionGroupSeparator
               label={t("session_management.ungrouped")}
               count={ungroupedRows.length}
+              unread={ungroupedRows.some(rowUnread)}
               expanded={ungroupedExpanded}
               onToggle={() => store.getState().toggleGroupExpanded(workspaceId, UNGROUPED_GROUP_ID)}
             />
@@ -1385,8 +1416,9 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
   );
 }
 
-function SessionGroupSection({ group, rows, expanded, workspaceId, store, renderRow, previewCount, onShowMore }: {
+function SessionGroupSection({ group, rows, expanded, unread, workspaceId, store, renderRow, previewCount, onShowMore }: {
   group: SessionGroupDefinition;
+  unread: boolean;
   rows: FlattenedSessionRow[];
   expanded: boolean;
   workspaceId: string;
@@ -1419,6 +1451,7 @@ function SessionGroupSection({ group, rows, expanded, workspaceId, store, render
           <SessionGroupSeparator
             label={group.label}
             count={rows.length}
+            unread={unread}
             expanded={expanded}
             onToggle={() => store.getState().toggleGroupExpanded(workspaceId, group.id)}
             onRemove={() => store.getState().removeGroup(workspaceId, group.id)}
@@ -1496,7 +1529,9 @@ function SessionMenuItem({
   const sessionActivityStatus = ctx.sessionStatusById?.[session.id];
   const isSessionActive = tree.activeIds.has(session.id);
   const isSessionStreaming = tree.streamingIds.has(session.id) || isStreamingSessionStatus(sessionActivityStatus);
-  const showActivity = isSessionStreaming || isSessionActive;
+  const unread = useSessionInboxStore(state => unreadSession(state, session.id) || (!isExpanded && [...tree.ancestorIdsBySessionId].some(([id, ancestors]) => ancestors.includes(session.id) && unreadSession(state, id))));
+  const automated = useSessionInboxStore(state => Boolean(state.entries[session.id]?.automation));
+  const showActivity = isSessionStreaming || isSessionActive || unread || automated;
   const isArchived = isSessionArchived(session);
 
   const openSession = () => {
@@ -1549,7 +1584,7 @@ function SessionMenuItem({
                   className={cn(
                     "min-w-0 flex-1 truncate transition-[padding] duration-75",
                     showActivity
-                      ? "pe-20"
+                      ? (isSessionStreaming || isSessionActive ? "pe-28" : "pe-24")
                       : "pe-4 group-hover/menu-sub-item:pe-12 group-focus-within/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 [@media(hover:none)]:pe-12",
                   )}
                   title={displayTitle}
@@ -1570,7 +1605,7 @@ function SessionMenuItem({
           isArchived={isArchived}
           className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100"
         />
-        <SessionStatusIndicator className="pointer-events-none absolute right-16 top-1/2 -translate-y-1/2 select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
+        <SessionInboxIndicators sessionId={session.id} unread={unread} className="pointer-events-none absolute right-16 top-1/2 -translate-y-1/2 select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
       </SidebarMenuSubItem>
     </Collapsible>
   ) : (
@@ -1589,7 +1624,7 @@ function SessionMenuItem({
             compact && "text-xs",
             depth > 0 && "ps-5",
             showActivity
-              ? "pe-14"
+              ? (isSessionStreaming || isSessionActive ? "pe-22" : "pe-18")
               : "group-hover/menu-sub-item:pe-8 group-focus-within/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8 [@media(hover:none)]:pe-8",
           )}
         >
@@ -1604,7 +1639,7 @@ function SessionMenuItem({
         isArchived={isArchived}
         className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100"
       />
-      <SessionStatusIndicator className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
+      <SessionInboxIndicators sessionId={session.id} unread={unread} className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
     </SidebarMenuSubItem>
   );
 
@@ -1723,9 +1758,10 @@ function PinnedProjectRow({ workspace }: { workspace: WorkspaceInfo }) {
   const location = useLocation();
   const toggleFavorite = useProjectFavoritesStore(state => state.toggleFavorite);
   const active = location.pathname === workspaceProjectRoute(workspace.id);
+  const unread = useUnreadChats(ctx.workspaceSessionGroups.find(group => group.workspace.id === workspace.id)?.sessions ?? []);
   return <SidebarMenuItem className="group/project-row">
     <ContextMenu>
-      <ContextMenuTrigger render={<SidebarMenuButton className="h-8 pr-9 text-[13px]" isActive={active} aria-current={active ? "page" : undefined} onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><span className="truncate">{workspaceLabel(workspace)}</span></SidebarMenuButton>} />
+      <ContextMenuTrigger render={<SidebarMenuButton className="h-8 pr-9 text-[13px]" isActive={active} aria-current={active ? "page" : undefined} onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><span className="truncate">{workspaceLabel(workspace)}</span><UnreadDot unread={unread} /></SidebarMenuButton>} />
       <ContextMenuContent className="w-56">
         <ContextMenuItem onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")}><FolderOpen className="size-4" />{t("projects.open_project")}</ContextMenuItem>
         {ctx.onOpenProjectWindow && <ContextMenuItem onClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><AppWindowMac className="size-4" />{t("sidebar.open_in_new_window")}</ContextMenuItem>}
@@ -1741,9 +1777,11 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
   const ctx = useSidebarContext();
   const pinned = usePinnedSessionIds();
   const status = ctx.sessionStatusById?.[session.id];
+  const unread = useSessionInboxStore(state => unreadSession(state, session.id));
+  const automated = useSessionInboxStore(state => Boolean(state.entries[session.id]?.automation));
   return <SidebarMenuItem className="group/session-row">
     <SessionContextMenu sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false}>
-        <SidebarMenuButton className="h-8 pr-9 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
+        <SidebarMenuButton className={cn("h-8 text-[13px]", isStreamingSessionStatus(status) ? "pr-20" : unread || automated ? "pr-16" : "pr-9")} aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
           if (!ctx.onOpenSessionWindow) return;
           event.preventDefault();
           event.stopPropagation();
@@ -1752,7 +1790,7 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
           <span className="truncate">{getDisplaySessionTitle(session.title)}</span>
         </SidebarMenuButton>
     </SessionContextMenu>
-    <SessionStatusIndicator className="absolute right-8 top-1/2 -translate-y-1/2" status={isSessionActivityStatus(status) ? status : undefined} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />
+    <SessionInboxIndicators sessionId={session.id} unread={unread} className="absolute right-8 top-1/2 -translate-y-1/2" status={isSessionActivityStatus(status) ? status : undefined} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />
     <SessionActions sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false} className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/session-row:opacity-100 group-focus-within/session-row:opacity-100 data-popup-open:opacity-100" />
   </SidebarMenuItem>;
 }

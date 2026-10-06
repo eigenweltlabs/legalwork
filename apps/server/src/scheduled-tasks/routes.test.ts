@@ -14,6 +14,12 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "project");
     await mkdir(join(folder, ".git"), { recursive: true });
     const sessions = new Map([["existing", { id: "existing", title: "Matter chat", directory: folder, time: {} }], ["foreign", { id: "foreign", title: "Other project", directory: root, time: {} }], ["archived", { id: "archived", title: "Archived", directory: folder, time: { archived: 1 } }]]);
+    const { Database } = await import("bun:sqlite");
+    const inboxDb = new Database(process.env.OPENCODE_DB);
+    inboxDb.exec("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_updated INTEGER, time_archived INTEGER); CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT); CREATE INDEX message_session ON message(session_id);");
+    for (const session of sessions.values()) inboxDb.query("INSERT INTO session VALUES (?, ?, ?, ?)").run(session.id, session.directory, Date.now(), session.time.archived ?? null);
+    inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("user", "existing", 100, JSON.stringify({ role: "user" }));
+    inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("summary", "existing", 200, JSON.stringify({ role: "assistant", summary: true }));
     const deliveries = [];
     let restrictiveAgent = true;
     const agents = () => [{ name: "legalwork-scheduled-project", permission: restrictiveAgent ? [{ permission: "*", pattern: "*", action: "deny" }, { permission: "legalwork_project_read", pattern: "*", action: "allow" }] : [] }, { name: "legalwork-scheduled-all", permission: [] }];
@@ -25,9 +31,15 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       if (path === "/session" && request.method === "POST") {
         const id = "new-" + sessions.size;
         const session = { id, title: (await request.json()).title, directory: folder, time: {} };
-        sessions.set(id, session); return Response.json(session);
+        sessions.set(id, session);
+        inboxDb.query("INSERT INTO session VALUES (?, ?, ?, ?)").run(id, folder, Date.now(), null);
+        return Response.json(session);
       }
-      if (path.endsWith("/prompt_async")) { deliveries.push(await request.json()); return new Response(null, { status: 204 }); }
+      if (path.endsWith("/prompt_async")) {
+        deliveries.push(await request.json());
+        inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("reply-" + deliveries.length, path.split("/")[2], 300, JSON.stringify({ role: "assistant", time: { completed: 400 } }));
+        return new Response(null, { status: 204 });
+      }
       if (path.startsWith("/session/")) { const session = sessions.get(path.split("/")[2]); return session ? Response.json(session) : new Response(null, { status: 404 }); }
       return Response.json({});
     } });
@@ -45,6 +57,13 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     try {
       for (let i=0; i<100 && store.runs(seed.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 1);
+      const inbox = await (await call("/session-inbox")).json();
+      assert.equal((await call("/session-inbox", "GET", undefined, "wrong")).status, 401);
+      assert.ok(inbox.sessions.every(entry => entry.workspaceId !== "remote"));
+      assert.ok(!inbox.sessions.some(entry => entry.sessionId === "archived"));
+      assert.equal(inbox.sessions.find(entry => entry.sessionId === "existing").assistantAt, 0);
+      assert.deepEqual(inbox.sessions.find(entry => entry.sessionId === store.runs(seed.id)[0].sessionId).automation, { runId: store.runs(seed.id)[0].id, at: Date.parse(store.runs(seed.id)[0].startedAt), pinRunId: store.runs(seed.id)[0].id });
+      assert.equal(inbox.sessions.find(entry => entry.sessionId === store.runs(seed.id)[0].sessionId).assistantAt, 400);
       assert.equal(store.runs(seed.id)[0].status, "sent");
       assert.equal(store.runs(seed.id)[0].dueAt, new Date(missedDueAt).toISOString());
       assert.ok(Date.parse(store.runs(seed.id)[0].startedAt) >= missedDueAt + 5 * 60000);
@@ -59,7 +78,7 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       const viewer = (await issued.json()).token;
       assert.equal((await call(path, "GET", undefined, viewer)).status, 200);
       assert.equal((await call(path, "POST", {}, viewer)).status, 403);
-      const draft = { title: "Daily review", prompt: "Summarize open questions", sessionId: "existing", reuseChat: true, model: { providerID: "test", modelID: "model" }, schedule: { kind: "rrule", startAt: "2099-01-01T09:00:00", timeZone: "Europe/Berlin", rrule: "FREQ=DAILY" } };
+      const draft = { title: "Daily review", prompt: "Summarize open questions", sessionId: "existing", reuseChat: true, pinSession: false, model: { providerID: "test", modelID: "model" }, schedule: { kind: "rrule", startAt: "2099-01-01T09:00:00", timeZone: "Europe/Berlin", rrule: "FREQ=DAILY" } };
       assert.equal((await call(path, "POST", { ...draft, sessionId: "foreign" })).status, 400);
       assert.equal((await call(path, "POST", { ...draft, sessionId: "archived" })).status, 400);
       assert.equal((await call("/workspace/remote/scheduled-tasks", "POST", draft)).status, 400);
@@ -73,6 +92,7 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal(paused.model.providerID, "test");
       assert.equal(paused.projectAccess, "project");
       assert.equal(paused.reuseChat, true);
+      assert.equal(paused.pinSession, false);
       assert.equal((await call(path+"/"+task.id, "PATCH", { revision: 1, title: "Stale" })).status, 409);
       const resumed = (await (await call(path+"/"+task.id, "PATCH", { revision: 2, status: "active", projectAccess: "all" })).json()).task; assert.equal(resumed.status, "active");
       config.readOnly = true; assert.equal((await call(path+"/"+task.id, "DELETE", { revision: 3 })).status, 403); config.readOnly = false;
@@ -80,6 +100,7 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal((await (await call(path+"/"+task.id)).json()).task.title, "Daily review");
       assert.equal(store.get("project", task.id).projectAccess, "all");
       assert.equal(store.get("project", task.id).reuseChat, true);
+      assert.equal(store.get("project", task.id).pinSession, false);
       assert.equal((await call(path+"/"+task.id, "PATCH", { revision: 3, projectAccess: "everything" })).status, 400);
       const allowed = await (await call("/scheduled-tasks/projects")).json();
       assert.deepEqual(allowed.projects.map(project => project.id), ["project", "other"]);
@@ -107,10 +128,10 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal(deliveries[1].agent, "legalwork-scheduled-all");
       assert.deepEqual(deliveries[1].model, chosenModel);
       console.log("scheduled HTTP checks passed");
-    } finally { await server.stop(); engine.stop(true); }
+    } finally { await server.stop(); engine.stop(true); inboxDb.close(); }
   `);
   try {
-    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite") }, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite"), OPENCODE_DB: join(root, "opencode.sqlite") }, stdout: "pipe", stderr: "pipe" });
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, failure: exit === 0 ? "" : stderr + stdout }).toEqual({ exit: 0, failure: "" });
     expect(stdout).toContain("scheduled HTTP checks passed");

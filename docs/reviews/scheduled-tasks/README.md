@@ -20,6 +20,14 @@ Project-only runs use a hidden engine agent with an explicit allowlist of projec
 
 The boundary is an engine tool-access policy. Trusted local plugins continue to run normally, and existing chat history remains visible. Choose a new chat for each run when previous conversation context should not carry over. Scope changes apply to future runs, and each history entry retains the scope used for that run. No session permission settings are overwritten.
 
+## Sidebar delivery and unread replies
+
+Scheduled delivery announces a session change over the app's existing SSE connection. Each window reconciles authorized local chat metadata every five seconds, on reconnect and on focus. New chats continue to trigger a list refresh until they appear, including when an earlier refresh was skipped or failed. A full reconciliation every thirty seconds also catches removal and archive changes. The endpoint exposes IDs and timestamps, never transcript contents.
+
+Unseen assistant activity gets a small green dot on the chat, its project, and collapsed sections or parent chats containing it. User messages and compaction summaries do not create dots. A chat is read once its snapshot has loaded in the foreground; expansion or background prefetch does not clear it. Read markers persist across restarts and synchronize across windows. Older chats without a saved read marker appear unread until opened.
+
+Advanced includes **Add the chat to pinned chats**, enabled by default. Successful automation delivery records the actual destination and moves that chat to the top of Pinned. The right-hand clock identifies automation chats. Each run's pin is applied once, so a manual unpin survives refresh/restart until a later run with pinning enabled. Turning pinning off does not remove an existing pin. Failed deliveries do not pin. Saved delivery markers survive deleting a schedule.
+
 ## Execution and recovery
 
 - Tasks and the last 50 delivery records live in the local runtime SQLite database. The server checks immediately on startup, then polls every 15 seconds while it is running and the computer is awake.
@@ -38,6 +46,10 @@ Calendar repeats retain their wall time through daylight-saving changes. Ambiguo
 Chat scheduling automatically uses the computer's local time zone. The agent receives the current local date/time on each turn, and the creation tool fills in an omitted zone. Requests such as "every morning" default to 06:00 on the next future morning without asking for a time or zone. Explicit user times/zones take precedence; edits retain the task's saved zone.
 
 ## Verification, 2026-10-06
+
+- Sidebar follow-up: `pnpm --filter @legalwork/app test` passed all 867 tests; `pnpm --filter legalwork-server test` passed 1,523 tests with 16 opt-in tests skipped. App/server typechecks and production builds passed. `pnpm --filter @legalwork/app test:i18n` and `node scripts/i18n-audit.mjs --ci` passed (5,556 shipped translation keys).
+- New regressions cover assistant-only unread state, foreground reading, read persistence, exact destination pinning, manual unpin preservation, disabled pinning, restart recovery, task deletion, failed delivery, metadata reconciliation after a missed list fetch, pagination, authenticated metadata access, and archived/remote chat exclusion.
+- Browser integration verified a real scheduled delivery appears in Pinned without reloading, with a clock and unread dot, project and collapsed-section dots, clearing after opening the loaded chat, the Advanced default-on switch, and save/reopen persistence after turning it off. Tests used the real server, SQLite metadata, scheduler and production sidebar with a simulated engine.
 
 - Model selection follow-up: all 861 app tests and all 42 scheduling/server tests passed, including the actual bundled engine with simulated responses. App typecheck, app/server builds and plugin bundle resolution passed. Regression assertions cover capturing the current model without an agent argument, a changed chat model, failure to resolve the model, and delivering with an edited model after server restart.
 - UI model checks verified visible selection during creation, selection under Advanced during inline editing, model-only unsaved draft protection, Cancel restoration, and save/reload persistence. Search and selection work in German dark mode at 390 px without horizontal overflow. The browser reported no console errors. Checks used the isolated fixture, with no paid model calls or real user schedules changed.
@@ -72,7 +84,15 @@ pnpm --filter @legalwork/app dev --port 5197
 
 Open `http://localhost:5197/scheduled-tasks-preview.html` (append `?lang=de` for German or `?lang=de&theme=dark` for German dark mode). The fixture seeds synthetic tasks in a temporary directory and simulates the model engine. It does not touch personal schedules or send messages to a real account. Stop the fixture with Ctrl+C to remove its temporary data. The preview entry is development-only and excluded from the production build.
 
+The sidebar integration fixture is at `http://localhost:5197/session-inbox-preview.html`. Click **Schedule preview run** and keep the page open; the chat appears within the scheduler's fifteen-second check interval. Open it in a foreground window to clear the dots. Both fixtures use the same temporary server and never create paid model calls.
+
 ## Screenshots
+
+![Scheduled chat automatically pinned, with unread and clock indicators](sidebar-unread-pinned.png)
+
+![Opening the loaded chat clears unread indicators](sidebar-read.png)
+
+![Enabled-by-default Advanced pin preference](advanced-pin-session.png)
 
 ![Model selection during creation](create-model.png)
 

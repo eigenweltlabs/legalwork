@@ -7,13 +7,14 @@ import { ApiError } from "../errors.js";
 import { nextOccurrence } from "./schedule.js";
 
 export class ScheduledTaskStore {
-  private constructor(private db: SqliteHandle) {}
-  static async open(path: string) {
+  private constructor(private db: SqliteHandle, private onChange?: () => void) {}
+  static async open(path: string, onChange?: () => void) {
     await mkdir(dirname(path), { recursive: true });
     const db = await openSqlite(path);
     db.exec(`CREATE TABLE IF NOT EXISTS scheduled_tasks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS scheduled_task_runs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, data TEXT NOT NULL);`);
-    return new ScheduledTaskStore(db);
+      CREATE TABLE IF NOT EXISTS scheduled_task_runs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS scheduled_sessions (session_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, run_id TEXT NOT NULL, at INTEGER NOT NULL, pin_run_id TEXT);`);
+    return new ScheduledTaskStore(db, onChange);
   }
   list(workspaceId?: string): ScheduledTask[] {
     return this.db.all("SELECT data FROM scheduled_tasks" ).map(row => ScheduledTaskSchema.parse(JSON.parse(String(row.data))))
@@ -36,7 +37,7 @@ export class ScheduledTaskStore {
     return this.transaction(() => {
       const task = this.get(workspaceId, id);
       this.checkRevision(task, revision);
-      const input = ScheduledTaskInputSchema.parse({ title: task.title, prompt: task.prompt, schedule: task.schedule, sessionId: task.sessionId, model: task.model, projectAccess: task.projectAccess, reuseChat: task.reuseChat, ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "status")) });
+      const input = ScheduledTaskInputSchema.parse({ title: task.title, prompt: task.prompt, schedule: task.schedule, sessionId: task.sessionId, model: task.model, projectAccess: task.projectAccess, reuseChat: task.reuseChat, pinSession: task.pinSession, ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "status")) });
       const changedSchedule = JSON.stringify(input.schedule) !== JSON.stringify(task.schedule);
       const status = patch.status ?? (changedSchedule ? "active" : task.status);
       const recalculate = changedSchedule || (status === "active" && task.status !== "active");
@@ -63,7 +64,7 @@ export class ScheduledTaskStore {
       try { task = this.get(snapshot.workspaceId, snapshot.id); } catch { return null; }
       if (task.revision !== snapshot.revision || task.status !== "active" || !task.nextRunAt || Date.parse(task.nextRunAt) > now) return null;
       const nextRunAt = nextOccurrence(task.schedule, now);
-      const run: ScheduledRun = { projectAccess: task.projectAccess, id: randomUUID(), taskId: task.id, dueAt: task.nextRunAt, startedAt: new Date(now).toISOString(), sessionId: task.sessionId, status: "dispatching", error: null };
+      const run: ScheduledRun = { projectAccess: task.projectAccess, pinSession: task.pinSession, id: randomUUID(), taskId: task.id, dueAt: task.nextRunAt, startedAt: new Date(now).toISOString(), sessionId: task.sessionId, status: "dispatching", error: null };
       this.write({ ...task, nextRunAt, status: nextRunAt ? "active" : "completed", revision: task.revision + 1, updatedAt: run.startedAt });
       this.db.run("INSERT INTO scheduled_task_runs (id, task_id, data) VALUES (?, ?, ?)", [run.id, run.taskId, JSON.stringify(run)]);
       this.db.run("DELETE FROM scheduled_task_runs WHERE task_id = ? AND id NOT IN (SELECT id FROM scheduled_task_runs WHERE task_id = ? ORDER BY rowid DESC LIMIT 50)", [task.id, task.id]);
@@ -84,9 +85,23 @@ export class ScheduledTaskStore {
       return current.revision;
     });
   }
+  sessionActivity(): import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] {
+    return this.db.all("SELECT * FROM scheduled_sessions").map(row => ({
+      workspaceId: String(row.workspace_id), sessionId: String(row.session_id), updatedAt: Number(row.at), assistantAt: 0,
+      automation: { runId: String(row.run_id), at: Number(row.at), pinRunId: row.pin_run_id === null ? null : String(row.pin_run_id) },
+    }));
+  }
   record(run: ScheduledRun) {
     // UPDATE avoids resurrecting history after the user deletes a task mid-dispatch.
     this.db.run("UPDATE scheduled_task_runs SET data = ? WHERE id = ?", [JSON.stringify(run), run.id]);
+    if (run.status === "sent" && run.sessionId) {
+      const task = this.db.get("SELECT workspace_id FROM scheduled_tasks WHERE id = ?", [run.taskId]);
+      if (task) this.db.run(`INSERT INTO scheduled_sessions (session_id, workspace_id, run_id, at, pin_run_id) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET run_id = excluded.run_id, at = excluded.at,
+        pin_run_id = COALESCE(excluded.pin_run_id, scheduled_sessions.pin_run_id)
+        WHERE excluded.at >= scheduled_sessions.at`, [run.sessionId, String(task.workspace_id), run.id, Date.parse(run.startedAt), run.pinSession ? run.id : null]);
+      this.onChange?.();
+    }
   }
   fail(task: ScheduledTask, run: ScheduledRun, error: unknown, expectedRevision = task.revision + 1) {
     this.transaction(() => {

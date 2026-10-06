@@ -2719,6 +2719,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     decideCalculation: (workspaceId: string, id: string, action: "save" | "reject" | "acknowledge") => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}/decision`, { token, hostToken, method: "POST", body: { action } }),
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
+    sessionInbox: () => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
     scheduledTaskChats: (workspaceId: string, search = "") => requestJson<{ sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/chats?search=${encodeURIComponent(search)}`, { token, hostToken }),

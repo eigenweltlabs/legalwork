@@ -1,3 +1,4 @@
+import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
 import { workspaceCalendarRoute } from "./workspace-routes";
@@ -518,6 +519,7 @@ export function SessionRoute() {
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
+  useSessionInbox(client, workspaces, sessionsByWorkspaceId, loadWorkspaceSessionsInBackground);
   useEffect(() => {
     if (!client || detached) return;
     let cancelled = false;

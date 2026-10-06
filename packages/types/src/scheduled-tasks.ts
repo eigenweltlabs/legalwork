@@ -14,6 +14,7 @@ export const ScheduledTaskInputSchema = z.strictObject({
   sessionId: z.string().min(1).max(200).nullable(),
   // Older clients used a null sessionId to request a new chat on every run.
   reuseChat: z.boolean().default(false),
+  pinSession: z.boolean().default(true),
   model: z.object({ providerID: z.string().min(1), modelID: z.string().min(1) }).nullable().default(null),
 });
 export const ScheduledTaskSchema = ScheduledTaskInputSchema.extend({
@@ -24,9 +25,16 @@ export const ScheduledTaskSchema = ScheduledTaskInputSchema.extend({
 export const ScheduledRunSchema = z.object({
   id: z.uuid(), taskId: z.uuid(), dueAt: z.string(), startedAt: z.string(),
   projectAccess: z.enum(["project", "all"]).default("project"),
+  pinSession: z.boolean().default(true),
   sessionId: z.string().nullable(), status: z.enum(["dispatching", "sent", "failed"]), error: z.string().nullable(),
 });
 export type TaskSchedule = z.infer<typeof TaskScheduleSchema>;
 export type ScheduledTaskInput = z.infer<typeof ScheduledTaskInputSchema>;
 export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
 export type ScheduledRun = z.infer<typeof ScheduledRunSchema>;
+
+/** Sidebar metadata only. Transcript contents never leave the engine through this endpoint. */
+export type SessionInboxEntry = {
+  workspaceId: string; sessionId: string; updatedAt: number; assistantAt: number;
+  automation?: { runId: string; at: number; pinRunId: string | null };
+};

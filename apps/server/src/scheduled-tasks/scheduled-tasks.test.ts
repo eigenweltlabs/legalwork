@@ -9,7 +9,7 @@ import { ScheduledTaskRunner, type ScheduledExecutor } from "./runner.js";
 
 const now = Date.parse("2026-10-06T10:00:00Z");
 const schedule: TaskSchedule = { kind: "once", startAt: "2026-10-06T13:00:00", timeZone: "Europe/Berlin" };
-const input: ScheduledTaskInput = { title: "Matter brief", prompt: "Summarize open work.", schedule, projectAccess: "project", sessionId: "chat", reuseChat: false, model: null };
+const input: ScheduledTaskInput = { title: "Matter brief", prompt: "Summarize open work.", schedule, projectAccess: "project", sessionId: "chat", reuseChat: false, pinSession: true, model: null };
 const open = async () => {
   const path = join(await mkdtemp(join(tmpdir(), "scheduled-test-")), "runtime.sqlite");
   return { store: await ScheduledTaskStore.open(path), path };
@@ -211,5 +211,46 @@ describe("persistent scheduled task execution", () => {
     const { store } = await open(), task = store.create("project", input, now); let sent = false;
     const runner = new ScheduledTaskRunner(store, { available: async () => { store.update("project", task.id, 1, { status: "paused" }, now); return true; }, createSession: async () => "new", send: async () => { sent = true; } }, () => now + 3600000);
     await runner.tick(); expect(sent).toBe(false); expect(store.runs(task.id)).toHaveLength(0);
+  });
+});
+
+describe("scheduled chat inbox", () => {
+  test.each([true, false])("pin=%s records the actual destination and persists after restart and task removal", async pinSession => {
+    const { path } = await open();
+    let changes = 0;
+    const store = await ScheduledTaskStore.open(path, () => { changes++; });
+    const task = store.create("project", { ...input, sessionId: null, pinSession }, now);
+    const updated = store.update("project", task.id, task.revision, { title: "Updated" }, now);
+    expect(updated.pinSession).toBe(pinSession);
+    await new ScheduledTaskRunner(store, { available: async () => true, createSession: async () => "actual-destination", send: async () => {} }, () => now + 3600000).tick();
+    const [run] = store.runs(task.id);
+    expect(changes).toBe(1);
+    expect(run.pinSession).toBe(pinSession);
+    expect(store.sessionActivity()).toEqual([{ workspaceId: "project", sessionId: "actual-destination", assistantAt: 0, updatedAt: now + 3600000, automation: { runId: run.id, at: now + 3600000, pinRunId: pinSession ? run.id : null } }]);
+    const reopened = await ScheduledTaskStore.open(path);
+    reopened.remove("project", task.id, reopened.get("project", task.id).revision);
+    expect(reopened.sessionActivity()).toEqual(store.sessionActivity());
+  });
+  test("omitted pin setting defaults on, a disabled later run preserves the last pin marker", async () => {
+    const { store } = await open();
+    const { pinSession: _pinSession, ...legacy } = input;
+    const task = store.create("project", { ...legacy, schedule: { ...schedule, kind: "interval", minutes: 15 } }, now);
+    expect(task.pinSession).toBe(true);
+    const executor: ScheduledExecutor = { available: async () => true, createSession: async () => "unused", send: async () => {} };
+    await new ScheduledTaskRunner(store, executor, () => now + 3600000).tick();
+    const first = store.sessionActivity()[0];
+    const latest = store.get("project", task.id);
+    store.update("project", task.id, latest.revision, { pinSession: false }, now + 3600000);
+    await new ScheduledTaskRunner(store, executor, () => now + 4500000).tick();
+    expect(store.sessionActivity()[0].automation?.pinRunId).toBe(first.automation?.pinRunId);
+    expect(store.sessionActivity()[0].automation?.runId).not.toBe(first.automation?.runId);
+  });
+  test("failed delivery never adds a pin or announces successful activity", async () => {
+    const { path } = await open(); let changes = 0;
+    const store = await ScheduledTaskStore.open(path, () => { changes++; });
+    store.create("project", input, now);
+    await new ScheduledTaskRunner(store, { available: async () => true, createSession: async () => "unused", send: async () => { throw new Error("offline"); } }, () => now + 3600000).tick();
+    expect(store.sessionActivity()).toEqual([]);
+    expect(changes).toBe(0);
   });
 });

@@ -817,7 +817,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
-  const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config));
+  const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
     if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");

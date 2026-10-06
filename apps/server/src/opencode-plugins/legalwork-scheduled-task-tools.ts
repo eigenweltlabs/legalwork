@@ -26,7 +26,7 @@ const create = ScheduledTaskInputSchema.omit({ sessionId: true, reuseChat: true,
   schedule: z.discriminatedUnion("kind", [once.extend({ timeZone }), interval.extend({ timeZone }), rrule.extend({ timeZone })]),
 });
 const get = z.object({ taskId: z.uuid() });
-const update = z.object({ taskId: z.uuid(), revision: z.number().int().positive(), patch: ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), status: z.enum(["active", "paused"]).optional() }) });
+const update = z.object({ taskId: z.uuid(), revision: z.number().int().positive(), patch: ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), pinSession: ScheduledTaskInputSchema.shape.pinSession.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), status: z.enum(["active", "paused"]).optional() }) });
 
 async function runningModel(client: ReturnType<typeof createOpencodeClient> | undefined, context: OpenCodeContext) {
   if (!client || !context.sessionID || !context.messageID) throw new Error("Could not read the current chat model. Retry creating the scheduled task.");
