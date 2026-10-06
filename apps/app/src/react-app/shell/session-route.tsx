@@ -114,6 +114,8 @@ import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
+import { replaceHomeAttachmentTokens, type HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
+import { seedSessionState, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -2188,7 +2190,7 @@ export function SessionRoute() {
     pendingHomeMessage.current = null;
   }, [homePage, homeEntryProjectId]);
 
-  const handleHomeSend = async (text: string, files: File[]) => {
+  const handleHomeSend = async (text: string, attachments: HomeDraftAttachment[]) => {
     if (homeSending.current) return;
     if (!client) throw new Error(t("session_route.create_server_unavailable"));
     const model = local.prefs.defaultModel;
@@ -2196,10 +2198,13 @@ export function SessionRoute() {
     if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
     homeSending.current = true;
     try {
+      const files = attachments.flatMap(({ source }) => source instanceof File ? [source] : []);
+      const references = attachments.flatMap(({ source }) => source instanceof File ? [] : [source]);
+      const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);
       let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
-        const name = text.trim().split(/\r?\n/)[0].slice(0, 80) || files[0]?.name || t("home.new_project");
+        const name = displayText.trim().split(/\r?\n/)[0].slice(0, 80) || t("home.new_project");
         const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", projectFields: newProjectFields() });
         const createdId = resolveWorkspaceListSelectedId(list);
         const created = list.workspaces.find((item) => item.id === createdId);
@@ -2229,6 +2234,9 @@ export function SessionRoute() {
         workspaceId: endpoint.workspaceId,
         text,
         files,
+        references,
+        attachments,
+        referenceClient: endpoint.client,
         pending,
         client: endpoint.client,
         createSession: async () => {
@@ -2258,6 +2266,14 @@ export function SessionRoute() {
           captureAnalyticsEvent("task_message_sent", { session_id: sessionId, provider_id: model.providerID, model_id: model.modelID, surface: analyticsSurface() });
         },
       });
+      // Populate the destination before navigating so the sent message does not
+      // disappear into an empty-session welcome/loading view during the handoff.
+      // A snapshot failure must never turn an accepted send into a retry.
+      await getReactQueryClient().fetchQuery({
+        queryKey: snapshotKey(endpoint.workspaceId, sessionId),
+        queryFn: async () => (await endpoint.client.getSessionSnapshot(endpoint.workspaceId, sessionId, { limit: 140 })).item,
+        retry: false,
+      }).then((snapshot) => seedSessionState(endpoint.workspaceId, snapshot)).catch(() => undefined);
       pendingHomeMessage.current = null;
       setLegacySelectedWorkspaceId(targetWorkspace.id);
       writeActiveWorkspaceId(targetWorkspace.id);
