@@ -8,9 +8,8 @@
  *  - Own model is free and opens the provider connection. Closing that
  *    without connecting lands back here: the route keeps the screen up until
  *    a model is usable.
- *  - Plus and Pro run the Eigenwelt sign-in in the browser and carry the plan,
- *    so a firm without a subscription lands on that plan's checkout (sign-up,
- *    firm, trial) and the app connects when it is done.
+ *  - Paid plans confirm billing and seats here. The browser handles Eigenwelt
+ *    sign-in, Stripe checkout and model setup, then connects the app.
  *
  * The variant follows the account: "signed-out" asks to sign in first (the
  * cards stay one click away), "ended" offers to restart a plan, and
@@ -23,6 +22,11 @@
  *                                previous_choice is the earlier choice on this
  *                                screen, e.g. own_model before plus
  *   ai_plans_sign_in_started     { choice } the browser opened
+ *   ai_plans_confirmation_viewed { plan, interval, seats, trial_offered } once per visit
+ *   ai_plans_billing_interval_changed { plan, from, to, seats }
+ *   ai_plans_seats_adjusted      { plan, from, to, interval }
+ *   ai_plans_confirmation_back  { plan, interval, seats, source } back | change_plan
+ *   ai_plans_checkout_confirmed  { plan, interval, seats, trial_offered } native confirmation
  *   ai_plans_sign_in_cancelled   { choice } "Cancel" while the browser was open
  *   ai_plans_sign_in_failed      { choice }
  *   ai_plans_connected           { choice } the sign-in finished
@@ -31,6 +35,8 @@
  *   ai_plans_updates_opened                 "Check for updates"
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import {
   ArrowLeft,
   Check,
@@ -56,6 +62,8 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { cn } from "@/lib/utils";
 import { StepDots } from "./onboarding-cover";
+import { PlanConfirmation } from "./plan-confirmation";
+import "./ai-plans-transition.css";
 
 type SignInResult = {
   connected: boolean;
@@ -77,10 +85,12 @@ export type AiPlansOverlayProps = {
   account: AiPlansAccount | null;
   /** The LegalWork server is up. Every action needs it. */
   serverReady: boolean;
+  initialSeats?: number;
   /** Bind the sign-in loopback and return the platform URL to open. */
   onStartSignIn: (opts: {
     intent?: "sign-in";
     plan?: EigenweltPlanId;
+    checkout?: EigenweltCheckoutSelection;
   }) => Promise<{ authorizeUrl: string; sessionId: string }>;
   /** Long-poll until the browser flow completes. */
   onWaitSignIn: (
@@ -108,6 +118,7 @@ export type AiPlansOverlayProps = {
 
 type Phase =
   | { kind: "choose" }
+  | { kind: "confirm"; plan: EigenweltPlanId }
   /** A sign-in (with or without a plan) is open in the browser. */
   | { kind: "browser"; plan: EigenweltPlanId | null; authorizeUrl: string }
   /** "no-models": the billing page is open; the plan is re-read until it has the models. */
@@ -157,7 +168,7 @@ const FEATURES: Record<EigenweltPlanId, string[]> = {
 // action, features), so the buttons line up across the cards whatever the
 // length of the text above them.
 const cardClass =
-  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 shadow-[0_24px_60px_-34px_rgba(15,23,42,0.45)] md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
+  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
 const planButtonClass =
   "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
 const textLinkClass =
@@ -226,9 +237,9 @@ function CardFrame(props: {
   priceNote?: string;
 }) {
   return (
-    <article className={cardClass} data-testid={props.testId}>
+    <article className={cardClass} data-testid={props.testId} style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-card-") }}>
       <div className="flex min-h-9 items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]">
+        <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]" style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-name-") }}>
           {props.icon ? (
             <span
               aria-hidden
@@ -245,7 +256,7 @@ function CardFrame(props: {
         {props.tagline}
       </p>
       <div className="mt-4 roomy:mt-5">
-        <div className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]">
+        <div className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]" style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-price-") }}>
           {props.price}
         </div>
         <div className="mt-1.5 text-[13px] leading-[18px] text-dls-secondary roomy:mt-2 roomy:text-[15px] roomy:leading-[22px]">
@@ -382,9 +393,38 @@ function UpdatesLink(props: { onClick: () => void }) {
 
 export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const locale = useLocale();
+  const { mode, variant } = props;
   const titleId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "choose" });
+  const [checkout, setCheckout] = useState<EigenweltCheckoutSelection>({ interval: "year", seats: Math.min(Math.max(props.initialSeats ?? 1, 1), 500) });
+  const transitionRef = useRef<ViewTransition | null>(null);
+  const confirmationVisitRef = useRef<EigenweltPlanId | null>(null);
+  const choiceScroll = useRef(0);
+  const confirmPlan = (plan: EigenweltPlanId | null, source?: "back" | "change_plan") => {
+    if (!plan && phase.kind === "confirm" && source) {
+      captureAnalyticsEvent("ai_plans_confirmation_back", { plan: phase.plan, interval: checkout.interval, seats: checkout.seats, source, mode, variant });
+    }
+    const scroller = containerRef.current?.querySelector<HTMLElement>(".overflow-y-auto");
+    if (plan) choiceScroll.current = scroller?.scrollTop ?? 0;
+    const update = () => {
+      flushSync(() => setPhase(plan ? { kind: "confirm", plan } : { kind: "choose" }));
+      const heading = containerRef.current?.querySelector<HTMLElement>("h1");
+      if (heading?.hasAttribute("tabindex")) heading.focus({ preventScroll: true });
+      else containerRef.current?.focus({ preventScroll: true });
+      scroller?.scrollTo({ top: plan ? 0 : choiceScroll.current, behavior: "instant" });
+    };
+    if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) { update(); return; }
+    transitionRef.current?.skipTransition();
+    document.documentElement.dataset.aiPlanTransition = "true";
+    const active = document.startViewTransition(update);
+    transitionRef.current = active;
+    void active.ready.catch(() => {});
+    void active.finished.finally(() => {
+      if (transitionRef.current === active) { transitionRef.current = null; delete document.documentElement.dataset.aiPlanTransition; }
+    }).catch(() => {});
+  };
+  useEffect(() => () => { transitionRef.current?.skipTransition(); delete document.documentElement.dataset.aiPlanTransition; }, []);
   // "signed-out" starts on the sign-in card; this shows the cards instead.
   const [showPlans, setShowPlans] = useState(false);
   const [aiTier, setAiTier] = useState("plus");
@@ -402,8 +442,27 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   // then a plan". Lives as long as the screen does.
   const lastChoiceRef = useRef<AiPlansChoice | null>(null);
 
-  const { mode, variant } = props;
   const signInFirst = variant === "signed-out" && !showPlans;
+  const offerTrial = variant === "new" || variant === "signed-out";
+
+  useEffect(() => {
+    if (phase.kind !== "confirm") { confirmationVisitRef.current = null; return; }
+    // Billing edits and Strict Mode effect replays are still the same visit.
+    if (confirmationVisitRef.current === phase.plan) return;
+    confirmationVisitRef.current = phase.plan;
+    captureAnalyticsEvent("ai_plans_confirmation_viewed", { plan: phase.plan, interval: checkout.interval, seats: checkout.seats, trial_offered: offerTrial, mode, variant });
+  }, [phase, checkout.interval, checkout.seats, offerTrial, mode, variant]);
+
+  const changeCheckout = (selection: EigenweltCheckoutSelection) => {
+    if (phase.kind !== "confirm") return;
+    if (selection.interval !== checkout.interval) {
+      captureAnalyticsEvent("ai_plans_billing_interval_changed", { plan: phase.plan, from: checkout.interval, to: selection.interval, seats: selection.seats, mode, variant });
+    }
+    if (selection.seats !== checkout.seats) {
+      captureAnalyticsEvent("ai_plans_seats_adjusted", { plan: phase.plan, from: checkout.seats, to: selection.seats, interval: selection.interval, mode, variant });
+    }
+    setCheckout(selection);
+  };
 
   useEffect(() => {
     containerRef.current?.focus({ preventScroll: true });
@@ -418,7 +477,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     variantRef.current = variant;
     setShowPlans(false);
     setPhase((current) =>
-      current.kind === "connecting" ? { kind: "choose" } : current,
+      current.kind === "connecting" || current.kind === "confirm" ? { kind: "choose" } : current,
     );
   }, [variant]);
 
@@ -443,18 +502,20 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     lastChoiceRef.current = choice;
   };
 
-  const signIn = async (plan: EigenweltPlanId | null) => {
+  const signIn = async (plan: EigenweltPlanId | null, confirmed = false) => {
     if (disabled) return;
     const flow = ++flowRef.current;
     const choice: AiPlansChoice = plan ?? "sign_in";
     setError(null);
-    trackChoice(choice);
+    if (!confirmed) trackChoice(choice);
+    else captureAnalyticsEvent("ai_plans_checkout_confirmed", { plan, interval: checkout.interval, seats: checkout.seats, trial_offered: offerTrial, mode, variant });
     // New customers land on sign-up; everyone who had an account on sign-in.
     const intent = variant === "new" && plan ? undefined : ("sign-in" as const);
     try {
       const { authorizeUrl, sessionId } = await props.onStartSignIn({
         ...(intent ? { intent } : {}),
         ...(plan ? { plan } : {}),
+        ...(plan && confirmed ? { checkout } : {}),
       });
       if (flowRef.current !== flow) return;
       setPhase({ kind: "browser", plan, authorizeUrl });
@@ -474,11 +535,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         props.onSignedIn(plan);
         return;
       }
-      setPhase({ kind: "choose" });
+      setPhase(confirmed && plan ? { kind: "confirm", plan } : { kind: "choose" });
       if (!result.cancelled && result.message) setError(result.message);
     } catch (signInError) {
       if (flowRef.current !== flow) return;
-      setPhase({ kind: "choose" });
+      setPhase(confirmed && plan ? { kind: "confirm", plan } : { kind: "choose" });
       setError(
         signInError instanceof Error
           ? signInError.message
@@ -519,7 +580,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
 
   const choosePlan = (plan: EigenweltPlanId) => {
     if (variant === "no-models" && plan !== "sync") upgrade(plan);
-    else void signIn(plan);
+    else { setError(null); trackChoice(plan); confirmPlan(plan); }
   };
 
   const bringOwnModel = () => {
@@ -538,7 +599,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       });
     }
     ++flowRef.current;
-    setPhase({ kind: "choose" });
+    setPhase(phase.kind === "browser" && phase.plan ? { kind: "confirm", plan: phase.plan } : { kind: "choose" });
   };
 
   const switchAccount = async () => {
@@ -562,14 +623,12 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
 
   const planLabel = (plan: EigenweltPlan) => {
     switch (variant) {
-      case "new":
-        return t("ai_plans.try", { plan: plan.name });
       case "ended":
         return t("ai_plans.restart", { plan: plan.name });
       case "no-models":
         return t("ai_plans.upgrade", { plan: plan.name });
       default:
-        return t("ai_plans.get", { plan: plan.name });
+        return t("ai_plans.try", { plan: plan.name });
     }
   };
   const firm = props.account?.firmName ?? t("ai_plans.your_firm");
@@ -584,9 +643,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       ? t("ai_plans.subtitle_ended", { firm })
       : variant === "no-models"
         ? t("ai_plans.subtitle_no_models", { firm })
-        : variant === "signed-out"
-          ? t("ai_plans.subtitle_returning")
-          : t("ai_plans.subtitle");
+        : t("ai_plans.subtitle");
   const account = accountLabel(props.account);
 
   const notice = error ? (
@@ -606,7 +663,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       </div>
     ) : null;
 
-  const backRow =
+  const backRow = phase.kind === "confirm" ? <BackButton onClick={() => confirmPlan(null, "back")} /> :
     mode === "onboarding" && props.onBack ? (
       <BackButton onClick={props.onBack} />
     ) : null;
@@ -669,7 +726,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             variant="outline"
             size="lg"
             className="mt-6 h-10 w-full rounded-full"
-            onClick={() => void signIn(phase.plan)}
+            onClick={() => void openDesktopUrl(phase.authorizeUrl)}
           >
             {t("ai_plans.open_again")}
           </Button>
@@ -695,6 +752,16 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         ) : null}
       </FocusCard>
     );
+  } else if (phase.kind === "confirm") {
+    body = <>
+      <header className="mx-auto max-w-[760px] text-center roomy:max-w-[900px]">
+        {stepDots}
+        <h1 id={titleId} tabIndex={-1} className="text-[30px] font-medium leading-[1.08] tracking-[-0.035em] text-dls-text outline-none lg:text-[32px] roomy:text-[38px]">{t("ai_plans.confirm_title")}</h1>
+        {notice ? <div className="mt-4">{notice}</div> : null}
+      </header>
+      <div className="mt-8 md:mt-10 roomy:mt-14 md:[@media(max-height:800px)]:mt-6"><PlanConfirmation planId={phase.plan} selection={checkout} disabled={disabled} offerTrial={offerTrial}
+        onChange={changeCheckout} onBack={() => confirmPlan(null, "change_plan")} onConfirm={() => void signIn(phase.plan, true)} /></div>
+    </>;
   } else if (signInFirst) {
     body = (
       <div className="mx-auto flex w-full max-w-[480px] flex-col">
@@ -869,7 +936,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
-          <div className="flex flex-1 flex-col justify-center py-8 roomy:py-10">
+          <div className={cn("flex flex-1 flex-col justify-center py-8 roomy:py-10", phase.kind === "confirm" && "[@media(max-height:780px)]:py-4")}>
             {body}
           </div>
           {backRow || footerCenter || updatesLink ? (
