@@ -1,5 +1,7 @@
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
+import { useOrgPolicyForbids } from "@/react-app/domains/connections/org-policy";
+import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 import {
   useCallback,
   useEffect,
@@ -360,6 +362,7 @@ export function SessionRoute() {
   const [showWorkflows, setShowWorkflows] = useState(location.pathname === "/workflows");
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(location.pathname === "/recorder");
+  const recorderOff = useOrgPolicyForbids("recorder.allow");
   const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
   const recordingSessionStarting = useRef(false);
   const [showTasks, setShowTasks] = useState(location.pathname === "/tasks");
@@ -2558,6 +2561,10 @@ export function SessionRoute() {
               navigateToWorkspaceSession(workspaceId, sessionId);
             }}
           />
+        ) : showRecorder && recorderOff ? (
+          <div className="mx-auto w-full max-w-2xl p-6">
+            <OrgPolicyFeatureOff />
+          </div>
         ) : showRecorder ? (
           <RecorderPane
             project={recorderProject}

@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, CheckCircle2, Info, TriangleAlert, XCircle } from "lucide-react";
+import { orgPolicyAllows, useOrgPolicyForbids } from "@/react-app/domains/connections/org-policy";
+import { OrgPolicyNote } from "@/react-app/domains/connections/org-policy-ui";
 
 import type { OfficeAddinAppId, OfficeAddinStatus } from "@legalwork/types/desktop-ipc";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -44,6 +46,7 @@ function StatusRow({ ok, label }: { ok: boolean; label: string }) {
 }
 
 export function OfficeAddinsView() {
+  const installOff = useOrgPolicyForbids("officeAddins.allow");
   const queryClient = useQueryClient();
   const desktop = isDesktopRuntime();
   const [busyApp, setBusyApp] = useState<OfficeAddinAppId | null>(null);
@@ -180,6 +183,8 @@ export function OfficeAddinsView() {
         </Alert>
       ) : null}
 
+      <OrgPolicyNote policyKey="officeAddins.allow" />
+
       {detectedApps.length > 0 ? (
         <LayoutSection>
           {detectedApps.map((app) => (
@@ -212,8 +217,8 @@ export function OfficeAddinsView() {
               ) : (
                 <Button
                   size="sm"
-                  disabled={busy || !status?.supported || !status?.toolAvailable}
-                  onClick={() => requestInstall(app.id)}
+                  disabled={busy || !status?.supported || !status?.toolAvailable || installOff}
+                  onClick={() => void orgPolicyAllows("officeAddins.allow").then((allowed) => allowed && requestInstall(app.id))}
                 >
                   {busyApp === app.id && installMutation.isPending
                     ? t("office_addins.installing")

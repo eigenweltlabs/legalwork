@@ -57,6 +57,17 @@ export function OrgPolicyNote({ policyKey }: { policyKey: OrgPolicyKey }) {
   );
 }
 
+/** In place of a feature the firm switched off for its members. */
+export function OrgPolicyFeatureOff() {
+  const org = useOrgName();
+  return (
+    <Alert>
+      <Lock />
+      <AlertDescription>{t("org_policy.disallowed", { org })}</AlertDescription>
+    </Alert>
+  );
+}
+
 /** Where the firm provides providers or engines: after sign-out they wait for the member to sign in again. */
 export function OrgPolicySignInHint({ policyKey }: { policyKey: "ai.chat.providers" | "ai.systemOne.providers" | "ai.ocr.engines" }) {
   const waiting = useOrgPolicyStore((state) => state.view?.state === "lapsed" && (state.view.entries[policyKey]?.value.length ?? 0) > 0);

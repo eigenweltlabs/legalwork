@@ -1,5 +1,6 @@
 import { SystemOneSettingsSection } from "../domains/settings/pages/systemone-view";
 import { TabularReviewSettingsView } from "../domains/settings/pages/tabular-review-view";
+import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -106,7 +107,7 @@ import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
-import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
 import { useSyncEvents } from "@/react-app/kernel/sync-events";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
@@ -836,6 +837,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const releaseChannel = firmReleaseChannel ? firmReleaseChannel.value : local.prefs.releaseChannel ?? "stable";
   // The firm can only switch anonymous usage sharing off.
   const firmAnalytics = useOrgPolicy("privacy.shareAnonymousUsage");
+  const recorderOff = useOrgPolicyForbids("recorder.allow");
+  const evaluationsOff = useOrgPolicyForbids("evaluations.allow");
   const analyticsEnabled = local.prefs.analyticsEnabled === true && firmAnalytics?.value !== false;
   const onReleaseChannelChange = useCallback(
     (next: "stable" | "alpha") => {
@@ -2139,6 +2142,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
         );
       case "benchmark":
+        if (evaluationsOff) return <SettingsStack><OrgPolicyFeatureOff /></SettingsStack>;
         return (
           <BenchmarkView
             legalworkClient={legalworkClient}
@@ -2505,7 +2509,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "office-addins":
         return <OfficeAddinsView />;
       case "recorder":
-        return <RecorderSettingsView />;
+        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff /></SettingsStack> : <RecorderSettingsView />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:

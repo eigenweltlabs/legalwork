@@ -79,7 +79,10 @@ type AllowKey =
   | "storage.allowPersonal"
   | "ai.chat.allowCustom"
   | "ai.systemOne.allowCustom"
-  | "ai.ocr.allowCustom";
+  | "ai.ocr.allowCustom"
+  | "recorder.allow"
+  | "officeAddins.allow"
+  | "evaluations.allow";
 
 /**
  * Before an action the firm may switch off; true when it may go ahead.
