@@ -56,6 +56,7 @@ type EditorProps = {
   pastedText?: Array<{ label: string; lines: number }>;
   disabled: boolean;
   placeholder: string;
+  ariaLabel?: string;
   onChange: (value: string) => void;
   onSubmit: (options: { queue: boolean }) => void | Promise<void>;
   onExpandPastedText?: (label: string) => void;
@@ -950,6 +951,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
             <ContentEditable
               className="min-h-[72px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
               aria-placeholder={props.placeholder}
+              aria-label={props.ariaLabel}
               placeholder={<span />}
               onPaste={props.onPaste}
               onDrop={props.onDrop}

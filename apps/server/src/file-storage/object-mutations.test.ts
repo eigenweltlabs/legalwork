@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { objectMutations, type StoredObject } from "./object-mutations.js";
 import { conflict, renameDestination } from "./common.js";
+import type { StorageTransferUpdate } from "@legalwork/types/file-storage";
 
 function fixture(beforeCopy?: (path: string, files: Map<string, string>) => void, beforeRemove?: (path: string, files: Map<string, string>) => void) {
   const files = new Map([["old/a.txt", "a"], ["old/nested/b.txt", "b"], ["old/empty/", "marker"]]);
@@ -28,6 +29,14 @@ test("renames a complete prefix including nested files and empty folder markers"
   files.set("old-other/file", "unrelated");
   await adapter.rename!("old", "new", "folder");
   expect([...files]).toEqual([["old-other/file", "unrelated"], ["new/a.txt", "a"], ["new/nested/b.txt", "b"], ["new/empty/", "marker"]]);
+});
+test("native object-store moves report file progress without counting folder markers as files", async () => {
+  const { adapter } = fixture();
+  const updates: StorageTransferUpdate[] = [];
+  await adapter.rename!("old", "new", "folder", (progress) => updates.push(progress));
+  expect(updates.filter((progress) => progress.phase === "transferring").map((progress) => progress.completedFiles)).toEqual([0, 1, 2]);
+  expect(updates.every((progress) => progress.totalFiles === 2)).toBe(true);
+  expect(updates.at(-1)).toMatchObject({ phase: "removing", completedFiles: 2 });
 });
 test("rejects virtual-folder and file collisions before copying", async () => {
   for (const destination of ["new", "new/existing"]) {
@@ -76,4 +85,13 @@ test("renames cannot move roots, traverse folders, or inject protocol commands",
   for (const name of ["../outside", "a/b", "..", "/root", "a\\b", "file\r\nDELE x", ""]) expect(() => renameDestination("Matter/old", name)).toThrow();
   expect(() => renameDestination("", "new")).toThrow();
   expect(() => renameDestination("old", "old")).toThrow();
+});
+test("transfer cleanup rejects stale versions and removes only empty folder markers", async () => {
+  const { adapter, files, deleted } = fixture();
+  await expect(adapter.deleteFile!("old/a.txt", { version: "old version" })).rejects.toMatchObject({ code: "storage_conflict" });
+  await expect(adapter.deleteFolder!("old", false)).rejects.toMatchObject({ code: "storage_conflict" });
+  expect(deleted).toEqual([]);
+  await adapter.deleteFolder!("old/empty", false);
+  expect(files.has("old/empty/")).toBe(false);
+  expect(files.get("old/a.txt")).toBe("a");
 });

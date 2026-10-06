@@ -1380,6 +1380,16 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
   seedTodoState(workspaceId, snapshot.session.id, snapshot.todos);
 }
 
+/** Keep an accepted prompt visible while the first snapshot/SSE catches up. */
+export function seedSubmittedMessage(workspaceId: string, sessionId: string, message: UIMessage) {
+  const queryClient = getReactQueryClient();
+  queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId), (current = []) =>
+    reconcileTranscriptMessages({ currentMessages: current, snapshotMessages: [message] }),
+  );
+  useSessionActivityStore.getState().setRunStatus(workspaceId, sessionId, { type: "busy" });
+  queryClient.setQueryData(statusKey(workspaceId, sessionId), { type: "busy" });
+}
+
 /**
  * Surface a client-originated terminal error in the chat transcript.
  *
