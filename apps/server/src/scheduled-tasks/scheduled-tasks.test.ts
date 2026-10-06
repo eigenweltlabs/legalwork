@@ -56,6 +56,66 @@ describe("local task recurrence", () => {
 });
 
 describe("persistent scheduled task execution", () => {
+  const restartCases: { name: string; schedule: TaskSchedule; reopenedAt: string; nextRunAt: string | null }[] = [
+    { name: "one-time task five minutes late", schedule, reopenedAt: "2026-10-06T11:05:00Z", nextRunAt: null },
+    { name: "interval task five minutes late", schedule: { ...schedule, kind: "interval", minutes: 15 }, reopenedAt: "2026-10-06T11:05:00Z", nextRunAt: "2026-10-06T11:15:00.000Z" },
+    { name: "daily task five minutes late", schedule: recurring("FREQ=DAILY", schedule.startAt), reopenedAt: "2026-10-06T11:05:00Z", nextRunAt: "2026-10-07T11:00:00.000Z" },
+    { name: "daily task after several missed days", schedule: recurring("FREQ=DAILY", schedule.startAt), reopenedAt: "2026-10-09T11:05:00Z", nextRunAt: "2026-10-10T11:00:00.000Z" },
+    { name: "final calendar occurrence five minutes late", schedule: recurring("FREQ=DAILY;COUNT=1", schedule.startAt), reopenedAt: "2026-10-06T11:05:00Z", nextRunAt: null },
+  ];
+  test.each(restartCases)("startup catches up $name exactly once", async ({ schedule, reopenedAt, nextRunAt }) => {
+    const { store, path } = await open();
+    const task = store.create("project", { ...input, schedule, sessionId: null }, now);
+    const paused = store.create("project", { ...input, schedule }, now);
+    store.update("project", paused.id, paused.revision, { status: "paused" }, now);
+    let created = 0, sent = 0;
+    const executor: ScheduledExecutor = {
+      available: async () => true,
+      createSession: async () => `new-${++created}`,
+      send: async () => { sent++; },
+    };
+    // No runner existed while the app was closed. Reopen the persisted database,
+    // then use the real startup entry point, without manually polling the runner.
+    for (let restart = 0; restart < 2; restart++) {
+      const reopened = await ScheduledTaskStore.open(path);
+      const runner = new ScheduledTaskRunner(reopened, executor, () => Date.parse(reopenedAt));
+      const stop = runner.start();
+      try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(sent).toBe(1);
+        expect(created).toBe(1);
+        expect(reopened.runs(task.id)).toHaveLength(1);
+        expect(reopened.runs(task.id)[0]).toMatchObject({ dueAt: task.nextRunAt, startedAt: new Date(reopenedAt).toISOString(), status: "sent", sessionId: "new-1" });
+        expect(reopened.get("project", task.id)).toMatchObject({ nextRunAt, status: nextRunAt ? "active" : "completed" });
+        expect(reopened.runs(paused.id)).toHaveLength(0);
+        expect(reopened.get("project", paused.id).status).toBe("paused");
+      } finally { stop(); }
+    }
+  });
+  test("startup keeps an overdue task pending until the engine becomes available", async () => {
+    const { store, path } = await open();
+    const task = store.create("project", input, now);
+    const reopened = await ScheduledTaskStore.open(path);
+    let ready = false, sent = 0, time = Date.parse("2026-10-06T11:05:00Z");
+    const runner = new ScheduledTaskRunner(reopened, {
+      available: async () => { if (!ready) throw new Error("Engine is starting"); return true; },
+      createSession: async () => "new",
+      send: async () => { sent++; },
+    }, () => time);
+    const stop = runner.start();
+    try {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(sent).toBe(0);
+      expect(reopened.runs(task.id)).toHaveLength(0);
+      expect(reopened.get("project", task.id)).toEqual(task);
+      ready = true; time += 15000;
+      await runner.tick();
+      await runner.tick();
+      expect(sent).toBe(1);
+      expect(reopened.runs(task.id)[0]).toMatchObject({ dueAt: task.nextRunAt, startedAt: "2026-10-06T11:05:15.000Z", status: "sent" });
+      expect(reopened.get("project", task.id).status).toBe("completed");
+    } finally { stop(); }
+  });
   test("persists edits, rejects stale revisions and cross-project access", async () => {
     const { store, path } = await open(), task = store.create("project", input, now);
     store.update("project", task.id, 1, { title: "Updated" }, now);

@@ -90,7 +90,7 @@ const de = {
   "scheduled.template_review": "Wöchentlicher Projektüberblick",
   "scheduled.template_review_description": "Behalten Sie Fortschritt, Änderungen und anstehende Entscheidungen im Blick.",
   "scheduled.template_review_prompt": "Prüfen Sie die Arbeit in diesem Projekt aus der vergangenen Woche. Fassen Sie Fortschritte, offene Fragen und benötigte Entscheidungen zusammen. Verlinken Sie die relevanten Aufgaben und Dokumente.",
-  "scheduled.local_detail": "Aufgaben laufen lokal. Nach einer Unterbrechung werden verpasste Wiederholungen zu einem Lauf zusammengefasst. Chat-Berechtigungen gelten weiterhin.",
+  "scheduled.local_detail": "Aufgaben laufen lokal. Ist LegalWork zum geplanten Zeitpunkt geschlossen, wird die Aufgabe beim nächsten Öffnen nachgeholt. Verpasste Wiederholungen werden zu einem Lauf zusammengefasst. Chat-Berechtigungen gelten weiterhin.",
   "calc.period_days_one": "{count} Tag",
   "calc.period_weeks_one": "{count} Woche",
   "calc.period_months_one": "{count} Monat",

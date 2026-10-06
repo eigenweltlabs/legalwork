@@ -36,7 +36,8 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       workspaces: [{ id: "project", name: "Test", path: folder, preset: "starter", workspaceType: "local", baseUrl: "http://127.0.0.1:" + engine.port }, { id: "other", name: "Other", path: root, preset: "starter", workspaceType: "local" }, { id: "remote", name: "Remote", path: root, preset: "starter", workspaceType: "remote" }],
       authorizedRoots: [root], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
     const store = await ScheduledTaskStore.open(process.env.LEGALWORK_RUNTIME_DB);
-    const seed = store.create("project", { title: "Catch up", prompt: "Review the matter", sessionId: null, model: null, schedule: { kind: "once", startAt: new Date(Date.now()-1000).toISOString(), timeZone: "Europe/Berlin" } }, Date.now()-2000);
+    const missedDueAt = Date.now() - 5 * 60000;
+    const seed = store.create("project", { title: "Catch up", prompt: "Review the matter", sessionId: null, model: null, schedule: { kind: "once", startAt: new Date(missedDueAt).toISOString(), timeZone: "Europe/Berlin" } }, missedDueAt - 60000);
     let server = await startServer(config);
     let base = "http://127.0.0.1:" + server.port;
     const call = (path, method="GET", body, token="test") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -45,6 +46,8 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       for (let i=0; i<100 && store.runs(seed.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 1);
       assert.equal(store.runs(seed.id)[0].status, "sent");
+      assert.equal(store.runs(seed.id)[0].dueAt, new Date(missedDueAt).toISOString());
+      assert.ok(Date.parse(store.runs(seed.id)[0].startedAt) >= missedDueAt + 5 * 60000);
       assert.equal(deliveries[0].parts[0].text, "[Scheduled task: Catch up]\\n\\nReview the matter");
       assert.equal(deliveries[0].permission, undefined);
       assert.equal(deliveries[0].agent, "legalwork-scheduled-project");

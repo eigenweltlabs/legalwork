@@ -80,7 +80,7 @@ export default {
   "scheduled.template_review": "Weekly project review",
   "scheduled.template_review_description": "Keep track of progress, changes and decisions to make.",
   "scheduled.template_review_prompt": "Review the work in this project from the past week. Summarize progress, outstanding questions and decisions needed from me. Link to the relevant tasks and documents.",
-  "scheduled.local_detail": "Tasks run locally. After downtime, missed repeats are combined into one run. Chat permissions still apply.",
+  "scheduled.local_detail": "Tasks run locally. If LegalWork is closed when a task is due, it catches up when you reopen the app. Missed repeats are combined into one run. Chat permissions still apply.",
   "calc.period_days_one": "{count} day",
   "calc.period_weeks_one": "{count} week",
   "calc.period_months_one": "{count} month",

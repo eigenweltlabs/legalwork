@@ -6,7 +6,7 @@ import { ScheduledTaskSchema, type ScheduledTask } from "@legalwork/types/schedu
 import { Button } from "@/components/ui/button";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
 import { ScheduledTaskDialog } from "@/react-app/domains/scheduled-tasks/scheduled-task-dialog";
-import { scheduleLabel } from "@/react-app/domains/scheduled-tasks/schedule-format";
+import { scheduleLabel, taskStatusLabel } from "@/react-app/domains/scheduled-tasks/schedule-format";
 import { t } from "@/i18n";
 import { useMessageList } from "./message-list-provider";
 
@@ -34,7 +34,7 @@ export function ScheduledTaskToolCard({ part }: { part: ToolUIPart | DynamicTool
   if (!initial) return <p role="alert" className="text-sm text-destructive">{t("scheduled.save_failed")}</p>;
   const task = query.data?.task ?? initial;
   return <>
-    <Surface className="my-3 flex min-w-0 items-center gap-4 p-4"><IconTile variant="inset"><Clock3 /></IconTile><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="mt-1 text-xs text-muted-foreground">{query.isError ? t("scheduled.load_failed") : `${scheduleLabel(task.schedule)} · ${t(`scheduled.${task.status}`)} · ${t(task.projectAccess === "all" ? "scheduled.access_all" : "scheduled.access_project")}`}</p></div><Button variant="outline" size="sm" disabled={!query.data || query.isError} onClick={() => setEditing(task)}>{t("scheduled.open")}</Button></Surface>
+    <Surface className="my-3 flex min-w-0 items-center gap-4 p-4"><IconTile variant="inset"><Clock3 /></IconTile><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{task.title}</p><p className="mt-1 text-xs text-muted-foreground">{query.isError ? t("scheduled.load_failed") : `${scheduleLabel(task.schedule)} · ${taskStatusLabel(task.status)} · ${t(task.projectAccess === "all" ? "scheduled.access_all" : "scheduled.access_project")}`}</p></div><Button variant="outline" size="sm" disabled={!query.data || query.isError} onClick={() => setEditing(task)}>{t("scheduled.open")}</Button></Surface>
     {editing && legalworkClient && <ScheduledTaskDialog client={legalworkClient} projects={[{ id: workspaceId, name: t("scheduled.project") }]} task={editing} onClose={() => setEditing(null)} onSaved={() => { void cache.invalidateQueries({ queryKey: ["scheduled-task"] }); void cache.invalidateQueries({ queryKey: ["scheduled-tasks"] }); }} />}
   </>;
 }

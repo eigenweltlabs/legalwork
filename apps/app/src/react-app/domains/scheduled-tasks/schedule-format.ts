@@ -1,8 +1,10 @@
-import type { TaskSchedule } from "@legalwork/types/scheduled-tasks";
+import type { ScheduledRun, ScheduledTask, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import { t, currentLocale } from "@/i18n";
 
-export const repeatModes = ["once", "interval", "daily", "weekdays", "weekly", "custom"];
-export function repeatMode(schedule: TaskSchedule): string {
+type RepeatMode = "once" | "interval" | "daily" | "weekdays" | "weekly" | "custom";
+const repeatLabels = () => ({ once: t("scheduled.once"), interval: t("scheduled.interval"), daily: t("scheduled.daily"), weekdays: t("scheduled.weekdays"), weekly: t("scheduled.weekly"), custom: t("scheduled.custom") });
+export const repeatOptions = () => Object.entries(repeatLabels()).map(([value, label]) => ({ value, label }));
+export function repeatMode(schedule: TaskSchedule): RepeatMode {
   if (schedule.kind !== "rrule") return schedule.kind;
   if (schedule.rrule === "FREQ=DAILY") return "daily";
   if (schedule.rrule === "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR") return "weekdays";
@@ -10,7 +12,13 @@ export function repeatMode(schedule: TaskSchedule): string {
   return "custom";
 }
 export function scheduleLabel(schedule: TaskSchedule) {
-  return schedule.kind === "interval" ? t("scheduled.every_minutes", { count: schedule.minutes }) : t(`scheduled.${repeatMode(schedule)}`);
+  return schedule.kind === "interval" ? t("scheduled.every_minutes", { count: schedule.minutes }) : repeatLabels()[repeatMode(schedule)];
+}
+export function taskStatusLabel(status: ScheduledTask["status"]) {
+  return { active: t("scheduled.active"), paused: t("scheduled.paused"), completed: t("scheduled.completed") }[status];
+}
+export function runStatusLabel(status: ScheduledRun["status"]) {
+  return { sent: t("scheduled.run_sent"), failed: t("scheduled.run_failed"), dispatching: t("scheduled.run_dispatching") }[status];
 }
 export function formatRunTime(value: string, timeZone: string) {
   return new Intl.DateTimeFormat(currentLocale(), { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));

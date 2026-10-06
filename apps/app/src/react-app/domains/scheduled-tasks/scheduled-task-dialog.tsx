@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Surface } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
-import { formatRunTime, localDateTime, repeatMode, repeatModes } from "./schedule-format";
+import { formatRunTime, localDateTime, repeatMode, repeatOptions } from "./schedule-format";
 
 export type ScheduleProject = { id: string; name: string };
 export type ScheduleClient = Pick<LegalworkServerClient, "baseUrl" | "scheduledTasks" | "scheduledTask" | "scheduledTaskChats" | "previewTaskSchedule" | "createScheduledTask" | "updateScheduledTask" | "deleteScheduledTask">;
@@ -38,7 +38,7 @@ export function ScheduledTaskDialog({ client, projects, task, initial, defaultMo
   const [prompt, setPrompt] = useState(task?.prompt ?? initial?.prompt ?? "");
   const [zone, setZone] = useState(task?.schedule.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [start, setStart] = useState(() => localDateTime(task?.schedule.startAt ?? new Date(Date.now() + 3600000).toISOString(), zone));
-  const [mode, setMode] = useState(task ? repeatMode(task.schedule) : "once");
+  const [mode, setMode] = useState<string>(task ? repeatMode(task.schedule) : "once");
   const [minutes, setMinutes] = useState(task?.schedule.kind === "interval" ? String(task.schedule.minutes) : "60");
   const [rule, setRule] = useState(task?.schedule.kind === "rrule" ? task.schedule.rrule : "FREQ=WEEKLY;BYDAY=MO");
   const [ruleDraft, setRuleDraft] = useState(rule), [ruleOpen, setRuleOpen] = useState(false);
@@ -79,7 +79,7 @@ export function ScheduledTaskDialog({ client, projects, task, initial, defaultMo
           <div className="space-y-2"><Label htmlFor={`${id}-title`}>{t("scheduled.name")}</Label><Input autoFocus id={`${id}-title`} value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder={t("scheduled.name_placeholder")} required /></div>
           <div className="space-y-2"><Label htmlFor={`${id}-prompt`}>{t("scheduled.instructions")}</Label><Textarea id={`${id}-prompt`} className="min-h-32 max-h-64 resize-y leading-relaxed" value={prompt} maxLength={30000} onChange={event => setPrompt(event.target.value)} placeholder={t("scheduled.prompt_placeholder")} required /></div>
           <Surface className="divide-y divide-border">
-            <div className="flex items-center justify-between gap-3 p-4"><Label>{t("scheduled.repeat")}</Label><ScheduleSelect label={t("scheduled.repeat")} value={mode} options={repeatModes.map(value => ({ value, label: t(`scheduled.${value}`) }))} onChange={value => changed(() => setMode(value))} /></div>
+            <div className="flex items-center justify-between gap-3 p-4"><Label>{t("scheduled.repeat")}</Label><ScheduleSelect label={t("scheduled.repeat")} value={mode} options={repeatOptions()} onChange={value => changed(() => setMode(value))} /></div>
             {mode === "interval" && <div className="flex items-center justify-between gap-4 p-4"><Label htmlFor={`${id}-minutes`}>{t("scheduled.interval_minutes")}</Label><Input id={`${id}-minutes`} type="number" min={1} max={525600} className="w-28" value={minutes} onChange={event => changed(() => setMinutes(event.target.value))} /></div>}
             <div className="grid gap-3 p-4 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor={`${id}-start`}>{t(mode === "once" ? "scheduled.run_at" : "scheduled.starts")}</Label><Input id={`${id}-start`} type="datetime-local" value={start} onChange={event => changed(() => setStart(event.target.value))} required /></div>
               <div className="space-y-2"><Label htmlFor={`${id}-zone`}>{t("scheduled.time_zone")}</Label><Input id={`${id}-zone`} value={zone} onChange={event => changed(() => setZone(event.target.value))} required /></div></div>

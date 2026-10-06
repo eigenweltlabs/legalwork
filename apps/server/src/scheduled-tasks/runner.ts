@@ -40,7 +40,9 @@ export class ScheduledTaskRunner {
   start() {
     const tick = () => { void this.tick().catch(error => console.warn("[scheduled-tasks]", error)); };
     const timer = setInterval(tick, 15000);
-    timer.unref(); tick();
+    timer.unref();
+    // Check persisted due times immediately on reopening, including overdue one-time tasks.
+    tick();
     return () => { this.stopped = true; clearInterval(timer); };
   }
 }
