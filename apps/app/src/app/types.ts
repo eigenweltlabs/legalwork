@@ -299,8 +299,6 @@ export type SkillCard = {
   kind?: string;
   /** SKILL.md frontmatter `workflow_type` — "tabular" | "assistant" for workflows. */
   workflowType?: string;
-  /** Installed by the firm's policy: neither edited nor removed here. */
-  managed?: boolean;
 };
 
 /** A file attached to a skill — lives in the skill's own resources/ folder. */
@@ -347,7 +345,7 @@ export type SuggestedPlugin = {
 
 export type PluginScope = "project" | "global";
 
-export type McpServerSource = "config.project" | "config.global" | "config.remote" | "org";
+export type McpServerSource = "config.project" | "config.global" | "config.remote";
 
 export type McpServerConfig = {
   type: "remote" | "local";

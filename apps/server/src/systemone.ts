@@ -22,8 +22,7 @@ import {
   type SystemOneSettings,
 } from "./systemone-schema.js";
 import type { ServerConfig } from "./types.js";
-import { appliedOrgPolicy, requireOrgPolicyAllows, requireOrgPolicyUnmanaged } from "./org-policy.js";
-import { orgSystemOneProviders } from "./org-policy-ai.js";
+import { appliedOrgPolicy, requireOrgPolicyAllows } from "./org-policy.js";
 
 const CurrentStoredProviderSchema = SystemOneProviderInputSchema.extend({ apiKey: z.string().min(1) });
 // Read older one-model connections without changing IDs, keys, or the selected model.
@@ -188,37 +187,19 @@ async function customProviderView(
   }
 }
 
-/**
- * The firm's providers (managed, listed first) and the member's own, which
- * the firm may not allow; the firm's model choice applies over the member's.
- */
-async function effectiveProviders(config: ServerConfig, store: Store) {
-  const firm = await orgSystemOneProviders(config);
-  const own = (await appliedOrgPolicy(config, "ai.systemOne.allowCustom"))?.value !== false
-    ? store.providers.filter((provider) => !firm.some((entry) => entry.id === provider.id))
-    : [];
-  const selection = (await appliedOrgPolicy(config, "ai.systemOne.model"))?.value ?? store.selection;
-  return { firm, own, selection };
-}
-
-async function firmProviderView(provider: Awaited<ReturnType<typeof orgSystemOneProviders>>[number]): Promise<SystemOneProvider> {
-  if (provider.apiKey === null) {
-    const { apiKey: _missing, models, ...base } = provider;
-    return { ...base, models: models.map((model) => ({ ...model, source: "configured" })), managed: true, status: "disconnected" };
-  }
-  return { ...(await customProviderView({ ...provider, apiKey: provider.apiKey })), managed: true };
+/** The member's own providers, unless the firm allows none. */
+async function ownProviders(config: ServerConfig, store: Store) {
+  return (await appliedOrgPolicy(config, "ai.systemOne.allowCustom"))?.value !== false ? store.providers : [];
 }
 
 export async function readSystemOneSettings(
   config: ServerConfig,
 ): Promise<SystemOneSettings> {
-  const { firm, own, selection } = await effectiveProviders(config, await readStore(config));
-  const [managed, firmViews, providers] = await Promise.all([
+  const store = await readStore(config);
+  const [managed, providers] = await Promise.all([
     managedProvider(config),
-    Promise.all(firm.map((provider) => firmProviderView(provider))),
-    Promise.all(own.map((provider) => customProviderView(provider))),
+    Promise.all((await ownProviders(config, store)).map((provider) => customProviderView(provider))),
   ]);
-  providers.unshift(...firmViews);
   // Constrain inferred status strings from unavailable branches to the public enum.
   const status = managed.view.status;
   providers.unshift({
@@ -228,7 +209,7 @@ export async function readSystemOneSettings(
         ? status
         : "unavailable",
   });
-  return { providers, selection };
+  return { providers, selection: store.selection };
 }
 
 export async function saveSystemOneProvider(
@@ -291,7 +272,6 @@ export async function selectSystemOneProvider(
   config: ServerConfig,
   selection: SystemOneSelection,
 ) {
-  await requireOrgPolicyUnmanaged(config, "ai.systemOne.model");
   const settings = await readSystemOneSettings(config);
   if (
     !settings.providers.some(
@@ -316,13 +296,10 @@ export async function systemOne(
   input: SystemOneRequest,
   options: { providerId?: string; signal?: AbortSignal; retry?: boolean } = {},
 ) {
-  const { firm, own, selection } = await effectiveProviders(config, await readStore(config));
-  const id = options.providerId ?? selection.providerId;
-  const firmProvider = firm.find((p) => p.id === id);
-  if (firmProvider?.apiKey === null)
-    throw new ApiError(409, "systemone_disconnected", "Sign in to your firm to use its SystemOne provider.");
-  const provider = firmProvider ? { ...firmProvider, apiKey: firmProvider.apiKey } : own.find((p) => p.id === id);
-  const model = input.model ?? (id === selection.providerId ? selection.model : undefined);
+  const store = await readStore(config);
+  const id = options.providerId ?? store.selection.providerId;
+  const provider = (await ownProviders(config, store)).find((p) => p.id === id);
+  const model = input.model ?? (id === store.selection.providerId ? store.selection.model : undefined);
   if (!model)
     throw new ApiError(422, "systemone_model_required", "Specify a model when choosing a different provider.");
   let target;

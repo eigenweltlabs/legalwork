@@ -10,7 +10,6 @@ import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
   appliedOrgPolicy,
   onOrgPolicyChange,
-  orgPolicySecret,
   readOrgPolicyView,
   releaseOrgPolicyKey,
   requireOrgPolicyAllows,
@@ -29,7 +28,7 @@ afterEach(async () => {
 
 const kanzlei = { userId: "user_anna", userName: "Anna", userEmail: "anna@kanzlei.test", orgId: "org_kanzlei", orgName: "Kanzlei" };
 
-type Platform = { revision: number; entries: Record<string, unknown>; secrets?: Record<string, string>; orgId?: string };
+type Platform = { revision: number; entries: Record<string, unknown>; orgId?: string };
 
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-org-policy-"));
@@ -45,9 +44,6 @@ async function setup() {
       const url = String(input);
       const headers = new Headers(init?.headers);
       requests.push({ url, etag: headers.get("if-none-match"), authorization: headers.get("authorization") });
-      if (url.endsWith("/api/desktop/policy/secrets")) {
-        return Response.json({ schemaVersion: 1, revision: platform.revision, secrets: platform.secrets ?? {} });
-      }
       if (url.endsWith("/api/desktop/policy")) {
         if (headers.get("if-none-match") === `"${platform.revision}"`) return new Response(null, { status: 304 });
         return Response.json({
@@ -71,10 +67,11 @@ async function setup() {
 }
 
 describe("the firm's policy", () => {
-  test("only valid entries of known keys are kept, and enforced sharing can only be off", () => {
+  test("only valid entries of known keys are kept, in the modes they allow, and enforced sharing can only be off", () => {
     const entries = parseOrgPolicyEntries({
       branding: { mode: "enforced", value: { appName: "Kanzlei Work" } },
-      "updates.autoCheck": { mode: "default", value: "yes" },
+      "updates.autoCheck": { mode: "enforced", value: "yes" },
+      "updates.channel": { mode: "default", value: "stable" },
       "privacy.shareAnonymousUsage": { mode: "enforced", value: true },
       "connectors.allowCustom": { mode: "default", value: false },
       "future.setting": { mode: "enforced", value: 1 },
@@ -91,7 +88,7 @@ describe("the firm's policy", () => {
     platform.revision = 3;
     platform.entries = {
       branding: { mode: "enforced", value: { appName: "Kanzlei Work" } },
-      "updates.autoCheck": { mode: "default", value: false },
+      language: { mode: "default", value: "de" },
       "connectors.allowCustom": { mode: "enforced", value: false },
     };
     await scheduleOrgPolicySync(config, { force: true });
@@ -99,15 +96,15 @@ describe("the firm's policy", () => {
     const view = await readOrgPolicyView(config);
     expect(view).toMatchObject({ state: "active", orgName: "Kanzlei", role: "member", revision: 3 });
     expect(view.entries.branding).toEqual({ mode: "enforced", value: { appName: "Kanzlei Work" }, locked: true, released: false });
-    expect(view.entries["updates.autoCheck"]?.locked).toBe(false);
+    expect(view.entries.language?.locked).toBe(false);
 
     await expect(releaseOrgPolicyKey(config, "branding")).rejects.toMatchObject({ status: 403, code: "org_policy_locked" });
     await expect(requireOrgPolicyUnmanaged(config, "branding")).rejects.toMatchObject({ code: "org_policy_managed" });
     await expect(requireOrgPolicyAllows(config, "connectors.allowCustom")).rejects.toMatchObject({ code: "org_policy_disallowed" });
 
-    await releaseOrgPolicyKey(config, "updates.autoCheck");
-    expect(await appliedOrgPolicy(config, "updates.autoCheck")).toBeNull();
-    await requireOrgPolicyUnmanaged(config, "updates.autoCheck");
+    await releaseOrgPolicyKey(config, "language");
+    expect(await appliedOrgPolicy(config, "language")).toBeNull();
+    await requireOrgPolicyUnmanaged(config, "language");
   });
 
   test("after sign-out everything stays and can be taken back; signing in again restores the enforced ones", async () => {
@@ -139,26 +136,18 @@ describe("the firm's policy", () => {
     expect(view.restored?.count).toBe(1);
   });
 
-  test("the firm's secrets are only available while signed in, and an engine change is announced", async () => {
+  test("a change for the engine is announced, also when signing out unlocks it", async () => {
     const { config, platform, signIn, signOut } = await setup();
     const heard: Array<Set<OrgPolicyScope>> = [];
     cleanups.push(onOrgPolicyChange(config, (scopes) => heard.push(scopes)));
     await signIn();
     platform.revision = 1;
-    platform.secrets = { "chat:org-azure": "sk-firm" };
-    platform.entries = {
-      "ai.chat.providers": {
-        mode: "enforced",
-        value: [{ id: "org-azure", name: "Azure", baseURL: "https://azure.example.com/v1", models: [{ id: "gpt" }], secretRef: "chat:org-azure" }],
-      },
-    };
+    platform.entries = { "tools.permissions": { mode: "enforced", value: { bash: "ask" } } };
     await scheduleOrgPolicySync(config, { force: true });
-    expect(await orgPolicySecret(config, "chat:org-azure")).toBe("sk-firm");
     expect(heard.at(-1)?.has("engine")).toBe(true);
 
     await signOut();
     await scheduleOrgPolicySync(config, { force: true });
-    expect(await orgPolicySecret(config, "chat:org-azure")).toBeNull();
     expect(heard.at(-1)?.has("engine")).toBe(true);
   });
 

@@ -67,7 +67,7 @@ type SetStateAction<T> = T | ((current: T) => T);
 
 type PluginListEntry = {
   name: string;
-  source: "config" | "dir.project" | "dir.global" | "org";
+  source: "config" | "dir.project" | "dir.global";
   removable: boolean;
 };
 
@@ -161,7 +161,7 @@ function toProjectPluginListEntries(
     const name = item.spec.trim();
     if (!name) continue;
     const source: PluginListEntry["source"] =
-      item.source === "dir.project" || item.source === "dir.global" || item.source === "org"
+      item.source === "dir.project" || item.source === "dir.global"
         ? item.source
         : "config";
     const entry: PluginListEntry = {
@@ -740,7 +740,7 @@ export function createExtensionsStore(options: {
     );
     mutateState((current) => ({
       ...current,
-      pluginList: [...toConfigPluginListEntries(nextPluginNames), ...current.pluginList.filter((entry) => entry.source === "org")],
+      pluginList: toConfigPluginListEntries(nextPluginNames),
       pluginStatus: nextPluginStatus,
     }));
   };
@@ -765,26 +765,18 @@ export function createExtensionsStore(options: {
       try {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills("");
-        // The firm's skills live in the server's own folder, not the shared one.
-        const firm = canUseLegalworkServer && legalworkClient && legalworkWorkspaceId
-          ? ((await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: true }).catch(() => null))?.items ?? [])
-              .filter((entry) => entry.managed)
-          : [];
         if (refreshSkillsAborted) return;
         notifySkippedSkills("desktop-global", local.skipped);
-        const next: SkillCard[] = [
-          ...firm.map((entry) => ({ name: entry.name, description: entry.description, path: entry.path, trigger: entry.trigger, managed: true })),
-          ...(Array.isArray(local.items) ? local.items : [])
-            .filter((entry) => !firm.some((item) => item.name === entry.name))
-            .map((entry) => ({
+        const next: SkillCard[] = Array.isArray(local.items)
+          ? local.items.map((entry) => ({
               name: entry.name,
               description: entry.description,
               path: entry.path,
               trigger: entry.trigger,
               kind: (entry as { kind?: string }).kind,
               workflowType: (entry as { workflowType?: string }).workflowType,
-            })),
-        ];
+            }))
+          : [];
         mutateState((current) => ({
           ...current,
           skills: next,
@@ -836,7 +828,6 @@ export function createExtensionsStore(options: {
               trigger: entry.trigger,
               kind: (entry as { kind?: string }).kind,
               workflowType: (entry as { workflowType?: string }).workflowType,
-              managed: entry.managed,
             }))
           : [];
         // The legalwork list doesn't surface SKILL.md frontmatter `kind`/`workflow_type`,
@@ -1197,8 +1188,7 @@ export function createExtensionsStore(options: {
         if (refreshPluginsAborted) return;
         const result = await legalworkClient.listPlugins(legalworkWorkspaceId, { includeGlobal: false });
         if (refreshPluginsAborted) return;
-        // The firm's plugins apply everywhere: listed in both views.
-        const projectItems = result.items.filter((item) => item.scope === "project" || item.source === "org");
+        const projectItems = result.items.filter((item) => item.scope === "project");
         const list = toProjectPluginListEntries(projectItems);
         mutateState((current) => ({
           ...current,
@@ -1274,9 +1264,6 @@ export function createExtensionsStore(options: {
     try {
       mutateState((current) => ({ ...current, pluginStatus: null, sidebarPluginStatus: null }));
       if (refreshPluginsAborted) return;
-      const firmPlugins = canUseLegalworkServer && legalworkClient && legalworkWorkspaceId
-        ? toProjectPluginListEntries(((await legalworkClient.listPlugins(legalworkWorkspaceId).catch(() => null))?.items ?? []).filter((item) => item.source === "org"))
-        : [];
       const config = (await readOpencodeConfig(scope, targetDir)) as OpencodeConfigFile;
       if (refreshPluginsAborted) return;
       mutateState((current) => ({ ...current, pluginConfig: (config as OpencodeConfigFile | null), pluginConfigPath: config.path ?? null }));
@@ -1284,7 +1271,7 @@ export function createExtensionsStore(options: {
       if (!config.exists) {
         mutateState((current) => ({
           ...current,
-          pluginList: firmPlugins,
+          pluginList: [],
           pluginStatus: t("skills.no_opencode_found"),
           sidebarPluginList: [],
           sidebarPluginStatus: t("skills.no_opencode_workspace"),
@@ -1315,7 +1302,7 @@ export function createExtensionsStore(options: {
 
       mutateState((current) => ({
         ...current,
-        pluginList: [...toConfigPluginListEntries(nextPluginNames), ...firmPlugins],
+        pluginList: toConfigPluginListEntries(nextPluginNames),
         pluginStatus: nextPluginStatus,
         sidebarPluginList: nextSidebarPluginList,
         sidebarPluginStatus: nextSidebarPluginStatus,

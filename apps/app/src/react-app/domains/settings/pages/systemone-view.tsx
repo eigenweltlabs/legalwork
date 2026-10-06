@@ -32,11 +32,8 @@ import {
   LayoutSectionDescription,
   LayoutSectionItem,
 } from "../settings-layout";
-import { changeOrgPolicySetting, orgPolicyAllows, useOrgPolicy, useOrgPolicyForbids } from "../../connections/org-policy";
-import { OrgPolicyNote, OrgPolicySignInHint } from "../../connections/org-policy-ui";
-
-/** The firm's own providers (from its policy) are neither edited nor removed here. */
-const isFirmProvider = (id: string) => id.startsWith("org-");
+import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 const newProvider = (): SystemOneProviderInput => ({
   id: `systemone-${crypto.randomUUID()}`,
@@ -68,7 +65,6 @@ export function SystemOneSettingsSection({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const providersForbidden = useOrgPolicyForbids("ai.systemOne.allowCustom");
-  const selectionLocked = useOrgPolicy("ai.systemOne.model")?.locked === true;
   const [draft, setDraft] = useState<SystemOneProviderInput | null>(null);
   const [modelIds, setModelIds] = useState("");
   const [preset, setPreset] = useState("typesafe");
@@ -171,8 +167,7 @@ export function SystemOneSettingsSection({
         <LayoutSectionDescription>
           {t("systemone.intro")}
         </LayoutSectionDescription>
-        <OrgPolicyNote policyKey="ai.systemOne.model" />
-        <OrgPolicySignInHint policyKey="ai.systemOne.providers" />
+        <OrgPolicyNote policyKey="ai.systemOne.allowCustom" />
       </LayoutSectionHeader>
       {!client ? (
         <SettingsNotice>{t("systemone.offline")}</SettingsNotice>
@@ -187,13 +182,13 @@ export function SystemOneSettingsSection({
               <LayoutSectionItem key={provider.id} className="gap-0">
                 <div className="flex w-full items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <ProviderIcon providerId={provider.managed && !isFirmProvider(provider.id) ? "eigenwelt" : undefined} size={20} className="text-dls-text" />
+                    <ProviderIcon providerId={provider.managed ? "eigenwelt" : undefined} size={20} className="text-dls-text" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{provider.name}</p>
                       <p className="text-xs text-dls-secondary">{t(provider.status === "ready" ? "systemone.ready" : provider.status === "disabled" ? "systemone.disabled" : provider.status === "disconnected" ? "systemone.disconnected" : "systemone.unavailable")}</p>
                     </div>
                   </div>
-                  {isFirmProvider(provider.id) ? null : <ProviderActionsMenu name={provider.name} disabled={busy}>
+                  <ProviderActionsMenu name={provider.name} disabled={busy}>
                     {provider.managed ? (
                       <DropdownMenuItem onClick={onManageSubscription}>
                         {t(provider.status === "disconnected" ? "account.sign_in" : "systemone.manage")}
@@ -207,7 +202,7 @@ export function SystemOneSettingsSection({
                         </DropdownMenuItem>
                       </>
                     )}
-                  </ProviderActionsMenu>}
+                  </ProviderActionsMenu>
                 </div>
                 {provider.models.length ? (
                   <div className="mt-3 w-full divide-y divide-dls-border border-t border-dls-border">
@@ -225,8 +220,8 @@ export function SystemOneSettingsSection({
                             {model.description ? <p className="text-xs text-dls-secondary">{model.description}</p> : null}
                           </div>
                           <ProviderActionsMenu name={model.name} disabled={busy || status !== "ready"}>
-                            {!selected && !selectionLocked ? (
-                              <DropdownMenuItem onClick={() => void changeOrgPolicySetting("ai.systemOne.model", () => run(() => client.systemOneSelect({ providerId: provider.id, model: model.id })))}>
+                            {!selected ? (
+                              <DropdownMenuItem onClick={() => void run(() => client.systemOneSelect({ providerId: provider.id, model: model.id }))}>
                                 {t("systemone.select")}
                               </DropdownMenuItem>
                             ) : null}

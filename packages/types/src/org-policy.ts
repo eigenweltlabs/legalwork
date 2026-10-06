@@ -28,28 +28,19 @@ export type OrgPolicyMode = z.infer<typeof OrgPolicyModeSchema>;
  * reloads idle engines).
  */
 export type OrgPolicyScope = "app" | "server" | "engine";
+/** The section of the platform that sets a key: Policies, then Default settings. */
 export type OrgPolicySection =
-  | "security"
-  | "connectors"
+  | "permissions"
   | "ai"
-  | "branding"
-  | "privacy"
+  | "integrations"
+  | "features"
   | "sharing"
+  | "privacy"
   | "updates"
-  | "workspace";
-
-/** Org-defined providers and engines are prefixed so they never collide with built-in ids. */
-const orgId = z.string().regex(/^org-[a-z0-9][a-z0-9-]{0,59}$/);
-/** Names an encrypted value kept by the platform; never the value itself. */
-export const OrgPolicySecretRefSchema = z.string().regex(/^[a-z0-9][a-z0-9:_-]{0,127}$/);
-const secretRef = OrgPolicySecretRefSchema.nullable();
-// `abort`: the refinement parses the URL, so it must not run on a string that is none.
-const httpsUrl = z.url({ abort: true }).refine((value) => {
-  const url = new URL(value);
-  return url.protocol === "https:" && !url.username && !url.password && !url.hash;
-}, "Use an HTTPS URL without credentials or a fragment.");
-const name = z.string().trim().min(1).max(120);
-const hubItemIds = z.array(z.string().min(1).max(100)).max(100);
+  | "personalisation"
+  | "reviews"
+  | "customization"
+  | "language";
 
 export const PermissionActionSchema = z.enum(["allow", "ask", "deny"]);
 export type PermissionAction = z.infer<typeof PermissionActionSchema>;
@@ -67,49 +58,6 @@ const ToolPermissionsSchema = z.strictObject({
   bash: PermissionRuleSchema.optional(),
   external_directory: PermissionRuleSchema.optional(),
 });
-
-const OrgModelSchema = z.strictObject({
-  id: z.string().trim().min(1).max(200),
-  name: name.optional(),
-  contextLimit: z.number().int().positive().optional(),
-  outputLimit: z.number().int().positive().optional(),
-});
-/** An OpenAI-compatible chat provider for every member. */
-export const OrgChatProviderSchema = z.strictObject({
-  id: orgId,
-  name,
-  baseURL: httpsUrl,
-  /** The endpoint it speaks: `/chat/completions` (default) or `/responses` (OpenAI, Azure OpenAI). */
-  apiType: z.enum(["chat", "responses"]).optional(),
-  models: z.array(OrgModelSchema).min(1).max(200),
-  secretRef,
-});
-export type OrgChatProvider = z.infer<typeof OrgChatProviderSchema>;
-
-const SystemOneQuestionTypeSchema = z.enum(["noul", "choice", "score"]);
-export const OrgSystemOneProviderSchema = z.strictObject({
-  id: orgId,
-  name,
-  endpoint: httpsUrl,
-  models: z.array(z.strictObject({
-    id: z.string().trim().min(1).max(200),
-    name,
-    questionTypes: z.array(SystemOneQuestionTypeSchema).min(1),
-  })).min(1).max(200),
-  secretRef,
-});
-export type OrgSystemOneProvider = z.infer<typeof OrgSystemOneProviderSchema>;
-
-export const OrgOcrEngineSchema = z.strictObject({
-  id: orgId,
-  label: name,
-  kind: z.enum(["chat-completions", "mistral-ocr", "paddleocr"]),
-  model: z.string().trim().min(1).max(200),
-  /** Full endpoint, not a provider base URL. */
-  endpoint: httpsUrl,
-  secretRef: OrgPolicySecretRefSchema,
-});
-export type OrgOcrEngine = z.infer<typeof OrgOcrEngineSchema>;
 
 const BrandingSchema = z.strictObject({
   appName: z.string().trim().min(1).max(60).optional(),
@@ -137,57 +85,51 @@ type OrgPolicyDefinition = {
 const enforced = ["enforced"] as const;
 const both = ["enforced", "default"] as const;
 
-/** The catalog of keys. Ids are never renamed; a removed key is ignored by apps that still know it. */
+/**
+ * The catalog of keys: the settings of the platform's Policies page (enforced
+ * only), then of its Default settings page (enforced or a default). Ids are
+ * never renamed; a removed key is ignored by apps that still know it.
+ */
 export const orgPolicyDefinitions = {
-  /** Enforced = the minimum: the member's own rule applies where it is stricter. */
-  "tools.permissions": { section: "security", scope: "engine", modes: both, schema: ToolPermissionsSchema },
+  /** The minimum: the member's own rule applies where it is stricter. */
+  "tools.permissions": { section: "permissions", scope: "engine", modes: enforced, schema: ToolPermissionsSchema },
 
-  /** Firm Hub connectors installed for every member; members cannot remove them. */
-  "connectors.managed": { section: "connectors", scope: "engine", modes: enforced, schema: hubItemIds },
-  "connectors.allowCustom": { section: "connectors", scope: "engine", modes: enforced, schema: z.boolean() },
-  /** Firm Hub plugins installed for every member. */
-  "plugins.managed": { section: "connectors", scope: "engine", modes: enforced, schema: hubItemIds },
-  "plugins.allowCustom": { section: "connectors", scope: "engine", modes: enforced, schema: z.boolean() },
-  /** Firm Hub skills and workflows installed for every member. */
-  "skills.managed": { section: "connectors", scope: "engine", modes: enforced, schema: hubItemIds },
-  "skills.allowCustom": { section: "connectors", scope: "server", modes: enforced, schema: z.boolean() },
-  /** Team storage stays in the platform's storage catalog; this decides personal connections. */
-  "storage.allowPersonal": { section: "connectors", scope: "server", modes: enforced, schema: z.boolean() },
-
-  "ai.chat.providers": { section: "ai", scope: "engine", modes: enforced, schema: z.array(OrgChatProviderSchema).max(20) },
-  "ai.systemOne.providers": { section: "ai", scope: "server", modes: enforced, schema: z.array(OrgSystemOneProviderSchema).max(10) },
-  "ai.systemOne.model": { section: "ai", scope: "server", modes: both, schema: z.strictObject({ providerId: z.string().min(1), model: z.string().min(1) }) },
-  "ai.ocr.engines": { section: "ai", scope: "server", modes: enforced, schema: z.array(OrgOcrEngineSchema).max(10) },
-  "ai.ocr.defaultEngine": { section: "ai", scope: "server", modes: both, schema: z.string().min(1).max(64) },
   /** Whether members may add their own chat providers, SystemOne providers and OCR engines. */
   "ai.chat.allowCustom": { section: "ai", scope: "engine", modes: enforced, schema: z.boolean() },
   "ai.systemOne.allowCustom": { section: "ai", scope: "server", modes: enforced, schema: z.boolean() },
   "ai.ocr.allowCustom": { section: "ai", scope: "server", modes: enforced, schema: z.boolean() },
 
-  "branding": { section: "branding", scope: "app", modes: both, schema: BrandingSchema },
-  /** Enforced only as false: admins may switch sharing off, never force it on. */
-  "privacy.shareAnonymousUsage": { section: "privacy", scope: "app", modes: both, schema: z.boolean() },
+  "connectors.allowCustom": { section: "integrations", scope: "engine", modes: enforced, schema: z.boolean() },
+  "plugins.allowCustom": { section: "integrations", scope: "engine", modes: enforced, schema: z.boolean() },
+  "skills.allowCustom": { section: "integrations", scope: "server", modes: enforced, schema: z.boolean() },
+  /** Team storage stays in the platform's storage catalog; this decides personal connections. */
+  "storage.allowPersonal": { section: "integrations", scope: "server", modes: enforced, schema: z.boolean() },
+
+  /** Whether members may use the recorder, install the Office add-ins and run evaluations. */
+  "recorder.allow": { section: "features", scope: "app", modes: enforced, schema: z.boolean() },
+  "officeAddins.allow": { section: "features", scope: "app", modes: enforced, schema: z.boolean() },
+  "evaluations.allow": { section: "features", scope: "app", modes: enforced, schema: z.boolean() },
+  /** Built-in extensions by id; false switches one off. */
+  "extensions.builtIn": { section: "features", scope: "app", modes: enforced, schema: z.strictObject({ "computer-use": z.boolean().optional(), "google-workspace": z.boolean().optional() }) },
 
   "sharing.projects": { section: "sharing", scope: "server", modes: enforced, schema: z.strictObject({ allow: z.boolean() }) },
   "hub.whoCanShare": { section: "sharing", scope: "server", modes: enforced, schema: z.enum(["members", "admins"]) },
 
-  /** Built-in extensions by id; false switches one off. */
-  "extensions.builtIn": { section: "workspace", scope: "app", modes: enforced, schema: z.strictObject({ "computer-use": z.boolean().optional(), "google-workspace": z.boolean().optional() }) },
-  /** Added to every agent's instructions, after the member's own. */
-  "personalization.firmInstructions": { section: "workspace", scope: "engine", modes: enforced, schema: z.string().trim().min(1).max(12_000) },
-  /** The tone of the agents' answers, as in Settings → Personalisation. */
-  "personalization.personality": { section: "workspace", scope: "server", modes: both, schema: z.enum(["pragmatic", "professional", "friendly", "candid"]) },
-  /** Whether members may use the recorder, install the Office add-ins and run evaluations. */
-  "recorder.allow": { section: "workspace", scope: "app", modes: enforced, schema: z.boolean() },
-  "officeAddins.allow": { section: "workspace", scope: "app", modes: enforced, schema: z.boolean() },
-  "evaluations.allow": { section: "workspace", scope: "app", modes: enforced, schema: z.boolean() },
-  "reviews.defaults": { section: "workspace", scope: "server", modes: both, schema: ReviewDefaultsSchema },
-  "language": { section: "workspace", scope: "app", modes: both, schema: z.enum(["en", "de"]) },
+  /** Only false: admins may switch sharing off, never force it on. */
+  "privacy.shareAnonymousUsage": { section: "privacy", scope: "app", modes: enforced, schema: z.boolean() },
 
-  "updates.channel": { section: "updates", scope: "app", modes: both, schema: z.enum(["stable", "alpha"]) },
-  "updates.autoCheck": { section: "updates", scope: "app", modes: both, schema: z.boolean() },
+  "updates.channel": { section: "updates", scope: "app", modes: enforced, schema: z.enum(["stable", "alpha"]) },
+  "updates.autoCheck": { section: "updates", scope: "app", modes: enforced, schema: z.boolean() },
   /** Downloading needs checking: enforcing it on also enforces `updates.autoCheck` on. */
-  "updates.autoDownload": { section: "updates", scope: "app", modes: both, schema: z.boolean() },
+  "updates.autoDownload": { section: "updates", scope: "app", modes: enforced, schema: z.boolean() },
+
+  /** Added to every agent's instructions, after the member's own. */
+  "personalization.firmInstructions": { section: "personalisation", scope: "engine", modes: enforced, schema: z.string().trim().min(1).max(12_000) },
+  /** The tone of the agents' answers, as in Settings → Personalisation. */
+  "personalization.personality": { section: "personalisation", scope: "server", modes: both, schema: z.enum(["pragmatic", "professional", "friendly", "candid"]) },
+  "reviews.defaults": { section: "reviews", scope: "server", modes: both, schema: ReviewDefaultsSchema },
+  "branding": { section: "customization", scope: "app", modes: both, schema: BrandingSchema },
+  "language": { section: "language", scope: "app", modes: both, schema: z.enum(["en", "de"]) },
 } as const satisfies Record<string, OrgPolicyDefinition>;
 
 type Definitions = typeof orgPolicyDefinitions;
@@ -206,7 +148,7 @@ function entryIssue(key: OrgPolicyKey, mode: OrgPolicyMode, value: unknown): str
   const definition: OrgPolicyDefinition = orgPolicyDefinitions[key];
   if (!definition.modes.includes(mode)) return `${key} cannot be ${mode}`;
   if (!definition.schema.safeParse(value).success) return `${key} has an invalid value`;
-  if (key === "privacy.shareAnonymousUsage" && mode === "enforced" && value !== false)
+  if (key === "privacy.shareAnonymousUsage" && value !== false)
     return "Anonymous usage sharing can only be enforced off";
   return null;
 }
@@ -252,25 +194,9 @@ export function orgPolicyIssues(input: unknown): string[] {
   const entries = parseOrgPolicyEntries(record.data);
   const download = entries["updates.autoDownload"];
   const check = entries["updates.autoCheck"];
-  if (download?.mode === "enforced" && download.value && !(check?.mode === "enforced" && check.value))
+  if (download?.value && !check?.value)
     issues.push("Enforcing automatic downloads also needs automatic update checks enforced on");
-  const ids = [
-    ...(entries["ai.chat.providers"]?.value ?? []).map((provider) => provider.id),
-    ...(entries["ai.systemOne.providers"]?.value ?? []).map((provider) => provider.id),
-    ...(entries["ai.ocr.engines"]?.value ?? []).map((engine) => engine.id),
-  ];
-  if (new Set(ids).size !== ids.length) issues.push("Provider and engine ids must be unique");
   return issues;
-}
-
-/** The secrets a policy refers to. */
-export function orgPolicySecretRefs(entries: OrgPolicyEntries): string[] {
-  const refs = [
-    ...(entries["ai.chat.providers"]?.value ?? []).map((provider) => provider.secretRef),
-    ...(entries["ai.systemOne.providers"]?.value ?? []).map((provider) => provider.secretRef),
-    ...(entries["ai.ocr.engines"]?.value ?? []).map((engine) => engine.secretRef),
-  ];
-  return [...new Set(refs.filter((ref): ref is string => ref !== null))];
 }
 
 /**
@@ -290,33 +216,19 @@ export const OrgPolicySnapshotSchema = z.object({
 });
 export type OrgPolicySnapshot = Omit<z.infer<typeof OrgPolicySnapshotSchema>, "entries"> & { entries: OrgPolicyEntries };
 
-/** GET /api/desktop/policy/secrets (desktop token): the values of the secrets the policy refers to. */
-export const OrgPolicySecretsSchema = z.object({
-  schemaVersion: z.literal(ORG_POLICY_SCHEMA_VERSION),
-  revision: z.number().int().min(0),
-  secrets: z.record(OrgPolicySecretRefSchema, z.string().min(1).max(64 * 1024)),
-});
-export type OrgPolicySecrets = z.infer<typeof OrgPolicySecretsSchema>;
-
-/** GET /api/org-policy (admin session): what the Policies page edits. Secret values never leave the platform. */
+/** GET /api/org-policy (admin session): what the Policies and Default settings pages edit. */
 export type OrgPolicyAdminView = {
   schemaVersion: typeof ORG_POLICY_SCHEMA_VERSION;
   revision: number;
   entries: OrgPolicyEntries;
-  configuredSecrets: string[];
   canManage: boolean;
   updatedAt: string | null;
   updatedByName: string | null;
 };
 
-/**
- * PUT /api/org-policy (admin session): replaces the whole policy. A stale
- * `revision` answers 409. `secrets` sets (string) or removes (null) values;
- * secrets the policy no longer refers to are removed.
- */
+/** PUT /api/org-policy (admin session): replaces the whole policy. A stale `revision` answers 409. */
 export const OrgPolicyUpdateSchema = z.object({
   revision: z.number().int().min(0),
   entries: z.record(z.string(), z.unknown()),
-  secrets: z.record(OrgPolicySecretRefSchema, z.string().min(1).max(64 * 1024).nullable()).optional(),
 });
 export type OrgPolicyUpdate = z.infer<typeof OrgPolicyUpdateSchema>;

@@ -39,43 +39,37 @@ function useOrgName(): string {
 
 type Text = string | { on: string; off: string };
 
-/**
- * What the admin did, for the settings with a note that are not on/off
- * switches of a feature: when they enforced it, and when they set a default.
- * A switch says which way.
- */
-const SET_TEXT = {
-  language: { enforced: "org_policy.set_language", default: "org_policy.default_language" },
-  "personalization.personality": { enforced: "org_policy.set_personality", default: "org_policy.default_personality" },
-  branding: { enforced: "org_policy.set_branding", default: "org_policy.default_branding" },
-  "ai.systemOne.model": { enforced: "org_policy.set_systemone_model", default: "org_policy.default_systemone_model" },
-  "ai.ocr.defaultEngine": { enforced: "org_policy.set_ocr_engine", default: "org_policy.default_ocr_engine" },
-  "updates.channel": { enforced: "org_policy.set_release_channel", default: "org_policy.default_release_channel" },
-  "reviews.defaults": { enforced: "org_policy.set_reviews", default: "org_policy.default_reviews" },
-  "updates.autoCheck": {
-    enforced: { on: "org_policy.auto_check_on", off: "org_policy.auto_check_off" },
-    default: { on: "org_policy.default_auto_check_on", off: "org_policy.default_auto_check_off" },
-  },
-  "updates.autoDownload": {
-    enforced: { on: "org_policy.auto_download_on", off: "org_policy.auto_download_off" },
-    default: { on: "org_policy.default_auto_download_on", off: "org_policy.default_auto_download_off" },
-  },
-  "privacy.shareAnonymousUsage": {
-    enforced: { on: "org_policy.usage_on", off: "org_policy.usage_off" },
-    default: { on: "org_policy.default_usage_on", off: "org_policy.default_usage_off" },
-  },
-} satisfies Partial<Record<OrgPolicyKey, Record<OrgPolicyMode, Text>>>;
+/** What the admin enforced, for the settings with a note that are not feature switches; a switch says which way. */
+const ENFORCED_TEXT = {
+  language: "org_policy.set_language",
+  "personalization.personality": "org_policy.set_personality",
+  branding: "org_policy.set_branding",
+  "reviews.defaults": "org_policy.set_reviews",
+  "updates.channel": "org_policy.set_release_channel",
+  "updates.autoCheck": { on: "org_policy.auto_check_on", off: "org_policy.auto_check_off" },
+  "updates.autoDownload": { on: "org_policy.auto_download_on", off: "org_policy.auto_download_off" },
+  "privacy.shareAnonymousUsage": "org_policy.usage_off",
+} satisfies Partial<Record<OrgPolicyKey, Text>>;
 
-type NoteKey = AllowKey | keyof typeof SET_TEXT;
+type NoteKey = AllowKey | keyof typeof ENFORCED_TEXT;
+
+/** What the admin set as a default: the settings of the platform's Default settings page. */
+const DEFAULT_TEXT: Partial<Record<NoteKey, string>> = {
+  language: "org_policy.default_language",
+  "personalization.personality": "org_policy.default_personality",
+  branding: "org_policy.default_branding",
+  "reviews.defaults": "org_policy.default_reviews",
+};
 
 function isAllowKey(key: NoteKey): key is AllowKey {
-  return !Object.hasOwn(SET_TEXT, key);
+  return !Object.hasOwn(ENFORCED_TEXT, key);
 }
 
 /** What the admin did to a setting; nothing for a feature they left on. */
 function adminText(key: NoteKey, mode: OrgPolicyMode, value: unknown): string | null {
   if (isAllowKey(key)) return mode === "enforced" && value === false ? orgPolicyOffText(key) : null;
-  const text: Text = SET_TEXT[key][mode];
+  const text: Text | undefined = mode === "enforced" ? ENFORCED_TEXT[key] : DEFAULT_TEXT[key];
+  if (!text) return null;
   return t(typeof text === "string" ? text : value === false ? text.off : text.on);
 }
 
@@ -86,15 +80,15 @@ function adminText(key: NoteKey, mode: OrgPolicyMode, value: unknown): string | 
 export function OrgPolicyNote(
   props:
     | { policyKey: NoteKey }
-    // Where a page shows only some of the tools: what the admin set there, as translation keys.
-    | { policyKey: "tools.permissions"; text: Record<OrgPolicyMode, string> },
+    // Where a page shows only some of the tools: what the admin set there, as a translation key.
+    | { policyKey: "tools.permissions"; locked: string },
 ) {
   const entry = useOrgPolicyStore((state) => state.view?.entries[props.policyKey]);
   const lapsed = useOrgPolicyStore((state) => state.view?.state === "lapsed");
   const org = useOrgName();
   if (!entry) return null;
   const admin = (mode: OrgPolicyMode) =>
-    props.policyKey === "tools.permissions" ? t(props.text[mode]) : adminText(props.policyKey, mode, entry.value);
+    props.policyKey === "tools.permissions" ? t(props.locked) : adminText(props.policyKey, mode, entry.value);
   const text = entry.locked
     ? admin("enforced")
     : entry.released
@@ -119,30 +113,6 @@ export function OrgPolicyFeatureOff({ policyKey }: { policyKey: "recorder.allow"
       <Lock />
       <AlertDescription>{orgPolicyOffText(policyKey)}</AlertDescription>
     </Alert>
-  );
-}
-
-/** Where the firm provides providers or engines: after sign-out they wait for the member to sign in again. */
-export function OrgPolicySignInHint({ policyKey }: { policyKey: "ai.chat.providers" | "ai.systemOne.providers" | "ai.ocr.engines" }) {
-  const waiting = useOrgPolicyStore((state) => state.view?.state === "lapsed" && (state.view.entries[policyKey]?.value.length ?? 0) > 0);
-  const org = useOrgName();
-  if (!waiting) return null;
-  return (
-    <p data-slot="item-description" className="flex items-center gap-1.5 text-[12px] leading-relaxed text-muted-foreground">
-      <Building2 className="size-3.5 shrink-0" aria-hidden />
-      {t("org_policy.providers_sign_in", { org })}
-    </p>
-  );
-}
-
-/** On a connector, skill or plugin the firm installed for every member. */
-export function FirmItemNote() {
-  const org = useOrgName();
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
-      <Building2 className="size-3.5 shrink-0" aria-hidden />
-      {t("org_policy.firm_item", { org })}
-    </span>
   );
 }
 

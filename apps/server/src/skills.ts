@@ -145,17 +145,9 @@ async function listSkillsInDir(dir: string, scope: "project" | "global", skipped
   return items;
 }
 
-export async function listSkills(
-  workspaceRoot: string,
-  includeGlobal: boolean,
-  skipped?: SkippedSkill[],
-  /** The firm's skills folder (from its policy), listed first. */
-  firmSkillsDir?: string,
-): Promise<SkillItem[]> {
+export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   const roots = await findWorkspaceRoots(workspaceRoot);
-  const items: SkillItem[] = firmSkillsDir
-    ? (await listSkillsInDir(firmSkillsDir, "global", skipped)).map((item) => ({ ...item, managed: true }))
-    : [];
+  const items: SkillItem[] = [];
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");

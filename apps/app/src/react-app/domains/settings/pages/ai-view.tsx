@@ -16,8 +16,8 @@ import {
   LayoutSectionTitle,
   LayoutStack,
 } from "../settings-layout";
-import { useOrgPolicy, useOrgPolicyForbids } from "../../connections/org-policy";
-import { FirmItemNote, OrgPolicyNote, OrgPolicySignInHint } from "../../connections/org-policy-ui";
+import { useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 type ConnectedProvider = {
   id: string;
@@ -69,8 +69,6 @@ function providerSourceLabel(source?: ConnectedProvider["source"]) {
 
 export function AiSettingsView(props: AiSettingsViewProps) {
   const providersForbidden = useOrgPolicyForbids("ai.chat.allowCustom");
-  // The firm's own providers are neither edited nor disconnected here.
-  const firmProviderIds = new Set(useOrgPolicy("ai.chat.providers")?.value.map((provider) => provider.id));
   return (
     <LayoutStack>
       {/* ---- Providers ---- */}
@@ -91,7 +89,6 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           </div>
           <LayoutSectionDescription>{t("settings.providers_desc")}</LayoutSectionDescription>
           <OrgPolicyNote policyKey="ai.chat.allowCustom" />
-          <OrgPolicySignInHint policyKey="ai.chat.providers" />
         </LayoutSectionHeader>
 
         <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3">
@@ -125,14 +122,10 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                     <SettingsStatusBadge label="Cloud" tone="neutral" className="min-h-6 px-2" />
                   ) : null}
                 </div>
-                {firmProviderIds.has(provider.id) ? (
-                  <FirmItemNote />
-                ) : (
-                  <p className="text-xs text-dls-secondary">{providerSourceLabel(provider.source) ?? provider.id}</p>
-                )}
+                <p className="text-xs text-dls-secondary">{providerSourceLabel(provider.source) ?? provider.id}</p>
               </div>
             </div>
-            {!props.cloudProviderIds?.has(provider.id) && !firmProviderIds.has(provider.id) && (
+            {!props.cloudProviderIds?.has(provider.id) && (
               (provider.source === "env" && props.onReplaceProviderKey) ||
               (provider.editableAsCustom && props.onEditProvider) || props.onRefreshProvider ||
               props.canDisconnectProvider(provider.source)

@@ -195,9 +195,8 @@ import {
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
-import { orgPolicyEngineDir, orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
-import { orgOcr } from "./org-policy-ai.js";
-import { allowedMemberConnectors, orgPolicyConnectors, orgPolicyPlugins, requireConnectorAllowed, requireHubInstallAllowed, syncOrgPolicyItems } from "./org-policy-items.js";
+import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
 import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
@@ -792,7 +791,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   // The firm's policy: pulled now and whenever the firm pokes; what changes
   // the engine's settings reloads the engines once they are idle.
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
-    if (scopes.has("engine")) refreshOrgPolicyItems(config, { force: true });
+    if (scopes.has("engine")) applyOrgPolicyToEngines(config);
   });
   void scheduleOrgPolicySync(config, { force: true });
   // Due days are checked every minute, connected or not, for the app to announce.
@@ -805,7 +804,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), async () => (await appliedOrgPolicy(config, "ai.ocr.allowCustom"))?.value !== false);
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const corpus = new CorpusService({
     selection: async () => {
@@ -2417,7 +2416,7 @@ function createRoutes(
       }
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
-      // The firm's settings stay; its secrets go, and enforced settings unlock.
+      // The firm's settings stay, and enforced settings unlock.
       await scheduleOrgPolicySync(config, { force: true });
       await rebuildEngineConfigFile(workspace);
       return jsonResponse(await readEigenweltEntitlementsView(config));
@@ -2533,7 +2532,6 @@ function createRoutes(
       // a good moment to bring the tasks, and the firm's policy, up to date too.
       scheduleTaskSync(config);
       void scheduleOrgPolicySync(config);
-      refreshOrgPolicyItems(config);
     }
     const cachedManifest = await readCachedEigenweltPaidManifest(config);
     const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
@@ -3804,7 +3802,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const result = await listPlugins(config, workspace.id, workspace.path, includeGlobal);
-    return jsonResponse({ ...result, items: [...result.items, ...(await orgPolicyPlugins(orgPolicyEngineDir(config)))] });
+    return jsonResponse(result);
   });
 
   addRoute(routes, "POST", "/workspace/:id/plugins", "client", async (ctx) => {
@@ -3894,7 +3892,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
-    const items = await listSkills(workspace.path, includeGlobal, skipped, join(orgPolicyEngineDir(config), "skills"));
+    const items = await listSkills(workspace.path, includeGlobal, skipped);
     return jsonResponse({ items, skipped });
   });
 
@@ -4180,10 +4178,6 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listMcp(config, workspace.id, workspace.path);
-    // The firm's connectors, as shared (their credentials never leave the server).
-    for (const { name, config: entry } of await orgPolicyConnectors(orgPolicyEngineDir(config))) {
-      items.push({ name, config: entry, source: "org" });
-    }
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
   });
 
@@ -4955,22 +4949,6 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
       }
     }
   });
-}
-
-// The firm's Firm Hub items follow its policy (installed, updated, removed),
-// then the engines reload. Asked for by a policy change, and every few
-// minutes by the entitlements poll for items updated on the hub.
-const ORG_POLICY_ITEMS_THROTTLE_MS = 60_000;
-const orgPolicyItemsSyncedAt = new WeakMap<ServerConfig, number>();
-
-function refreshOrgPolicyItems(config: ServerConfig, options: { force?: boolean } = {}): void {
-  if (!options.force && Date.now() - (orgPolicyItemsSyncedAt.get(config) ?? 0) < ORG_POLICY_ITEMS_THROTTLE_MS) return;
-  orgPolicyItemsSyncedAt.set(config, Date.now());
-  void syncOrgPolicyItems(config, orgPolicyEngineDir(config))
-    .catch(() => false)
-    .then((changed) => {
-      if (changed || options.force) applyOrgPolicyToEngines(config);
-    });
 }
 
 // The firm's policy changed the engine's settings: the config file is

@@ -3,9 +3,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PermissionActionSchema, type PermissionAction, type PermissionRule } from "./org-policy-schema.js";
 
+import { EIGENWELT_PROVIDER_ID } from "./eigenwelt-paid-manifest.js";
 import { appliedOrgPolicy } from "./org-policy.js";
-import { orgChatProviderBlocks, orgEnabledProviders } from "./org-policy-ai.js";
-import { orgPolicyItemsLayer } from "./org-policy-items.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -42,8 +41,8 @@ function enforcedRule(firm: PermissionRule, own: unknown): PermissionRule {
 }
 
 /**
- * The tool permissions in effect: the member's, with the firm's defaults and
- * enforced rules applied, and the enforced rules alone (for the folder).
+ * The tool permissions in effect: the member's, with the firm's rules
+ * applied, and the firm's rules alone (for the folder).
  */
 export async function orgPolicyPermissions(
   config: ServerConfig,
@@ -54,10 +53,6 @@ export async function orgPolicyPermissions(
   const enforced: Record<string, PermissionRule> = {};
   for (const [tool, rule] of Object.entries(entry?.value ?? {})) {
     if (rule === undefined) continue;
-    if (entry?.mode !== "enforced") {
-      permission[tool] = rule;
-      continue;
-    }
     enforced[tool] = enforcedRule(rule, own[tool]);
     permission[tool] = enforced[tool];
   }
@@ -76,13 +71,8 @@ export async function buildOrgPolicyEngineLayer(
     // A project's own definition of the default agent could carry looser rules.
     layer.agent = { legalwork: { permission: enforced } };
   }
-  const items = await orgPolicyItemsLayer(config, orgPolicyEngineDir(config));
-  if (Object.keys(items.mcp).length > 0) layer.mcp = items.mcp;
-  if (items.plugin.length > 0) layer.plugin = items.plugin;
-  const providers = await orgChatProviderBlocks(config);
-  if (Object.keys(providers).length > 0) layer.provider = providers;
-  const enabledProviders = await orgEnabledProviders(config);
-  if (enabledProviders) layer.enabled_providers = enabledProviders;
+  // While the firm allows no chat providers of the member's own, only Eigenwelt's.
+  if ((await appliedOrgPolicy(config, "ai.chat.allowCustom"))?.value === false) layer.enabled_providers = [EIGENWELT_PROVIDER_ID];
   return layer;
 }
 

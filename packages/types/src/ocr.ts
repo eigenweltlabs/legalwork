@@ -26,8 +26,6 @@ export type OcrSettingsView = {
     endpoint?: string;
     languages: string[] | null;
     keyConfigured: boolean;
-    /** Set by the firm's policy: not editable here. Older servers omit it. */
-    managed?: boolean;
     status: "ready" | "not-installed" | "unsupported" | "missing-key";
   }>;
 };

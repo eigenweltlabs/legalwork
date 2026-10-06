@@ -63,7 +63,7 @@ import {
 } from "./mcp-view-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import { orgPolicyAllows, orgPolicyOffText, useOrgPolicyForbids } from "../../connections/org-policy";
-import { FirmItemNote, OrgPolicyNote } from "../../connections/org-policy-ui";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 export type ReactMcpStatus =
   | "connected"
@@ -1318,7 +1318,7 @@ function McpConfiguredServerRow(props: {
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{props.displayName(props.entry.name)}</div>
           </div>
-          {props.canShareWithFirm && props.onShareWithFirm && props.entry.source !== "org" ? (
+          {props.canShareWithFirm && props.onShareWithFirm ? (
             <Button
               variant="ghost"
               size="sm"
@@ -1378,8 +1378,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </details>
       <McpConfiguredServerAuthActions {...props} />
       <div className="flex justify-end gap-2 pt-1">
-        {props.entry.source === "org" ? <FirmItemNote /> : null}
-        {props.onToggleEnabled && props.entry.source !== "config.global" && props.entry.source !== "org" ? (
+        {props.onToggleEnabled && props.entry.source !== "config.global" ? (
           <Button
             variant="outline"
             size="sm"
@@ -1396,18 +1395,16 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
             {props.entry.config.enabled === false ? t("mcp.enable_app") : t("mcp.disable_app")}
           </Button>
         ) : null}
-        {props.entry.source === "org" ? null : (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              props.onRemove(props.entry.name);
-            }}
-          >
-            {t("mcp.remove_app")}
-          </Button>
-        )}
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onRemove(props.entry.name);
+          }}
+        >
+          {t("mcp.remove_app")}
+        </Button>
       </div>
     </div>
   );

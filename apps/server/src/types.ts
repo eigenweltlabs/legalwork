@@ -222,7 +222,7 @@ export interface ApiErrorBody {
 
 export interface PluginItem {
   spec: string;
-  source: "config" | "dir.project" | "dir.global" | "org";
+  source: "config" | "dir.project" | "dir.global";
   scope: "project" | "global";
   path?: string;
 }
@@ -230,8 +230,7 @@ export interface PluginItem {
 export interface McpItem {
   name: string;
   config: Record<string, unknown>;
-  /** `org`: one of the firm's connectors, installed by its policy. */
-  source: "config.project" | "config.global" | "config.remote" | "org";
+  source: "config.project" | "config.global" | "config.remote";
   disabledByTools?: boolean;
 }
 
@@ -243,8 +242,6 @@ export interface SkillItem {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
-  /** Installed by the firm's policy: neither edited nor removed here. */
-  managed?: boolean;
 }
 
 export interface HubSkillItem {

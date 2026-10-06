@@ -4,7 +4,7 @@ import { Cpu, Share2 } from "lucide-react";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
-import { FirmItemNote, OrgPolicyNote } from "../../connections/org-policy-ui";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 // Explicit, prop-driven shape of the extensions store. The Solid
 // PluginsView pulled this from useExtensions(); in React we pass it
@@ -18,7 +18,7 @@ export type PluginsExtensionsStore = {
   pluginConfig: () => { path?: string | null } | null;
   pluginList: () => Array<{
     name: string;
-    source: "config" | "dir.project" | "dir.global" | "org";
+    source: "config" | "dir.project" | "dir.global";
     removable: boolean;
   }>;
   pluginInput: () => string;
@@ -255,9 +255,7 @@ export function PluginsView(props: PluginsViewProps) {
                     <Cpu size={14} className="text-gray-10" />
                     {plugin.name}
                   </div>
-                  {plugin.source === "org" ? (
-                    <div className="mt-1"><FirmItemNote /></div>
-                  ) : !plugin.removable ? (
+                  {!plugin.removable ? (
                     <div className="mt-1 text-xs text-gray-10">
                       {plugin.source === "dir.global"
                         ? t("plugins.from_global_folder")
@@ -269,7 +267,7 @@ export function PluginsView(props: PluginsViewProps) {
                   <div className="text-[10px] uppercase tracking-wide text-gray-10">
                     {plugin.removable ? t("plugins.enabled") : t("settings.cap_read_only")}
                   </div>
-                  {props.canShareWithFirm && props.onShareWithFirm && plugin.source !== "org" ? (
+                  {props.canShareWithFirm && props.onShareWithFirm ? (
                     <Button
                       variant="outline"
                       size="xs"

@@ -53,9 +53,9 @@ import {
 
 /** What the admin set among the tools here: of these, the firm may set editing files and computer commands. */
 const FIRM_TOOLS_TEXT = {
-  edit: { enforced: "org_policy.set_tools_edit", default: "org_policy.default_tools_edit" },
-  bash: { enforced: "org_policy.set_tools_bash", default: "org_policy.default_tools_bash" },
-  both: { enforced: "org_policy.set_tools_edit_bash", default: "org_policy.default_tools_edit_bash" },
+  edit: "org_policy.set_tools_edit",
+  bash: "org_policy.set_tools_bash",
+  both: "org_policy.set_tools_edit_bash",
 };
 
 export type ToolPermissionsPanelProps = {
@@ -375,7 +375,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
           <LayoutSectionItemDescription>
             {t("tool_permissions.desc")}
           </LayoutSectionItemDescription>
-          {firmTools ? <OrgPolicyNote policyKey="tools.permissions" text={FIRM_TOOLS_TEXT[firmTools]} /> : null}
+          {firmTools ? <OrgPolicyNote policyKey="tools.permissions" locked={FIRM_TOOLS_TEXT[firmTools]} /> : null}
         </LayoutSectionItemHeader>
       )}
 
