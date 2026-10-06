@@ -21,7 +21,7 @@ A controlled experiment added six seconds to session-index responses in the isol
 | URL after resolution | stale workspace ID | canonical live workspace ID |
 | Cold session response | approximately 6 seconds | approximately 6 seconds, in background |
 
-Screenshots: [before](baseline.png), [after](patched.png). The accompanying JSON records the timing samples. The brief old home frame at 80 ms in the patched trace is not counted as resolved settings.
+The accompanying [before](baseline.json) and [after](patched.json) JSON records contain the timing samples. The brief old home frame at 80 ms in the patched trace is not counted as resolved settings.
 
 A clean 8-second idle sample consumed 0.200 CPU-seconds in Electron's main process and 0.047 CPU-seconds in its renderer. A separate 15-second CPU profile was predominantly idle, with periodic reload/session-group polling. This did not reproduce a runaway idle loop.
 
@@ -48,7 +48,7 @@ A native installer will become available after this change is merged and a relea
 - `pnpm --filter @legalwork/desktop typecheck:electron`: passed.
 - `pnpm --filter @legalwork/desktop check:electron`: passed, 110 renderer methods covered.
 - `node --test scripts/release/*.test.mjs`: three passed, including architecture-separated Windows feeds and rejection before upload when an x64 feed contains an ARM64 installer.
-- In the Windows dev app, architecture detection returned the correct mismatch in 7 ms through CDP. The explicit release check reported no ARM64 installer while account settings remained visible. See the [architecture notice](architecture.png) and [recorded result](architecture.json).
+- In the Windows dev app, architecture detection returned the correct mismatch in 7 ms through CDP. The explicit release check reported no ARM64 installer while account settings remained visible. See the [recorded result](architecture.json).
 - The full Windows account UI flow passed with local OAuth fixtures and a 10.25-second reload: one sign-in reload, one sign-out reload, no error toasts.
 
 The native ARM64 packaging job is the authoritative check for the new compiler/toolchain path. Signed release publication is not exercised by a pull request.
