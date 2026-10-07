@@ -24,8 +24,6 @@ const de = {
   "scheduled.project_access": "Projektzugriff",
   "scheduled.access_project": "Nur dieses Projekt",
   "scheduled.access_all": "Alle Projekte",
-  "scheduled.access_project_hint": "Nutzt Dateien, Einträge und Kalender von {project} über Projektwerkzeuge. Shell, Browser und unbeschränkte Integrationen sind nicht verfügbar. Der bisherige Chatverlauf bleibt sichtbar.",
-  "scheduled.access_all_hint": "Kann auf alle freigegebenen lokalen Projekte zugreifen. Ihre bestehenden Werkzeugberechtigungen und Freigaben gelten weiterhin.",
   "scheduled.title": "Geplant",
   "scheduled.new": "Neue geplante Aufgabe",
   "scheduled.edit": "Aufgabe bearbeiten",

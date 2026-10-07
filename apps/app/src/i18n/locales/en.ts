@@ -14,8 +14,6 @@ export default {
   "scheduled.project_access": "Project access",
   "scheduled.access_project": "This project only",
   "scheduled.access_all": "All projects",
-  "scheduled.access_project_hint": "Uses files, records and calendar from {project} through project tools. Shell, browser and unrestricted connectors are unavailable. Existing chat history stays visible.",
-  "scheduled.access_all_hint": "Can access all authorized local projects using your existing tool permissions and approvals.",
   "scheduled.title": "Scheduled",
   "scheduled.new": "New scheduled task",
   "scheduled.edit": "Edit task",

@@ -122,6 +122,8 @@ An intentional stop now leaves the chat idle instead of setting a persistent red
 
 Verified both editors visually against the isolated fixture. App typecheck and production build passed. All 871 local app tests passed, including late abort ordering, retained transcript, idle status, paused queues and preservation of genuine errors. One unrelated archived-session command test failed on the first full run; it passed both in isolation and on the complete rerun.
 
+Project access is now a compact label-and-selector row in both editors. Removed the technical explanatory text and its unused English/German translations. Verified creation and inline editing visually; app typecheck, `pnpm --filter @legalwork/app test:i18n` (5,554 keys), `node scripts/i18n-audit.mjs --ci` and `git diff --check` passed.
+
 ## Screenshots
 
 ![Project access visible in creation](create-visible-scope.png)
