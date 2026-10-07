@@ -5,6 +5,7 @@ HTTP proxy, which forwards complete HTTP requests to the host permission broker.
 CONNECT is terminated here, never forwarded as an unrestricted TCP tunnel.
 """
 import base64
+import errno
 import http.server
 import hashlib
 import ipaddress
@@ -17,6 +18,7 @@ import ssl
 import subprocess
 import sys
 import threading
+import time
 import uuid
 import stat
 from urllib.parse import urlsplit
@@ -27,6 +29,25 @@ OUT = threading.Lock()
 PENDING = {}
 PENDING_LOCK = threading.Lock()
 CERT_LOCK = threading.Lock()
+
+
+def connect_host_channel():
+    # devtmpfs can publish the port before virtio's host-connected event. A
+    # shell redirection fails fatally on ENXIO, so retry the actual open here.
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            descriptor = os.open("/dev/vport0p1", os.O_RDWR)
+            break
+        except OSError as error:
+            if error.errno not in (errno.ENOENT, errno.ENXIO) or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.1)
+    # Open the exclusive character device once, then duplicate its descriptor.
+    os.dup2(descriptor, 0)
+    os.dup2(descriptor, 1)
+    if descriptor > 2:
+        os.close(descriptor)
 
 
 def emit(message):
@@ -223,6 +244,7 @@ def main():
     startup_timer = threading.Timer(180, lambda: os._exit(124))
     startup_timer.daemon = True
     startup_timer.start()
+    connect_host_channel()
     emit({"event": "ready"})
     config = read_frame()
     baseline = {}

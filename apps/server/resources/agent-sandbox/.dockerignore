@@ -1,5 +1,6 @@
 *
 !Dockerfile
 !relay.py
+!test_relay.py
 !init
 !requirements.txt

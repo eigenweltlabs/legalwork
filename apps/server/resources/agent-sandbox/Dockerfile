@@ -10,6 +10,8 @@ COPY requirements.txt /opt/legalwork/requirements.txt
 RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
     && pip freeze > /opt/legalwork/python-packages.txt
 COPY relay.py /opt/legalwork/relay.py
+COPY test_relay.py /opt/legalwork/test_relay.py
+RUN python3 -B /opt/legalwork/test_relay.py && rm /opt/legalwork/test_relay.py
 COPY init /init
 RUN chmod 0555 /opt/legalwork /opt/legalwork/relay.py
 RUN chmod 0755 /init && mkdir -p /workspace /authorized /proc /sys /dev /run
