@@ -1,0 +1,17 @@
+[
+  {"id": "Eigenwelt Europe Claude Opus", "name": "Eigenwelt Europe Claude Opus", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "Claude Opus 5.5"},
+  {"id": "Eigenwelt Europe Claude Sonnet", "name": "Eigenwelt Europe Claude Sonnet", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "Claude Sonnet 5.5"},
+  {"id": "Eigenwelt Europe DeepSeek", "name": "Eigenwelt Europe DeepSeek", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "DeepSeek V4.1 Flash"},
+  {"id": "Eigenwelt Europe Gemini", "name": "Eigenwelt Europe Gemini", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "Gemini 3.8 Flash"},
+  {"id": "Eigenwelt Europe GLM", "name": "Eigenwelt Europe GLM", "reasoning": true, "reasoningConfig": {"efforts": []}, "upstreamModel": "GLM 5.3 Flash"},
+  {"id": "Eigenwelt Europe GPT Luna", "name": "Eigenwelt Europe GPT Luna", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "GPT-6 Luna"},
+  {"id": "Eigenwelt Europe GPT Sol", "name": "Eigenwelt Europe GPT Sol", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "GPT-6.1 Sol"},
+  {"id": "Eigenwelt Europe Mistral", "name": "Eigenwelt Europe Mistral", "reasoning": true, "reasoningConfig": {"efforts": ["none", "high"], "defaultEffort": "high"}, "upstreamModel": "Mistral Large 4"},
+  {"id": "Eigenwelt US Claude Opus", "name": "Eigenwelt US Claude Opus", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "Claude Opus 5.5"},
+  {"id": "Eigenwelt US Claude Sonnet", "name": "Eigenwelt US Claude Sonnet", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "Claude Sonnet 5.5"},
+  {"id": "Eigenwelt US DeepSeek", "name": "Eigenwelt US DeepSeek", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "DeepSeek V4.1 Flash"},
+  {"id": "Eigenwelt US Gemini", "name": "Eigenwelt US Gemini", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "Gemini 3.8 Flash"},
+  {"id": "Eigenwelt US GLM", "name": "Eigenwelt US GLM", "reasoning": true, "reasoningConfig": {"efforts": []}, "upstreamModel": "GLM 5.3 Flash"},
+  {"id": "Eigenwelt US GPT Luna", "name": "Eigenwelt US GPT Luna", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "GPT-6 Luna"},
+  {"id": "Eigenwelt US GPT Sol", "name": "Eigenwelt US GPT Sol", "reasoning": true, "reasoningConfig": {"efforts": ["low", "medium", "high"], "defaultEffort": "medium"}, "upstreamModel": "GPT-6.1 Sol"}
+]

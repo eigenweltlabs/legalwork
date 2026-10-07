@@ -70,6 +70,8 @@ const getVariantKeys = (model: ProviderModel) => {
   return Array.from(new Set(keys));
 };
 
+const isReasoningToggle = (keys: string[]) => keys.length === 2 && keys.includes("none") && keys.includes("high");
+
 const sortVariantKeys = (keys: string[]) =>
   keys.slice().sort((a, b) => {
     const aIndex = WELL_KNOWN_VARIANT_ORDER.indexOf(a as (typeof WELL_KNOWN_VARIANT_ORDER)[number]);
@@ -189,21 +191,30 @@ export const getModelBehaviorOptions = (
 ): ModelBehaviorOption[] => {
   const variantKeys = sortVariantKeys(getVariantKeys(model));
   if (!variantKeys.length) return [];
+  const toggle = isReasoningToggle(variantKeys);
   return [
     defaultBehaviorOption(),
     ...variantKeys.map((key) => {
-      const label = getVariantLabel(providerID, key, providerName);
+      const label = toggle
+        ? t(key === "none" ? "model_behavior.label_reasoning_off" : "model_behavior.label_reasoning_on")
+        : getVariantLabel(providerID, key, providerName);
       return {
         value: key,
         label,
-        description: getVariantDescription(providerID, key, label, providerName),
+        description: toggle
+          ? t(key === "none" ? "model_behavior.desc_reasoning_off" : "model_behavior.desc_reasoning_on")
+          : getVariantDescription(providerID, key, label, providerName),
       };
     }),
   ];
 };
 
-const getDefaultModelBehaviorValue = (model: ProviderModel) =>
-  getDefaultVariantKey(sortVariantKeys(getVariantKeys(model)));
+const getDefaultModelBehaviorValue = (model: ProviderModel) => {
+  const keys = sortVariantKeys(getVariantKeys(model));
+  const configured = model.options.reasoningEffort;
+  if (typeof configured === "string" && keys.includes(configured)) return configured;
+  return getDefaultVariantKey(keys);
+};
 
 export const sanitizeModelBehaviorValue = (
   providerID: string,
@@ -213,6 +224,9 @@ export const sanitizeModelBehaviorValue = (
 ) => {
   const normalized = normalizeModelBehaviorValue(value);
   if (!normalized) return null;
+  // Old Mistral chats carried generic low/medium selections. Both meant
+  // reasoning enabled; reopening or sending them now selects the real mode.
+  if ((normalized === "low" || normalized === "medium") && isReasoningToggle(getVariantKeys(model))) return "high";
   return getModelBehaviorOptions(providerID, model, providerName).some((option) => option.value === normalized)
     ? normalized
     : null;

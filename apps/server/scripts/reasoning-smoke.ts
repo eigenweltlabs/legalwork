@@ -1,0 +1,118 @@
+// Run from the repository root:
+// OPENCODE_BIN=/path/to/pinned/opencode bun apps/server/scripts/reasoning-smoke.ts [manifest.json]
+// Optional live verification: MODEL_API_TEST_BASE_URL + MODEL_API_TEST_KEY.
+// The proxy binds only loopback; credentials stay in memory and are not logged.
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { buildEigenweltModelsMap } from "../src/eigenwelt-auth";
+import { parseManifestModels } from "../src/eigenwelt-paid-manifest";
+import { getModelBehaviorSummary } from "../../app/src/app/lib/model-behavior";
+
+const manifestPath = process.argv[2] ?? new URL("./fixtures/model-reasoning-manifest.json", import.meta.url);
+const binary = process.env.OPENCODE_BIN;
+if (!binary) throw new Error("Set OPENCODE_BIN to LegalWork's pinned engine.");
+const models = parseManifestModels(await Bun.file(manifestPath).json());
+if (!models.length || models.some((model) => !model.reasoningConfig)) throw new Error("Every model needs explicit reasoning controls.");
+const liveBase = process.env.MODEL_API_TEST_BASE_URL;
+const liveKey = process.env.MODEL_API_TEST_KEY;
+if (Boolean(liveBase) !== Boolean(liveKey)) throw new Error("Live verification requires both MODEL_API_TEST_BASE_URL and MODEL_API_TEST_KEY.");
+const captured: Array<{ model: string; effort: unknown; stream: boolean; nonce: string; status: number }> = [];
+const checks: Array<{ model: string; selection: string; effort: string | null; passed: boolean }> = [];
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  if (!request.url.endsWith("/chat/completions")) return Response.json({ error: "Unknown local test route" }, { status: 404 });
+  const body: unknown = await request.json();
+  if (!isRecord(body) || typeof body.model !== "string" || !Array.isArray(body.messages)) return Response.json({ error: "Invalid test request" }, { status: 400 });
+  const title = body.messages.some((message: unknown) => isRecord(message) &&
+    message.role === "system" && typeof message.content === "string" && message.content.startsWith("You are a title generator"));
+  const prompt = body.messages.flatMap((message: unknown) => {
+    if (!isRecord(message) || message.role !== "user") return [];
+    const texts = typeof message.content === "string" ? [message.content] : Array.isArray(message.content)
+      ? message.content.flatMap((part: unknown) => isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []) : [];
+    return texts.filter((text) => typeof text === "string" && text.startsWith("MODEL_REASONING_CHECK_"));
+  }).at(-1);
+  const nonce = !title && typeof prompt === "string" ? prompt.split(" ")[0] : undefined;
+  let response: Response;
+  if (liveBase && liveKey && nonce) {
+    response = await fetch(`${liveBase.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${liveKey}` },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(120_000), redirect: "error",
+    });
+  } else {
+    const chunk = { id: "local-reasoning-check", object: "chat.completion.chunk", created: 1, model: body.model,
+      choices: [{ index: 0, delta: { role: "assistant", content: "4" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } };
+    response = body.stream
+      ? new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } })
+      : Response.json({ ...chunk, object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: "4" }, finish_reason: "stop" }] });
+  }
+  if (nonce) captured.push({ model: body.model, effort: body.reasoning_effort, stream: body.stream === true, nonce, status: response.status });
+  return response;
+} });
+const root = await mkdtemp(join(tmpdir(), "legalwork-reasoning-smoke-"));
+const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("port reservation") });
+const port = probe.port;
+probe.stop(true);
+const config = { enabled_providers: ["eigenwelt"], permission: "deny", provider: { eigenwelt: {
+  npm: "@ai-sdk/openai-compatible", name: "Eigenwelt",
+  options: { baseURL: `http://127.0.0.1:${proxy.port}/v1`, apiKey: "local-test-only" },
+  models: buildEigenweltModelsMap(models),
+} } };
+const configPath = join(root, "opencode.json");
+await writeFile(configPath, JSON.stringify(config));
+const engineEnv: NodeJS.ProcessEnv = { ...process.env, OPENCODE_CONFIG: configPath, OPENCODE_DISABLE_MODELS_FETCH: "true",
+    OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
+    XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache") };
+delete engineEnv.MODEL_API_TEST_KEY;
+const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+  cwd: root, env: engineEnv,
+  stdout: "ignore", stderr: "ignore",
+});
+const client = createOpencodeClient({ baseUrl: `http://127.0.0.1:${port}`, throwOnError: true });
+try {
+  for (let attempt = 0; ; attempt++) {
+    try { await client.global.health(); break; }
+    catch { if (attempt === 60) throw new Error("Local engine did not become healthy"); await Bun.sleep(500); }
+  }
+  const catalog = (await client.provider.list()).data?.all.find((provider) => provider.id === "eigenwelt");
+  if (!catalog || Object.keys(catalog.models).length !== models.length) throw new Error("Engine lost catalog models");
+  for (const entry of models) {
+    const model = catalog.models[entry.id];
+    const config = entry.reasoningConfig;
+    if (!model || !config) throw new Error("Missing model controls");
+    const actual = Object.keys(model.variants ?? {}).sort();
+    if (JSON.stringify(actual) !== JSON.stringify([...config.efforts].sort())) throw new Error(`${entry.id}: inferred unsupported efforts survived`);
+    const selections: Array<string | null> = [null, "engine-default", ...config.efforts];
+    if (config.efforts.join(",") === "none,high") selections.push("low", "medium");
+    for (const selection of selections) {
+      const summary = getModelBehaviorSummary("eigenwelt", model, selection);
+      const variant = selection === "engine-default" ? null : summary.value;
+      const nonce = `MODEL_REASONING_CHECK_${crypto.randomUUID()}`;
+      const session = (await client.session.create()).data;
+      if (!session) throw new Error("Session not created");
+      const result = (await client.session.prompt({ sessionID: session.id, model: { providerID: "eigenwelt", modelID: model.id },
+        ...(variant ? { variant } : {}),
+        parts: [{ type: "text", text: `${nonce} Reply with only the numeral 4. Do not use tools or read files.` }],
+      })).data;
+      if (result?.info.error) throw new Error(`${entry.id}: engine ${result.info.error.name}`);
+      const sent = captured.filter((request) => request.nonce === nonce);
+      if (!sent.length || sent.some((request) => request.effort !== (variant ?? config.defaultEffort) || !request.stream || request.status !== 200)) {
+        throw new Error(`${entry.id}: ${selection ?? "default"} sent wrong effort or upstream failed: ${JSON.stringify(sent)}`);
+      }
+      const answer = result?.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
+      if (result?.info.error || answer?.trim() !== "4") throw new Error(`${entry.id}: ${selection ?? "default"} did not return the expected answer`);
+      const check = { model: entry.id, selection: selection ?? "default", effort: variant ?? config.defaultEffort ?? null, passed: true };
+      checks.push(check); console.log(JSON.stringify(check));
+    }
+  }
+  if (process.env.MODEL_REASONING_REPORT) await writeFile(process.env.MODEL_REASONING_REPORT, JSON.stringify({ live: Boolean(liveBase), models: models.length, checks }, null, 2));
+  console.log(JSON.stringify({ passed: true, live: Boolean(liveBase), models: models.length, checks: checks.length }));
+} finally {
+  engine.kill(); await engine.exited;
+  proxy.stop(true);
+  await rm(root, { recursive: true, force: true });
+}

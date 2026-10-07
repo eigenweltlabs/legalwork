@@ -35,6 +35,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { resolveModelLimit } from "./model-limits.js";
+import { modelReasoningOptions, type ModelReasoningConfig } from "./model-reasoning.js";
 import type { ServerConfig } from "./types.js";
 
 /** Pre-registered as exact redirect URIs on the Clerk OAuth application —
@@ -90,6 +91,7 @@ export type EigenweltManifestModel = {
   maxOutputTokens?: number;
   toolCall?: boolean;
   reasoning?: boolean;
+  reasoningConfig?: ModelReasoningConfig;
   /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
   region?: string;
   /** Plain-English hosting label, e.g. "Europe". */
@@ -690,6 +692,7 @@ export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Recor
           name: model.name ?? model.id,
           tool_call: model.toolCall ?? true,
           reasoning: model.reasoning ?? false,
+          ...modelReasoningOptions(model.reasoningConfig),
           limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
           ...(input
             ? {
