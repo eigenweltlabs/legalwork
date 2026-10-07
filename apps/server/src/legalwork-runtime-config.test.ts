@@ -86,6 +86,9 @@ describe("legalwork runtime config file", () => {
     // written into the per-workspace runtime config at connect time.
     expect((parsed.provider as Record<string, unknown> | undefined)?.eigenwelt).toBeUndefined();
     const agents = parsed.agent as Record<string, Record<string, unknown>>;
+    expect(agents["legalwork-scheduled-project"]).toMatchObject({ hidden: true, mode: "primary", permission: { "*": "deny", legalwork_project_read: "allow" } });
+    expect(agents["legalwork-scheduled-all"]).toMatchObject({ hidden: true, mode: "primary", permission: { legalwork_ui_execute_action: "deny", legalwork_ui_list_actions: "deny", legalwork_ui_snapshot: "deny" } });
+    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-scheduled-task-tools");
     expect(agents.legalwork.prompt).toContain("start-tabular-review");
     expect(agents.legalwork.prompt).toContain("at most one short sentence");
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
