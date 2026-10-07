@@ -597,6 +597,7 @@ export function SessionPage(props: SessionPageProps) {
     args: [
       { name: "url", type: "string", required: true, description: "The website URL to open." },
       { name: "provider", type: "string", description: "Browser provider. Use builtin or auto. External is reserved for future support." },
+      { name: "directory", type: "string", description: "Originating agent project directory. Downloads remain bound to this project." },
     ],
     previewArgs: { url: "https://example.com", provider: "builtin" },
     disabled: !isElectronRuntime(),
@@ -608,9 +609,11 @@ export function SessionPage(props: SessionPageProps) {
         return { ok: false, error: `Browser provider is not available yet: ${provider}` };
       }
       setCurrentSidePanel("panel");
-      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider);
+      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider, {
+        directory: controlStringArg(args, "directory") || props.selectedWorkspaceRoot,
+      });
     },
-  }), [setCurrentSidePanel]);
+  }), [props.selectedWorkspaceRoot, setCurrentSidePanel]);
   useControlAction(openBrowserUrlControlAction);
   const setBrowserProxyControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.set_proxy",

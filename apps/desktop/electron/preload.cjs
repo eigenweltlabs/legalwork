@@ -127,7 +127,7 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   browser: {
     show(bounds) { return ipcRenderer.invoke("legalwork:browser:show", bounds); },
     hide() { return ipcRenderer.invoke("legalwork:browser:hide"); },
-    openUrl(url, provider) { return ipcRenderer.invoke("legalwork:browser:openUrl", url, provider); },
+    openUrl(url, provider, context) { return ipcRenderer.invoke("legalwork:browser:openUrl", url, provider, context); },
     navigate(url) { return ipcRenderer.invoke("legalwork:browser:navigate", url); },
     back() { return ipcRenderer.invoke("legalwork:browser:back"); },
     forward() { return ipcRenderer.invoke("legalwork:browser:forward"); },

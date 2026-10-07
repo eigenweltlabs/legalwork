@@ -1,3 +1,4 @@
+import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { uiBridgeRequest, inAppDocumentSurface, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { z } from "zod";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
@@ -114,7 +115,10 @@ To add slides, use inapp_pptx_add_slide: choose an existing templateSlideIndex, 
 Finish all planned text and layout edits for a slide, then call inapp_pptx_preview once to inspect the rendered slide before moving to the next slide. Reads return live text and structured slide data without navigating or changing the selection. Edit calls return potential overlap/overflow warnings without images. Do not request a preview after every read or individual edit. If the finished-slide preview reveals unintended overlapping text, clipping or unreadable text, make the necessary corrections with shorter wording or inapp_pptx_update_layout, then request one new preview after those corrections are complete. Preserve the template hierarchy and readable font sizes. If preview is unavailable, say visual verification is incomplete; do not claim the layout was checked.
 
 ## Built-in Browser (external websites)
-For web browsing tasks, ALWAYS start with legalwork_browser_open_url. It creates/selects a built-in LegalWork browser tab and returns browser_url plus target_id. Use that exact browser_url and target_id for every later browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot call.
+For web browsing tasks, start with legalwork_browser_open_url. It creates a tab bound to the originating project and returns its initial snapshot, browser_url, target_id, and download_directory. Read that snapshot instead of immediately requesting the same page again.
+Prefer legalwork_browser_batch for known sequences of fill/click actions and condition waits. It returns the resulting page snapshot and downloads in the same call. Use steps:[] when only a fresh observation is needed. Add wait_for with an observed selector or expected text after navigation or asynchronous updates. Do not guess selectors, repeat mutations after a partial failure, or batch past a required user decision.
+Downloads save in the originating project's visible Downloads folder. Use legalwork_browser_downloads to get status and exact saved paths; read only completed files. Switching the visible project does not change a tab's download destination. Do not re-fetch a download into scratch storage merely because the page has not changed.
+Use the exact browser_url and target_id for the existing browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot tools when a batch does not support the needed action. If a snapshot has no useful controls, use one focused DOM observation rather than repeating identical empty snapshots. Built-in browser tasks do not require unrelated global browser skills unless the user explicitly requests them.
 Do not call browser_navigate without a target_id returned by legalwork_browser_open_url. Do not use browser_* tools on the LegalWork app target (avoid targets with title "LegalWork" or URLs containing ":5173/#/").`;
 
 function serverUrl(): string {
@@ -558,17 +562,19 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
         return JSON.stringify(result, null, 2);
       },
     },
+    ...legalworkBrowserTools,
     legalwork_browser_open_url: {
-      description: "Open a URL in the LegalWork built-in browser and return the exact CDP browser_url and target_id to use for browser_* automation tools. Always use this before browser_snapshot/click/fill/eval for web browsing tasks.",
+      description: "Open a URL in a LegalWork browser tab bound to this session project. Returns the initial page snapshot, browser_url, target_id, and project download directory. Use legalwork_browser_batch for subsequent actions and legalwork_browser_downloads for completed file paths.",
       args: browserOpenUrlArgsSchema.shape,
-      async execute(rawArgs: unknown) {
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = browserOpenUrlArgsSchema.parse(rawArgs);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
           body: {
             actionId: "browser.open_url",
-            args: { url: args.url, provider: args.provider ?? "builtin" },
+            args: { url: args.url, provider: args.provider ?? "builtin", directory: context.directory || context.worktree },
           },
+          timeoutMs: 45000,
         });
         return JSON.stringify(result, null, 2);
       },
