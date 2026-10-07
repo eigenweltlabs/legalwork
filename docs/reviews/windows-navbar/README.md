@@ -25,7 +25,11 @@ These screenshots show the real Home and Settings components with Windows platfo
 
 ## Native Windows verification
 
-A Windows machine was unavailable, so native caption behavior and a video of the Windows flow could not be captured. In PowerShell, from this branch:
+The PR code was launched as LegalWork - Dev in a running Windows 11 ARM64 VM using Electron 43.7.5 x64 and the live Vite development server. The pale blue frame, unified native caption controls, native File popup, maximize/restore and sidebar toggle were exercised. Home and Settings both displayed the unified bar. The screenshot below was captured directly from the VM.
+
+![Windows VM Settings in development mode](windows-vm-dev-settings.jpg)
+
+The remaining manual checks include Snap Layout selection, menu accelerators, display scaling, app zoom, fullscreen, and native theme changes with another app window open. No native video was recorded. To run locally in PowerShell, from this branch:
 
 ```powershell
 pnpm install --frozen-lockfile
