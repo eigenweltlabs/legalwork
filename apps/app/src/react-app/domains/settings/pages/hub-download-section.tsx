@@ -177,7 +177,7 @@ export function HubDownloadSection({
       await installsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("firm_hub.install_failed"));
+      toast.error(error instanceof Error ? error.message : t("firm_hub.install_failed"), { error });
     } finally {
       setBusyId(null);
     }
@@ -204,7 +204,7 @@ export function HubDownloadSection({
       await installsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("firm_hub.preset_apply_failed"));
+      toast.error(error instanceof Error ? error.message : t("firm_hub.preset_apply_failed"), { error });
     } finally {
       setBusyId(null);
     }
@@ -218,7 +218,7 @@ export function HubDownloadSection({
       toast.success(t("firm_hub.unshared", { name: item.name }));
       await Promise.all([listQuery.refetch(), installsQuery.refetch()]);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("firm_hub.delete_failed"));
+      toast.error(error instanceof Error ? error.message : t("firm_hub.delete_failed"), { error });
     } finally {
       setBusyId(null);
     }

@@ -751,7 +751,7 @@ export function SessionPage(props: SessionPageProps) {
       queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
       openTarget(target, undefined, hasMainView ? panelStateSessionId : undefined);
     } catch (error) {
-      toast.error(t("session.open_failed", { name: file.name }), {
+      toast.error(t("session.open_failed", { name: file.name }), { error,
         description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
       throw error;

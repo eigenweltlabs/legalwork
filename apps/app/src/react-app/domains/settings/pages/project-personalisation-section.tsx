@@ -78,7 +78,7 @@ export function ProjectPersonalisationSection({ client, workspaceId, projectName
       toast.success(t("personalisation.project_prompt_saved"));
     } catch (saveError) {
       if (saveError instanceof LegalworkServerError && saveError.code === "project_changed") setConflict(true);
-      toast.error(saveError instanceof Error ? saveError.message : t("personalisation.update_failed"));
+      toast.error(saveError instanceof Error ? saveError.message : t("personalisation.update_failed"), { error: saveError });
     } finally {
       setBusy(false);
     }
@@ -108,7 +108,7 @@ export function ProjectPersonalisationSection({ client, workspaceId, projectName
             setDraft(latest.customInstructions);
             setRevision(latest.revision);
             setConflict(false);
-          } catch (loadError) { toast.error(loadError instanceof Error ? loadError.message : t("personalisation.update_failed")); }
+          } catch (loadError) { toast.error(loadError instanceof Error ? loadError.message : t("personalisation.update_failed"), { error: loadError }); }
           finally { setBusy(false); }
         }}>{t("personalisation.project_prompt_reload")}</Button>
       </SettingsNotice> : null}

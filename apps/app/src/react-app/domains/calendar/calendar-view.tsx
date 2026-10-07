@@ -65,7 +65,7 @@ export function CalendarView(props: CalendarViewProps) {
     if (!client || !workspaceId || opening) return;
     setOpening(true);
     try { setEditing({ item: (await client.calendarItem(workspaceId, item.itemId)).item, day: occurrenceDay(item), client, workspaceId, projectId: props.projectId ?? source?.id ?? workspaceId, projectName: item.projectName }); }
-    catch (error) { toast.error(calendarError(error)); } finally { setOpening(false); }
+    catch (error) { toast.error(calendarError(error), { error }); } finally { setOpening(false); }
   };
   const title = view === "week"
     ? new Intl.DateTimeFormat(currentLocale(), { month: "short", day: "numeric", year: "numeric" }).formatRange(range.start, shiftDay(range.end, -1))

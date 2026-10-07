@@ -1,4 +1,5 @@
 import type { ApiErrorBody } from "./types.js";
+import type { ErrorDiagnostic } from "@legalwork/types/error-report";
 
 export class ApiError extends Error {
   status: number;
@@ -13,10 +14,11 @@ export class ApiError extends Error {
   }
 }
 
-export function formatError(err: ApiError): ApiErrorBody {
+export function formatError(err: ApiError, diagnostic?: ErrorDiagnostic): ApiErrorBody {
   return {
     code: err.code,
     message: err.message,
     details: err.details,
+    ...(diagnostic ? { diagnostic } : {}),
   };
 }

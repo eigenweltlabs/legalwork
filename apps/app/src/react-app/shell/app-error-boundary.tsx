@@ -2,10 +2,12 @@
 import { Component, type ReactNode } from "react";
 
 import { captureAppError } from "@/app/lib/app-error";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n"
+import { openErrorReport, recordError } from "@/app/lib/error-reports";
 
 type Props = { children: ReactNode; fallback?: ReactNode };
-type State = { hasError: boolean };
+type State = { hasError: boolean; incidentId: string | null };
 
 /**
  * Top-level error boundary: catches React render/lifecycle crashes (which do
@@ -13,14 +15,16 @@ type State = { hasError: boolean };
  * and shows a fallback instead of a blank screen.
  */
 export class AppErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
+  state: State = { hasError: false, incidentId: null };
 
   static getDerivedStateFromError(): State {
-    return { hasError: true };
+    return { hasError: true, incidentId: null };
   }
 
   componentDidCatch(error: unknown): void {
     captureAppError("react_render", error);
+    const diagnostic = recordError(error);
+    this.setState({ incidentId: diagnostic?.incident_id ?? null });
   }
 
   render(): ReactNode {
@@ -29,6 +33,7 @@ export class AppErrorBoundary extends Component<Props, State> {
         this.props.fallback ?? (
           <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
             <div className="text-sm font-medium text-dls-text">{t("boot.something_went_wrong")}</div>
+            {this.state.incidentId ? <Button variant="outline" onClick={() => { if (this.state.incidentId) openErrorReport(this.state.incidentId); }}>{t("error_report.share")}</Button> : null}
             <button
               type="button"
               onClick={() => window.location.reload()}

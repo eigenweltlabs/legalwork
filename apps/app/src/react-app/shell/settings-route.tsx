@@ -803,7 +803,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         toast.success(t("provider_auth.models_refreshed"));
       }
     } catch (error) {
-      toast.error(describeRouteError(error));
+      toast.error(describeRouteError(error), { error });
     } finally {
       setRefreshingProviderModels(false);
     }
@@ -1535,7 +1535,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       const settings = await legalworkClient.setModelCatalogSettings(!modelCatalogUpdatesEnabled);
       setModelCatalogUpdatesEnabled(settings.onlineUpdatesEnabled);
     } catch (error) {
-      toast.error(describeRouteError(error));
+      toast.error(describeRouteError(error), { error });
     } finally { setModelCatalogUpdatesBusy(false); }
   }, [legalworkClient, modelCatalogUpdatesBusy, modelCatalogUpdatesEnabled]);
 
@@ -1886,7 +1886,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setRenameWorkspaceTitle("");
       await refreshRouteState();
     } catch (error) {
-      toast.error(t("session_route.rename_failed"), {
+      toast.error(t("session_route.rename_failed"), { error,
         description: describeRouteError(error),
       });
     } finally {

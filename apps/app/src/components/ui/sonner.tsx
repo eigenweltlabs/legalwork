@@ -6,6 +6,8 @@ import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme"
 import { Button } from "@/components/ui/button"
 import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
+import { openErrorReport, recordError } from "@/app/lib/error-reports";
+import type { ErrorOperation } from "@legalwork/types/error-report";
 
 function useTheme() {
   return React.useSyncExternalStore(
@@ -68,6 +70,9 @@ interface ToastOptions {
   action?: ToastAction
   cancel?: ToastAction
   duration?: number
+  error?: unknown
+  operation?: ErrorOperation
+  reportable?: boolean
 }
 
 const TOAST_ICONS: Record<Exclude<ToastType, "default">, LucideIcon> = {
@@ -202,7 +207,16 @@ function ToastCard({ id, type, title, description, action, cancel, notification 
 }
 
 function showToast(type: ToastType, message: React.ReactNode, options?: ToastOptions) {
-  const notification = options?.action === undefined && options?.cancel === undefined;
+  // Even handled UI failures can be shared with analytics off. Without an
+  // original Error this is local-only: don't invent automatic bug telemetry.
+  const diagnostic = type === "error" && options?.reportable !== false ? recordError(
+    options?.error ?? new Error(typeof message === "string" ? message : "UI operation failed"),
+    { source: "handled", operation: options?.operation ?? "unknown" },
+    { automatic: options?.error !== undefined },
+  ) : null;
+  const reportAction = diagnostic ? { label: t("error_report.share"), onClick: () => openErrorReport(diagnostic.incident_id) } : undefined;
+  const effectiveOptions = { ...options, action: options?.action ?? reportAction };
+  const notification = effectiveOptions.action === undefined && options?.cancel === undefined;
 
   return sonnerToast.custom(
     (id) => (
@@ -211,8 +225,8 @@ function showToast(type: ToastType, message: React.ReactNode, options?: ToastOpt
         type={type}
         title={message}
         description={options?.description}
-        action={options?.action}
-        cancel={options?.cancel}
+        action={effectiveOptions.action}
+        cancel={options?.cancel ?? (options?.action ? reportAction : undefined)}
         notification={notification}
       />
     ),

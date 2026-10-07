@@ -1,3 +1,4 @@
+import { diagnosticBuildId, errorSymbolPlugins } from "./build/error-symbols";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,10 +34,12 @@ const buildAppVersion =
 export default defineConfig({
   base: "/word-addin/",
   define: {
+    "import.meta.env.VITE_LEGALWORK_BUILD_ID": JSON.stringify(diagnosticBuildId(appRoot)),
     "import.meta.env.VITE_LEGALWORK_APP_VERSION": JSON.stringify(buildAppVersion),
     "import.meta.env.VITE_LEGALWORK_DEPLOYMENT": JSON.stringify("web"),
   },
   plugins: [
+    ...errorSymbolPlugins(appRoot, "office", buildAppVersion),
     tailwindcss(),
     react({
       babel: {
@@ -45,6 +48,7 @@ export default defineConfig({
     }),
   ],
   build: {
+    sourcemap: "hidden",
     target: "esnext",
     outDir: "dist-word-addin",
     // Watch mode (dev) keeps the previous bundle on disk so the task pane

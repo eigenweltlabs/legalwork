@@ -122,7 +122,7 @@ export function TaskContent(props: TaskContentProps) {
       props.onClose();
       sessionContext.onOpenSession(result.workspaceId, result.sessionId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("tasks.session_failed"));
+      toast.error(error instanceof Error ? error.message : t("tasks.session_failed"), { error });
     } finally { startingRef.current = false; setStarting(false); }
   };
   const requestSession = () => {

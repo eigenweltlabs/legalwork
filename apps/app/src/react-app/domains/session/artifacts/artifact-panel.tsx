@@ -487,7 +487,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       else toast.error(t("artifact.save_wait_loading"));
       return ok === true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"));
+      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"), { error });
       return false;
     } finally {
       setDocumentSaving(false);
@@ -517,7 +517,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
     try {
       await action();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("artifact.open_failed"));
+      toast.error(error instanceof Error ? error.message : t("artifact.open_failed"), { error });
     }
   };
   const documentChangedOnDisk = documentDirty && documentSnapshot && data?.kind === "binary" && data.updatedAt !== documentSnapshot.updatedAt;

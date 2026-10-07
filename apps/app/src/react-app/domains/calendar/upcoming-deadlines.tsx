@@ -26,7 +26,7 @@ export function UpcomingDeadlines(props: { client: LegalworkServerClient; worksp
     if (opening) return;
     setOpening(true);
     try { setEditing((await props.client.calendarItem(props.workspaceId, item.itemId)).item); }
-    catch (error) { toast.error(calendarError(error)); } finally { setOpening(false); }
+    catch (error) { toast.error(calendarError(error), { error }); } finally { setOpening(false); }
   };
   return <section className="flex min-w-0" aria-label={t("calendar.upcoming")}>
     <Surface className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border-border/60 shadow-none">

@@ -45,7 +45,7 @@ export function StorageDeleteEntry({ client, workspaceId, root, file, disabled, 
               const message = cause instanceof Error ? cause.message : t("storage.failed");
               setError(message);
               // A partial folder deletion may remove this row; keep the error visible.
-              if (file.kind === "folder") toast.error(message);
+              if (file.kind === "folder") toast.error(message, { error: cause });
             } finally {
               setBusy(false);
               void queryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId, root.id] });

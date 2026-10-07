@@ -1,4 +1,8 @@
 /** @jsxImportSource react */
+import { initDiagnosticAssets, restoreLocalErrorReports, recordError, openErrorReport } from "@/app/lib/error-reports";
+import { initErrorAnalytics } from "@/app/lib/app-error";
+import { Toaster } from "@/components/ui/sonner";
+import { Button } from "@/components/ui/button";
 import * as React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -19,6 +23,8 @@ import { AppProviders } from "@/react-app/shell/providers";
 import { DEFAULT_SHELL_CONFIG, SHELL_CONFIG_STORAGE_KEY } from "@/react-app/shell/shell-config";
 import { officeReady, openLegalworkApp } from "./office";
 import { WordAddinRoot } from "./word-addin-root";
+import { ErrorReportHost } from "@/react-app/shell/error-report-dialog";
+import { AppErrorBoundary } from "@/react-app/shell/app-error-boundary";
 import "@/app/index.css";
 import "./word-pane.css";
 
@@ -113,7 +119,7 @@ async function connectToServer(): Promise<void> {
 type ConnectionState =
   | { status: "connecting" }
   | { status: "ready" }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; incidentId: string | null };
 
 function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: () => void }) {
   return (
@@ -145,6 +151,7 @@ function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: ()
               {t("word_addin.connect_retry")}
             </button>
           </div>
+          {state.status === "error" && state.incidentId ? <Button variant="outline" size="sm" onClick={() => { if (state.incidentId) openErrorReport(state.incidentId); }}>{t("error_report.share")}</Button> : null}
         </>
       )}
     </div>
@@ -164,6 +171,7 @@ function WordAddinApp() {
       .catch((error: unknown) => {
         setState({
           status: "error",
+          incidentId: recordError(error, { source: "startup", component: "network", operation: "startup", phase: "startup" })?.incident_id ?? null,
           message: error instanceof Error ? error.message : String(error),
         });
       });
@@ -192,8 +200,12 @@ function WordAddinApp() {
   );
 }
 
+setAnalyticsConsentOverride(false); // Until the desktop supplies its current consent.
+initErrorAnalytics();
 bootstrapTheme();
 initLocale();
+restoreLocalErrorReports();
+void initDiagnosticAssets();
 
 const root = document.getElementById("root");
 if (!root) {
@@ -209,7 +221,11 @@ void officeReady().finally(() => {
   seedWordPaneShellConfig();
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
+      <ErrorReportHost />
+      <Toaster />
+      <AppErrorBoundary>
       <WordAddinApp />
+      </AppErrorBoundary>
     </React.StrictMode>,
   );
 });

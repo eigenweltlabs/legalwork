@@ -24,7 +24,7 @@ export function ProjectRemoteFolders({ client, workspaceId }: { client: Legalwor
   const mutate = async (operation: () => Promise<unknown>) => {
     setBusy(true);
     try { await operation(); await refresh(); }
-    catch (error) { toast.error(error instanceof Error ? error.message : t("projects.failed")); }
+    catch (error) { toast.error(error instanceof Error ? error.message : t("projects.failed"), { error }); }
     finally { setBusy(false); }
   };
   return <>

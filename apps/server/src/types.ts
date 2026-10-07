@@ -218,6 +218,7 @@ export interface ApiErrorBody {
   code: string;
   message: string;
   details?: unknown;
+  diagnostic?: import("@legalwork/types/error-report").ErrorDiagnostic;
 }
 
 export interface PluginItem {

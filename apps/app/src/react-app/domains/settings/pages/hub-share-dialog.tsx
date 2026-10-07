@@ -163,7 +163,7 @@ export function HubShareDialog(props: {
           .filter((entry) => !initialSelection || entry.id === initialSelection.ref)
           .map((entry) => ({ ref: entry.id, label: entry.name, kind: "review_set" as const })) : []);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("hub_share.load_failed"));
+        toast.error(err instanceof Error ? err.message : t("hub_share.load_failed"), { error: err });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -214,7 +214,7 @@ export function HubShareDialog(props: {
       setIncludeKey(new Set());
       setAcknowledged(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("hub_share.share_failed"));
+      toast.error(err instanceof Error ? err.message : t("hub_share.share_failed"), { error: err });
     } finally {
       setBusy(false);
     }

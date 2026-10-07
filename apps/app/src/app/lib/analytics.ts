@@ -26,6 +26,7 @@
 import { recordInspectorEvent } from "./app-inspector";
 import { isOfficeAddinRuntime } from "./runtime-env";
 import { officeHostName } from "@/word-addin/office";
+import { errorExceptionProperties, type ErrorDiagnostic } from "@legalwork/types/error-report";
 
 const ENV_POSTHOG_KEY = String(import.meta.env.VITE_LEGALWORK_POSTHOG_KEY ?? "").trim();
 const ENV_POSTHOG_HOST = String(import.meta.env.VITE_LEGALWORK_POSTHOG_HOST ?? "").trim();
@@ -59,13 +60,17 @@ export type AnalyticsProperties = Record<string, string | number | boolean | nul
 
 type QueuedEvent = {
   event: string;
-  properties: AnalyticsProperties;
+  properties: Record<string, unknown>;
   timestamp: string;
+  uuid: string;
+  attempts: number;
 };
 
 let queue: QueuedEvent[] = [];
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
+let flushing = false;
+let consentEpoch = 0;
 
 /** The stored consent choice, or null when the user never made one. */
 export function getStoredAnalyticsConsent(): boolean | null {
@@ -89,6 +94,7 @@ export function getStoredAnalyticsConsent(): boolean | null {
 let consentOverride: boolean | null = null;
 export function setAnalyticsConsentOverride(enabled: boolean): void {
   consentOverride = enabled;
+  if (!enabled) discardPendingAnalytics();
 }
 
 export function isAnalyticsEnabled(): boolean {
@@ -156,6 +162,21 @@ export function analyticsSurface(): AnalyticsSurface {
  * only sent over the network when enabled and a key is configured.
  */
 export function captureAnalyticsEvent(event: string, properties: AnalyticsProperties = {}) {
+  enqueueAnalyticsEvent(event, properties);
+}
+
+const recentExceptions = new Map<string, number>();
+export function captureErrorAnalytics(diagnostic: ErrorDiagnostic): void {
+  if (diagnostic.code === "cancelled" || !POSTHOG_KEY || isAnalyticsRefused()) return;
+  const now = Date.now();
+  if (now - (recentExceptions.get(diagnostic.fingerprint) ?? 0) < 5000) return;
+  for (const [key, at] of recentExceptions) if (now - at >= 60_000) recentExceptions.delete(key);
+  if (recentExceptions.size >= 20) return;
+  recentExceptions.set(diagnostic.fingerprint, now);
+  enqueueAnalyticsEvent("$exception", errorExceptionProperties(diagnostic));
+}
+
+function enqueueAnalyticsEvent(event: string, properties: Record<string, unknown>) {
   try {
     recordInspectorEvent(`analytics.${event}`, properties);
   } catch {
@@ -167,12 +188,13 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
   // flushAnalytics holds them until it does. Held events are capped at one
   // batch: the choice may never come (no welcome screen shown this launch).
   if (!POSTHOG_KEY || isAnalyticsRefused()) return;
-  if (queue.length >= MAX_BATCH && !isAnalyticsEnabled()) return;
+  if (queue.length >= MAX_BATCH * (isAnalyticsEnabled() ? 2 : 1)) return;
 
   queue.push({
     event,
     properties: { ...baseProperties(), ...properties },
     timestamp: new Date().toISOString(),
+    uuid: crypto.randomUUID(), attempts: 0,
   });
   if (queue.length >= MAX_BATCH) {
     void flushAnalytics();
@@ -182,29 +204,39 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
 /** Drop events captured before a newly committed opt-out. */
 export function discardPendingAnalytics(): void {
   queue = [];
+  consentEpoch++;
 }
 
 export async function flushAnalytics(): Promise<void> {
-  if (!POSTHOG_KEY) return;
+  if (!POSTHOG_KEY || flushing) return;
   if (isAnalyticsRefused()) {
     // Consent withdrawn — drop anything still queued.
-    queue = [];
+    discardPendingAnalytics();
     return;
   }
   // Choice still pending: hold the queue. Nothing leaves the machine before
   // the user could turn analytics off on the welcome screen.
   if (!isAnalyticsEnabled() || queue.length === 0) return;
+  flushing = true;
+  const epoch = consentEpoch;
   const batch = queue.splice(0, MAX_BATCH);
+  for (const entry of batch) entry.attempts++;
+  const retry = () => {
+    if (epoch !== consentEpoch || isAnalyticsRefused()) return;
+    queue = [...batch.filter(entry => entry.attempts < 3), ...queue].slice(0, MAX_BATCH * 2);
+  };
   const distinctId = getAnalyticsDistinctId();
 
   try {
-    await fetch(`${POSTHOG_HOST}/batch/`, {
+    const response = await fetch(`${POSTHOG_HOST}/batch/`, {
       method: "POST",
       keepalive: true,
+      signal: AbortSignal.timeout(5000),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         api_key: POSTHOG_KEY,
         batch: batch.map((entry) => ({
+          uuid: entry.uuid,
           event: entry.event,
           distinct_id: distinctId,
           timestamp: entry.timestamp,
@@ -213,9 +245,11 @@ export async function flushAnalytics(): Promise<void> {
         })),
       }),
     });
+    if (!response.ok && (response.status === 429 || response.status >= 500)) retry();
   } catch {
-    // Network failure — drop silently. Analytics must never surface errors.
-  }
+    // Bounded, in-memory retry; no content-bearing disk queue or user-facing error.
+    retry();
+  } finally { flushing = false; }
 }
 
 // Task run duration tracking: sendDraft marks the start, the session.idle
@@ -262,5 +296,7 @@ export function disposeAnalytics() {
     flushTimer = null;
   }
   initialized = false;
-  queue = [];
+  consentOverride = null;
+  recentExceptions.clear();
+  discardPendingAnalytics();
 }

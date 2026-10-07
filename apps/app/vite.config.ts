@@ -1,3 +1,4 @@
+import { diagnosticBuildId, errorSymbolPlugins } from "./build/error-symbols";
 import os from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -50,9 +51,11 @@ const isElectronPackagedBuild = process.env.LEGALWORK_ELECTRON_BUILD === "1";
 export default defineConfig({
   base: isElectronPackagedBuild ? "./" : "/",
   define: {
+    "import.meta.env.VITE_LEGALWORK_BUILD_ID": JSON.stringify(diagnosticBuildId(appRoot)),
     "import.meta.env.VITE_LEGALWORK_APP_VERSION": JSON.stringify(buildAppVersion),
   },
   plugins: [
+    ...errorSymbolPlugins(appRoot, "desktop", buildAppVersion),
     {
       name: "legalwork-dev-server-id",
       configureServer(server) {
@@ -78,6 +81,7 @@ export default defineConfig({
     ...(allowedHosts.size > 0 ? { allowedHosts: Array.from(allowedHosts) } : {}),
   },
   build: {
+    sourcemap: "hidden",
     target: "esnext",
     rollupOptions: {
       input: {

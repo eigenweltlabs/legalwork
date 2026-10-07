@@ -134,7 +134,7 @@ function StorageSaveActions({
         toast.success(t("common.saved"));
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"));
+      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"), { error });
     } finally {
       setBusy(false);
     }
@@ -148,7 +148,7 @@ function StorageSaveActions({
       queryClient.setQueryData(["storage-working-copy", workspaceId, tabId], latest);
       toast.success(t("storage.latest_opened"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("artifact.load_failed"));
+      toast.error(error instanceof Error ? error.message : t("artifact.load_failed"), { error });
     } finally {
       setBusy(false);
     }

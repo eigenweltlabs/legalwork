@@ -162,7 +162,7 @@ export function EigenweltAccountView({
       }
     } catch (error) {
       if (waitTokenRef.current === token) {
-        toast.error(error instanceof Error ? error.message : t("providers.oauth_failed"));
+        toast.error(error instanceof Error ? error.message : t("providers.oauth_failed"), { error });
       }
     } finally {
       if (waitTokenRef.current === token) setConnecting(false);
@@ -187,7 +187,7 @@ export function EigenweltAccountView({
         setPendingSignOut(Number.isFinite(pending) && pending > 0 ? pending : 1);
         return;
       }
-      toast.error(error instanceof Error ? error.message : t("account.disconnect_failed"));
+      toast.error(error instanceof Error ? error.message : t("account.disconnect_failed"), { error });
     }
   };
 
@@ -217,7 +217,7 @@ export function EigenweltAccountView({
       else if (changed) toast.success(t("account.refresh_loaded", { count: String(count) }));
       else toast.success(t("account.refresh_uptodate", { count: String(count) }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("account.refresh_failed"));
+      toast.error(error instanceof Error ? error.message : t("account.refresh_failed"), { error });
     } finally {
       setRefreshing(false);
     }

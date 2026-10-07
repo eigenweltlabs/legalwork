@@ -51,6 +51,10 @@ export type BrowserProxyState = {
 declare global {
   interface Window {
     __LEGALWORK_ELECTRON__?: {
+      getDiagnosticAssets?: () => Promise<unknown>;
+      clearErrorRecords?: () => Promise<void>;
+      getErrorRecords?: () => Promise<unknown[]>;
+      onAppError?: (callback: (data: import("./app-error").RelayedAppError) => void) => () => void;
       invokeDesktop?: <C extends DesktopCommandName>(
         command: C,
         ...args: DesktopCommandArgs<C>

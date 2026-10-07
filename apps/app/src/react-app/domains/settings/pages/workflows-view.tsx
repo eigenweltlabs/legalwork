@@ -126,7 +126,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     try {
       const result = await props.onGenerateFromTemplates();
       if (!result.ok && result.message) toast.error(result.message);
-    } catch (error) { toast.error(error instanceof Error ? error.message : t("common.something_went_wrong")); }
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("common.something_went_wrong"), { error }); }
   };
 
   const start = (type: WorkflowType) => setNewType(type);

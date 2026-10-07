@@ -106,7 +106,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
     } catch (saveError) {
       const message = describeError(saveError);
       setError(message);
-      toast.error(message);
+      toast.error(message, { error: saveError });
     } finally {
       setBusy(false);
     }
@@ -131,7 +131,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
     } catch (deleteError) {
       const message = describeError(deleteError);
       setError(message);
-      toast.error(message);
+      toast.error(message, { error: deleteError });
     } finally {
       setBusy(false);
     }

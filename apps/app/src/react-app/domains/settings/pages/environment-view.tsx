@@ -328,7 +328,7 @@ function EnvironmentItemsTable(props: EnvironmentItemsTableProps) {
       await props.onRevealValue(item);
       setRevealed((current) => ({ ...current, [key]: true }));
     } catch (readError) {
-      toast.error(readError instanceof Error ? readError.message : t("app.unknown_error"));
+      toast.error(readError instanceof Error ? readError.message : t("app.unknown_error"), { error: readError });
     } finally {
       setRevealing((current) => ({ ...current, [key]: false }));
     }

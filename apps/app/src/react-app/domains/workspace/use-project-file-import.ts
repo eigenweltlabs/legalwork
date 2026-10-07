@@ -46,7 +46,7 @@ export function useProjectFileImport({ projectId, workspaceId, isRemoteWorkspace
       if (message.includes("workspaceCopyFiles") && /not implemented|unknown|not registered|unsupported/i.test(message)) {
         toast.info(t("projects.files_restart"));
       } else {
-        toast.error(t("projects.files_copy_error"));
+        toast.error(t("projects.files_copy_error"), { error });
       }
     } finally {
       copyingRef.current = false;

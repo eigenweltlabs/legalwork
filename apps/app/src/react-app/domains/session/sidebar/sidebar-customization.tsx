@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
@@ -88,7 +88,7 @@ function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
     try {
       update({ sidebarBrandLogoDataUrl: await readSidebarBrandLogo(file) });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("settings.customization.logo_error_load"));
+      toast.error(error instanceof Error ? error.message : t("settings.customization.logo_error_load"), { error });
     } finally {
       setUploading(false);
     }

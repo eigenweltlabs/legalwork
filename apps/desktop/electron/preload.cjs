@@ -61,6 +61,15 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
       return ipcRenderer.invoke("legalwork:desktop", "workspaceCopyFiles", { workspaceId, paths, folder });
     },
   },
+  getDiagnosticAssets() {
+    return ipcRenderer.invoke("legalwork:diagnostic-assets");
+  },
+  clearErrorRecords() {
+    return ipcRenderer.invoke("legalwork:error-records:clear");
+  },
+  getErrorRecords() {
+    return ipcRenderer.invoke("legalwork:error-records");
+  },
   /** Subscribe to content-free error signals relayed from the main process. */
   onAppError(callback) {
     const handler = (_event, data) => callback(data);
