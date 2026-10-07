@@ -251,7 +251,21 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   function applyVisibility(window) {
     if (process.platform === "darwin") return;
     window.setAutoHideMenuBar(false);
-    window.setMenuBarVisibility(applicationMenuVisible);
+    // Windows menus live in the renderer title bar. Alt must not add a second row.
+    window.setMenuBarVisibility(process.platform === "win32" ? false : applicationMenuVisible);
+  }
+
+  function popup(window, label, point) {
+    if (process.platform !== "win32" || !window || window.isDestroyed()) return false;
+    if (!["File", "Edit", "View", "Help"].includes(label)) return false;
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return false;
+    const menu = Menu.getApplicationMenu()?.items.find((item) =>
+      item.label.replace(/&/g, "") === label || (label === "Help" && item.role === "help"),
+    )?.submenu;
+    if (!menu) return false;
+    const zoom = window.webContents.getZoomFactor();
+    menu.popup({ window, x: Math.round(point.x * zoom), y: Math.round(point.y * zoom) });
+    return true;
   }
 
   function setVisible(visible) {
@@ -262,5 +276,5 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
     return applicationMenuVisible;
   }
 
-  return { install, applyVisibility, setVisible };
+  return { install, applyVisibility, setVisible, popup };
 }

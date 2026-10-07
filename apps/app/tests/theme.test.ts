@@ -19,6 +19,7 @@ function createWindow(values: Record<string, string> = {}, dark = false) {
   const storageListeners: Array<(event: { key: string | null; storageArea: unknown }) => void> = [];
   const systemListeners = new Set<() => void>();
   const nativeModes: string[] = [];
+  const nativeAppearances: string[] = [];
   const documentElement = { dataset: { theme: "", appearance: "" }, style: { colorScheme: "" } };
   const localStorage = {
     getItem: (name: string) => stored.get(name) ?? null,
@@ -37,13 +38,13 @@ function createWindow(values: Record<string, string> = {}, dark = false) {
       localStorage,
       matchMedia: () => media,
       addEventListener: (_name: string, callback: typeof storageListeners[number]) => { storageListeners.push(callback); },
-      __LEGALWORK_ELECTRON__: { invokeDesktop: (_command: string, mode: string) => { nativeModes.push(mode); } },
+      __LEGALWORK_ELECTRON__: { invokeDesktop: (_command: string, mode: string, appearance: string) => { nativeModes.push(mode); nativeAppearances.push(appearance); } },
     },
   };
   runInNewContext(compiled, context);
   const theme: typeof import("../src/app/theme") = runInNewContext("exports", context);
   return {
-    theme, context, documentElement, stored, nativeModes,
+    theme, context, documentElement, stored, nativeModes, nativeAppearances,
     storageChange(name: string | null, value: string | null, storageArea: unknown = localStorage) {
       if (name === null) stored.clear();
       else if (value === null) stored.delete(name);
@@ -81,6 +82,7 @@ test("Blackout persists as a palette while native controls and editors receive d
   win.theme.setThemeMode("blackout");
   expect(win.stored.get(key)).toBe("blackout");
   expect(win.nativeModes.at(-1)).toBe("dark");
+  expect(win.nativeAppearances.at(-1)).toBe("blackout");
   expect(win.theme.getResolvedThemeMode()).toBe("dark");
   expect(win.theme.getResolvedAppearance()).toBe("blackout");
   const reopened = createWindow(Object.fromEntries(win.stored));
