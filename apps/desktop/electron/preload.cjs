@@ -81,6 +81,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     getArchitectureInfo() {
       return ipcRenderer.invoke("legalwork:system:architecture");
     },
+    getArchitectureDownload() {
+      return ipcRenderer.invoke("legalwork:system:architecture-download");
+    },
     getMicrophoneStatus() {
       return ipcRenderer.invoke("legalwork:system:microphoneStatus");
     },

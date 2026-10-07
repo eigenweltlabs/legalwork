@@ -1,7 +1,7 @@
 // Inspect the shipped binary, not just the builder configuration.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -24,13 +24,36 @@ for (const [name, enabled] of Object.entries({
 const resources = process.platform === "darwin" ? path.join(appPath, "Contents/Resources") : path.join(path.dirname(appPath), "resources");
 const nodeDirectory = path.join(resources, "node");
 const metadata = JSON.parse(await readFile(path.join(nodeDirectory, "runtime.json"), "utf8"));
-const node = spawnSync("node", ["-p", "JSON.stringify({version:process.versions.node,electron:process.versions.electron??null})"], {
+const expectedArch = metadata.source.target.split("-").at(-1);
+const node = spawnSync("node", ["-p", "JSON.stringify({version:process.versions.node,electron:process.versions.electron??null,arch:process.arch})"], {
   env: { ...process.env, PATH: nodeDirectory, NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "" }, encoding: "utf8",
 });
 if (node.error) throw node.error;
 assert.equal(node.status, 0, node.stderr);
-assert.deepEqual(JSON.parse(node.stdout), { version: metadata.source.version, electron: null });
+assert.deepEqual(JSON.parse(node.stdout), { version: metadata.source.version, electron: null, arch: expectedArch });
 console.log(`PASS: bundled Node ${metadata.source.version} runs with no system Node on PATH`);
+if (process.platform === "win32") {
+  const expectedMachine = expectedArch === "arm64" ? 0xaa64 : 0x8664;
+  for (const executable of [appPath, path.join(nodeDirectory, "node.exe"), path.join(resources, "sidecars/opencode.exe")]) {
+    const file = await open(executable, "r");
+    try {
+      const header = Buffer.alloc(64);
+      await file.read(header, 0, header.length, 0);
+      assert.equal(header.readUInt16LE(0), 0x5a4d, `${executable} must be a PE executable`);
+      const pe = Buffer.alloc(6);
+      await file.read(pe, 0, pe.length, header.readUInt32LE(60));
+      assert.equal(pe.readUInt32LE(0), 0x4550);
+      assert.equal(pe.readUInt16LE(4), expectedMachine, `${executable} must match the ${expectedArch} installer`);
+    } finally { await file.close(); }
+  }
+  console.log(`PASS: Windows app, Node and engine are all ${expectedArch}`);
+  const speech = spawnSync(path.join(nodeDirectory, "node.exe"), ["-e", "const s=require(process.argv[1]); if(typeof s.OfflineRecognizer.createAsync !== 'function' || typeof s.Vad !== 'function') process.exit(1); console.log(s.version)", path.join(resources, "app.asar.unpacked/node_modules/sherpa-onnx-node")], {
+    env: { ...process.env, NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "" }, encoding: "utf8", timeout: 30_000,
+  });
+  if (speech.error) throw speech.error;
+  assert.equal(speech.status, 0, speech.stderr);
+  console.log(`PASS: packaged ${expectedArch} speech addon loads with bundled Node (${speech.stdout.trim()})`);
+}
 if (process.platform === "linux") console.log("NOTE: Electron does not enforce ASAR integrity on Linux; the other fuse restrictions apply.");
 
 // Exercise the document tools extracted from the shipped archive with only the

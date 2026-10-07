@@ -1,0 +1,77 @@
+{
+  "providerCache": {
+    "method": "Windows x64 dev Electron, CDP Network events. Reload general settings, then dispatch legalwork-open-model-picker and confirm dialog visibility.",
+    "before": {
+      "beforePicker": 1,
+      "afterPicker": 2,
+      "requests": [
+        {
+          "ms": 1195,
+          "status": 200
+        },
+        {
+          "ms": 908,
+          "status": 200
+        }
+      ],
+      "dialogVisible": true
+    },
+    "after": {
+      "beforePicker": 1,
+      "afterPicker": 1,
+      "requests": [
+        {
+          "ms": 1263,
+          "status": 200
+        }
+      ],
+      "dialogVisible": true
+    },
+    "providerResponseBytes": 6606543
+  },
+  "fileList": {
+    "method": "Actual compiled before/after route handlers, same 2000-file synthetic Windows fixture, alternating order. Includes stat calls, natural sort, JSON serialization and decoding. Does not include HTTP transport.",
+    "arm64": {
+      "arch": "arm64",
+      "node": "v22.23.2",
+      "fixtureFiles": 2000,
+      "before": [
+        113.6,
+        60.2,
+        56,
+        51.9,
+        53.8,
+        51
+      ],
+      "after": [
+        41.7,
+        20.7,
+        19,
+        14.6,
+        16.3,
+        14.9
+      ]
+    },
+    "x64": {
+      "arch": "x64",
+      "node": "v22.23.2",
+      "fixtureFiles": 2000,
+      "before": [
+        202.3,
+        123.4,
+        113.8,
+        101.9,
+        105.5,
+        95
+      ],
+      "after": [
+        146.5,
+        55.1,
+        41.2,
+        43.7,
+        51.4,
+        42.4
+      ]
+    }
+  }
+}

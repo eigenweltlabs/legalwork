@@ -161,6 +161,10 @@ export function mergeRouteWorkspaces(
   );
 
   const missingDesktop = desktopWorkspaces.filter((workspace) => {
+    // A successful server list is authoritative for local projects. The
+    // desktop remembers selection/history, including firm projects removed
+    // on sign-out. Reintroducing those entries makes every scoped API 404.
+    if (workspace.workspaceType !== "remote") return false;
     if (mergedIds.has(workspace.id)) return false;
     const normalizedPath = normalizeDirectoryPath(workspace.path ?? "");
     if (normalizedPath && mergedPaths.has(normalizedPath)) return false;
@@ -168,6 +172,24 @@ export function mergeRouteWorkspaces(
   });
 
   return [...mergedServer, ...missingDesktop];
+}
+
+/** Resolve saved IDs only against projects the current connection can serve. */
+export function resolveRouteWorkspaceId(
+  workspaces: RouteWorkspace[],
+  preferredIds: Array<string | null | undefined>,
+  desktopWorkspaces: RouteWorkspace[] = [],
+): string {
+  for (const value of preferredIds) {
+    const id = value?.trim();
+    if (!id) continue;
+    if (workspaces.some((workspace) => workspace.id === id)) return id;
+    const path = normalizeDirectoryPath(desktopWorkspaces.find((workspace) => workspace.id === id)?.path ?? "");
+    if (!path) continue;
+    const match = workspaces.find((workspace) => normalizeDirectoryPath(workspace.path ?? "") === path);
+    if (match) return match.id;
+  }
+  return workspaces[0]?.id ?? "";
 }
 
 export function orderRouteWorkspaces(workspaces: RouteWorkspace[], orderIds: string[]): RouteWorkspace[] {

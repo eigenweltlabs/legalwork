@@ -1,0 +1,57 @@
+{
+  "oauthPageOpened": true,
+  "signInReloads": 1,
+  "signOutReloads": 1,
+  "observationMs": 12240,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/workspace/ws_live/eigenwelt/entitlements"
+    },
+    {
+      "method": "POST",
+      "path": "/api/eigenwelt/oauth/start"
+    },
+    {
+      "method": "GET",
+      "path": "/api/eigenwelt/oauth/wait/local-ui-test"
+    },
+    {
+      "method": "PUT",
+      "path": "/workspace/ws_live/eigenwelt/connection"
+    },
+    {
+      "method": "GET",
+      "path": "/workspace/ws_live/eigenwelt/entitlements"
+    },
+    {
+      "method": "POST",
+      "path": "/workspace/ws_live/engine/reload"
+    },
+    {
+      "method": "GET",
+      "path": "/workspace/ws_live/eigenwelt/usage"
+    },
+    {
+      "method": "GET",
+      "path": "/workspace/ws_live/eigenwelt/entitlements"
+    },
+    {
+      "method": "PUT",
+      "path": "/workspace/ws_live/eigenwelt/connection"
+    },
+    {
+      "method": "GET",
+      "path": "/workspace/ws_live/eigenwelt/entitlements"
+    },
+    {
+      "method": "POST",
+      "path": "/workspace/ws_live/engine/reload"
+    },
+    {
+      "method": "GET",
+      "path": "/workspace/ws_live/eigenwelt/entitlements"
+    }
+  ],
+  "errors": []
+}

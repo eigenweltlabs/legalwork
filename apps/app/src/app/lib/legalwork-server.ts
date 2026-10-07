@@ -1654,6 +1654,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     deleteWorkspace: 10_000,
     deleteSession: 12_000,
     sessionRead: 12_000,
+    // Listing sessions can bootstrap the engine and install plugin dependencies.
+    sessionList: 90_000,
     status: 6_000,
     config: 10_000,
     workspaceExport: 30_000,
@@ -1895,7 +1897,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       return requestJson<{ items: Session[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
+        { token, hostToken, timeoutMs: timeouts.sessionList },
       );
     },
     benchmarkGetCatalog: (
@@ -2829,6 +2831,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         token,
         hostToken,
         method: "POST",
+        // The server waits for instance initialization and MCP restoration.
+        // Its readiness phase alone can outlast the normal 10-second request.
+        timeoutMs: 90_000,
       }),
     listPlugins: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
       const query = options?.includeGlobal ? "?includeGlobal=true" : "";
