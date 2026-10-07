@@ -38,6 +38,8 @@ macOS uses Hypervisor.framework acceleration when `kern.hv_support` reports avai
 
 Windows uses a unique named pipe for the host side of virtio-serial because QEMU's Windows stdio backend can drop bytes under backpressure. The guest loops on partial character-device writes. The test suite includes a multi-megabyte binary round trip and random reads from a 2 GiB input without transferring its entire contents.
 
+Each VM has 2 GiB RAM and a separate 512 MiB temporary filesystem at `/tmp`. That temporary filesystem does not store authorized folders or their staged edits. Use an authorized writable workspace path for large intermediate files.
+
 ## Why this approach
 
 [OpenAI's Windows sandbox explanation](https://openai.com/index/building-codex-windows-sandbox/) describes a native design using restricted execution identities and Windows access controls. [Codex Windows documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox) distinguishes the elevated implementation from a weaker unelevated fallback. On macOS, [Codex's source](https://github.com/openai/codex/blob/2dae757b8713d3317e8da58828bdac821386982c/codex-rs/sandboxing/src/seatbelt.rs) uses Apple's Seatbelt through `/usr/bin/sandbox-exec`, with filesystem and network policies. Neither design requires users to install Docker. A proxy without OS enforcement cannot contain arbitrary Python.

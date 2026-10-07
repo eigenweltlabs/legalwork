@@ -76,10 +76,12 @@ test("edits stay on disk staging until commit and read-only folders reject write
 test("paths, links, private staging and host execution configuration are refused", async () => {
   const f = await fixture();
   await writeFile(join(f.root, "secret"), "private");
+  await mkdir(join(f.workspace, "LEGALWORK-SANDBOX-STAGING-hidden"));
+  await writeFile(join(f.workspace, "LEGALWORK-SANDBOX-STAGING-hidden", "data"), "private staging");
   // Windows junctions exercise reparse-point containment without requiring
   // administrator rights or enabling Developer Mode to create symlinks.
   await symlink(f.root, join(f.workspace, "link"), process.platform === "win32" ? "junction" : "dir");
-  for (const path of ["/workspace/../secret", "/workspace/link/secret", "/workspace/.env", "/workspace/CON", "/workspace/file:stream", "/workspace/legalwork-sandbox-staging-hidden/data", "/outside/secret"]) {
+  for (const path of ["/workspace/../secret", "/workspace/link/secret", "/workspace/.env", "/workspace/CON", "/workspace/file:stream", "/workspace/legalwork-sandbox-staging-hidden/data", "/workspace/LEGALWORK-SANDBOX-STAGING-hidden/data", "/outside/secret"]) {
     await expect(openFile(f.filesystem, path)).rejects.toThrow();
   }
   await mkdir(join(f.workspace, "folder"));

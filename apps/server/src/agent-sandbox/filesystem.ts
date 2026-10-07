@@ -40,7 +40,7 @@ function version(stat: BigIntStats | null): string | undefined {
   return stat ? `${stat.dev}:${stat.ino}:${stat.mode}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : undefined;
 }
 const keyFor = (path: string) => process.platform === "linux" ? path : path.normalize("NFD").toLowerCase();
-const privatePath = (path: string) => path.split(/[\\/]/).some((part) => part.startsWith(PRIVATE_PREFIX));
+const privatePath = (path: string) => path.split(/[\\/]/).some((part) => part.toLowerCase().startsWith(PRIVATE_PREFIX));
 type Location = { mount: SandboxMount; suffix: string; host: string; key: string; path: string };
 type Entry = Location & { baseline: string | undefined; originalDirectory: boolean; directory: boolean; deleted: boolean;
   dirty: boolean; mode: number; size: number; stage?: string; descriptor?: FileHandle };
