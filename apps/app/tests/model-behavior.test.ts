@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Model } from "@opencode-ai/sdk/v2/client";
 import { getModelBehaviorSummary, sanitizeModelBehaviorValue } from "../src/app/lib/model-behavior";
+import { parseSessionChoiceOverrides, parseWorkspaceModelVariants, serializeSessionChoiceOverrides } from "../src/react-app/kernel/model-config";
 
 function model(efforts: string[], defaultEffort?: string): Model {
   const modalities = { text: true, audio: false, image: false, video: false, pdf: false };
@@ -42,6 +43,18 @@ describe("catalog variants", () => {
       expect(getModelBehaviorSummary("custom", custom, key).value).toBe(key);
     }
     expect(sanitizeModelBehaviorValue("custom", custom, "custombudget")).toBe("CustomBudget");
+  });
+
+  test("saved session and workspace choices preserve literal keys, including former default sentinels", () => {
+    const keys = ["CustomBudget", "balanced", "default", "provider-default"];
+    const custom = model(keys);
+    for (const key of keys) {
+      const saved = serializeSessionChoiceOverrides({ session: { variant: key } });
+      const restored = parseSessionChoiceOverrides(saved).session.variant ?? null;
+      expect(restored).toBe(key);
+      expect(getModelBehaviorSummary("custom", custom, restored).value).toBe(key);
+      expect(parseWorkspaceModelVariants(JSON.stringify({ "custom/model": key }))["custom/model"]).toBe(key);
+    }
   });
 
   test("GLM exposes low/high/max without a medium or off choice", () => {

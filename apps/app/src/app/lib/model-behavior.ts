@@ -23,18 +23,8 @@ function defaultBehaviorOption(): ModelBehaviorOption {
 }
 
 export const normalizeModelBehaviorValue = (value: string | null) => {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return null;
-  if (
-    normalized === "balance" ||
-    normalized === "balanced" ||
-    normalized === "default" ||
-    normalized === "provider-default"
-  ) {
-    return null;
-  }
-  return normalized;
+  // Preferences store literal catalog keys; null alone means provider default.
+  return value?.trim() || null;
 };
 
 const getVariantKeys = (model: ProviderModel) =>
@@ -152,7 +142,7 @@ export const sanitizeModelBehaviorValue = (
   if (keys.includes(literal)) return literal;
   const normalized = normalizeModelBehaviorValue(value);
   if (!normalized) return null;
-  return keys.find((key) => key.toLowerCase() === normalized) ?? null;
+  return keys.find((key) => key.toLowerCase() === normalized.toLowerCase()) ?? null;
 };
 
 export const getModelBehaviorSummary = (
