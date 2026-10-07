@@ -12,9 +12,51 @@ const { useSessionManagementStore: pins } = await import("../src/react-app/domai
 const { inboxNeedsRefresh } = await import("../src/react-app/shell/use-session-inbox");
 const entry = (assistantAt = 10): SessionInboxEntry => ({ workspaceId: "project", sessionId: "chat", updatedAt: assistantAt, assistantAt });
 beforeEach(() => {
-  inbox.setState({ entries: {}, readAt: {}, pinnedRunIds: {}, openSessionId: null });
+  inbox.setState({ entries: {}, readAt: {}, pinnedRunIds: {}, openSessionId: null, trackingStartedAt: 0 });
   pins.setState({ pinnedIds: [] });
   storage.clear();
+});
+
+test("enabling unread tracking starts existing chats read, including history loaded later", () => {
+  inbox.setState({ trackingStartedAt: null });
+  inbox.getState().receive([entry(10)], 100);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(false);
+  inbox.getState().receive([{ ...entry(90), sessionId: "loaded-later" }], 110);
+  expect(unreadSession(inbox.getState(), "loaded-later")).toBe(false);
+  inbox.getState().receive([entry(101), { ...entry(105), sessionId: "new-chat" }], 120);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(true);
+  expect(unreadSession(inbox.getState(), "new-chat")).toBe(true);
+  expect(inbox.getState().trackingStartedAt).toBe(100);
+});
+
+test("an empty first sync persists the cutoff and replies received while closed stay unread", async () => {
+  inbox.setState({ trackingStartedAt: null });
+  inbox.getState().receive([], 100);
+  const saved = storage.get("legalwork.react.sessionInbox")!;
+  expect(JSON.parse(saved).state.trackingStartedAt).toBe(100);
+  inbox.setState({ trackingStartedAt: null });
+  storage.set("legalwork.react.sessionInbox", saved);
+  await inbox.persist.rehydrate();
+  inbox.getState().receive([entry(110)], 200);
+  expect(inbox.getState().trackingStartedAt).toBe(100);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(true);
+});
+
+test("upgrading the first release clears historical dots without replaying pins", async () => {
+  const historical = { ...entry(10), automation: { runId: "run1", at: 5, pinRunId: "run1" } };
+  const legacy = { entries: { chat: historical }, readAt: { chat: 3 }, pinnedRunIds: { chat: "run1" } };
+  inbox.setState({ trackingStartedAt: null });
+  storage.set("legalwork.react.sessionInbox", JSON.stringify({ state: legacy, version: 0 }));
+  await inbox.persist.rehydrate();
+  // No flash of unread dots from the cached data before the server responds.
+  expect(unreadSession(inbox.getState(), "chat")).toBe(false);
+  inbox.getState().receive([historical], 100);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(false);
+  expect(inbox.getState().readAt.chat).toBe(3);
+  expect(pins.getState().pinnedIds).toEqual([]);
+  expect(JSON.parse(storage.get("legalwork.react.sessionInbox")!).state.trackingStartedAt).toBe(100);
+  inbox.getState().receive([{ ...historical, assistantAt: 101 }], 120);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(true);
 });
 
 test("only assistant activity is unread; opening clears it until the next unseen reply", () => {

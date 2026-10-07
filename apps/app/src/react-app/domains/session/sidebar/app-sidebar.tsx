@@ -142,13 +142,18 @@ function useUnreadChats(sessions: SessionListItem[]) {
   return useSessionInboxStore(state => sessions.some(session => !isSessionArchived(session) && unreadSession(state, session.id)));
 }
 
-function SessionInboxIndicators({ sessionId, unread, className, status, isStreaming, isActive }: SessionStatusIndicatorProps & { sessionId: string; unread: boolean }) {
+function ScheduledSessionIcon({ sessionId }: { sessionId: string }) {
   const automated = useSessionInboxStore(state => Boolean(state.entries[sessionId]?.automation));
-  if (!automated && !unread && !isStreaming && !isActive) return null;
-  return <span className={cn("pointer-events-none flex shrink-0 items-center gap-2", className)}>
-    {automated && <Clock strokeWidth={1.5} className="size-3.5! shrink-0 text-muted-foreground" role="img" aria-label={t("sidebar.automated_chat")}><title>{t("sidebar.automated_chat")}</title></Clock>}
+  return automated ? <span className="flex size-5 shrink-0 items-center justify-center">
+    <Clock strokeWidth={1.5} className="size-3.5! text-muted-foreground" role="img" aria-label={t("sidebar.automated_chat")}><title>{t("sidebar.automated_chat")}</title></Clock>
+  </span> : null;
+}
+
+function SessionInboxIndicators({ unread, status, isStreaming, isActive }: SessionStatusIndicatorProps & { unread: boolean }) {
+  if (!unread && !isStreaming && !isActive) return null;
+  return <span className="pointer-events-none flex shrink-0 items-center gap-2">
     <SessionStatusIndicator status={status} isStreaming={isStreaming} isActive={isActive} />
-    {(unread || automated) && <span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread={unread} /></span>}
+    {unread && <span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread /></span>}
   </span>;
 }
 
@@ -1574,13 +1579,14 @@ function SessionMenuItem({
                 onFocus={prefetchSession}
               >
                 <PinnedIndicator isPinned={isPinned} />
+                <ScheduledSessionIcon sessionId={session.id} />
                 <span
                   className="min-w-0 flex-1 truncate"
                   title={displayTitle}
                 >
                   {displayTitle}
                 </span>
-                <SessionInboxIndicators sessionId={session.id} unread={unread} status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
+                <SessionInboxIndicators unread={unread} status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
                 <span className="flex items-center justify-center size-6 absolute right-2 top-1/2 -translate-y-1/2">
                   <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
                 </span>
@@ -1614,8 +1620,9 @@ function SessionMenuItem({
           )}
         >
           <PinnedIndicator isPinned={isPinned} />
+          <ScheduledSessionIcon sessionId={session.id} />
           <span className="min-w-0 flex-1 truncate" title={displayTitle}>{displayTitle}</span>
-          <SessionInboxIndicators sessionId={session.id} unread={unread} status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
+          <SessionInboxIndicators unread={unread} status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
         </SidebarMenuSubButton>
       </SessionContextMenu>
       <SessionActions
@@ -1771,8 +1778,9 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
           event.stopPropagation();
           ctx.onOpenSessionWindow(workspace.id, session.id);
         }} onPointerEnter={() => ctx.onPrefetchSession?.(workspace.id, session.id)}>
+          <ScheduledSessionIcon sessionId={session.id} />
           <span className="min-w-0 flex-1 truncate" title={getDisplaySessionTitle(session.title)}>{getDisplaySessionTitle(session.title)}</span>
-          <SessionInboxIndicators sessionId={session.id} unread={unread} status={isSessionActivityStatus(status) ? status : undefined} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />
+          <SessionInboxIndicators unread={unread} status={isSessionActivityStatus(status) ? status : undefined} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />
         </SidebarMenuButton>
     </SessionContextMenu>
     <SessionActions sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/session-row:opacity-100 group-focus-within/session-row:opacity-100 data-popup-open:opacity-100" />
