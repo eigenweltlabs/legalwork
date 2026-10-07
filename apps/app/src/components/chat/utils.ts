@@ -1,3 +1,4 @@
+import { isDelegationTool } from "./delegation-card";
 import { isScheduledTaskTool } from "./scheduled-task-card";
 import { isCalculationTool } from "./calculation/calculation-card";
 import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
@@ -130,6 +131,7 @@ type AssistantRenderGroup =
   | { kind: "jev-search"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "review"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "reviews"; parts: Array<ToolUIPart | DynamicToolUIPart> }
+  | { kind: "delegation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "scheduled-task"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "calculation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
@@ -291,6 +293,7 @@ export function getAssistantRenderGroups(
         }
         groups.push({ kind: "review", part }); continue;
       }
+      if (isDelegationTool(part)) { groups.push({ kind: "delegation", part }); continue; }
       if (isScheduledTaskTool(part)) { groups.push({ kind: "scheduled-task", part }); continue; }
       if (isCalculationTool(part)) { groups.push({ kind: "calculation", part }); continue; }
       if (isProjectListTool(part)) { groups.push({ kind: "project", part }); continue; }

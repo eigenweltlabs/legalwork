@@ -10,6 +10,7 @@ interface MessageListContextValue {
   legalworkClient: LegalworkServerClient | null
   workspaceId: string
   sessionId: string
+  readOnly?: boolean
   showThinking: boolean
   developerMode: boolean
   displaySuggestions: boolean
@@ -28,6 +29,7 @@ interface MessageListProviderProps {
   legalworkClient?: LegalworkServerClient | null
   workspaceId: string
   sessionId: string
+  readOnly?: boolean
   showThinking: boolean
   developerMode: boolean
   onRevertToUserMessage: (messageId: string) => void
@@ -50,6 +52,7 @@ export function MessageListProvider({
   legalworkClient = null,
   workspaceId,
   sessionId,
+  readOnly = false,
   showThinking,
   developerMode,
   displaySuggestions,
@@ -65,6 +68,7 @@ export function MessageListProvider({
       legalworkClient,
       workspaceId,
       sessionId,
+      readOnly,
       showThinking,
       developerMode,
       displaySuggestions,
@@ -79,6 +83,7 @@ export function MessageListProvider({
       legalworkClient,
       workspaceId,
       sessionId,
+      readOnly,
       showThinking,
       developerMode,
       displaySuggestions,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ComposerDraft, ComposerAttachment } from "../src/app/types";
 import {
+  carryAssistantDraft,
   getComposerQueuedDrafts,
   isComposerQueuePaused,
   useComposerStateStore,
@@ -24,6 +25,33 @@ function draft(text: string): ComposerDraft {
 
 describe("composer state store", () => {
   beforeEach(reset);
+
+  test("midnight carries unsent assistant input once without copying prior chat history", () => {
+    const store = useComposerStateStore.getState();
+    store.setDraft("yesterday", "Review this tomorrow");
+    store.setPasteParts("yesterday", [{ id: "paste", label: "Notes", text: "Private notes", lines: 1 }]);
+    store.appendHistory("yesterday", "Earlier sent message");
+    const editor = useComposerStateStore.getState().sessions.yesterday;
+    carryAssistantDraft("yesterday", "today");
+    carryAssistantDraft("yesterday", "today");
+    expect(useComposerStateStore.getState().sessions.today).toEqual(editor);
+    expect(useComposerStateStore.getState().sessions.yesterday).toBeUndefined();
+    expect(useComposerStateStore.getState().history.today).toBeUndefined();
+  });
+
+  test("midnight preserves an existing target draft and never detaches a queued edit", () => {
+    const store = useComposerStateStore.getState();
+    store.setDraft("yesterday", "Older unsent input");
+    store.setDraft("today", "Current input");
+    carryAssistantDraft("yesterday", "today");
+    expect(useComposerStateStore.getState().sessions.today.draft).toBe("Current input");
+    expect(useComposerStateStore.getState().sessions.yesterday.draft).toBe("Older unsent input");
+    store.appendQueuedDraft("yesterday", draft("Queued task"));
+    store.editQueuedDraft("yesterday", getComposerQueuedDrafts(useComposerStateStore.getState(), "yesterday")[0].id);
+    carryAssistantDraft("yesterday", "tomorrow");
+    expect(useComposerStateStore.getState().sessions.tomorrow).toBeUndefined();
+    expect(useComposerStateStore.getState().sessions.yesterday.queuedDraftId).toBeDefined();
+  });
 
   test("scopes queued drafts by session", () => {
     const { appendQueuedDraft } = useComposerStateStore.getState();

@@ -462,10 +462,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       );
       setLegacySelectedWorkspaceId(nextWorkspaceId);
       writeActiveWorkspaceId(nextWorkspaceId || null);
-      // Mark the chosen workspace as active on the server so that the
-      // OpenCode engine bound to it re-reads opencode.jsonc and applies
-      // permissions. Fire-and-forget; the route is idempotent and any
-      // transport failure is non-fatal. See issue #870.
+      // Record the chosen workspace on the server without restarting its
+      // engine: delegated or scheduled work may already be running there.
+      // Fire-and-forget; a transport failure is non-fatal to navigation.
       if (nextWorkspaceId && list.activeId !== nextWorkspaceId && !launchActivatedWorkspaceIdsRef.current.has(nextWorkspaceId)) {
         launchActivatedWorkspaceIdsRef.current.add(nextWorkspaceId);
         const nextWorkspace = nextWorkspaces.find((workspace) => workspace.id === nextWorkspaceId) ?? null;

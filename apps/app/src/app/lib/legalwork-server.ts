@@ -1,3 +1,4 @@
+import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -2728,6 +2729,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
     sessionInbox: () => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken }),
+    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant", { token, hostToken }),
+    updateAssistantProfile: (profile: AssistantProfile) => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant/profile", { token, hostToken, method: "PATCH", body: profile }),
+    mainAssistantCurrent: () => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST" }),
+    mainAssistantHistory: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
     scheduledTaskChats: (workspaceId: string, search = "") => requestJson<{ sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/chats?search=${encodeURIComponent(search)}`, { token, hostToken }),

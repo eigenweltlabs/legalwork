@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { formatRunTime, runStatusLabel, scheduleLabel, taskStatusLabel } from "./schedule-format";
 
-export function ScheduledTaskDetail({ task, projectName, runs, loading, error, busy, onEdit, onToggle, onDelete, onOpenSession }: {
-  task: ScheduledTask; projectName: string; runs: ScheduledRun[] | undefined; loading: boolean; error: boolean; busy: boolean;
+export function ScheduledTaskDetail({ task, projectName, assistant, runs, loading, error, busy, onEdit, onToggle, onDelete, onOpenSession }: {
+  task: ScheduledTask; projectName: string; assistant?: boolean; runs: ScheduledRun[] | undefined; loading: boolean; error: boolean; busy: boolean;
   onEdit: () => void; onToggle: () => void; onDelete: () => void; onOpenSession: (workspaceId: string, sessionId: string) => void;
 }) {
   const disabled = loading || error || busy;
@@ -36,7 +36,7 @@ export function ScheduledTaskDetail({ task, projectName, runs, loading, error, b
     </Surface>
     <Surface className="overflow-hidden">
       <section className="p-5"><h2 className="mb-3 flex items-center gap-2 text-sm font-medium"><FileText className="size-4 text-muted-foreground" />{t("scheduled.instructions")}</h2><p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/80">{task.prompt}</p></section>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-5 py-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><MessageSquare className="size-4" />{t("scheduled.runs_in")}</div>{task.sessionId ? <Button variant="ghost" size="sm" onClick={() => onOpenSession(task.workspaceId, task.sessionId!)}>{t("scheduled.open_chat")}<ArrowUpRight className="size-3.5" /></Button> : <span className="text-xs">{t(task.reuseChat ? "scheduled.same_chat_each" : "scheduled.new_chat_each")}</span>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-5 py-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><MessageSquare className="size-4" />{t("scheduled.runs_in")}</div>{task.sessionId ? <Button variant="ghost" size="sm" onClick={() => onOpenSession(task.workspaceId, task.sessionId!)}>{t("scheduled.open_chat")}<ArrowUpRight className="size-3.5" /></Button> : <span className="text-xs">{t(assistant ? "assistant.current_day" : task.reuseChat ? "scheduled.same_chat_each" : "scheduled.new_chat_each")}</span>}</div>
     </Surface>
     <section><SectionHeading title={t("scheduled.history")} description={t("scheduled.history_hint")} />
       {loading && <p role="status" className="mt-4 text-sm text-muted-foreground">{t("scheduled.loading")}</p>}

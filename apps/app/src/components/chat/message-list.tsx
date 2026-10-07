@@ -1,3 +1,4 @@
+import { DelegationCard } from "./delegation-card";
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
@@ -418,6 +419,7 @@ const AssistantMessage = React.memo(
             if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "reviews") return <ReviewToolGroup key={group.parts[0].toolCallId} parts={group.parts} />;
 
+            if (group.kind === "delegation") return <DelegationCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
@@ -579,7 +581,7 @@ function renderUserTextWithReferenceChips(rawText: string) {
 
 const UserMessage = React.memo(
   ({ message, isStreaming }: UserMessageProps) => {
-    const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage } = useMessageList()
+    const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, readOnly } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
 
     return (
@@ -617,6 +619,7 @@ const UserMessage = React.memo(
                           variant="ghost"
                           size="icon"
                           aria-label={t("message_list.edit_message")}
+                          disabled={readOnly}
                           onClick={() => onEditUserMessage(message.id, messageText)}
                         >
                           <Pencil />
@@ -628,6 +631,7 @@ const UserMessage = React.memo(
                         variant="ghost"
                         size="icon"
                         aria-label={t("message_list.branch_in_new_chat")}
+                        disabled={readOnly}
                         onClick={() => onForkAtMessage(message.id)}
                       >
                         <Split className="rotate-90" />
@@ -638,6 +642,7 @@ const UserMessage = React.memo(
                         variant="ghost"
                         size="icon"
                         aria-label={t("message_list.revert")}
+                        disabled={readOnly}
                         onClick={() => onRevertToUserMessage(message.id)}
                       >
                         <Undo2 />
@@ -650,7 +655,7 @@ const UserMessage = React.memo(
           />
           <ContextMenuContent className="w-56">
             {messageText ? (
-              <ContextMenuItem onClick={() => onEditUserMessage(message.id, messageText)}>
+              <ContextMenuItem disabled={readOnly} onClick={() => onEditUserMessage(message.id, messageText)}>
                 <Pencil className="size-4" />
                 {t("message_list.edit_message")}
               </ContextMenuItem>
@@ -661,11 +666,11 @@ const UserMessage = React.memo(
                 {t("common.copy")}
               </ContextMenuItem>
             ) : null}
-            <ContextMenuItem onClick={() => onForkAtMessage(message.id)}>
+            <ContextMenuItem disabled={readOnly} onClick={() => onForkAtMessage(message.id)}>
               <Split className="size-4 rotate-90" />
               {t("message_list.branch_in_new_chat")}
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => onRevertToUserMessage(message.id)}>
+            <ContextMenuItem disabled={readOnly} onClick={() => onRevertToUserMessage(message.id)}>
               <Undo2 className="size-4" />
               {t("message_list.revert")}
             </ContextMenuItem>
@@ -879,7 +884,7 @@ function MessageGroup({
   messages,
   isStreaming,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly } = useMessageList()
   const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
   const lastItem = items[items.length - 1]
   const isLiveGroup = isStreaming && lastItem?.index === messages.length - 1
@@ -968,6 +973,7 @@ function MessageGroup({
                     variant="ghost"
                     size="icon"
                     aria-label={t("message_list.branch_in_new_chat")}
+                    disabled={readOnly}
                     onClick={() => onForkAtMessage(lastRealItem.message.id)}
                   >
                     <Split className="rotate-90" />
@@ -978,6 +984,7 @@ function MessageGroup({
                     variant="ghost"
                     size="icon"
                     aria-label={t("message_list.revert")}
+                    disabled={readOnly}
                     onClick={() => onRevertToUserMessage(lastRealItem.message.id)}
                   >
                     <Undo2 />
@@ -995,6 +1002,7 @@ function MessageGroup({
 }
 
 interface MessageListProps {
+  showWelcome?: boolean
   renderUsageLimit?: (error: string, messageId?: string) => React.ReactNode
 
   eigenweltPlan?: EigenweltBudgetPlan
@@ -1003,7 +1011,7 @@ interface MessageListProps {
   retryStatus?: RetryStatus | null
 }
 
-export function MessageList({ eigenweltPlan = null, messages, status, retryStatus, renderUsageLimit }: MessageListProps) {
+export function MessageList({ showWelcome = true, eigenweltPlan = null, messages, status, retryStatus, renderUsageLimit }: MessageListProps) {
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
@@ -1020,7 +1028,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
-      {messages.length === 0 && <SessionWelcome />}
+      {showWelcome && messages.length === 0 && <SessionWelcome />}
 
       {items.map((item) => {
         if (isMessageGroup(item)) {

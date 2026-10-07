@@ -1,3 +1,5 @@
+import type { AssistantIcon } from "@legalwork/types/main-assistant";
+import { AssistantAvatar } from "../session/sidebar/assistant-appearance";
 import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Clock3, FolderOpen, Loader2, Search } from "lucide-react";
@@ -19,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { formatRunTime, localDateTime, repeatMode, repeatOptions, weeklyRuleForStart } from "./schedule-format";
 
 export type ScheduledTaskDraft = { title: string; prompt: string; schedule?: TaskSchedule };
-export type ScheduleProject = { id: string; name: string };
+export type ScheduleProject = { id: string; name: string; assistant?: boolean; assistantIcon?: AssistantIcon };
 export type ScheduleClient = Pick<LegalworkServerClient, "baseUrl" | "scheduledTasks" | "scheduledTask" | "scheduledTaskChats" | "previewTaskSchedule" | "createScheduledTask" | "updateScheduledTask" | "deleteScheduledTask">;
 
 export function ScheduleSelect({ label, value, options, onChange, disabled }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; disabled?: boolean }) {
@@ -52,6 +54,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
   const id = useId();
   const initialSchedule = task?.schedule ?? initial?.schedule;
   const [workspaceId, setWorkspaceId] = useState(task?.workspaceId ?? "");
+  const assistantTarget = projects.find(project => project.id === workspaceId)?.assistant === true;
   const [projectAccess, setProjectAccess] = useState<ScheduledTaskInput["projectAccess"]>(task?.projectAccess ?? "project");
   const [model, setModel] = useState<ScheduledTaskInput["model"]>(task ? task.model : defaultModel ?? null);
   const [modelOpen, setModelOpen] = useState(false);
@@ -80,7 +83,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
   useEffect(() => { const timer = setTimeout(() => setPreviewKey(scheduleKey), 300); return () => clearTimeout(timer); }, [scheduleKey]);
   const preview = useQuery({ queryKey: ["schedule-preview", client.baseUrl, workspaceId, previewKey], enabled: Boolean(workspaceId) && previewKey === scheduleKey,
     retry: false, queryFn: () => client.previewTaskSchedule(workspaceId, schedule) });
-  const chats = useQuery({ queryKey: ["scheduled-chats", client.baseUrl, workspaceId, search], enabled: Boolean(workspaceId), queryFn: () => client.scheduledTaskChats(workspaceId, search) });
+  const chats = useQuery({ queryKey: ["scheduled-chats", client.baseUrl, workspaceId, search], enabled: Boolean(workspaceId) && !assistantTarget, queryFn: () => client.scheduledTaskChats(workspaceId, search) });
   const selectedChat = chats.data?.sessions.find(chat => chat.id === sessionId)?.title ?? selectedChatTitle;
   const changed = (action: () => void) => { setScheduleEdited(true); action(); };
   const dirty = Boolean(task && (pinSession !== task.pinSession || title !== task.title || prompt !== task.prompt || projectAccess !== task.projectAccess || sessionId !== task.sessionId || reuseChat !== (Boolean(task.sessionId) || task.reuseChat) || scheduleKey !== JSON.stringify(task.schedule) || model?.providerID !== task.model?.providerID || model?.modelID !== task.model?.modelID));
@@ -88,7 +91,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
   const save = async () => {
     setBusy(true); onBusyChange?.(true); setError(null);
     try {
-      const input: ScheduledTaskInput = { title, prompt, schedule, sessionId, reuseChat, projectAccess, model, pinSession };
+      const input: ScheduledTaskInput = { title, prompt, schedule, sessionId: assistantTarget ? null : sessionId, reuseChat: assistantTarget ? false : reuseChat, projectAccess: assistantTarget ? "all" : projectAccess, model, pinSession: assistantTarget ? false : pinSession };
       const saved = task ? await client.updateScheduledTask(workspaceId, task.id, task.revision, input) : await client.createScheduledTask(workspaceId, input);
       onSaved(saved.task); onClose();
     } catch (failure) {
@@ -111,19 +114,19 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </header>}
         <div className={cn("min-h-0", !inline && "flex-1 overflow-y-auto px-6 pb-4")}><fieldset disabled={busy} className="min-w-0 space-y-5">
-          {!task && <div className="space-y-2"><Label htmlFor={`${id}-project`}>{t("scheduled.project")}</Label>
-            <Popover open={projectOpen} onOpenChange={setProjectOpen}><PopoverTrigger render={<Button autoFocus id={`${id}-project`} type="button" variant="outline" aria-label={t("scheduled.project")} className="h-auto min-h-9 w-full justify-start text-left font-normal" />}><FolderOpen className="size-4 shrink-0 text-muted-foreground" /><span className={cn("min-w-0 flex-1 whitespace-normal break-words", !workspaceId && "text-muted-foreground")}>{projects.find(project => project.id === workspaceId)?.name ?? t("scheduled.choose_project")}</span><ChevronDown className="size-4 shrink-0 text-muted-foreground" /></PopoverTrigger>
+          {!task && <div className="space-y-2"><Label htmlFor={`${id}-project`}>{t("assistant.destination")}</Label>
+            <Popover open={projectOpen} onOpenChange={setProjectOpen}><PopoverTrigger render={<Button autoFocus id={`${id}-project`} type="button" variant="outline" aria-label={t("assistant.destination")} className="h-auto min-h-9 w-full justify-start text-left font-normal" />}>{assistantTarget ? <AssistantAvatar icon={projects.find(project => project.id === workspaceId)?.assistantIcon} /> : <FolderOpen className="size-4 shrink-0 text-muted-foreground" />}<span className={cn("min-w-0 flex-1 whitespace-normal break-words", !workspaceId && "text-muted-foreground")}>{projects.find(project => project.id === workspaceId)?.name ?? t("assistant.choose_destination")}</span><ChevronDown className="size-4 shrink-0 text-muted-foreground" /></PopoverTrigger>
               <PopoverContent align="start" className="flex max-h-[min(18rem,var(--available-height))] w-[var(--anchor-width)] max-w-[calc(100vw-3rem)] flex-col gap-2 p-2">
                 <Input autoFocus aria-label={t("scheduled.search_projects")} placeholder={t("scheduled.search_projects")} value={projectSearch} onChange={event => setProjectSearch(event.target.value)} />
-                <div className="min-h-0 overflow-y-auto">{projects.filter(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase())).map(project => <Button type="button" key={project.id} variant={project.id === workspaceId ? "secondary" : "ghost"} aria-pressed={project.id === workspaceId} className="h-auto min-h-9 w-full justify-start whitespace-normal text-left font-normal" onClick={() => { setWorkspaceId(project.id); setSessionId(null); setSelectedChatTitle(undefined); setSearch(""); setProjectOpen(false); setProjectSearch(""); }}><span className="min-w-0 break-words">{project.name}</span></Button>)}
+                <div className="min-h-0 overflow-y-auto">{projects.filter(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase())).sort((a, b) => Number(Boolean(b.assistant)) - Number(Boolean(a.assistant))).map(project => <Button type="button" key={project.id} variant={project.id === workspaceId ? "secondary" : "ghost"} aria-pressed={project.id === workspaceId} className="h-auto min-h-9 w-full justify-start whitespace-normal text-left font-normal" onClick={() => { setWorkspaceId(project.id); setSessionId(null); setSelectedChatTitle(undefined); setSearch(""); setProjectOpen(false); setProjectSearch(""); }}>{project.assistant && <AssistantAvatar icon={project.assistantIcon} />}<span className="min-w-0 break-words">{project.name}</span></Button>)}
                   {!projects.some(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase())) && <p className="p-2 text-xs text-muted-foreground">{t("scheduled.no_projects_found")}</p>}
                 </div>
               </PopoverContent>
             </Popover>
           </div>}
-          <Surface className="flex flex-wrap items-center justify-between gap-3 p-4">
+          {assistantTarget ? <p className="text-sm text-muted-foreground">{t("assistant.schedule_hint")}</p> : <Surface className="flex flex-wrap items-center justify-between gap-3 p-4">
             <Label>{t("scheduled.project_access")}</Label><ScheduleSelect label={t("scheduled.project_access")} value={projectAccess} options={[{ value: "project", label: t("scheduled.access_project") }, { value: "all", label: t("scheduled.access_all") }]} onChange={value => setProjectAccess(value === "all" ? "all" : "project")} />
-          </Surface>
+          </Surface>}
           <div className="space-y-2"><Label htmlFor={`${id}-title`}>{t("scheduled.name")}</Label><Input autoFocus={Boolean(task)} id={`${id}-title`} value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder={t("scheduled.name_placeholder")} required /></div>
           <div className="space-y-2"><Label htmlFor={`${id}-prompt`}>{t("scheduled.instructions")}</Label><Textarea id={`${id}-prompt`} className="min-h-32 max-h-64 resize-y leading-relaxed" value={prompt} maxLength={30000} onChange={event => setPrompt(event.target.value)} placeholder={t("scheduled.prompt_placeholder")} required /></div>
           {!task && modelPicker}
@@ -140,7 +143,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
           <Collapsible><CollapsibleTrigger render={<Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground" />}><ChevronDown className="size-4" />{t("scheduled.advanced")}</CollapsibleTrigger>
             <CollapsibleContent className="space-y-3 pt-3">
               {task && modelPicker}
-              <Surface className="flex items-center justify-between gap-4 p-4"><Label htmlFor={`${id}-pin`}>{t("scheduled.pin_session")}</Label><Switch id={`${id}-pin`} checked={pinSession} onCheckedChange={setPinSession} disabled={busy} /></Surface>
+              {!assistantTarget && <><Surface className="flex items-center justify-between gap-4 p-4"><Label htmlFor={`${id}-pin`}>{t("scheduled.pin_session")}</Label><Switch id={`${id}-pin`} checked={pinSession} onCheckedChange={setPinSession} disabled={busy} /></Surface>
               <Surface className="flex items-center justify-between gap-4 p-4"><Label>{t("scheduled.runs_in")}</Label>
                 <Popover open={chatOpen} onOpenChange={setChatOpen}><PopoverTrigger render={<Button type="button" variant="ghost" aria-label={t("scheduled.runs_in")} className="min-w-0 max-w-[70%] font-normal" />}><span className="truncate">{sessionId ? selectedChat ?? t("scheduled.selected_chat") : t(reuseChat ? "scheduled.same_chat_each" : "scheduled.new_chat_each")}</span><ChevronDown className="size-4 shrink-0" /></PopoverTrigger>
                   <PopoverContent className="flex max-h-[min(22rem,var(--available-height))] w-80 max-w-[calc(100vw-3rem)] flex-col p-2" align="end"><div className="relative mb-2 shrink-0"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input autoFocus aria-label={t("scheduled.search_chats")} placeholder={t("scheduled.search_chats")} className="pl-9" value={search} onChange={event => setSearch(event.target.value)} /></div>
@@ -153,7 +156,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
                       {chats.data?.sessions.length === 0 && <p className="p-2 text-xs text-muted-foreground">{t("scheduled.no_chats")}</p>}
                     </div></PopoverContent>
                 </Popover></Surface>
-              {!sessionId && reuseChat && <p className="px-1 text-xs leading-relaxed text-muted-foreground">{t("scheduled.same_chat_hint")}</p>}
+              {!sessionId && reuseChat && <p className="px-1 text-xs leading-relaxed text-muted-foreground">{t("scheduled.same_chat_hint")}</p>}</>}
             </CollapsibleContent>
           </Collapsible>
           {error && !inline && <p role="alert" className="text-sm text-destructive">{error}</p>}

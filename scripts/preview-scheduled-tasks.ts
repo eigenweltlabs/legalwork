@@ -20,15 +20,16 @@ const sessions = new Map(["Matter planning", "Weekly practice review", "Acquisit
 for (const session of sessions.values()) inboxDb.query("INSERT INTO session VALUES (?, ?, ?, NULL)").run(session.id, folder, session.time.updated);
 const engine = Bun.serve({ port: 0, fetch: async request => {
   const url = new URL(request.url);
+  const directory = request.headers.get("x-opencode-directory") || folder;
   if (url.pathname === "/agent") return Response.json([{ name: "legalwork-scheduled-project", permission: [{ permission: "*", pattern: "*", action: "deny" }] }, { name: "legalwork-scheduled-all", permission: [] }]);
   if (url.pathname === "/session/status") return Response.json({});
   if (url.pathname === "/session" && request.method === "GET") return Response.json([...sessions.values()].filter(session => session.title.toLowerCase().includes((url.searchParams.get("search") ?? "").toLowerCase())));
   if (url.pathname === "/session" && request.method === "POST") {
     const id = `chat-${sessions.size}`;
     const body = await request.json();
-    const session = { id, title: body.title ?? "Scheduled run", directory: folder, slug: id, version: "1", projectID: "preview", time: { created: Date.now(), updated: Date.now() } };
+    const session = { id, title: body.title ?? "Scheduled run", directory, slug: id, version: "1", projectID: "preview", time: { created: Date.now(), updated: Date.now() } };
     sessions.set(id, session);
-    inboxDb.query("INSERT INTO session VALUES (?, ?, ?, NULL)").run(id, folder, session.time.updated);
+    inboxDb.query("INSERT INTO session VALUES (?, ?, ?, NULL)").run(id, directory, session.time.updated);
     return Response.json(session);
   }
   if (url.pathname.endsWith("/prompt_async")) {
@@ -43,10 +44,15 @@ const engine = Bun.serve({ port: 0, fetch: async request => {
 } });
 const config: ServerConfig = {
   host: "127.0.0.1", port: 8798, token: "scheduled-preview", hostToken: "scheduled-preview-host", configPath: join(root, "server.json"),
-  approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["http://localhost:5197", "http://127.0.0.1:5197", "http://localhost:5213"],
+  approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["http://localhost:5197", "http://127.0.0.1:5197", "http://localhost:5213", "http://127.0.0.1:5217"],
   workspaces: [{ id: "preview", name: "Northstar Legal", path: folder, preset: "starter", workspaceType: "local", baseUrl: `http://127.0.0.1:${engine.port}` }],
   authorizedRoots: [folder], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
 };
+if (process.env.LEGALWORK_PREVIEW_ASSISTANT === "1") {
+  const path = join(root, "Projects", "Assistant"); await mkdir(path, { recursive: true });
+  config.workspaces.push({ id: "preview-assistant", name: "Assistant", path, preset: "main-assistant", workspaceType: "local", baseUrl: engine.url.origin });
+  config.authorizedRoots.push(path);
+}
 const store = await ScheduledTaskStore.open(process.env.LEGALWORK_RUNTIME_DB);
 const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 store.create("preview", { title: "Morning matter brief", prompt: "Review this project's tasks and calendar. Summarize upcoming deadlines, open work and items that need my attention. Link to the source records.", sessionId: "chat-0", model: null, schedule: { kind: "rrule", startAt: `${tomorrow}T06:00:00`, timeZone: "Europe/Berlin", rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" } });

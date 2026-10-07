@@ -23,9 +23,12 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   let uiActions = 0;
   const modelRequests: { tools: string[]; toolResults: string[]; system: string }[] = [];
   const created: ScheduledTaskInput[] = [];
+  const delegated: unknown[] = [];
   const sourceReads: string[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path === "/assistant") return Response.json({ workspace: { id: "matter", path: folder } });
+    if (path === "/assistant/delegate") { delegated.push(await request.json()); return Response.json({ ok: true, delegation: { workspaceId: "other", sessionId: "delegated-session", title: "Review agreement", scope: "Draft for review", status: "started" } }); }
     if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
     if (path === "/execute") { uiActions++; return Response.json({ ok: true }); }
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }, { id: "other", path: join(root, "other") }] });
@@ -43,7 +46,8 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     if (tools.length) modelRequests.push({ tools, toolResults, system });
     const callTool = tools.length > 0 && toolResults.length === 0;
     const morning = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("every morning"));
-    const call = morning
+    const delegation = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("Delegate this work"));
+    const call = delegation ? { name: "legalwork_assistant_delegate", arguments: JSON.stringify({ projectId: "other", title: "Review agreement", prompt: "Review the liability clauses", scope: "Draft for review" }) } : morning
       ? { name: "legalwork_schedule_create", arguments: JSON.stringify({ title: "Morning deadlines", prompt: "Review this project's deadlines.", schedule: { kind: "rrule", startAt: "2026-10-25T06:00:00", rrule: "FREQ=DAILY" } }) }
       : { name: "legalwork_schedule_project_read", arguments: JSON.stringify({ projectId: "other", kind: "sessions", id: sourceSessionId }) };
     const delta = callTool ? { tool_calls: [{ index: 0, id: "call_fixture", type: "function", function: call }] } : { content: "Finished the fixture check." };
@@ -56,7 +60,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   await writeFile(config, JSON.stringify({
     enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
     provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: fixture.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
-    plugin: ["legalwork-scheduled-task-tools", "legalwork-extensions-preview"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href),
+    plugin: ["legalwork-scheduled-task-tools", "legalwork-extensions-preview", "legalwork-assistant-tools"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href),
     permission: { "*": "allow" },
     agent: { [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permission: projectTaskPermissions() }, [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permission: allProjectTaskPermissions() } },
   }));
@@ -97,19 +101,27 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     const agentsResponse = await fetch(base + "/agent");
     const agents = z.array(z.object({ name: z.string(), permission: z.array(z.object({ permission: z.string(), pattern: z.string(), action: z.enum(["allow", "deny", "ask"]) })) })).parse(await agentsResponse.json());
     expect(hasProjectTaskBoundary(agents.find(agent => agent.name === PROJECT_TASK_AGENT)), JSON.stringify(agents.find(agent => agent.name === PROJECT_TASK_AGENT)?.permission.slice(-20))).toBe(true);
-    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "build"]) {
+    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "build", "assistant-delegation"]) {
       const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
-      const response = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: agent === "build" ? "Remind me of this project's deadlines every morning." : "Run the scope fixture." }] }), signal: AbortSignal.timeout(25000) });
+      const response = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent: agent === "assistant-delegation" ? "build" : agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: agent === "assistant-delegation" ? "Delegate this work to the other project." : agent === "build" ? "Remind me of this project's deadlines every morning." : "Run the scope fixture." }] }), signal: AbortSignal.timeout(25000) });
       const result = await response.text();
       expect(response.status, result).toBe(200);
       const first = modelRequests.at(-2), last = modelRequests.at(-1);
       expect(first?.tools).toContain("legalwork_schedule_project_read");
-      if (agent !== "build") {
+      if (agent !== "build" && agent !== "assistant-delegation") {
         expect(first?.tools).not.toContain("legalwork_ui_execute_action");
         expect(first?.tools).not.toContain("legalwork_ui_snapshot");
         expect(first?.tools).not.toContain("legalwork_ui_list_actions");
       }
-      if (agent === "build") {
+      if (agent === "assistant-delegation") {
+        expect(first?.tools).toContain("legalwork_assistant_delegate");
+        for (const tool of ["projects", "session_search", "tasks", "calendar", "calendar_read", "file_search"]) expect(first?.tools).toContain(`legalwork_assistant_${tool}`);
+        expect(first?.tools).toContain("bash");
+        expect(first?.system).toContain("fresh session each device-local calendar day");
+        expect(first?.system).toContain("first use legalwork_assistant_projects");
+        expect(delegated).toEqual([{ workspaceId: "other", sourceWorkspaceId: "matter", sourceSessionId: session.id, title: "Review agreement", prompt: "Review the liability clauses", scope: "Draft for review" }]);
+        expect(last?.toolResults.join(" ")).toContain("delegated-session");
+      } else if (agent === "build") {
         expect(first?.tools).toContain("legalwork_schedule_create");
         expect(first?.system).toContain("local time zone is Europe/Berlin");
         expect(first?.system).toContain("Do not ask the user for their time zone");
@@ -118,7 +130,8 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
         expect(created[0]).toMatchObject({ sessionId: session.id, reuseChat: true, projectAccess: "project", model: { providerID: "fixture", modelID: "fixture" }, schedule: { timeZone: "Europe/Berlin", startAt: "2026-10-25T06:00:00" } });
         expect(last?.toolResults.join(" ")).toContain("2026-10-25T05:00:00.000Z");
       } else if (agent === PROJECT_TASK_AGENT) {
-        expect(first?.tools).not.toContain("bash"); expect(first?.tools).not.toContain("read"); expect(first?.tools).not.toContain("task");
+        expect(first?.tools).not.toContain("legalwork_assistant_delegate"); expect(first?.tools).not.toContain("legalwork_assistant_project_read"); expect(first?.tools).not.toContain("bash"); expect(first?.tools).not.toContain("read"); expect(first?.tools).not.toContain("task");
+        for (const tool of ["projects", "session_search", "tasks", "calendar", "calendar_read", "file_search"]) expect(first?.tools).not.toContain(`legalwork_assistant_${tool}`);
         expect(last?.toolResults.join(" ")).toContain("cannot access that project"); expect(sourceReads).toEqual([]);
       } else {
         expect(first?.tools).toContain("bash"); expect(last?.toolResults.join(" ")).toContain("Source message 22");

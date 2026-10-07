@@ -1,3 +1,4 @@
+import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
@@ -124,6 +125,11 @@ export type SessionPageSidebarProps = {
   onOpenSearch?: () => void;
   onShowChats?: () => void;
   onNewChat?: () => void;
+  onOpenAssistant?: () => void;
+  assistantProfile?: AssistantProfile;
+  onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
+  assistantActive?: boolean;
+  assistantDisabled?: boolean;
   onShowProjects?: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
@@ -828,8 +834,8 @@ export function SessionPage(props: SessionPageProps) {
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
 
   const selectedSessionTitle = useMemo(
-    () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
-    [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
+    () => props.sidebar.assistantActive ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
+    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, props.sidebar.assistantActive, props.sidebar.assistantProfile?.name],
   );
   useEffect(() => {
     setSessionTabs((current) => {
@@ -1260,6 +1266,11 @@ export function SessionPage(props: SessionPageProps) {
           onOpenSearch={props.sidebar.onOpenSearch}
           onShowChats={props.sidebar.onShowChats}
           onNewChat={props.sidebar.onNewChat}
+          onOpenAssistant={props.sidebar.onOpenAssistant}
+          assistantProfile={props.sidebar.assistantProfile}
+          onSaveAssistantProfile={props.sidebar.onSaveAssistantProfile}
+          assistantActive={props.sidebar.assistantActive}
+          assistantDisabled={props.sidebar.assistantDisabled}
           onShowProjects={props.sidebar.onShowProjects}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}

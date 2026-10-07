@@ -2,6 +2,7 @@ import type { ScheduledTask } from "@legalwork/types/scheduled-tasks";
 import type { ScheduledTaskStore } from "./store.js";
 
 export type ScheduledExecutor = {
+  resolveSession?: (task: ScheduledTask) => Promise<string | null>;
   available: (task: ScheduledTask) => Promise<boolean>;
   createSession: (task: ScheduledTask) => Promise<string>;
   send: (task: ScheduledTask, sessionId: string) => Promise<void>;
@@ -26,7 +27,7 @@ export class ScheduledTaskRunner {
         if (!run) continue;
         let deliveryRevision = task.revision + 1;
         try {
-          run.sessionId = task.sessionId ?? await this.executor.createSession(task);
+          run.sessionId = await this.executor.resolveSession?.(task) ?? task.sessionId ?? await this.executor.createSession(task);
           this.store.record(run);
           // Creating a chat is asynchronous. Honor a pause, deletion or edit
           // that happened after the claim but before delivery began.

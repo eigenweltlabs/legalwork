@@ -3,7 +3,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
-import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
+import { inheritWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureDir, exists, shortId } from "../utils.js";
@@ -30,7 +30,6 @@ interface RegisterWorkspaceRoutesOptions {
   ensureWritable: (config: ServerConfig) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
-  reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<void>;
   /** Project sync (project-sync.ts) hears about local edits it has to carry to the firm. */
   onProjectDetailsSaved: (workspaceId: string, before: ProjectField[], after: ProjectField[]) => Promise<void>;
   onProjectRenamed: (workspaceId: string, name: string) => Promise<void>;
@@ -314,7 +313,6 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
-    reloadOpencodeEngine,
     onProjectDetailsSaved,
     onProjectRenamed,
     onProjectRemoved,
@@ -552,8 +550,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
     const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
-    // Engine activation can create its state directory. Validate the original
-    // local folder first, so a disconnected project is not replaced by an empty one.
+    // Validate the original folder before bootstrap, so a disconnected project
+    // is not replaced by an empty one.
     if (workspace.workspaceType === "local") await resolveWorkspace(config, workspace.id);
     const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
     const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
@@ -574,9 +572,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       summary: "Switched active workspace",
       timestamp: Date.now(),
     });
-    if (workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
-      await reloadOpencodeEngine(config, workspace);
-    }
+    // Activation is navigation. Disposing this instance would abort delegated
+    // or scheduled work already running here. Configuration changes use the
+    // separate reload coordinator and explicit engine reload endpoint.
     return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted });
   });
 
@@ -585,6 +583,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
     const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
 
+    if (workspace.preset === "main-assistant") throw new ApiError(400, "assistant_required", "The main assistant cannot be removed from the project registry.");
     const { deleted, persisted } = await unregisterWorkspace(config, workspace);
     onWorkspacesChanged();
     if (deleted) await onProjectRemoved(workspace.id);

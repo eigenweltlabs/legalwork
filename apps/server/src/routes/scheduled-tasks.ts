@@ -1,3 +1,4 @@
+import { isMainAssistant } from "../main-assistant.js";
 import { readSessionInbox } from "../session-inbox.js";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -32,6 +33,8 @@ export function registerScheduledTaskRoutes(options: {
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "scheduled_task_input", "Check the task title, instructions and schedule.", { issues: error.issues }); throw error; }
     });
   };
+  const assistantTarget = (workspace: WorkspaceInfo): Partial<z.infer<typeof ScheduledTaskInputSchema>> => isMainAssistant(workspace)
+    ? { sessionId: null, reuseChat: false, pinSession: false, projectAccess: "all" } : {};
   const checkSession = async (workspace: WorkspaceInfo, id: string | null | undefined) => {
     const available = await options.resolveWorkspace(config, workspace.id);
     if (!id) return;
@@ -70,7 +73,7 @@ export function registerScheduledTaskRoutes(options: {
     return { occurrences };
   });
   route("POST", "", async (ctx, workspace) => {
-    const input = ScheduledTaskInputSchema.parse(await body(ctx));
+    const input = ScheduledTaskInputSchema.parse({ ...await body(ctx), ...assistantTarget(workspace) });
     await checkSession(workspace, input.sessionId);
     return { task: store.create(workspace.id, input) };
   });
@@ -79,7 +82,7 @@ export function registerScheduledTaskRoutes(options: {
     const { revision, ...patch } = ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), pinSession: ScheduledTaskInputSchema.shape.pinSession.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), revision: z.number().int().positive(), status: z.enum(["active", "paused"]).optional() }).parse(await body(ctx));
     const current = store.get(workspace.id, ctx.params.task);
     if (patch.sessionId !== undefined || patch.status === "active") await checkSession(workspace, patch.sessionId === undefined ? current.sessionId : patch.sessionId);
-    return { task: store.update(workspace.id, ctx.params.task, revision, patch) };
+    return { task: store.update(workspace.id, ctx.params.task, revision, { ...patch, ...assistantTarget(workspace) }) };
   });
   route("DELETE", "/:task", async (ctx, workspace) => {
     const { revision } = z.object({ revision: z.number().int().positive() }).parse(await body(ctx));

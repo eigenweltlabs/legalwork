@@ -25,7 +25,7 @@ createRoot(document.getElementById("root")!).render(<QueryClientProvider client=
   <WorkspaceProvider client={null} opencodeBaseUrl="scheduled-preview-models" selectedWorkspaceRoot="" workspaces={[]} baseUrl={client.baseUrl} token="scheduled-preview" onOpenSession={openSession}>
   <div className="flex h-dvh flex-col bg-sidebar"><p className="border-b border-border px-4 py-2 text-center text-xs text-muted-foreground">Preview: isolated local schedules, simulated model responses</p>
     <div className="flex min-h-0 flex-1"><div aria-hidden className="flex w-14 shrink-0 flex-col items-center gap-5 py-6 text-muted-foreground"><House className="size-5" /><LayoutGrid className="size-5" /><span className="rounded-lg bg-sidebar-accent p-2 text-foreground"><Clock3 className="size-5" /></span></div>
-      <ScheduledTasksPage client={client} projects={[{ id: "preview", name: "Northstar Legal" }]} defaultModel={{ providerID: "fixture", modelID: "review" }} onOpenSession={openSession} />
+      <ScheduledTasksPage client={client} projects={[...(new URLSearchParams(location.search).has("assistant") ? [{ id: "preview-assistant", name: new URLSearchParams(location.search).get("lang") === "de" ? "Assistent" : "Assistant", assistant: true }] : []), { id: "preview", name: "Northstar Legal" }]} defaultModel={{ providerID: "fixture", modelID: "review" }} onOpenSession={openSession} />
     </div>
   </div><Toaster />
 </WorkspaceProvider></TooltipProvider></QueryClientProvider>);

@@ -215,3 +215,16 @@ export function isComposerQueuePaused(state: ComposerStateStore, sessionId: stri
   return Boolean(state.pausedQueues[sessionId]
     || (editingId && editingId === state.queuedDrafts[sessionId]?.[0]?.id));
 }
+
+/** Preserve unsent input when the assistant moves to a fresh daily context. */
+export function carryAssistantDraft(from: string, to: string) {
+  if (from === to) return;
+  useComposerStateStore.setState(state => {
+    const draft = state.sessions[from];
+    const target = state.sessions[to];
+    if (!draft || draft.queuedDraftId || (!draft.draft && !draft.attachments.length && !draft.pasteParts.length) || target?.draft || target?.attachments.length || target?.pasteParts.length) return state;
+    const sessions = { ...state.sessions, [to]: draft };
+    delete sessions[from];
+    return { sessions };
+  });
+}

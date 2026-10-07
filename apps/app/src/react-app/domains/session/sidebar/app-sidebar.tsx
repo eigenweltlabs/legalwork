@@ -1,3 +1,5 @@
+import type { AssistantProfile } from "@legalwork/types/main-assistant";
+import { AssistantNavigation } from "./assistant-appearance";
 /** @jsxImportSource react */
 import * as React from "react";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
@@ -532,6 +534,11 @@ export type AppSidebarProps = {
   onOpenSearch?: () => void;
   onShowChats?: () => void;
   onNewChat?: () => void;
+  onOpenAssistant?: () => void;
+  assistantProfile?: AssistantProfile;
+  onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
+  assistantActive?: boolean;
+  assistantDisabled?: boolean;
   onShowProjects?: () => void;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   showInitialLoading?: boolean;
@@ -843,7 +850,10 @@ export function AppSidebar(props: AppSidebarProps) {
           </div>
         </div>
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
-        {newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
+        <SidebarMenu className="px-2.5 pb-3 pt-1">
+          {props.onOpenAssistant && <AssistantNavigation profile={props.assistantProfile} active={props.assistantActive} disabled={props.assistantDisabled} onOpen={props.onOpenAssistant} onSave={props.onSaveAssistantProfile} />}
+          {newChatSection}
+        </SidebarMenu>
         </div>
         <div data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
           {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
