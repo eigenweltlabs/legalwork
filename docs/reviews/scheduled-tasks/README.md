@@ -8,7 +8,7 @@ The welcome view includes an example week and four editable presets: Morning mat
 
 ## Project access
 
-New tasks default to **Daily**, **Same chat each run** and **This project only**. Creation starts with a visible, required Project picker above the task name. The global Scheduled page has no implied project, so neither blank tasks nor presets preselect one. Project access stays under Advanced; existing tasks show their fixed project in the inline editor header. The single Runs in picker replaces the redundant toggle, and the searchable project menu has a bounded, scrolling list.
+New tasks default to **Daily**, **Same chat each run** and **This project only**. Creation starts with a visible, required Project picker above the task name. The global Scheduled page has no implied project, so neither blank tasks nor presets preselect one. Project access is visible in the main form in both creation and inline editing; existing tasks show their fixed project in the inline editor header. The single Runs in picker replaces the redundant toggle, and the searchable project menu has a bounded, scrolling list.
 
 A reusable chat is created only on the first due run and its ID is saved on the task, so subsequent runs continue the same chat after an app restart. Existing chats can also be selected, and New chat each run remains available. Legacy tasks retain their saved destination behavior.
 
@@ -116,7 +116,17 @@ The shipped engine integration uses an isolated database and simulated model res
 
 Validation: server production build passed; 48 focused tests, including the shipped-engine integration, passed. The full server suite passed 1,527 tests with 16 opt-in tests skipped. Run the integration with `LEGALWORK_TEST_OPENCODE_BIN=/path/to/opencode pnpm exec bun test src/scheduled-tasks/engine.test.ts` from `apps/server` after building the server.
 
+## Abort status and visible access, 2026-10-07
+
+An intentional stop now leaves the chat idle instead of setting a persistent red error dot when a late `MessageAbortedError` arrives. The interrupted message remains in the transcript and queued messages stay paused. Real provider failures and budget-triggered stops retain their error and recovery state. Project access now appears near the top of both the creation dialog and the inline edit form, outside Advanced, with the existing default and saved scope preserved.
+
+Verified both editors visually against the isolated fixture. App typecheck and production build passed. All 871 local app tests passed, including late abort ordering, retained transcript, idle status, paused queues and preservation of genuine errors. One unrelated archived-session command test failed on the first full run; it passed both in isolation and on the complete rerun.
+
 ## Screenshots
+
+![Project access visible in creation](create-visible-scope.png)
+
+[Project access visible in inline editing](edit-visible-scope.png)
 
 ![Aligned clock, unread dots and project controls](sidebar-alignment.png)
 

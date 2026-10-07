@@ -121,6 +121,10 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
               </PopoverContent>
             </Popover>
           </div>}
+          <Surface className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3"><Label>{t("scheduled.project_access")}</Label><ScheduleSelect label={t("scheduled.project_access")} value={projectAccess} options={[{ value: "project", label: t("scheduled.access_project") }, { value: "all", label: t("scheduled.access_all") }]} onChange={value => setProjectAccess(value === "all" ? "all" : "project")} /></div>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t(projectAccess === "project" ? "scheduled.access_project_hint" : "scheduled.access_all_hint", { project: projects.find(project => project.id === workspaceId)?.name ?? t("scheduled.project") })}</p>
+          </Surface>
           <div className="space-y-2"><Label htmlFor={`${id}-title`}>{t("scheduled.name")}</Label><Input autoFocus={Boolean(task)} id={`${id}-title`} value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder={t("scheduled.name_placeholder")} required /></div>
           <div className="space-y-2"><Label htmlFor={`${id}-prompt`}>{t("scheduled.instructions")}</Label><Textarea id={`${id}-prompt`} className="min-h-32 max-h-64 resize-y leading-relaxed" value={prompt} maxLength={30000} onChange={event => setPrompt(event.target.value)} placeholder={t("scheduled.prompt_placeholder")} required /></div>
           {!task && modelPicker}
@@ -138,11 +142,6 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
             <CollapsibleContent className="space-y-3 pt-3">
               {task && modelPicker}
               <Surface className="flex items-center justify-between gap-4 p-4"><Label htmlFor={`${id}-pin`}>{t("scheduled.pin_session")}</Label><Switch id={`${id}-pin`} checked={pinSession} onCheckedChange={setPinSession} disabled={busy} /></Surface>
-              <Surface className="space-y-3 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3"><Label>{t("scheduled.project_access")}</Label><ScheduleSelect label={t("scheduled.project_access")} value={projectAccess} options={[{ value: "project", label: t("scheduled.access_project") }, { value: "all", label: t("scheduled.access_all") }]} onChange={value => setProjectAccess(value === "all" ? "all" : "project")} /></div>
-                <p className="text-xs leading-relaxed text-muted-foreground">{t(projectAccess === "project" ? "scheduled.access_project_hint" : "scheduled.access_all_hint", { project: projects.find(project => project.id === workspaceId)?.name ?? t("scheduled.project") })}</p>
-              </Surface>
-
               <Surface className="flex items-center justify-between gap-4 p-4"><Label>{t("scheduled.runs_in")}</Label>
                 <Popover open={chatOpen} onOpenChange={setChatOpen}><PopoverTrigger render={<Button type="button" variant="ghost" aria-label={t("scheduled.runs_in")} className="min-w-0 max-w-[70%] font-normal" />}><span className="truncate">{sessionId ? selectedChat ?? t("scheduled.selected_chat") : t(reuseChat ? "scheduled.same_chat_each" : "scheduled.new_chat_each")}</span><ChevronDown className="size-4 shrink-0" /></PopoverTrigger>
                   <PopoverContent className="flex max-h-[min(22rem,var(--available-height))] w-80 max-w-[calc(100vw-3rem)] flex-col p-2" align="end"><div className="relative mb-2 shrink-0"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input autoFocus aria-label={t("scheduled.search_chats")} placeholder={t("scheduled.search_chats")} className="pl-9" value={search} onChange={event => setSearch(event.target.value)} /></div>
