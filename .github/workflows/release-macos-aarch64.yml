@@ -406,7 +406,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p apps/server/resources/agent-sandbox/runtime
-          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+          archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
+          if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Build Electron app
         shell: bash

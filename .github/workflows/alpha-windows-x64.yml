@@ -166,7 +166,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p apps/server/resources/agent-sandbox/runtime
-          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+          archive="$(cygpath -u "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz")"
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Build Electron alpha app
         shell: bash
