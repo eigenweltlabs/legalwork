@@ -11,6 +11,7 @@
  * when a task opens, so what is asked is the first and only thing in view.
  */
 import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { registerUnsavedDocument } from "../session/artifacts/docx-document-state";
 import DOMPurify from "dompurify";
 import {
   AlertTriangle,
@@ -175,6 +176,8 @@ function Fact(props: { label: string; children: ReactNode }) {
 }
 
 export type TaskDetailProps = {
+  draftKey?: string;
+  onDirtyChange?: (dirty: boolean) => void;
   projects?: { id: string; name: string }[];
   task: LegalworkTask;
   /** Raw `submission` half of the detail; shape is not pinned by the contract. */
@@ -277,6 +280,11 @@ export function TaskDetail(props: TaskDetailProps) {
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [preparingSession, setPreparingSession] = useState(false);
+  const dirtyRef = useRef(false);
+  const dirty = Boolean(props.saving || uploading || savingNote || draftTitle !== task.title || draftDescription !== task.description || noteDraft.trim());
+  dirtyRef.current = dirty;
+  useEffect(() => props.onDirtyChange?.(dirty), [dirty, props.onDirtyChange]);
+  useEffect(() => props.draftKey ? registerUnsavedDocument(props.draftKey, task.title, () => dirtyRef.current) : undefined, [props.draftKey, task.title]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const email = useMemo(() => readTaskSubmission(props.submission), [props.submission]);
   const emailHtml = useMemo(() => (email?.html ? sanitizeEmailHtml(email.html) : null), [email]);

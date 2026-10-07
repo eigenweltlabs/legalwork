@@ -14,6 +14,25 @@
  */
 
 const de = {
+  "workspace.workbench": "Arbeitsbereich",
+  "workspace.view": "Ansicht",
+  "workspace.opening_profile": "Neue Inhalte öffnen",
+  "workspace.chat_content": "Chat & Unterlagen",
+  "workspace.free": "Freier Arbeitsbereich",
+  "workspace.chat_position": "Bevorzugte Chat-Seite",
+  "workspace.chat_left": "Chats links",
+  "workspace.chat_right": "Chats rechts",
+  "workspace.new_content": "Neue Inhalte öffnen",
+  "workspace.open_active": "Im zuletzt aktiven Bereich",
+  "workspace.open_beside": "Daneben, wenn genug Platz ist",
+  "workspace.opening_hint": "Gilt für neue Tabs. Offene Tabs bleiben an ihrem Platz und lassen sich jederzeit frei verschieben.",
+  "workspace.open_overview_tab": "{name} als Tab öffnen",
+  "workspace.open_here": "Im Arbeitsbereich öffnen",
+  "workspace.keep_open": "Offen halten",
+  "workspace.preview_hint": "Vorschau: per Doppelklick offen halten",
+  "workspace.overview_hint": "Projektnavigation · Ihr Arbeitsbereich bleibt geöffnet",
+  "workspace.finish_task_edit": "Speichern oder leeren Sie Ihre ausstehenden Aufgabenänderungen und die Notiz, bevor Sie die Aufgabe an anderer Stelle öffnen.",
+
   "side_panel.copy_link": "Link kopieren",
   "side_panel.copy_failed": "Der Link konnte nicht kopiert werden.",
   "side_panel.close_browser_tabs": "Alle Browser-Tabs schließen",

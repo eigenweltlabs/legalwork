@@ -15,6 +15,7 @@ import { useTaskRunStore } from "./task-run-store";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { importViewerFile } from "@/react-app/domains/session/panel/import-viewer-file";
 import { type ArtifactPanelTab, type TaskPanelTab, usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
+import { artifactDocumentKey } from "../session/artifacts/docx-document-state";
 import { TaskDetail } from "./task-detail";
 import {
   useDeleteTask,
@@ -39,15 +40,18 @@ type TaskPanelProps = {
 };
 
 export function TaskPanel(props: TaskPanelProps) {
+  const onDirtyChange = useCallback((dirty: boolean) => { if (dirty) usePanelTabStore.getState().keepTab(props.sessionId, props.tab.id); }, [props.sessionId, props.tab.id]);
   const onTitleChange = useCallback((title: string) => {
     if (title !== props.tab.label) usePanelTabStore.getState().updateTabLabel(props.sessionId, props.tab.id, title);
   }, [props.sessionId, props.tab]);
-  return <TaskContent {...props} taskId={props.tab.taskId} onTitleChange={onTitleChange}
+  return <TaskContent {...props} onDirtyChange={onDirtyChange} draftKey={artifactDocumentKey(props.workspaceId ?? "", props.sessionId, props.tab.id)} taskId={props.tab.taskId} onTitleChange={onTitleChange}
     onOpenAttachment={tab => usePanelTabStore.getState().openTab(props.sessionId, tab)} />;
 }
 
 type TaskContentProps = Omit<TaskPanelProps, "sessionId" | "tab"> & {
   taskId: string;
+  draftKey?: string;
+  onDirtyChange?: (dirty: boolean) => void;
   inDialog?: boolean;
   onTitleChange?: (title: string) => void;
   onOpenAttachment: (tab: ArtifactPanelTab) => void;
@@ -154,6 +158,8 @@ export function TaskContent(props: TaskContentProps) {
 
   return (
     <><TaskDetail
+      draftKey={props.draftKey}
+      onDirtyChange={props.onDirtyChange}
       inPanel
       inDialog={props.inDialog}
       saving={updateTask.isPending || resolveConflict.isPending}

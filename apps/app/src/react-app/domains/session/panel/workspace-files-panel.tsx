@@ -34,7 +34,7 @@ type WorkspaceFilesPanelProps = {
   headerTarget?: HTMLElement | null;
   isRemoteWorkspace: boolean;
   active: boolean;
-  onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
+  onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry, permanent?: boolean) => void;
   onClose?: () => void;
 };
 
@@ -245,6 +245,7 @@ export function WorkspaceFilesPanel({
                     writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: entry.path, name: displayName });
                   }}
                   onClick={() => (entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry))}
+                  onDoubleClick={() => { if (entry.kind !== "dir") onOpenFile(entry, true); }}
                   title={displayName}
                   className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/50 hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                 >

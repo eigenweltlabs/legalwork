@@ -6,7 +6,7 @@ export type SidebarContextValue = {
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
-  activeProjectFeature: "calendar" | "home" | "tasks" | "reviews" | "sessions" | null;
+  activeProjectFeature: "workspace" | "calendar" | "home" | "tasks" | "reviews" | "sessions" | null;
   onOpenWorkspace: (workspaceId: string) => Promise<void>;
   onOpenProjectPage: (workspaceId: string, page: "calendar" | "home" | "tasks" | "reviews") => Promise<void>;
   onOpenProjectFiles: (workspaceId: string) => void;

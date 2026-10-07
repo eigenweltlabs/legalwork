@@ -1,3 +1,4 @@
+import { PanelsTopLeft } from "lucide-react";
 import { projectViewTab, usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { projectViewLabel } from "../panel/side-panel";
 /** @jsxImportSource react */
@@ -744,7 +745,6 @@ export function AppSidebar(props: AppSidebarProps) {
     },
     onOpenProjectPage: async (workspaceId, page) => {
       if (await props.onSelectWorkspace(workspaceId) === false) return;
-      usePanelTabStore.getState().openTab(workspacePanelKey(workspaceId), projectViewTab(page, projectViewLabel(page)));
       navigate(page === "calendar" ? workspaceCalendarRoute(workspaceId) : page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
     },
     onOpenProjectFiles: props.onOpenProjectFiles,
@@ -1063,7 +1063,8 @@ function WorkspaceSidebarGroup({
 
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
-                {projectNavItems.length > 0 && <SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
+                {<SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
+                  <SidebarMenuSubItem><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></SidebarMenuSubItem>
                   {projectNavItems.map(key => ({
                   projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectHome: <SidebarMenuSubItem key="projectHome">

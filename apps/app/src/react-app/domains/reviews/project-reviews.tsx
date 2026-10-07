@@ -35,14 +35,21 @@ function exportReview(review: SavedReview) {
   const url = URL.createObjectURL(new Blob(["\uFEFF", rows.map(row => row.map(csv).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = `${review.name.replace(/[/\\:*?"<>|]/g, "-")}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, overview, onClose, onTitleChange }: {
+export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, overview, onClose, onTitleChange, onOpenInWorkspace, localNavigation = false }: {
   client: LegalworkServerClient; workspaceId: string; projectName: string; onOpenSession: (sessionId: string) => void;
+  localNavigation?: boolean;
+  onOpenInWorkspace?: (review: { id: string; name: string }) => void;
   reviewId?: string; overview?: boolean; onClose?: () => void; onTitleChange?: (title: string) => void;
 }) {
   const requestPanelTab = useRequestPanelTab();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const reviewId = tabReviewId ?? (overview ? null : searchParams.get("review"));
+  const linkedReviewId = searchParams.get("review");
+  const [localReviewId, setLocalReviewId] = useState<string | null>(linkedReviewId);
+  // Visiting another project overview must not unmount an in-progress review.
+  // New deep links still select their requested review when this view is retained.
+  useEffect(() => { if (localNavigation && linkedReviewId) setLocalReviewId(linkedReviewId); }, [localNavigation, linkedReviewId]);
+  const reviewId = tabReviewId ?? (overview ? null : localNavigation ? localReviewId : searchParams.get("review"));
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState(emptyReviewFilters);
   const deferredFilters = useDeferredValue(filters);
@@ -55,12 +62,6 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const detail = useQuery({ queryKey: reviewKey(workspaceId, reviewId ?? "none"), queryFn: () => client.getReview(workspaceId, reviewId!, queryClient.getQueryData<SavedReview>(reviewKey(workspaceId, reviewId!))), enabled: !!reviewId, refetchInterval: query => query.state.data?.status === "running" ? 1000 : 5000 });
   const review = detail.data;
   useEffect(() => { if (review) onTitleChange?.(review.name); }, [review?.name, onTitleChange]);
-  useEffect(() => {
-    const linkedId = searchParams.get("review");
-    if (!overview || !linkedId) return;
-    requestPanelTab({ id: `review:${linkedId}`, type: "review", reviewId: linkedId, label: t("projects.tab_review") });
-    setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("review"); return next; }, { replace: true });
-  }, [overview, searchParams, requestPanelTab, setSearchParams]);
   const filterQuery = review ? reviewFilterQuery(review, deferredFilters) : { input: undefined, error: undefined };
   const rows = useQuery({ queryKey: ["review-rows", workspaceId, reviewId, review?.revision, filterQuery.input],
     queryFn: () => client.queryReviewRows(workspaceId, reviewId!, filterQuery.input!), enabled: !!review && !!filterQuery.input,
@@ -97,6 +98,11 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
     setSelected(null);
     setSelectedDocuments([]);
     setFilters(emptyReviewFilters);
+    if (localNavigation) {
+      setLocalReviewId(id ?? null);
+      if (linkedReviewId) setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("review"); return next; }, { replace: true });
+      return;
+    }
     setSearchParams(previous => {
       const next = new URLSearchParams(previous);
       if (id) next.set("review", id);
@@ -139,7 +145,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   return <ReviewFileDropTarget disabled={busy || !!dialog || !!removeTarget || (!!reviewId && !review)} onFiles={sources => void intake.add(sources)} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
     <div className={tabReviewId ? "flex h-full min-h-0 flex-col p-3" : "lw-project-page-content flex h-full min-h-0 flex-col pb-8"}>
     <header className={tabReviewId ? "shrink-0 pb-3" : "lw-project-page-top shrink-0 pb-4"}>
-      {!tabReviewId && <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">{reviewId ? <Button variant="ghost" size="sm" className="-ml-2 h-6 text-xs" disabled={intake.busy} onClick={() => openReview()}><ArrowLeft className="size-3.5" />{t("review.back")}</Button> : <span>{projectName}</span>}</div>}
+      {!tabReviewId && <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">{review && onOpenInWorkspace && <Button variant="ghost" size="sm" className="ml-auto order-last" onClick={() => onOpenInWorkspace(review)}>{t("workspace.open_here")}</Button>}{reviewId ? <Button variant="ghost" size="sm" className="-ml-2 h-6 text-xs" disabled={intake.busy} onClick={() => openReview()}><ArrowLeft className="size-3.5" />{t("review.back")}</Button> : <span>{projectName}</span>}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0"><h1 className={tabReviewId ? "truncate text-lg font-semibold" : "truncate text-2xl font-semibold leading-tight tracking-tight"}>{reviewId ? review?.name ?? t("review.loading") : t("review.title")}</h1>{!reviewId && <p className="mt-1.5 text-sm text-muted-foreground">{t("review.subtitle")}</p>}</div>
         <div className="flex flex-wrap items-center gap-2">{!reviewId ? <>

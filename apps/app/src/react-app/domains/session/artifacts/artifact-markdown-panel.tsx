@@ -1,3 +1,4 @@
+import { usePanelTabStore } from "../panel/panel-tab-store";
 import { keepHandoffCopy } from "./document-handoff-copy";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -95,6 +96,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     if (query.data) update((current) => loadMarkdownDraft(current, query.data.content, query.data.updatedAt ?? null));
   }, [query.data, update]);
   const dirty = Boolean(draft && draft.content !== draft.baseline);
+  useEffect(() => { if (dirty) usePanelTabStore.getState().keepTab(sessionId, target.id); }, [dirty, sessionId, target.id]);
   const onChange = useCallback((content: string) => {
     if (!localReadOnly) update((current) => current ? { ...current, content } : current);
   }, [update, localReadOnly]);

@@ -4,6 +4,25 @@
  */
 
 export default {
+  "workspace.workbench": "Workspace",
+  "workspace.view": "View",
+  "workspace.opening_profile": "Opening profile",
+  "workspace.chat_content": "Chat & documents",
+  "workspace.free": "Free workspace",
+  "workspace.chat_position": "Preferred chat side",
+  "workspace.chat_left": "Chats on the left",
+  "workspace.chat_right": "Chats on the right",
+  "workspace.new_content": "Open new content",
+  "workspace.open_active": "In the last active group",
+  "workspace.open_beside": "Beside it, if there is room",
+  "workspace.opening_hint": "Applies to new tabs. Open tabs stay in place; you can always drag them anywhere.",
+  "workspace.finish_task_edit": "Save or clear your pending task edits and note before opening it elsewhere.",
+  "workspace.open_overview_tab": "Open {name} as a tab",
+  "workspace.open_here": "Open in workspace",
+  "workspace.keep_open": "Keep open",
+  "workspace.preview_hint": "Preview — double-click to keep open",
+  "workspace.overview_hint": "Project navigation · your workspace stays open",
+
   "side_panel.copy_link": "Copy link",
   "side_panel.copy_failed": "Could not copy the link.",
   "side_panel.close_browser_tabs": "Close all browser tabs",

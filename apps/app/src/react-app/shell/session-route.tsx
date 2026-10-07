@@ -2531,8 +2531,8 @@ export function SessionRoute() {
         } finally { recordingSessionStarting.current = false; }
       }}
       projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
-      projectTasksView={embedded =>
-        <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} openTask={openTask} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+      projectTasksView={(embedded, inWorkspace) =>
+        <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} openTask={openTask} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(projectId, task) => { usePanelTabStore.getState().openTab(workspacePanelKey(selectedWorkspaceId), { id: `task:${task.id}`, type: "task", taskId: task.id, label: task.title }); navigate(workspaceSessionRoute(selectedWorkspaceId) + "?view=workspace"); }} baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
       onStartProjectRecording={() => {
         const recorder = useRecorderStore.getState();

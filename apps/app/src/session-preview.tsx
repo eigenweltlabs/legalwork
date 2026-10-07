@@ -3,7 +3,7 @@
 // Uses the real session, composer, navigation, files, and Memory Drive views.
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
 
@@ -22,6 +22,7 @@ import { Toaster, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale, setLocale } from "@/i18n";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
+import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
@@ -276,7 +277,7 @@ const fixtureClient: LegalworkServerClient = {
     tags: [], language, source: "builtin", columns: previewReview.columns, updatedAt: now,
   }] }),
   getReview: async (_workspaceId, id) => ({ ...previewReview, id }),
-  listReviews: async () => ({ reviews: [] }),
+  listReviews: async () => ({ reviews: [{ ...previewReview, documents: previewReview.documents.length, columns: previewReview.columns.length, total: previewReview.documents.length * previewReview.columns.length, completed: previewReview.cells.length }] }),
   queryReviewRows: async () => ({ revision: previewReview.revision, documentIds: previewReview.documents.map(document => document.id) }),
   editReview: async (_workspaceId, _id, input) => {
     previewReview.documents = (input.files ?? previewReview.documents.map(document => document.path)).map(path =>
@@ -444,11 +445,15 @@ function SessionPreview() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : limitParam ? "visual-limit" : welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
+  const navigate = useNavigate();
+  const projectRoute = location.pathname.split("/").at(-1);
+  const projectPage = projectRoute === "project" ? "home" : projectRoute === "tasks" || projectRoute === "reviews" || projectRoute === "calendar" ? projectRoute : undefined;
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   useEffect(() => {
     if (location.pathname === "/home") { setShowHome(true); setShowWorkflows(false); return; }
     const route = location.pathname.match(/^\/workspace\/[^/]+\/session(?:\/([^/]+))?$/);
+    if (projectPage) { setShowHome(false); setShowWorkflows(false); }
     if (!route) return;
     setSelectedSessionId(route[1] ? decodeURIComponent(route[1]) : null);
     setShowWorkflows(false); setShowHome(false);
@@ -488,7 +493,8 @@ function SessionPreview() {
       </div>
       <div className="min-h-0 flex-1">
         <SessionPage
-          projectTasksView={embedded => <TasksPane embedded={embedded} client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} detailMode="panel" baseUrl={fixtureClient.baseUrl} token="visual-fixture" workspaces={[workspace, otherWorkspace]} defaultModel={model} onOpenSession={(_workspaceId, id) => setSelectedSessionId(id)} />}
+          projectPage={projectPage}
+          projectTasksView={(embedded, inWorkspace) => <TasksPane embedded={embedded} client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(_projectId, task) => { usePanelTabStore.getState().openTab(workspacePanelKey(activeWorkspace.id), { id: `task:${task.id}`, type: "task", taskId: task.id, label: task.title }); navigate(`/workspace/${activeWorkspace.id}/session?view=workspace`); }} baseUrl={fixtureClient.baseUrl} token="visual-fixture" workspaces={[workspace, otherWorkspace]} defaultModel={model} onOpenSession={(_workspaceId, id) => setSelectedSessionId(id)} />}
           projectCalendarView={<CalendarView client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} projectName={activeWorkspace.name} />}
           homePage={showHome}
           workflowLibraryView={<WorkflowsPreview workspaceId={activeWorkspace.id} reviewClient={fixtureClient} />}

@@ -1,3 +1,4 @@
+import { WorkspaceViewMenu } from "../panel/workspace-view-menu";
 import { openWorkspaceWindow, restoreWorkspaceWindow } from "../panel/workspace-window";
 import { chatPanelTab, projectViewTab, type ProjectView } from "../panel/panel-tab-store";
 import { projectViewLabel } from "../panel/side-panel";
@@ -235,7 +236,7 @@ export type SessionPageProps = {
   homePage?: boolean;
   projectPage?: "calendar" | "home" | "tasks" | "reviews";
   onRenameProject?: (name: string) => Promise<boolean>;
-  projectTasksView?: React.ReactNode | ((embedded: boolean) => React.ReactNode);
+  projectTasksView?: React.ReactNode | ((embedded: boolean, inWorkspace: boolean) => React.ReactNode);
   projectCalendarView?: React.ReactNode;
   onStartProjectRecording: () => void;
   onCreateProjectSession?: (shareRecording: boolean) => void | Promise<void>;
@@ -333,7 +334,7 @@ function controlStringArg(args: unknown, key: string) {
 export function SessionPage(props: SessionPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const hasMainView = Boolean(props.mainView || props.projectsPage);
+  const hasMainView = Boolean(props.mainView || props.projectsPage || props.projectPage);
   const { config: shellConfig } = useShellConfig();
   const queryClient = useQueryClient();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
@@ -344,11 +345,12 @@ export function SessionPage(props: SessionPageProps) {
   const panelStateSessionId = props.sidebar.activeNav === "evals" ? EVALS_PANEL_SESSION_ID : workspacePanelKey(props.selectedWorkspaceId);
   const workspaceScope = workspacePanelKey(props.selectedWorkspaceId);
   const workspacePanel = useSessionPanelState(workspaceScope);
+  const [overviewHost, setOverviewHost] = useState<HTMLDivElement | null>(null);
+  const [visitedOverviews, setVisitedOverviews] = useState<ProjectView[]>([]);
   useEffect(() => {
-    const store = usePanelTabStore.getState();
-    if (props.projectPage) store.openTab(workspaceScope, projectViewTab(props.projectPage, projectViewLabel(props.projectPage)));
-    else if (!hasMainView && !store.sessions[workspaceScope]?.tabs.length && !props.selectedSessionId) store.openTab(workspaceScope, projectViewTab("home", projectViewLabel("home")));
-  }, [workspaceScope, props.projectPage, hasMainView]);
+    const view = props.projectPage;
+    if (view) setVisitedOverviews(previous => previous.includes(view) ? previous : [...previous, view]);
+  }, [props.projectPage]);
   useEffect(() => { void restoreWorkspaceWindow(props.selectedWorkspaceId).catch(() => toast.error(t("projects.open_in_new_window_failed"))); }, [props.selectedWorkspaceId]);
   const [workspaceHost, setWorkspaceHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => { usePanelTabStore.getState().migrateWorkspace(props.selectedWorkspaceId); }, [props.selectedWorkspaceId]);
@@ -448,7 +450,7 @@ export function SessionPage(props: SessionPageProps) {
   // A mainView (the Tasks pane) hands the page a file to show in the panel.
   useEffect(() => {
     const handleOpenTab = (event: Event) => {
-      const tab = (event as CustomEvent<PanelTab>).detail;
+      const tab = (event as CustomEvent<import("../panel/panel-tab-request").PanelTabRequest>).detail;
       if (!tab) return;
       const destination = "destination" in tab ? tab.destination : undefined;
       if (destination && typeof destination === "object" && "kind" in destination && destination.kind === "workflows") return;
@@ -456,7 +458,7 @@ export function SessionPage(props: SessionPageProps) {
       if (hasMainView && props.sidebar.activeNav !== "evals" && !destination) return;
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
-      openTab(scope, tab, pane);
+      openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview });
       if (scope !== panelStateSessionId) return;
       preserveSidePanelOnPanelOpenRef.current = true;
       setCurrentSidePanel("panel");
@@ -651,7 +653,7 @@ export function SessionPage(props: SessionPageProps) {
   const openFilesRailPane = useCallback(() => {
     toggleCurrentSidePanel("files");
   }, [toggleCurrentSidePanel]);
-  const openWorkspaceFileEntry = useCallback((entry: LegalworkWorkspaceDirectoryEntry) => {
+  const openWorkspaceFileEntry = useCallback((entry: LegalworkWorkspaceDirectoryEntry, permanent = false) => {
     const preview = classifyOpenTarget(entry.name, "file");
     if (preview === "external" || preview === "browser") {
       if (props.selectedWorkspaceDisplay.workspaceType !== "remote" && isElectronRuntime()) {
@@ -680,7 +682,7 @@ export function SessionPage(props: SessionPageProps) {
       value: entry.path,
       size: entry.size,
       updatedAt: entry.updatedAt,
-    });
+    }, undefined, undefined, { preview: !permanent });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
   }, [downloadOpenTarget, openTab, panelStateSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
@@ -697,7 +699,7 @@ export function SessionPage(props: SessionPageProps) {
   const openStorageFile = useCallback((root: StorageRoot, file: StorageEntry) => {
     if (!props.runtimeWorkspaceId) return;
     const tab = storageFileTab(props.runtimeWorkspaceId, root, file);
-    openTab(panelStateSessionId, tab);
+    openTab(panelStateSessionId, tab, undefined, undefined, { preview: true });
     if (!usePanelTabStore.getState().sessions[panelStateSessionId]?.panes.some(pane => pane.activeTabId === tab.id)) return;
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
@@ -918,7 +920,7 @@ export function SessionPage(props: SessionPageProps) {
       reactSessionToken &&
       props.surface,
   );
-  const canRenderWorkspace = canRenderReactSurface || Boolean(props.legalworkServerClient && props.runtimeWorkspaceId && workspacePanel.tabs.length);
+  const canRenderWorkspace = canRenderReactSurface || Boolean(props.legalworkServerClient && props.runtimeWorkspaceId);
   // The chat owns snapshot loading once its endpoint is ready. Background
   // workspace refreshes must not unmount an already-visible conversation.
   const showSessionLoadingState = !canRenderReactSurface &&
@@ -1054,10 +1056,10 @@ export function SessionPage(props: SessionPageProps) {
     onForget={props.sidebar.onForgetWorkspace}
     newChatDisabled={props.sidebar.newChatDisabled}
   /> : props.mainView;
-  const renderProjectTasks = (embedded: boolean) => typeof props.projectTasksView === "function" ? props.projectTasksView(embedded) : props.projectTasksView;
-  const renderProjectView = (view: ProjectView) => view === "reviews" ? (
-    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
-  ) : view === "calendar" ? props.projectCalendarView : view === "tasks" ? renderProjectTasks(false) : view === "home" ? (
+  const renderProjectTasks = (embedded: boolean, inWorkspace: boolean) => typeof props.projectTasksView === "function" ? props.projectTasksView(embedded, inWorkspace) : props.projectTasksView;
+  const renderProjectView = (view: ProjectView, inWorkspace = true) => view === "reviews" ? (
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview={inWorkspace} localNavigation={!inWorkspace} onOpenInWorkspace={review => { openTab(workspaceScope, { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name }); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
+  ) : view === "calendar" ? props.projectCalendarView : view === "tasks" ? renderProjectTasks(false, inWorkspace) : view === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
@@ -1079,7 +1081,7 @@ export function SessionPage(props: SessionPageProps) {
       onNewSession={(shareRecording) => props.onCreateProjectSession
         ? props.onCreateProjectSession(shareRecording)
         : void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
-      tasksView={renderProjectTasks(true)}
+      tasksView={renderProjectTasks(true, inWorkspace)}
       onRename={props.onRenameProject}
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : null;
@@ -1121,7 +1123,8 @@ export function SessionPage(props: SessionPageProps) {
     </Button>
   );
 
-  const windowTitle = props.homePage ? t("home.nav_label")
+  const windowTitle = props.projectPage ? `${workspaceName} · ${projectViewLabel(props.projectPage)}`
+    : props.homePage ? t("home.nav_label")
     : props.projectsPage ? t("projects.plural")
     : props.sidebar.activeNav === "calendar" ? t("calendar.title")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
@@ -1176,6 +1179,7 @@ export function SessionPage(props: SessionPageProps) {
                   <AppWindowMac size={16} />
                 </Button>
               ) : null}
+              {!hasMainView && props.selectedWorkspaceId && <WorkspaceViewMenu scope={workspaceScope} />}
               {hasMainView && props.selectedWorkspaceId && <Button variant="ghost" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" /><span className="max-w-44 truncate">{t("workspace.return_to", { name: workspaceName })}</span></Button>}
               <NotificationBell />
               {props.developerMode ? (
@@ -1205,8 +1209,8 @@ export function SessionPage(props: SessionPageProps) {
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
-          projectFilesOpen={fileSidebar === "files"}
-          activeProjectView={hasMainView ? null : activePanelTab?.type === "project-view" ? activePanelTab.view : activePanelTab?.type === "chat" ? "sessions" : null}
+          projectFilesOpen={!hasMainView && fileSidebar === "files"}
+          activeProjectView={props.projectPage ?? (hasMainView ? null : "workspace")}
           onOpenNavWindow={isElectronRuntime() ? openNavWindow : undefined}
           onOpenProjectFiles={(workspaceId) => {
             if (workspaceId === props.selectedWorkspaceId && !hasMainView) {
@@ -1269,7 +1273,7 @@ export function SessionPage(props: SessionPageProps) {
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
 
-              <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
+              <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
                   clientConnected={props.clientConnected}
@@ -1515,6 +1519,20 @@ export function SessionPage(props: SessionPageProps) {
           </div>
         </SidebarInset>
         )}
+      {visitedOverviews.map(view => <DocumentPane key={`overview:${props.selectedWorkspaceId}:${view}`} destination={props.projectPage === view ? overviewHost : null}>
+        <ControlActionScope active={props.projectPage === view}>
+          <section className="flex h-full min-h-0 flex-col" aria-label={projectViewLabel(view)}>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 px-5 py-2">
+              <span className="text-xs text-muted-foreground">{t("workspace.overview_hint")}</span>
+              <Button variant="ghost" size="sm" onClick={() => {
+                openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
+                navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
+              }}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab", { name: projectViewLabel(view) })}</Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">{renderProjectView(view, false)}</div>
+          </section>
+        </ControlActionScope>
+      </DocumentPane>)}
       {canRenderWorkspace && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
         <ControlActionScope active={!hasMainView}>
           <SidePanel

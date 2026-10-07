@@ -7,9 +7,9 @@ export function PanelTabDestinationProvider({ destination, children }: { destina
 }
 export function useRequestPanelTab() {
   const destination = useContext(Destination);
-  return useCallback((tab: PanelTab) => requestPanelTab(tab, destination), [destination]);
+  return useCallback((tab: PanelTab, options?: { preview?: boolean }) => requestPanelTab(tab, destination, options), [destination]);
 }
 export function useRequestOpenTask() {
   const request = useRequestPanelTab();
-  return useCallback((taskId: string, label = "Task") => request({ id: `task:${taskId}`, type: "task", taskId, label }), [request]);
+  return useCallback((taskId: string, label = "Task", options = { preview: true }) => request({ id: `task:${taskId}`, type: "task", taskId, label }, options), [request]);
 }

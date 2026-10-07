@@ -100,7 +100,7 @@ function refuseDirty(name: string) {
   };
 }
 
-beforeEach(() => { usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }); storage.clear(); });
+beforeEach(() => { usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {}, opening: {} }); storage.clear(); });
 
 describe("free document splits", () => {
   for (const edge of ["left", "right", "top", "bottom"] satisfies DocumentDropEdge[]) {
@@ -335,6 +335,7 @@ describe("restoration and repeated moves", () => {
 
 describe("unified workspace tabs", () => {
   const scope = "workspace:project";
+  beforeEach(() => store().setWorkspaceWidth(scope, 1200));
   const state = () => store().sessions[scope];
   const chat = (id: string) => ({ id: `chat:${id}`, type: "chat", sessionId: id, label: id } as const);
   const review = { id: "review:terms", type: "review", reviewId: "terms", label: "Terms" } as const;
@@ -359,13 +360,14 @@ describe("unified workspace tabs", () => {
     expect(state().panes).toEqual([{ id: "main", tabIds: [], activeTabId: null }]);
   });
 
-  test("default source opening preserves a review and reuses its document pane", () => {
+  test("default source opening reuses the content group and retains the review tab", () => {
     store().adoptChat(scope, "one", "Discussion");
     store().openTab(scope, review);
     const reviewPane = pane(review.id).id;
     store().openTab(scope, document("source.docx"));
     expect(state().panes).toHaveLength(2);
-    expect(pane(review.id).activeTabId).toBe(review.id);
+    expect(pane(review.id).activeTabId).toBe("file:source.docx");
+    expect(state().tabs.some(tab => tab.id === review.id)).toBe(true);
     store().selectTab(scope, review.id);
     store().openTab(scope, document("second.docx"));
     expect(pane("file:second.docx").id).toBe(pane("file:source.docx").id);
@@ -498,5 +500,121 @@ describe("project overview tabs and workspace window seeds", () => {
     expect(layout?.tabs[0]).toMatchObject({ type: "artifact", storage });
     expect(layout?.tabs[0]).not.toHaveProperty("value");
     expect(usePanelTabStore.getState().readLayout({ tabs: [{ id: "bad", type: "artifact", value: "cache.docx", label: "bad", storage: { broken: true } }] })?.tabs).toEqual([]);
+  });
+});
+
+describe("workspace opening profiles and previews", () => {
+  const scope = "workspace:opening";
+  beforeEach(() => store().clearSession(scope));
+  const state = () => store().sessions[scope];
+  const pane = (id: string) => state().panes.find(item => item.tabIds.includes(id))!;
+  const preview = (name: string) => store().openTab(scope, document(name), undefined, undefined, { preview: true });
+
+  for (const side of ["left", "right"] as const) {
+    test(`chat/content routing with chats on the ${side}`, () => {
+      store().setWorkspaceWidth(scope, 1000);
+      store().setOpening(scope, { chatSide: side });
+      store().openTab(scope, document("a.docx"));
+      store().adoptChat(scope, "one", "Chat");
+      expect(state().panes).toHaveLength(2);
+      const order = layoutLeaves(state().tree);
+      expect(order[side === "left" ? 0 : 1]).toBe(pane("chat:one").id);
+      store().selectTab(scope, "chat:one");
+      store().openTab(scope, document("b.docx"));
+      expect(pane("file:b.docx").id).toBe(pane("file:a.docx").id);
+      store().adoptChat(scope, "two", "Next chat");
+      expect(pane("chat:two").id).toBe(pane("chat:one").id);
+      expect(state().panes).toHaveLength(2);
+    });
+  }
+  test("narrow or unmeasured workspaces do not split automatically", () => {
+    store().adoptChat(scope, "one", "Chat");
+    preview("a.docx");
+    expect(state().panes).toHaveLength(1);
+    store().setWorkspaceWidth(scope, 799);
+    preview("b.docx");
+    expect(state().panes).toHaveLength(1);
+  });
+  test("free beside reuses a right group and never creates a third automatic column", () => {
+    store().setOpening(scope, { mode: "free", newContent: "beside" });
+    store().setWorkspaceWidth(scope, 2000);
+    store().openTab(scope, document("a.docx"));
+    store().openTab(scope, document("b.docx"));
+    store().selectTab(scope, "file:a.docx");
+    store().openTab(scope, document("c.docx"));
+    expect(pane("file:c.docx").id).toBe(pane("file:b.docx").id);
+    store().openTab(scope, document("d.docx"));
+    expect(state().panes).toHaveLength(2);
+    expect(pane("file:d.docx").id).toBe(pane("file:b.docx").id);
+  });
+  test("profile changes leave layouts intact; active mode, existing tabs and explicit drops win", () => {
+    store().setWorkspaceWidth(scope, 1600);
+    store().adoptChat(scope, "one", "Chat");
+    store().openTab(scope, document("a.docx"));
+    const tree = state().tree;
+    store().setOpening(scope, { mode: "free", newContent: "active" });
+    expect(state().tree).toBe(tree);
+    store().selectTab(scope, "chat:one");
+    store().openTab(scope, document("b.docx"));
+    expect(pane("file:b.docx").id).toBe(pane("chat:one").id);
+    store().openTab(scope, document("a.docx"));
+    expect(pane("file:a.docx").id).not.toBe(pane("chat:one").id);
+    store().openTab(scope, document("a.docx"), pane("chat:one").id, "bottom");
+    expect(state().panes).toHaveLength(2);
+    expect(state().tree.type === "split" && state().tree.direction).toBe("vertical");
+  });
+  test("preview reuse protects dirty drafts even when no edit event reached the tab", () => {
+    preview("a.docx"); preview("b.docx");
+    expect(state().tabs.map(tab => tab.id)).toEqual(["file:b.docx"]);
+    const unregister = registerUnsavedDocument(artifactDocumentKey("opening", scope, "file:b.docx"), "Draft", () => true);
+    try {
+      preview("c.docx");
+      expect(state().tabs.map(tab => tab.id)).toEqual(["file:b.docx", "file:c.docx"]);
+      expect(pane("file:c.docx").previewTabId).toBe("file:c.docx");
+      store().keepTab(scope, "file:c.docx");
+      preview("d.docx");
+      expect(state().tabs).toHaveLength(3);
+    } finally { unregister(); }
+  });
+  test("moving, explicitly reopening and duplicate file identities pin previews", () => {
+    preview("a.docx");
+    store().openTab(scope, { ...document("a.docx"), id: "same-path" });
+    expect(pane("file:a.docx").previewTabId).toBeUndefined();
+    preview("b.docx");
+    store().moveTab(scope, "file:b.docx", pane("file:a.docx").id, "right");
+    expect(pane("file:b.docx").previewTabId).toBeUndefined();
+    preview("c.docx");
+    expect(state().tabs).toHaveLength(3);
+  });
+  test("at the pane limit an automatic opening falls back to a tab instead of disappearing", () => {
+    store().setOpening(scope, { mode: "free", newContent: "beside" });
+    store().setWorkspaceWidth(scope, 1600);
+    store().openTab(scope, document("a.docx"));
+    for (let i = 0; i < 5; i++) store().openTab(scope, document(`${i}.docx`), "main", "bottom");
+    expect(state().panes).toHaveLength(6);
+    store().openTab(scope, document("last.docx"));
+    expect(state().panes).toHaveLength(6);
+    expect(state().tabs).toHaveLength(7);
+    expect(pane("file:last.docx").activeTabId).toBe("file:last.docx");
+  });
+  test("new browser tabs obey the same profile", () => {
+    store().setWorkspaceWidth(scope, 1200);
+    store().setOpening(scope, { mode: "free", newContent: "active" });
+    store().adoptChat(scope, "one", "Chat");
+    store().syncBrowserTabs(scope, [browser], browser.id);
+    expect(state().panes).toHaveLength(1);
+    expect(pane(browser.id).id).toBe(pane("chat:one").id);
+  });
+  test("opening preferences and preview slots survive restoration", async () => {
+    store().setOpening(scope, { mode: "free", newContent: "beside", chatSide: "right" });
+    preview("a.docx");
+    const saved = new Map(storage);
+    usePanelTabStore.setState({ sessions: {}, opening: {} });
+    for (const [key, value] of saved) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(store().opening[scope]).toEqual({ mode: "free", newContent: "beside", chatSide: "right" });
+    expect(pane("file:a.docx").previewTabId).toBe("file:a.docx");
+    preview("b.docx");
+    expect(state().tabs.map(tab => tab.id)).toEqual(["file:b.docx"]);
   });
 });

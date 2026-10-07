@@ -203,8 +203,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const onDocumentDirtyChange = useCallback((dirty: boolean) => {
     documentDirtyRef.current = dirty;
+    if (dirty) usePanelTabStore.getState().keepTab(sessionId, target.id);
     setDocumentDirty(dirty);
-  }, []);
+  }, [sessionId, target.id]);
 
   useEffect(() => {
     if (!isEditableDocument && !(hasSaveActions && isTextSheet)) return;
@@ -586,6 +587,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   const textDirtyRef = useRef(false);
   textDirtyRef.current = data?.kind === "text" && draft !== data.data;
+  useEffect(() => { if (textDirtyRef.current) usePanelTabStore.getState().keepTab(sessionId, target.id); }, [draft, data, sessionId, target.id]);
   useEffect(() => {
     if (!writableFile || isBinaryEditor || isTextSheet) return;
     return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => textDirtyRef.current);

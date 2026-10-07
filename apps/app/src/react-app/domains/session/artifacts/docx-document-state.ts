@@ -26,6 +26,11 @@ export function savedDocxSnapshot(current: DocxSnapshot, data: ArrayBuffer, upda
 
 const unsavedDocuments = new Map<string, { name: string; isDirty: () => boolean; discard?: () => void; retainOnSwitch: boolean }>();
 
+export function hasUnsavedSessionDocument(sessionId: string, targetId: string) {
+  const suffix = JSON.stringify([sessionId, targetId]).slice(1);
+  return [...unsavedDocuments].some(([id, entry]) => (id === targetId || id.endsWith(suffix)) && entry.isDirty());
+}
+
 export function artifactDocumentKey(workspaceId: string, sessionId: string, targetId: string) {
   return JSON.stringify([workspaceId, sessionId, targetId]);
 }

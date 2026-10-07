@@ -73,6 +73,7 @@ import { importViewerFile } from "@/react-app/domains/session/panel/import-viewe
 import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
 import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
+import { artifactDocumentKey, hasUnsavedSessionDocument } from "../session/artifacts/docx-document-state";
 import { TaskDetail } from "./task-detail";
 import { LinkProjectTaskDialog } from "./link-project-task-dialog";
 import { TASK_STATUSES, taskMemberOptions, taskStatusLabel } from "./task-format";
@@ -138,6 +139,7 @@ export type TasksPaneProps = {
 };
 
 export function TasksPane(props: TasksPaneProps) {
+  const draftScope = `task-overview:${props.workspaceId}:${props.projectId ?? "global"}:${Boolean(props.embedded)}`;
   const requestOpenTask = useRequestOpenTask();
   const requestPanelTab = useRequestPanelTab();
   const viewAll = props.detailMode === "panel" ? () => requestPanelTab(projectViewTab("tasks", t("projects.tasks"))) : props.onViewAll;
@@ -284,7 +286,7 @@ export function TasksPane(props: TasksPaneProps) {
     createTask.mutate({ ...input, ...(props.projectId ? { projectId: props.projectId } : {}) }, {
       onSuccess: task => {
         setCreating(false);
-        if (props.detailMode === "panel") requestOpenTask(task.id, task.title);
+        if (props.detailMode === "panel") requestOpenTask(task.id, task.title, { preview: false });
         else setSelectedTaskId(task.id);
         if (props.embedded) setPage(0);
         if (inTrash) switchView("tasks");
@@ -599,10 +601,15 @@ export function TasksPane(props: TasksPaneProps) {
 
       {selectedTask && props.detailMode !== "panel" ? (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {selectedTask.projectId && props.onOpenInProject && <div className="flex justify-end px-4 pt-2"><Button variant="ghost" size="sm" onClick={() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask)}>{t("workspace.open_in_project")}</Button></div>}
+          {selectedTask.projectId && props.onOpenInProject && <div className="flex justify-end px-4 pt-2"><Button variant="ghost" size="sm" onClick={() => {
+            if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
+            props.onOpenInProject?.(selectedTask.projectId!, selectedTask);
+          }}>{t(props.projectId ? "workspace.open_here" : "workspace.open_in_project")}</Button></div>}
           {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => setAttachment(null)}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId="global-tasks" client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => setAttachment(null)} /></div>}
           <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
             key={selectedTask.id}
+            draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
+            saving={updateTask.isPending || resolveConflict.isPending}
             task={selectedTask}
             projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
             submission={detailQuery.data?.submission}
