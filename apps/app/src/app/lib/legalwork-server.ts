@@ -1705,6 +1705,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload,
         timeoutMs: timeouts.status,
       }),
+    getModelCatalogSettings: () =>
+      requestJson<{ onlineUpdatesEnabled: boolean }>(baseUrl, "/model-catalog/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setModelCatalogSettings: (onlineUpdatesEnabled: boolean) =>
+      requestJson<{ onlineUpdatesEnabled: boolean }>(baseUrl, "/model-catalog/settings", {
+        token, hostToken, method: "PUT", body: { onlineUpdatesEnabled }, timeoutMs: timeouts.config,
+      }),
     getPersonalization: () =>
       requestJson<{ settings: LegalworkPersonalizationSettings }>(baseUrl, "/personalization", {
         token,

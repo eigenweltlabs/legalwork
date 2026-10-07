@@ -151,7 +151,7 @@ import {
 import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
-import { fetchProviderModelCatalog } from "./provider-model-catalog.js";
+import { modelCatalogFor, modelCatalogResponse, modelCatalogSettingsSchema } from "./model-catalog.js";
 import {
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
@@ -1659,7 +1659,7 @@ function createRoutes(
     config,
     readProviders: readCustomProviders,
     readCatalogModels: async (workspace, providerId) => {
-      const catalogModels = await fetchProviderModelCatalog(providerId);
+      const catalogModels = await modelCatalogFor(config).providerModels(providerId);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const providers = unwrapOpencodeResult(await client.provider.list(), "/provider");
       const knownModels = new Set(Object.keys(providers.all.find(provider => provider.id === providerId)?.models ?? {}));
@@ -1785,6 +1785,20 @@ function createRoutes(
     setAnalyticsConsent({ analyticsEnabled: body.analyticsEnabled });
     const offered = typeof body.distinctId === "string" ? body.distinctId : "";
     return jsonResponse({ ok: true, distinctId: adoptLaunchAnalyticsId(offered) });
+  });
+
+  // Public metadata only, for server-managed engines that cannot attach a token
+  // to a catalog fetch. The preference itself still requires client auth.
+  addRoute(routes, "GET", "/model-catalog/api.json", "none", async () => modelCatalogResponse(modelCatalogFor(config)));
+  addRoute(routes, "GET", "/model-catalog/settings", "client", async () => {
+    return jsonResponse(await modelCatalogFor(config).settings());
+  });
+  addRoute(routes, "PUT", "/model-catalog/settings", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const settings = modelCatalogSettingsSchema.safeParse(await readJsonBody(ctx.request));
+    if (!settings.success) throw new ApiError(400, "invalid_model_catalog_settings", "Online model updates must be enabled or disabled.");
+    return jsonResponse(await modelCatalogFor(config).saveSettings(settings.data));
   });
 
   addRoute(routes, "GET", "/personalization", "client", async () => {
