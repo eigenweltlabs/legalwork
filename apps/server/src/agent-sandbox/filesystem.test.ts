@@ -74,14 +74,16 @@ test("edits stay on disk staging until commit and read-only folders reject write
 test("paths, links, private staging and host execution configuration are refused", async () => {
   const f = await fixture();
   await writeFile(join(f.root, "secret"), "private");
-  await symlink(join(f.root, "secret"), join(f.workspace, "link"));
-  for (const path of ["/workspace/../secret", "/workspace/link", "/workspace/.env", "/workspace/CON", "/workspace/file:stream", "/workspace/legalwork-sandbox-staging-hidden/data", "/outside/secret"]) {
+  // Windows junctions exercise reparse-point containment without requiring
+  // administrator rights or enabling Developer Mode to create symlinks.
+  await symlink(f.root, join(f.workspace, "link"), process.platform === "win32" ? "junction" : "dir");
+  for (const path of ["/workspace/../secret", "/workspace/link/secret", "/workspace/.env", "/workspace/CON", "/workspace/file:stream", "/workspace/legalwork-sandbox-staging-hidden/data", "/outside/secret"]) {
     await expect(openFile(f.filesystem, path)).rejects.toThrow();
   }
   await mkdir(join(f.workspace, "folder"));
   await f.filesystem.request({ op: "stat", path: "/workspace/folder" });
   await rm(join(f.workspace, "folder"), { recursive: true });
-  await symlink(f.root, join(f.workspace, "folder"));
+  await symlink(f.root, join(f.workspace, "folder"), process.platform === "win32" ? "junction" : "dir");
   await expect(f.filesystem.request({ op: "list", path: "/workspace/folder", offset: 0 })).rejects.toThrow();
 });
 
