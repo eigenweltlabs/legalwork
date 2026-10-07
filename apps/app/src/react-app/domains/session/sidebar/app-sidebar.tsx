@@ -726,7 +726,7 @@ export function AppSidebar(props: AppSidebarProps) {
   const inbox = useSessionInboxStore();
   const favoriteIds = useProjectFavoritesStore(state => state.favoriteIds);
   const pinnedProjects = props.workspaceSessionGroups.filter(group => favoriteIds.includes(group.workspace.id));
-  const allSessions = React.useMemo(() => allProjectSessions(props.workspaceSessionGroups, pinned, props.selectedSessionId), [props.workspaceSessionGroups, pinned, props.selectedSessionId]);
+  const allSessions = React.useMemo(() => allProjectSessions(props.workspaceSessionGroups, pinned), [props.workspaceSessionGroups, pinned]);
   const [recentLimit, setRecentLimit] = React.useState(10);
   const [closedSections, setClosedSections] = React.useState<Set<string>>(() => new Set());
   const toggleSection = (key: string) => setClosedSections(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
@@ -751,7 +751,7 @@ export function AppSidebar(props: AppSidebarProps) {
     navEvaluations: { onClick: () => props.onShowEvals?.(), active: props.activeNav === "evals" },
   };
   const sessionSection = (key: "sectionPinned" | "sectionRecent") => {
-    const sessions = allSessions.filter(({ session }) => key === "sectionPinned" ? pinned.has(session.id) : session.id === props.selectedSessionId || !pinned.has(session.id));
+    const sessions = allSessions.filter(({ session }) => key === "sectionPinned" ? pinned.has(session.id) : !pinned.has(session.id));
     if (key === "sectionPinned") sessions.sort((a, b) => pinOrder.indexOf(a.session.id) - pinOrder.indexOf(b.session.id));
     if (key === "sectionPinned" && !sessions.length) return null;
     const visible = key === "sectionRecent" ? sessions.slice(0, recentLimit) : sessions;
@@ -1718,14 +1718,11 @@ function WorkspaceSessions({ group, loading = false, showAll = false }: {
   const [archivedOpen, setArchivedOpen] = React.useState(false);
   const forcedExpandedSessionIds = new Set(ctx.selectedSessionId ? tree.ancestorIdsBySessionId.get(ctx.selectedSessionId) ?? [] : []);
   const { active, archived } = partitionArchivedSessions(group.sessions);
-  const currentSession = ctx.selectedWorkspaceId === workspaceId ? active.find(session => session.id === ctx.selectedSessionId) : undefined;
-  const rows = flattenSessionRows(group.sessions, showAll || groups.length ? Number.MAX_SAFE_INTEGER : limit, tree, ctx.expandedSessionIds, forcedExpandedSessionIds, pinnedIds, orderIds)
-    .filter(row => row.session.id !== currentSession?.id);
+  const rows = flattenSessionRows(group.sessions, showAll || groups.length ? Number.MAX_SAFE_INTEGER : limit, tree, ctx.expandedSessionIds, forcedExpandedSessionIds, pinnedIds, orderIds);
   const remaining = Math.max(0, getRootSessions(active).length - limit);
   const visibleRootIds = rows.filter((row) => row.depth === 0).map((row) => row.session.id);
   return (
     <SidebarMenuSub aria-label={t("projects.sessions")}>
-      {currentSession && <SessionMenuItem session={currentSession} depth={0} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} isPinned={pinnedIds.has(currentSession.id)} />}
       {loading || (group.status === "loading" && !group.sessions.length) ? <li className="px-3 py-2 text-xs text-muted-foreground">{t("workspace.loading_tasks")}</li> : groups.length ? (
         <GroupedSessionList sessionRows={rows} groups={groups} assignments={assignments} pinnedIds={pinnedIds} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} store={useSessionManagementStore} showAll={showAll} />
       ) : (
@@ -1734,7 +1731,7 @@ function WorkspaceSessions({ group, loading = false, showAll = false }: {
           useSessionManagementStore.getState().reorderSessions(workspaceId, [...ids, ...getRootSessions(active).map((session) => session.id).filter((id) => !visible.has(id))]);
         }}>
           {rows.map((row) => <SessionMenuItem key={row.session.id} session={row.session} depth={row.depth} tree={tree} workspaceId={workspaceId} forcedExpandedSessionIds={forcedExpandedSessionIds} isPinned={pinnedIds.has(row.session.id)} draggable={row.depth === 0} />)}
-          {!currentSession && !rows.length ? <li className="px-3 py-2 text-xs text-muted-foreground">{group.status === "error" ? getWorkspaceTaskLoadErrorDisplay(group.workspace, group.error).message : t("projects.no_sessions")}</li> : null}
+          {!rows.length ? <li className="px-3 py-2 text-xs text-muted-foreground">{group.status === "error" ? getWorkspaceTaskLoadErrorDisplay(group.workspace, group.error).message : t("projects.no_sessions")}</li> : null}
         </Reorder.Group>
       )}
       {!showAll && !groups.length && remaining > 0 ? <li className="px-3 pt-1 pb-2">
@@ -1789,8 +1786,7 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
 
 function RecentProjectSessions({ group, loading }: { group: WorkspaceSessionGroup; loading?: boolean }) {
   const [limit, setLimit] = React.useState(5);
-  const ctx = useSidebarContext();
-  const sessions = allProjectSessions([group], undefined, ctx.selectedWorkspaceId === group.workspace.id ? ctx.selectedSessionId : null);
+  const sessions = allProjectSessions([group]);
   return <SidebarMenu className="gap-0.5 py-1 pl-2">
     {sessions.slice(0, limit).map(({ session, workspace }) => <GlobalSessionRow key={session.id} session={session} workspace={workspace} />)}
     {!sessions.length && <li className="px-2 py-2 text-xs text-muted-foreground">{loading || group.status === "loading" ? t("workspace.loading_tasks") : group.status === "error" ? getWorkspaceTaskLoadErrorDisplay(group.workspace, group.error).message : t("projects.no_sessions")}</li>}
