@@ -1,6 +1,6 @@
 import { constants, type BigIntStats } from "node:fs";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, rename, rm, rmdir, statfs, type FileHandle } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
@@ -43,7 +43,7 @@ const keyFor = (path: string) => process.platform === "linux" ? path : path.norm
 const privatePath = (path: string) => path.split(/[\\/]/).some((part) => part.toLowerCase().startsWith(PRIVATE_PREFIX));
 type Location = { mount: SandboxMount; suffix: string; host: string; key: string; path: string };
 type Entry = Location & { baseline: string | undefined; originalDirectory: boolean; directory: boolean; deleted: boolean;
-  dirty: boolean; mode: number; size: number; stage?: string; descriptor?: FileHandle };
+  dirty: boolean; mode: number; size: number; contentHash?: string; stage?: string; descriptor?: FileHandle };
 
 /** Capability-checked, lazy filesystem. File contents stay off the wire until
  * read. Writes go to private disk staging and never modify originals mid-run. */
@@ -126,8 +126,32 @@ export class SandboxFilesystem {
     return entry;
   }
 
-  private async checkOriginal(entry: Entry): Promise<void> {
+  private async hashOriginal(entry: Entry, signal = this.signal): Promise<string> {
+    await this.checkOriginal(entry);
+    const file = await open(entry.host, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      if (version(await file.stat({ bigint: true })) !== entry.baseline) error("ESTALE");
+      const hash = createHash("sha256"), buffer = Buffer.alloc(CHUNK);
+      for (let offset = 0;;) {
+        signal.throwIfAborted();
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+        if (!bytesRead) break;
+        hash.update(buffer.subarray(0, bytesRead)); offset += bytesRead;
+      }
+      if (version(await file.stat({ bigint: true })) !== entry.baseline) error("ESTALE");
+      return hash.digest("hex");
+    } finally { await file.close(); }
+  }
+
+  private async protectOriginal(entry: Entry): Promise<void> {
+    // NTFS/Bun timestamps can stay unchanged across a fast same-size edit.
+    // Only mutated files need content fingerprints; reads remain lazy.
+    if (entry.baseline !== undefined && !entry.originalDirectory && entry.contentHash === undefined) entry.contentHash = await this.hashOriginal(entry);
+  }
+
+  private async checkOriginal(entry: Entry, content = false, signal = this.signal): Promise<void> {
     if (version(await this.original(entry)) !== entry.baseline) error("ESTALE", `File changed outside the sandbox: ${entry.path}`);
+    if (content && entry.contentHash !== undefined && await this.hashOriginal(entry, signal) !== entry.contentHash) error("ESTALE", `File contents changed outside the sandbox: ${entry.path}`);
   }
 
   private async descriptor(entry: Entry): Promise<FileHandle> {
@@ -159,6 +183,7 @@ export class SandboxFilesystem {
     if (entry.stage) return;
     if (this.stagedFiles >= MAX_CHANGED_FILES) error("ENOSPC", "Too many temporary files in one command.");
     await this.checkOriginal(entry);
+    await this.protectOriginal(entry);
     const size = empty || entry.deleted ? 0 : entry.size;
     await this.capacity(size);
     const stage = join(this.staging, randomUUID());
@@ -312,6 +337,7 @@ export class SandboxFilesystem {
     } else if (request.op === "unlink" || request.op === "rmdir") {
       if (entry.directory !== (request.op === "rmdir")) error(entry.directory ? "EISDIR" : "ENOTDIR");
       if (entry.directory && (await this.names(request.path)).length) error("ENOTEMPTY");
+      await this.protectOriginal(entry);
       entry.deleted = true; this.change(entry);
     } else if (request.op === "chmod") {
       // Owner/group changes, setuid, device creation and links are never exposed.
@@ -327,11 +353,12 @@ export class SandboxFilesystem {
       if (target.directory && !target.deleted) error("EISDIR");
       if (!(await this.entry(request.destination.slice(0, request.destination.lastIndexOf("/")))).directory) error("ENOTDIR");
       await this.stage(entry);
+      await this.protectOriginal(target);
       if (this.allEntries.size >= 100000) error("EMFILE");
       const removed: Entry = { ...entry, descriptor: undefined, deleted: true };
       this.allEntries.add(removed);
       this.entries.set(entry.key, removed);
-      Object.assign(entry, destination, { baseline: target.baseline, originalDirectory: false });
+      Object.assign(entry, destination, { baseline: target.baseline, contentHash: target.contentHash, originalDirectory: false });
       this.entries.set(destination.key, entry);
       this.change(removed); this.change(entry);
     }
@@ -348,7 +375,7 @@ export class SandboxFilesystem {
     await this.closeHandles();
     const changed = [...this.entries.values()].filter((entry) => entry.dirty);
     // Validate every destination before applying any change.
-    for (const entry of changed) { signal.throwIfAborted(); this.writable(entry); await this.checkOriginal(entry); }
+    for (const entry of changed) { signal.throwIfAborted(); this.writable(entry); await this.checkOriginal(entry, true, signal); }
     changed.sort((a, b) => {
       const rank = (entry: Entry) => entry.directory ? entry.deleted ? 2 : 0 : 1;
       return rank(a) - rank(b) || (a.directory && a.deleted ? b.suffix.length - a.suffix.length : a.suffix.length - b.suffix.length);
@@ -358,7 +385,7 @@ export class SandboxFilesystem {
       await checkedPath(entry.mount, entry.suffix, true);
       // Own child edits can change a directory's mtime; file baselines must
       // still match immediately before replacement.
-      if (!entry.directory) await this.checkOriginal(entry);
+      if (!entry.directory) await this.checkOriginal(entry, entry.deleted, signal);
       if (entry.deleted) {
         if (entry.baseline !== undefined) { if (entry.directory) await rmdir(entry.host); else await rm(entry.host); }
       } else if (entry.directory) {
@@ -368,7 +395,7 @@ export class SandboxFilesystem {
       else if (entry.stage) {
         await chmod(entry.stage, entry.mode);
         signal.throwIfAborted();
-        await this.checkOriginal(entry);
+        await this.checkOriginal(entry, true, signal);
         try {
           // Same-volume publication needs no second copy of a large output.
           await rename(entry.stage, entry.host);
@@ -382,7 +409,7 @@ export class SandboxFilesystem {
           const file = await open(temporary, "r+");
           try { await file.chmod(entry.mode); } finally { await file.close(); }
           signal.throwIfAborted();
-          await this.checkOriginal(entry);
+          await this.checkOriginal(entry, true, signal);
           await rename(temporary, entry.host);
         } finally { await rm(temporary, { force: true }); }
       }

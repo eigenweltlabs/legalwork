@@ -14,6 +14,8 @@ For HTTP and HTTPS, a guest-local proxy buffers the complete request. HTTPS is t
 
 Writes are staged in private temporary files on the host, with no changes to originals during execution. After the command finishes, the host kills the VM before applying staged changes. The filesystem broker rejects unauthorized paths, symlinks, Windows device aliases, alternate data streams, protected execution settings, and concurrent host edits. Atomic replacement of individual files preserves external hard-link targets. Cancellation or a runtime failure discards staged changes. Applying changes is not a transaction across all files: an I/O failure partway through may leave earlier validated changes applied.
 
+Files that will be changed or deleted receive content fingerprints, checked again before publication. This detects same-size edits even when the host reports unchanged timestamps. Files that are only read do not require a full content scan.
+
 The engine's built-in host shell is disabled independently of the sandbox plugin. Session overrides cannot restore it. Direct terminal/shell endpoints, engine config mutation, and command-template host interpolation are blocked. Managed engine configuration discovery excludes project and home plugin directories. Explicitly installed plugins and connected MCPs remain trusted host integrations.
 
 Installed skill instructions remain discoverable. A command may request installed skill names through `skills`; their resource folders appear at `/skills/0`, `/skills/1`, and so on. Skill and read permissions apply, and these folders are always read-only. Python document libraries (python-docx, openpyxl, python-pptx, pypdf, ReportLab and Pillow) are bundled for offline use.

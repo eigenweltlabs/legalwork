@@ -22,6 +22,7 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
   });
 
   test("Python and Node work, approved writes appear in the project", async () => {
+    await writeFile(join(workspace, "allowed.txt"), "original text");
     const result = await run(`set -e
 python3 - <<'PY'
 import docx, openpyxl, pptx, pypdf, reportlab, PIL

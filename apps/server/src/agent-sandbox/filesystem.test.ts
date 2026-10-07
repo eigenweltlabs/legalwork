@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { link, mkdir, mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, open, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -112,6 +112,32 @@ test("atomic replacement preserves external hard links", async () => {
   await f.filesystem.commit();
   expect(await readFile(join(f.root, "outside"), "utf8")).toBe("original");
   expect(await readFile(join(f.workspace, "input"), "utf8")).toBe("changed");
+});
+
+test("existing-file rename validates the destination's original contents", async () => {
+  const f = await fixture();
+  await writeFile(join(f.workspace, "source"), "source contents");
+  await writeFile(join(f.workspace, "target"), "target contents");
+  await f.filesystem.request({ op: "rename", path: "/workspace/source", destination: "/workspace/target" });
+  await f.filesystem.commit();
+  expect(await readFile(join(f.workspace, "target"), "utf8")).toBe("source contents");
+  expect(await readFile(join(f.workspace, "source")).catch(() => null)).toBeNull();
+});
+
+test("deletion and overwrite refuse same-size host edits with restored modification times", async () => {
+  for (const op of ["unlink", "rename"]) {
+    const f = await fixture();
+    const target = join(f.workspace, "target");
+    await writeFile(target, "before");
+    await writeFile(join(f.workspace, "source"), "sandbox");
+    const original = await stat(target);
+    await f.filesystem.request(op === "unlink" ? { op, path: "/workspace/target" } : { op, path: "/workspace/source", destination: "/workspace/target" });
+    await writeFile(target, "manual");
+    await utimes(target, original.atime, original.mtime);
+    await expect(f.filesystem.commit()).rejects.toMatchObject({ code: "ESTALE" });
+    expect(await readFile(target, "utf8")).toBe("manual");
+    expect(await readFile(join(f.workspace, "source"), "utf8")).toBe("sandbox");
+  }
 });
 
 test("directory creation, temporary-file rename and deletion reach the right destinations", async () => {
