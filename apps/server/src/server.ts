@@ -1,3 +1,4 @@
+import { stopMessageQueue } from "./session-message-queue.js";
 import { composedSkill } from "./skill-composition.js";
 import { parseEigenweltCheckoutSelection } from "./eigenwelt-checkout.js";
 import { projectSyncStore } from "./project-sync-store.js";
@@ -1024,6 +1025,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
       approvals.dispose();
+      stopMessageQueue(config);
       await corpus.stop();
       reviews.stop();
       preparation.stop();
@@ -1676,6 +1678,7 @@ function createRoutes(
     parseOptionalPositiveInteger,
     parseOptionalNonNegativeInteger,
     readJsonBody,
+    readJsonBodyLimited,
     ensureWritable,
     requireClientScope,
     resolveWorkspace,

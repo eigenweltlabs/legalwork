@@ -35,8 +35,8 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void> }) {
-  const requests: Array<{ pathname: string; search: string; directory: string | null }> = [];
+function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean }) {
+  const requests: Array<{ pathname: string; search: string; directory: string | null; method: string }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -44,6 +44,7 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
       const url = new URL(request.url);
       requests.push({
         pathname: url.pathname,
+        method: request.method,
         search: url.search,
         directory: request.headers.get("x-opencode-directory"),
       });
@@ -64,7 +65,7 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
       }
 
       if (url.pathname === "/session/status") {
-        return Response.json({ ses_1: { type: "busy" } });
+        return Response.json({ ses_1: { type: input?.idle?.() ? "idle" : "busy" } });
       }
 
       if (url.pathname === "/session/ses_1") {
@@ -75,6 +76,10 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
           directory: request.headers.get("x-opencode-directory"),
           time: { created: 100, updated: 200 },
         });
+      }
+
+      if (url.pathname === "/session/ses_1/message" && request.method === "POST") {
+        return Response.json({ info: { id: "response", role: "assistant" }, parts: [] });
       }
 
       if (url.pathname === "/session/ses_1/message") {
@@ -412,5 +417,48 @@ describe("workspace session read APIs", () => {
       code: "opencode_unavailable",
       message: "OpenCode engine is not ready",
     });
+  });
+});
+
+
+describe("shared session queue API", () => {
+  test("both windows read the same queue; server dispatch restores the chat once and rejects stale writes", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let idle = false;
+    const mock = startMockOpencode({ idle: () => idle });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    const send = (body: unknown) => fetch(base, { method: "POST", headers, body: JSON.stringify(body) });
+    const input = { type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "synthetic queue check", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text: "synthetic queue check" }] } };
+    expect((await send(input)).status).toBe(200);
+    const readA = await fetch(base, { headers }).then(r => r.json());
+    const readB = await fetch(base, { headers }).then(r => r.json());
+    expect(readA).toEqual(readB);
+    expect(readB.entries[0].draft.text).toBe(input.draft.text);
+    expect(await fetch(`${base}?revision=${readB.revision}`, { headers }).then(r => r.json())).toBeNull();
+    expect((await send({ type: "remove", id: input.id, revision: 0 })).status).toBe(409);
+    idle = true;
+    expect((await send({ type: "pause", paused: false })).status).toBe(200);
+    expect(await waitUntil(() => mock.requests.some(r => r.pathname === "/session/ses_1/message"))).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect((await send(input)).status).toBe(200);
+    expect(mock.requests.filter(r => r.pathname === "/session/ses_1/message")).toHaveLength(1);
+    const restoreIndex = mock.requests.findIndex(r => r.pathname === "/session/ses_1" && r.method === "PATCH");
+    const sendIndex = mock.requests.findIndex(r => r.pathname === "/session/ses_1/message" && r.method === "POST");
+    expect(restoreIndex).toBeGreaterThanOrEqual(0);
+    expect(restoreIndex).toBeLessThan(sendIndex);
+    const final = await fetch(base, { headers }).then(r => r.json());
+    expect(final.entries).toEqual([]);
+    const unknown = await fetch(base.replace("ses_1", "ses_missing"), { method: "POST", headers, body: JSON.stringify(input) });
+    expect(unknown.ok).toBe(false);
+    expect((await fetch(base)).status).toBe(401);
+  });
+  test("read-only servers never accept executable queue changes", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`, { method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ type: "pause", paused: false }) });
+    expect(response.status).toBe(403);
   });
 });
