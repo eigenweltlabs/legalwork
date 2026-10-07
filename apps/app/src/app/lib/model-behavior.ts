@@ -14,17 +14,6 @@ const WELL_KNOWN_VARIANT_ORDER = [
   "max",
 ] as const;
 
-const VARIANT_DEFAULT_TARGET = 3;
-const VARIANT_DEFAULT_SCORE: Record<string, number> = {
-  none: 0,
-  minimal: 1,
-  low: 2,
-  medium: VARIANT_DEFAULT_TARGET,
-  high: 4,
-  xhigh: 5,
-  max: 6,
-};
-
 function defaultBehaviorOption(): ModelBehaviorOption {
   return {
     value: null,
@@ -32,20 +21,6 @@ function defaultBehaviorOption(): ModelBehaviorOption {
     description: t("settings.provider_default_desc"),
   };
 }
-
-const humanize = (value: string) => {
-  const cleaned = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-  if (!cleaned) return value;
-  return cleaned
-    .split(" ")
-    .flatMap((word) => {
-      if (!word) return [];
-      if (/\d/.test(word) || word.length <= 3) return [word.toUpperCase()];
-      const lower = word.toLowerCase();
-      return [lower.charAt(0).toUpperCase() + lower.slice(1)];
-    })
-    .join(" ");
-};
 
 export const normalizeModelBehaviorValue = (value: string | null) => {
   if (!value) return null;
@@ -62,15 +37,8 @@ export const normalizeModelBehaviorValue = (value: string | null) => {
   return normalized;
 };
 
-const getVariantKeys = (model: ProviderModel) => {
-  const keys = Object.keys(model.variants ?? {}).flatMap((key) => {
-    const normalized = normalizeModelBehaviorValue(key);
-    return normalized ? [normalized] : [];
-  });
-  return Array.from(new Set(keys));
-};
-
-const isReasoningToggle = (keys: string[]) => keys.length === 2 && keys.includes("none") && keys.includes("high");
+const getVariantKeys = (model: ProviderModel) =>
+  Object.entries(model.variants ?? {}).filter(([, options]) => options.disabled !== true).map(([key]) => key);
 
 const sortVariantKeys = (keys: string[]) =>
   keys.slice().sort((a, b) => {
@@ -83,30 +51,6 @@ const sortVariantKeys = (keys: string[]) =>
     }
     return a.localeCompare(b);
   });
-
-const getDefaultVariantKey = (keys: string[]) => {
-  let selected: string | null = null;
-  let selectedScore: number | null = null;
-
-  for (const key of keys) {
-    const score = VARIANT_DEFAULT_SCORE[key];
-    if (score == null) continue;
-    if (selectedScore == null) {
-      selected = key;
-      selectedScore = score;
-      continue;
-    }
-
-    const distance = Math.abs(score - VARIANT_DEFAULT_TARGET);
-    const selectedDistance = Math.abs(selectedScore - VARIANT_DEFAULT_TARGET);
-    if (distance < selectedDistance || (distance === selectedDistance && score > selectedScore)) {
-      selected = key;
-      selectedScore = score;
-    }
-  }
-
-  return selected ?? keys[0] ?? null;
-};
 
 const providerFamily = (providerID: string, providerName?: string | null) => {
   const normalizedId = providerID.trim().toLowerCase();
@@ -145,16 +89,8 @@ const getBehaviorTitle = (
   return t("model_behavior.title_standard_generation");
 };
 
-const getVariantLabel = (providerID: string, key: string, providerName?: string | null) => {
-  const family = providerFamily(providerID, providerName);
-  if (key === "none") return t("model_behavior.label_fast");
-  if (key === "minimal") return t("model_behavior.label_quick");
-  if (key === "low") return t("model_behavior.label_light");
-  if (key === "medium") return t("model_behavior.label_balanced");
-  if (key === "high") return family === "anthropic" ? t("model_behavior.label_extended") : t("model_behavior.label_deep");
-  if (key === "xhigh" || key === "max") return t("model_behavior.label_maximum");
-  return humanize(key);
-};
+// Variant names are the catalog's literal names, including custom providers.
+const getVariantLabel = (_providerID: string, key: string, _providerName?: string | null) => key;
 
 export const formatGenericBehaviorLabel = (value: string | null) => {
   const normalized = normalizeModelBehaviorValue(value);
@@ -191,29 +127,17 @@ export const getModelBehaviorOptions = (
 ): ModelBehaviorOption[] => {
   const variantKeys = sortVariantKeys(getVariantKeys(model));
   if (!variantKeys.length) return [];
-  const toggle = isReasoningToggle(variantKeys);
   return [
     defaultBehaviorOption(),
     ...variantKeys.map((key) => {
-      const label = toggle
-        ? t(key === "none" ? "model_behavior.label_reasoning_off" : "model_behavior.label_reasoning_on")
-        : getVariantLabel(providerID, key, providerName);
+      const label = getVariantLabel(providerID, key, providerName);
       return {
         value: key,
         label,
-        description: toggle
-          ? t(key === "none" ? "model_behavior.desc_reasoning_off" : "model_behavior.desc_reasoning_on")
-          : getVariantDescription(providerID, key, label, providerName),
+        description: getVariantDescription(providerID, key, label, providerName),
       };
     }),
   ];
-};
-
-const getDefaultModelBehaviorValue = (model: ProviderModel) => {
-  const keys = sortVariantKeys(getVariantKeys(model));
-  const configured = model.options.reasoningEffort;
-  if (typeof configured === "string" && keys.includes(configured)) return configured;
-  return getDefaultVariantKey(keys);
 };
 
 export const sanitizeModelBehaviorValue = (
@@ -222,14 +146,13 @@ export const sanitizeModelBehaviorValue = (
   value: string | null,
   providerName?: string | null,
 ) => {
+  if (!value) return null;
+  const keys = getVariantKeys(model);
+  const literal = value.trim();
+  if (keys.includes(literal)) return literal;
   const normalized = normalizeModelBehaviorValue(value);
   if (!normalized) return null;
-  // Old Mistral chats carried generic low/medium selections. Both meant
-  // reasoning enabled; reopening or sending them now selects the real mode.
-  if ((normalized === "low" || normalized === "medium") && isReasoningToggle(getVariantKeys(model))) return "high";
-  return getModelBehaviorOptions(providerID, model, providerName).some((option) => option.value === normalized)
-    ? normalized
-    : null;
+  return keys.find((key) => key.toLowerCase() === normalized) ?? null;
 };
 
 export const getModelBehaviorSummary = (
@@ -240,8 +163,9 @@ export const getModelBehaviorSummary = (
 ) => {
   const options = getModelBehaviorOptions(providerID, model, providerName);
   const sanitized = sanitizeModelBehaviorValue(providerID, model, value, providerName);
-  const selectedValue = sanitized ?? getDefaultModelBehaviorValue(model);
-  const selected = options.find((option) => option.value === selectedValue) ?? options[0] ?? null;
+  // The engine applies model.options itself. Provider default must not select
+  // a variant with additional options merely because its effort has that name.
+  const selected = options.find((option) => option.value === sanitized) ?? options[0] ?? null;
   const title = getBehaviorTitle(providerID, model, getVariantKeys(model), providerName);
 
   if (options.length > 0) {

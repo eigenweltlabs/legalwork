@@ -16,42 +16,46 @@ function model(efforts: string[], defaultEffort?: string): Model {
   };
 }
 
-describe("model-specific reasoning", () => {
-  test("binary models expose on/off and default to the catalog's enabled mode", () => {
-    const summary = getModelBehaviorSummary("eigenwelt", model(["none", "high"], "high"), null);
-    expect(summary.value).toBe("high");
+describe("catalog variants", () => {
+  test("shows literal native names, including distinct xhigh and max", () => {
+    const summary = getModelBehaviorSummary("eigenwelt", model(["none", "low", "medium", "high", "xhigh", "max"]), null);
+    expect(summary.value).toBeNull();
     expect(summary.options.filter((option) => option.value).map((option) => [option.value, option.label]))
-      .toEqual([["none", "Reasoning off"], ["high", "Reasoning on"]]);
+      .toEqual(["none", "low", "medium", "high", "xhigh", "max"].map((key) => [key, key]));
   });
 
-  test.each(["low", "medium"])("reopening a saved %s choice enables real binary reasoning", (saved) => {
-    const binary = model(["none", "high"], "high");
-    expect(sanitizeModelBehaviorValue("eigenwelt", binary, saved)).toBe("high");
-    expect(getModelBehaviorSummary("eigenwelt", binary, saved).value).toBe("high");
+  test.each(["low", "medium"])("an unsupported saved %s returns to provider default without guessing a replacement", (saved) => {
+    const binary = model(["none", "high"]);
+    expect(sanitizeModelBehaviorValue("eigenwelt", binary, saved)).toBeNull();
+    expect(getModelBehaviorSummary("eigenwelt", binary, saved).value).toBeNull();
   });
 
-  test("off remains off, and a catalog default of off is respected", () => {
-    const binary = model(["none", "high"], "none");
-    expect(getModelBehaviorSummary("eigenwelt", binary, "none").value).toBe("none");
-    expect(getModelBehaviorSummary("eigenwelt", binary, null).value).toBe("none");
+  test("provider default leaves model options to the engine without selecting a variant", () => {
+    expect(getModelBehaviorSummary("custom", model(["low", "high", "max"], "max"), null).value).toBeNull();
+    expect(getModelBehaviorSummary("custom", model(["none", "high"], "none"), null).value).toBeNull();
+    expect(getModelBehaviorSummary("custom", model(["low", "medium", "high"]), null).value).toBeNull();
   });
 
-  test("switching models cannot forward an unsupported saved effort", () => {
-    const levels = model(["low", "medium", "high"], "medium");
-    expect(sanitizeModelBehaviorValue("eigenwelt", levels, "none")).toBeNull();
-    expect(getModelBehaviorSummary("eigenwelt", levels, "none").value).toBe("medium");
-    for (const effort of ["low", "medium", "high"]) {
-      expect(getModelBehaviorSummary("eigenwelt", levels, effort).value).toBe(effort);
+  test("custom catalog keys preserve their case and options", () => {
+    const custom = model(["CustomBudget", "adaptive", "balanced"]);
+    for (const key of ["CustomBudget", "adaptive", "balanced"]) {
+      expect(getModelBehaviorSummary("custom", custom, key).value).toBe(key);
     }
+    expect(sanitizeModelBehaviorValue("custom", custom, "custombudget")).toBe("CustomBudget");
   });
 
-  test("built-in reasoning has no selectable efforts or outgoing variant", () => {
+  test("GLM exposes low/high/max without a medium or off choice", () => {
+    const summary = getModelBehaviorSummary("eigenwelt", model(["low", "high", "max"]), "medium");
+    expect(summary.value).toBeNull();
+    expect(summary.options.map((option) => option.value)).toEqual([null, "low", "high", "max"]);
+  });
+
+  test("disabled variants cannot be selected and built-in reasoning still works", () => {
+    const configured = model(["low", "high"]);
+    configured.variants = { ...configured.variants, medium: { disabled: true } };
+    expect(sanitizeModelBehaviorValue("custom", configured, "medium")).toBeNull();
     const summary = getModelBehaviorSummary("eigenwelt", model([]), "medium");
     expect(summary.options).toEqual([]);
     expect(summary.value).toBeNull();
-  });
-
-  test("older and custom providers keep their variant defaults", () => {
-    expect(getModelBehaviorSummary("custom", model(["low", "medium", "high"]), null).value).toBe("medium");
   });
 });
