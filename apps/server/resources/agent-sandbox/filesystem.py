@@ -142,4 +142,5 @@ class ApprovedFolders(Operations):
 def serve(mounts, request):
     FUSE(ApprovedFolders(mounts, request), "/mnt/approved", foreground=True, nothreads=True,
          allow_other=True, default_permissions=True, nosuid=True, nodev=True,
-         attr_timeout=0, entry_timeout=0, negative_timeout=0, max_read=CHUNK)
+         attr_timeout=0, entry_timeout=0, negative_timeout=0,
+         big_writes=True, max_read=CHUNK, max_write=CHUNK)

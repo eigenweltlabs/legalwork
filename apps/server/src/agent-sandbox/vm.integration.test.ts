@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VmSandbox } from "./vm.js";
+import { filesystemRequestSchema, SandboxFilesystem } from "./filesystem.js";
 
 // CI runs these against the packaged VM assets. Mock-only tests cannot
 // demonstrate an operating-system isolation boundary.
@@ -42,6 +43,7 @@ echo approved > allowed.txt`, true);
 
   test("large binary transfers and installed read-only helpers survive transport backpressure", async () => {
     const skill = await mkdtemp(join(tmpdir(), "sandbox-skill-"));
+    const requests = spyOn(SandboxFilesystem.prototype, "request");
     try {
       const bytes = randomBytes(2 * 1024 * 1024 + 17);
       await writeFile(join(workspace, "binary.bin"), bytes);
@@ -61,7 +63,14 @@ else:
       expect(result.output).toContain("skill protected");
       expect(await readFile(join(workspace, "copied.bin"))).toEqual(bytes);
       expect(await readFile(join(skill, "forbidden")).catch(() => null)).toBeNull();
+      // libfuse2 otherwise splits bulk writes into 4 KiB RPCs, making large
+      // outputs impractical on software-emulated Windows machines.
+      expect(requests.mock.calls.some(([raw]) => {
+        const request = filesystemRequestSchema.parse(raw);
+        return request.op === "write" && Buffer.byteLength(request.data, "base64") >= 64 * 1024;
+      })).toBe(true);
     } finally {
+      requests.mockRestore();
       await rm(skill, { recursive: true, force: true });
       await rm(join(workspace, "binary.bin"), { force: true });
       await rm(join(workspace, "copied.bin"), { force: true });
