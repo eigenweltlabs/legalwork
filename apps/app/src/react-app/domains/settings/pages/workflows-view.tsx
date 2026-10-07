@@ -180,7 +180,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const library = <section aria-label={t("skills.workflows_title")} className="@container/workflows flex min-h-0 w-full flex-1 flex-col bg-background">
     <header className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
       {scope === "local" ? <label className="relative min-w-0 flex-1 basis-52 @min-[600px]/workflows:max-w-sm"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(0); }} aria-label={t("workflows.search")} placeholder={t("workflows.search")} className="pl-9" /></label> : null}
-      <span className="flex-1" />
+      <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
       {scope === "team" && props.onOpenTeamShare ? <Button variant="ghost" size="icon-sm" aria-label={t("workflows.share")} onClick={props.onOpenTeamShare}><Share2 /></Button> : null}
       {scope === "local" && <><Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={props.busy || refreshing} onClick={() => { setRefreshing(true); void Promise.resolve(extensions.refreshSkills({ force: true })).finally(() => setRefreshing(false)); }}><RefreshCw className={refreshing ? "animate-spin" : ""} /></Button>
       <div className="flex shrink-0 items-center gap-0.5">
@@ -195,6 +195,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div></>}
+      </div>
     </header>
     {props.accessHint ? <p className="mb-4 text-xs text-muted-foreground">{props.accessHint}</p> : null}
     {scope === "local" ? <>
@@ -225,14 +226,14 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     }} />
   </section>;
 
-  const workflows = !props.inlineEditor || scope === "team" ? library : <ResizablePanelGroup orientation="horizontal" className="min-h-[600px] w-full flex-1 overflow-hidden rounded-xl border border-border">
-    <ResizablePanel className="p-4" minSize="240px" defaultSize={inlineId ? "40%" : "100%"}>{library}</ResizablePanel>
+  const workflows = !props.inlineEditor || scope === "team" ? library : <ResizablePanelGroup orientation="horizontal" className="min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-border">
+    <ResizablePanel className="flex flex-col p-4" minSize="240px" defaultSize={inlineId ? "40%" : "100%"}>{library}</ResizablePanel>
     {inlineId ? <><ResizableHandle withHandle /><ResizablePanel minSize="320px" defaultSize="60%">{inlineResource
       ? <WorkflowResourceEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(inlineResource.workflowId); }} />
       : <WorkflowEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(null); }} />}</ResizablePanel></> : null}
   </ResizablePanelGroup>;
   return <div className="@container/page flex h-full min-h-0 w-full flex-1 flex-col bg-background">
-    <div className={cn("flex min-h-0 flex-1 flex-col", !props.inlineEditor && "lw-page-content lw-page-top pb-8")}>
+    <div className="lw-page-content lw-page-top flex min-h-0 flex-1 flex-col pb-8">
     <div className="mb-6 flex shrink-0 flex-col items-start gap-5">
       <SectionHeading size="page" title={t("skills.workflows_title")} className="w-full" action={<HubTabs label={t("workflows.library_scope")} value={scope} onChange={value => { setScope(value); setPage(0); }} items={[
         { id: "local", label: t("firm_hub.scope_local"), icon: HardDrive },

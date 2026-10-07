@@ -270,6 +270,11 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 }
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  reviewLibrary: async (_workspaceId, language) => ({ entries: [{
+    id: "11111111-1111-4111-8111-111111111112", kind: "set", version: 1,
+    name: "Supplier terms", description: "Compare notice requirements across supplier agreements.",
+    tags: [], language, source: "builtin", columns: previewReview.columns, updatedAt: now,
+  }] }),
   getReview: async (_workspaceId, id) => ({ ...previewReview, id }),
   listReviews: async () => ({ reviews: [] }),
   queryReviewRows: async () => ({ revision: previewReview.revision, documentIds: previewReview.documents.map(document => document.id) }),
@@ -486,7 +491,7 @@ function SessionPreview() {
           projectTasksView={embedded => <TasksPane embedded={embedded} client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} detailMode="panel" baseUrl={fixtureClient.baseUrl} token="visual-fixture" workspaces={[workspace, otherWorkspace]} defaultModel={model} onOpenSession={(_workspaceId, id) => setSelectedSessionId(id)} />}
           projectCalendarView={<CalendarView client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} projectName={activeWorkspace.name} />}
           homePage={showHome}
-          workflowLibraryView={<WorkflowsPreview workspaceId={activeWorkspace.id} />}
+          workflowLibraryView={<WorkflowsPreview workspaceId={activeWorkspace.id} reviewClient={fixtureClient} />}
           mainView={showHome ? <AppHome
             workspaces={[workspace, otherWorkspace]} projectId={homeProject}
             onProjectChange={(id) => { setHomeProject(id); pendingHome.current = { sessionId: null, uploads: new Map() }; }} onCreateProject={previewNotice}
@@ -510,7 +515,7 @@ function SessionPreview() {
               setSelectedSessionId(id);
               setShowHome(false);
             }}
-          /> : showWorkflows ? <WorkflowsPreview /> : undefined}
+          /> : showWorkflows ? <WorkflowsPreview reviewClient={fixtureClient} /> : undefined}
           selectedSessionId={selectedSessionId} selectedWorkspaceId={activeWorkspace.id} selectedWorkspaceDisplay={{ ...activeWorkspace, displayName: activeWorkspace.displayName ?? activeWorkspace.name }}
           selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={[workspace, otherWorkspace]}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient}
