@@ -99,3 +99,59 @@ Screenshots from the actual Electron app:
 ![Mistral native default and its two choices](model-reasoning-electron-mistral.jpg)
 
 ![GLM native default and its three choices](model-reasoning-electron-glm.jpg)
+
+## Direct production gateway verification
+
+A second October 7 run connected the actual Electron dev app and Model API
+Next.js dev server directly to the existing paid production gateway through a
+loopback recorder. The manifest came from the dev server using production
+`/model/info`, rather than the proposed gateway configuration fixture. Production
+has 15 model names and 19 deployments. Each model name was attempted separately
+so one provider failure did not prevent testing the remaining models. Gemini's
+individual fallback deployments were not forced.
+
+All prompts and read-tool files were synthetic. The existing credential stayed
+in memory; no keys, budgets, routes or deployments changed. Only title generation
+used synthetic responses. Every matrix completion and read-tool request went to
+the real production gateway.
+
+Five routes completed all 31 checks available under the current production
+configuration, including streaming, exact effort forwarding, displayed defaults,
+unsupported saved choices and completed read-tool round trips. Eight OpenRouter
+routes failed their first completion with HTTP 402, "Insufficient credits." Both
+Fireworks routes failed with HTTP 401, "Unauthorized." Their remaining variant
+and tool checks could not run. A separate GPT Sol request limited to 1,024 output
+tokens also returned the same HTTP 402; reducing the requested output allowance
+did not resolve the credit error.
+
+| Model | Selectable native efforts in the dev manifest | Production result |
+| --- | --- | --- |
+| Eigenwelt Europe Claude Opus | low, medium, high, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+| Eigenwelt Europe Claude Sonnet | low, medium, high, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+| Eigenwelt Europe DeepSeek | high, none | 7 passed |
+| Eigenwelt Europe Gemini | low, medium, high | 6 passed |
+| Eigenwelt Europe GLM | Provider default only | 5 passed |
+| Eigenwelt Europe GPT Luna | low, medium, high, none, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+| Eigenwelt Europe GPT Sol | low, medium, high, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+| Eigenwelt Europe Mistral | high, none | 7 passed |
+| Eigenwelt US Claude Opus | low, medium, high, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+| Eigenwelt US Claude Sonnet | low, medium, high, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+| Eigenwelt US DeepSeek | low, high, max | HTTP 401 — Fireworks unauthorized |
+| Eigenwelt US Gemini | low, medium, high | 6 passed |
+| Eigenwelt US GLM | low, high, max | HTTP 401 — Fireworks unauthorized |
+| Eigenwelt US GPT Luna | low, medium, high, none, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+| Eigenwelt US GPT Sol | low, medium, high, xhigh, max | HTTP 402 — insufficient OpenRouter credits |
+
+EU GLM currently lacks `allowed_openai_params: ["reasoning_effort"]` on its
+production route. The API correctly publishes no effort controls or explicit
+effort default for that route. Its five passing checks cover the current provider
+default and read tools, not the proposed `low/high/max` controls. Those controls
+already passed against the separately configured local gateway, but require the
+focused production route update after Model API #80 is merged.
+
+The normal Electron composer additionally sent three real Mistral requests:
+initial `high`, selected `none`, then restored `high`. Each sent the exact chosen
+effort, streamed with HTTP 200, and displayed the expected answer `4`. The native
+dropdown contained exactly `none/high`, with no extra Provider default item.
+
+![Mistral replies and native controls through the production gateway](model-reasoning-production-mistral.jpg)
