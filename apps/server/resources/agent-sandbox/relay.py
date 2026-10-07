@@ -116,7 +116,9 @@ def certificate(host):
         except ValueError:
             alternative = "DNS:" + host
         with open(filename + ".ext", "w") as file:
-            file.write("subjectAltName=" + alternative + "\nextendedKeyUsage=serverAuth\n")
+            file.write("subjectAltName=" + alternative + "\nextendedKeyUsage=serverAuth\n"
+                       "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n"
+                       "subjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n")
         openssl("req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
                 "-keyout", filename + ".key", "-out", filename + ".csr", "-subj", "/CN=" + host)
         openssl("x509", "-req", "-in", filename + ".csr", "-CA", "/tmp/public/ca.pem",
@@ -295,7 +297,8 @@ def main():
     os.chmod("/tmp/home", 0o777)
     openssl("req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
             "-keyout", "/tmp/private/ca.key", "-out", "/tmp/public/ca.pem", "-days", "1",
-            "-subj", "/CN=LegalWork session proxy", "-addext", "basicConstraints=critical,CA:TRUE")
+            "-subj", "/CN=LegalWork session proxy", "-addext", "basicConstraints=critical,CA:TRUE",
+            "-addext", "keyUsage=critical,keyCertSign,cRLSign")
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 3128), Proxy)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()

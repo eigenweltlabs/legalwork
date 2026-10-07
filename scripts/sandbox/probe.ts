@@ -58,6 +58,19 @@ print(json.dumps(checks))
   assert.notEqual(blocked.exitCode, 0);
   assert.deepEqual(requests, ["https://example.com/"]);
   results.https_request_inspected_and_denied = true;
+  const approvedRequests: string[] = [];
+  const approved = await sandbox.run({ command: `set -e
+python3 -c 'import urllib.request; assert b"Example Domain" in urllib.request.urlopen("https://example.com/").read(); print("Python HTTPS passed")'
+node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes("Example Domain")) process.exit(1); console.log("Node HTTPS passed")})'`,
+    cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }], timeoutMs: 30000,
+    signal: AbortSignal.timeout(180000), authorizeNetwork: async (request) => {
+      approvedRequests.push(request.url); return true;
+    } });
+  assert.equal(approved.exitCode, 0, approved.output);
+  assert.deepEqual(approvedRequests, Array(2).fill("https://example.com/"));
+  assert.ok(approved.output.includes("Python HTTPS passed"));
+  assert.ok(approved.output.includes("Node HTTPS passed"));
+  results.python_and_node_approved_https = true;
   results.seconds = (Date.now() - started) / 1000;
   console.log(JSON.stringify(results, null, 2));
 } finally { await rm(workspace, { recursive: true, force: true }); }

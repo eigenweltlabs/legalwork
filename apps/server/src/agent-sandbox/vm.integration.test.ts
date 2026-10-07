@@ -103,16 +103,21 @@ print(json.dumps(results))
     expect(result.output).toContain("403");
   }, 180_000);
 
-  test("approved HTTPS can complete through the broker", async () => {
+  test("approved curl, Python and Node HTTPS can complete through the broker", async () => {
     const requests: string[] = [];
-    const result = await sandbox.run({ command: "curl --silent --show-error --fail https://example.com/",
+    const result = await sandbox.run({ command: `set -e
+curl --silent --show-error --fail https://example.com/
+python3 -c 'import urllib.request; assert b"Example Domain" in urllib.request.urlopen("https://example.com/").read(); print("Python HTTPS passed")'
+node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes("Example Domain")) process.exit(1); console.log("Node HTTPS passed")})'`,
       cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
       timeoutMs: 30_000, signal: new AbortController().signal,
       authorizeNetwork: async (request) => { requests.push(request.url); return true; },
     });
     expect(result.exitCode).toBe(0);
-    expect(requests).toEqual(["https://example.com/"]);
+    expect(requests).toEqual(Array(3).fill("https://example.com/"));
     expect(result.output).toContain("Example Domain");
+    expect(result.output).toContain("Python HTTPS passed");
+    expect(result.output).toContain("Node HTTPS passed");
   }, 180_000);
 
   test("cancellation destroys the VM without copying pending changes", async () => {
