@@ -10,6 +10,7 @@ import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
   appliedOrgPolicy,
   onOrgPolicyChange,
+  orgPolicySecret,
   readOrgPolicyView,
   releaseOrgPolicyKey,
   requireOrgPolicyAllows,
@@ -28,7 +29,7 @@ afterEach(async () => {
 
 const kanzlei = { userId: "user_anna", userName: "Anna", userEmail: "anna@kanzlei.test", orgId: "org_kanzlei", orgName: "Kanzlei" };
 
-type Platform = { revision: number; entries: Record<string, unknown>; orgId?: string };
+type Platform = { revision: number; entries: Record<string, unknown>; secrets?: Record<string, string>; orgId?: string };
 
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-org-policy-"));
@@ -44,6 +45,9 @@ async function setup() {
       const url = String(input);
       const headers = new Headers(init?.headers);
       requests.push({ url, etag: headers.get("if-none-match"), authorization: headers.get("authorization") });
+      if (url.endsWith("/api/desktop/policy/secrets")) {
+        return Response.json({ schemaVersion: 1, revision: platform.revision, secrets: platform.secrets ?? {} });
+      }
       if (url.endsWith("/api/desktop/policy")) {
         if (headers.get("if-none-match") === `"${platform.revision}"`) return new Response(null, { status: 304 });
         return Response.json({
@@ -149,6 +153,25 @@ describe("the firm's policy", () => {
     await signOut();
     await scheduleOrgPolicySync(config, { force: true });
     expect(heard.at(-1)?.has("engine")).toBe(true);
+  });
+
+  test("the firm's keys are only available while signed in", async () => {
+    const { config, platform, signIn, signOut } = await setup();
+    await signIn();
+    platform.revision = 1;
+    platform.secrets = { "chat:org-anthropic-1": "sk-firm" };
+    platform.entries = {
+      "ai.chat.providers": {
+        mode: "enforced",
+        value: [{ id: "org-anthropic-1", name: "Claude", source: { type: "catalog", provider: "anthropic" }, models: "all", key: { by: "firm", secretRef: "chat:org-anthropic-1" } }],
+      },
+    };
+    await scheduleOrgPolicySync(config, { force: true });
+    expect(await orgPolicySecret(config, "chat:org-anthropic-1")).toBe("sk-firm");
+
+    await signOut();
+    await scheduleOrgPolicySync(config, { force: true });
+    expect(await orgPolicySecret(config, "chat:org-anthropic-1")).toBeNull();
   });
 
   test("a policy from another firm replaces the previous one", async () => {

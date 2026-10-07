@@ -1362,9 +1362,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     returnFocusTarget?: ProviderReturnFocusTarget;
     preferredProviderId?: string;
     startOAuth?: boolean;
+    /** Connecting one of the firm's providers: allowed whatever the firm allows of the member's own. */
+    firm?: boolean;
   }) {
     // Every way to add a provider leads here: the firm may not allow members' own.
-    if (!(await orgPolicyAllows("ai.chat.allowCustom"))) return;
+    if (!optionsArg?.firm && !(await orgPolicyAllows("ai.chat.allowCustom"))) return;
     mutateState((current) => ({
       ...current,
       providerAuthReturnFocusTarget: optionsArg?.returnFocusTarget ?? "none",

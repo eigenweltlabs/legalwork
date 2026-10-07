@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,7 +12,8 @@ import { LegalWorkOrgPolicyGuard } from "./opencode-plugins/legalwork-org-policy
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { OcrManager } from "./ocr/manager.js";
-import { saveSystemOneProvider } from "./systemone.js";
+import { orgOcr } from "./org-policy-ai.js";
+import { readSystemOneSettings, saveSystemOneMemberKey, saveSystemOneProvider, selectSystemOneProvider } from "./systemone.js";
 import { requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 
@@ -28,10 +29,13 @@ function fakeFetch(handler: (url: string) => Response) {
   globalThis.fetch = Object.assign(async (input: RequestInfo | URL) => handler(String(input)), { preconnect: realFetch.preconnect });
 }
 
-async function setup(entries: Record<string, unknown>) {
+async function setup(entries: Record<string, unknown>, secrets: Record<string, string> = {}) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-org-policy-engine-"));
   const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+  const previousData = process.env.XDG_DATA_HOME;
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  // The engine's keys and sign-ins (auth.json) of this test only.
+  process.env.XDG_DATA_HOME = join(root, "data");
   const config = {
     workspaces: [{ id: "ws_1", name: "Workspace", path: root, preset: "starter", workspaceType: "local" }],
   } as unknown as ServerConfig;
@@ -39,12 +43,16 @@ async function setup(entries: Record<string, unknown>) {
     resetOrgPolicyRuntimeForTests(config);
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
     else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    if (previousData === undefined) delete process.env.XDG_DATA_HOME;
+    else process.env.XDG_DATA_HOME = previousData;
     await rm(root, { recursive: true, force: true });
   });
   fakeFetch((url) =>
     url.endsWith("/api/desktop/policy")
       ? Response.json({ schemaVersion: 1, orgId: "org_kanzlei", orgName: "Kanzlei", revision: 1, role: "member", updatedAt: null, entries })
-      : new Response(null, { status: 404 }),
+      : url.endsWith("/api/desktop/policy/secrets")
+        ? Response.json({ schemaVersion: 1, revision: 1, secrets })
+        : new Response(null, { status: 404 }),
   );
   await writeEigenweltConnection(config, {
     platformToken: "tok",
@@ -147,7 +155,7 @@ describe("the firm's switches for members' own providers and connectors", () => 
     const { config, root } = await setup(entries);
     await expect(saveSystemOneProvider(config, { id: "mine", name: "Mine", endpoint: "https://mine.example.com/v1/systemone", apiKey: "k", enabled: true, models: [] }))
       .rejects.toMatchObject({ code: "org_policy_disallowed" });
-    const ocr = new OcrManager(join(root, "ocr"), async () => (await appliedOrgPolicy(config, "ai.ocr.allowCustom"))?.value !== false);
+    const ocr = new OcrManager(join(root, "ocr"), () => orgOcr(config));
     await expect(ocr.saveServer({ label: "Mine", endpoint: "https://mine.example.com/ocr", model: "m", languages: null, apiKey: "k" }))
       .rejects.toMatchObject({ code: "org_policy_disallowed" });
   });
@@ -159,6 +167,84 @@ describe("the firm's switches for members' own providers and connectors", () => 
     expect(Object.keys((await readJson(legalworkRuntimeConfigFilePath(config))).mcp ?? {})).toEqual(["legalwork-ui"]);
     await expect(requireHubInstallAllowed(config, "mcp")).rejects.toMatchObject({ code: "org_policy_disallowed" });
     await requireHubInstallAllowed(config, "skill");
+  });
+});
+
+describe("the firm's own providers", () => {
+  const entries = {
+    "ai.chat.allowCustom": { mode: "enforced", value: false },
+    "ai.chat.providers": {
+      mode: "enforced",
+      value: [
+        { id: "org-anthropic-1", name: "Kanzlei Claude", source: { type: "catalog", provider: "anthropic" }, models: ["claude-sonnet-4-5"], key: { by: "firm", secretRef: "chat:org-anthropic-1" } },
+        { id: "org-openai-1", name: "OpenAI", source: { type: "catalog", provider: "openai" }, models: "all", key: { by: "oauth" } },
+        { id: "org-azure-1", name: "Kanzlei Azure", source: { type: "custom", baseURL: "https://azure.example.com/v1", apiType: "responses" }, models: ["gpt-5"], key: { by: "member" } },
+      ],
+    },
+    "ai.systemOne.providers": {
+      mode: "enforced",
+      value: [{ id: "org-jev-1", name: "Kanzlei JEV", endpoint: "https://jev.example.com/v1/systemone", models: [{ id: "jev-1", name: "JEV 1", questionTypes: ["noul"] }], key: { by: "member" } }],
+    },
+    "ai.systemOne.model": { mode: "default", value: { providerId: "org-jev-1", model: "jev-1" } },
+    "ai.ocr.engines": {
+      mode: "enforced",
+      value: [{ id: "org-ocr-1", label: "Kanzlei OCR", kind: "mistral-ocr", model: "mistral-ocr-latest", endpoint: "https://ocr.example.com/v1/ocr", key: { by: "member" } }],
+    },
+    "ai.ocr.defaultEngine": { mode: "enforced", value: "org-ocr-1" },
+  };
+
+  test("chat providers reach the engine with a key: the firm's while signed in, or the member's own", async () => {
+    const { config, root } = await setup(entries, { "chat:org-anthropic-1": "sk-firm" });
+    // The member added their own key for the firm's Azure endpoint; OpenAI waits for their ChatGPT sign-in.
+    await mkdir(join(root, "data", "opencode"), { recursive: true });
+    await writeFile(join(root, "data", "opencode", "auth.json"), JSON.stringify({ "org-azure-1": { type: "api", key: "sk-mine" } }));
+    // A member's disconnect does not switch the firm's provider off.
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ disabled_providers: ["anthropic", "groq"] }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await readJson(legalworkRuntimeConfigFilePath(config))).disabled_providers).toEqual(["groq", "opencode"]);
+    const layer = await readJson(join(orgPolicyEngineDir(config), "opencode.json"));
+    expect(layer.enabled_providers).toEqual(["eigenwelt", "anthropic", "openai", "org-azure-1"]);
+    expect(layer.provider).toEqual({
+      anthropic: { name: "Kanzlei Claude", options: { apiKey: "sk-firm" }, whitelist: ["claude-sonnet-4-5"] },
+      "org-azure-1": {
+        npm: "@ai-sdk/openai",
+        name: "Kanzlei Azure",
+        options: { baseURL: "https://azure.example.com/v1" },
+        models: { "gpt-5": { name: "gpt-5", tool_call: true } },
+      },
+    });
+
+    // Signed out: the firm's key goes, and with it the provider; the member's own key stays.
+    await writeEigenweltConnection(config, { platformToken: null, account: null, platformURL: null });
+    await scheduleOrgPolicySync(config, { force: true });
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const provider = (await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).provider;
+    expect(Object.keys(provider ?? {})).toEqual(["org-azure-1"]);
+    expect(JSON.stringify(provider)).not.toContain("sk-firm");
+  });
+
+  test("SystemOne lists the firm's provider until the member adds their key, and the firm's default model applies", async () => {
+    const { config } = await setup(entries);
+    fakeFetch(() => new Response(null, { status: 503 }));
+    let settings = await readSystemOneSettings(config);
+    expect(settings.selection).toEqual({ providerId: "org-jev-1", model: "jev-1" });
+    expect(settings.providers.find((provider) => provider.id === "org-jev-1")).toMatchObject({ managed: true, firmKey: "member", status: "disconnected" });
+    await saveSystemOneMemberKey(config, "org-jev-1", "sk-mine");
+    settings = await readSystemOneSettings(config);
+    expect(settings.providers.find((provider) => provider.id === "org-jev-1")?.status).not.toBe("disconnected");
+    // The member changes it only after taking the firm's default back (the app asks first).
+    await expect(selectSystemOneProvider(config, { providerId: "eigenwelt", model: "EigenJev" })).rejects.toMatchObject({ code: "org_policy_managed" });
+  });
+
+  test("OCR adds the firm's engine as the default, waiting for the member's key", async () => {
+    const { config, root } = await setup(entries);
+    const ocr = new OcrManager(join(root, "ocr"), () => orgOcr(config));
+    let view = await ocr.view();
+    expect(view.defaultEngineId).toBe("org-ocr-1");
+    expect(view.engines.find((engine) => engine.id === "org-ocr-1")).toMatchObject({ firmKey: "member", keyConfigured: false, status: "missing-key" });
+    await ocr.setMemberKey("org-ocr-1", "sk-mine");
+    view = await ocr.view();
+    expect(view.engines.find((engine) => engine.id === "org-ocr-1")).toMatchObject({ keyConfigured: true, status: "ready" });
   });
 });
 

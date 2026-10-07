@@ -108,6 +108,7 @@ import { useMessagingViewProps } from "@/react-app/domains/settings/state/messag
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
 import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { orgChatEngineId } from "@legalwork/types/org-policy";
 import { useSyncEvents } from "@/react-app/kernel/sync-events";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
@@ -829,6 +830,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     },
   });
   // The firm's update settings apply over the member's own while it manages them.
+  const firmChatProviders = useOrgPolicy("ai.chat.providers")?.value;
   const firmAutoCheck = useOrgPolicy("updates.autoCheck");
   const firmAutoDownload = useOrgPolicy("updates.autoDownload");
   const firmReleaseChannel = useOrgPolicy("updates.channel");
@@ -2062,6 +2064,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onEditProvider={handleEditCustomProvider}
             onRefreshProvider={handleRefreshProvider}
             canDisconnectProvider={(source) => source !== "env"}
+            firmProviders={(firmChatProviders ?? []).map((provider) => ({
+              id: orgChatEngineId(provider),
+              name: provider.name,
+              key: provider.key.by,
+              connected: providerConnectedIdSet.has(orgChatEngineId(provider)),
+            }))}
+            onSignInFirmProvider={(providerId) => {
+              setCustomProviderEdit(null);
+              void providerAuthStore.openProviderAuthModal({ preferredProviderId: providerId, startOAuth: true, firm: true });
+            }}
+            onSaveFirmProviderKey={(providerId, key) => providerAuthStore.submitProviderApiKey(providerId, key)}
             eigenweltConnected={eigenweltConnected}
             onManageEigenweltAccount={() => navigateSettingsPath("account")}
             systemOneView={<SystemOneSettingsSection client={legalworkClient} onManageSubscription={() => navigateSettingsPath("account")} />}

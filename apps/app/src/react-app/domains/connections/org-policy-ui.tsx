@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Building2, Lock } from "lucide-react";
 import type { OrgPolicyKey, OrgPolicyMode } from "@legalwork/types/org-policy";
@@ -15,6 +15,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { globalSettingsRoute } from "@/react-app/shell/workspace-routes";
 
@@ -50,6 +52,8 @@ const ENFORCED_TEXT = {
   "updates.autoDownload": { on: "org_policy.auto_download_on", off: "org_policy.auto_download_off" },
   "privacy.shareAnonymousUsage": "org_policy.usage_off",
   notifications: "org_policy.set_notifications",
+  "ai.systemOne.model": "org_policy.set_systemone_model",
+  "ai.ocr.defaultEngine": "org_policy.set_ocr_engine",
 } satisfies Partial<Record<OrgPolicyKey, Text>>;
 
 type NoteKey = AllowKey | keyof typeof ENFORCED_TEXT;
@@ -61,6 +65,8 @@ const DEFAULT_TEXT: Partial<Record<NoteKey, string>> = {
   branding: "org_policy.default_branding",
   "reviews.defaults": "org_policy.default_reviews",
   notifications: "org_policy.default_notifications",
+  "ai.systemOne.model": "org_policy.default_systemone_model",
+  "ai.ocr.defaultEngine": "org_policy.default_ocr_engine",
 };
 
 function isAllowKey(key: NoteKey): key is AllowKey {
@@ -115,6 +121,63 @@ export function OrgPolicyFeatureOff({ policyKey }: { policyKey: "recorder.allow"
       <Lock />
       <AlertDescription>{orgPolicyOffText(policyKey)}</AlertDescription>
     </Alert>
+  );
+}
+
+/** On a provider or engine the firm added for every member. */
+export function FirmItemNote() {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+      <Building2 className="size-3.5 shrink-0" aria-hidden />
+      {t("org_policy.firm_item")}
+    </span>
+  );
+}
+
+/** The member's own API key for one of the firm's providers or engines that asks for it. */
+export function MemberKeyDialog({ name, onSave, onClose }: { name: string; onSave: (key: string) => Promise<void>; onClose: () => void }) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!key.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(key.trim());
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("org_policy.own_key_failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent>
+        <form onSubmit={(event) => void submit(event)} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>{t("org_policy.own_key_title", { name })}</DialogTitle>
+            <DialogDescription>{t("org_policy.own_key_desc")}</DialogDescription>
+          </DialogHeader>
+          <Input
+            type="password"
+            autoComplete="off"
+            autoFocus
+            aria-label={t("org_policy.own_key_label")}
+            placeholder={t("org_policy.own_key_label")}
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+          />
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
+            <Button type="submit" disabled={!key.trim() || busy}>{t("common.save")}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

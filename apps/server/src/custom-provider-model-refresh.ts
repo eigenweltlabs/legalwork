@@ -44,6 +44,17 @@ export function providerBaseURL(provider: unknown): string {
   return typeof provider.options.baseURL === "string" ? provider.options.baseURL.trim().replace(/\/+$/, "") : "";
 }
 
+/** Whether the engine keeps a key or sign-in of the member's for a provider. */
+export async function hasStoredProviderAuth(providerId: string): Promise<boolean> {
+  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
+  try {
+    const auth: unknown = JSON.parse(await readFile(join(dataHome, "opencode", "auth.json"), "utf8"));
+    return isRecord(auth) && isRecord(auth[providerId]);
+  } catch {
+    return false;
+  }
+}
+
 /** Keys stay on the worker; callers can only reuse a key for its saved endpoint. */
 export async function readStoredProviderApiKey(providerId: string, provider: unknown): Promise<string> {
   const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");

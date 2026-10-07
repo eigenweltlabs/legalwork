@@ -41,7 +41,20 @@ export type OrgPolicySection =
   | "reviews"
   | "customization"
   | "language"
-  | "notifications";
+  | "notifications"
+  | "models";
+
+/** Firm providers and engines are prefixed so they never collide with built-in ids. */
+const orgId = z.string().regex(/^org-[a-z0-9][a-z0-9-]{0,59}$/);
+/** Names an encrypted value kept by the platform; never the value itself. */
+export const OrgPolicySecretRefSchema = z.string().regex(/^[a-z0-9][a-z0-9:_-]{0,127}$/);
+// `abort`: the refinement parses the URL, so it must not run on a string that is none.
+const httpsUrl = z.url({ abort: true }).refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+}, "Use an HTTPS URL without credentials or a fragment.");
+const name = z.string().trim().min(1).max(120);
+const modelId = z.string().trim().min(1).max(200);
 
 export const PermissionActionSchema = z.enum(["allow", "ask", "deny"]);
 export type PermissionAction = z.infer<typeof PermissionActionSchema>;
@@ -86,6 +99,79 @@ const NotificationsSchema = z.strictObject({
   appBadge: z.boolean().optional(),
 });
 
+/**
+ * Whose key a firm provider uses: the firm's (encrypted on the platform, given
+ * to signed-in members' apps), or each member's own. Chat providers that allow
+ * it can also be used with each member's own sign-in (ChatGPT, for OpenAI).
+ */
+const FirmKeySchema = z.discriminatedUnion("by", [
+  z.strictObject({ by: z.literal("firm"), secretRef: OrgPolicySecretRefSchema }),
+  z.strictObject({ by: z.literal("member") }),
+]);
+export type OrgFirmKey = z.infer<typeof FirmKeySchema>;
+/** Catalog providers members may sign in to instead of using a key. */
+export const ORG_OAUTH_PROVIDERS: readonly string[] = ["openai"];
+
+/**
+ * A chat provider for every member: one of OpenCode's catalog by its id (the
+ * engine knows its models and sign-in), or an OpenAI-compatible endpoint.
+ */
+export const OrgChatProviderSchema = z.strictObject({
+  id: orgId,
+  name,
+  source: z.discriminatedUnion("type", [
+    z.strictObject({
+      type: z.literal("catalog"),
+      provider: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+      /** Azure: the resource the key belongs to. */
+      resourceName: z.string().trim().min(1).max(100).optional(),
+    }),
+    z.strictObject({
+      type: z.literal("custom"),
+      baseURL: httpsUrl,
+      /** The endpoint it speaks: `/chat/completions`, or `/responses` (OpenAI, Azure OpenAI). */
+      apiType: z.enum(["chat", "responses"]),
+    }),
+  ]),
+  /** `all`: every model the provider offers, as it lists them. */
+  models: z.union([z.literal("all"), z.array(modelId).min(1).max(200)]),
+  key: z.discriminatedUnion("by", [...FirmKeySchema.options, z.strictObject({ by: z.literal("oauth") })]),
+}).refine(
+  (provider) => provider.key.by !== "oauth" || (provider.source.type === "catalog" && ORG_OAUTH_PROVIDERS.includes(provider.source.provider)),
+  "Only OpenAI can be used with each member's own sign-in",
+);
+export type OrgChatProvider = z.infer<typeof OrgChatProviderSchema>;
+
+/** The engine's id for a firm chat provider: a catalog provider runs as itself, so the engine's own models and sign-in apply. */
+export function orgChatEngineId(provider: OrgChatProvider): string {
+  return provider.source.type === "catalog" ? provider.source.provider : provider.id;
+}
+
+const SystemOneQuestionTypeSchema = z.enum(["noul", "choice", "score"]);
+export const OrgSystemOneProviderSchema = z.strictObject({
+  id: orgId,
+  name,
+  endpoint: httpsUrl,
+  models: z.array(z.strictObject({
+    id: modelId,
+    name,
+    questionTypes: z.array(SystemOneQuestionTypeSchema).min(1),
+  })).min(1).max(200),
+  key: FirmKeySchema,
+});
+export type OrgSystemOneProvider = z.infer<typeof OrgSystemOneProviderSchema>;
+
+export const OrgOcrEngineSchema = z.strictObject({
+  id: orgId,
+  label: name,
+  kind: z.enum(["chat-completions", "mistral-ocr", "paddleocr"]),
+  model: modelId,
+  /** Full endpoint, not a provider base URL. */
+  endpoint: httpsUrl,
+  key: FirmKeySchema,
+});
+export type OrgOcrEngine = z.infer<typeof OrgOcrEngineSchema>;
+
 type OrgPolicyDefinition = {
   section: OrgPolicySection;
   scope: OrgPolicyScope;
@@ -98,8 +184,9 @@ const both = ["enforced", "default"] as const;
 
 /**
  * The catalog of keys: the settings of the platform's Policies page (enforced
- * only), then of its Default settings page (enforced or a default). Ids are
- * never renamed; a removed key is ignored by apps that still know it.
+ * only), then of its Default settings page (enforced or a default), then the
+ * firm's own providers from its Models page. Ids are never renamed; a removed
+ * key is ignored by apps that still know it.
  */
 export const orgPolicyDefinitions = {
   /** The minimum: the member's own rule applies where it is stricter. */
@@ -142,6 +229,14 @@ export const orgPolicyDefinitions = {
   "branding": { section: "customization", scope: "app", modes: both, schema: BrandingSchema },
   "language": { section: "language", scope: "app", modes: both, schema: z.enum(["en", "de"]) },
   "notifications": { section: "notifications", scope: "app", modes: both, schema: NotificationsSchema },
+
+  /** The firm's own providers, for every member. */
+  "ai.chat.providers": { section: "models", scope: "engine", modes: enforced, schema: z.array(OrgChatProviderSchema).max(20) },
+  "ai.systemOne.providers": { section: "models", scope: "server", modes: enforced, schema: z.array(OrgSystemOneProviderSchema).max(10) },
+  "ai.ocr.engines": { section: "models", scope: "server", modes: enforced, schema: z.array(OrgOcrEngineSchema).max(10) },
+  /** The firm's default SystemOne model and OCR engine, from its own providers. */
+  "ai.systemOne.model": { section: "models", scope: "server", modes: both, schema: z.strictObject({ providerId: orgId, model: modelId }) },
+  "ai.ocr.defaultEngine": { section: "models", scope: "server", modes: both, schema: orgId },
 } as const satisfies Record<string, OrgPolicyDefinition>;
 
 type Definitions = typeof orgPolicyDefinitions;
@@ -208,7 +303,30 @@ export function orgPolicyIssues(input: unknown): string[] {
   const check = entries["updates.autoCheck"];
   if (download?.value && !check?.value)
     issues.push("Enforcing automatic downloads also needs automatic update checks enforced on");
+  const chat = entries["ai.chat.providers"]?.value ?? [];
+  const systemOne = entries["ai.systemOne.providers"]?.value ?? [];
+  const engines = entries["ai.ocr.engines"]?.value ?? [];
+  const ids = [...chat, ...systemOne, ...engines].map((each) => each.id);
+  if (new Set(ids).size !== ids.length) issues.push("Provider and engine ids must be unique");
+  const catalog = chat.flatMap((provider) => (provider.source.type === "catalog" ? [provider.source.provider] : []));
+  if (new Set(catalog).size !== catalog.length) issues.push("ai.chat.providers names a catalog provider twice");
+  const model = entries["ai.systemOne.model"]?.value;
+  if (model && !systemOne.some((provider) => provider.id === model.providerId && provider.models.some((each) => each.id === model.model)))
+    issues.push("ai.systemOne.model names a model the firm's SystemOne providers do not offer");
+  const engine = entries["ai.ocr.defaultEngine"]?.value;
+  if (engine && !engines.some((each) => each.id === engine))
+    issues.push("ai.ocr.defaultEngine names an engine the firm does not have");
   return issues;
+}
+
+/** The secrets a policy refers to: the firm's keys of its own providers. */
+export function orgPolicySecretRefs(entries: OrgPolicyEntries): string[] {
+  const keys = [
+    ...(entries["ai.chat.providers"]?.value ?? []).map((provider) => provider.key),
+    ...(entries["ai.systemOne.providers"]?.value ?? []).map((provider) => provider.key),
+    ...(entries["ai.ocr.engines"]?.value ?? []).map((engine) => engine.key),
+  ];
+  return [...new Set(keys.flatMap((key) => (key.by === "firm" ? [key.secretRef] : [])))];
 }
 
 /**
@@ -228,19 +346,36 @@ export const OrgPolicySnapshotSchema = z.object({
 });
 export type OrgPolicySnapshot = Omit<z.infer<typeof OrgPolicySnapshotSchema>, "entries"> & { entries: OrgPolicyEntries };
 
-/** GET /api/org-policy (admin session): what the Policies and Default settings pages edit. */
+/** GET /api/desktop/policy/secrets (desktop token): the values of the secrets the policy refers to. */
+export const OrgPolicySecretsSchema = z.object({
+  schemaVersion: z.literal(ORG_POLICY_SCHEMA_VERSION),
+  revision: z.number().int().min(0),
+  secrets: z.record(OrgPolicySecretRefSchema, z.string().min(1).max(64 * 1024)),
+});
+export type OrgPolicySecrets = z.infer<typeof OrgPolicySecretsSchema>;
+
+/**
+ * GET /api/org-policy (admin session): what the Policies, Default settings and
+ * Models pages edit. Secret values never leave the platform: only which are set.
+ */
 export type OrgPolicyAdminView = {
   schemaVersion: typeof ORG_POLICY_SCHEMA_VERSION;
   revision: number;
   entries: OrgPolicyEntries;
+  configuredSecrets: string[];
   canManage: boolean;
   updatedAt: string | null;
   updatedByName: string | null;
 };
 
-/** PUT /api/org-policy (admin session): replaces the whole policy. A stale `revision` answers 409. */
+/**
+ * PUT /api/org-policy (admin session): replaces the whole policy. A stale
+ * `revision` answers 409. `secrets` sets (string) or removes (null) values;
+ * secrets the policy no longer refers to are removed.
+ */
 export const OrgPolicyUpdateSchema = z.object({
   revision: z.number().int().min(0),
   entries: z.record(z.string(), z.unknown()),
+  secrets: z.record(OrgPolicySecretRefSchema, z.string().min(1).max(64 * 1024).nullable()).optional(),
 });
 export type OrgPolicyUpdate = z.infer<typeof OrgPolicyUpdateSchema>;

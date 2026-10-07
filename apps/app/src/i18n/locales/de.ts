@@ -982,6 +982,7 @@ const de = {
   "systemone.ready": "Konfiguriert",
   "systemone.disabled": "Deaktiviert",
   "systemone.disconnected": "Mit Ihrem Abonnement anmelden",
+  "systemone.own_key_missing": "Fügen Sie Ihren eigenen API-Schlüssel hinzu, um ihn zu nutzen.",
   "systemone.unavailable": "Vorübergehend nicht verfügbar",
   "systemone.passed": "Verbindung bestätigt.",
   "systemone.failed": "Der Vorgang konnte nicht abgeschlossen werden.",
@@ -5866,6 +5867,18 @@ const de = {
   "org_policy.default_language": "Die Standardsprache wurde von Ihrem Admin festgelegt.",
   "org_policy.sharing_off": "{org} erlaubt nicht, Projekte zu teilen.",
   "org_policy.firm_instructions": "Anweisungen von {org}, nach Ihren eigenen ergänzt",
+  "org_policy.firm_item": "Von Ihrem Admin für alle hinzugefügt",
+  "org_policy.add_own_key": "Eigenen API-Schlüssel hinzufügen",
+  "org_policy.change_own_key": "Eigenen API-Schlüssel ändern",
+  "org_policy.firm_key_signed_out": "Wieder verfügbar, sobald Sie sich bei Ihrer Kanzlei anmelden.",
+  "org_policy.own_key_title": "Ihr API-Schlüssel für {name}",
+  "org_policy.own_key_desc": "Ihr Admin hat dies für alle hinzugefügt und bittet jedes Mitglied, einen eigenen Schlüssel zu verwenden. Er bleibt auf diesem Computer.",
+  "org_policy.own_key_label": "API-Schlüssel",
+  "org_policy.own_key_failed": "Der Schlüssel konnte nicht gespeichert werden.",
+  "org_policy.set_systemone_model": "Das SystemOne-Modell wurde von Ihrem Admin festgelegt.",
+  "org_policy.default_systemone_model": "Das Standardmodell für SystemOne wurde von Ihrem Admin festgelegt.",
+  "org_policy.set_ocr_engine": "Der OCR-Anbieter wurde von Ihrem Admin festgelegt.",
+  "org_policy.default_ocr_engine": "Der Standard-OCR-Anbieter wurde von Ihrem Admin festgelegt.",
 } as const;
 
 export default de;

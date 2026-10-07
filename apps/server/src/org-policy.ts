@@ -1,9 +1,11 @@
 import { dirname } from "node:path";
 import {
   ORG_POLICY_KEYS,
+  OrgPolicySecretsSchema,
   OrgPolicySnapshotSchema,
   isOrgPolicyKey,
   orgPolicyDefinitions,
+  orgPolicySecretRefs,
   parseOrgPolicyEntries,
   type OrgPolicyEntry,
   type OrgPolicyKey,
@@ -32,6 +34,9 @@ import { ensureDir } from "./utils.js";
  * A setting in `default` mode can be taken back at any time. Signing in to
  * the same firm again puts the enforced ones back.
  *
+ * The secrets the policy refers to (API keys of the firm's providers) stay in
+ * memory while signed in and are never kept after a sign-out.
+ *
  * The platform pokes this computer when the policy changes; the entitlements
  * poll asks too. Each pull is conditional, so an unchanged policy costs a 304.
  */
@@ -41,6 +46,7 @@ export type AppliedOrgPolicyEntry<K extends OrgPolicyKey> = OrgPolicyEntry<K> & 
 
 type Restored = NonNullable<OrgPolicyView["restored"]>;
 type Stored = { snapshot: OrgPolicySnapshot; released: Set<OrgPolicyKey>; restored: Restored | null };
+type Secrets = { orgId: string; revision: number; values: Record<string, string> };
 
 const REQUEST_TIMEOUT_MS = 15_000;
 /** Pulls asked for more often than this (polls, focus) wait for the next one. */
@@ -53,6 +59,7 @@ const ROW_ID = "current";
 type Runtime = {
   db: Promise<SqliteHandle>;
   stored: Stored | null | undefined;
+  secrets: Secrets | null;
   lastState: OrgPolicyState | null;
   handlers: Set<(scopes: Set<OrgPolicyScope>) => void>;
   running: Promise<void> | null;
@@ -74,6 +81,7 @@ function runtimeFor(config: ServerConfig): Runtime {
         return db;
       })(),
       stored: undefined,
+      secrets: null,
       lastState: null,
       handlers: new Set(),
       running: null,
@@ -188,6 +196,14 @@ export async function releaseOrgPolicyKey(config: ServerConfig, key: OrgPolicyKe
   notify(config, new Set([orgPolicyDefinitions[key].scope]));
 }
 
+/** A secret the policy refers to, while signed in to its firm. */
+export async function orgPolicySecret(config: ServerConfig, ref: string): Promise<string | null> {
+  const secrets = runtimeFor(config).secrets;
+  const stored = await readStored(config);
+  if (!secrets || !stored || secrets.orgId !== stored.snapshot.orgId || stateOf(stored, await connectedOrg(config)) !== "active") return null;
+  return secrets.values[ref] ?? null;
+}
+
 export async function readOrgPolicyView(config: ServerConfig): Promise<OrgPolicyView> {
   const stored = await readStored(config);
   const connection = await readEigenweltConnection(config);
@@ -259,6 +275,7 @@ async function fetchJson(url: string, token: string, init: { etag?: string } = {
 async function syncOnce(config: ServerConfig): Promise<void> {
   const runtime = runtimeFor(config);
   const before = await readStored(config);
+  const beforeSecrets = runtime.secrets;
   let after = before;
   let org = await connectedOrg(config);
   if (org) {
@@ -267,7 +284,11 @@ async function syncOnce(config: ServerConfig): Promise<void> {
     if (token && org) after = await pull(config, org, token, before);
   }
   const afterState = stateOf(after, await connectedOrg(config));
+  // Signed out, or another firm: the previous firm's secrets go now.
+  if (runtime.secrets && (afterState !== "active" || runtime.secrets.orgId !== after?.snapshot.orgId)) runtime.secrets = null;
   const scopes = changedScopes(before, runtime.lastState, after, afterState);
+  // Only the values matter: knowing there are none (after a start) changes nothing.
+  if (JSON.stringify(beforeSecrets?.values ?? {}) !== JSON.stringify(runtime.secrets?.values ?? {})) scopes.add("engine").add("server");
   if (runtime.lastState !== null && runtime.lastState !== afterState) scopes.add("app");
   runtime.lastState = afterState;
   notify(config, scopes);
@@ -312,7 +333,26 @@ async function pull(config: ServerConfig, org: { orgId: string; platformURL: str
   if (JSON.stringify(next.snapshot) !== JSON.stringify(before?.snapshot) || next.released.size !== before?.released.size || next.restored !== before?.restored) {
     await writeStored(config, next);
   }
+  await pullSecrets(config, base, token, next.snapshot);
   return next;
+}
+
+async function pullSecrets(config: ServerConfig, base: string, token: string, snapshot: OrgPolicySnapshot): Promise<void> {
+  const runtime = runtimeFor(config);
+  if (orgPolicySecretRefs(snapshot.entries).length === 0) {
+    runtime.secrets = { orgId: snapshot.orgId, revision: snapshot.revision, values: {} };
+    return;
+  }
+  if (runtime.secrets?.orgId === snapshot.orgId && runtime.secrets.revision === snapshot.revision) return;
+  try {
+    const result = await fetchJson(`${base}/api/desktop/policy/secrets`, token);
+    const parsed = OrgPolicySecretsSchema.safeParse(result.body);
+    if (result.status === 200 && parsed.success && (await connectedOrg(config))?.orgId === snapshot.orgId) {
+      runtime.secrets = { orgId: snapshot.orgId, revision: parsed.data.revision, values: parsed.data.secrets };
+    }
+  } catch {
+    // Retried on the next pull; the firm's providers wait for their keys meanwhile.
+  }
 }
 
 /**

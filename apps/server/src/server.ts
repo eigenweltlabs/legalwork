@@ -197,6 +197,7 @@ import { startSyncEvents } from "./eigenwelt-sync-events.js";
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
+import { orgOcr } from "./org-policy-ai.js";
 import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
@@ -804,7 +805,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), async () => (await appliedOrgPolicy(config, "ai.ocr.allowCustom"))?.value !== false);
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const corpus = new CorpusService({
     selection: async () => {
@@ -3770,7 +3771,11 @@ function createRoutes(
     readJsonBody,
     requireClientScope,
     resolveWorkspace,
-    reloadOpencodeEngine,
+    // The app reloads after a key or sign-in changed: the firm's providers that use it come in with the rebuilt config.
+    reloadOpencodeEngine: async (target, workspace) => {
+      await writeLegalworkRuntimeConfigFile(target, target.workspaces?.[0]?.id ?? workspace.id).catch(() => undefined);
+      await reloadOpencodeEngine(target, workspace);
+    },
   });
 
   registerOfficeToolRoutes({

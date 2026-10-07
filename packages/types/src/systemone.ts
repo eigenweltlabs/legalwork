@@ -150,6 +150,8 @@ export const SystemOneProviderSchema = SystemOneProviderInputSchema.omit({ apiKe
   id: z.string(),
   models: z.array(SystemOneModelSchema.extend({ source: z.enum(["discovered", "configured"]), region: z.string().optional(), status: z.enum(["ready", "disabled", "unavailable"]).optional() })),
   managed: z.boolean(),
+  /** One of the firm's providers: whose key it uses. Without one yet, it is `disconnected`. */
+  firmKey: z.enum(["firm", "member"]).optional(),
   status: z.enum(["ready", "disabled", "disconnected", "unavailable"]),
   region: z.string().optional(),
   modelsError: z.string().optional(),

@@ -1678,6 +1678,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
     setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
     saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
+    setOcrMemberKey: (id: string, apiKey: string | null) => requestJson<OcrSettingsView>(baseUrl, `/ocr/firm-engines/${encodeURIComponent(id)}/key`, { token, hostToken, method: "PUT", body: { apiKey }, timeoutMs: timeouts.config }),
     removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
@@ -2274,6 +2275,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     systemOneSettings: () => requestJson<SystemOneSettings>(baseUrl, "/systemone/settings", { token, hostToken, timeoutMs: 30_000 }),
     systemOneSaveProvider: (provider: SystemOneProviderInput) => requestJson<{ ok: true }>(baseUrl, "/systemone/providers", { token, hostToken, method: "PUT", body: provider }),
     systemOneDeleteProvider: (providerId: string) => requestJson<{ ok: true }>(baseUrl, `/systemone/providers/${encodeURIComponent(providerId)}`, { token, hostToken, method: "DELETE" }),
+    systemOneSetMemberKey: (providerId: string, apiKey: string | null) => requestJson<{ ok: true }>(baseUrl, `/systemone/firm-providers/${encodeURIComponent(providerId)}/key`, { token, hostToken, method: "PUT", body: { apiKey } }),
     systemOneSelect: (selection: SystemOneSelection) => requestJson<{ ok: true }>(baseUrl, "/systemone/selection", { token, hostToken, method: "PUT", body: selection, timeoutMs: 30_000 }),
     systemOneTest: (selection: SystemOneSelection, signal?: AbortSignal) => requestJson<{ ok: true }>(baseUrl, "/systemone/test", { token, hostToken, method: "POST", body: selection, signal, timeoutMs: 150_000 }),
     systemOne: <const Q extends SystemOneQuestions>(request: Omit<SystemOneRequest, "questions"> & { questions: Q }, options: SystemOneOptions = {}) =>
