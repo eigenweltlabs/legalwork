@@ -94,7 +94,7 @@ Verified Tasks to Projects, back/forward navigation, and returning to Home in th
 
 ## Sidebar alignment follow-up
 
-Unread dots occupy a fixed trailing slot for short and long project names, pinned projects and chats. Session indicators participate in row layout, so titles truncate before the activity state and unread dot. Menus and chevrons keep their own space. The scheduled-chat clock uses a 14 px icon with a lighter 1.5 px stroke, placed before the session name; the right side remains for unread state and actions.
+Unread dots occupy a fixed trailing slot for short and long project names, pinned projects and chats. Session indicators participate in row layout, so titles truncate before the activity state and unread dot. Menus and chevrons keep their own space. The scheduled-chat clock uses a 14 px icon with a lighter 1.5 px stroke, placed 6 px before the session name; the right side remains for unread state and actions.
 
 Verified normal and narrow sidebars, light/dark themes, project menus, and the running development Electron app after restarting it with the existing profile. All 869 app tests, including 14 sidebar/inbox checks, app typecheck and production build passed. Regression tests cover first-use history, late-loaded history, empty initial snapshots, restart persistence and upgrades from the first unread implementation without replaying pin actions. Verified historical dots disappear in the existing development profile and stay cleared after reload. A new fixture delivery still pins its chat and adds unread dots without a refresh, while older chats remain read. To reproduce the layout fixture, use `session-inbox-preview.html?layout` or `?layout&narrow&theme=dark`, then click **Schedule preview run**.
 

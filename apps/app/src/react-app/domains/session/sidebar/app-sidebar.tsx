@@ -144,7 +144,7 @@ function useUnreadChats(sessions: SessionListItem[]) {
 
 function ScheduledSessionIcon({ sessionId }: { sessionId: string }) {
   const automated = useSessionInboxStore(state => Boolean(state.entries[sessionId]?.automation));
-  return automated ? <span className="flex size-5 shrink-0 items-center justify-center">
+  return automated ? <span className="flex size-3.5 shrink-0 items-center justify-center">
     <Clock strokeWidth={1.5} className="size-3.5! text-muted-foreground" role="img" aria-label={t("sidebar.automated_chat")}><title>{t("sidebar.automated_chat")}</title></Clock>
   </span> : null;
 }
@@ -1570,7 +1570,7 @@ function SessionMenuItem({
           <CollapsibleTrigger
             render={
               <SidebarMenuSubButton
-                className={cn("relative h-7 gap-2 rounded-md ps-2 pe-16 text-xs data-[size=md]:text-xs data-active:bg-background", depth > 0 && "ps-5")}
+                className={cn("relative h-7 gap-1.5 rounded-md ps-2 pe-16 text-xs data-[size=md]:text-xs data-active:bg-background", depth > 0 && "ps-5")}
                 isActive={isSelected}
                 aria-current={isSelected ? "page" : undefined}
                 onClick={openSession}
@@ -1614,7 +1614,7 @@ function SessionMenuItem({
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
           className={cn(
-            "h-7 gap-2 rounded-md ps-2 pe-10 text-xs data-[size=md]:text-xs data-active:bg-background",
+            "h-7 gap-1.5 rounded-md ps-2 pe-10 text-xs data-[size=md]:text-xs data-active:bg-background",
             compact && "text-xs",
             depth > 0 && "ps-5",
           )}
@@ -1772,7 +1772,7 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
   const unread = useSessionInboxStore(state => unreadSession(state, session.id));
   return <SidebarMenuItem className="group/session-row">
     <SessionContextMenu sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false}>
-        <SidebarMenuButton className="h-8 gap-2 pr-10 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
+        <SidebarMenuButton className="h-8 gap-1.5 pr-10 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
           if (!ctx.onOpenSessionWindow) return;
           event.preventDefault();
           event.stopPropagation();
