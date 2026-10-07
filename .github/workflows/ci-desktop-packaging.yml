@@ -76,6 +76,10 @@ jobs:
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.executable }}"
+      - name: Run isolation probe with the packaged Node and VM
+        run: |
+          bun build scripts/sandbox/probe.ts --target=node --outfile=scripts/sandbox/probe.mjs
+          node scripts/sandbox/probe-packaged.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
       - name: Verify Windows native modules
         if: runner.os == 'Windows'
         timeout-minutes: 2
