@@ -40,10 +40,13 @@ export const getRootSessions = (sessions: WorkspaceSessionGroup["sessions"]) => 
   });
 };
 
+export const compareSessionRecency = (a: SessionListItem, b: SessionListItem) =>
+  (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0);
+
 /** Five latest conversations, independent of pinning or manual ordering. */
 export const getRecentProjectSessions = (sessions: SessionListItem[]) =>
   getRootSessions(sessions.filter((session) => !isSessionArchived(session)))
-    .sort((a, b) => (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0))
+    .sort(compareSessionRecency)
     .slice(0, 5);
 
 /** Split sessions into active vs. archived. Archived sessions live in their own section. */
@@ -74,7 +77,7 @@ export const orderRootSessions = (
     ordered.push(root);
     used.add(id);
   }
-  for (const root of roots) {
+  for (const root of [...roots].sort(compareSessionRecency)) {
     if (used.has(root.id)) continue;
     ordered.push(root);
     used.add(root.id);
