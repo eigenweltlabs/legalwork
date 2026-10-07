@@ -461,6 +461,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [autoCompactContext, setAutoCompactContext] = useState(true);
   const [autoCompactContextBusy, setAutoCompactContextBusy] = useState(false);
   const [autoCompactContextLoaded, setAutoCompactContextLoaded] = useState(false);
+  const [modelCatalogUpdatesEnabled, setModelCatalogUpdatesEnabled] = useState(false);
+  const [modelCatalogUpdatesBusy, setModelCatalogUpdatesBusy] = useState(true);
+  const [modelCatalogUpdatesError, setModelCatalogUpdatesError] = useState<string | null>(null);
   const [localProviderBusy, setLocalProviderBusy] = useState(false);
   const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
   const [localProviderError, setLocalProviderError] = useState<string | null>(null);
@@ -1490,6 +1493,33 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     };
   }, [refreshRouteState]);
 
+  useEffect(() => {
+    setModelCatalogUpdatesBusy(true);
+    setModelCatalogUpdatesError(null);
+    if (!legalworkClient) return;
+    let cancelled = false;
+    void legalworkClient.getModelCatalogSettings().then((settings) => {
+      if (!cancelled) {
+        setModelCatalogUpdatesEnabled(settings.onlineUpdatesEnabled);
+        setModelCatalogUpdatesBusy(false);
+      }
+    }).catch(() => {
+      if (!cancelled) setModelCatalogUpdatesError(t("settings.model_catalog_updates_load_failed"));
+    });
+    return () => { cancelled = true; };
+  }, [legalworkClient]);
+
+  const toggleModelCatalogUpdates = useCallback(async () => {
+    if (!legalworkClient || modelCatalogUpdatesBusy) return;
+    setModelCatalogUpdatesBusy(true);
+    try {
+      const settings = await legalworkClient.setModelCatalogSettings(!modelCatalogUpdatesEnabled);
+      setModelCatalogUpdatesEnabled(settings.onlineUpdatesEnabled);
+    } catch (error) {
+      toast.error(describeRouteError(error));
+    } finally { setModelCatalogUpdatesBusy(false); }
+  }, [legalworkClient, modelCatalogUpdatesBusy, modelCatalogUpdatesEnabled]);
+
   // Load auto-compaction state from OpenCode config on workspace change.
   useEffect(() => {
     if (!legalworkClient || !selectedWorkspaceId) return;
@@ -2149,6 +2179,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             autoCompactContextBusy={autoCompactContextBusy}
             onToggleAutoCompactContext={toggleAutoCompactContext}
             analyticsEnabled={local.prefs.analyticsEnabled === true}
+            modelCatalogUpdatesEnabled={modelCatalogUpdatesEnabled}
+            modelCatalogUpdatesBusy={modelCatalogUpdatesBusy}
+            modelCatalogUpdatesError={modelCatalogUpdatesError}
+            onToggleModelCatalogUpdates={toggleModelCatalogUpdates}
             onToggleAnalytics={() => {
               const turningOff = local.prefs.analyticsEnabled === true;
               if (turningOff) discardPendingAnalytics();
