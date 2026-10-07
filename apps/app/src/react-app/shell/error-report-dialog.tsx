@@ -5,25 +5,23 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "@/components/ui/sonner";
 import { useLocale } from "@/i18n/use-locale";
 import { t } from "@/i18n";
+import { makeManualErrorEvent, sendManualErrorEvent } from "@/app/lib/analytics";
 import {
-  clearLocalErrorReports, closeErrorReport, getErrorReports, getSelectedErrorId, makeErrorReport,
-  openErrorReport, subscribeErrorReports, submitErrorReport,
+  clearLocalErrorReports, closeErrorReport, getErrorReports, getSelectedErrorId,
+  openErrorReport, subscribeErrorReports,
 } from "@/app/lib/error-reports";
 
 function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
-  const [reportId] = useState(() => crypto.randomUUID());
-  const [comment, setComment] = useState("");
-  const [attempted, setAttempted] = useState(false);
+  const [eventId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
-  const report = makeErrorReport(diagnostic, reportId, comment);
-  const preview = JSON.stringify(report, null, 2);
+  const preview = JSON.stringify(makeManualErrorEvent(diagnostic, eventId), null, 2);
   async function send() {
     if (busy || sent) return;
-    setBusy(true); setAttempted(true); setFailed(false);
-    try { setSent(await submitErrorReport(report)); }
+    setBusy(true); setFailed(false);
+    try { setSent(await sendManualErrorEvent(diagnostic, eventId)); }
     catch { setFailed(true); }
     finally { setBusy(false); }
   }
@@ -34,7 +32,7 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
   function save() {
     const url = URL.createObjectURL(new Blob([preview], { type: "application/json" }));
     const link = document.createElement("a");
-    link.href = url; link.download = `legalwork-error-${reportId}.json`; link.click();
+    link.href = url; link.download = `legalwork-error-${eventId}.json`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
@@ -56,11 +54,6 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
               <p className="text-sm font-medium">{t(`error_report.reason.${diagnostic.code}`)}</p>
               <p className="mt-2 text-xs text-muted-foreground">{t("error_report.context", { component: diagnostic.component, code: diagnostic.status_code === null ? diagnostic.code : String(diagnostic.status_code) })}</p>
             </div>
-            <label className="grid gap-2 text-sm">
-              {t("error_report.comment")}
-              <textarea className="min-h-20 resize-y rounded-xl border border-input bg-transparent p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" maxLength={2000} value={comment} disabled={attempted} onChange={event => setComment(event.target.value)} placeholder={t("error_report.comment_placeholder")} />
-              <span className="text-xs text-muted-foreground">{t("error_report.comment_privacy")}</span>
-            </label>
           </>
         )}
         <details className="rounded-xl border border-border p-3">

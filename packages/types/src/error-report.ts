@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Wire contract, mirrored in model-api/packages/shared/src/error-report.ts.
+// Shared diagnostic contract for the app, engine relay and native crash recovery.
 // No open-ended technical strings: provider messages can echo customer input.
 export const ErrorCodeSchema = z.enum([
   "unknown", "invalid_request", "invalid_tool_schema", "invalid_tool_name",
@@ -85,19 +85,6 @@ export const ErrorDiagnosticSchema = z.object({
 export type ErrorDiagnostic = z.infer<typeof ErrorDiagnosticSchema>;
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 export type ErrorOperation = z.infer<typeof ErrorOperationSchema>;
-
-// These are deliberately user-entered, optional support fields, never analytics.
-export const ErrorReportSchema = z.object({
-  report_id: z.uuid(),
-  consent: z.literal("manual"),
-  diagnostic: ErrorDiagnosticSchema,
-  comment: z.string().max(2000),
-}).strict();
-export const ErrorReportReceiptSchema = z.object({
-  report_id: z.uuid(),
-  received_at: z.iso.datetime(),
-}).strict();
-export type ErrorReport = z.infer<typeof ErrorReportSchema>;
 
 /** Construct exceptions explicitly; never pass an Error to an SDK's serializer. */
 export function errorExceptionProperties(value: ErrorDiagnostic) {

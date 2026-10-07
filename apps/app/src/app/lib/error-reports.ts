@@ -1,5 +1,5 @@
 import { createErrorDiagnostic } from "@legalwork/types/error-diagnostics";
-import { ErrorDiagnosticSchema, ErrorFrameSchema, ErrorReportSchema, ErrorReportReceiptSchema, type ErrorDiagnostic, type ErrorReport } from "@legalwork/types/error-report";
+import { ErrorDiagnosticSchema, ErrorFrameSchema, type ErrorDiagnostic } from "@legalwork/types/error-report";
 import { analyticsSurface, captureErrorAnalytics } from "./analytics";
 
 const MAX_INCIDENTS = 50;
@@ -142,20 +142,4 @@ export function diagnosticAnalyticsFields(diagnostic: ErrorDiagnostic) {
     status_code: diagnostic.status_code, retryable: diagnostic.retryable,
     retry_count: diagnostic.retry_count,
   };
-}
-export function makeErrorReport(diagnostic: ErrorDiagnostic, reportId: string, comment = ""): ErrorReport {
-  return ErrorReportSchema.parse({ report_id: reportId, consent: "manual", diagnostic, comment });
-}
-export async function submitErrorReport(report: ErrorReport, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
-  const payload = ErrorReportSchema.parse(report);
-  // Independent of captureAnalyticsEvent: explicit submission does not enable analytics.
-  const response = await fetchImpl("https://platform.eigenweltlabs.com/api/public/error-reports", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload), credentials: "omit", cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error("error_report_not_received");
-  const receipt = ErrorReportReceiptSchema.safeParse(await response.json());
-  if (!receipt.success || receipt.data.report_id !== payload.report_id) throw new Error("error_report_not_confirmed");
-  return receipt.data.report_id;
 }

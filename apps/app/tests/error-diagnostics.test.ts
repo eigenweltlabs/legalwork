@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createErrorDiagnostic } from "@legalwork/types/error-diagnostics";
-import { ErrorDiagnosticSchema, ErrorReportSchema, errorExceptionProperties } from "@legalwork/types/error-report";
+import { ErrorDiagnosticSchema, errorExceptionProperties } from "@legalwork/types/error-report";
 import { createNativeDiagnostic, createNativeIncidentStore } from "../../desktop/electron/error-incidents.mjs";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,7 +65,6 @@ describe("content-free diagnostics", () => {
   test("strict contracts reject additional fields, including nested user content", () => {
     const diagnostic = createErrorDiagnostic(providerError(canary));
     expect(ErrorDiagnosticSchema.safeParse({ ...diagnostic, message: canary }).success).toBe(false);
-    expect(ErrorReportSchema.safeParse({ report_id: crypto.randomUUID(), consent: "manual", diagnostic, comment: "", logs: canary }).success).toBe(false);
     expect(ErrorDiagnosticSchema.safeParse({ ...diagnostic, frames: [{ asset: "index-Abcd1234.js", chunk_id: null, line: 1, column: 1, vars: { text: canary } }] }).success).toBe(false);
   });
   test("native stack locations retain only known application modules", () => {

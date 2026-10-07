@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 process.env.VITE_LEGALWORK_POSTHOG_KEY = "phc_test_dummy_key";
-const { recordError, getErrorReports, makeErrorReport, submitErrorReport, clearLocalErrorReports, restoreLocalErrorReports } = await import("../src/app/lib/error-reports");
-const { flushAnalytics, disposeAnalytics, setAnalyticsConsentOverride, discardPendingAnalytics } = await import("../src/app/lib/analytics");
+const { recordError, getErrorReports, clearLocalErrorReports, restoreLocalErrorReports } = await import("../src/app/lib/error-reports");
+const { makeManualErrorEvent, sendManualErrorEvent, captureAnalyticsEvent, flushAnalytics, disposeAnalytics, setAnalyticsConsentOverride, discardPendingAnalytics } = await import("../src/app/lib/analytics");
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
 const outgoing: string[] = [];
@@ -30,18 +30,29 @@ describe("manual error reporting with analytics off", () => {
     expect(outgoing).toEqual([]);
     expect(getErrorReports()).toContain(diagnostic);
     expect(storage.get("legalwork.error-incidents.v1")).not.toContain(canary);
-    const report = makeErrorReport(diagnostic, crypto.randomUUID(), "I clicked Send.");
-    const preview = JSON.stringify(report);
-    const receipt = await submitErrorReport(report, async (url, init) => {
-      expect(String(url)).toBe("https://platform.eigenweltlabs.com/api/public/error-reports");
+    const eventId = crypto.randomUUID();
+    const preview = makeManualErrorEvent(diagnostic, eventId);
+    const sentId = await sendManualErrorEvent(diagnostic, eventId, async (url, init) => {
+      expect(String(url)).toBe("https://eu.i.posthog.com/batch/");
       expect(init?.credentials).toBe("omit");
       outgoing.push(String(init?.body));
-      return Response.json({ report_id: report.report_id, received_at: new Date().toISOString() });
+      return new Response(null, { status: 200 });
     });
-    expect(receipt).toBe(report.report_id);
-    expect(outgoing).toEqual([preview]);
-    expect(preview).not.toContain(canary);
+    expect(sentId).toBe(eventId);
+    expect(outgoing).toHaveLength(1);
+    const payload = JSON.parse(outgoing[0]);
+    expect(Object.keys(payload).sort()).toEqual(["api_key", "batch"]);
+    expect(payload.api_key).toMatch(/^phc_/);
+    expect(payload.batch).toEqual([preview]);
+    expect(preview.event).toBe("$exception");
+    expect(preview.properties.error_origin).toBe("manual");
+    expect(preview.properties.$geoip_disable).toBe(true);
+    expect(preview.properties.$process_person_profile).toBe(false);
+    expect(JSON.stringify(preview)).not.toContain(canary);
+    expect(preview.distinct_id).toBe(`manual-error:${eventId}`);
     expect(JSON.parse(storage.get("legalwork.preferences") ?? "{}").analyticsEnabled).toBe(false);
+    captureAnalyticsEvent("task_run_started"); recordError(new TypeError(canary));
+    await flushAnalytics(); expect(outgoing).toHaveLength(1);
   });
   test("restores safe recent records without automatically uploading old incidents", async () => {
     const diagnostic = recordError(failure());
@@ -52,17 +63,53 @@ describe("manual error reporting with analytics off", () => {
     expect(getErrorReports()[0]?.incident_id).toBe(diagnostic?.incident_id);
     expect(outgoing).toEqual([]);
   });
-  test("requires a matching receipt and can retry the same report after a lost response", async () => {
+  test("reports rejected delivery and preserves the event UUID and payload on retry", async () => {
     const diagnostic = recordError(failure());
     if (!diagnostic) throw new Error("missing_diagnostic");
-    const report = makeErrorReport(diagnostic, crypto.randomUUID());
-    await expect(submitErrorReport(report, async () => Response.json({ report_id: crypto.randomUUID(), received_at: new Date().toISOString() }))).rejects.toThrow("not_confirmed");
-    await expect(submitErrorReport(report, async () => new Response(null, { status: 503 }))).rejects.toThrow("not_received");
+    const eventId = crypto.randomUUID();
+    await expect(sendManualErrorEvent(diagnostic, eventId, async () => new Response(null, { status: 503 }))).rejects.toThrow("not_sent");
+    await expect(sendManualErrorEvent(diagnostic, eventId, async () => new Response(null, { status: 400 }))).rejects.toThrow("not_sent");
     const bodies: string[] = [];
     const fetchImpl: typeof fetch = async (_url, init) => { bodies.push(String(init?.body)); throw new Error("offline"); };
-    await expect(submitErrorReport(report, fetchImpl)).rejects.toThrow("offline");
-    await expect(submitErrorReport(report, fetchImpl)).rejects.toThrow("offline");
+    await expect(sendManualErrorEvent(diagnostic, eventId, fetchImpl)).rejects.toThrow("offline");
+    await expect(sendManualErrorEvent(diagnostic, eventId, fetchImpl)).rejects.toThrow("offline");
     expect(bodies[0]).toBe(bodies[1]);
+  });
+  test("manual consent sends no pending general analytics, even before onboarding", async () => {
+    storage.delete("legalwork.preferences");
+    // A pending onboarding choice holds ordinary events without sending them.
+    disposeAnalytics(); captureAnalyticsEvent("pending_onboarding_event");
+    const diagnostic = recordError(failure());
+    if (!diagnostic) throw new Error("missing_diagnostic");
+    const eventId = crypto.randomUUID();
+    await sendManualErrorEvent(diagnostic, eventId);
+    await flushAnalytics();
+    expect(outgoing).toHaveLength(1);
+    expect(JSON.parse(outgoing[0]).batch).toEqual([makeManualErrorEvent(diagnostic, eventId)]);
+    expect(outgoing[0]).not.toContain("pending_onboarding_event");
+    expect(storage.has("legalwork.preferences")).toBe(false);
+  });
+  test("manual consent also works with analytics enabled without flushing unrelated events", async () => {
+    consent(true); captureAnalyticsEvent("unrelated_event");
+    const diagnostic = recordError(failure());
+    if (!diagnostic) throw new Error("missing_diagnostic");
+    const eventId = crypto.randomUUID();
+    await sendManualErrorEvent(diagnostic, eventId);
+    expect(outgoing).toHaveLength(1);
+    expect(JSON.parse(outgoing[0]).batch).toEqual([makeManualErrorEvent(diagnostic, eventId)]);
+    expect(JSON.parse(storage.get("legalwork.preferences") ?? "{}").analyticsEnabled).toBe(true);
+    await flushAnalytics();
+    expect(JSON.parse(outgoing[1]).api_key).toBe(JSON.parse(outgoing[0]).api_key);
+    expect(JSON.parse(outgoing[1]).batch.map((entry: { event: string }) => entry.event)).toEqual(["unrelated_event", "$exception"]);
+  });
+  test("manual sharing rejects untrusted diagnostic fields and invalid event IDs before sending", async () => {
+    const diagnostic = recordError(failure());
+    if (!diagnostic) throw new Error("missing_diagnostic");
+    const untrusted = { ...diagnostic, message: canary };
+    await expect(sendManualErrorEvent(untrusted, crypto.randomUUID())).rejects.toThrow();
+    await expect(sendManualErrorEvent({ ...diagnostic, frames: [{ asset: "/Users/client/document.js", chunk_id: null, line: 1, column: 1 }] }, crypto.randomUUID())).rejects.toThrow();
+    await expect(sendManualErrorEvent(diagnostic, canary)).rejects.toThrow();
+    expect(outgoing).toEqual([]);
   });
   test("automatic exceptions contain no raw provider text and retry only transient failures", async () => {
     consent(true);
