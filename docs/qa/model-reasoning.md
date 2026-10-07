@@ -155,3 +155,16 @@ effort, streamed with HTTP 200, and displayed the expected answer `4`. The nativ
 dropdown contained exactly `none/high`, with no extra Provider default item.
 
 ![Mistral replies and native controls through the production gateway](model-reasoning-production-mistral.jpg)
+
+## CI follow-up after updating `dev` (2026-10-07)
+
+The new macOS browser workflow test inspected a detached browser view before the host had loaded or the panel had received bounds. Initialize and show the disposable host and its 900×700 panel before opening the fixture; assert the actual view bounds. Capture the successful form before other tabs replace it, wait for painted animation frames and reject an empty screenshot. Keep every existing control, batch, accessibility, download and permission assertion. This only changes the test harness.
+
+Verification on the updated branch:
+
+- `LEGALWORK_BROWSER_TEST_SCREENSHOT=/private/tmp/legalwork-pr222-browser-workflow.png pnpm --filter @legalwork/desktop test:browser-workflow`: passed, followed by three consecutive passing runs with screenshot capture. Inspected the screenshot: Alice, Review complete, East and Saved Alice in East.
+- `pnpm --filter @legalwork/desktop test`: 197 passed, 2 skipped.
+- `pnpm --filter @legalwork/app test`: 906 passed.
+- `pnpm --filter @legalwork/app typecheck`, `pnpm --filter @legalwork/desktop typecheck:electron`, `pnpm --filter legalwork-server build`: passed.
+- `pnpm --filter @legalwork/desktop test:preview-security`: passed.
+- `pnpm --filter legalwork-server exec bun test src/eigenwelt-paid-manifest.test.ts src/eigenwelt-workspace-reload.test.ts src/provider-model-catalog.test.ts src/provider-model-discovery.test.ts src/custom-provider-model-refresh.test.ts src/runtime-opencode-config-store.provider-patch.test.ts`: 37 passed.
