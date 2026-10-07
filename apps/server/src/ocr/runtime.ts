@@ -90,7 +90,7 @@ export class OcrRuntime {
     this.startInstall("local-layout", (signal, stage) => this.prepareLayout(signal, stage));
   }
   async install(engine: LocalEngineSettings) {
-    if (!this.supported(engine.model)) throw new ApiError(400, "ocr_unsupported", "This model requires an Apple Silicon Mac.");
+    if (!this.supported(engine.model)) throw new ApiError(400, "ocr_unsupported", "This model requires an Apple Silicon Mac or a 64-bit Windows PC.");
     this.startInstall(engine.id, async (signal, stage) => {
       if (engine.model === "pp-ocrv6-small") {
         stage("models");

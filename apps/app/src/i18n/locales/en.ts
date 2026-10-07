@@ -1306,7 +1306,7 @@ export default {
   "ocr.fast_description": "Small, CPU-based model for printed text. Handwriting and difficult scans can contain more errors.",
   "ocr.quality_description": "Larger model for complex pages and handwriting. Requires more memory and a larger download.",
   "ocr.remote_description": "Page images are sent to the configured endpoint when this model is used.",
-  "ocr.apple_required": "This local runtime currently requires an Apple Silicon Mac.",
+  "ocr.apple_required": "This local runtime currently requires an Apple Silicon Mac or a 64-bit Windows PC.",
   "ocr.test_success": "The model returned text for the built-in sample.",
   "ocr.server_title": "Custom model",
   "ocr.server_description": "Connect a local or remote OCR model using its API.",
