@@ -15,8 +15,16 @@ afterEach(async () => {
   for (const config of configs.splice(0)) await closeRuntimeOpencodeConfig(config);
   // Bun's uncached Drizzle statements retain Windows file handles until GC,
   // even after sqlite3_close_v2 has marked the connection closed.
-  Bun.gc(true);
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) {
+    for (let attempt = 0; ; attempt++) {
+      Bun.gc(true);
+      try { await rm(root, { recursive: true, force: true }); break; }
+      catch (error) {
+        if (process.platform !== "win32" || attempt >= 5 || !(error instanceof Error) || !("code" in error) || error.code !== "EBUSY") throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+  }
 });
 
 async function fixture(permissions: Record<string, unknown>, approve = true) {
