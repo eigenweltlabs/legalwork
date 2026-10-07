@@ -3804,6 +3804,7 @@ async function startOpencode(options: {
   logFormat: LogFormat;
   logLevel?: string;
   opencodeRouterHealthPort?: number;
+  modelCatalogUrl?: string;
 }) {
   const args = [
     "serve",
@@ -3826,6 +3827,7 @@ async function startOpencode(options: {
       ...process.env,
       ...(options.stateLayout?.env ?? {}),
       OPENCODE_CLIENT: "legalwork-orchestrator",
+      OPENCODE_MODELS_URL: options.modelCatalogUrl ?? "https://platform.eigenweltlabs.com/api/public/model-catalog",
       LEGALWORK: "1",
       LEGALWORK_RUN_ID: options.runId,
       LEGALWORK_LOG_FORMAT: options.logFormat,
@@ -4351,6 +4353,7 @@ async function writeSandboxEntrypoint(options: {
     `if [ -d ${shQuote(hostOpencodeDataDir)} ]; then cp ${shQuote(`${hostOpencodeDataDir}/auth.json`)} \"$XDG_DATA_HOME/opencode/auth.json\" 2>/dev/null || true; cp ${shQuote(`${hostOpencodeDataDir}/mcp-auth.json`)} \"$XDG_DATA_HOME/opencode/mcp-auth.json\" 2>/dev/null || true; fi`,
     `export OPENCODE_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_OPENCODE_PORT}`)}`,
     `export OPENCODE_CLIENT=legalwork-orchestrator`,
+    `export OPENCODE_MODELS_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_LEGALWORK_PORT}/model-catalog`)}`,
     `export OPENCODE_HOT_RELOAD=${shQuote(options.opencode.hotReload.enabled ? "1" : "0")}`,
     `export OPENCODE_HOT_RELOAD_DEBOUNCE_MS=${shQuote(String(options.opencode.hotReload.debounceMs))}`,
     `export OPENCODE_HOT_RELOAD_COOLDOWN_MS=${shQuote(String(options.opencode.hotReload.cooldownMs))}`,
@@ -7383,6 +7386,7 @@ async function runStart(args: ParsedArgs) {
     }
     opencodeActualVersion = await verifyOpencodeVersion(opencodeBinary);
     const child = await startOpencode({
+      modelCatalogUrl: `${legalworkBaseUrl}/model-catalog`,
       bin: opencodeBinary.bin,
       workspace: resolvedWorkspace,
       stateLayout: opencodeStateLayout,
@@ -8193,6 +8197,7 @@ async function runStart(args: ParsedArgs) {
       );
     } else {
       const startedOpencodeChild = await startOpencode({
+        modelCatalogUrl: `${legalworkBaseUrl}/model-catalog`,
         bin: opencodeBinary.bin,
         workspace: resolvedWorkspace,
         stateLayout: opencodeStateLayout,

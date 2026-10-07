@@ -62,6 +62,7 @@ type SessionManagementState = {
 
 type SessionManagementActions = {
   togglePin: (sessionId: string) => void;
+  pinSession: (sessionId: string) => void;
   reorderSessions: (workspaceId: string, sessionIds: string[]) => void;
   assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => void;
   createGroup: (workspaceId: string, label: string) => void;
@@ -169,6 +170,8 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       pinnedIds: [],
       orderByWorkspace: {},
       groupsByWorkspace: {},
+
+      pinSession: sessionId => set(state => ({ pinnedIds: [sessionId, ...state.pinnedIds.filter(id => id !== sessionId)] })),
 
       togglePin: (sessionId) =>
         set((state) => {

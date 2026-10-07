@@ -1,6 +1,7 @@
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { uiBridgeRequest, inAppDocumentSurface, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { z } from "zod";
+import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
 import { officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxAddSlideSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
 
 type OpenCodeContext = {
@@ -10,6 +11,12 @@ type OpenCodeContext = {
   directory?: string;
   worktree?: string;
 };
+
+function requireInteractiveRun(context: OpenCodeContext) {
+  if (context.agent === PROJECT_TASK_AGENT || context.agent === ALL_PROJECTS_TASK_AGENT) {
+    throw new Error("Scheduled runs cannot control the LegalWork UI. Read project data and chat transcripts directly with legalwork_schedule_project_list/read (kind=sessions for chats).");
+  }
+}
 
 type ExtensionActionPayload = {
   extensionId: string;
@@ -86,6 +93,8 @@ To list all available actions: legalwork_ui_list_actions
 To ask what LegalWork can do: legalwork_ui_execute_action with actionId "help.capabilities"
 
 ## Cross-session memory
+Scheduled runs must read chat transcripts directly with legalwork_schedule_project_list/read (kind=sessions, projectId and exact chat id). They must never open chats or use UI actions to retrieve project data. This restriction takes precedence over the interactive UI flow below.
+For chats in the current project, use legalwork_project_list/read with kind=sessions, including in regular chats.
 Use this flow only when the user explicitly asks about another LegalWork chat/session. Questions such as "what did we do in matter ..." require connected firm records (LegalMemory or storage_search), not session history. Never use old assistant answers or disconnected-source caches as evidence of matter work.
 Use legalwork_ui_execute_action with actionId "session.list_sessions" to find matching sessions by title, workspace, topic, or session ID.
 If there is one clear match, use actionId "session.open" with args {sessionId:"..."}, then use actionId "session.read_transcript" with args {count:30} to read recent messages.
@@ -526,6 +535,7 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
         "Get a snapshot of the current LegalWork UI state: active route, narration, visible actions, and status, plus `session` — the id of the session YOU are running in. Use this to understand what the user sees before taking action, and whenever you need this conversation's session id. Read that id from `session.id`, never from `route`: the route is whatever the user has on screen, which is often a different session.",
       args: {},
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
+        requireInteractiveRun(context);
         const result = await uiBridgeRequest("/snapshot");
         return JSON.stringify(addSessionContext(result, context), null, 2);
       },
@@ -533,7 +543,8 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
     legalwork_ui_list_actions: {
       description: `List all UI control actions currently available in LegalWork. Each action has an id you can pass to legalwork_ui_execute_action. ${LEGALWORK_UI_CONTROL_INSTRUCTION}`,
       args: {},
-      async execute() {
+      async execute(_rawArgs: unknown, context: OpenCodeContext = {}) {
+        requireInteractiveRun(context);
         const result = await uiBridgeRequest("/actions");
         return JSON.stringify(result, null, 2);
       },
@@ -541,7 +552,8 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
     legalwork_ui_execute_action: {
       description: `Execute a LegalWork UI action by its id. Use legalwork_ui_list_actions first to see available actions. ${LEGALWORK_UI_CONTROL_INSTRUCTION}`,
       args: uiExecuteArgsSchema.shape,
-      async execute(rawArgs: unknown) {
+      async execute(rawArgs: unknown, context: OpenCodeContext = {}) {
+        requireInteractiveRun(context);
         const { actionId, args } = uiExecuteArgsSchema.parse(rawArgs);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",

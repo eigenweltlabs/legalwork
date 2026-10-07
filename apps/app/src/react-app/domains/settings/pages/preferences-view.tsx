@@ -27,6 +27,10 @@ export type PreferencesViewProps = {
   onToggleAutoCompactContext: () => void;
   analyticsEnabled: boolean;
   onToggleAnalytics: () => void;
+  modelCatalogUpdatesEnabled: boolean;
+  modelCatalogUpdatesBusy: boolean;
+  modelCatalogUpdatesError: string | null;
+  onToggleModelCatalogUpdates: () => void;
   hideAppMode: HideAppMode;
   onChangeHideAppMode: (mode: HideAppMode) => void;
 };
@@ -39,6 +43,23 @@ export function PreferencesView(props: PreferencesViewProps) {
           <LayoutSectionTitle>{t("settings.privacy_title")}</LayoutSectionTitle>
           <LayoutSectionDescription>{t("settings.privacy_section_desc")}</LayoutSectionDescription>
         </LayoutSectionHeader>
+
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <LayoutSectionItemTitle>{t("settings.model_catalog_updates")}</LayoutSectionItemTitle>
+            <LayoutSectionItemDescription>
+              {props.modelCatalogUpdatesError ?? t("settings.model_catalog_updates_desc")}
+            </LayoutSectionItemDescription>
+            <LayoutSectionItemHeaderActions>
+              <Switch
+                aria-label={t("settings.model_catalog_updates")}
+                checked={props.modelCatalogUpdatesEnabled}
+                disabled={props.busy || props.modelCatalogUpdatesBusy}
+                onCheckedChange={props.onToggleModelCatalogUpdates}
+              />
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+        </LayoutSectionItem>
 
         <LayoutSectionItem>
           <LayoutSectionItemHeader>

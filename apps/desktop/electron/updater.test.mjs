@@ -7,9 +7,18 @@ import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
   checkForUpdatesWithFeedFallback,
   staleUpdaterStatePaths,
+  electronUpdaterFeedConfig,
 } from "./updater.mjs";
 
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
+
+it("keeps Windows installer architectures separate on every update feed", () => {
+  for (const url of ["https://eigenweltlabs.com/legalwork/update", ELECTRON_UPDATER_FALLBACK_FEEDS.stable, "https://example.test/alpha"]) {
+    assert.deepEqual(electronUpdaterFeedConfig(url, "win32", "arm64"), { provider: "generic", url, channel: "latest-arm64" });
+    assert.deepEqual(electronUpdaterFeedConfig(url, "win32", "x64"), { provider: "generic", url });
+    assert.deepEqual(electronUpdaterFeedConfig(url, "darwin", "arm64"), { provider: "generic", url });
+  }
+});
 
 /* A shipped app that can no longer self-update is the worst failure mode, so
    the feed fallback chain gets exercised directly: primary feed -> GitHub. */
