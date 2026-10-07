@@ -233,6 +233,10 @@
 .lw-window-navigation {
   transition: width var(--lw-sidebar-transition-duration) var(--lw-ease-out);
 }
+/* Reserve the same physical space for macOS window buttons at every app zoom. */
+html.legalwork-electron.legalwork-platform-mac .lw-window-navigation {
+  padding-left: calc(80px / var(--legalwork-window-zoom, 1));
+}
 .lw-workspace-shell [data-slot="sidebar-gap"],
 .lw-workspace-shell [data-slot="sidebar-container"] {
   transition-duration: var(--lw-sidebar-transition-duration);
