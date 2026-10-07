@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT } from "../scheduled-tasks/access.js";
 
 const roots: string[] = [];
 let originalFetch: typeof globalThis.fetch | null = null;
@@ -42,7 +43,33 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
   );
 }
 
+/** What the model sees for a session: the fixed system text and the reminder on a new user message. */
+async function modelContext(plugin: Awaited<ReturnType<typeof LegalWorkExtensionsPreview>>, sessionID: string) {
+  const system: { system: string[] } = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
+  const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+  await plugin["chat.message"]({ sessionID }, message);
+  return {
+    system: system.system.join("\n"),
+    reminder: message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n"),
+  };
+}
+
 describe("legalwork_ui_snapshot session identity", () => {
+  test("scheduled agents cannot read or navigate the active UI even with saved tool approval", async () => {
+    let executions = 0;
+    await withBridge({ ok: true }, () => { executions++; return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT]) {
+      const context = { agent, sessionID: "scheduled" };
+      await expect(plugin.tool.legalwork_ui_snapshot.execute({}, context)).rejects.toThrow("cannot control");
+      await expect(plugin.tool.legalwork_ui_list_actions.execute({}, context)).rejects.toThrow("cannot control");
+      await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId: "session.open", args: { sessionId: "other" } }, context)).rejects.toThrow("cannot control");
+    }
+    expect(executions).toBe(0);
+    await plugin.tool.legalwork_ui_execute_action.execute({ actionId: "settings.panel.open" }, { agent: "legalwork" });
+    expect(executions).toBe(1);
+  });
   // Regression: asked "give me the session id of this convo", the agent found
   // no tool carrying it, navigated to the session view, and read an id out of
   // the resulting route — a DIFFERENT session than the one it was running in —
@@ -110,29 +137,57 @@ describe("in-app Word document routing", () => {
     actions: [],
   };
 
-  test("injects the active document and live tracked-edit route for the matching session", async () => {
+  test("reports the active document and live tracked-edit route to the matching session", async () => {
     await withBridge(activeDocumentSnapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    const output: { system: string[] } = { system: [] };
 
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_open" }, output);
+    const { system, reminder } = await modelContext(plugin, "ses_open");
 
-    const system = output.system.join("\n");
-    expect(system).toContain("compensation-memo.docx");
-    expect(system).toContain("inapp_docx_suggest_change");
-    expect(system).toContain("inapp_docx_reject_changes");
-    expect(system).toContain("save automatically");
-    expect(system).toContain("Do not search LegalMemory merely");
+    expect(reminder).toStartWith('<system-reminder topic="sidebar">');
+    expect(reminder).toContain("compensation-memo.docx");
+    expect(reminder).toContain("inapp_docx_suggest_change");
+    expect(reminder).toContain("inapp_docx_reject_changes");
+    expect(reminder).toContain("save automatically");
+    expect(reminder).toContain("Do not search LegalMemory merely");
+    // The open document never enters the system prompt.
+    expect(system).not.toContain("compensation-memo.docx");
   });
 
   test("does not claim a document open in a different session", async () => {
     await withBridge(activeDocumentSnapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    const output: { system: string[] } = { system: [] };
 
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_other" }, output);
+    expect((await modelContext(plugin, "ses_other")).reminder).not.toContain("The active right-hand document");
+  });
 
-    expect(output.system.join("\n")).not.toContain("The active right-hand document");
+  test("keeps the system prompt identical while files open and close", async () => {
+    let snapshot: unknown = { ok: true, openFiles: [] };
+    await withBridge(null);
+    // Serve whatever the sidebar currently shows.
+    globalThis.fetch = Object.assign(async () => Response.json(snapshot), { preconnect: globalThis.fetch.preconnect });
+    const plugin = await LegalWorkExtensionsPreview();
+
+    const before = await modelContext(plugin, "ses_open");
+    expect(before.reminder).toBe("");
+
+    // The agent opens a document mid-run: the next tool result reports it.
+    snapshot = activeDocumentSnapshot;
+    const opened = { output: "opened" };
+    await plugin["tool.execute.after"]({ sessionID: "ses_open" }, opened);
+    expect(opened.output).toContain("compensation-memo.docx");
+    const unchanged = { output: "read" };
+    await plugin["tool.execute.after"]({ sessionID: "ses_open" }, unchanged);
+    expect(unchanged.output).toBe("read");
+
+    // The user closes it between turns: the next message says so once.
+    snapshot = { ok: true, openFiles: [] };
+    const after = await modelContext(plugin, "ses_open");
+    expect(after.reminder).toContain("No files are open in this session's sidebar any more");
+    expect(after.system).toBe(before.system);
+
+    // A bridge that cannot be reached is not a change.
+    snapshot = { ok: false, error: "UI bridge unreachable" };
+    expect((await modelContext(plugin, "ses_open")).reminder).toBe("");
   });
 
   test("blocks Bash from reading the document that is open in the editor", async () => {
@@ -210,12 +265,11 @@ describe("in-app Office sidebar routing", () => {
     const result = JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "ses_office" }));
     expect(result.files).toHaveLength(2);
     expect(result.files[1].active).toBe(false);
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_office" }, output);
-    expect(output.system.join("\n")).toContain("inapp_xlsx_write");
-    expect(output.system.join("\n")).toContain("matter/Review.pptx");
-    expect(output.system.join("\n")).not.toContain("Private.xlsx");
-    expect(output.system.join("\n")).toContain("not tracked changes");
+    const { reminder } = await modelContext(plugin, "ses_office");
+    expect(reminder).toContain("inapp_xlsx_write");
+    expect(reminder).toContain("matter/Review.pptx");
+    expect(reminder).not.toContain("Private.xlsx");
+    expect(reminder).toContain("not tracked changes");
   });
   test("routes writes with exact file and engine session identity", async () => {
     let called: unknown;
@@ -279,9 +333,7 @@ describe("in-app Markdown routing", () => {
     const calls: unknown[] = [];
     await withBridge({ activeSurface: surface }, (body) => { calls.push(body); return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_md" }, output);
-    expect(output.system.join("\n")).toContain("inapp_md_replace_text");
+    expect((await modelContext(plugin, "ses_md")).reminder).toContain("inapp_md_replace_text");
     const args = { path: surface.path, search: "draft", replacement: "final" };
     await plugin.tool.inapp_md_replace_text.execute(args, { sessionID: "ses_md" });
     expect(calls).toEqual([{ actionId: "markdown.agent_tool", args: { sessionId: "ses_md", path: surface.path, toolName: "replace_text", args } }]);

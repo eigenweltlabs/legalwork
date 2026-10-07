@@ -135,7 +135,7 @@ jobs:
           # Download links go at the top of every release body so visitors
           # grab the latest installers via the site.
           printf -v RELEASE_BODY '%s\n\n%s' \
-            "**Download the latest version:** [macOS (Apple Silicon)](https://eigenweltlabs.com/legalwork/download/mac?src=release-notes) · [macOS (Intel)](https://eigenweltlabs.com/legalwork/download/mac-intel?src=release-notes) · [Windows](https://eigenweltlabs.com/legalwork/download/win?src=release-notes) · [Linux x64](https://eigenweltlabs.com/legalwork/download/linux?src=release-notes) · [Linux arm64](https://eigenweltlabs.com/legalwork/download/linux-arm64?src=release-notes)" \
+            "**Download the latest version:** [macOS (Apple Silicon)](https://eigenweltlabs.com/legalwork/download/mac?src=release-notes) · [macOS (Intel)](https://eigenweltlabs.com/legalwork/download/mac-intel?src=release-notes) · [Windows x64](https://eigenweltlabs.com/legalwork/download/win?src=release-notes) · [Windows ARM64](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/legalwork-win-arm64-${TAG#v}.exe) · [Linux x64](https://eigenweltlabs.com/legalwork/download/linux?src=release-notes) · [Linux arm64](https://eigenweltlabs.com/legalwork/download/linux-arm64?src=release-notes)" \
             "$RELEASE_BODY"
 
           printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
@@ -299,6 +299,11 @@ jobs:
             artifact: electron-windows-x64
             electron_args: "--win --x64"
             target_triple: x86_64-pc-windows-msvc
+          - platform: windows-11-arm
+            os_type: windows
+            artifact: electron-windows-arm64
+            electron_args: "--win --arm64"
+            target_triple: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout
@@ -337,9 +342,9 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-electron-pnpm-
+            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -484,7 +489,7 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/signpath-unsigned"
           shopt -s nullglob
-          installers=(apps/desktop/dist-electron/legalwork-win-x64-*.exe)
+          installers=(apps/desktop/dist-electron/legalwork-win-*.exe)
           if [ "${#installers[@]}" -ne 1 ]; then
             printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
             printf '%s\n' "${installers[@]}" >&2
@@ -497,7 +502,7 @@ jobs:
         id: upload-unsigned-windows-installer
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-legalwork-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          name: unsigned-legalwork-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/signpath-unsigned/*.exe
           if-no-files-found: error
           retention-days: 1
@@ -531,6 +536,11 @@ jobs:
         if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
         shell: bash
         run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
+
+      - name: Separate Windows ARM64 updater feed
+        if: matrix.artifact == 'electron-windows-arm64'
+        shell: bash
+        run: mv apps/desktop/dist-electron/latest.yml apps/desktop/dist-electron/latest-arm64.yml
 
       - name: Upload Electron release assets
         env:

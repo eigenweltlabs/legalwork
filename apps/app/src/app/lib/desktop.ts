@@ -71,8 +71,12 @@ declare global {
           mismatch: boolean;
           platform: "darwin" | "linux" | "windows";
           version: string;
-          downloadUrl: string;
+          downloadUrl: string | null;
           releaseUrl: string;
+        }>;
+        getArchitectureDownload?: () => Promise<{
+          status: "available" | "unavailable" | "error";
+          downloadUrl: string | null;
         }>;
         getMicrophoneStatus?: () => Promise<{
           platform: string;
@@ -117,12 +121,15 @@ declare global {
       browser?: {
         show?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
         hide?: () => Promise<void>;
-        openUrl?: (url: string, provider?: "auto" | "builtin" | "external") => Promise<{
+        openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string }) => Promise<{
           provider: "builtin";
           browser_url: string;
           target_id: string;
           tab_id: string;
           url: string;
+          download_directory: string | null;
+          downloads: unknown[];
+          snapshot: unknown;
         }>;
         navigate?: (url: string) => Promise<void>;
         back?: () => Promise<void>;

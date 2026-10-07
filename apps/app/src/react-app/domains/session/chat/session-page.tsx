@@ -132,7 +132,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -597,6 +597,7 @@ export function SessionPage(props: SessionPageProps) {
     args: [
       { name: "url", type: "string", required: true, description: "The website URL to open." },
       { name: "provider", type: "string", description: "Browser provider. Use builtin or auto. External is reserved for future support." },
+      { name: "directory", type: "string", description: "Originating agent project directory. Downloads remain bound to this project." },
     ],
     previewArgs: { url: "https://example.com", provider: "builtin" },
     disabled: !isElectronRuntime(),
@@ -608,9 +609,11 @@ export function SessionPage(props: SessionPageProps) {
         return { ok: false, error: `Browser provider is not available yet: ${provider}` };
       }
       setCurrentSidePanel("panel");
-      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider);
+      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider, {
+        directory: controlStringArg(args, "directory") || props.selectedWorkspaceRoot,
+      });
     },
-  }), [setCurrentSidePanel]);
+  }), [props.selectedWorkspaceRoot, setCurrentSidePanel]);
   useControlAction(openBrowserUrlControlAction);
   const setBrowserProxyControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.set_proxy",
@@ -936,7 +939,7 @@ export function SessionPage(props: SessionPageProps) {
 
   const openNavWindow = useCallback((key: ShellNavKey) => {
     const pages = {
-      navHome: "home", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
+      navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
       navTasks: "tasks", navRecorder: "recorder", navEvaluations: "evals",
     } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
     void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
@@ -1127,6 +1130,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.projectPage === "home" ? workspaceName
     : props.projectPage === "reviews" ? t("projects.tab_review")
     : props.projectPage === "tasks" ? t("projects.tasks")
+    : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
     : props.projectPage === "calendar" || props.sidebar.activeNav === "calendar" ? t("calendar.title")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")

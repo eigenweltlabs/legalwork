@@ -5,9 +5,8 @@
  * the chat opens its task in the session's side panel instead: see
  * task-reference.ts `requestOpenTask`.)
  *
- * The session route shows the pane. From a screen without it (Settings), the
- * app first goes to the session view, so the ask is also kept for a moment
- * and taken by that route when it mounts.
+ * The app navigates directly to /tasks. From a screen without the session
+ * shell (Settings), the ask is kept briefly and taken when the shell mounts.
  */
 
 /** Fired on `window`; the session route opens the Tasks pane on the task (a null id: the list). */

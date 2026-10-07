@@ -5,6 +5,11 @@ import { app } from "electron";
 const require = createRequire(import.meta.url);
 
 app.whenReady().then(async () => {
+  const speech = require("sherpa-onnx-node");
+  assert.equal(typeof speech.OfflineRecognizer.createAsync, "function");
+  assert.equal(typeof speech.Vad, "function");
+  console.log(`PASS: local speech addon loads on ${process.platform}/${process.arch}`);
+
   const Database = require("better-sqlite3");
   const db = new Database(":memory:");
   try {

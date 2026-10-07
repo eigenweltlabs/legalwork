@@ -1,0 +1,475 @@
+{
+  "label": "patched",
+  "samples": [
+    {
+      "ms": 80,
+      "hash": "#/workspace/ws_removed/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 373,
+      "hash": "#/workspace/ws_removed/settings/account",
+      "project": null,
+      "signInEnabled": false,
+      "loading": false
+    },
+    {
+      "ms": 707,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 971,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 1230,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 1489,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 1753,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 2017,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 2285,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 2542,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 2800,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 3060,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 3314,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 3573,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 3832,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 4087,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 4352,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 4618,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 4879,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 5142,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 5408,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 5671,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 5932,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 6187,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 6447,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 6716,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 6971,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 7225,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 7487,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 7744,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 8003,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 8260,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 8517,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 8792,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 9063,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 9339,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 9608,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 9878,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 10141,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 10412,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 10680,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 10964,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 11231,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 11494,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 11758,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 12027,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 12306,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 12568,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 12842,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 13105,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 13367,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 13630,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 13891,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 14151,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 14421,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 14682,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    },
+    {
+      "ms": 14941,
+      "hash": "#/workspace/ws_live/settings/account",
+      "project": "live",
+      "signInEnabled": true,
+      "loading": false
+    }
+  ],
+  "events": [
+    {
+      "path": "/config",
+      "ms": 23,
+      "status": 200
+    },
+    {
+      "path": "/mcp",
+      "ms": 26,
+      "status": 200
+    },
+    {
+      "path": "/mcp",
+      "ms": 12,
+      "status": 200
+    },
+    {
+      "path": "/mcp",
+      "ms": 13,
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "ms": 6042,
+      "status": 200
+    },
+    {
+      "path": "/session",
+      "ms": 6053,
+      "status": 200
+    }
+  ],
+  "gpu": {
+    "devices": [
+      {
+        "active": true,
+        "deviceId": 4176,
+        "deviceString": "Red Hat VirtIO GPU 3D controller",
+        "driverVendor": "VirtIO",
+        "driverVersion": "0.0.0.0",
+        "gpuPreference": 0,
+        "revision": 1,
+        "subSysId": 1055476,
+        "vendorId": 6900
+      },
+      {
+        "active": false,
+        "deviceId": 140,
+        "deviceString": "Microsoft Basic Render Driver",
+        "driverVersion": "10.0.26100.4343",
+        "gpuPreference": 0,
+        "revision": 0,
+        "subSysId": 0,
+        "vendorId": 5140
+      },
+      {
+        "active": false,
+        "deviceId": 140,
+        "deviceString": "Microsoft Basic Render Driver",
+        "driverVersion": "10.0.26100.4343",
+        "gpuPreference": 0,
+        "revision": 0,
+        "subSysId": 0,
+        "vendorId": 5140
+      }
+    ],
+    "attributes": {
+      "glRenderer": "ANGLE (VirtIO, Red Hat VirtIO GPU 3D controller (0x00001050) Direct3D11 vs_5_0 ps_5_0, D3D11-0.0.0.0)",
+      "initializationTime": 189.014
+    }
+  }
+}

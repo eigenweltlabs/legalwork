@@ -34,6 +34,8 @@ test("main preload runs with sandbox APIs and preserves native invocation and ev
   assert.equal(await bridge.invokeDesktop("workspaceList"), "ok");
   assert.deepEqual(messages[0], ["legalwork:desktop", "workspaceList"]);
   assert.equal(bridge.meta.platform, "darwin");
+  assert.equal(await bridge.system.getArchitectureDownload(), "ok");
+  assert.deepEqual(messages[1], ["legalwork:system:architecture-download"]);
   assert.equal(documentElement.dataset.legalworkShell, "electron");
   assert.equal(classes.has("legalwork-electron"), true);
   let calls = 0;

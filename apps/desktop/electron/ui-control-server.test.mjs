@@ -12,6 +12,26 @@ function stubWindow() {
   };
 }
 
+test("Windows discovery survives a transient reader lock", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-ui-lock-"));
+  const discoveryPath = path.join(root, "legalwork-ui-control.json");
+  await writeFile(discoveryPath, JSON.stringify({ token: "old-token" }));
+  const reader = await open(discoveryPath, "r");
+  const bridge = createUiControlServer({
+    appName: "test", appIdentifier: "test", getUserDataDir: () => root, getWindow: async () => stubWindow(),
+  });
+  t.after(async () => { await reader.close(); await bridge.stop(); await rm(root, { recursive: true, force: true }); });
+  const starting = bridge.start();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(await reader.readFile("utf8"), JSON.stringify({ token: "old-token" }));
+  await reader.close();
+  await starting;
+  const { token, baseUrl } = JSON.parse(await readFile(discoveryPath, "utf8"));
+  assert.notEqual(token, "old-token");
+  assert.equal((await fetch(`${baseUrl}/actions`, { headers: { authorization: `Bearer ${token}` } })).status, 200);
+  assert.deepEqual(await readdir(root), ["legalwork-ui-control.json"]);
+});
+
 test("the discovery file holding the token has owner-only POSIX permissions", { skip: process.platform === "win32" }, async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-ui-perm-"));
   const bridge = createUiControlServer({

@@ -23,6 +23,7 @@ function providerStore(workerType: "local" | "remote" = "local", fail = false) {
   } });
   const store = createProviderAuthStore({
     client: () => client,
+    baseUrl: () => "https://provider-preview.invalid",
     providers: () => [], providerDefaults: () => ({}), providerConnectedIds: () => [], disabledProviders: () => [],
     selectedWorkspaceDisplay: () => ({ id: "preview", name: "Preview", path: "/preview", preset: "local", workspaceType: workerType }),
     selectedWorkspaceRoot: () => "/preview", runtimeWorkspaceId: () => null,

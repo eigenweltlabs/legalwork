@@ -37,6 +37,7 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "scheduled.name", // Identical German and English noun.
   "review.status", // Identical German and English noun.
   "sidebar.project_name", "project_filters.title", // "Name" and "Filter" are identical German nouns.
   "review.mixed", // Product model names: JEV + LLM.

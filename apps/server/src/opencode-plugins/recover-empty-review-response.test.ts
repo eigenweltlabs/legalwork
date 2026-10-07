@@ -2,7 +2,7 @@ import { afterAll, beforeEach, expect, test } from "bun:test";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { recoverEmptyReviewResponse } from "./recover-empty-review-response.js";
 
-let finish = "stop", error = false, text = "", hasTool = false, pending = true, busy = false, changed = false, summary = false, synthetic = false, longRun = false, savedReview = true;
+let finish = "stop", error = false, text = "", hasTool = false, pending = true, busy = false, changed = false, summary = false, synthetic = false, longRun = false, savedReview = true, reminder = false;
 const prompts: unknown[] = [];
 const user = { id: "user", role: "user", agent: "legalwork", model: { providerID: "eigenwelt", modelID: "Gemini" } };
 const server = Bun.serve({ port: 0, async fetch(request) {
@@ -10,7 +10,7 @@ const server = Bun.serve({ port: 0, async fetch(request) {
   if (url.pathname.endsWith("/prompt_async")) { prompts.push(await request.json()); return new Response(null, { status: 204 }); }
   if (url.pathname.endsWith("/todo")) return Response.json([{ content: "Write DD report", status: pending ? "in_progress" : "completed", priority: "high", id: "todo" }]);
   if (url.pathname === "/session/status") return Response.json({ test: { type: busy ? "busy" : "idle" } });
-  const parent = { info: user, parts: [{ type: "text", text: "Run DD", synthetic }] };
+  const parent = { info: user, parts: [{ type: "text", text: "Run DD", synthetic }, ...(reminder ? [{ type: "text", text: "<system-reminder>\nProject configuration\n</system-reminder>", synthetic: true }] : [])] };
   if (url.pathname.endsWith("/message/user")) return Response.json(parent);
   const last = { info: { id: "empty", role: "assistant", parentID: "user", finish, summary, ...(error ? { error: { name: "APIError", data: { message: "Budget has been exceeded" } } } : {}) },
     parts: [{ type: "reasoning", text: "Preparing the report" }, ...(text ? [{ type: "text", text }] : []), ...(hasTool ? [{ type: "tool", tool: "write" }] : [])] };
@@ -20,7 +20,7 @@ const server = Bun.serve({ port: 0, async fetch(request) {
 } });
 const client = createOpencodeClient({ baseUrl: server.url.origin });
 const idle = { event: { type: "session.idle", properties: { sessionID: "test" } } } satisfies Parameters<ReturnType<typeof recoverEmptyReviewResponse>>[0];
-beforeEach(() => { finish = "stop"; error = false; text = ""; hasTool = false; pending = true; busy = false; changed = false; summary = false; synthetic = false; longRun = false; savedReview = true; prompts.length = 0; });
+beforeEach(() => { finish = "stop"; error = false; text = ""; hasTool = false; pending = true; busy = false; changed = false; summary = false; synthetic = false; longRun = false; savedReview = true; reminder = false; prompts.length = 0; });
 afterAll(() => server.stop(true));
 
 test("recovers an empty normal stop once using the same model and saved work", async () => {
@@ -33,6 +33,11 @@ test("never continues real answers, tool calls, budget errors, compaction or fin
   for (const change of [() => { text = "Need approval"; }, () => { hasTool = true; }, () => { error = true; }, () => { finish = "length"; }, () => { summary = true; }, () => { pending = false; }, () => { synthetic = true; }]) {
     beforeCase(); change(); await recoverEmptyReviewResponse(client)(idle); expect(prompts).toHaveLength(0);
   }
+});
+test("an app-state reminder next to the user's own text does not block recovery", async () => {
+  reminder = true;
+  await recoverEmptyReviewResponse(client)(idle);
+  expect(prompts).toHaveLength(1);
 });
 test("new human input and a concurrently running session cancel recovery", async () => {
   changed = true; await recoverEmptyReviewResponse(client)(idle); expect(prompts).toHaveLength(0);

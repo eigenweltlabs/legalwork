@@ -10,6 +10,7 @@ import { z } from "zod";
 const SyncPokeSchema = z.object({
   projects: z.boolean().optional(),
   tasks: z.boolean().optional(),
+  sessions: z.boolean().optional(),
   resync: z.boolean().optional(),
 });
 export type SyncPoke = z.infer<typeof SyncPokeSchema>;

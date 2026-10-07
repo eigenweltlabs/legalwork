@@ -149,10 +149,14 @@ describe("Personalisation", () => {
     };
     const firstPlugin = await LegalWorkCapabilitiesKnowledge({ directory: workspace });
     const secondPlugin = await LegalWorkCapabilitiesKnowledge({ directory: join(nested, "documents") });
+    // What an existing chat knows: the latest project prompt reminder it received.
+    const known = new Map<typeof firstPlugin, string>();
     const prompt = async (plugin: typeof firstPlugin) => {
-      const output: { system: string[] } = { system: [] };
-      await plugin["experimental.chat.system.transform"](null, output);
-      return output.system.join("\n");
+      const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+      await plugin["chat.message"]({ sessionID: "ses_existing" }, message);
+      const reminder = message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n");
+      if (reminder) known.set(plugin, reminder);
+      return known.get(plugin) ?? "";
     };
     try {
       expect(await (await fetch(`${base}/workspace/ws_1/personalization`, { headers })).json()).toEqual({ customInstructions: "", revision: 0 });
@@ -175,7 +179,7 @@ describe("Personalisation", () => {
       expect(await prompt(firstPlugin)).toContain("Prefer numbered headings.");
       expect(await prompt(firstPlugin)).not.toContain("Use formal British English.");
       await write("ws_1", " \n ");
-      expect(await prompt(firstPlugin)).not.toContain("Project personalisation");
+      expect(await prompt(firstPlugin)).toContain("project personalisation was removed");
       expect(await prompt(secondPlugin)).toContain("Use short German paragraphs.");
       expect((await readGlobalPersonalizationSettings(config)).customInstructions).toBe("");
 
@@ -297,9 +301,9 @@ describe("Personalisation", () => {
       expect(JSON.parse(await pending)).toEqual({ revision: 2, customInstructions: "Prefer short paragraphs." });
       expect((await readProjectDetails(workspace)).personalizationPrompt).toBe("Parent preferences");
       expect((await readGlobalPersonalizationSettings(config)).customInstructions).toBe("");
-      const output: { system: string[] } = { system: [] };
-      await (await LegalWorkCapabilitiesKnowledge(context))["experimental.chat.system.transform"]({}, output);
-      expect(output.system.join("\n")).toContain("Prefer short paragraphs.");
+      const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+      await (await LegalWorkCapabilitiesKnowledge(context))["chat.message"]({ sessionID: "ses_test" }, message);
+      expect(message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n")).toContain("Prefer short paragraphs.");
 
       const args = { revision: 2, customInstructions: "Not approved" };
       const rejected = await tool.execute(args, { ...context, ask: async () => { throw new Error("Permission rejected by the user"); } });
