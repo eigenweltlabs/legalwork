@@ -27,6 +27,8 @@ One clean file/task preview per group is reused during browsing. Editing, double
 
 The header opens a second workspace window, including when a document is focused. A tab's context menu opens only that content. The new window receives navigation and pane geometry, with fresh native browser instances; composer buffers and editor histories are not copied. Connected-storage tabs retain their source identity and permissions rather than reopening the temporary checkout as a normal editable file.
 
+Native browser tabs, selection, events and pane bounds belong to their app window. Copying a workspace reads that window's live browser state first, excluding closed or stale persisted tabs and taking the current URL. Copying a copy does not adopt browsers from other windows. Closing a window or all its browser tabs leaves the other windows intact. Browser cookies and proxy configuration remain shared.
+
 `Edit here` freezes the current document owner while it checks pending writes. If the document is dirty, the requesting window offers:
 
 - Save those changes to the original, then edit here.
@@ -49,9 +51,10 @@ One server dispatcher sends messages in order. Submission IDs make acknowledgeme
 
 | Command | Result |
 | --- | --- |
-| `pnpm --filter @legalwork/app test` | 955 passed, 0 failed |
+| `pnpm --filter @legalwork/app test` | 958 passed, 0 failed |
 | `pnpm --filter legalwork-server exec bun test src/session-message-queue.test.ts src/session-read-model.e2e.test.ts src/artifact-files.e2e.test.ts` | 27 passed, 0 failed |
-| `pnpm --filter @legalwork/desktop test` | 195 passed, 1 skipped, 0 failed |
+| `pnpm --filter @legalwork/desktop test` | 197 passed, 1 skipped, 0 failed |
+| `pnpm --filter @legalwork/desktop test:browser-panel` | Passed with isolated native Electron views |
 | `pnpm --filter @legalwork/app typecheck` | Passed |
 | `pnpm --filter legalwork-server typecheck` | Passed |
 | `pnpm --filter @legalwork/desktop typecheck:electron` | Passed |
@@ -72,5 +75,7 @@ Interactive checks used `/session-preview.html?unified=1` with synthetic documen
 Opening-policy tests cover both preferred chat sides, unmeasured/narrow work areas, existing and explicit destinations, free-mode reuse, native browsers, the six-pane fallback, dirty preview protection, pinning and persistence. Review navigation was also checked through Calendar and back before explicit promotion to the workspace.
 
 Two Astra adversarial reviews covered the opening-policy code and the UI/user journeys. Follow-up browser checks verified narrow Overview layout, Pin labels, Files selection, the sidebar-hidden Workspace return, review source opening, and an unsent task note surviving detail close/reopen and a real project switch. Twelve added draft tests cover failed writes, background reconciliation, overlapping requests, note/upload duplication, hidden save completion, scope isolation and StrictMode lifetime handling. A title with surrounding whitespace was checked through blur and subsequent workspace promotion.
+
+Browser-window regression checks cover three independent owners, event routing, foreign-tab rejection, close-all isolation, window destruction and stale-copy filtering. In the running Electron app, a temporary `example.com` tab was copied into a second and then a third window: each showed exactly one browser. Closing that tab and immediately copying again produced a fourth window without it. Test windows and the temporary browser were then closed, leaving the original app window intact.
 
 Queue integration tests use a real local HTTP server and a mock agent transport, covering shared reads, authentication, read-only servers, stale edits, archive restoration before dispatch, deletion, attachment persistence, lost acknowledgements and interrupted sends. No live model run or connected-storage publishing was performed for this change.

@@ -1745,7 +1745,7 @@ async function openAppWindow(event, route, title = "") {
   sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
     navigationEvent.preventDefault();
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
   sessionWindow.webContents.on("did-start-navigation", (_navigationEvent, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace || browserPanel.isMainWindowAllowedNavigation(url)) return;
@@ -1754,7 +1754,7 @@ async function openAppWindow(event, route, title = "") {
     } catch {
       // Best effort — routing below still preserves the detached chat.
     }
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
 
   const sourceUrl = event.sender.getURL();
@@ -2892,7 +2892,7 @@ async function createMainWindow() {
   });
 
   mainWindow.on("closed", () => {
-    browserPanel.destroy();
+    browserPanel.destroy(mainWindow);
     mainWindow = null;
   });
 

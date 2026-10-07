@@ -449,7 +449,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
       }),
       syncBrowserTabs: (sessionId, browserTabs, activeBrowserTabId) => set((state) => {
         const session = getWritableSession(state, sessionId);
-        // Native browser state is app-wide. A project adopts new tabs but must
+        // Native browser state is window-local. A project adopts new tabs but must
         // not import another project's existing browser layout on every visit.
         const ownedElsewhere = new Set(Object.entries(state.sessions).flatMap(([key, value]) =>
           key !== sessionId && key.startsWith("workspace:") ? value.tabs.filter(tab => tab.type === "browser").map(tab => tab.id) : []));

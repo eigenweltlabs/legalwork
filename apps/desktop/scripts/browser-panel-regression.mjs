@@ -31,51 +31,40 @@ app.whenReady().then(() => {
 
   try {
     const { tabId } = invoke(main, "createTab", "about:blank");
-    invoke(main, "show", mainBounds);
+    invoke(main, "show", mainBounds, tabId);
     const view = main.contentView.children[0];
     assert.ok(view);
 
-    // Both renderers send these updates when the shared conversation changes.
-    // Exercise each order because their IPC calls can arrive interleaved.
-    for (const order of [[main, detached], [detached, main]]) {
-      for (const window of order) {
-        assert.equal(invoke(window, "state").activeTabId, tabId);
-        assert.equal(invoke(window, "listTabs").length, 1);
-        invoke(window, "bounds", window === main ? mainBounds : detachedBounds);
-      }
-      invoke(detached, "hide");
-      assert.deepEqual(main.contentView.children, [view]);
-      assert.deepEqual(detached.contentView.children, []);
-      assert.deepEqual(view.getBounds(), mainBounds);
-    }
-    console.log("PASS: background reads, bounds, and cleanup preserve the main page");
-
-    invoke(detached, "show", detachedBounds);
-    invoke(main, "bounds", mainBounds);
-    invoke(main, "hide");
-    invoke(main, "state");
-    invoke(main, "listTabs");
-    assert.deepEqual(main.contentView.children, []);
-    assert.deepEqual(detached.contentView.children, [view]);
-    assert.deepEqual(view.getBounds(), detachedBounds);
-    console.log("PASS: background updates preserve the detached page");
-
-    invoke(detached, "hide");
-    assert.deepEqual(detached.contentView.children, []);
-    invoke(detached, "show", detachedBounds);
-    assert.deepEqual(detached.contentView.children, [view]);
-    console.log("PASS: the owning window can hide and reopen the same page");
-
-    invoke(main, "selectTab", tabId);
-    // Selecting changes ownership; the receiving renderer must first report
-    // its own geometry. Never flash the previous window's layout.
-    assert.deepEqual(main.contentView.children, []);
-    assert.deepEqual(detached.contentView.children, []);
-    invoke(main, "show", mainBounds, tabId);
+    // Other app windows see no tabs until their layout explicitly creates copies.
+    assert.equal(invoke(detached, "state").tabs.length, 0);
+    invoke(detached, "show", detachedBounds, tabId);
+    invoke(detached, "bounds", detachedBounds, tabId);
+    invoke(detached, "hide", tabId);
     assert.deepEqual(main.contentView.children, [view]);
     assert.deepEqual(detached.contentView.children, []);
-    assert.deepEqual(view.getBounds(), mainBounds);
-    console.log("PASS: handoff waits for the receiving pane's geometry");
+    console.log("PASS: another window cannot adopt or move the original tab");
+
+    const copyId = invoke(detached, "createTab", "about:blank").tabId;
+    invoke(detached, "show", detachedBounds, copyId);
+    const copyView = detached.contentView.children[0];
+    assert.ok(copyView);
+    assert.notEqual(copyId, tabId);
+    assert.deepEqual(main.contentView.children, [view]);
+    assert.deepEqual(detached.contentView.children, [copyView]);
+    assert.deepEqual(copyView.getBounds(), detachedBounds);
+    assert.equal(invoke(main, "state").tabs.length, 1);
+    assert.equal(invoke(detached, "state").tabs.length, 1);
+    console.log("PASS: both windows show independent native browsers at once");
+
+    invoke(detached, "hide", copyId);
+    assert.deepEqual(detached.contentView.children, []);
+    invoke(detached, "show", detachedBounds, copyId);
+    assert.deepEqual(detached.contentView.children, [copyView]);
+    invoke(detached, "closeAllTabs");
+    assert.equal(invoke(detached, "state").tabs.length, 0);
+    assert.equal(invoke(main, "state").tabs.length, 1);
+    assert.deepEqual(main.contentView.children, [view]);
+    console.log("PASS: closing copied browsers leaves originals open");
 
     const secondId = invoke(main, "createTab", "about:blank").tabId;
     const rightBounds = { ...mainBounds, x: 920, width: 350 };

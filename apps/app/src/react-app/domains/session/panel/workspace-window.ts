@@ -1,6 +1,7 @@
 import { desktopBridge } from "@/app/lib/desktop";
 import { getElectronBrowser } from "./utils";
 import { usePanelTabStore, workspacePanelKey, normalizeSession, type PanelTab, type SessionPanelState } from "./panel-tab-store";
+import { liveWindowTabs } from "./workspace-window-tabs";
 
 const PREFIX = "legalwork:window-seed:";
 /** Only navigation is copied. Editors, undo stacks and composer drafts remain
@@ -9,14 +10,18 @@ export async function openWorkspaceWindow(workspaceId: string, selected?: PanelT
   if (selected?.type === "workflow" || selected?.type === "workflow-resource") {
     await desktopBridge.openAppWindow({ page: "workflows" }); return;
   }
+  // Native state is authoritative. The renderer can still contain a closed
+  // tab while its close event is in flight, or IDs restored from an old window.
+  const browserState = await getElectronBrowser()?.getState?.();
   const store = usePanelTabStore.getState();
   const state = store.sessions[workspacePanelKey(workspaceId)];
   if (!state) return;
-  const tabs = (selected ? [selected] : state.tabs).filter(tab => tab.type !== "workflow" && tab.type !== "workflow-resource").map(tab => {
+  const tabs = liveWindowTabs(selected ? [selected] : state.tabs, browserState?.tabs ?? []).filter(tab => tab.type !== "workflow" && tab.type !== "workflow-resource").map(tab => {
     if (tab.type !== "artifact" || tab.value) return tab;
     const value = store.transcriptArtifactTargets[tab.sourceSessionId ?? ""]?.find(target => target.id === tab.id)?.value;
     return { ...tab, value };
   });
+  if (selected && !tabs.length) return;
   const layout = normalizeSession(selected ? { ...state, tabs, panes: [{ id: "main", tabIds: tabs.map(tab => tab.id), activeTabId: selected.id }], tree: { type: "pane", id: "main" }, sizes: {}, focusedPaneId: "main" } : { ...state, tabs });
   const seed = crypto.randomUUID();
   // Short-lived, same-origin transfer. The route exposes only a random token.

@@ -129,7 +129,7 @@ export function useReorderTabs() {
 
     reorderTabs(sessionId, tabIds);
 
-    // Native order is global; send only this strip's subset. The main process
+    // Native order covers the window; send only this strip's subset. The main process
     // preserves all other panes/projects and validates the IDs atomically.
     if (browserTabIds.length > 1) void getElectronBrowser()?.reorderTabs?.(browserTabIds).catch(() => {
       // A native tab may have closed during the drag. Its state event removes

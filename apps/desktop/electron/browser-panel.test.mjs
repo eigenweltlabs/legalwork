@@ -21,21 +21,21 @@ function fixture() {
     }
     setBounds(bounds) { this.bounds = bounds; }
   }
-  const window = focused => ({
+  const window = focused => Object.assign(new EventEmitter(), {
     focused, isDestroyed: () => false, isFocused() { return this.focused; },
-    webContents: { isDestroyed: () => false, send: () => {}, getZoomFactor: () => 1.25 },
+    webContents: { messages: [], isDestroyed: () => false, send(channel, payload) { this.messages.push({ channel, payload }); }, getZoomFactor: () => 1.25 },
     contentView: { children: [], addChildView(view) { this.children.push(view); }, removeChildView(view) { this.children = this.children.filter(child => child !== view); } },
   });
-  const first = window(true), second = window(false);
+  const first = window(true), second = window(false), third = window(false);
   const handlers = new Map();
   const controller = createBrowserPanel({ app: new EventEmitter(), WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => ({}) },
-    getWindow: () => first, getWindowForEvent: event => event.sender === first.webContents ? first : second,
+    getWindow: () => first, getWindowForEvent: event => [first, second, third].find(host => event.sender === host.webContents),
     isAllowedAppNavigation: () => true, safeOpen: { openExternal: () => {} },
   });
   controller.registerIpc({ handle: (name, handler) => handlers.set(name, handler), on: () => {} });
   const call = (name, host, ...args) => handlers.get(`legalwork:browser:${name}`)({ sender: host.webContents }, ...args);
   const left = { x: 20, y: 50, width: 400, height: 600 }, right = { ...left, x: 425 };
-  return { controller, views, first, second, call, left, right };
+  return { controller, views, first, second, third, call, left, right };
 }
 
 test("native browser panes keep separate bounds, navigation and visibility", t => {
@@ -76,10 +76,12 @@ test("background windows cannot steal panes or move their host's bounds", t => {
   assert.deepEqual(f.views[0].bounds, bounds);
   f.first.focused = false; f.second.focused = true;
   f.call("show", f.second, f.right, a);
-  assert.equal(f.first.contentView.children.length, 0);
-  assert.deepEqual(f.second.contentView.children, [f.views[0]]);
-  f.call("bounds", f.first, f.left, a);
-  assert.notDeepEqual(f.views[0].bounds, bounds);
+  assert.deepEqual(f.first.contentView.children, [f.views[0]]);
+  assert.deepEqual(f.second.contentView.children, []);
+  assert.equal(f.call("state", f.second).tabs.length, 0);
+  assert.throws(() => f.call("selectTab", f.second, a), /Unknown browser tab/);
+  f.call("closeTab", f.second, a);
+  assert.equal(f.call("state", f.first).tabs.length, 1);
 });
 
 test("bad geometry and late resize reports never resurrect a hidden pane", t => {
@@ -105,4 +107,39 @@ test("reordering one strip leaves other panes in place and rejects stale orders 
   f.call("closeTab", f.first, ids[2]);
   assert.throws(() => f.call("reorderTabs", f.first, [ids[0], ids[2]]), /unknown/);
   assert.deepEqual(order(), [ids[1], ids[0], ids[3]]);
+});
+
+test("three windows keep independent tabs, events and close-all operations", t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const original = f.call("createTab", f.first, "https://example.com/source").tabId;
+  const copy = f.call("createTab", f.second, "https://example.com/source").tabId;
+  const third = f.call("createTab", f.third, "https://example.com/third").tabId;
+  assert.equal(new Set([original, copy, third]).size, 3);
+  for (const [host, id] of [[f.first, original], [f.second, copy], [f.third, third]]) {
+    assert.deepEqual(f.call("listTabs", host).map(tab => tab.id), [id]);
+    f.call("show", host, f.left, id);
+    assert.equal(host.contentView.children.length, 1);
+  }
+  const originalEvents = f.first.webContents.messages.length;
+  f.call("navigate", f.second, "https://example.com/changed", copy);
+  f.views[1].webContents.emit("did-navigate");
+  assert.equal(f.first.webContents.messages.length, originalEvents);
+  assert.equal(f.second.webContents.messages.at(-1).payload.tabs[0].url, "https://example.com/changed");
+  f.call("closeAllTabs", f.second);
+  assert.equal(f.call("state", f.second).tabs.length, 0);
+  assert.equal(f.call("state", f.first).tabs.length, 1);
+  assert.equal(f.call("state", f.third).tabs.length, 1);
+});
+
+test("closing a native window destroys only its browser views", t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  f.call("createTab", f.first, "about:blank");
+  f.call("createTab", f.second, "about:blank");
+  f.second.emit("closed");
+  assert.equal(f.views[1].webContents.isDestroyed(), true);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  f.call("createTab", f.third, "about:blank");
+  assert.equal(f.call("state", f.third).tabs.length, 1);
+  f.controller.destroy(f.first);
+  assert.equal(f.views[2].webContents.isDestroyed(), false);
 });
