@@ -1,4 +1,4 @@
-import { queueActionSchema } from "@legalwork/types/session-queue";
+import { queueActionSchema } from "../session-queue-schema.js";
 import { registerMessageQueue } from "../session-message-queue.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";

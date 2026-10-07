@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { sessionQueueSchema, type QueueAction, type QueueEntry, type SessionQueue } from "@legalwork/types/session-queue";
+import { sessionQueueSchema, type QueueAction, type QueueEntry, type SessionQueue } from "./session-queue-schema.js";
 import { ApiError } from "./errors.js";
 import type { ServerConfig } from "./types.js";
 
