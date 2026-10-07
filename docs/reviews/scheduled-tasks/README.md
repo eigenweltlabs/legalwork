@@ -92,7 +92,18 @@ The main page now comes directly from the route. Tasks and Projects no longer ra
 
 Verified Tasks to Projects, back/forward navigation, and returning to Home in the running development Electron app with the existing profile. Home restores the saved expanded sidebar. `pnpm --filter @legalwork/app test` passed 869 tests; app typecheck and production build passed. Regression coverage distinguishes global main panes from project task/calendar pages and chats.
 
+## Sidebar alignment follow-up
+
+Unread dots occupy a fixed trailing slot for short and long project names, pinned projects and chats. Session indicators participate in row layout, so titles truncate before the clock, activity state and unread dot. Menus and chevrons keep their own space. The scheduled-chat clock uses a 14 px icon with a lighter 1.5 px stroke, placed before the unread dot; reading the chat does not shift the clock.
+
+Verified normal and narrow sidebars, light/dark themes, project menus, and the running development Electron app after restarting it with the existing profile. The 11 sidebar/inbox checks, app typecheck and production build passed. To reproduce the layout fixture, use `session-inbox-preview.html?layout` or `?layout&narrow&theme=dark`, then click **Schedule preview run**.
+
 ## Screenshots
+
+![Aligned clock, unread dots and project controls](sidebar-alignment.png)
+
+[Narrow dark sidebar](sidebar-alignment-narrow-dark.png)
+
 
 ![Scheduled chat automatically pinned, with unread and clock indicators](sidebar-unread-pinned.png)
 

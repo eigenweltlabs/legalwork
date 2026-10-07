@@ -31,6 +31,7 @@ document.documentElement.dataset.theme = new URLSearchParams(location.search).ge
 const client = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:8798", token: "scheduled-preview" });
 const cache = getReactQueryClient();
 const noop = () => {};
+const layoutPreview = new URLSearchParams(location.search).has("layout");
 function Preview() {
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
   const [listed, setListed] = useState<Record<string, Session[]>>({});
@@ -47,17 +48,18 @@ function Preview() {
       setListed(current => ({ ...current, [workspace.id]: response.items }));
     }
   });
-  const groups: WorkspaceSessionGroup[] = workspaces.map(workspace => ({ workspace, sessions: listed[workspace.id] ?? [], status: "ready" }));
+  const groups: WorkspaceSessionGroup[] = workspaces.map(workspace => ({ workspace: layoutPreview ? { ...workspace, name: "Northstar Legal · Acquisition and financing", displayNameResolved: "Northstar Legal · Acquisition and financing" } : workspace, sessions: listed[workspace.id] ?? [], status: "ready" }));
+  if (layoutPreview && groups[0]) groups.push({ ...groups[0], workspace: { ...groups[0].workspace, id: "preview-short", name: "Northstar", displayNameResolved: "Northstar" } });
   const schedule = async () => {
     await client.createScheduledTask("preview", {
-      title: "Morning matter brief", prompt: "Summarize upcoming work. This is an isolated preview.",
+      title: layoutPreview ? "Daily morning deadline reminders" : "Morning matter brief", prompt: "Summarize upcoming work. This is an isolated preview.",
       sessionId: null, reuseChat: true, pinSession: true, projectAccess: "project", model: null,
       schedule: { kind: "once", startAt: new Date(Date.now() + 2000).toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
     });
     setScheduled(true);
     toast.success("Scheduled in two seconds. The local scheduler checks every fifteen seconds.");
   };
-  return <ProjectPersonalisationProvider groups={groups} client={client}><SidebarProvider>
+  return <ProjectPersonalisationProvider groups={groups} client={client}><SidebarProvider style={{ ...{ "--sidebar-width": layoutPreview && !new URLSearchParams(location.search).has("narrow") ? "22rem" : "16rem" } }}>
     <AppSidebar accountClient={null} workspaceSessionGroups={groups} selectedWorkspaceId="preview" selectedSessionId={selected}
       developerMode={false} connectingWorkspaceId={null} workspaceConnectionStateById={{}} newChatDisabled={false}
       onOpenProjectFiles={noop} onSelectWorkspace={noop} onOpenSession={(_workspace, id) => setSelected(id)}
