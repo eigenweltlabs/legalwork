@@ -6,6 +6,7 @@
 /sbin/modprobe virtio_mmio || true
 /sbin/modprobe virtio_pci || true
 /sbin/modprobe virtio_console
+/sbin/modprobe fuse
 /bin/busybox ip link set lo up
 # The only host connection is a framed stream. No NIC, disk passthrough,
 # host filesystem mount, clipboard or guest agent is attached to this VM.

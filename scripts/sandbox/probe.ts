@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { VmSandbox } from "../../apps/server/src/agent-sandbox/vm.js";
@@ -13,6 +13,10 @@ try {
   const run = (command: string, writable = false) => sandbox.run({ command, cwd: "/workspace",
     mounts: [{ source: workspace, target: "/workspace", writable }], timeoutMs: 30000,
     signal: AbortSignal.timeout(180000), authorizeNetwork: async () => false });
+  const largeSize = 2 * 1024 ** 3;
+  const large = await open(join(workspace, "large.bin"), "wx");
+  try { await large.truncate(largeSize); await large.write(Buffer.from("tail"), 0, 4, largeSize - 4); }
+  finally { await large.close(); }
   await writeFile(join(workspace, "canary.py"), `import os, socket, subprocess, json
 checks = {}
 def blocked(name, action):
@@ -30,6 +34,9 @@ blocked("private_supervisor", lambda: open("/proc/1/environ", "rb").read())
 blocked("host_channel", lambda: open("/dev/vport0p1", "r+b"))
 checks["nonroot"] = os.getuid() != 0
 checks["no_host_environment"] = not any(k.startswith(("AWS_", "OPENAI_", "LEGALWORK_", "OPENCODE_")) for k in os.environ)
+with open('/workspace/large.bin', 'rb') as large:
+    large.seek(${largeSize - 4})
+    checks["large_file_random_read"] = large.read() == b'tail'
 print(json.dumps(checks))
 `);
   const probe = await run("python3 canary.py");
@@ -37,6 +44,7 @@ print(json.dumps(checks))
   const checks = JSON.parse(probe.output);
   for (const [name, value] of Object.entries(checks)) assert.equal(value, true, name);
   results.isolation = checks;
+  await rm(join(workspace, "large.bin"));
   const binary = randomBytes(2 * 1024 * 1024 + 17);
   await writeFile(join(workspace, "input.bin"), binary);
   const write = await run("python3 -c 'import docx, openpyxl, pptx, pypdf, reportlab, PIL; open(\"result.txt\",\"w\").write(\"approved\"); open(\"output.bin\",\"wb\").write(open(\"input.bin\",\"rb\").read())'; node -e 'console.log(42)'", true);

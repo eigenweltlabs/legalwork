@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,20 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
   });
 
   test("Python and Node work, approved writes appear in the project", async () => {
-    const result = await run("python3 -c 'import docx, openpyxl, pptx, pypdf, reportlab, PIL; print(6 * 7)' && node -e 'console.log(7 * 6)' && echo approved > allowed.txt", true);
+    const result = await run(`set -e
+python3 - <<'PY'
+import docx, openpyxl, pptx, pypdf, reportlab, PIL
+from reportlab.pdfgen import canvas
+d = docx.Document(); d.add_paragraph('protected document'); d.save('probe.docx')
+assert docx.Document('probe.docx').paragraphs[0].text == 'protected document'
+w = openpyxl.Workbook(); w.active['A1'] = 42; w.save('probe.xlsx')
+assert openpyxl.load_workbook('probe.xlsx').active['A1'].value == 42
+c = canvas.Canvas('probe.pdf'); c.drawString(20, 20, 'protected PDF'); c.save()
+assert len(pypdf.PdfReader('probe.pdf').pages) == 1
+print(6 * 7)
+PY
+node -e 'console.log(7 * 6)'
+echo approved > allowed.txt`, true);
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe("42\n42\n");
     expect((await readFile(join(workspace, "allowed.txt"), "utf8")).trim()).toBe("approved");
@@ -94,6 +107,21 @@ print('multiple folders passed')
       await rm(join(workspace, "multiple-folders.py"), { force: true });
       await rm(join(workspace, "combined.txt"), { force: true });
     }
+  }, 180000);
+
+  test("large folders start without copying their contents and large files support random reads", async () => {
+    const length = 2 * 1024 ** 3;
+    const path = join(workspace, "large-input.bin");
+    const file = await open(path, "wx");
+    try {
+      await file.truncate(length);
+      await file.write(Buffer.from("tail"), 0, 4, length - 4);
+    } finally { await file.close(); }
+    try {
+      const result = await run(`python3 -c 'import os; p="large-input.bin"; assert os.stat(p).st_size == ${length}; f=open(p,"rb"); f.seek(${length - 4}); assert f.read() == b"tail"; print("large file read lazily")'`);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toBe("large file read lazily\n");
+    } finally { await rm(path, { force: true }); }
   }, 180000);
 
   test("the operating system blocks raw traffic, DNS, host IPC and private supervisor state", async () => {

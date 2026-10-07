@@ -110,7 +110,7 @@ export class AgentSandboxService {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
       // An allowed parent can contain a child that still requires approval.
-      // The guest can read the entire snapshot, so ask before sharing it.
+      // The guest can read every exposed file, so ask before sharing it.
       const folderAction = Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "ask") ? "ask" : "allow";
       for (const source of sources.slice(1)) {
         await ask("external_directory", `${source}/__sandbox__`, "Allow this command to access all files in this authorized folder, including files covered by individual folder rules?", [source],

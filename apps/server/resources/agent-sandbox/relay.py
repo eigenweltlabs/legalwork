@@ -7,7 +7,7 @@ CONNECT is terminated here, never forwarded as an unrestricted TCP tunnel.
 import base64
 import errno
 import http.server
-import hashlib
+import importlib.util
 import ipaddress
 import json
 import os
@@ -20,7 +20,6 @@ import sys
 import threading
 import time
 import uuid
-import stat
 from urllib.parse import urlsplit
 
 MAX_BODY = 4 * 1024 * 1024
@@ -82,15 +81,15 @@ def replies():
         os._exit(125)
 
 
-def request_host(request):
+def request_host(request, event="request"):
     ident = uuid.uuid4().hex
     target = queue.Queue(maxsize=1)
     with PENDING_LOCK:
         if len(PENDING) >= 16:
-            raise ValueError("Too many simultaneous network requests")
+            raise ValueError("Too many simultaneous host requests")
         PENDING[ident] = target
     try:
-        emit({"event": "request", "id": ident, "request": request})
+        emit({"event": event, "id": ident, "request": request})
         result = target.get(timeout=300)
         if "error" in result:
             raise ValueError(result["error"])
@@ -242,48 +241,43 @@ def pump(stream, name):
         emit({"event": "output", "stream": name, "data": base64.b64encode(chunk).decode("ascii")})
 
 
+def start_filesystem(mounts):
+    spec = importlib.util.spec_from_file_location("approved_filesystem", "/opt/legalwork/filesystem.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    os.makedirs("/mnt/approved")
+
+    def serve():
+        try:
+            module.serve(mounts, request_host)
+        except Exception as error:
+            emit({"event": "error", "message": "Protected filesystem failed: " + str(error)})
+            os._exit(125)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 30
+    while not os.path.ismount("/mnt/approved"):
+        if time.monotonic() > deadline:
+            raise TimeoutError("Protected filesystem did not start")
+        time.sleep(0.01)
+    for name in ("workspace", "authorized", "skills"):
+        target = "/" + name
+        if os.path.exists(target):
+            os.rmdir(target)
+        os.symlink("/mnt/approved/" + name, target)
+    return thread
+
+
 def main():
     startup_timer = threading.Timer(180, lambda: os._exit(124))
     startup_timer.daemon = True
     startup_timer.start()
     connect_host_channel()
-    emit({"event": "ready"})
+    emit({"event": "ready", "protocol": 2})
     config = read_frame()
-    baseline = {}
-    current = None
-    for mount in config["mounts"]:
-        os.makedirs(mount["target"], exist_ok=True)
-        os.chown(mount["target"], config["uid"], config["gid"])
-    for directory in config["directories"]:
-        os.makedirs(directory, exist_ok=True)
-        os.chown(directory, config["uid"], config["gid"])
-    while True:
-        message = read_frame()
-        if message.get("run"):
-            break
-        if "file" in message:
-            filename = message["file"]
-            parent = os.path.dirname(filename)
-            os.makedirs(parent, exist_ok=True)
-            while parent not in ["/", "/authorized"]:
-                os.chown(parent, config["uid"], config["gid"])
-                parent = os.path.dirname(parent)
-            current = open(filename, "wb")
-            os.chmod(filename, message["mode"] & 0o777)
-            os.chown(filename, config["uid"], config["gid"])
-            baseline[filename] = message["sha256"]
-        elif "data" in message:
-            current.write(base64.b64decode(message["data"], validate=True))
-        elif message.get("end"):
-            current.close()
-            current = None
-            with open(filename, "rb") as copied:
-                if hashlib.file_digest(copied, "sha256").hexdigest() != baseline[filename]:
-                    raise ValueError("Input file transfer failed integrity validation")
-    for mount in config["mounts"]:
-        if not mount["writable"]:
-            subprocess.run(["/bin/busybox", "mount", "--bind", mount["target"], mount["target"]], check=True)
-            subprocess.run(["/bin/busybox", "mount", "-o", "remount,bind,ro", mount["target"]], check=True)
+    threading.Thread(target=replies, daemon=True).start()
+    filesystem = start_filesystem(config["mounts"])
     timer = threading.Timer(config["timeoutMs"] / 1000, lambda: os._exit(124))
     timer.daemon = True
     timer.start()
@@ -302,7 +296,6 @@ def main():
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 3128), Proxy)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    threading.Thread(target=replies, daemon=True).start()
     proxy = "http://127.0.0.1:3128"
     environment = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp/home", "TMPDIR": "/tmp/home",
                    "LANG": "C.UTF-8", "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy,
@@ -331,40 +324,10 @@ def main():
                 pass
     for thread in threads:
         thread.join(timeout=2)
-    seen = set()
-    seen_directories = set()
-    for mount in config["mounts"]:
-        if not mount["writable"]:
-            continue
-        for folder, dirs, files in os.walk(mount["target"], followlinks=False):
-            if folder != mount["target"]:
-                seen_directories.add(folder)
-                if folder not in config["directories"]:
-                    emit({"event": "file", "path": folder, "directory": True})
-            for name in dirs:
-                if os.path.islink(os.path.join(folder, name)):
-                    raise ValueError("Symbolic-link output is unsupported")
-            for name in files:
-                filename = os.path.join(folder, name)
-                info = os.lstat(filename)
-                if not stat.S_ISREG(info.st_mode) or info.st_size > 128 * 1024 * 1024:
-                    raise ValueError("Unsupported or oversized output file")
-                seen.add(filename)
-                with open(filename, "rb") as file:
-                    digest = hashlib.file_digest(file, "sha256").hexdigest()
-                if baseline.get(filename) == digest:
-                    continue
-                with open(filename, "rb") as file:
-                    while chunk := file.read(1024 * 1024):
-                        emit({"event": "file", "path": filename, "mode": info.st_mode & 0o777,
-                              "data": base64.b64encode(chunk).decode("ascii")})
-                emit({"event": "file", "path": filename, "mode": info.st_mode & 0o777, "end": True})
-        for filename in baseline:
-            if filename.startswith(mount["target"] + "/") and filename not in seen:
-                emit({"event": "file", "path": filename, "deleted": True})
-        for directory in config["directories"]:
-            if directory.startswith(mount["target"] + "/") and directory not in seen_directories:
-                emit({"event": "file", "path": directory, "directory": True, "deleted": True})
+    subprocess.run(["/bin/busybox", "umount", "/mnt/approved"], check=True)
+    filesystem.join(timeout=5)
+    if filesystem.is_alive():
+        raise TimeoutError("Protected filesystem did not stop")
     emit({"event": "exit", "code": code})
     # The host kills QEMU before applying file changes. Keep PID 1 alive until
     # that happens so a kernel panic cannot truncate the final virtio frame.

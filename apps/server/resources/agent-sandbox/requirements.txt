@@ -5,3 +5,4 @@ python-pptx==1.0.2
 pypdf==6.19.0
 reportlab==5.0.1
 Pillow==12.3.0
+fusepy==3.0.1
