@@ -21,6 +21,9 @@ export type ComposerSessionState = {
 
 export type QueuedComposerDraft = ComposerDraft & {
   id: string;
+  status?: "queued" | "sending" | "failed" | "uncertain";
+  error?: string;
+  locked?: boolean;
   editor: ComposerSessionState;
 };
 

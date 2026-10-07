@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import type { Data } from "./open-target";
 import { t } from "@/i18n";
 
-export type SpreadsheetEditorApi = { save: () => Promise<boolean> };
+export type SpreadsheetEditorApi = { save: () => Promise<boolean>; getContent: () => Promise<Data>; discard: () => void; revision: () => string };
 
 type ArtifactSpreadsheetEditorProps = {
   apiRef?: RefObject<SpreadsheetEditorApi | null>;
@@ -97,14 +97,14 @@ export function ArtifactSpreadsheetEditor(props: ArtifactSpreadsheetEditorProps)
   useEffect(() => { props.onDirtyChange?.(isDirty); }, [isDirty, props.onDirtyChange]);
   useEffect(() => {
     if (!props.apiRef) return;
-    props.apiRef.current = { save: async () => {
+    props.apiRef.current = { revision: () => JSON.stringify(rows), getContent: () => serializeSpreadsheet(props.name, rows), discard, save: async () => {
       if (props.readOnly || isLoading || saving) return false;
       if (isDirty) await saveAsync();
       props.onDirtyChange?.(false);
       return true;
     } };
     return () => { if (props.apiRef) props.apiRef.current = null; };
-  }, [props.apiRef, props.readOnly, props.onDirtyChange, isLoading, saving, isDirty, saveAsync]);
+  }, [props.apiRef, props.readOnly, props.onDirtyChange, isLoading, saving, isDirty, saveAsync, rows, props.name, discard]);
 
   if (isLoading) {
     return (

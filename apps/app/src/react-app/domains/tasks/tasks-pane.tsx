@@ -21,6 +21,9 @@
  * Tasks page or embedded in Home. Project links do not duplicate task data.
  */
 import { useEffect, useMemo, useState } from "react";
+import { projectViewTab, type ArtifactPanelTab } from "../session/panel/panel-tab-store";
+import { useRequestOpenTask, useRequestPanelTab } from "../session/panel/panel-tab-destination";
+import { ArtifactPanel } from "../session/artifacts/artifact-panel";
 import {
   ArrowDownWideNarrow,
   ArrowUpRight,
@@ -68,11 +71,9 @@ import {
 } from "./start-workflow-dialog";
 import { importViewerFile } from "@/react-app/domains/session/panel/import-viewer-file";
 import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
-import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-store";
 import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
 import { TaskDetail } from "./task-detail";
-import { requestOpenTask } from "./task-reference";
 import { LinkProjectTaskDialog } from "./link-project-task-dialog";
 import { TASK_STATUSES, taskMemberOptions, taskStatusLabel } from "./task-format";
 import { OptionText } from "./task-glyphs";
@@ -132,10 +133,15 @@ export type TasksPaneProps = {
    * tasks-pane-request.ts); a null id shows the list. `at` makes a repeat
    * ask distinct.
    */
+  onOpenInProject?: (projectId: string, task: LegalworkTask) => void;
   openTask?: { id: string | null; at: number } | null;
 };
 
 export function TasksPane(props: TasksPaneProps) {
+  const requestOpenTask = useRequestOpenTask();
+  const requestPanelTab = useRequestPanelTab();
+  const viewAll = props.detailMode === "panel" ? () => requestPanelTab(projectViewTab("tasks", t("projects.tasks"))) : props.onViewAll;
+  const [attachment, setAttachment] = useState<{ taskId: string; tab: ArtifactPanelTab } | null>(null);
   const context = { client: props.client, workspaceId: props.workspaceId };
   const access = useTaskAccess(context);
 
@@ -153,6 +159,8 @@ export function TasksPane(props: TasksPaneProps) {
   const setSort = useTaskFilterStore((state) => state.setSort);
   const clearFilters = useTaskFilterStore((state) => state.clear);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const attachmentTab = attachment?.taskId === selectedTaskId ? attachment.tab : null;
+  useEffect(() => { setAttachment(null); }, [selectedTaskId]);
   const [startMode, setStartMode] = useState<StartTaskMode | null>(null);
   const [starting, setStarting] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -274,8 +282,10 @@ export function TasksPane(props: TasksPaneProps) {
 
   const create = (input: Parameters<typeof createTask.mutate>[0]) => {
     createTask.mutate({ ...input, ...(props.projectId ? { projectId: props.projectId } : {}) }, {
-      onSuccess: () => {
+      onSuccess: task => {
         setCreating(false);
+        if (props.detailMode === "panel") requestOpenTask(task.id, task.title);
+        else setSelectedTaskId(task.id);
         if (props.embedded) setPage(0);
         if (inTrash) switchView("tasks");
       },
@@ -323,7 +333,9 @@ export function TasksPane(props: TasksPaneProps) {
     if (!props.client || !props.workspaceId) throw new Error(t("side_panel.wait_for_workspace"));
     const file = await props.client.downloadTaskAttachment(props.workspaceId, task.id, attachment.id);
     const copy = new File([file.data], attachment.filename, { type: attachment.contentType });
-    requestPanelTab(await importViewerFile(props.client, props.workspaceId, copy));
+    const tab = await importViewerFile(props.client, props.workspaceId, copy);
+    if (props.detailMode === "panel") requestPanelTab(tab);
+    else setAttachment({ taskId: task.id, tab });
   };
 
   const startRun = async (task: LegalworkTask, selection: StartWorkflowSelection) => {
@@ -574,20 +586,22 @@ export function TasksPane(props: TasksPaneProps) {
         </div>
         {props.embedded ? <footer className="mt-auto border-t border-border/50">
           <ListPagination label={t("tasks.pagination")} page={currentPage} pageSize={HOME_PAGE_SIZE} total={tasks.length} hasMore={tasksQuery.hasNextPage} busy={tasksQuery.isFetchingNextPage} onPageChange={(next) => void changePage(next)} />
-          <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={props.onViewAll}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
+          <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={viewAll}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
         </footer> : null}
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem disabled={!props.client} onClick={() => setCreating(true)}><Plus />{t("tasks.new_task")}</ContextMenuItem>
         {props.projectId ? <ContextMenuItem disabled={!props.client} onClick={() => setLinking(true)}><Link2 />{t("projects.link_task")}</ContextMenuItem> : null}
-        {props.onViewAll ? <ContextMenuItem onClick={props.onViewAll}><ArrowUpRight />{t("projects.view_all")}</ContextMenuItem> : null}
+        {viewAll ? <ContextMenuItem onClick={viewAll}><ArrowUpRight />{t("projects.view_all")}</ContextMenuItem> : null}
         <ContextMenuItem disabled={syncing || refreshing || !props.client} onClick={refresh}><RefreshCw />{t("tasks.refresh")}</ContextMenuItem>
       </ContextMenuContent>
       </ContextMenu>
 
       {selectedTask && props.detailMode !== "panel" ? (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <TaskDetail
+          {selectedTask.projectId && props.onOpenInProject && <div className="flex justify-end px-4 pt-2"><Button variant="ghost" size="sm" onClick={() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask)}>{t("workspace.open_in_project")}</Button></div>}
+          {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => setAttachment(null)}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId="global-tasks" client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => setAttachment(null)} /></div>}
+          <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
             key={selectedTask.id}
             task={selectedTask}
             projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
@@ -616,7 +630,7 @@ export function TasksPane(props: TasksPaneProps) {
               return uploadAttachments.mutateAsync({ taskId: selectedTask.id, files: [file] });
             }}
             onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: selectedTask.id, attachmentId: attachment.id })}
-          />
+          /></div>
         </section>
       ) : null}
 

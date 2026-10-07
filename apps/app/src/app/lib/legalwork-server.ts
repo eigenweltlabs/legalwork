@@ -1,3 +1,4 @@
+import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
@@ -1765,6 +1766,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload,
         timeoutMs: timeouts.binary,
       }),
+    sessionMessageQueue: async (workspaceId: string, sessionId: string, previous?: SessionQueue): Promise<SessionQueue> => {
+      const queue = await requestJson<SessionQueue | null>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/queue${previous ? `?revision=${previous.revision}` : ""}`, { token, hostToken, timeoutMs: timeouts.sessionRead });
+      if (queue) return queue;
+      if (previous) return previous;
+      throw new Error("Missing message queue response.");
+    },
+    updateSessionMessageQueue: (workspaceId: string, sessionId: string, action: QueueAction) => requestJson<SessionQueue>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/queue`, { token, hostToken, method: "POST", body: action, timeoutMs: timeouts.binary }),
     listWorkspaces: () => requestJson<LegalworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken, timeoutMs: timeouts.listWorkspaces }),
     getRecorderLiveTranscript: (workspaceId: string) =>
       requestJson<LegalworkRecorderLiveTranscriptStatus>(

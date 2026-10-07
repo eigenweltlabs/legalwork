@@ -110,7 +110,7 @@ function servicesFor(draft: WorkflowDraft) {
 }
 
 export function showWorkflow(draft: WorkflowDraft) {
-  requestPanelTab({ id: draft.id, type: "workflow", label: draft.title || t("skills.new_workflow") });
+  requestPanelTab({ id: draft.id, type: "workflow", label: draft.title || t("skills.new_workflow") }, { kind: "workflows" });
 }
 
 export async function openWorkflow(workspaceId: string, skill: SkillCard) {

@@ -6,6 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
+import { storageFileSourceSchema, storageFileTab } from "./storage-file-tab";
 import { MAX_DOCUMENT_PANES, legacyLayout, legacyLayoutSizes, layoutLeaves, findLayoutNode, pruneLayout, reconcileLayoutSizes, restoreLayout, splitLayout, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
@@ -22,6 +23,11 @@ export { PANEL_OPEN_TAB_EVENT, requestPanelTab } from "./panel-tab-request";
 export type PanelTabType = PanelTab["type"];
 
 export function workspacePanelKey(workspaceId: string) { return `workspace:${workspaceId}`; }
+export type ProjectView = "home" | "calendar" | "tasks" | "reviews";
+export type ProjectViewTab = { id: string; type: "project-view"; view: ProjectView; label: string };
+export function projectViewTab(view: ProjectView, label: string): ProjectViewTab {
+  return { id: `project-view:${view}`, type: "project-view", view, label };
+}
 export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string };
 export type ReviewPanelTab = { id: string; type: "review"; reviewId: string; label: string };
 export function chatPanelTab(sessionId: string, label: string): ChatPanelTab {
@@ -60,7 +66,7 @@ export type TaskPanelTab = {
 export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
 export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
 
-export type PanelTab = ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab;
+export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab;
 
 export type DocumentPaneState = { id: string; tabIds: string[]; activeTabId: string | null };
 export type SessionPanelState = {
@@ -75,25 +81,31 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTab = ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string };
+type PersistedPanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string };
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function restoredTab(value: unknown): PanelTab | null {
   if (!record(value) || typeof value.id !== "string") return null;
+  if (value.type === "artifact" && value.storage) {
+    const storage = storageFileSourceSchema.safeParse(value.storage);
+    return storage.success ? storageFileTab(storage.data.workspaceId, storage.data.root, storage.data.file) : null;
+  }
   if (value.type === "artifact" && typeof value.label === "string" && typeof value.value === "string" && value.value)
     return { id: value.id, type: "artifact", label: value.label, value: value.value, preview: classifyOpenTarget(value.value, "file") };
   if (typeof value.label === "string") {
+    if (value.type === "project-view" && (value.view === "home" || value.view === "calendar" || value.view === "tasks" || value.view === "reviews")) return projectViewTab(value.view, value.label);
     if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };
   }
   if (value.type !== "browser") return null;
-  return { id: value.id, type: "browser", label: "New tab", url: "", favicon: null, status: "ready", canGoBack: false, canGoForward: false };
+  return { id: value.id, type: "browser", label: "New tab", url: typeof value.url === "string" ? value.url : "", favicon: null, status: "ready", canGoBack: false, canGoForward: false };
 }
 
 export type PanelTabStore = {
   sessions: Record<string, SessionPanelState>;
+  readLayout: (value: unknown) => SessionPanelState | null;
   migrateWorkspace: (workspaceId: string) => void;
   adoptChat: (scope: string, sessionId: string, label: string) => void;
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
@@ -128,7 +140,7 @@ function updateSession(state: PanelTabStore, sessionId: string, session: Session
 }
 
 /** Keep pane ids stable when a group empties; tree order determines geometry. */
-function normalizeSession(session: SessionPanelState): SessionPanelState {
+export function normalizeSession(session: SessionPanelState): SessionPanelState {
   const assigned = new Set<string>();
   const paneIds = new Set<string>();
   let panes = session.panes.filter(pane => {
@@ -240,6 +252,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     );
   }
 
+  if (left.type === "project-view" && right.type === "project-view") return left.view === right.view && left.label === right.label;
   if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId;
   if (left.type === "review" && right.type === "review") return left.label === right.label && left.reviewId === right.reviewId;
   if (left.type === "task" && right.type === "task") {
@@ -296,6 +309,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
     (set, get) => ({
       sessions: {},
       transcriptArtifactTargets: {},
+      readLayout: value => mergePersistedSessions({ sessions: { seed: value } }, get()).sessions.seed ?? null,
       migrateWorkspace: workspaceId => set(state => {
         const key = workspacePanelKey(workspaceId);
         const oldKey = `project:${workspaceId}`;
@@ -345,7 +359,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
         // New content opens beside a chat by default; explicit drops always win.
         let destination = paneId;
         let split = edge;
-        if (sessionId.startsWith("workspace:") && !paneId && tab.type !== "chat" && !session.tabs.some(item => item.id === tab.id || (tab.type === "artifact" && item.type === "artifact" && tab.value && item.value === tab.value))) {
+        if (sessionId.startsWith("workspace:") && !paneId && tab.type !== "chat" && tab.type !== "project-view" && tab.type !== "task" && tab.type !== "review" && !session.tabs.some(item => item.id === tab.id || (tab.type === "artifact" && item.type === "artifact" && tab.value && item.value === tab.value))) {
           const contentPane = session.panes.find(pane => session.tabs.some(item => pane.activeTabId === item.id && (tab.type === "artifact" || tab.type === "browser" ? item.type === "artifact" || item.type === "browser" : item.type === tab.type)));
           destination = contentPane?.id ?? session.focusedPaneId ?? session.panes[0].id;
           if (!contentPane && session.tabs.length && session.panes.length < MAX_DOCUMENT_PANES) split = "right";
@@ -544,7 +558,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
           Object.entries(state.sessions).map(([sessionId, session]) => {
             const tabs = session.tabs
               .flatMap<PersistedPanelTab>((tab) => {
-                if (tab.type === "chat" || tab.type === "review" || tab.type === "task") return [tab];
+                if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource") return [];
                 if (tab.type === "browser") return [{ id: tab.id, type: tab.type }];

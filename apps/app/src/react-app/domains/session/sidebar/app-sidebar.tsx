@@ -1,3 +1,5 @@
+import { projectViewTab, usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
+import { projectViewLabel } from "../panel/side-panel";
 /** @jsxImportSource react */
 import * as React from "react";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
@@ -510,6 +512,7 @@ export type AppSidebarProps = {
   projectFilesOpen?: boolean;
   onOpenNavWindow?: (key: ShellNavKey) => void;
   onOpenProjectWindow?: SidebarContextValue["onOpenProjectWindow"];
+  activeProjectView?: SidebarContextValue["activeProjectFeature"];
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;
   connectingWorkspaceId: string | null;
@@ -733,10 +736,15 @@ export function AppSidebar(props: AppSidebarProps) {
     workspaceSessionGroups: props.workspaceSessionGroups,
     selectedWorkspaceId: props.selectedWorkspaceId,
     selectedSessionId: props.activeNav || projectsPage || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar") || location.pathname === "/home" ? null : props.selectedSessionId,
-    activeProjectFeature: props.activeNav || projectsPage || location.pathname === "/home" ? null : location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
+    activeProjectFeature: props.activeProjectView !== undefined ? props.activeProjectView : props.activeNav || projectsPage || location.pathname === "/home" ? null : location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
       : location.pathname.endsWith("/project") ? "home" : props.selectedSessionId ? "sessions" : null,
+    onOpenWorkspace: async workspaceId => {
+      if (await props.onSelectWorkspace(workspaceId) === false) return;
+      navigate(workspaceSessionRoute(workspaceId) + "?view=workspace");
+    },
     onOpenProjectPage: async (workspaceId, page) => {
       if (await props.onSelectWorkspace(workspaceId) === false) return;
+      usePanelTabStore.getState().openTab(workspacePanelKey(workspaceId), projectViewTab(page, projectViewLabel(page)));
       navigate(page === "calendar" ? workspaceCalendarRoute(workspaceId) : page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
     },
     onOpenProjectFiles: props.onOpenProjectFiles,
@@ -904,14 +912,14 @@ function WorkspaceHeader({
   return (
     <SidebarMenuButton
       {...props}
-      aria-expanded={ctx.expandedWorkspaceIds.has(workspace.id)}
+      title={t("workspace.open_workspace")}
       className={cn(
         "[&_.lw-folder-icon]:size-5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) ctx.toggleWorkspaceExpanded(workspace.id);
+        if (!event.defaultPrevented) void ctx.onOpenWorkspace(workspace.id);
       }}
       onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}
     >
@@ -1061,7 +1069,7 @@ function WorkspaceSidebarGroup({
                   projectHome: <SidebarMenuSubItem key="projectHome">
                     <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "home"); }}>
                       <House className="size-4" strokeWidth={1.5} />
-                      <span>{t("projects.home")}</span>
+                      <span>{t("workspace.overview")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
@@ -1077,7 +1085,7 @@ function WorkspaceSidebarGroup({
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectFiles: <SidebarMenuSubItem key="projectFiles">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.projectFilesOpen} aria-pressed={isSelected && Boolean(ctx.projectFilesOpen)} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
+                    <SidebarMenuSubButton title={t("workspace.toggle_files")} className={cn(PROJECT_FEATURE_CLASS, "border-t border-sidebar-border/60 mt-1 pt-2")} isActive={isSelected && ctx.projectFilesOpen} aria-pressed={isSelected && Boolean(ctx.projectFilesOpen)} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
                       <Files className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.files")}</span>
                     </SidebarMenuSubButton>
@@ -1502,12 +1510,12 @@ function SessionMenuItem({
     ctx.onPrefetchSession?.(workspaceId, session.id);
   };
 
-  const dragProps = depth === 0 && !compact ? {
+  const dragProps = {
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
       startSessionDrag(e.dataTransfer, workspaceId, session.id);
     },
-  } : {};
+  };
 
   const item = hasChildren ? (
     <Collapsible
@@ -1706,7 +1714,7 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
   const ctx = useSidebarContext();
   const pinned = usePinnedSessionIds();
   const status = ctx.sessionStatusById?.[session.id];
-  return <SidebarMenuItem className="group/session-row">
+  return <SidebarMenuItem className="group/session-row" draggable onDragStart={event => startSessionDrag(event.dataTransfer, workspace.id, session.id)}>
     <SessionContextMenu sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false}>
         <SidebarMenuButton className="h-8 pr-9 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
           if (!ctx.onOpenSessionWindow) return;

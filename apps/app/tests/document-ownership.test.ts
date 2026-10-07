@@ -41,7 +41,7 @@ function instance(locks: Locks, key: string, overrides: Partial<Parameters<typeo
     key, locks, channel: new BroadcastChannel(`test:${key}`),
     changed: access => { state.access = access; },
     acquire: async () => { state.acquired++; },
-    flush: async () => true, drain: async () => {},
+    revision: () => 0, dirty: () => false, discard: async () => {}, decide: async () => "save", cancelDecision: () => {}, flush: async () => true, drain: async () => {},
     refresh: () => { state.refreshed++; }, failed: () => { state.failed++; }, ...overrides,
   });
   disposers.push(owner.dispose);
@@ -60,7 +60,7 @@ test("handoff freezes the owner and waits for its final save before acquisition"
   const locks = new Locks(), key = crypto.randomUUID();
   let finish = (saved: boolean) => {};
   const flushed = new Promise<boolean>(resolve => { finish = resolve; });
-  const a = instance(locks, key, { flush: () => flushed }), b = instance(locks, key);
+  const a = instance(locks, key, { revision: () => 0, dirty: () => false, discard: async () => {}, decide: async () => "save", cancelDecision: () => {}, flush: () => flushed }), b = instance(locks, key);
   await until(() => a.state.access === "owner" && b.state.access === "reader");
   b.owner.request();
   await until(() => a.state.access === "releasing");
@@ -74,7 +74,7 @@ test("handoff freezes the owner and waits for its final save before acquisition"
 });
 test("failed save refuses handoff and keeps the original editor's ownership", async () => {
   const locks = new Locks(), key = crypto.randomUUID();
-  const a = instance(locks, key, { flush: async () => false }), b = instance(locks, key);
+  const a = instance(locks, key, { revision: () => 0, dirty: () => false, discard: async () => {}, decide: async () => "save", cancelDecision: () => {}, flush: async () => false }), b = instance(locks, key);
   await until(() => a.state.access === "owner" && b.state.access === "reader");
   b.owner.request();
   await until(() => b.state.failed === 1);
@@ -132,4 +132,31 @@ test("immediate effect teardown and recreation never leaves an orphaned lock", a
   expect(first.owner.canWrite()).toBe(false);
   await reopened.owner.dispose();
   expect(locks.held.size).toBe(0);
+});
+
+test("dirty handoff asks the requester; cancellation neither saves nor discards", async () => {
+  const locks = new Locks(), key = crypto.randomUUID(); let writes = 0, discards = 0;
+  const a = instance(locks, key, { dirty: () => true, flush: async () => { writes++; return true; }, discard: async () => { discards++; } });
+  const b = instance(locks, key, { decide: async () => "cancel" });
+  await until(() => a.state.access === "owner" && b.state.access === "reader"); b.owner.request();
+  await until(() => b.state.access === "reader"); await until(() => a.state.access === "owner");
+  expect(writes).toBe(0); expect(discards).toBe(0); expect(b.state.failed).toBe(0);
+});
+test("discard handoff waits for the safety copy and never writes the original", async () => {
+  const locks = new Locks(), key = crypto.randomUUID(); let dirty = true, writes = 0, finish = () => {};
+  const copy = new Promise<void>(resolve => { finish = resolve; });
+  const a = instance(locks, key, { dirty: () => dirty, flush: async () => { writes++; return true; }, discard: async () => { await copy; dirty = false; } });
+  const b = instance(locks, key, { decide: async () => "discard" });
+  await until(() => a.state.access === "owner" && b.state.access === "reader"); b.owner.request();
+  await until(() => a.state.access === "releasing"); expect(b.owner.canWrite()).toBe(false);
+  finish(); await until(() => b.state.access === "owner"); expect(writes).toBe(0);
+});
+test("a changed revision or failed safety copy retains the original owner and draft", async () => {
+  for (const changed of [true, false]) {
+    const locks = new Locks(), key = crypto.randomUUID(); let revision = 1;
+    const a = instance(locks, key, { dirty: () => true, revision: () => revision, discard: async () => { throw new Error("copy failed"); } });
+    const b = instance(locks, key, { decide: async () => { if (changed) revision++; return "discard"; } });
+    await until(() => a.state.access === "owner" && b.state.access === "reader"); b.owner.request();
+    await until(() => b.state.failed === 1); expect(a.state.access).toBe("owner"); expect(b.owner.canWrite()).toBe(false);
+  }
 });

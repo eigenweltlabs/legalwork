@@ -1684,11 +1684,12 @@ async function openDetachedSessionWindow(event, input = {}) {
 async function openDetachedProjectWindow(event, input) {
   const workspaceId = String(input?.workspaceId ?? "").trim();
   const page = input?.page;
-  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files"].includes(page)) {
+  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files", "workspace"].includes(page)) {
     throw new Error("A workspace and valid project page are required to open a new window.");
   }
-  const path = page === "home" || page === "files" ? "project" : page;
-  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
+  const path = page === "workspace" ? "session" : page === "home" || page === "files" ? "project" : page;
+  const seed = typeof input.seed === "string" && /^[\w-]{1,80}$/.test(input.seed) ? `&seed=${encodeURIComponent(input.seed)}` : "";
+  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "workspace" ? "&view=workspace" : ""}${page === "files" ? "&panel=files" : ""}${seed}`;
   return openAppWindow(event, route, input.title);
 }
 

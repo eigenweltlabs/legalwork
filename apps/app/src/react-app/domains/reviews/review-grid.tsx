@@ -13,13 +13,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { requestPanelTab } from "../session/panel/panel-tab-request";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { classifyOpenTarget } from "../session/artifacts/open-target";
 import { ReviewError, ReviewStatus, ReviewProbabilities, reviewCellError, reviewAnswer, reviewResultReason } from "./review-ui";
 
 const recognizable = (document: ReviewDocument) => !!document.preparationPath && /\.(pdf|png|jpe?g|webp)$/i.test(document.path);
 /** Opens the recognized pages; without a page, the first one that needs review. */
-const openRecognition = (review: SavedReview, document: ReviewDocument) => requestPanelTab({ id: `review-recognition:${review.id}:${document.id}`, type: "artifact",
+const recognitionTab = (review: SavedReview, document: ReviewDocument): import("../session/panel/panel-tab-store").ArtifactPanelTab => ({ id: `review-recognition:${review.id}:${document.id}`, type: "artifact",
   label: t("review.recognition_tab", { name: document.name }), value: document.path, preview: classifyOpenTarget(document.path, "file"), reviewRecognition: { reviewId: review.id, documentId: document.id } });
 
 export function ReviewGrid({ review, onSelect, selected, onEdit, onSave, onColumns, onAdd, busy, selectedDocuments, onSelectDocuments }: {
@@ -28,6 +28,7 @@ export function ReviewGrid({ review, onSelect, selected, onEdit, onSave, onColum
   onColumns: (columns: ReviewColumn[]) => void; onAdd: (source: "new" | "library") => void; busy: boolean;
   selectedDocuments: string[]; onSelectDocuments: (ids: string[]) => void;
 }) {
+  const requestPanelTab = useRequestPanelTab();
   const scroll = useRef<HTMLDivElement>(null);
   const cells = useMemo(() => new Map(review.cells.map(cell => [`${cell.documentId}:${cell.columnKey}`, cell])), [review.cells]);
   const allSelected = review.documents.length > 0 && review.documents.every(document => selectedDocuments.includes(document.id));
@@ -95,7 +96,7 @@ export function ReviewGrid({ review, onSelect, selected, onEdit, onSave, onColum
           <TableCell aria-colindex={1} className="sticky left-0 z-20 w-64 min-w-64 max-w-64 border-b border-r bg-background px-3 py-0 group-data-[state=selected]:bg-muted [&:has([role=checkbox])]:pe-3">
             <div className="flex h-11 items-center gap-3"><Checkbox aria-label={t("review.select_document", { name: document.name })} checked={selectedDocuments.includes(document.id)} onCheckedChange={checked => onSelectDocuments(checked ? [...selectedDocuments, document.id] : selectedDocuments.filter(id => id !== document.id))} />
               <button className="flex min-w-0 flex-1 items-center gap-2 text-left hover:underline" title={document.error || document.name} onClick={() => requestPanelTab({ id: `review-document:${review.id}:${document.id}`, type: "artifact", label: document.name, value: document.path, preview: classifyOpenTarget(document.path, "file") })}><FileText className="size-3.5 shrink-0 text-muted-foreground" /><span className="min-w-0"><span className="block truncate">{document.name}</span>{document.status === "preparing" && <span className="block truncate text-[10px] text-muted-foreground">{t("review.pages", { done: document.completedPages, total: document.pageCount })}</span>}{document.error ? <span className="block truncate text-[10px] text-warning">{document.error}</span> : document.status === "needs_review" && <span className="block truncate text-[10px] text-warning">{t("review.document_needs_review")}</span>}</span></button>
-              {recognizable(document) && <Button variant="ghost" size="icon-sm" className={cn("shrink-0", document.status === "needs_review" ? "text-warning" : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100")} aria-label={t("review.recognized_text")} title={t("review.recognized_text")} onClick={() => openRecognition(review, document)}><ScanText className="size-3.5" /></Button>}
+              {recognizable(document) && <Button variant="ghost" size="icon-sm" className={cn("shrink-0", document.status === "needs_review" ? "text-warning" : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100")} aria-label={t("review.recognized_text")} title={t("review.recognized_text")} onClick={() => requestPanelTab(recognitionTab(review, document))}><ScanText className="size-3.5" /></Button>}
             </div>
           </TableCell>
           {left > 0 && <TableCell aria-hidden="true" className="border-b p-0" style={{ width: left }} />}
@@ -115,6 +116,7 @@ export function ReviewGrid({ review, onSelect, selected, onEdit, onSave, onColum
 }
 
 export function ReviewCellDetail({ client, workspaceId, review, cell, onClose, onRerun, onNavigate, busy }: { client: LegalworkServerClient; workspaceId: string; review: SavedReview; cell: ReviewCell; onClose: () => void; onRerun: () => void; onNavigate: (cell: ReviewCell) => void; busy: boolean }) {
+  const requestPanelTab = useRequestPanelTab();
   const [error, setError] = useState<unknown>(null);
   const [opening, setOpening] = useState(false);
   const document = review.documents.find(item => item.id === cell.documentId)!;
@@ -139,7 +141,7 @@ export function ReviewCellDetail({ client, workspaceId, review, cell, onClose, o
     {excluded ? <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">{t("review.jev_excluded_reason")}</p> : <ReviewStatus status={cell.status} />}<ReviewError error={error || (!excluded && reviewCellError(cell))} />
     {result && <div className="mt-5 space-y-5"><div><p className="whitespace-pre-wrap text-base leading-relaxed">{reviewAnswer(result)}</p>{reviewResultReason(result) && <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{reviewResultReason(result)}</p>}</div>
       {result.decision && <div className="rounded-xl border p-3"><ReviewProbabilities result={result} /></div>}
-      <section className="space-y-3"><h4 className="text-xs font-medium text-muted-foreground">{t("review.sources")}</h4>{result.citations.length ? result.citations.map((citation, index) => <button key={index} type="button" disabled={opening} onClick={() => void openSource(citation.page, index)} className="w-full rounded-xl border p-3 text-left transition-colors hover:bg-muted/30"><p className="text-xs font-medium">{citation.page ? t("review.page", { page: citation.page }) : t("review.unpaginated")}{citation.source === "ocr" ? " · OCR" : ""}</p><blockquote className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{citation.quote}</blockquote></button>) : <p className="text-xs leading-relaxed text-muted-foreground">{t("review.no_citations")}</p>}<div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={opening} onClick={() => void openSource()}><FileText className="size-4" />{t("review.open_source")}</Button>{recognizable(document) && <Button variant="outline" size="sm" onClick={() => openRecognition(review, document)}><ScanText className="size-4" />{t("review.recognized_text")}</Button>}</div></section>
+      <section className="space-y-3"><h4 className="text-xs font-medium text-muted-foreground">{t("review.sources")}</h4>{result.citations.length ? result.citations.map((citation, index) => <button key={index} type="button" disabled={opening} onClick={() => void openSource(citation.page, index)} className="w-full rounded-xl border p-3 text-left transition-colors hover:bg-muted/30"><p className="text-xs font-medium">{citation.page ? t("review.page", { page: citation.page }) : t("review.unpaginated")}{citation.source === "ocr" ? " · OCR" : ""}</p><blockquote className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{citation.quote}</blockquote></button>) : <p className="text-xs leading-relaxed text-muted-foreground">{t("review.no_citations")}</p>}<div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={opening} onClick={() => void openSource()}><FileText className="size-4" />{t("review.open_source")}</Button>{recognizable(document) && <Button variant="outline" size="sm" onClick={() => requestPanelTab(recognitionTab(review, document))}><ScanText className="size-4" />{t("review.recognized_text")}</Button>}</div></section>
       <details className="border-t pt-4 text-xs"><summary className="cursor-pointer text-muted-foreground">{t("review.provenance")}</summary><div className="mt-3 space-y-3 text-muted-foreground"><p>{result.backend === "systemone" ? "JEV" : "LLM"} · {result.model}</p>{result.confidence && <p>{t("review.confidence")}: {t(result.confidence === "high" ? "review.high" : result.confidence === "medium" ? "review.medium" : "review.low")}</p>}<p className="font-medium">{t("review.snapshot")}</p><p className="whitespace-pre-wrap leading-relaxed">{result.prompt.question}</p>{result.prompt.options.length > 0 && <p>{result.prompt.options.join(" · ")}</p>}<p>{new Date(result.completedAt).toLocaleString(currentLocale())}</p></div></details>
     </div>}
     <Button variant="outline" size="sm" className="mt-6 w-full" disabled={busy || excluded} onClick={onRerun}><RotateCcw className="size-3.5" />{t("review.rerun_cell")}</Button>

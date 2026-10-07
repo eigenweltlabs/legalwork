@@ -1,4 +1,4 @@
-import { requestPanelTab } from "../session/panel/panel-tab-request";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { reviewActionLabel, reviewModeLabel, reviewStatusLabel } from "./review-labels";
 import { useDeferredValue, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,13 +35,14 @@ function exportReview(review: SavedReview) {
   const url = URL.createObjectURL(new Blob(["\uFEFF", rows.map(row => row.map(csv).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = `${review.name.replace(/[/\\:*?"<>|]/g, "-")}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, onOpenReview, onClose, onTitleChange }: {
+export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, overview, onClose, onTitleChange }: {
   client: LegalworkServerClient; workspaceId: string; projectName: string; onOpenSession: (sessionId: string) => void;
-  reviewId?: string; onOpenReview?: (reviewId: string, label: string) => void; onClose?: () => void; onTitleChange?: (title: string) => void;
+  reviewId?: string; overview?: boolean; onClose?: () => void; onTitleChange?: (title: string) => void;
 }) {
+  const requestPanelTab = useRequestPanelTab();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const reviewId = tabReviewId ?? searchParams.get("review");
+  const reviewId = tabReviewId ?? (overview ? null : searchParams.get("review"));
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState(emptyReviewFilters);
   const deferredFilters = useDeferredValue(filters);
@@ -56,8 +57,10 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   useEffect(() => { if (review) onTitleChange?.(review.name); }, [review?.name, onTitleChange]);
   useEffect(() => {
     const linkedId = searchParams.get("review");
-    if (!tabReviewId && linkedId && onOpenReview) onOpenReview(linkedId, t("projects.tab_review"));
-  }, [tabReviewId, searchParams, onOpenReview]);
+    if (!overview || !linkedId) return;
+    requestPanelTab({ id: `review:${linkedId}`, type: "review", reviewId: linkedId, label: t("projects.tab_review") });
+    setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("review"); return next; }, { replace: true });
+  }, [overview, searchParams, requestPanelTab, setSearchParams]);
   const filterQuery = review ? reviewFilterQuery(review, deferredFilters) : { input: undefined, error: undefined };
   const rows = useQuery({ queryKey: ["review-rows", workspaceId, reviewId, review?.revision, filterQuery.input],
     queryFn: () => client.queryReviewRows(workspaceId, reviewId!, filterQuery.input!), enabled: !!review && !!filterQuery.input,
@@ -89,8 +92,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const openReview = (id?: string) => {
     if (id) {
       const label = listing.data?.reviews.find(review => review.id === id)?.name ?? t("projects.tab_review");
-      if (onOpenReview) { onOpenReview(id, label); return; }
-      if (tabReviewId) { requestPanelTab({ id: `review:${id}`, type: "review", reviewId: id, label }); return; }
+      if (overview || tabReviewId) { requestPanelTab({ id: `review:${id}`, type: "review", reviewId: id, label }); return; }
     } else if (tabReviewId) { onClose?.(); return; }
     setSelected(null);
     setSelectedDocuments([]);

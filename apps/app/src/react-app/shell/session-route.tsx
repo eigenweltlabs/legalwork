@@ -1,3 +1,6 @@
+import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import type { QueueInput } from "@legalwork/types/session-queue";
+import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import { CalendarView } from "../domains/calendar/calendar-view";
 import { workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
@@ -126,7 +129,7 @@ import {
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
-import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
+import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
@@ -1397,7 +1400,7 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => {
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution"> }) => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1423,12 +1426,18 @@ export function SessionRoute() {
         });
         markTaskRunStart(targetSessionId);
 
+        const enqueue = async (execution: QueueInput["execution"]) => {
+          if (!options?.queue || !selectedWorkspaceEndpoint) throw new Error(t("session.loading_detail"));
+          await selectedWorkspaceEndpoint.client.updateSessionMessageQueue(selectedWorkspaceEndpoint.workspaceId, targetSessionId, { type: "enqueue", ...options.queue, execution });
+        };
         if (draft.mode === "shell") {
+          if (options?.queue) { await enqueue({ kind: "shell", command: text }); return; }
           await shellInSession(opencodeClient, targetSessionId, text);
           return;
         }
 
         if (draft.command) {
+          if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, arguments: draft.command.arguments, model: `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined }); return; }
           const result = await opencodeClient.session.command({
             sessionID: targetSessionId,
             command: draft.command.name,
@@ -1454,6 +1463,15 @@ export function SessionRoute() {
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
 
+        if (options?.queue) {
+          let system = turnSystemContext;
+          if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId) && fusionModels.length) {
+            const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
+            system = [system, trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n");
+          }
+          await enqueue({ kind: "prompt", parts, model: local.prefs.defaultModel, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined, system: system || undefined });
+          return;
+        }
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
           const candidateModels = getFusionSelectedModels(targetSessionId);
           if (candidateModels.length === 0) {
@@ -2513,8 +2531,8 @@ export function SessionRoute() {
         } finally { recordingSessionStarting.current = false; }
       }}
       projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
-      projectTasksView={
-        <TasksPane embedded={location.pathname.endsWith("/project")} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} openTask={openTask} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+      projectTasksView={embedded =>
+        <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} openTask={openTask} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
       onStartProjectRecording={() => {
         const recorder = useRecorderStore.getState();
@@ -2610,6 +2628,11 @@ export function SessionRoute() {
             workspaces={sidebarWorkspaces}
             defaultModel={local.prefs.defaultModel}
             openTask={openTask}
+            onOpenInProject={(projectId, task) => {
+              const panels = usePanelTabStore.getState();
+              panels.openTab(workspacePanelKey(projectId), { id: `task:${task.id}`, type: "task", taskId: task.id, label: task.title });
+              setShowTasks(false); navigate(workspaceSessionRoute(projectId) + "?view=workspace");
+            }}
             onOpenSession={(workspaceId, sessionId) => {
               setShowTasks(false);
               writeActiveWorkspaceId(workspaceId || null);

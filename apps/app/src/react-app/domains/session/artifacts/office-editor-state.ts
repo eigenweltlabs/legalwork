@@ -7,12 +7,14 @@ export type OfficeEditorApi = {
   save: () => Promise<boolean>;
   drain: () => Promise<void>;
   getBuffer: () => Promise<ArrayBuffer | null>;
+  revision: () => number;
   executeAgentTool: (toolName: string, args: Record<string, unknown>) => Promise<OfficeAgentResult>;
 };
 export type OfficeEditorProps = {
   name: string;
   content: ArrayBuffer;
   readOnly?: boolean;
+  interactionLocked?: boolean;
   onSave: (buffer: ArrayBuffer) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange?: (saving: boolean) => void;
@@ -61,6 +63,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
       } finally { finish(); setSaving(false); latest.current.onSavingChange?.(false); }
     };
     const executeAgentTool = async (toolName: string, args: Record<string, unknown>): Promise<OfficeAgentResult> => {
+      if (latest.current.interactionLocked) return { success: false, error: t("office_editor.read_only") };
       if (toolName === "save") {
         try { const saved = await save(); return { success: saved, saved, ...(!saved ? { error: t("office_editor.not_ready") } : {}) }; }
         catch (cause) { return { success: false, saved: false, error: cause instanceof Error ? cause.message : t("office_editor.save_failed") }; }
@@ -94,12 +97,13 @@ export function useOfficeEditor(props: OfficeEditorProps) {
         if (!reading) { setSaving(false); latest.current.onSavingChange?.(false); }
       }
     };
-    const api = { save, getBuffer, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
+    const api = { save, getBuffer, revision: () => revision.current, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
     props.apiRef.current = api;
     const element = host.current;
     const keydown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault(); event.stopImmediatePropagation();
+        if (latest.current.interactionLocked) return;
         void save().then((ok) => { if (ok) toast.success(t("artifact.saved")); }).catch((cause: unknown) => toast.error(cause instanceof Error ? cause.message : t("office_editor.save_failed_edits_kept")));
       }
     };

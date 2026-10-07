@@ -1,4 +1,5 @@
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
+export { storageFileSourceSchema } from "@legalwork/types/file-storage";
 import { classifyOpenTarget } from "../artifacts/open-target";
 import type { ArtifactPanelTab } from "./panel-tab-store";
 
@@ -7,6 +8,7 @@ export type StorageFileSource = {
   root: StorageRoot;
   file: StorageEntry;
 };
+
 
 export function storageFileTab(workspaceId: string, root: StorageRoot, file: StorageEntry): ArtifactPanelTab {
   return {

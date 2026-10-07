@@ -194,6 +194,21 @@ export type StorageEntry = {
   /** The version a conditional write names, when the provider lists it. */
   version?: string;
 };
+// Window navigation transfers retain the source connection, never just its
+// temporary local working path (which would lose read-only/publish semantics).
+export const storageFileSourceSchema = z.object({
+  workspaceId: z.string(),
+  root: z.object({
+    id: z.string(), name: z.string(), writable: z.boolean(),
+    kind: z.enum(["oauth", "smb", "webdav", "s3", "azure", "gcs", "sftp", "ftp", "linked"]),
+    revision: z.string().optional(), sourceConnectionId: z.string().optional(),
+  }),
+  file: z.object({
+    path: z.string(), name: z.string(), kind: z.enum(["file", "folder"]),
+    size: z.number().nullable(), modifiedAt: z.string().nullable(), version: z.string().optional(),
+  }),
+});
+
 export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
 export const storageTransferSchema = z.object({
   path: z.string().min(1).max(4096),

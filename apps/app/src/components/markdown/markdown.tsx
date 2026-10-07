@@ -1,3 +1,4 @@
+import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 /** @jsxImportSource react */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
@@ -31,7 +32,7 @@ import {
   parseLegalMemoryRef,
 } from "./legalmemory-ref";
 import { t } from "@/i18n";
-import { parseTaskLink, requestOpenTask } from "@/react-app/domains/tasks/task-reference";
+import { parseTaskLink } from "@/react-app/domains/tasks/task-reference";
 
 function escapeHtml(value: string) {
   return value
@@ -379,6 +380,7 @@ function MarkdownBlockInner({
   highlightQuery,
   ...props
 }: MarkdownBlockInnerProps) {
+  const requestOpenTask = useRequestOpenTask();
   const rootRef = useRef<HTMLDivElement>(null);
   const { openTargets, onOpenTarget } = useOpenTargets();
   const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; rect: DOMRect } | null>(null);

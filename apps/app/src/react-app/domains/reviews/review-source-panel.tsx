@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { ArtifactFrame } from "../session/artifacts/artifact-frame";
 import { ImagePreview, PreviewLoading } from "../session/artifacts/preview";
-import { requestPanelTab } from "../session/panel/panel-tab-request";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { classifyOpenTarget } from "../session/artifacts/open-target";
 import { ReviewError } from "./review-ui";
 
@@ -55,6 +55,7 @@ export function TableCells({ table }: { table: DocumentTable }) {
 export function ReviewSourcePanel({ client, workspaceId, citation, name, onClose }: {
   client: LegalworkServerClient; workspaceId: string; citation: ReviewSourceReference; name: string; onClose: () => void;
 }) {
+  const requestPanelTab = useRequestPanelTab();
   const [page, setPage] = useState<number>();
   const [layout, setLayout] = useState(false);
   const [selectedRegionId, setSelectedRegionId] = useState<string>();

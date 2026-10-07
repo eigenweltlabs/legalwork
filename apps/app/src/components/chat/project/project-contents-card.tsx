@@ -1,3 +1,4 @@
+import { useRequestPanelTab, useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
@@ -8,8 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { useMessageList } from "../message-list-provider";
-import { requestOpenTask } from "@/react-app/domains/tasks/task-reference";
-import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { classifyOpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
@@ -39,6 +38,8 @@ export function ProjectContentsTool({ part }: { part: ToolUIPart | DynamicToolUI
 }
 
 export function ProjectContentsCard({ contents }: { contents: ProjectContents }) {
+  const requestPanelTab = useRequestPanelTab();
+  const requestOpenTask = useRequestOpenTask();
   const { legalworkClient, workspaceId } = useMessageList();
   const navigate = useNavigate();
   const [pages, setPages] = useState<Partial<Record<ProjectContentKind, ProjectContentSection>>>({});

@@ -1,9 +1,9 @@
+import { useRequestPanelTab } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { projectErrorMessage } from "./project-errors";
 import { useState } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { requestPanelTab } from "../session/panel/panel-tab-request";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ export function ProjectNoteDialog(props: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const requestPanelTab = useRequestPanelTab();
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

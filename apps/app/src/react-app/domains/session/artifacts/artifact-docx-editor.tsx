@@ -41,7 +41,9 @@ export type DocxEditorApi = {
   /** Serialize the live draft without writing to the workspace or clearing its dirty state. */
   getBuffer: () => Promise<ArrayBuffer | null>;
   executeAgentTool: (toolName: string, args: Record<string, unknown>) => Promise<DocxEditorToolResult>;
-  discardRecovery: () => void;
+  discardRecovery: () => Promise<void>;
+  revision: () => number;
+  isDirty: () => boolean;
 };
 
 export type DocxEditorToolResult = {
@@ -342,7 +344,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
 
   useEffect(() => {
     if (!apiRef) return;
-    apiRef.current = { save, getBuffer,
+    apiRef.current = { save, getBuffer, revision: () => { checkDocument(); return revision.current; }, isDirty: () => { checkDocument(); return dirty.current; },
       flushSave: async () => {
         if (pendingSave.current && !await pendingSave.current) return false;
         checkDocument();
@@ -380,10 +382,11 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         if (!saved) return { success: false, error: t("docx.changed_not_saved") };
         return { ...result, saved: true };
       },
-    discardRecovery: () => {
+    discardRecovery: async () => {
+      await checkpointWork.current;
+      if (recoveryKey) await removeDocxRecovery(recoveryKey);
       dirty.current = false;
       onDirtyChange?.(false);
-      if (recoveryKey) void removeDocxRecovery(recoveryKey).catch(() => toast.error(t("docx.recovery_not_cleared")));
     } };
     return () => { apiRef.current = null; };
   }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly, interactionLocked, checkDocument]);

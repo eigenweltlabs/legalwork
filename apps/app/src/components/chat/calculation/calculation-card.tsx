@@ -1,3 +1,4 @@
+import { useRequestPanelTab } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { getToolName, type ToolUIPart, type DynamicToolUIPart } from "ai";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -5,7 +6,6 @@ import { CalculationCardSchema, type CalculationPresentation } from "@legalwork/
 import { CalculationSheet } from "./calculation-sheet";
 import { t } from "@/i18n";
 import { useMessageList } from "../message-list-provider";
-import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 
 export function isCalculationTool(part: ToolUIPart | DynamicToolUIPart) { return getToolName(part) === "legalwork_calculation_present"; }
 export function parseCalculationCard(output: unknown) {
@@ -24,6 +24,7 @@ export function CalculationToolCard({ part }: { part: ToolUIPart | DynamicToolUI
 }
 
 function CalculationCard({ initial }: { initial: Pick<CalculationPresentation, "id" | "workspaceId" | "title"> }) {
+  const requestPanelTab = useRequestPanelTab();
   const { legalworkClient, workspaceId, setPrompt } = useMessageList();
   const cache = useQueryClient();
   const key = ["calculation-presentation", workspaceId, initial.id];

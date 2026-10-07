@@ -1,5 +1,7 @@
-export type DocumentAccess = "checking" | "reader" | "requesting" | "owner" | "releasing" | "unavailable";
-type Message = { type: "request" | "denied" | "saved" | "released"; sender: string; recipient?: string };
+export type DocumentAccess = "checking" | "reader" | "requesting" | "owner" | "offering" | "releasing" | "unavailable";
+export type HandoffChoice = "save" | "discard" | "cancel";
+type Message = { type: "request" | "offer" | "decision" | "cancel" | "denied" | "saved" | "released"; sender: string; recipient?: string; choice?: HandoffChoice };
+
 
 type Options = {
   key: string;
@@ -8,6 +10,11 @@ type Options = {
   changed: (access: DocumentAccess) => void;
   acquire: () => Promise<void>;
   flush: () => Promise<boolean>;
+  dirty: () => boolean;
+  revision: () => string | number;
+  discard: () => Promise<void>;
+  decide: () => Promise<HandoffChoice>;
+  cancelDecision: () => void;
   drain: () => Promise<void>;
   refresh: () => void;
   failed: (error?: unknown) => void;
@@ -29,12 +36,18 @@ export function createDocumentOwnership(options: Options) {
   let transfer: Promise<void> | null = null;
   let lockOperation: Promise<unknown> = Promise.resolve();
   let disposal: Promise<void> | null = null;
+  let offeredTo: string | null = null;
+  let offeredRevision: string | number | null = null;
+  let offerTimeout: ReturnType<typeof setTimeout> | null = null;
+  let cancelled = false;
+  const clearOffer = () => { offeredTo = null; if (offerTimeout) clearTimeout(offerTimeout); offerTimeout = null; };
   const set = (next: DocumentAccess) => { access = next; if (!disposed) options.changed(next); };
-  const send = (type: Message["type"], recipient?: string) => options.channel.postMessage({ type, sender: id, recipient } satisfies Message);
+  const send = (type: Message["type"], recipient?: string, choice?: HandoffChoice) => options.channel.postMessage({ type, sender: id, recipient, choice } satisfies Message);
   const clearTimeoutRequest = () => { if (timeout) clearTimeout(timeout); timeout = null; };
 
   const take = async (initial: boolean) => {
     if (disposed || request || release) return;
+    cancelled = false;
     const controller = new AbortController();
     request = controller;
     if (!initial) set("requesting");
@@ -62,35 +75,74 @@ export function createDocumentOwnership(options: Options) {
       }
       await held;
     } catch (error) {
-      if (!disposed) { set(initial ? "unavailable" : "reader"); options.failed(error); }
+      if (!disposed) { set(initial ? "unavailable" : "reader"); if (!cancelled) options.failed(error); options.cancelDecision(); }
     } finally {
       if (request === controller) request = null;
       clearTimeoutRequest();
     }
   };
 
+  const handoff = (requester: string, choice: "save" | "discard") => {
+    const revision = offeredRevision;
+    clearOffer();
+    set("releasing");
+    transfer = (async () => {
+      try {
+        await options.drain();
+        if (revision !== null && options.revision() !== revision) throw new Error("Document changed while handoff was pending. Please try again.");
+        if (choice === "discard") await options.discard();
+        else if (!await options.flush()) throw new Error("Document could not be saved before handoff.");
+        if (options.dirty()) throw new Error("Document changed during handoff.");
+        set("reader");
+        release?.();
+        send("released");
+        options.refresh();
+      } catch (error) {
+        set("owner");
+        send("denied", requester);
+        if (!disposed) options.failed(error);
+      }
+    })();
+  };
   const receive = (event: MessageEvent<unknown>) => {
     const message = event.data;
     if (!message || typeof message !== "object" || !("type" in message) || !("sender" in message) || typeof message.sender !== "string" || message.sender === id) return;
+    const addressed = "recipient" in message && message.recipient === id;
     if (message.type === "saved" || message.type === "released") {
       if (access === "reader") options.refresh();
-    } else if (message.type === "denied" && "recipient" in message && message.recipient === id) {
+    } else if (message.type === "denied" && addressed) {
+      options.cancelDecision();
       request?.abort();
+    } else if (message.type === "offer" && addressed && access === "requesting" && request) {
+      // The owner is temporarily frozen, including autosave. The choice cannot
+      // apply to a different draft typed while the requester is reading it.
+      clearTimeoutRequest();
+      const owner = message.sender;
+      const current = request;
+      void options.decide().then(choice => {
+        if (disposed || request !== current || current.signal.aborted) return;
+        if (choice === "cancel") { cancelled = true; send("cancel", owner); current.abort(); }
+        else { send("decision", owner, choice); timeout = setTimeout(() => current.abort(), 30_000); }
+      });
+    } else if (message.type === "cancel" && offeredTo === message.sender) {
+      clearOffer(); set("owner");
+    } else if (message.type === "decision" && addressed && offeredTo === message.sender && access === "offering") {
+      if ("choice" in message && (message.choice === "save" || message.choice === "discard")) handoff(message.sender, message.choice);
     } else if (message.type === "request" && release) {
       if (access !== "owner") { send("denied", message.sender); return; }
       const requester = message.sender;
-      set("releasing");
+      // Freeze before draining an in-flight autosave and inspecting dirty state.
+      set("offering");
+      offeredTo = requester;
       transfer = (async () => {
         try {
-          if (!await options.flush()) throw new Error("Document could not be saved before handoff.");
-          set("reader");
-          release?.();
-          send("released");
-        } catch (error) {
-          set("owner");
-          send("denied", requester);
-          if (!disposed) options.failed(error);
-        }
+          await options.drain();
+          if (disposed || offeredTo !== requester) return;
+          offeredRevision = options.revision();
+          if (!options.dirty()) { handoff(requester, "save"); return; }
+          send("offer", requester);
+          offerTimeout = setTimeout(() => { clearOffer(); set("owner"); send("denied", requester); }, 120_000);
+        } catch (error) { clearOffer(); set("owner"); send("denied", requester); options.failed(error); }
       })();
     }
   };
@@ -98,11 +150,15 @@ export function createDocumentOwnership(options: Options) {
   void take(true);
   return {
     request: () => { if (access === "reader" || access === "unavailable") void take(false); },
-    canWrite: () => !disposed && (access === "owner" || access === "releasing"),
+    canWrite: () => !disposed && (access === "owner" || access === "offering" || access === "releasing"),
     saved: () => { if (!disposed) send("saved"); },
     dispose: () => {
       if (disposal) return disposal;
       disposed = true;
+      if (offeredTo) send("denied", offeredTo);
+      if (access === "requesting") send("cancel");
+      clearOffer();
+      options.cancelDecision();
       request?.abort();
       clearTimeoutRequest();
       options.channel.removeEventListener("message", receive);

@@ -1,3 +1,4 @@
+import type { QueueInput } from "@legalwork/types/session-queue";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
@@ -103,7 +104,7 @@ import { SessionScrollOverlay } from "./scroll-overlay";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "@/react-app/domains/session/status/session-activity-store";
 import { PermissionApprovalPanel } from "@/react-app/domains/session/chat/permission-approval-modal";
 import { QuestionPanel } from "@/react-app/domains/session/modals/question-modal";
-import { ensureSessionMessageQueue } from "./session-message-queue";
+import { useSessionMessageQueue } from "./use-session-message-queue";
 import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-messages-panel";
 import { deriveOpenTargets, resolvePathOpenTarget, selectAutoOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
@@ -181,7 +182,7 @@ export type SessionSurfaceProps = {
   aiPlansGate?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
-  onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => void | Promise<void>;
+  onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution"> }) => void | Promise<void>;
   onDraftChange: (draft: ComposerDraft) => void;
   attachmentsEnabled: boolean;
   attachmentsDisabledReason: string | null;
@@ -599,6 +600,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // id. That keeps a queued message in session A from being drained into
   // session B when the route swaps the same surface component to another
   // session.
+  const sharedQueue = useSessionMessageQueue(props.client, props.workspaceId, props.sessionId);
+  const [queueSaving, setQueueSaving] = useState(false);
+  const queueSubmitting = useRef(false);
   const queuedDrafts = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
   const editingQueuedDraftId = useComposerStateStore((state) => state.sessions[props.sessionId]?.queuedDraftId);
   const officeAddinRuntime = isOfficeAddinRuntime();
@@ -723,9 +727,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.workspaceRoot,
     refetchOfficeRecorder,
   ]);
-  const appendQueuedDraft = useComposerStateStore((state) => state.appendQueuedDraft);
   const removeQueuedDraftFromStore = useComposerStateStore((state) => state.removeQueuedDraft);
-  const setQueuePaused = useComposerStateStore((state) => state.setQueuePaused);
   const queuePaused = useComposerStateStore((state) => Boolean(state.pausedQueues[props.sessionId]));
   const [error, setError] = useState<SessionError | null>(null);
   const [sending, setSending] = useState(false);
@@ -1140,94 +1142,41 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.onDraftChange(buildDraft("", []));
   }, [buildDraft, clearComposerSession, props.onDraftChange, props.sessionId]);
 
-  const startQueue = useCallback(() => {
-    // Capture this session's transport before navigation can select another project.
-    const sessionId = props.sessionId;
-    ensureSessionMessageQueue({
-      workspaceId: props.workspaceId,
-      sessionId,
-      baseUrl: props.opencodeBaseUrl,
-      legalworkToken: props.legalworkToken,
-      client: opencodeClient,
-      send: async (item) => { await props.onSendDraft(item, sessionId, { waitForCompletion: true }); },
-    });
-  }, [props.workspaceId, props.sessionId, props.opencodeBaseUrl, props.legalworkToken, props.onSendDraft, opencodeClient]);
-
-  const handleQueue = useCallback(() => {
+  const queueFailure = (error: unknown) => toast.error(t("composer.queue_failed"), { description: error instanceof Error ? error.message : String(error) });
+  const handleQueue = async () => {
     const text = draft.trim();
-    if (!text && attachments.length === 0) return;
-    const original = queuedDrafts.find((item) => item.id === editingQueuedDraftId);
-    original?.attachments.filter((item) => !attachments.some((next) => next.previewUrl === item.previewUrl)).forEach(revokeAttachmentPreview);
-    appendQueuedDraft(props.sessionId, buildDraft(text, attachments));
-    clearComposer();
-    startQueue();
-  }, [appendQueuedDraft, attachments, buildDraft, clearComposer, draft, props.sessionId, startQueue, queuedDrafts, editingQueuedDraftId]);
-
-  const handleSend = useCallback(async () => {
-    // Include the shared run status: prompt acceptance and SSE can cross in flight.
-    const activity = useSessionActivityStore.getState().getStatus(props.workspaceId, props.sessionId);
-    if (chatStreaming || !["idle", "error"].includes(activity) || queuedDrafts.length > 0) {
-      handleQueue();
-      return;
-    }
-    const text = draft.trim();
-    if (!text && attachments.length === 0) return;
-    const nextDraft = buildDraft(text, attachments);
+    if ((!text && attachments.length === 0) || queueSubmitting.current) return;
+    queueSubmitting.current = true; setQueueSaving(true);
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
-    setQueuePaused(props.sessionId, false);
-    clearComposer();
     try {
-      await sendDraft(nextDraft, attachments);
-    } catch {
-      // Keep a failed send available without replacing text typed in the meantime.
-      const state = useComposerStateStore.getState();
-      const current = state.sessions[props.sessionId];
-      if (!current?.draft && !current?.attachments.length && editor) {
-        useComposerStateStore.setState({ sessions: { ...state.sessions, [props.sessionId]: editor } });
-      } else {
-        appendQueuedDraft(props.sessionId, nextDraft, editor);
-        setQueuePaused(props.sessionId, true);
-        startQueue();
+      await sharedQueue.enqueue(buildDraft(text, attachments), async queue => { await props.onSendDraft(buildDraft(text, attachments), props.sessionId, { queue }); });
+      // Typing during the request must not be cleared by its acknowledgement.
+      if (useComposerStateStore.getState().sessions[props.sessionId] === editor) clearComposer();
+      else if (editor?.queuedDraftId) {
+        // The submitted edit is complete. Preserve anything typed meanwhile as
+        // this window's new draft, without retaining an expired queue lease.
+        useComposerStateStore.setState(state => {
+          const current = state.sessions[props.sessionId];
+          if (!current || current.queuedDraftId !== editor.queuedDraftId) return state;
+          return { sessions: { ...state.sessions, [props.sessionId]: { ...current, queuedDraftId: undefined } } };
+        });
       }
-    }
-  }, [attachments, buildDraft, chatStreaming, clearComposer, draft, handleQueue, props.sessionId, props.workspaceId, queuedDrafts.length, sendDraft, appendQueuedDraft, setQueuePaused, startQueue]);
-
-  const removeQueuedDraft = useCallback((id: string) => {
-    const state = useComposerStateStore.getState();
-    const item = state.queuedDrafts[props.sessionId]?.find((entry) => entry.id === id);
-    if (state.sessions[props.sessionId]?.queuedDraftId === id) {
-      state.sessions[props.sessionId]?.attachments.forEach(revokeAttachmentPreview);
-    }
-    removeQueuedDraftFromStore(props.sessionId, id);
-    item?.attachments.forEach(revokeAttachmentPreview);
-  }, [props.sessionId, removeQueuedDraftFromStore]);
-
-  const editQueuedDraft = useCallback((id: string) => {
-    useComposerStateStore.getState().editQueuedDraft(props.sessionId, id);
-    window.dispatchEvent(new Event("legalwork:focusPrompt"));
-  }, [props.sessionId]);
-
-  const cancelQueuedEdit = useCallback(() => {
-    const original = queuedDrafts.find((item) => item.id === editingQueuedDraftId);
-    attachments.filter((item) => !original?.attachments.some((previous) => previous.previewUrl === item.previewUrl)).forEach(revokeAttachmentPreview);
-    clearComposer();
-  }, [attachments, clearComposer, editingQueuedDraftId, queuedDrafts]);
-
-  const reorderQueuedDrafts = useCallback((ids: string[]) => {
-    useComposerStateStore.getState().reorderQueuedDrafts(props.sessionId, ids);
-  }, [props.sessionId]);
-
-  const resumeQueue = useCallback(() => {
-    useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
-    setQueuePaused(props.sessionId, false);
-    startQueue();
-  }, [props.workspaceId, props.sessionId, setQueuePaused, startQueue]);
+      appendComposerHistory(props.sessionId, text);
+    } catch (error) { queueFailure(error); }
+    finally { queueSubmitting.current = false; setQueueSaving(false); }
+  };
+  const handleSend = handleQueue;
+  const removeQueuedDraft = (id: string) => { void sharedQueue.remove(id).catch(queueFailure); };
+  const editQueuedDraft = (id: string) => { void sharedQueue.edit(id).then(() => window.dispatchEvent(new Event("legalwork:focusPrompt"))).catch(queueFailure); };
+  const cancelQueuedEdit = () => { void sharedQueue.cancelEdit().then(clearComposer).catch(queueFailure); };
+  const reorderQueuedDrafts = (ids: string[]) => { void sharedQueue.reorder(ids).catch(queueFailure); };
+  const resumeQueue = () => { void sharedQueue.pause(false).then(() => useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId)).catch(queueFailure); };
 
   const handleAbort = useCallback(async () => {
     if (!chatStreaming) return;
     setError(null);
     // Pause first so the next queued message cannot restart an aborted turn.
-    setQueuePaused(props.sessionId, true);
+    try { await sharedQueue.pause(true); } catch (error) { queueFailure(error); return; }
     // The prompt was sent through a directory-scoped client (session-route
     // passes the workspace root), so the abort must target the same scope —
     // without it the server resolves the default project, finds no live run,
@@ -1269,7 +1218,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       { duration_ms: runStartedAt === null ? null : Date.now() - runStartedAt },
       { refresh: false },
     );
-  }, [chatStreaming, setQueuePaused, opencodeClient, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch, statusQueryKey, queryClient]);
+  }, [chatStreaming, sharedQueue, opencodeClient, props.sessionId, props.workspaceId, props.workspaceRoot, snapshotQuery.refetch, statusQueryKey, queryClient]);
 
   const startVoiceJob = useCallback(async (request: string) => {
     const text = request.trim();
@@ -2182,8 +2131,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
           realtimeVoiceActive={props.realtimeVoiceActive}
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          queueAccessory={queuedDrafts.length > 0 ? (
-            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked} />
+          queueAccessory={queuedDrafts.length > 0 || editingQueuedDraftId ? (
+            <QueuedMessagesPanel onPause={() => { void sharedQueue.pause(true).catch(queueFailure); }} messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
           ) : null}
           compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={

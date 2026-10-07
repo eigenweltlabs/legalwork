@@ -2,7 +2,7 @@
 
 The split-view workspace now treats chats, documents, browser pages, tasks, individual tabular reviews and workflow editors as peers. Open several chats in a project, put a review above its source document, or move a chat to the right. Every tab uses the same four-edge split targets, centre grouping and context menu. The limit remains six visible panes.
 
-Project Files and Memory Drive remain file sidebars. Project overviews, task lists, calendars, evaluations and the workflow library remain navigation destinations; individual items open in the workspace.
+Project Files and Memory Drive remain file sidebars. The [workspace refinement](workspace-refinement.md) makes project overviews, task lists and calendars workspace tabs too, while global destinations remain separate. That follow-up also changes window handoff and removes whole-workspace maximize; the verification below records the earlier implementation.
 
 ## Behaviour worth reviewing
 

@@ -3,12 +3,14 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { NewTaskDialog } from "../tasks/new-task-dialog";
 import { useCreateTask, useTaskAccess, useTaskMembers, useTaskSyncStatus, useTaskTags } from "../tasks/tasks-queries";
+import { useRequestOpenTask } from "../session/panel/panel-tab-destination";
 
 export function ProjectTaskDialog(props: {
   client: LegalworkServerClient;
   workspaceId: string;
   onClose: () => void;
 }) {
+  const openTask = useRequestOpenTask();
   const createTask = useCreateTask(props);
   const access = useTaskAccess(props);
   const sync = useTaskSyncStatus(props);
@@ -23,7 +25,7 @@ export function ProjectTaskDialog(props: {
     tagSuggestions={tags.data ?? []}
     onClose={() => { if (!createTask.isPending) props.onClose(); }}
     onCreate={(input) => createTask.mutate({ ...input, projectId: props.workspaceId }, {
-      onSuccess: props.onClose,
+      onSuccess: (task) => { openTask(task.id, task.title); props.onClose(); },
       onError: (error) => toast.error(t("tasks.create_failed"), { description: error instanceof Error ? error.message : undefined }),
     })}
   />;

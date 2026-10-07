@@ -1,3 +1,5 @@
+import { keepHandoffCopy } from "./document-handoff-copy";
+import { flushSync } from "react-dom";
 /** @jsxImportSource react */
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -206,7 +208,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   useEffect(() => {
     if (!isEditableDocument && !(hasSaveActions && isTextSheet)) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => documentDirtyRef.current, () => docxApi.current?.discardRecovery());
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => documentDirtyRef.current, () => { void docxApi.current?.discardRecovery().catch(() => toast.error(t("docx.recovery_not_cleared"))); });
   }, [isEditableDocument, hasSaveActions, isTextSheet, sessionId, target.id, target.name, workspaceId]);
 
   useEffect(() => {
@@ -275,6 +277,27 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         setDocumentSnapshot(loaded.data);
       }
     },
+    revision: () => isBinaryEditor ? (isOfficeEditor ? officeApi.current : docxApi.current)?.revision() ?? -1 : isTextSheet && !editing ? sheetApi.current?.revision() ?? "" : draft,
+    dirty: () => {
+      // The save acknowledgement updates the cache before React paints it.
+      const saved = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id]);
+      return Boolean((target.preview === "word" ? docxApi.current?.isDirty() : documentDirtyRef.current) || (saved?.kind === "text" && draft !== saved.data));
+    },
+    discard: async () => {
+      const current = isBinaryEditor ? await (isOfficeEditor ? officeApi.current : docxApi.current)?.getBuffer()
+        : isTextSheet && !editing ? await sheetApi.current?.getContent() : draft;
+      if (current == null) throw new Error(t("artifact.still_loading_download"));
+      const payload = typeof current === "string" || current instanceof ArrayBuffer ? current : current.data;
+      const copy = await keepHandoffCopy(client, workspaceId, target.value, payload);
+      if (target.preview === "word") await docxApi.current?.discardRecovery();
+      flushSync(() => {
+        if (isTextSheet) sheetApi.current?.discard();
+        onDocumentDirtyChange(false);
+        if (data?.kind === "text") setDraft(data.data);
+        setEditing(false);
+      });
+      toast.info(t("document_access.copy_kept", { path: copy }));
+    },
     flush: async () => {
       if (target.preview === "word") return await docxApi.current?.flushSave() ?? false;
       if (isOfficeEditor) {
@@ -290,6 +313,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       return true;
     },
     drain: async () => {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       const editorDrain = isOfficeEditor ? officeApi.current?.drain() : docxApi.current?.drain();
       try { await pendingWrite.current; } finally {
         await editorDrain;
@@ -706,7 +730,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
           {t("artifact.file_changed_note")}
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "releasing"}>
+      <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "offering" || access.status === "releasing"}>
         {isLoading || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))) ? (
           <PreviewLoading />
         ) : isError ? (
@@ -719,9 +743,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
           <OfficeEditorBoundary key={`${target.id}:${documentSnapshot.revision}:${access.ownsFile}`}>
           <Suspense fallback={<PreviewLoading />}>
             {/\.pptx$/i.test(target.value) ? (
-              <ArtifactPptxEditor key={`${target.id}:${documentSnapshot.revision}:${access.ownsFile}`} name={target.name} content={documentSnapshot.data} readOnly={!isEditableDocument || !access.ownsFile} onSave={saveDocumentContent} apiRef={officeApi} onDirtyChange={onDocumentDirtyChange} onSavingChange={setDocumentSaving} />
+              <ArtifactPptxEditor key={`${target.id}:${documentSnapshot.revision}:${access.ownsFile}`} name={target.name} content={documentSnapshot.data} readOnly={!isEditableDocument || !access.ownsFile} interactionLocked={!access.editable} onSave={saveDocumentContent} apiRef={officeApi} onDirtyChange={onDocumentDirtyChange} onSavingChange={setDocumentSaving} />
             ) : (
-              <ArtifactXlsxEditor key={`${target.id}:${documentSnapshot.revision}:${access.ownsFile}`} name={target.name} content={documentSnapshot.data} readOnly={!isEditableDocument || !access.ownsFile} onSave={saveDocumentContent} apiRef={officeApi} onDirtyChange={onDocumentDirtyChange} onSavingChange={setDocumentSaving} />
+              <ArtifactXlsxEditor key={`${target.id}:${documentSnapshot.revision}:${access.ownsFile}`} name={target.name} content={documentSnapshot.data} readOnly={!isEditableDocument || !access.ownsFile} interactionLocked={!access.editable} onSave={saveDocumentContent} apiRef={officeApi} onDirtyChange={onDocumentDirtyChange} onSavingChange={setDocumentSaving} />
             )}
           </Suspense>
           </OfficeEditorBoundary>

@@ -364,13 +364,13 @@ describe("unified workspace tabs", () => {
     store().openTab(scope, review);
     const reviewPane = pane(review.id).id;
     store().openTab(scope, document("source.docx"));
-    expect(state().panes).toHaveLength(3);
+    expect(state().panes).toHaveLength(2);
     expect(pane(review.id).activeTabId).toBe(review.id);
     store().selectTab(scope, review.id);
     store().openTab(scope, document("second.docx"));
     expect(pane("file:second.docx").id).toBe(pane("file:source.docx").id);
     expect(pane(review.id).id).toBe(reviewPane);
-    expect(state().panes).toHaveLength(3);
+    expect(state().panes).toHaveLength(2);
   });
 
   test("adopting an old chat keeps its layout and resolves transcript files", () => {
@@ -457,6 +457,8 @@ describe("unified workspace tabs", () => {
     store().openTab(scope, review);
     store().openTab(scope, task);
     store().openTab(scope, { id: "workflow:one", type: "workflow", label: "Workflow" });
+    store().moveTab(scope, review.id, "main", "right");
+    store().moveTab(scope, task.id, "main", "bottom");
     store().selectTab(scope, review.id);
     const focused = state().focusedPaneId;
     const persisted = new Map(storage);
@@ -467,5 +469,34 @@ describe("unified workspace tabs", () => {
     expect(state().tabs.map(tab => tab.type)).toEqual(["chat", "review", "task"]);
     expect(state().panes).toHaveLength(3);
     expect(layoutLeaves(state().tree).sort()).toEqual(state().panes.map(pane => pane.id).sort());
+  });
+});
+
+describe("project overview tabs and workspace window seeds", () => {
+  test("overview clicks focus a singleton without creating panes; deliberate splits preserve it", () => {
+    const store = usePanelTabStore.getState;
+    const scope = "workspace:project-views";
+    const overview = { id: "project-view:home", type: "project-view" as const, view: "home" as const, label: "Overview" };
+    const tasks = { id: "project-view:tasks", type: "project-view" as const, view: "tasks" as const, label: "Tasks" };
+    store().openTab(scope, overview);
+    store().openTab(scope, tasks);
+    store().openTab(scope, overview);
+    expect(store().sessions[scope].tabs).toHaveLength(2);
+    expect(store().sessions[scope].panes).toHaveLength(1);
+    store().moveTab(scope, tasks.id, "main", "right");
+    const pane = store().sessions[scope].panes.find(pane => pane.tabIds.includes(tasks.id))!.id;
+    store().openTab(scope, tasks);
+    expect(store().sessions[scope].focusedPaneId).toBe(pane);
+    expect(store().sessions[scope].panes).toHaveLength(2);
+    const restored = store().readLayout(store().sessions[scope]);
+    expect(restored?.tabs).toEqual([overview, tasks]);
+    expect(restored?.panes).toHaveLength(2);
+  });
+  test("cloned storage documents retain their source and discard another window's working cache", () => {
+    const storage = { workspaceId: "p", root: { id: "connection", name: "Files", kind: "s3", writable: false }, file: { path: "source.docx", name: "source.docx", kind: "file", size: 100, modifiedAt: null } };
+    const layout = usePanelTabStore.getState().readLayout({ tabs: [{ id: 'storage:["p","connection","source.docx"]', type: "artifact", label: "source.docx", value: "cache/from-other-window.docx", storage }] });
+    expect(layout?.tabs[0]).toMatchObject({ type: "artifact", storage });
+    expect(layout?.tabs[0]).not.toHaveProperty("value");
+    expect(usePanelTabStore.getState().readLayout({ tabs: [{ id: "bad", type: "artifact", value: "cache.docx", label: "bad", storage: { broken: true } }] })?.tabs).toEqual([]);
   });
 });

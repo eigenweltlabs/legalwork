@@ -1,3 +1,4 @@
+import { keepHandoffCopy } from "./document-handoff-copy";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
@@ -72,6 +73,16 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       const loaded = await query.refetch();
       if (loaded.error) throw loaded.error;
       if (loaded.data) update(current => loadMarkdownDraft(current, loaded.data.content, loaded.data.updatedAt ?? null));
+    },
+    revision: () => draftRef.current?.content ?? "",
+    dirty: () => Boolean(draftRef.current && draftRef.current.content !== draftRef.current.baseline),
+    discard: async () => {
+      const current = draftRef.current;
+      if (!current) throw new Error(t("markdown.still_loading"));
+      const copy = await keepHandoffCopy(client, workspaceId, target.value, current.content);
+      update(() => ({ ...current, content: current.baseline }));
+      setClash(null); setSaveError(null);
+      toast.info(t("document_access.copy_kept", { path: copy }));
     },
     flush: async () => {
       if (pendingSave.current && !await pendingSave.current) return false;
@@ -268,7 +279,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         </div> : saveError && <div role="alert" className="border-b border-border bg-muted px-4 py-2 text-xs">
           {t("markdown.edits_still_here_download", { error: saveError })}
         </div>}
-      <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "releasing"}>
+      <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "offering" || access.status === "releasing"}>
         {draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={localReadOnly} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} />
           : query.isError ? <PreviewError message={query.error instanceof Error ? query.error.message : t("markdown.open_failed")} /> : <PreviewLoading />}
       </div>
