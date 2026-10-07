@@ -18,7 +18,8 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
   afterAll(async () => { if (workspace) await rm(workspace, { recursive: true, force: true }); });
   const run = (command: string, writable = false, signal = new AbortController().signal) => sandbox.run({
     command, cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable }],
-    timeoutMs: 20_000, signal, authorizeNetwork: async () => false,
+    // Cold document-library imports need headroom under software emulation.
+    timeoutMs: 60_000, signal, authorizeNetwork: async () => false,
   });
 
   test("Python and Node work, approved writes appear in the project", async () => {

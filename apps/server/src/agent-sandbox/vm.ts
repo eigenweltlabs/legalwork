@@ -213,7 +213,10 @@ export class VmSandbox {
         pipe?.destroy();
         filesystem.cancel();
         await filesystemWork;
-        if (failure) return reject(failure);
+        if (failure) {
+          const diagnostic = await readFile(consolePath, "utf8").catch(() => "");
+          return reject(new Error(`${failure.message}\n${stderr}\n${diagnostic.slice(-8192)}`, { cause: failure }));
+        }
         if (signal.aborted) return reject(signal.reason);
         if (exitCode === undefined) {
           const diagnostic = await readFile(consolePath, "utf8").catch(() => "");
