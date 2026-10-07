@@ -28,7 +28,7 @@ module.exports = async function sign(options) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const qemu = path.join(directory, `qemu-system-${manifest.architecture}`);
   const ignore = options.ignore ? (Array.isArray(options.ignore) ? options.ignore : [options.ignore]) : [];
-  await signAsync({ ...options, app, ignore: [...ignore, isDataFile], binaries: [...(options.binaries ?? []), qemu], optionsForFile(file) {
+  await signAsync({ ...options, app, ignore: (file) => isDataFile(file) || ignore.some((rule) => typeof rule === 'function' ? rule(file) : file.match(rule)), binaries: [...(options.binaries ?? []), qemu], optionsForFile(file) {
     const original = options.optionsForFile?.(file) ?? {};
     if (file === app) {
       for (const name of Object.keys(manifest.files)) {

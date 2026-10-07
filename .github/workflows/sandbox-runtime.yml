@@ -97,10 +97,11 @@ jobs:
           curl -fL --retry 3 https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
           echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | shasum -a 256 -c -
           tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
+          cp scripts/sandbox/qemu-aarch64.mak "$RUNNER_TEMP/qemu-11.1.2/configs/devices/aarch64-softmmu/legalwork.mak"
           cd "$RUNNER_TEMP/qemu-11.1.2"
           extra=()
           if [ '${{ matrix.qemu }}' = aarch64 ]; then
-            extra+=(--with-devices-aarch64=minimal)
+            extra+=(--without-default-devices --with-devices-aarch64=legalwork)
           fi
           ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-hvf "${extra[@]}"
           make -j3
