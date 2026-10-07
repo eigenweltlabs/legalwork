@@ -2,7 +2,7 @@
 
 Project Overview, Calendar, Tasks and Tabular Review lists are separate project destinations by default. A permanent **Workspace** sidebar entry returns to the retained chats, files and layout. Visiting an overview preserves mounted editors, drafts, undo history and scroll state. An overview can be deliberately opened as a singleton work tab through **Open as a tab**. Individual documents still maximize; the redundant whole-workspace maximize button is removed.
 
-Workspace has a separated, subtly shaded sidebar row. Its header return action appears only when the sidebar is hidden; **Open as a tab** sits at the top right inside the project view, below the window header. Files remains a panel toggle rather than another selected page. Overview uses the same Pin action as the project list, with title and actions stacked in narrow panes. Narrow week/month calendars expose horizontal scrolling without changing the selected calendar mode.
+Workspace has a separated sidebar row with the usual active-page styling. Its header return action appears only when the sidebar is hidden; **Open as a tab** sits at the top right inside the project view, below the window header. Files remains a panel toggle rather than another selected page. Overview uses the same Pin action as the project list, with title and actions stacked in narrow panes. Narrow week/month calendars expose horizontal scrolling without changing the selected calendar mode.
 
 ![Responsive Overview actions and separated Workspace navigation, with synthetic content](workspace-refinement/overview-responsive.png)
 
@@ -20,6 +20,8 @@ The header's **View** menu offers:
 Explicit destinations and already-open tabs take precedence. A profile change never rearranges existing tabs; manual dragging can mix any content. Automatic splits require at least 800 CSS pixels in the actual work area, create at most two columns and respect the six-pane cap. At capacity, a click opens a tab instead of silently failing. Resize measurements do not write the persisted layout.
 
 One clean file/task preview per group is reused during browsing. Editing, double-clicking the tab, **Keep open**, or dragging pins it. Before replacing a preview, the store also checks registered dirty state, independently of input events. Opening choices and preview slots persist with the project layout; detached windows retain their own state.
+
+Drop previews cover the full pane content, including the DOCX toolbar. The editor host has its own stacking context below the drag shield and preview, so editor z-index values cannot cover the drop surface; editor internals remain unchanged.
 
 ![Free workspace opening options, with synthetic review and Markdown content](workspace-refinement/opening-profiles.png)
 

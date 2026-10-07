@@ -265,8 +265,8 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
             over.split && splitBlocked && "border-border bg-muted/60 text-muted-foreground",
           )}
           style={{
-            top: over.split === "bottom" ? "50%" : inset ? "min(8rem, 25%)" : 4,
-            bottom: over.split === "top" ? "50%" : inset ? 12 : 4,
+            top: over.split === "bottom" ? "50%" : 4,
+            bottom: over.split === "top" ? "50%" : 4,
             left: over.split === "right" ? "50%" : 8,
             right: over.split === "left" ? "50%" : 8,
           }}
@@ -945,7 +945,8 @@ export function SidePanel({
     return <TabDropZone workspaceId={workspaceId} onChatDrop={onDropChat} pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
       acceptFileDrops={tab?.type !== "chat" && tab?.type !== "review"}
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
-      {tab ? <div ref={destinationRef(pane.id)} className="min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty />}
+      {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
+      {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty />}
 
     </TabDropZone>;
   };

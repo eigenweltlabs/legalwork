@@ -1064,7 +1064,7 @@ function WorkspaceSidebarGroup({
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
                 {<SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
-                  <SidebarMenuSubItem className="mb-1 border-b border-sidebar-border/70 pb-2"><SidebarMenuSubButton className={cn(PROJECT_FEATURE_CLASS, "bg-sidebar-accent/80 font-medium")} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></SidebarMenuSubItem>
+                  <SidebarMenuSubItem className="mb-1 border-b border-sidebar-border/70 pb-2"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></SidebarMenuSubItem>
                   {projectNavItems.map(key => ({
                   projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectHome: <SidebarMenuSubItem key="projectHome">
