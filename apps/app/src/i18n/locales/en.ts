@@ -4,6 +4,15 @@
  */
 
 export default {
+  "sandbox.title": "Protected commands",
+  "sandbox.description": "Commands run in a protected environment included with LegalWork. File changes and internet requests follow your permissions.",
+  "sandbox.preparing": "Checking the protected environment...",
+  "sandbox.ready": "The protected environment is ready.",
+  "sandbox.available": "The protected environment is ready. No additional software is needed.",
+  "sandbox.setup": "The protected environment is unavailable. Repair or reinstall LegalWork. Commands remain blocked until protection is restored.",
+  "sandbox.prepare": "Check again",
+  "sandbox.status_unavailable": "Could not check command protection. Try again when the worker is connected.",
+
   "scheduled.finish_editing": "Save or cancel your changes before switching tasks.",
   "scheduled.task": "Scheduled task",
   "scheduled.task_actions": "Actions for {title}",

@@ -40,6 +40,9 @@ import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
+import { AgentSandboxService } from "./agent-sandbox/service.js";
+import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
+import { assertNoHostShellInterpolation, assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
@@ -770,6 +773,7 @@ export type StartedServer = ServeResult & {
 
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval);
+  const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
@@ -853,6 +857,24 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     },
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks);
+  registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
+    agentRules: async (workspace, sessionID, agentName) => {
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "/session");
+      const directory = resolveOpencodeDirectory(workspace);
+      if (!directory || resolve(session.directory) !== resolve(directory)) {
+        throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
+      }
+      const agents = unwrapOpencodeResult(await client.app.agents(), "/agent");
+      const agent = agents.find((item) => item.name === agentName);
+      if (!agent) throw new ApiError(403, "sandbox_agent", "The selected agent is unavailable.");
+      // The engine's host bash is always denied. The protected tool carries
+      // the user's original shell policy under its separate identity.
+      return [...agent.permission, ...(session.permission ?? [])]
+        .filter((rule) => rule.permission !== "bash")
+        .map((rule) => ({ ...rule, permission: rule.permission === "legalwork_shell" ? "bash" : rule.permission }));
+    },
+  });
 
   const serverOptions: {
     hostname: string;
@@ -1065,6 +1087,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      agentSandbox.stop();
       approvals.dispose();
       await corpus.stop();
       reviews.stop();
@@ -1194,13 +1217,24 @@ async function proxyOpencodeRequest(input: {
   }
 
   const method = input.request.method.toUpperCase();
+  if (input.config.agentSandboxEnabled) assertSandboxProxyAllowed(method, proxyPath);
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
-  const body = method === "GET" || method === "HEAD"
+  let body = method === "GET" || method === "HEAD"
     ? undefined
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
+  if (input.config.agentSandboxEnabled) body = sandboxSessionBody(proxyPath, body);
   if (isSessionCommandProxyRequest(method, proxyPath)) {
+    if (input.config.agentSandboxEnabled) {
+      if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");
+      const command = z.object({ command: z.string(), arguments: z.string().default("") }).parse(JSON.parse(Buffer.from(body).toString()));
+      assertNoHostShellInterpolation(command.arguments);
+      const commands = unwrapOpencodeResult(await createWorkspaceOpencodeClient(input.config, workspace).command.list(), "/command");
+      const definition = commands.find((item) => item.name === command.command);
+      if (!definition) throw new ApiError(404, "command_not_found", "Command not found.");
+      assertNoHostShellInterpolation(definition.template);
+    }
     void fetch(targetUrl, {
       method,
       headers,

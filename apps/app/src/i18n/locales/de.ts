@@ -14,6 +14,15 @@
  */
 
 const de = {
+  "sandbox.title": "Geschützte Befehle",
+  "sandbox.description": "Befehle laufen in einer geschützten Umgebung, die in LegalWork enthalten ist. Dateiänderungen und Internetanfragen folgen Ihren Berechtigungen.",
+  "sandbox.preparing": "Die geschützte Umgebung wird geprüft...",
+  "sandbox.ready": "Die geschützte Umgebung ist bereit.",
+  "sandbox.available": "Die geschützte Umgebung ist bereit. Zusätzliche Software ist nicht erforderlich.",
+  "sandbox.setup": "Die geschützte Umgebung ist nicht verfügbar. Reparieren oder installieren Sie LegalWork erneut. Bis dahin bleiben Befehle gesperrt.",
+  "sandbox.prepare": "Erneut prüfen",
+  "sandbox.status_unavailable": "Der Befehlsschutz konnte nicht geprüft werden. Versuchen Sie es erneut, sobald der Worker verbunden ist.",
+
   "scheduled.finish_editing": "Speichern oder verwerfen Sie Ihre Änderungen, bevor Sie die Aufgabe wechseln.",
   "scheduled.task": "Geplante Aufgabe",
   "scheduled.task_actions": "Aktionen für {title}",

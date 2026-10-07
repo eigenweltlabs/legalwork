@@ -137,6 +137,8 @@ export interface ServerConfig {
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */
   requestHostApproval?: HostApprovalHandler;
+  /** Host-owned enforcement switch for the managed desktop agent. Never accepted from API config patches. */
+  agentSandboxEnabled?: boolean;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;

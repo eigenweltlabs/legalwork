@@ -1,0 +1,122 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AgentSandboxService } from "./service.js";
+import { prepareOutboundRequest } from "./network.js";
+import type { SandboxRun } from "./vm.js";
+import { ApprovalService } from "../approvals.js";
+import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
+
+const roots: string[] = [];
+afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+
+async function fixture(permissions: Record<string, unknown>, approve = true) {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-sandbox-policy-"));
+  roots.push(root);
+  const matter = join(root, "matter");
+  await mkdir(matter);
+  const workspace: WorkspaceInfo = { id: "ws_test", name: "Matter", path: matter, preset: "starter", workspaceType: "local" };
+  const config: ServerConfig = {
+    host: "127.0.0.1", port: 0, token: "test", hostToken: "test-host", configPath: join(root, "private", "server.json"),
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [matter],
+    readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
+  };
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: permissions }));
+  const prompts: ApprovalRequest[] = [];
+  const approvals = new ApprovalService(config.approval, async (request) => { prompts.push(request); return approve ? "allow" : "deny"; });
+  const executions: SandboxRun[] = [];
+  const service = new AgentSandboxService(config, approvals, {
+    status: async () => ({ available: true }), prepare: async () => "test-image",
+    run: async (input) => { executions.push(input); return { output: "done", exitCode: 0, truncated: false }; },
+  });
+  const run = (write = false) => service.run(workspace, { command: "python report.py", write, timeoutMs: 1000 },
+    { type: "remote", scope: "collaborator" }, new AbortController().signal);
+  return { config, workspace, service, prompts, executions, run };
+}
+
+test("shell denial prevents runtime launch", async () => {
+  const fixtureState = await fixture({ bash: "deny" });
+  await expect(fixtureState.run()).rejects.toThrow("bash is blocked");
+  expect(fixtureState.executions).toHaveLength(0);
+  expect(fixtureState.prompts).toHaveLength(0);
+});
+
+test("read-only commands work when file changes are denied", async () => {
+  const fixtureState = await fixture({ bash: "allow", edit: "deny" });
+  await fixtureState.run();
+  expect(fixtureState.executions[0].mounts[0].writable).toBe(false);
+  await expect(fixtureState.run(true)).rejects.toThrow("edit is blocked");
+  expect(fixtureState.executions).toHaveLength(1);
+});
+
+test("shell and file-change asks use real prompts even when the server auto-approves other operations", async () => {
+  const fixtureState = await fixture({ bash: "ask", edit: "ask" });
+  await fixtureState.run(true);
+  expect(fixtureState.prompts.map((prompt) => prompt.action)).toEqual(["sandbox.bash", "sandbox.edit"]);
+  expect(fixtureState.executions[0].mounts[0].writable).toBe(true);
+});
+
+test("a declined file-change prompt does not launch a writable sandbox", async () => {
+  const fixtureState = await fixture({ bash: "allow", edit: "ask" }, false);
+  await expect(fixtureState.run(true)).rejects.toThrow("declined");
+  expect(fixtureState.executions).toHaveLength(0);
+});
+
+test("agent denials cannot be overridden by global allow settings", async () => {
+  const fixtureState = await fixture({ bash: "allow", edit: "allow" });
+  await expect(fixtureState.service.run(fixtureState.workspace,
+    { command: "python report.py", write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal,
+    [{ permission: "*", pattern: "*", action: "allow" }, { permission: "edit", pattern: "*", action: "deny" }],
+  )).rejects.toThrow("edit is blocked");
+  expect(fixtureState.executions).toHaveLength(0);
+});
+
+test("a scoped edit denial cannot be bypassed with a writable folder mount", async () => {
+  const fixtureState = await fixture({ edit: { "*": "allow", "*.secret": "deny" } });
+  await expect(fixtureState.run(true)).rejects.toThrow("edit is blocked");
+});
+
+test("a script cannot bypass scoped read or nested shell denials", async () => {
+  const reads = await fixture({ read: { "*": "allow", "*.secret": "deny" } });
+  await expect(reads.run()).rejects.toThrow("read is blocked");
+  const shell = await fixture({ bash: { "*": "allow", "curl *": "deny" } });
+  await expect(shell.run()).rejects.toThrow("bash is blocked");
+  expect(reads.executions).toHaveLength(0);
+  expect(shell.executions).toHaveLength(0);
+});
+
+test("changing permission settings aborts a running command before more network requests", async () => {
+  const fixtureState = await fixture({ bash: "allow", webfetch: "allow" });
+  let stopped = false;
+  const service = new AgentSandboxService(fixtureState.config, new ApprovalService(fixtureState.config.approval), {
+    status: async () => ({ available: true }), prepare: async () => "test-image",
+    run: async (input) => {
+      await writeRuntimeOpencodeConfig(fixtureState.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "deny" } }));
+      stopped = input.signal.aborted;
+      await input.authorizeNetwork(prepareOutboundRequest({ url: "https://example.com/", method: "GET", headers: {}, bodyBase64: "" }));
+      return { output: "", exitCode: 0, truncated: false };
+    },
+  });
+  await expect(service.run(fixtureState.workspace, { command: "python script.py", write: false, timeoutMs: 1000 },
+    { type: "host" }, new AbortController().signal)).rejects.toThrow("Permissions changed");
+  expect(stopped).toBe(true);
+});
+
+test("an agent external-folder denial overrides an older workspace grant", async () => {
+  const f = await fixture({ bash: "allow", read: "allow" });
+  const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow" } } }));
+  await expect(f.service.run(f.workspace, { command: "python report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal,
+    [{ permission: "external_directory", pattern: "*", action: "deny" }])).rejects.toThrow("external_directory is blocked");
+  expect(f.executions).toHaveLength(0);
+});
+
+test("a denied subfolder cannot enter a whole-folder snapshot", async () => {
+  const f = await fixture({ bash: "allow", read: "allow" });
+  const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow", [`${external}/private/*`]: "deny" } } }));
+  await expect(f.run()).rejects.toThrow("scoped folder denial");
+  expect(f.executions).toHaveLength(0);
+});

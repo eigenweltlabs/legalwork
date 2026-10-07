@@ -24,6 +24,8 @@ extraResources:
       - runtime.json
   - from: ../server/resources/ocr
     to: ocr
+  - from: ../server/resources/agent-sandbox/runtime
+    to: agent-sandbox
   - from: ../app/dist
     to: app-dist
   - from: ../app/dist-word-addin
@@ -81,6 +83,7 @@ publish:
     repo: legalwork
     releaseType: release
 mac:
+  sign: scripts/sign-macos.cjs
   binaries:
     - Contents/Resources/node/node
   icon: resources/icons/icon.icns

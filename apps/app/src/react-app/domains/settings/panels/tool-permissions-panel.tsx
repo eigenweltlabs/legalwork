@@ -39,6 +39,7 @@ import {
   toolPermissionsReducer,
 } from "./tool-permissions-panel-state";
 import { SettingsNotice } from "../settings-section";
+import { SandboxStatus } from "./sandbox-status";
 import {
   LayoutSectionItem,
   LayoutSectionItemDescription,
@@ -330,6 +331,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
 
   return (
     <LayoutSectionItem className={cn("gap-6", props.className)}>
+      {!quick && props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} /> : null}
       {quick ? null : (
         <LayoutSectionItemHeader>
           <LayoutSectionItemTitle>

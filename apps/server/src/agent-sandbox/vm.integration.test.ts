@@ -1,0 +1,99 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { VmSandbox } from "./vm.js";
+
+// CI runs these against the packaged VM assets. Mock-only tests cannot
+// demonstrate an operating-system isolation boundary.
+describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent sandbox", () => {
+  const sandbox = new VmSandbox();
+  let workspace: string;
+  beforeAll(async () => {
+    workspace = await mkdtemp(join(tmpdir(), "legalwork-sandbox-canary-"));
+    await sandbox.prepare();
+  }, 600_000);
+  afterAll(async () => { if (workspace) await rm(workspace, { recursive: true, force: true }); });
+  const run = (command: string, writable = false, signal = new AbortController().signal) => sandbox.run({
+    command, cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable }],
+    timeoutMs: 20_000, signal, authorizeNetwork: async () => false,
+  });
+
+  test("Python and Node work, approved writes appear in the project", async () => {
+    const result = await run("python3 -c 'print(6 * 7)' && node -e 'console.log(7 * 6)' && echo approved > allowed.txt", true);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe("42\n42\n");
+    expect((await readFile(join(workspace, "allowed.txt"), "utf8")).trim()).toBe("approved");
+  }, 180_000);
+
+  test("the operating system blocks raw traffic, DNS, host IPC and private supervisor state", async () => {
+    const script = `import socket, os, json, subprocess
+results = {}
+def blocked(name, action):
+    try:
+        action()
+        results[name] = False
+    except (OSError, PermissionError):
+        results[name] = True
+blocked("ipv4", lambda: socket.create_connection(("1.1.1.1", 443), timeout=0.3))
+blocked("ipv6", lambda: socket.create_connection(("2606:4700:4700::1111", 443), timeout=0.3))
+blocked("dns", lambda: socket.getaddrinfo("legalwork-canary.invalid", 443))
+blocked("udp_dns", lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"canary", ("1.1.1.1", 53)))
+blocked("icmp", lambda: socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP))
+blocked("docker_socket", lambda: socket.socket(socket.AF_UNIX).connect("/var/run/docker.sock"))
+blocked("supervisor_environment", lambda: open("/proc/1/environ", "rb").read())
+blocked("proxy_private_key", lambda: open("/tmp/private/ca.key", "rb").read())
+blocked("runtime_write", lambda: open("/opt/legalwork/relay.py", "w"))
+blocked("project_write", lambda: open("/workspace/forbidden.txt", "w"))
+results["no_host_credentials"] = not any(k.startswith(("LEGALWORK_", "OPENCODE_", "AWS_", "OPENAI_", "ANTHROPIC_")) for k in os.environ)
+results["not_root"] = os.getuid() != 0
+results["child_network"] = subprocess.run(["python3", "-c", "import socket; socket.create_connection(('1.1.1.1',443),timeout=.3)"], capture_output=True).returncode != 0
+print(json.dumps(results))
+`;
+    await writeFile(join(workspace, "canary.py"), script);
+    const result = await run("env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy python3 canary.py");
+    expect(result.exitCode).toBe(0);
+    const checks = JSON.parse(result.output);
+    expect(Object.keys(checks)).toHaveLength(13);
+    for (const [name, passed] of Object.entries(checks)) expect({ [name]: passed }).toEqual({ [name]: true });
+  }, 180_000);
+
+  test("HTTPS is inspected and denied through the broker even with an ordinary curl client", async () => {
+    const requests: string[] = [];
+    const result = await sandbox.run({ command: "curl --silent --show-error --fail https://example.com/ --data 'synthetic-canary'",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
+      timeoutMs: 20_000, signal: new AbortController().signal,
+      authorizeNetwork: async (request) => {
+        requests.push(request.url);
+        expect(Buffer.from(request.bodyBase64, "base64").toString()).toBe("synthetic-canary");
+        return false;
+      },
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(requests).toEqual(["https://example.com/"]);
+    expect(result.output).toContain("403");
+  }, 180_000);
+
+  test("approved HTTPS can complete through the broker", async () => {
+    const requests: string[] = [];
+    const result = await sandbox.run({ command: "curl --silent --show-error --fail https://example.com/",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
+      timeoutMs: 30_000, signal: new AbortController().signal,
+      authorizeNetwork: async (request) => { requests.push(request.url); return true; },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(requests).toEqual(["https://example.com/"]);
+    expect(result.output).toContain("Example Domain");
+  }, 180_000);
+
+  test("cancellation destroys the VM without copying pending changes", async () => {
+    const controller = new AbortController();
+    const promise = run("echo started > started.txt; (sleep 30; echo escaped > late.txt) & wait", true, controller.signal);
+    // Changes stay inside the guest until successful completion.
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    controller.abort();
+    await expect(promise).rejects.toThrow();
+    expect(await readFile(join(workspace, "started.txt"), "utf8").catch(() => null)).toBeNull();
+    expect(await readFile(join(workspace, "late.txt"), "utf8").catch(() => null)).toBeNull();
+  }, 180_000);
+});

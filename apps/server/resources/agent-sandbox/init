@@ -1,0 +1,19 @@
+#!/bin/busybox sh
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sysfs /sys
+/bin/busybox mount -t devtmpfs devtmpfs /dev
+/bin/busybox mount -t tmpfs -o size=512m,mode=1777 tmpfs /tmp
+/sbin/modprobe virtio_mmio || true
+/sbin/modprobe virtio_pci || true
+/sbin/modprobe virtio_console
+/bin/busybox ip link set lo up
+# The only host connection is a framed stream. No NIC, disk passthrough,
+# host filesystem mount, clipboard or guest agent is attached to this VM.
+attempt=0
+while [ ! -e /dev/vport0p1 ]; do
+  attempt=$((attempt + 1))
+  [ "$attempt" -lt 600 ] || exit 125
+  /bin/busybox sleep 0.1
+done
+exec 3<>/dev/vport0p1
+exec /usr/local/bin/python3 -I -u /opt/legalwork/relay.py <&3 >&3 3>&- 2>/dev/console

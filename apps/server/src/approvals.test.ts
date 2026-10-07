@@ -11,6 +11,15 @@ const input: Omit<ApprovalRequest, "id" | "createdAt"> = {
 };
 
 describe("host approval handler", () => {
+  test("a sandbox ask cannot be bypassed by automatic server approvals", async () => {
+    let called = false;
+    const service = new ApprovalService({ mode: "auto", timeoutMs: 1000 }, async () => {
+      called = true;
+      return "deny";
+    });
+    expect((await service.requestApproval(input, undefined, true)).allowed).toBe(false);
+    expect(called).toBe(true);
+  });
   test("auto does not present a confirmation", async () => {
     let called = false;
     const service = new ApprovalService({ mode: "auto", timeoutMs: 1000 }, async () => {

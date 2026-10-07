@@ -1757,6 +1757,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
+    sandboxStatus: () => requestJson<{ enabled: boolean; backend: string; available: boolean; reason?: string }>(baseUrl, "/sandbox/status", { token, hostToken, timeoutMs: 15_000 }),
+    prepareSandbox: () => requestJson<{ ready: boolean }>(baseUrl, "/sandbox/prepare", { token, hostToken, method: "POST", timeoutMs: 660_000 }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),

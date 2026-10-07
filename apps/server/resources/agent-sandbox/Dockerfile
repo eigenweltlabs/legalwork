@@ -1,0 +1,23 @@
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS node
+FROM python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS guest
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash ca-certificates curl git openssl libatomic1 poppler-utils fonts-dejavu-core busybox-static util-linux \
+    linux-image-cloud-$(dpkg --print-architecture) \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY relay.py /opt/legalwork/relay.py
+COPY init /init
+RUN chmod 0555 /opt/legalwork /opt/legalwork/relay.py
+RUN chmod 0755 /init && mkdir -p /workspace /authorized /proc /sys /dev /run
+RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${source:Package}\t${source:Version}\n' > /opt/legalwork/guest-packages.tsv
+WORKDIR /workspace
+
+# Docker is a build-time tool on CI, never an end-user dependency.
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS pack
+RUN apt-get update && apt-get install -y --no-install-recommends cpio gzip && rm -rf /var/lib/apt/lists/*
+COPY --from=guest / /rootfs
+RUN mkdir /out && cp /rootfs/boot/vmlinuz-* /out/kernel && rm -rf /rootfs/boot /rootfs/var/cache /rootfs/var/lib/apt/lists
+RUN cp /rootfs/opt/legalwork/guest-packages.tsv /out/guest-packages.tsv
+WORKDIR /rootfs
+RUN find . -print0 | cpio --null -o -H newc | gzip -1 > /out/initrd.gz

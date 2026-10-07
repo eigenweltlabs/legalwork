@@ -17,7 +17,10 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
         const result = await showMessageBox(window, {
           type: "question",
           title: "LegalWork approval",
-          message: "Allow this workspace change?",
+          message: request.action === "sandbox.webfetch" ? "Allow this internet request?"
+            : request.action === "sandbox.bash" ? "Run this protected command?"
+            : request.action === "sandbox.read" ? "Allow access to these files?"
+            : "Allow this workspace change?",
           detail: [
             `Source: ${source}`,
             ...(request.actor.scope ? [`Access: ${request.actor.scope}`] : []),

@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
+  legalworkSandboxPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
   legalworkAnthropicAdaptiveThinkingPluginPath,
@@ -66,6 +67,7 @@ import {
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
+import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -239,13 +241,14 @@ export async function buildLegalworkRuntimeConfigObject(
   // for this tool, so every proposed instructions change is reviewed.
   delete permission.legalwork_project_set_instructions;
   const agentPrompt = personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT;
-  return {
+  const result = {
     ...runtimeConfig,
     permission: { ...permission, legalwork_project_set_instructions: instructionPermission },
     // A refusal remains a tool error visible to the model. The engine should
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
     tools: { legalwork_jev_corpus_question: jevSearchEnabled },
+    ...(config?.agentSandboxEnabled ? { lsp: false, formatter: false } : {}),
     provider: providerMap,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
@@ -290,10 +293,15 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       ...runtimePluginList(runtimeConfig),
+      ...(config?.agentSandboxEnabled ? [bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
+  if (config?.agentSandboxEnabled) {
+    return { ...result, permission: sandboxEnginePermissions(result.permission), agent: sandboxEngineAgents(result.agent) };
+  }
+  return result;
 }
 
 export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
