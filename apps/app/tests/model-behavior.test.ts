@@ -31,10 +31,30 @@ describe("catalog variants", () => {
     expect(getModelBehaviorSummary("eigenwelt", binary, saved).value).toBeNull();
   });
 
-  test("provider default leaves model options to the engine without selecting a variant", () => {
-    expect(getModelBehaviorSummary("custom", model(["low", "high", "max"], "max"), null).value).toBeNull();
-    expect(getModelBehaviorSummary("custom", model(["none", "high"], "none"), null).value).toBeNull();
-    expect(getModelBehaviorSummary("custom", model(["low", "medium", "high"]), null).value).toBeNull();
+  test.each(["none", "high", "max"])("displays native default %s without an extra dropdown item or variant override", (effort) => {
+    const summary = getModelBehaviorSummary("custom", model(["none", "high", "max"], effort), null);
+    expect(summary.label).toBe(effort);
+    expect(summary.value).toBeNull();
+    expect(summary.options.map((option) => option.value)).toEqual(["none", "high", "max"]);
+    expect(summary.options.filter((option) => option.isDefault).map((option) => option.value)).toEqual([effort]);
+  });
+
+  test("does not invent a default when metadata is absent or a variant adds settings", () => {
+    const unconfigured = getModelBehaviorSummary("custom", model(["low", "medium", "high"]), null);
+    expect(unconfigured.value).toBeNull();
+    expect(unconfigured.options.some((option) => option.label === unconfigured.label)).toBe(false);
+    const configured = model(["low", "high"], "high");
+    configured.variants = { high: { reasoningEffort: "high", custom: { budget: 42 } }, low: { reasoningEffort: "low" } };
+    const summary = getModelBehaviorSummary("custom", configured, null);
+    expect(summary.value).toBeNull();
+    expect(summary.label).not.toBe("high");
+    expect(getModelBehaviorSummary("custom", configured, "high").value).toBe("high");
+  });
+
+  test("unsupported saved choices display the configured native default", () => {
+    const summary = getModelBehaviorSummary("custom", model(["none", "high"], "high"), "medium");
+    expect(summary.label).toBe("high");
+    expect(summary.value).toBeNull();
   });
 
   test("custom catalog keys preserve their case and options", () => {
@@ -60,7 +80,7 @@ describe("catalog variants", () => {
   test("GLM exposes low/high/max without a medium or off choice", () => {
     const summary = getModelBehaviorSummary("eigenwelt", model(["low", "high", "max"]), "medium");
     expect(summary.value).toBeNull();
-    expect(summary.options.map((option) => option.value)).toEqual([null, "low", "high", "max"]);
+    expect(summary.options.map((option) => option.value)).toEqual(["low", "high", "max"]);
   });
 
   test("disabled variants cannot be selected and built-in reasoning still works", () => {

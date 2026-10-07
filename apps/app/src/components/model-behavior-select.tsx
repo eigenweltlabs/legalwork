@@ -19,6 +19,7 @@ import {
 type ModelBehaviorOption = {
   value: string | null;
   label: string;
+  isDefault?: boolean;
 };
 
 type ModelBehaviorSelectProps = {
@@ -44,7 +45,7 @@ export function ModelBehaviorSelect({
   const rawValue = value ?? null;
   const selectValue = items.some((option) => option.value === rawValue)
     ? rawValue
-    : null;
+    : items.find((option) => option.isDefault)?.value ?? null;
 
   return (
     <Select

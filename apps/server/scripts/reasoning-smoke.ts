@@ -112,6 +112,17 @@ try {
     const keys = Object.entries(entry.variants).filter(([, value]) => !value.disabled).map(([key]) => key);
     const actual = Object.keys(model.variants ?? {}).sort();
     if (JSON.stringify(actual) !== JSON.stringify([...keys].sort())) throw new Error(`${entry.id}: inferred unsupported efforts survived`);
+    const initial = getModelBehaviorSummary("eigenwelt", model, null);
+    if (initial.options.some((option) => option.value === null) || initial.value !== null) {
+      throw new Error(`${entry.id}: the UI added a default item or selected an implicit variant`);
+    }
+    if (typeof entry.options?.reasoningEffort === "string" && initial.label !== entry.options.reasoningEffort) {
+      throw new Error(`${entry.id}: the UI did not display the configured native default`);
+    }
+    if (typeof entry.options?.reasoningEffort === "string" &&
+        initial.options.filter((option) => option.isDefault).map((option) => option.value).join() !== entry.options.reasoningEffort) {
+      throw new Error(`${entry.id}: the native default was not selected in the dropdown`);
+    }
     const selections: Array<string | null> = [null, "engine-default", ...keys];
     // Unsupported saved choices must return to provider default on every model.
     for (const old of ["low", "medium"]) if (!keys.includes(old)) selections.push(old);

@@ -51,8 +51,12 @@ Provide the disposable server's bearer token as `MODEL_REASONING_ENGINE_KEY`
 through the environment. Leave the Electron window idle while the matrix runs;
 test normal composer interactions separately.
 
-Verify Mistral `none/high`, GLM `low/high/max`, and Provider default in the real
-composer. Inspect requests to confirm Provider default omits the effort override.
+Verify Mistral `none/high` and GLM `low/high/max` in the real composer. The
+Mistral dropdown must start with `high` selected and contain exactly two entries;
+GLM must start with `max` selected and contain exactly three entries. There is no
+additional Provider default entry. An unset variant uses the model's standard
+`options.reasoningEffort`; that effort is sent explicitly. Select a different
+effort and then return to the original choice, checking the recorded requests.
 Turn online catalog updates off in the disposable profile's Privacy settings and
 verify paid models and explicit controls still work. Restore the switch afterward.
 
@@ -63,19 +67,35 @@ Google service identity because local application-default credentials had expire
 The local paid-account fixture does not test the production OAuth sign-in exchange.
 Prompts and file contents were synthetic; production configuration was unchanged.
 
-Results: the complete 15-model matrix passed 113 checks in the actual Electron
-setup with a synthetic upstream, as well as 113 checks in the isolated engine.
-Live providers passed 65 distinct checks: all choices and read tools on nine
-routes, plus the two default checks on EU GPT Luna. OpenRouter then returned
-HTTP 402, "Insufficient credits," leaving 48 live checks incomplete on the
-remaining six routes. Both its EU and US endpoints returned the credit error.
-The seven routes using other providers passed all 47 checks while online catalog
-updates were disabled. Actual composer requests also verified Mistral `high/none`,
-GLM `max`, and GLM Provider default with no effort override. The hosted catalog
-was fetched successfully through the Next.js dev server after restoring updates.
+The latest native-default update passed the complete 15-model matrix: 113
+checks in the actual Electron setup with a synthetic upstream, and 113 checks
+in the isolated engine. Each model also verifies that the dropdown marks its
+configured native default, contains no extra default item, and keeps the variant
+override unset until an explicit choice. All matrix requests are checked for the
+expected effort, streaming and HTTP 200, including both read-tool rounds.
+The normal Electron composer separately sent GLM `max`, then `low`, then `max`
+after returning to its original choice; all three synthetic requests streamed
+and returned HTTP 200. Fresh-launch screenshots verify Mistral `high` and GLM
+`max` with no additional default entry.
+
+Live verification of this update passed 33 checks across five complete routes:
+EU DeepSeek, Gemini, GLM and Mistral, plus US Gemini. OpenRouter EU and US still
+return HTTP 402, "Insufficient credits." Fireworks returned HTTP 401,
+"Unauthorized," for US DeepSeek and US GLM; separate synthetic requests to the
+production paid gateway reproduced both errors. This prevents completing the
+live matrix on the other ten routes. Credentials and production configuration
+were not changed. These upstream failures are separate from synthetic protocol
+verification; do not claim that all routes passed live.
+
+Before the default-display update, live verification passed 65 distinct checks,
+including nine complete routes, and the seven non-OpenRouter routes passed with
+online catalog updates disabled. The hosted public catalog was fetched through
+the Next.js dev server after restoring the disposable profile's Privacy switch.
+The new default values are published in the paid manifest's standard OpenCode
+options, independently of public catalog updates.
 
 Screenshots from the actual Electron app:
 
-![Mistral high response and controls](model-reasoning-electron-mistral.jpg)
+![Mistral native default and its two choices](model-reasoning-electron-mistral.jpg)
 
-![GLM max response and controls](model-reasoning-electron-glm.jpg)
+![GLM native default and its three choices](model-reasoning-electron-glm.jpg)

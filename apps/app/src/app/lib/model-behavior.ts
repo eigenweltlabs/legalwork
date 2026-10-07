@@ -14,14 +14,6 @@ const WELL_KNOWN_VARIANT_ORDER = [
   "max",
 ] as const;
 
-function defaultBehaviorOption(): ModelBehaviorOption {
-  return {
-    value: null,
-    label: t("settings.provider_default_label"),
-    description: t("settings.provider_default_desc"),
-  };
-}
-
 export const normalizeModelBehaviorValue = (value: string | null) => {
   // Preferences store literal catalog keys; null alone means provider default.
   return value?.trim() || null;
@@ -84,7 +76,7 @@ const getVariantLabel = (_providerID: string, key: string, _providerName?: strin
 
 export const formatGenericBehaviorLabel = (value: string | null) => {
   const normalized = normalizeModelBehaviorValue(value);
-  if (!normalized) return defaultBehaviorOption().label;
+  if (!normalized) return t("app.model_behavior_title");
   return getVariantLabel("generic", normalized);
 };
 
@@ -117,18 +109,24 @@ export const getModelBehaviorOptions = (
 ): ModelBehaviorOption[] => {
   const variantKeys = sortVariantKeys(getVariantKeys(model));
   if (!variantKeys.length) return [];
-  return [
-    defaultBehaviorOption(),
-    ...variantKeys.map((key) => {
-      const label = getVariantLabel(providerID, key, providerName);
-      return {
-        value: key,
-        label,
-        description: getVariantDescription(providerID, key, label, providerName),
-      };
-    }),
-  ];
+  const defaultKey = defaultVariantKey(model);
+  return variantKeys.map((key) => {
+    const label = getVariantLabel(providerID, key, providerName);
+    return {
+      value: key,
+      label,
+      isDefault: key === defaultKey,
+      description: getVariantDescription(providerID, key, label, providerName),
+    };
+  });
 };
+
+const defaultVariantKey = (model: ProviderModel) => getVariantKeys(model).find((key) => {
+  const entries = Object.entries(model.variants?.[key] ?? {}).filter(([name]) => name !== "disabled");
+  // A matching effort alone is insufficient if the variant adds other settings.
+  return entries.length > 0 && entries.every(([name, value]) =>
+    JSON.stringify(model.options?.[name]) === JSON.stringify(value));
+});
 
 export const sanitizeModelBehaviorValue = (
   providerID: string,
@@ -153,17 +151,16 @@ export const getModelBehaviorSummary = (
 ) => {
   const options = getModelBehaviorOptions(providerID, model, providerName);
   const sanitized = sanitizeModelBehaviorValue(providerID, model, value, providerName);
-  // The engine applies model.options itself. Provider default must not select
-  // a variant with additional options merely because its effort has that name.
-  const selected = options.find((option) => option.value === sanitized) ?? options[0] ?? null;
+  // Display the configured native default while leaving the variant override unset.
+  const selected = options.find((option) => option.value === (sanitized ?? defaultVariantKey(model)));
   const title = getBehaviorTitle(providerID, model, getVariantKeys(model), providerName);
 
   if (options.length > 0) {
     return {
       title,
-      label: selected?.label ?? defaultBehaviorOption().label,
-      description: selected?.description ?? defaultBehaviorOption().description,
-      value: selected?.value ?? null,
+      label: selected?.label ?? title,
+      description: selected?.description ?? t("model_behavior.desc_builtin"),
+      value: sanitized,
       options,
     };
   }
