@@ -6,11 +6,15 @@ import { AgentSandboxService } from "./service.js";
 import { prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
 import { ApprovalService } from "../approvals.js";
-import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+const configs: ServerConfig[] = [];
+afterEach(async () => {
+  for (const config of configs.splice(0)) await closeRuntimeOpencodeConfig(config);
+  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+});
 
 async function fixture(permissions: Record<string, unknown>, approve = true) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-sandbox-policy-"));
@@ -23,6 +27,7 @@ async function fixture(permissions: Record<string, unknown>, approve = true) {
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [matter],
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
+  configs.push(config);
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: permissions }));
   const prompts: ApprovalRequest[] = [];
   const approvals = new ApprovalService(config.approval, async (request) => { prompts.push(request); return approve ? "allow" : "deny"; });

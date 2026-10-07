@@ -48,6 +48,7 @@ const runtimeOpencodeConfigs = sqliteTable("runtime_opencode_configs", {
 });
 
 type RuntimeOpencodeDb = {
+  close: () => void;
   get: (workspaceId: string) => { configJson: string } | undefined;
   upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
@@ -145,6 +146,7 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
     sqlite.run("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
     const db = drizzle(sqlite);
     return {
+      close: () => sqlite.close(),
       get: (workspaceId) => db
         .select()
         .from(runtimeOpencodeConfigs)
@@ -168,6 +170,7 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
   const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
@@ -180,6 +183,15 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
 }
 
 const dbByPath = new Map<string, Promise<RuntimeOpencodeDb>>();
+
+/** Release a stopped server's config connection before removing its storage. */
+export async function closeRuntimeOpencodeConfig(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const db = dbByPath.get(path);
+  if (!db) return;
+  dbByPath.delete(path);
+  (await db).close();
+}
 
 async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
   const path = runtimeDbPath(config);

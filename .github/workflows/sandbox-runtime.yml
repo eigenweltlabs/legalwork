@@ -88,12 +88,23 @@ jobs:
         with:
           name: sandbox-guest-${{ matrix.arch }}
           path: apps/server/resources/agent-sandbox/runtime/
-      - name: Install QEMU build dependency (macOS)
+      - name: Build QEMU (macOS)
         if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
         run: |
-          brew update
-          brew install qemu
-          brew upgrade qemu
+          brew install glib ninja pkgconf
+          curl -fL --retry 3 https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
+          echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | shasum -a 256 -c -
+          tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/qemu-11.1.2"
+          extra=()
+          if [ '${{ matrix.qemu }}' = aarch64 ]; then
+            extra+=(--with-devices-aarch64=minimal)
+          fi
+          ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-hvf "${extra[@]}"
+          make -j3
+          make install
       - name: Install QEMU build dependency (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -132,11 +143,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then
-            binary="$(command -v qemu-system-${{ matrix.qemu }})"
-          else
-            binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
-          fi
+          binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
           QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" node scripts/sandbox/package-runtime.mjs "$binary"
       - name: Exercise real isolation and permission enforcement
         env:

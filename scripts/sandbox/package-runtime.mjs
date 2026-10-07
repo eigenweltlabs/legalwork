@@ -79,7 +79,7 @@ function collectLicenses(directory) {
   }
 }
 if (process.platform === 'win32') collectLicenses(resolve(dirname(source), '../share/licenses'));
-if (process.platform === 'linux') {
+if (process.platform === 'linux' || (process.platform === 'darwin' && process.env.QEMU_SOURCE_DIR)) {
   if (!process.env.QEMU_SOURCE_DIR) throw new Error('QEMU_SOURCE_DIR is required to bundle the QEMU license');
   for (const name of ['COPYING', 'COPYING.LIB', 'LICENSE']) notices.push(name, readFileSync(join(process.env.QEMU_SOURCE_DIR, name), 'utf8'));
 }
