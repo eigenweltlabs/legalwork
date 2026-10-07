@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,6 +52,47 @@ else:
       await rm(skill, { recursive: true, force: true });
       await rm(join(workspace, "binary.bin"), { force: true });
       await rm(join(workspace, "copied.bin"), { force: true });
+    }
+  }, 180000);
+
+  test("multiple folders keep separate destinations and read-only boundaries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sandbox-multiple-folders-"));
+    const inputs = join(root, "reference"), outputs = join(root, "output");
+    try {
+      await mkdir(inputs); await mkdir(outputs);
+      await writeFile(join(inputs, "input.txt"), "reference text");
+      await writeFile(join(outputs, "input.txt"), "output text");
+      await writeFile(join(root, "unshared.txt"), "not authorized");
+      await writeFile(join(workspace, "multiple-folders.py"), `from pathlib import Path
+assert Path('/authorized/0/input.txt').read_text() == 'reference text'
+assert Path('/authorized/1/input.txt').read_text() == 'output text'
+try:
+    Path('/authorized/0/input.txt').write_text('forbidden')
+except OSError:
+    pass
+else:
+    raise RuntimeError('read-only reference folder was writable')
+assert not Path(${JSON.stringify(join(root, "unshared.txt"))}).exists()
+Path('/workspace/combined.txt').write_text(Path('/authorized/0/input.txt').read_text() + ' + ' + Path('/authorized/1/input.txt').read_text())
+Path('/authorized/1/result.txt').write_text('external output')
+print('multiple folders passed')
+`);
+      const result = await sandbox.run({ command: "python3 /workspace/multiple-folders.py", cwd: "/authorized/1",
+        mounts: [
+          { source: workspace, target: "/workspace", writable: true },
+          { source: inputs, target: "/authorized/0", writable: false },
+          { source: outputs, target: "/authorized/1", writable: true },
+        ], timeoutMs: 20000, signal: new AbortController().signal, authorizeNetwork: async () => false });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("multiple folders passed");
+      expect(await readFile(join(workspace, "combined.txt"), "utf8")).toBe("reference text + output text");
+      expect(await readFile(join(outputs, "result.txt"), "utf8")).toBe("external output");
+      expect(await readFile(join(inputs, "input.txt"), "utf8")).toBe("reference text");
+      expect(await readFile(join(root, "unshared.txt"), "utf8")).toBe("not authorized");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(join(workspace, "multiple-folders.py"), { force: true });
+      await rm(join(workspace, "combined.txt"), { force: true });
     }
   }, 180000);
 

@@ -18,6 +18,16 @@ The engine's built-in host shell is disabled independently of the sandbox plugin
 
 Installed skill instructions remain discoverable. A command may request installed skill names through `skills`; their resource folders appear at `/skills/0`, `/skills/1`, and so on. Skill and read permissions apply, and these copies are always read-only. Python document libraries (python-docx, openpyxl, python-pptx, pypdf, ReportLab and Pillow) are bundled for offline use.
 
+## Multiple folders
+
+Every command receives the current workspace at `/workspace` and the workspace's explicitly authorized external folders at `/authorized/0`, `/authorized/1`, and so on. Each folder is copied into a separate guest directory, and validated changes return only to the corresponding host folder. Identical filenames in different folders remain distinct. The snapshot limits apply to all folders combined. These are snapshots, so changes made by another application during execution do not appear in the guest; conflicting writes are refused during copy-back.
+
+The agent can combine data from every folder it can read in that command. Read-only protects original files against changes; it does not prevent copying their contents to a writable folder, command output, or an approved network request. Use separate workspaces and avoid shared grants for matters that must remain separate. Network access is governed separately and is never granted by adding a folder.
+
+The current Authorized Folders setting grants access at workspace scope. Shell commands mount every grant, and `write: true` makes every document folder writable after edit permission checks. Installed skill mounts remain read-only. The VM supports mixed read-only and writable document mounts, but the current settings do not offer per-folder access levels or per-command folder selection. Do not present a writable command as restricted to an output folder.
+
+Scoped external-folder denials block a whole-folder snapshot; scoped `ask` rules require explicit approval before copying the folder. Removing a folder or changing permission settings cancels active commands. Removing a child grant does not revoke access through an authorized parent: remove or narrow the parent grant as well. Overlapping grants create separate snapshots, and copy-back rejects a batch that changes the same host path through more than one guest path. External-folder indices can change when the grant list changes.
+
 ## Scope and limits
 
 This isolates script execution. Model-provider requests, connected apps, browser/computer-use tools, ordinary file tools, and the LegalWork server remain host capabilities governed by their own permissions. The sandbox does not turn an unrestricted connector into a confined tool. The host application, OS, QEMU, and signed runtime resources remain part of the trusted boundary.

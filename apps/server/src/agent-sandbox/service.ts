@@ -109,9 +109,12 @@ export class AgentSandboxService {
       if (sources.length > 1 && Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
+      // An allowed parent can contain a child that still requires approval.
+      // The guest can read the entire snapshot, so ask before sharing it.
+      const folderAction = Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "ask") ? "ask" : "allow";
       for (const source of sources.slice(1)) {
-        await ask("external_directory", `${source}/__sandbox__`, "Allow this command to access this authorized folder?", [source],
-          restrictive(["allow", ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
+        await ask("external_directory", `${source}/__sandbox__`, "Allow this command to access all files in this authorized folder, including files covered by individual folder rules?", [source],
+          restrictive([folderAction, ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
       }
       const mounts: SandboxMount[] = sources.map((source, index) => ({ source,
         target: index === 0 ? "/workspace" : `/authorized/${index - 1}`, writable: command.write }));

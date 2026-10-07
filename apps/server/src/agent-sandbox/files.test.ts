@@ -75,3 +75,34 @@ test("empty directory creation and removal survive copy-back", async () => {
   expect(snapshot.directories).toContain("/workspace/created/empty");
   expect(snapshot.directories).not.toContain("/workspace/remove");
 });
+
+test("overlapping folder aliases cannot write the same host file twice", async () => {
+  const f = await fixture();
+  await mkdir(join(f.root, "child"));
+  await writeFile(join(f.root, "child", "input"), "original");
+  const snapshot = await snapshotFolders([
+    { source: f.root, target: "/workspace", writable: true },
+    { source: join(f.root, "child"), target: "/authorized/0", writable: true },
+  ], signal);
+  await expect(applyChanges(snapshot, [
+    { path: "/workspace/other", content: Buffer.from("must not be applied") },
+    { path: "/workspace/child/input", content: Buffer.from("first") },
+    { path: "/authorized/0/input", content: Buffer.from("second") },
+  ], signal)).rejects.toThrow("Duplicate sandbox output path");
+  expect(await readFile(join(f.root, "child", "input"), "utf8")).toBe("original");
+  expect(await readFile(join(f.root, "other")).catch(() => null)).toBeNull();
+});
+
+test("a read-only external folder rejects the whole output batch", async () => {
+  const writable = await fixture(), readOnly = await fixture();
+  const snapshot = await snapshotFolders([
+    { source: writable.root, target: "/workspace", writable: true },
+    { source: readOnly.root, target: "/authorized/0", writable: false },
+  ], signal);
+  await expect(applyChanges(snapshot, [
+    { path: "/workspace/result", content: Buffer.from("must not be applied") },
+    { path: "/authorized/0/result", content: Buffer.from("forbidden") },
+  ], signal)).rejects.toThrow("read-only folder");
+  expect(await readFile(join(writable.root, "result")).catch(() => null)).toBeNull();
+  expect(await readFile(join(readOnly.root, "result")).catch(() => null)).toBeNull();
+});

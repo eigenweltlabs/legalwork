@@ -159,3 +159,58 @@ test("a denied subfolder cannot enter a whole-folder snapshot", async () => {
   await expect(f.run()).rejects.toThrow("scoped folder denial");
   expect(f.executions).toHaveLength(0);
 });
+
+test("multiple authorized folders participate in read and edit approval", async () => {
+  const f = await fixture({ bash: "allow", read: "ask", edit: "ask" });
+  const sources = [join(f.workspace.path, "first"), join(f.workspace.path, "second")];
+  for (const source of sources) await mkdir(source);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: {
+    external_directory: Object.fromEntries(sources.map((source) => [`${source}/*`, "allow"])),
+  } }));
+  await f.run(true);
+  expect(f.executions[0].mounts.map(({ target, writable }) => ({ target, writable }))).toEqual([
+    { target: "/workspace", writable: true },
+    { target: "/authorized/0", writable: true },
+    { target: "/authorized/1", writable: true },
+  ]);
+  expect(f.prompts.map(({ action, paths }) => ({ action, paths }))).toEqual([
+    { action: "sandbox.read", paths: [f.workspace.path, ...sources] },
+    { action: "sandbox.edit", paths: [f.workspace.path, ...sources] },
+  ]);
+});
+
+test("an allowed parent cannot bypass a subfolder's approval requirement", async () => {
+  for (const approved of [false, true]) {
+    const f = await fixture({ bash: "allow", read: "allow" }, approved);
+    const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
+    await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: {
+      [`${external}/*`]: "allow", [`${external}/private/*`]: "ask",
+    } } }));
+    if (approved) await f.run();
+    else await expect(f.run()).rejects.toThrow("declined");
+    expect(f.prompts.map(({ action, paths }) => ({ action, paths }))).toEqual([
+      { action: "sandbox.external_directory", paths: [external] },
+    ]);
+    expect(f.executions).toHaveLength(approved ? 1 : 0);
+  }
+});
+
+test("removing a folder grant cancels commands using the previous folder snapshot", async () => {
+  const f = await fixture({ bash: "allow", read: "allow" });
+  const external = await mkdtemp(join(tmpdir(), "sandbox-external-")); roots.push(external);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow" } } }));
+  const service = new AgentSandboxService(f.config, new ApprovalService(f.config.approval), {
+    status: async () => ({ available: true }), prepare: async () => "test-image",
+    run: async (input) => {
+      expect(input.mounts).toHaveLength(2);
+      await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: {} } }));
+      expect(input.signal.aborted).toBe(true);
+      input.signal.throwIfAborted();
+      return { output: "", exitCode: 0, truncated: false };
+    },
+  });
+  await expect(service.run(f.workspace, { command: "python report.py", write: false, timeoutMs: 1000 },
+    { type: "host" }, new AbortController().signal)).rejects.toThrow("Permissions changed");
+  await f.run();
+  expect(f.executions[0].mounts).toHaveLength(1);
+});
