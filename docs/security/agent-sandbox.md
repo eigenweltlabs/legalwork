@@ -14,6 +14,8 @@ After the command finishes, the host kills the VM before copying changes back. C
 
 The engine's built-in host shell is disabled independently of the sandbox plugin. Session overrides cannot restore it. Direct terminal/shell endpoints, engine config mutation, and command-template host interpolation are blocked. Managed engine configuration discovery excludes project and home plugin directories. Explicitly installed plugins and connected MCPs remain trusted host integrations.
 
+Installed skill instructions remain discoverable. A command may request installed skill names through `skills`; their resource folders appear at `/skills/0`, `/skills/1`, and so on. Skill and read permissions apply, and these copies are always read-only. Python document libraries (python-docx, openpyxl, python-pptx, pypdf, ReportLab and Pillow) are bundled for offline use.
+
 ## Scope and limits
 
 This isolates script execution. Model-provider requests, connected apps, browser/computer-use tools, ordinary file tools, and the LegalWork server remain host capabilities governed by their own permissions. The sandbox does not turn an unrestricted connector into a confined tool. The host application, OS, QEMU, and signed runtime resources remain part of the trusted boundary.
@@ -21,6 +23,8 @@ This isolates script execution. Model-provider requests, connected apps, browser
 Each command starts fresh. Installed packages and changes outside approved folders disappear afterwards. Commands use Linux paths (`/workspace`, `/authorized/0`, etc.), not Windows or macOS paths. Snapshots are limited to 512 MiB and 10,000 files, with 128 MiB per file. Symlinks and special files are refused. `.git`, `.opencode`, environment files, shell startup files, and app metadata are excluded; `.legalwork/scratch` is available for task files. HTTP request and response bodies are limited to 4 MiB and 16 MiB. Two VMs may run concurrently.
 
 macOS uses Hypervisor.framework acceleration. Windows currently uses QEMU software emulation so a machine without virtualization can still execute protected commands. This is slower than hardware acceleration. No Windows administrator setup is required at runtime.
+
+Windows uses a unique named pipe for the host side of virtio-serial because QEMU's Windows stdio backend can drop bytes under backpressure. The guest loops on partial character-device writes and verifies input file hashes. The test suite includes a multi-megabyte binary round trip.
 
 ## Why this approach
 

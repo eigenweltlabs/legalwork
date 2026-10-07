@@ -131,7 +131,7 @@ export function isOpenWordFilePipelineCall(
   args: Record<string, unknown>,
   documentUrl: string | null,
 ): boolean {
-  if (!documentUrl || (tool !== "bash" && tool !== "task")) return false;
+  if (!documentUrl || (tool !== "bash" && tool !== "legalwork_shell" && tool !== "task")) return false;
   const text = JSON.stringify(args).toLowerCase();
   if (!FILE_BACKEND_MARKERS.some((marker) => text.includes(marker))) return false;
 

@@ -2,3 +2,4 @@
 !Dockerfile
 !relay.py
 !init
+!requirements.txt

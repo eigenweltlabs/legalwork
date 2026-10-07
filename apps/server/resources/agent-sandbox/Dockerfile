@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     linux-image-cloud-$(dpkg --print-architecture) \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY requirements.txt /opt/legalwork/requirements.txt
+RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
+    && pip freeze > /opt/legalwork/python-packages.txt
 COPY relay.py /opt/legalwork/relay.py
 COPY init /init
 RUN chmod 0555 /opt/legalwork /opt/legalwork/relay.py
@@ -19,5 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends cpio gzip && rm
 COPY --from=guest / /rootfs
 RUN mkdir /out && cp /rootfs/boot/vmlinuz-* /out/kernel && rm -rf /rootfs/boot /rootfs/var/cache /rootfs/var/lib/apt/lists
 RUN cp /rootfs/opt/legalwork/guest-packages.tsv /out/guest-packages.tsv
+RUN cp /rootfs/opt/legalwork/python-packages.txt /out/python-packages.txt
 WORKDIR /rootfs
 RUN find . -print0 | cpio --null -o -H newc | gzip -1 > /out/initrd.gz

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
+import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
 import type { Actor, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
@@ -10,7 +11,7 @@ import {
 import { VmSandbox, validateMounts, type SandboxMount, type SandboxResult } from "./vm.js";
 import { permissionAction, permissionPatternMatches, type PermissionAction } from "./permissions.js";
 
-export type SandboxCommand = { command: string; workdir?: string; write: boolean; timeoutMs: number };
+export type SandboxCommand = { command: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
@@ -18,13 +19,26 @@ function restrictive(actions: PermissionAction[]): PermissionAction {
 }
 
 function wholeCommandAction(permissions: Record<string, unknown>, tool: string): PermissionAction {
-  const actions: PermissionAction[] = [permissionAction(permissions, tool, "*")];
+  const rules: AgentPermissionRule[] = [];
   // A script can run arbitrary descendants and inspect every mounted file.
   // Conservatively apply scoped restrictions to the whole command. Matching
   // only the outer command would let `python script.py` bypass inner rules.
   for (const [name, rule] of Object.entries(permissions)) {
-    if (!permissionPatternMatches(tool, name) || !rule || typeof rule !== "object") continue;
-    for (const value of Object.values(rule)) actions.push(value === "allow" || value === "ask" ? value : "deny");
+    if (!permissionPatternMatches(tool, name)) continue;
+    for (const [pattern, value] of Object.entries(rule && typeof rule === "object" ? rule : { "*": rule })) {
+      rules.push({ permission: name, pattern, action: value === "allow" || value === "ask" ? value : "deny" });
+    }
+  }
+  return wholeAgentAction(rules, tool);
+}
+
+function wholeAgentAction(rules: AgentPermissionRule[], tool: string): PermissionAction {
+  let actions: PermissionAction[] = ["allow"];
+  for (const rule of rules) {
+    if (!permissionPatternMatches(tool, rule.permission)) continue;
+    // A later whole-tool rule replaces earlier scoped engine defaults.
+    if (rule.pattern === "*") actions = [rule.action];
+    else actions.push(rule.action);
   }
   return restrictive(actions);
 }
@@ -87,9 +101,7 @@ export class AgentSandboxService {
         }
         signal.throwIfAborted();
       };
-      const commandAction = (tool: string) => restrictive([wholeCommandAction(permissions, tool),
-        ...agentRules.filter((rule) => permissionPatternMatches(tool, rule.permission) && rule.pattern !== "*").map((rule) => rule.action),
-        agentAction(agentRules, tool, "*")]);
+      const commandAction = (tool: string) => restrictive([wholeCommandAction(permissions, tool), wholeAgentAction(agentRules, tool)]);
       await ask("bash", command.command, `Run this command in the protected environment?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
@@ -101,10 +113,19 @@ export class AgentSandboxService {
         await ask("external_directory", `${source}/__sandbox__`, "Allow this command to access this authorized folder?", [source],
           restrictive(["allow", ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
       }
-      await ask("read", "*", "Allow this command to read all files in these folders, including files covered by individual read rules?", sources, commandAction("read"));
-      if (command.write) await ask("edit", "*", `Allow this command to change files in the listed folders?\n\n${command.command}`, sources, writeAction);
       const mounts: SandboxMount[] = sources.map((source, index) => ({ source,
         target: index === 0 ? "/workspace" : `/authorized/${index - 1}`, writable: command.write }));
+      if (command.skills?.length) {
+        const installed = await listSkills(workspace.path, true);
+        for (const [index, name] of command.skills.entries()) {
+          const skill = installed.find((item) => item.name === name);
+          if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
+          await ask("skill", name, `Allow this command to use the installed skill ${name}?`, [skill.path]);
+          mounts.push({ source: dirname(skill.path), target: `/skills/${index}`, writable: false });
+        }
+      }
+      await ask("read", "*", "Allow this command to read all files in these folders, including files covered by individual read rules?", mounts.map((mount) => mount.source), commandAction("read"));
+      if (command.write) await ask("edit", "*", `Allow this command to change files in the listed folders?\n\n${command.command}`, sources, writeAction);
       const safeMounts = await validateMounts(mounts, [runtimeStorageDir(this.config)]);
       const cwd = command.workdir || "/workspace";
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");

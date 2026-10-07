@@ -6,6 +6,10 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { VmSandbox } from "./vm.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./engine-policy.js";
+import { AgentSandboxService } from "./service.js";
+import { ApprovalService } from "../approvals.js";
+import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import type { ServerConfig, WorkspaceInfo } from "../types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the shipped engine calls the protected tool with identity and cannot run host bash", async () => {
@@ -13,6 +17,17 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   const root = await realpath(await mkdtemp(join(tmpdir(), "sandbox-engine-")));
   const folder = join(root, "matter"); await mkdir(folder);
   const sandbox = new VmSandbox();
+  const workspace: WorkspaceInfo = { id: "matter", name: "Matter", path: folder, preset: "starter", workspaceType: "local" };
+  const serverConfig: ServerConfig = {
+    host: "127.0.0.1", port: 0, token: "fixture", hostToken: "fixture-host", configPath: join(root, "private", "server.json"),
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [folder],
+    readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
+  };
+  await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow", edit: "ask", webfetch: "deny" } }));
+  const approvals: string[] = [];
+  const service = new AgentSandboxService(serverConfig, new ApprovalService(serverConfig.approval, async (request) => {
+    approvals.push(request.action); return "allow";
+  }), sandbox);
   const offered: string[][] = [];
   const calls: { agent: string; sessionID: string }[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {
@@ -21,8 +36,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     if (path === "/workspace/matter/sandbox/execute") {
       const command = z.object({ command: z.string(), write: z.boolean(), agent: z.string(), sessionID: z.string() }).parse(await request.json());
       calls.push(command);
-      return Response.json(await sandbox.run({ command: command.command, cwd: "/workspace", mounts: [{ source: folder, target: "/workspace", writable: command.write }],
-        timeoutMs: 10000, signal: request.signal, authorizeNetwork: async () => false }));
+      return Response.json(await service.run(workspace, { ...command, timeoutMs: 10000 }, { type: "host" }, request.signal));
     }
     const input = z.object({ messages: z.array(z.object({ role: z.string() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
     const tools = input.tools?.map(tool => tool.function.name) ?? [];
@@ -65,6 +79,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     for (const tools of offered) { expect(tools).not.toContain("bash"); expect(tools).toContain("legalwork_shell"); }
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ agent: "build", sessionID: session.id });
+    expect(approvals).toEqual(["sandbox.bash", "sandbox.edit"]);
     expect(await readFile(join(folder, "proof.txt"), "utf8")).toBe("inside VM");
     const direct = await fetch(`${base}/session/${session.id}/shell`, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ agent: "build", command: "echo escaped > host-escape.txt" }), signal: AbortSignal.timeout(10000) });

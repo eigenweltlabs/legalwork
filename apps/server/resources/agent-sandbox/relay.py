@@ -31,8 +31,14 @@ CERT_LOCK = threading.Lock()
 
 def emit(message):
     with OUT:
-        sys.stdout.write(json.dumps(message, separators=(",", ":")) + "\n")
-        sys.stdout.flush()
+        # virtio-serial is a character device: even a blocking write can be
+        # short. Python's unbuffered TextIOWrapper does not retry that tail.
+        remaining = memoryview((json.dumps(message, separators=(",", ":")) + "\n").encode())
+        while remaining:
+            written = os.write(sys.stdout.fileno(), remaining)
+            if written <= 0:
+                raise OSError("Host channel closed during write")
+            remaining = remaining[written:]
 
 
 def read_frame():
@@ -247,6 +253,9 @@ def main():
         elif message.get("end"):
             current.close()
             current = None
+            with open(filename, "rb") as copied:
+                if hashlib.file_digest(copied, "sha256").hexdigest() != baseline[filename]:
+                    raise ValueError("Input file transfer failed integrity validation")
     for mount in config["mounts"]:
         if not mount["writable"]:
             subprocess.run(["/bin/busybox", "mount", "--bind", mount["target"], mount["target"]], check=True)

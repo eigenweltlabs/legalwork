@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VmSandbox } from "./vm.js";
@@ -20,11 +21,39 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
   });
 
   test("Python and Node work, approved writes appear in the project", async () => {
-    const result = await run("python3 -c 'print(6 * 7)' && node -e 'console.log(7 * 6)' && echo approved > allowed.txt", true);
+    const result = await run("python3 -c 'import docx, openpyxl, pptx, pypdf, reportlab, PIL; print(6 * 7)' && node -e 'console.log(7 * 6)' && echo approved > allowed.txt", true);
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe("42\n42\n");
     expect((await readFile(join(workspace, "allowed.txt"), "utf8")).trim()).toBe("approved");
   }, 180_000);
+
+  test("large binary transfers and installed read-only helpers survive transport backpressure", async () => {
+    const skill = await mkdtemp(join(tmpdir(), "sandbox-skill-"));
+    try {
+      const bytes = randomBytes(2 * 1024 * 1024 + 17);
+      await writeFile(join(workspace, "binary.bin"), bytes);
+      await writeFile(join(skill, "helper.py"), `from pathlib import Path
+Path('/workspace/copied.bin').write_bytes(Path('/workspace/binary.bin').read_bytes())
+try:
+    Path('/skills/0/forbidden').write_text('escape')
+except OSError:
+    print('skill protected')
+else:
+    raise RuntimeError('skill was writable')
+`);
+      const result = await sandbox.run({ command: "python3 /skills/0/helper.py", cwd: "/workspace",
+        mounts: [{ source: workspace, target: "/workspace", writable: true }, { source: skill, target: "/skills/0", writable: false }],
+        timeoutMs: 20000, signal: new AbortController().signal, authorizeNetwork: async () => false });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("skill protected");
+      expect(await readFile(join(workspace, "copied.bin"))).toEqual(bytes);
+      expect(await readFile(join(skill, "forbidden")).catch(() => null)).toBeNull();
+    } finally {
+      await rm(skill, { recursive: true, force: true });
+      await rm(join(workspace, "binary.bin"), { force: true });
+      await rm(join(workspace, "copied.bin"), { force: true });
+    }
+  }, 180000);
 
   test("the operating system blocks raw traffic, DNS, host IPC and private supervisor state", async () => {
     const script = `import socket, os, json, subprocess

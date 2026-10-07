@@ -1,5 +1,7 @@
 import { execFile, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { createConnection, type Socket } from "node:net";
+import { setTimeout as delay } from "node:timers/promises";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +16,19 @@ export { validateMounts, within, type SandboxMount } from "./files.js";
 const exec = promisify(execFile);
 const OUTPUT_LIMIT = 1024 * 1024;
 const FRAME_LIMIT = 24 * 1024 * 1024;
+
+async function connectPipe(name: string, signal: AbortSignal): Promise<Socket> {
+  while (true) {
+    signal.throwIfAborted();
+    const socket = createConnection(`\\\\.\\pipe\\${name}`);
+    try { await once(socket, "connect", { signal }); return socket; }
+    catch (error) {
+      socket.destroy();
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      await delay(50, undefined, { signal });
+    }
+  }
+}
 const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["aarch64", "x86_64"]),
   files: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
 });
@@ -69,7 +84,7 @@ export class VmSandbox {
       const actual = createHash("sha256").update(await readFile(join(this.resources, name))).digest("hex");
       if (actual !== expected) throw new Error(`Protected runtime integrity check failed: ${name}`);
     }
-    await exec(this.executable(manifest.architecture), ["--version"], { timeout: 10000 });
+    await exec(this.executable(manifest.architecture), ["--version"], { timeout: 60000, windowsHide: true });
     return manifest;
   }
 
@@ -92,17 +107,20 @@ export class VmSandbox {
     const nativeMac = process.platform === "darwin" && (arm ? process.arch === "arm64" : process.arch === "x64");
     const diagnostics = await mkdtemp(join(tmpdir(), "legalwork-vm-"));
     const consolePath = join(diagnostics, "console.log");
+    // QEMU's Windows stdio drops input when the guest cannot accept a byte.
+    // Its named-pipe backend preserves backpressure for binary file transfers.
+    const pipeName = process.platform === "win32" ? `legalwork-${randomUUID()}` : undefined;
     const args = ["-no-user-config", "-nodefaults", "-L", this.resources, "-machine", arm ? "virt" : "q35",
       "-accel", nativeMac ? "hvf" : "tcg", "-cpu", nativeMac ? "host" : arm ? "cortex-a72" : "max",
       "-m", "2048", "-smp", "2", "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-nic", "none", "-no-reboot",
       "-kernel", join(this.resources, "kernel"), "-initrd", join(this.resources, "initrd.gz"),
       "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}`,
-      "-chardev", "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
+      "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
       "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
     const controller = new AbortController();
     const signal = AbortSignal.any([input.signal, controller.signal, AbortSignal.timeout(180000 + input.timeoutMs)]);
     try {
-      const { result, changes } = await this.execute(executable, args, input, snapshot, signal, consolePath);
+      const { result, changes } = await this.execute(executable, args, input, snapshot, signal, consolePath, pipeName);
       controller.abort();
       // The VM process has exited before any file is written back to the host.
       await applyChanges(snapshot, changes, input.signal);
@@ -110,24 +128,27 @@ export class VmSandbox {
     } finally { controller.abort(); await rm(diagnostics, { recursive: true, force: true }); }
   }
 
-  private execute(executable: string, args: string[], input: SandboxRun, snapshot: Snapshot, signal: AbortSignal, consolePath: string): Promise<{ result: SandboxResult; changes: FileChange[] }> {
+  private execute(executable: string, args: string[], input: SandboxRun, snapshot: Snapshot, signal: AbortSignal, consolePath: string, pipeName?: string): Promise<{ result: SandboxResult; changes: FileChange[] }> {
     return new Promise((resolve, reject) => {
-      const child = spawn(executable, args, { stdio: ["pipe", "pipe", "pipe"], shell: false, signal,
+      const child = spawn(executable, args, { stdio: ["pipe", "pipe", "pipe"], shell: false, signal, windowsHide: true,
         env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP } });
       let pending = "", output = "", stderr = "";
       let exitCode: number | undefined, failure: Error | undefined;
       let truncated = false, ready = false, requests = 0, fileBytes = 0;
       const active = new Set<string>(), files = new Map<string, FileChange>();
       let current: { path: string; chunks: Buffer[]; size: number; mode?: number } | undefined;
+      const pipeController = new AbortController();
+      let pipe: Socket | undefined;
+      let writer = child.stdin;
       const fail = (error: unknown) => { failure = error instanceof Error ? error : new Error(String(error)); child.kill("SIGKILL"); };
       const send = async (message: unknown) => {
         signal.throwIfAborted();
-        if (!child.stdin.write(JSON.stringify(message) + "\n")) await once(child.stdin, "drain", { signal });
+        if (!writer.write(JSON.stringify(message) + "\n")) await once(writer, "drain", { signal });
       };
       child.on("error", fail);
       child.stdin.on("error", (error) => { if (exitCode === undefined) fail(error); });
       child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-8192); });
-      child.stdout.on("data", (chunk: Buffer) => {
+      const receive = (chunk: Buffer) => {
         pending += chunk.toString();
         if (pending.length > FRAME_LIMIT) return fail(new Error("Sandbox protocol frame exceeded its limit."));
         let newline: number;
@@ -183,14 +204,24 @@ export class VmSandbox {
                   const response = await brokerRequest(prepareOutboundRequest(event.request), input.authorizeNetwork, signal);
                   await send({ id: event.id, response });
                 } catch (error) {
-                  if (!child.stdin.destroyed) await send({ id: event.id, error: error instanceof Error ? error.message : "Request denied" });
+                  if (!writer.destroyed) await send({ id: event.id, error: error instanceof Error ? error.message : "Request denied" });
                 } finally { active.delete(event.id); }
               })().catch(fail);
             }
           } catch (error) { fail(error); }
         }
-      });
+      };
+      if (pipeName) {
+        void connectPipe(pipeName, AbortSignal.any([signal, pipeController.signal])).then((socket) => {
+          pipe = socket; writer = socket;
+          socket.on("error", fail);
+          socket.on("data", receive);
+          socket.on("end", () => { if (exitCode === undefined) fail(new Error("Sandbox channel closed early.")); });
+        }).catch((error) => { if (!pipeController.signal.aborted) fail(error); });
+      } else child.stdout.on("data", receive);
       child.on("close", async () => {
+        pipeController.abort();
+        pipe?.destroy();
         if (failure) return reject(failure);
         if (signal.aborted) return reject(signal.reason);
         if (exitCode === undefined) {

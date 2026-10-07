@@ -90,14 +90,25 @@ jobs:
           path: apps/server/resources/agent-sandbox/runtime/
       - name: Install QEMU build dependency (macOS)
         if: runner.os == 'macOS'
-        run: brew install qemu
+        run: |
+          brew update
+          brew install qemu
+          brew upgrade qemu
       - name: Install QEMU build dependency (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
           msystem: ${{ matrix.msystem }}
           update: true
-          install: ${{ matrix.package }}-qemu
+      - name: Download QEMU packages with retries (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          for attempt in 1 2 3; do
+            pacman -S --noconfirm --needed ${{ matrix.package }}-qemu && exit 0
+            sleep 5
+          done
+          exit 1
       - name: Bundle QEMU (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}

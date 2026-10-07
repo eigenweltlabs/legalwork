@@ -16,7 +16,8 @@ import { readSystemOneSettings } from "./systemone.js";
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { listSkills } from "./skills.js";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -241,6 +242,7 @@ export async function buildLegalworkRuntimeConfigObject(
   // for this tool, so every proposed instructions change is reviewed.
   delete permission.legalwork_project_set_instructions;
   const agentPrompt = personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT;
+  const workspace = config?.workspaces.find((item) => item.id === workspaceId);
   const result = {
     ...runtimeConfig,
     permission: { ...permission, legalwork_project_set_instructions: instructionPermission },
@@ -248,7 +250,11 @@ export async function buildLegalworkRuntimeConfigObject(
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
     tools: { legalwork_jev_corpus_question: jevSearchEnabled },
-    ...(config?.agentSandboxEnabled ? { lsp: false, formatter: false } : {}),
+    ...(config?.agentSandboxEnabled ? { lsp: false, formatter: false,
+      // Restore skill content discovery without allowing project configuration
+      // to load executable plugins into the host engine.
+      skills: { paths: workspace ? (await listSkills(workspace.path, true)).map((skill) => dirname(skill.path)) : [] },
+    } : {}),
     provider: providerMap,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {

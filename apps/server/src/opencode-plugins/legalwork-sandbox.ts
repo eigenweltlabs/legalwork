@@ -5,6 +5,7 @@ const args = z.object({
   command: z.string().min(1).max(128000).describe("Bash command to execute inside the protected Linux environment. Python 3 and Node.js are installed."),
   description: z.string().describe("Briefly describe what the command does."),
   workdir: z.string().optional().describe("Sandbox directory, normally /workspace. Authorized folders appear at /authorized/0, /authorized/1, etc. Host absolute paths are not available."),
+  skills: z.array(z.string().min(1).max(200)).max(16).optional().describe("Installed skill names needed by this command. Their folders are copied read-only to /skills/0, /skills/1 in this order. Run helper scripts using these paths instead of their host paths."),
   timeout: z.number().int().min(1).max(600000).optional(),
   write: z.boolean().optional().describe("Set true only when the command needs to change project files. Otherwise all authorized folders are mounted read-only. File-change permissions still apply."),
 });
@@ -26,7 +27,7 @@ export const LegalWorkSandbox = async () => ({
         const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
         const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sandbox/execute`, {
           method: "POST", headers: { Authorization: `Bearer ${serverToken()}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ command: input.command, workdir: input.workdir, write: input.write ?? false,
+          body: JSON.stringify({ command: input.command, workdir: input.workdir, skills: input.skills, write: input.write ?? false,
             timeoutMs: input.timeout ?? 120000, agent: context.agent, sessionID: context.sessionID }),
           signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),
         });

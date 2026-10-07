@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -36,11 +37,17 @@ print(json.dumps(checks))
   const checks = JSON.parse(probe.output);
   for (const [name, value] of Object.entries(checks)) assert.equal(value, true, name);
   results.isolation = checks;
-  const write = await run("python3 -c 'open(\"result.txt\",\"w\").write(\"approved\")'; node -e 'console.log(42)'", true);
+  const binary = randomBytes(2 * 1024 * 1024 + 17);
+  await writeFile(join(workspace, "input.bin"), binary);
+  const write = await run("python3 -c 'import docx, openpyxl, pptx, pypdf, reportlab, PIL; open(\"result.txt\",\"w\").write(\"approved\"); open(\"output.bin\",\"wb\").write(open(\"input.bin\",\"rb\").read())'; node -e 'console.log(42)'", true);
   assert.equal(write.exitCode, 0, write.output);
   assert.equal(write.output.trim(), "42");
   assert.equal(await readFile(join(workspace, "result.txt"), "utf8"), "approved");
+  assert.deepEqual(await readFile(join(workspace, "output.bin")), binary);
+  await rm(join(workspace, "input.bin"));
+  await rm(join(workspace, "output.bin"));
   results.python_node_and_copyback = true;
+  results.large_binary_roundtrip_and_document_libraries = true;
   const requests: string[] = [];
   const blocked = await sandbox.run({ command: "curl --fail --silent --show-error https://example.com/ --data synthetic-canary",
     cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }], timeoutMs: 30000,

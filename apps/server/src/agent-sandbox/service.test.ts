@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService } from "./service.js";
@@ -43,6 +43,21 @@ test("shell denial prevents runtime launch", async () => {
   expect(fixtureState.prompts).toHaveLength(0);
 });
 
+test("installed helpers require skill permission and always enter read-only", async () => {
+  const f = await fixture({ bash: "allow", read: "ask", skill: { "helper": "ask" } });
+  const folder = join(f.workspace.path, ".opencode", "skills", "helper");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "SKILL.md"), "---\nname: helper\ndescription: Test installed helper\n---\nRun helper.py.\n");
+  const command = { command: "python3 /skills/0/helper.py", skills: ["helper"], write: true, timeoutMs: 1000 };
+  await f.service.run(f.workspace, command, { type: "host" }, new AbortController().signal);
+  expect(f.executions[0].mounts[1]).toMatchObject({ target: "/skills/0", writable: false });
+  expect(f.prompts.map((prompt) => prompt.action)).toEqual(["sandbox.skill", "sandbox.read"]);
+  expect(f.prompts[1].paths).toContain(folder);
+  await expect(f.service.run(f.workspace, command, { type: "host" }, new AbortController().signal,
+    [{ permission: "skill", pattern: "helper", action: "deny" }])).rejects.toThrow("skill is blocked");
+  expect(f.executions).toHaveLength(1);
+});
+
 test("read-only commands work when file changes are denied", async () => {
   const fixtureState = await fixture({ bash: "allow", edit: "deny" });
   await fixtureState.run();
@@ -71,6 +86,14 @@ test("agent denials cannot be overridden by global allow settings", async () => 
     [{ permission: "*", pattern: "*", action: "allow" }, { permission: "edit", pattern: "*", action: "deny" }],
   )).rejects.toThrow("edit is blocked");
   expect(fixtureState.executions).toHaveLength(0);
+});
+
+test("later whole-tool permissions replace scoped engine defaults", async () => {
+  const f = await fixture({ bash: "allow", read: "allow" });
+  await f.service.run(f.workspace, { command: "python3 report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal,
+    [{ permission: "read", pattern: "*.env", action: "ask" }, { permission: "read", pattern: "*", action: "allow" }]);
+  expect(f.prompts).toHaveLength(0);
+  expect(f.executions).toHaveLength(1);
 });
 
 test("a scoped edit denial cannot be bypassed with a writable folder mount", async () => {

@@ -7,6 +7,7 @@ import { addRoute, type Route, type RequestContext } from "./registry.js";
 const commandSchema = z.object({
   command: z.string().min(1).max(128000),
   workdir: z.string().max(4096).optional(),
+  skills: z.array(z.string().min(1).max(200)).max(16).optional(),
   write: z.boolean().default(false),
   timeoutMs: z.number().int().min(1).max(600000).default(120000),
   agent: z.string().min(1).max(200),

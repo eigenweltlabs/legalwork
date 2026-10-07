@@ -45,7 +45,8 @@ export async function validateMounts(mounts: SandboxMount[], protectedPaths: str
   const targets = new Set<string>();
   const result: SandboxMount[] = [];
   for (const mount of mounts) {
-    if (!/^\/(workspace|authorized\/[0-9]+)$/.test(mount.target) || targets.has(mount.target)) throw new Error("Invalid sandbox folder.");
+    if (!/^\/(workspace|(?:authorized|skills)\/[0-9]+)$/.test(mount.target) || targets.has(mount.target)) throw new Error("Invalid sandbox folder.");
+    if (mount.target.startsWith("/skills/") && mount.writable) throw new Error("Installed skills are read-only.");
     targets.add(mount.target);
     if (!isAbsolute(mount.source)) throw new Error("Sandbox folders must be absolute paths.");
     const source = await realpath(mount.source);
