@@ -69,7 +69,7 @@ jobs:
             arch: arm64
             qemu: aarch64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
@@ -148,6 +148,7 @@ jobs:
           binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
           QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" node scripts/sandbox/package-runtime.mjs "$binary"
       - name: Exercise real isolation and permission enforcement
+        timeout-minutes: 15
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
         run: bun test --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
