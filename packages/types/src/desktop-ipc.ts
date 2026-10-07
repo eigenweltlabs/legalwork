@@ -385,7 +385,7 @@ export type OfficeAddinOpenAppResult = {
 export type DesktopCommandMap = {
   // Native windows
   openAppWindow: {
-    args: [input: { page: "home" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "evals" }];
+    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "evals" }];
     result: boolean;
   };
   openSessionWindow: {
