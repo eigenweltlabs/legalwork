@@ -27,6 +27,7 @@ import {
 import { EIGENWELT_ANALYTICS_ID_HEADER, launchAnalyticsId } from "./launch-analytics-id.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { OpenCodeModelConfigSchema } from "./opencode-model-config.js";
 
 /** Provider id of the connected (paid) Eigenwelt Model API. Keep in sync with
  *  the app's EIGENWELT_PROVIDER_ID. */
@@ -54,6 +55,8 @@ function parseManifestModel(value: unknown): EigenweltManifestModel | null {
   const hostedIn = optionalText(value.hostedIn);
   const upstreamModel = optionalText(value.upstreamModel);
   const inputModalities = eigenweltInputModalities(value.inputModalities);
+  const controls = OpenCodeModelConfigSchema.safeParse(value);
+  if (!controls.success) return null;
   return {
     id: value.id,
     ...(typeof value.name === "string" ? { name: value.name } : {}),
@@ -62,6 +65,7 @@ function parseManifestModel(value: unknown): EigenweltManifestModel | null {
     ...(typeof value.maxOutputTokens === "number" ? { maxOutputTokens: value.maxOutputTokens } : {}),
     ...(typeof value.toolCall === "boolean" ? { toolCall: value.toolCall } : {}),
     ...(typeof value.reasoning === "boolean" ? { reasoning: value.reasoning } : {}),
+    ...controls.data,
     ...(region ? { region } : {}),
     ...(hostedIn ? { hostedIn } : {}),
     ...(upstreamModel ? { upstreamModel } : {}),

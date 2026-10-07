@@ -19,6 +19,7 @@ import {
 type ModelBehaviorOption = {
   value: string | null;
   label: string;
+  isDefault?: boolean;
 };
 
 type ModelBehaviorSelectProps = {
@@ -40,13 +41,11 @@ export function ModelBehaviorSelect({
     return null;
   }
 
-  const items = options.flatMap((option) =>
-    option.value ? [{ value: option.value, label: option.label }] : [],
-  );
+  const items = options;
   const rawValue = value ?? null;
   const selectValue = items.some((option) => option.value === rawValue)
     ? rawValue
-    : items[0]?.value ?? null;
+    : items.find((option) => option.isDefault)?.value ?? null;
 
   return (
     <Select
@@ -81,8 +80,8 @@ export function ModelBehaviorSelect({
       <SelectContent side="top" sideOffset={8} align="start" className="min-w-48">
         <SelectGroup>
           <SelectLabel>Thinking</SelectLabel>
-          {items.map((option) => (
-            <SelectItem key={option.value} value={option.value} className="text-xs">
+          {items.map((option, index) => (
+            <SelectItem key={index} value={option.value} className="text-xs">
               {option.label}
             </SelectItem>
           ))}

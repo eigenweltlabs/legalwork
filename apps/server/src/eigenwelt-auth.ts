@@ -35,6 +35,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { resolveModelLimit } from "./model-limits.js";
+import type { OpenCodeModelConfig } from "./opencode-model-config.js";
 import type { ServerConfig } from "./types.js";
 
 /** Pre-registered as exact redirect URIs on the Clerk OAuth application —
@@ -78,7 +79,7 @@ export function validateEigenweltPlatformUrl(value: string): string {
   return configured;
 }
 
-export type EigenweltManifestModel = {
+export type EigenweltManifestModel = OpenCodeModelConfig & {
   id: string;
   name?: string;
   description?: string;
@@ -690,6 +691,9 @@ export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Recor
           name: model.name ?? model.id,
           tool_call: model.toolCall ?? true,
           reasoning: model.reasoning ?? false,
+          ...(model.options ? { options: model.options } : {}),
+          ...(model.variants ? { variants: model.variants } : {}),
+          ...(model.interleaved !== undefined ? { interleaved: model.interleaved } : {}),
           limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
           ...(input
             ? {
