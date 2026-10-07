@@ -2453,7 +2453,9 @@ const de = {
   "providers.connect_failed": "Der Provider konnte nicht verbunden werden",
   "providers.disabled_in_config_suffix": "und in der OpenCode-Konfiguration deaktiviert.",
   "providers.disconnect_failed": "Die Verbindung zum Provider konnte nicht getrennt werden",
-  "providers.disconnected_prefix": "Getrennt",
+  "providers.connected_named": "{name} ist verbunden.",
+  "providers.disconnected_named": "{name} wurde getrennt.",
+  "providers.still_connected": "Die gespeicherten Zugangsdaten für {name} wurden entfernt, der Worker meldet ihn aber weiterhin als verbunden. Entfernen Sie verbliebene API-Schlüssel oder OAuth-Zugangsdaten und starten Sie den Worker neu, um die Verbindung vollständig zu trennen.",
   "providers.load_failed": "Die Provider konnten nicht geladen werden",
   "providers.no_oauth_prefix": "Kein OAuth-Ablauf verfügbar für",
   "providers.no_providers_available": "Keine Provider verfügbar",
@@ -2468,8 +2470,6 @@ const de = {
     "Das Entfernen der Provider-Authentifizierung wird von diesem Client nicht unterstützt.",
   "providers.request_failed": "Anfrage fehlgeschlagen",
   "providers.save_api_key_failed": "Der API-Schlüssel konnte nicht gespeichert werden",
-  "providers.still_connected_suffix":
-    ", der Worker meldet ihn aber weiterhin als verbunden. Entfernen Sie verbliebene API-Schlüssel oder OAuth-Zugangsdaten und starten Sie den Worker neu, um die Verbindung vollständig zu trennen.",
   "providers.unknown_provider": "Unbekannter Provider",
   "providers.use_api_key_suffix": "Verwenden Sie stattdessen einen API-Schlüssel.",
   "question_modal.custom_answer_label": "Oder geben Sie eine eigene Antwort ein",
@@ -5876,9 +5876,9 @@ const de = {
   "org_policy.own_key_label": "API-Schlüssel",
   "org_policy.own_key_failed": "Der Schlüssel konnte nicht gespeichert werden.",
   "org_policy.set_systemone_model": "Das SystemOne-Modell wurde von Ihrem Admin festgelegt.",
-  "org_policy.default_systemone_model": "Das Standardmodell für SystemOne wurde von Ihrem Admin festgelegt.",
+  "org_policy.default_systemone_model": "Ihr Admin hat das SystemOne-Modell vorausgewählt. Sie können ein anderes wählen.",
   "org_policy.set_ocr_engine": "Der OCR-Anbieter wurde von Ihrem Admin festgelegt.",
-  "org_policy.default_ocr_engine": "Der Standard-OCR-Anbieter wurde von Ihrem Admin festgelegt.",
+  "org_policy.default_ocr_engine": "Ihr Admin hat den OCR-Anbieter vorausgewählt. Sie können einen anderen wählen.",
 } as const;
 
 export default de;

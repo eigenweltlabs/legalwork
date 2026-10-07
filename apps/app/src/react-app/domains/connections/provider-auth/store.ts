@@ -869,22 +869,22 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const updated = await refreshProviders({ dispose: true });
       const connectedNow = Array.isArray(updated?.connected) && updated.connected.includes(resolved);
       if (connectedNow) {
-        return { connected: true, message: `${t("status.connected")} ${resolved}` };
+        return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
       }
       const connected = await waitForProviderConnection();
       if (connected) {
-        return { connected: true, message: `${t("status.connected")} ${resolved}` };
+        return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
       }
       return { connected: false, pending: true };
     } catch (error) {
       if (isPendingOauthError(error)) {
         const updated = await refreshProviders({ dispose: true });
         if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-          return { connected: true, message: `${t("status.connected")} ${resolved}` };
+          return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
         }
         const connected = await waitForProviderConnection();
         if (connected) {
-          return { connected: true, message: `${t("status.connected")} ${resolved}` };
+          return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
         }
         return { connected: false, pending: true };
       }
@@ -909,7 +909,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     try {
       await c.auth.set({ providerID: providerId, auth: { type: "api", key: trimmed } });
       await refreshProviders({ dispose: true });
-      return `${t("status.connected")} ${providerId}`;
+      return t("providers.connected_named", { name: providerName(providerId) });
     } catch (error) {
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
       setStateField("providerAuthError", message);
@@ -1169,7 +1169,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       } else {
         await refreshProviders({ dispose: true });
       }
-      return `${t("status.connected")} ${name}`;
+      return t("providers.connected_named", { name });
     } catch (error) {
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
       setStateField("providerAuthError", message);
@@ -1300,7 +1300,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           result.entitlements?.plan === "sync" && isEigenweltEntitledStatus(result.entitlements.subscriptionStatus)) {
           useSyncProviderSetupState.getState().reset(`${result.account.orgId}:${result.account.userId}`);
         }
-        return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: `${t("status.connected")} Eigenwelt Subscription` };
+        return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: t("providers.connected_named", { name: "Eigenwelt" }) };
       }
       throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {
@@ -1310,6 +1310,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw error instanceof Error ? error : new Error(message);
     }
   }
+
+  /** A provider's name as the member sees it, for the messages after connecting or disconnecting. */
+  const providerName = (providerId: string) =>
+    options.providers().find((provider) => provider.id === providerId)?.name ?? providerId;
 
   async function disconnectProvider(providerId: string) {
     setStateField("providerAuthError", null);
@@ -1347,10 +1351,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
         // Still connected (e.g. via an env var we can't unset). Report what we
         // did rather than silently doing nothing.
-        return `Removed stored credentials for ${resolved}${t("providers.still_connected_suffix")}`;
+        return t("providers.still_connected", { name: providerName(resolved) });
       }
+      const name = providerName(resolved);
       removeProviderFromState(resolved);
-      return `${t("providers.disconnected_prefix")} ${resolved}`;
+      return t("providers.disconnected_named", { name });
     } catch (error) {
       const message = describeProviderError(error, t("providers.disconnect_failed"));
       setStateField("providerAuthError", message);
