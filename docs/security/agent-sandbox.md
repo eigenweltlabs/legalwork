@@ -2,6 +2,8 @@
 
 Managed LegalWork workers execute agent shell commands and community calculation scripts in a disposable Linux VM. The desktop bundle includes QEMU 11.1.2, the Linux kernel, Python, Node, and the guest supervisor. Users do not install Docker, WSL, Homebrew, MSYS2, or a Python runtime. Missing or damaged resources block execution.
 
+The desktop enables this for its managed engine. Standalone servers using `LEGALWORK_MANAGE_OPENCODE=1` enforce the same boundary and require the matching runtime resources. An externally managed engine has its own execution policy; connecting it does not automatically sandbox it.
+
 ## Boundary and permissions
 
 The VM has no network device, host disk, shared filesystem, clipboard, or host control socket. The host copies approved folder contents into the guest. The command runs without root privileges and with a clean environment. The guest communicates through a bounded virtio-serial protocol. The host validates every message, including messages a compromised guest kernel could manufacture.

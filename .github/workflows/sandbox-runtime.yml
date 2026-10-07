@@ -38,7 +38,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             platform: darwin
             arch: arm64
             qemu: aarch64
@@ -92,6 +92,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
+          MACOSX_DEPLOYMENT_TARGET: '14.0'
         run: |
           brew install glib ninja pkgconf
           curl -fL --retry 3 https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"

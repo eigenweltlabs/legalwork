@@ -8,7 +8,7 @@ import { VmSandbox } from "./vm.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./engine-policy.js";
 import { AgentSandboxService } from "./service.js";
 import { ApprovalService } from "../approvals.js";
-import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
@@ -65,12 +65,12 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   try {
     let ready = false;
     for (let i = 0; i < 200; i++) {
-      try { ready = (await fetch(base + "/global/health")).ok; } catch { /* Startup. */ }
+      try { ready = (await fetch(base + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { /* Startup. */ }
       if (ready || engine.exitCode !== null) break;
       await Bun.sleep(100);
     }
     if (!ready) throw new Error("Engine did not start: " + (engine.exitCode !== null ? await logs : "timed out"));
-    const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
+    const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(60000) })).json());
     const response = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ agent: "build", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Run the isolation proof." }] }), signal: AbortSignal.timeout(60000) });
     const result = await response.text();
@@ -85,5 +85,9 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
       body: JSON.stringify({ agent: "build", command: "echo escaped > host-escape.txt" }), signal: AbortSignal.timeout(10000) });
     expect(direct.ok).toBe(false);
     expect(await readFile(join(folder, "host-escape.txt")).catch(() => null)).toBeNull();
-  } finally { engine.kill(); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
+  } finally {
+    engine.kill("SIGKILL"); await engine.exited; fixture.stop(true);
+    await closeRuntimeOpencodeConfig(serverConfig); Bun.gc(true);
+    await rm(root, { recursive: true, force: true });
+  }
 }, 120000);

@@ -13,6 +13,9 @@ const roots: string[] = [];
 const configs: ServerConfig[] = [];
 afterEach(async () => {
   for (const config of configs.splice(0)) await closeRuntimeOpencodeConfig(config);
+  // Bun's uncached Drizzle statements retain Windows file handles until GC,
+  // even after sqlite3_close_v2 has marked the connection closed.
+  Bun.gc(true);
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
