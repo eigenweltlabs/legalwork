@@ -1,3 +1,4 @@
+import { WindowMenubar } from "@/react-app/shell/window-menubar";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
@@ -1165,6 +1166,7 @@ export function SessionPage(props: SessionPageProps) {
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
               {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+              <WindowMenubar />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
