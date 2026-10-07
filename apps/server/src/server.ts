@@ -3273,6 +3273,11 @@ function createRoutes(
         const result = await createWorkspaceOpencodeClient(config, workspace).session.list({ limit });
         return unwrapOpencodeResult(result, "/session");
       },
+      session: async (id) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id }), "/session"),
+      sessionMessages: async (id, limit, before) => {
+        const result = await createWorkspaceOpencodeClient(config, workspace).session.messages({ sessionID: id, limit, before });
+        return { messages: unwrapOpencodeResult(result, "/session/message"), nextBefore: result.response.headers.get("x-next-cursor") };
+      },
     };
   };
   addRoute(routes, "GET", "/workspace/:id/project/contents", "client", async (ctx) => {

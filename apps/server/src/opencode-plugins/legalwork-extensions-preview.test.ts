@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT } from "../scheduled-tasks/access.js";
 
 const roots: string[] = [];
 let originalFetch: typeof globalThis.fetch | null = null;
@@ -43,6 +44,20 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
 }
 
 describe("legalwork_ui_snapshot session identity", () => {
+  test("scheduled agents cannot read or navigate the active UI even with saved tool approval", async () => {
+    let executions = 0;
+    await withBridge({ ok: true }, () => { executions++; return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT]) {
+      const context = { agent, sessionID: "scheduled" };
+      await expect(plugin.tool.legalwork_ui_snapshot.execute({}, context)).rejects.toThrow("cannot control");
+      await expect(plugin.tool.legalwork_ui_list_actions.execute({}, context)).rejects.toThrow("cannot control");
+      await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId: "session.open", args: { sessionId: "other" } }, context)).rejects.toThrow("cannot control");
+    }
+    expect(executions).toBe(0);
+    await plugin.tool.legalwork_ui_execute_action.execute({ actionId: "settings.panel.open" }, { agent: "legalwork" });
+    expect(executions).toBe(1);
+  });
   // Regression: asked "give me the session id of this convo", the agent found
   // no tool carrying it, navigated to the session view, and read an id out of
   // the resulting route — a DIFFERENT session than the one it was running in —

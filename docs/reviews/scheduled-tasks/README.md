@@ -104,6 +104,18 @@ The English and German welcome pages name the feature directly as Scheduled task
 
 Verified all four German prompts in the editor and saved/reloaded Weekly planning in the isolated fixture, confirming its German instructions persist. Checked both welcome pages and all four English descriptions visually. `pnpm --filter @legalwork/app test:i18n` passed for all 5,556 keys in English and German; `node scripts/i18n-audit.mjs --ci` and `git diff --check` passed.
 
+## Scheduled chat review regression, 2026-10-07
+
+An all-project scheduled review could list chats but could not read their transcripts through project tools. The agent followed the interactive UI memory instructions, opened chats, and read the wrong active chat before navigation finished. Requests for 100 list items also repeatedly failed the 50-item limit. The scope switch itself worked.
+
+Project reads now support `kind=sessions` with explicit chat IDs. The server checks the chat's directory and archive state before fetching messages and verifies message ownership. Reads return bounded user/assistant text, excluding reasoning, synthetic content and tool output. Follow `nextOffset` for long text, then `nextBefore` for older messages using the engine's opaque pagination cursor. Cross-project tools still derive authorization from the trusted scheduled-agent context. Oversized scheduled list requests are capped at 50 and return normal pagination.
+
+Scheduled agents cannot use LegalWork UI snapshot, action discovery or navigation tools. The all-project agent omits those tools from its model toolset, and execution guards reject them even if a chat has a saved approval. Interactive chats retain UI control. Agent instructions direct scheduled reviews to transcript tools, prohibit UI/database workarounds and distinguish chat history from verified source records.
+
+The shipped engine integration uses an isolated database and simulated model responses. It seeds 23 messages in another project, reads both pages by ID, proves that project-only access rejects the same read and that all-project access succeeds, and checks that neither scheduled agent exposes UI controls or dispatches UI actions. No private session contents are stored in this repository.
+
+Validation: server production build passed; 48 focused tests, including the shipped-engine integration, passed. The full server suite passed 1,527 tests with 16 opt-in tests skipped. Run the integration with `LEGALWORK_TEST_OPENCODE_BIN=/path/to/opencode pnpm exec bun test src/scheduled-tasks/engine.test.ts` from `apps/server` after building the server.
+
 ## Screenshots
 
 ![Aligned clock, unread dots and project controls](sidebar-alignment.png)

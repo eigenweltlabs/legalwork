@@ -1,4 +1,4 @@
-import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions } from "./scheduled-tasks/access.js";
+import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
@@ -257,7 +257,8 @@ export async function buildLegalworkRuntimeConfigObject(
       },
       [ALL_PROJECTS_TASK_AGENT]: {
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
-        prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Existing tool permissions and approvals still apply.",
+        prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
+        permission: allProjectTaskPermissions(permission),
       },
       legalwork: {
         description: "LegalWork default agent",

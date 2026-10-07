@@ -4,6 +4,17 @@ import type { Agent, PermissionConfig } from "@opencode-ai/sdk/v2";
 export const PROJECT_TASK_AGENT = "legalwork-scheduled-project";
 export const ALL_PROJECTS_TASK_AGENT = "legalwork-scheduled-all";
 
+/** Background reviews read data directly and must not take over the user's UI. */
+export function allProjectTaskPermissions(input: unknown = {}): PermissionConfig {
+  const global = permissionSchema.parse(input);
+  const permissions: Exclude<PermissionConfig, string> = typeof global === "string" ? { "*": global } : { ...global };
+  for (const tool of ["legalwork_ui_snapshot", "legalwork_ui_list_actions", "legalwork_ui_execute_action"]) {
+    delete permissions[tool];
+    permissions[tool] = "deny";
+  }
+  return permissions;
+}
+
 // These tools resolve the project from the engine's trusted execution context.
 // No shell, delegation, browser, global task search, or unrestricted connectors.
 export const PROJECT_TASK_TOOLS = new Set([
@@ -15,14 +26,16 @@ export const PROJECT_TASK_TOOLS = new Set([
   "todowrite", "question",
 ]);
 
+const actionSchema = z.enum(["allow", "ask", "deny"]);
+const permissionSchema = z.union([actionSchema, z.record(z.string(), z.union([actionSchema, z.record(z.string(), actionSchema)]))]);
+
 function matches(pattern: string, name: string) {
   return new RegExp(`^${pattern.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name);
 }
 
 /** Preserve the user's existing denials and approval rules for allowed tools. */
 export function projectTaskPermissions(input: unknown = {}): PermissionConfig {
-  const actionSchema = z.enum(["allow", "ask", "deny"]);
-  const global = z.union([actionSchema, z.record(z.string(), z.union([actionSchema, z.record(z.string(), actionSchema)]))]).parse(input);
+  const global = permissionSchema.parse(input);
   const permissions: Exclude<PermissionConfig, string> = { "*": "deny" };
   for (const tool of PROJECT_TASK_TOOLS) {
     if (typeof global === "string") { permissions[tool] = global; continue; }
