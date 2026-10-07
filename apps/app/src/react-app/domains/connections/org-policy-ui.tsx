@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Building2, Lock } from "lucide-react";
-import type { OrgPolicyKey, OrgPolicyMode } from "@legalwork/types/org-policy";
+import type { OrgPolicyKey } from "@legalwork/types/org-policy";
 
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import {
@@ -58,32 +58,21 @@ const ENFORCED_TEXT = {
 
 type NoteKey = AllowKey | keyof typeof ENFORCED_TEXT;
 
-/** What the admin set as a default: the settings of the platform's Default settings page. */
-const DEFAULT_TEXT: Partial<Record<NoteKey, string>> = {
-  language: "org_policy.default_language",
-  "personalization.personality": "org_policy.default_personality",
-  branding: "org_policy.default_branding",
-  "reviews.defaults": "org_policy.default_reviews",
-  notifications: "org_policy.default_notifications",
-  "ai.systemOne.model": "org_policy.default_systemone_model",
-  "ai.ocr.defaultEngine": "org_policy.default_ocr_engine",
-};
 
 function isAllowKey(key: NoteKey): key is AllowKey {
   return !Object.hasOwn(ENFORCED_TEXT, key);
 }
 
 /** What the admin did to a setting; nothing for a feature they left on. */
-function adminText(key: NoteKey, mode: OrgPolicyMode, value: unknown): string | null {
-  if (isAllowKey(key)) return mode === "enforced" && value === false ? orgPolicyOffText(key) : null;
-  const text: Text | undefined = mode === "enforced" ? ENFORCED_TEXT[key] : DEFAULT_TEXT[key];
-  if (!text) return null;
+function adminText(key: NoteKey, value: unknown): string | null {
+  if (isAllowKey(key)) return value === false ? orgPolicyOffText(key) : null;
+  const text: Text = ENFORCED_TEXT[key];
   return t(typeof text === "string" ? text : value === false ? text.off : text.on);
 }
 
 /**
- * Under a setting the firm manages: what the admin set, and whether the member
- * can change it. Nothing when the firm does not manage it.
+ * Under a setting the firm enforces: what the admin set, or after sign-out that
+ * the member may change it. Nothing for a default or a setting the firm leaves alone.
  */
 export function OrgPolicyNote(
   props:
@@ -95,15 +84,13 @@ export function OrgPolicyNote(
   const lapsed = useOrgPolicyStore((state) => state.view?.state === "lapsed");
   const org = useOrgName();
   if (!entry) return null;
-  const admin = (mode: OrgPolicyMode) =>
-    props.policyKey === "tools.permissions" ? t(props.locked) : adminText(props.policyKey, mode, entry.value);
+  // A default is just the starting value: nothing to say about it.
+  if (entry.mode !== "enforced") return null;
   const text = entry.locked
-    ? admin("enforced")
+    ? props.policyKey === "tools.permissions" ? t(props.locked) : adminText(props.policyKey, entry.value)
     : entry.released
-      ? entry.mode === "enforced" ? t("org_policy.released", { org }) : null
-      : entry.mode === "default"
-        ? admin("default")
-        : lapsed ? t("org_policy.lapsed", { org }) : null;
+      ? t("org_policy.released", { org })
+      : lapsed ? t("org_policy.lapsed", { org }) : null;
   if (!text) return null;
   const Icon = entry.locked ? Lock : Building2;
   return (

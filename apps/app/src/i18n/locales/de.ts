@@ -5859,12 +5859,7 @@ const de = {
   "org_policy.auto_download_on": "Das automatische Herunterladen von Updates wurde von Ihrem Admin aktiviert.",
   "org_policy.auto_download_off": "Das automatische Herunterladen von Updates wurde von Ihrem Admin deaktiviert.",
   "org_policy.usage_off": "Das Teilen anonymer Nutzungsdaten wurde von Ihrem Admin deaktiviert.",
-  "org_policy.default_reviews": "Die Standardeinstellungen für die tabellarische Prüfung wurden von Ihrem Admin festgelegt.",
   "org_policy.set_notifications": "Die Benachrichtigungseinstellungen wurden von Ihrem Admin festgelegt.",
-  "org_policy.default_notifications": "Die Standard-Benachrichtigungseinstellungen wurden von Ihrem Admin festgelegt.",
-  "org_policy.default_branding": "Das Standard-Branding wurde von Ihrem Admin festgelegt.",
-  "org_policy.default_personality": "Die Standard-Persönlichkeit wurde von Ihrem Admin festgelegt.",
-  "org_policy.default_language": "Die Standardsprache wurde von Ihrem Admin festgelegt.",
   "org_policy.sharing_off": "{org} erlaubt nicht, Projekte zu teilen.",
   "org_policy.firm_instructions": "Anweisungen von {org}, nach Ihren eigenen ergänzt",
   "org_policy.firm_item": "Von Ihrem Admin für alle hinzugefügt",
@@ -5876,9 +5871,7 @@ const de = {
   "org_policy.own_key_label": "API-Schlüssel",
   "org_policy.own_key_failed": "Der Schlüssel konnte nicht gespeichert werden.",
   "org_policy.set_systemone_model": "Das SystemOne-Modell wurde von Ihrem Admin festgelegt.",
-  "org_policy.default_systemone_model": "Ihr Admin hat das SystemOne-Modell vorausgewählt. Sie können ein anderes wählen.",
   "org_policy.set_ocr_engine": "Der OCR-Anbieter wurde von Ihrem Admin festgelegt.",
-  "org_policy.default_ocr_engine": "Ihr Admin hat den OCR-Anbieter vorausgewählt. Sie können einen anderen wählen.",
 } as const;
 
 export default de;
