@@ -99,6 +99,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: ${{ matrix.msystem }}
+          path-type: inherit
           update: true
       - name: Download QEMU packages with retries (Windows)
         if: runner.os == 'Windows'
