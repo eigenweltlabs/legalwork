@@ -4,6 +4,7 @@
  */
 
 export default {
+  "calendar.scroll_days": "Scroll sideways to see all seven days.",
   "workspace.workbench": "Workspace",
   "workspace.view": "View",
   "workspace.opening_profile": "Opening profile",
@@ -21,7 +22,6 @@ export default {
   "workspace.open_here": "Open in workspace",
   "workspace.keep_open": "Keep open",
   "workspace.preview_hint": "Preview — double-click to keep open",
-  "workspace.overview_hint": "Project navigation · your workspace stays open",
 
   "side_panel.copy_link": "Copy link",
   "side_panel.copy_failed": "Could not copy the link.",

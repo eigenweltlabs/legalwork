@@ -14,6 +14,7 @@
  */
 
 const de = {
+  "calendar.scroll_days": "Scrollen Sie seitlich, um alle sieben Tage zu sehen.",
   "workspace.workbench": "Arbeitsbereich",
   "workspace.view": "Ansicht",
   "workspace.opening_profile": "Neue Inhalte öffnen",
@@ -30,7 +31,6 @@ const de = {
   "workspace.open_here": "Im Arbeitsbereich öffnen",
   "workspace.keep_open": "Offen halten",
   "workspace.preview_hint": "Vorschau: per Doppelklick offen halten",
-  "workspace.overview_hint": "Projektnavigation · Ihr Arbeitsbereich bleibt geöffnet",
   "workspace.finish_task_edit": "Speichern oder leeren Sie Ihre ausstehenden Aufgabenänderungen und die Notiz, bevor Sie die Aufgabe an anderer Stelle öffnen.",
 
   "side_panel.copy_link": "Link kopieren",

@@ -2,7 +2,13 @@
 
 Project Overview, Calendar, Tasks and Tabular Review lists are separate project destinations by default. A permanent **Workspace** sidebar entry returns to the retained chats, files and layout. Visiting an overview preserves mounted editors, drafts, undo history and scroll state. An overview can be deliberately opened as a singleton work tab through **Open … as a tab**. Individual documents still maximize; the redundant whole-workspace maximize button is removed.
 
+Workspace has a separated, subtly shaded sidebar row. Its header return action appears only when the sidebar is hidden; **Open … as a tab** sits in the header without a second banner. Files remains a panel toggle rather than another selected page. Overview uses the same Pin action as the project list, with title and actions stacked in narrow panes. Narrow week/month calendars expose horizontal scrolling without changing the selected calendar mode.
+
+![Responsive Overview actions and separated Workspace navigation, with synthetic content](workspace-refinement/overview-responsive.png)
+
 The pane's `+` menu creates a chat, opens files or a browser. Project task selection and creation stay in the overview's list/detail layout (detail with a back button on narrow windows). **Open in workspace** explicitly promotes a task or review to a work tab. Pending task edits and unsubmitted notes prevent promotion until saved or cleared. Global task and workflow creation remain in their global areas. Sidebar chats can still be dragged into tab groups or any split edge, with the six-pane limit.
+
+Task notes, failed text edits and in-flight writes survive closing an inline detail, changing filters and leaving the project or global Tasks view. Drafts remain in memory for the current window and warn before closing it; they are not disk recovery drafts. Background refreshes preserve local edits, and returning during a note submission or upload cannot submit it twice. A global task request no longer changes a hidden project task selection. Document/source links in a standalone review explicitly target its project workspace.
 
 ## Opening profiles and previews
 
@@ -43,7 +49,7 @@ One server dispatcher sends messages in order. Submission IDs make acknowledgeme
 
 | Command | Result |
 | --- | --- |
-| `pnpm --filter @legalwork/app test` | 943 passed, 0 failed |
+| `pnpm --filter @legalwork/app test` | 955 passed, 0 failed |
 | `pnpm --filter legalwork-server exec bun test src/session-message-queue.test.ts src/session-read-model.e2e.test.ts src/artifact-files.e2e.test.ts` | 27 passed, 0 failed |
 | `pnpm --filter @legalwork/desktop test` | 195 passed, 1 skipped, 0 failed |
 | `pnpm --filter @legalwork/app typecheck` | Passed |
@@ -64,5 +70,7 @@ Interactive checks used `/session-preview.html?unified=1` with synthetic documen
 6. In an isolated Electron profile, open a task and DOCX in separate panes. Use the header's new-window button and verify both panes and active tabs transfer. Use the DOCX tab's context menu and verify the next window contains only that document, initially read-only.
 
 Opening-policy tests cover both preferred chat sides, unmeasured/narrow work areas, existing and explicit destinations, free-mode reuse, native browsers, the six-pane fallback, dirty preview protection, pinning and persistence. Review navigation was also checked through Calendar and back before explicit promotion to the workspace.
+
+Two Astra adversarial reviews covered the opening-policy code and the UI/user journeys. Follow-up browser checks verified narrow Overview layout, Pin labels, Files selection, the sidebar-hidden Workspace return, review source opening, and an unsent task note surviving detail close/reopen and a real project switch. Twelve added draft tests cover failed writes, background reconciliation, overlapping requests, note/upload duplication, hidden save completion, scope isolation and StrictMode lifetime handling. A title with surrounding whitespace was checked through blur and subsequent workspace promotion.
 
 Queue integration tests use a real local HTTP server and a mock agent transport, covering shared reads, authentication, read-only servers, stale edits, archive restoration before dispatch, deletion, attachment persistence, lost acknowledgements and interrupted sends. No live model run or connected-storage publishing was performed for this change.

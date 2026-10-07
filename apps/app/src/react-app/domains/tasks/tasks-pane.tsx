@@ -75,6 +75,7 @@ import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
 import { artifactDocumentKey, hasUnsavedSessionDocument } from "../session/artifacts/docx-document-state";
 import { TaskDetail } from "./task-detail";
+import { getTaskDraft, retainTaskDraftScope, taskDraftScope } from "./task-draft-cache";
 import { LinkProjectTaskDialog } from "./link-project-task-dialog";
 import { TASK_STATUSES, taskMemberOptions, taskStatusLabel } from "./task-format";
 import { OptionText } from "./task-glyphs";
@@ -139,7 +140,8 @@ export type TasksPaneProps = {
 };
 
 export function TasksPane(props: TasksPaneProps) {
-  const draftScope = `task-overview:${props.workspaceId}:${props.projectId ?? "global"}:${Boolean(props.embedded)}`;
+  const draftScope = taskDraftScope(props.client?.baseUrl ?? props.baseUrl, props.workspaceId, props.projectId, Boolean(props.embedded));
+  useEffect(() => retainTaskDraftScope(draftScope), [draftScope]);
   const requestOpenTask = useRequestOpenTask();
   const requestPanelTab = useRequestPanelTab();
   const viewAll = props.detailMode === "panel" ? () => requestPanelTab(projectViewTab("tasks", t("projects.tasks"))) : props.onViewAll;
@@ -251,6 +253,7 @@ export function TasksPane(props: TasksPaneProps) {
   // fetch only adds the submission, the history and any field changed meanwhile.
   const selectedTask =
     detailQuery.data?.task ?? tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const selectedDraft = selectedTask && props.detailMode !== "panel" ? getTaskDraft(draftScope, props.workspaceId, selectedTask) : undefined;
   const filtered = !props.embedded && (assignees.length > 0 || endpointIds.length > 0 || selectedTags.length > 0 || statuses.length > 0 || inTrash);
   const syncing = runSync.isPending;
   const refreshing = syncing || (tasksQuery.isFetching && !tasksQuery.isFetchingNextPage);
@@ -608,6 +611,7 @@ export function TasksPane(props: TasksPaneProps) {
           {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => setAttachment(null)}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId="global-tasks" client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => setAttachment(null)} /></div>}
           <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
             key={selectedTask.id}
+            draft={selectedDraft}
             draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
             saving={updateTask.isPending || resolveConflict.isPending}
             task={selectedTask}
@@ -620,7 +624,11 @@ export function TasksPane(props: TasksPaneProps) {
             busy={busy}
             accountUserId={access.accountUserId}
             onBack={() => setSelectedTaskId(null)}
-            onPatch={(patch) => updateTask.mutateAsync({ taskId: selectedTask.id, patch })}
+            onPatch={async (patch) => {
+              const result = await updateTask.mutateAsync({ taskId: selectedTask.id, patch });
+              selectedDraft?.reconcile(result.task);
+              return result;
+            }}
             conflicts={detailQuery.data?.conflicts}
             onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
             onDelete={() => remove(selectedTask)}

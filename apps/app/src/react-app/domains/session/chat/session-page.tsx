@@ -1,3 +1,4 @@
+import { PanelTabDestinationProvider } from "../panel/panel-tab-destination";
 import { WorkspaceViewMenu } from "../panel/workspace-view-menu";
 import { openWorkspaceWindow, restoreWorkspaceWindow } from "../panel/workspace-window";
 import { chatPanelTab, projectViewTab, type ProjectView } from "../panel/panel-tab-store";
@@ -1180,7 +1181,13 @@ export function SessionPage(props: SessionPageProps) {
                 </Button>
               ) : null}
               {!hasMainView && props.selectedWorkspaceId && <WorkspaceViewMenu scope={workspaceScope} />}
-              {hasMainView && props.selectedWorkspaceId && <Button variant="ghost" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" /><span className="max-w-44 truncate">{t("workspace.return_to", { name: workspaceName })}</span></Button>}
+              {props.projectPage && <Button variant="ghost" size="sm" onClick={() => {
+                const view = props.projectPage;
+                if (!view) return;
+                openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
+                navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
+              }}><PanelsTopLeft className="size-4" /><span className="max-w-44 truncate">{t("workspace.open_overview_tab", { name: projectViewLabel(props.projectPage) })}</span></Button>}
+              {hasMainView && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
               <NotificationBell />
               {props.developerMode ? (
                 <Button
@@ -1521,16 +1528,11 @@ export function SessionPage(props: SessionPageProps) {
         )}
       {visitedOverviews.map(view => <DocumentPane key={`overview:${props.selectedWorkspaceId}:${view}`} destination={props.projectPage === view ? overviewHost : null}>
         <ControlActionScope active={props.projectPage === view}>
+          <PanelTabDestinationProvider destination={{ kind: "workspace", workspaceId: props.selectedWorkspaceId }}>
           <section className="flex h-full min-h-0 flex-col" aria-label={projectViewLabel(view)}>
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 px-5 py-2">
-              <span className="text-xs text-muted-foreground">{t("workspace.overview_hint")}</span>
-              <Button variant="ghost" size="sm" onClick={() => {
-                openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
-                navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
-              }}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab", { name: projectViewLabel(view) })}</Button>
-            </div>
             <div className="min-h-0 flex-1 overflow-auto">{renderProjectView(view, false)}</div>
           </section>
+          </PanelTabDestinationProvider>
         </ControlActionScope>
       </DocumentPane>)}
       {canRenderWorkspace && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
