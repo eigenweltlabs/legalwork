@@ -18,7 +18,7 @@ export default {
   "workspace.open_beside": "Beside it, if there is room",
   "workspace.opening_hint": "Applies to new tabs. Open tabs stay in place; you can always drag them anywhere.",
   "workspace.finish_task_edit": "Save or clear your pending task edits and note before opening it elsewhere.",
-  "workspace.open_overview_tab": "Open {name} as a tab",
+  "workspace.open_overview_tab": "Open as a tab",
   "workspace.open_here": "Open in workspace",
   "workspace.keep_open": "Keep open",
   "workspace.preview_hint": "Preview — double-click to keep open",

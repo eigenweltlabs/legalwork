@@ -1181,12 +1181,6 @@ export function SessionPage(props: SessionPageProps) {
                 </Button>
               ) : null}
               {!hasMainView && props.selectedWorkspaceId && <WorkspaceViewMenu scope={workspaceScope} />}
-              {props.projectPage && <Button variant="ghost" size="sm" onClick={() => {
-                const view = props.projectPage;
-                if (!view) return;
-                openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
-                navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
-              }}><PanelsTopLeft className="size-4" /><span className="max-w-44 truncate">{t("workspace.open_overview_tab", { name: projectViewLabel(props.projectPage) })}</span></Button>}
               {hasMainView && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
               <NotificationBell />
               {props.developerMode ? (
@@ -1530,6 +1524,12 @@ export function SessionPage(props: SessionPageProps) {
         <ControlActionScope active={props.projectPage === view}>
           <PanelTabDestinationProvider destination={{ kind: "workspace", workspaceId: props.selectedWorkspaceId }}>
           <section className="flex h-full min-h-0 flex-col" aria-label={projectViewLabel(view)}>
+            <div className="flex shrink-0 justify-end px-5 pt-2">
+              <Button variant="ghost" size="sm" onClick={() => {
+                openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
+                navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
+              }}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab")}</Button>
+            </div>
             <div className="min-h-0 flex-1 overflow-auto">{renderProjectView(view, false)}</div>
           </section>
           </PanelTabDestinationProvider>

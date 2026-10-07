@@ -27,7 +27,7 @@ const de = {
   "workspace.open_active": "Im zuletzt aktiven Bereich",
   "workspace.open_beside": "Daneben, wenn genug Platz ist",
   "workspace.opening_hint": "Gilt für neue Tabs. Offene Tabs bleiben an ihrem Platz und lassen sich jederzeit frei verschieben.",
-  "workspace.open_overview_tab": "{name} als Tab öffnen",
+  "workspace.open_overview_tab": "Als Tab öffnen",
   "workspace.open_here": "Im Arbeitsbereich öffnen",
   "workspace.keep_open": "Offen halten",
   "workspace.preview_hint": "Vorschau: per Doppelklick offen halten",

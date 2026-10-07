@@ -1,8 +1,8 @@
 # Workspace navigation and window coordination
 
-Project Overview, Calendar, Tasks and Tabular Review lists are separate project destinations by default. A permanent **Workspace** sidebar entry returns to the retained chats, files and layout. Visiting an overview preserves mounted editors, drafts, undo history and scroll state. An overview can be deliberately opened as a singleton work tab through **Open … as a tab**. Individual documents still maximize; the redundant whole-workspace maximize button is removed.
+Project Overview, Calendar, Tasks and Tabular Review lists are separate project destinations by default. A permanent **Workspace** sidebar entry returns to the retained chats, files and layout. Visiting an overview preserves mounted editors, drafts, undo history and scroll state. An overview can be deliberately opened as a singleton work tab through **Open as a tab**. Individual documents still maximize; the redundant whole-workspace maximize button is removed.
 
-Workspace has a separated, subtly shaded sidebar row. Its header return action appears only when the sidebar is hidden; **Open … as a tab** sits in the header without a second banner. Files remains a panel toggle rather than another selected page. Overview uses the same Pin action as the project list, with title and actions stacked in narrow panes. Narrow week/month calendars expose horizontal scrolling without changing the selected calendar mode.
+Workspace has a separated, subtly shaded sidebar row. Its header return action appears only when the sidebar is hidden; **Open as a tab** sits at the top right inside the project view, below the window header. Files remains a panel toggle rather than another selected page. Overview uses the same Pin action as the project list, with title and actions stacked in narrow panes. Narrow week/month calendars expose horizontal scrolling without changing the selected calendar mode.
 
 ![Responsive Overview actions and separated Workspace navigation, with synthetic content](workspace-refinement/overview-responsive.png)
 
