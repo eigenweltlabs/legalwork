@@ -58,7 +58,7 @@ export function sandboxResources(): string {
 export class VmSandbox {
   private static active = 0;
   private prepared: Promise<z.infer<typeof manifestSchema>> | undefined;
-  constructor(readonly resources = sandboxResources()) {}
+  constructor(readonly resources = sandboxResources(), private readonly acceleration: "auto" | "software" = "auto") {}
   private executable(architecture: string) { return join(this.resources, `qemu-system-${architecture}${process.platform === "win32" ? ".exe" : ""}`); }
 
   async status(): Promise<{ available: boolean; reason?: string }> {
@@ -104,7 +104,8 @@ export class VmSandbox {
     const snapshot = await snapshotFolders(input.mounts, input.signal);
     if (!snapshot.mounts.some((mount) => input.cwd === mount.target || input.cwd.startsWith(mount.target + "/")) || input.cwd.split("/").includes("..")) throw new Error("Command directory is outside the sandbox folders.");
     const arm = manifest.architecture === "aarch64";
-    const nativeMac = process.platform === "darwin" && (arm ? process.arch === "arm64" : process.arch === "x64");
+    const nativeMac = this.acceleration === "auto" && process.platform === "darwin" && (arm ? process.arch === "arm64" : process.arch === "x64") &&
+      await exec("/usr/sbin/sysctl", ["-n", "kern.hv_support"], { timeout: 5000 }).then(({ stdout }) => stdout.trim() === "1", () => false);
     const diagnostics = await mkdtemp(join(tmpdir(), "legalwork-vm-"));
     const consolePath = join(diagnostics, "console.log");
     // QEMU's Windows stdio drops input when the guest cannot accept a byte.

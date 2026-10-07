@@ -22,7 +22,7 @@ This isolates script execution. Model-provider requests, connected apps, browser
 
 Each command starts fresh. Installed packages and changes outside approved folders disappear afterwards. Commands use Linux paths (`/workspace`, `/authorized/0`, etc.), not Windows or macOS paths. Snapshots are limited to 512 MiB and 10,000 files, with 128 MiB per file. Symlinks and special files are refused. `.git`, `.opencode`, environment files, shell startup files, and app metadata are excluded; `.legalwork/scratch` is available for task files. HTTP request and response bodies are limited to 4 MiB and 16 MiB. Two VMs may run concurrently.
 
-macOS uses Hypervisor.framework acceleration. Windows currently uses QEMU software emulation so a machine without virtualization can still execute protected commands. This is slower than hardware acceleration. No Windows administrator setup is required at runtime.
+macOS uses Hypervisor.framework acceleration when `kern.hv_support` reports availability, with software emulation for hosts that cannot virtualize (including hosted CI). Windows currently uses QEMU software emulation so a machine without virtualization can still execute protected commands. This is slower than hardware acceleration. No Windows administrator setup is required at runtime.
 
 Windows uses a unique named pipe for the host side of virtio-serial because QEMU's Windows stdio backend can drop bytes under backpressure. The guest loops on partial character-device writes and verifies input file hashes. The test suite includes a multi-megabyte binary round trip.
 
