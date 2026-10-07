@@ -2,7 +2,7 @@
 
 LegalWork can schedule a prompt once or repeatedly, reuse one project chat or create a chat for each run, and pause, resume, edit or delete the schedule. The Scheduled page, inline Open cards and editor use the existing Surface, IconTile, Base UI controls and semantic design tokens. English and German are supported. Task details group the next run, named project and explicit access scope. Edit, Pause/Resume and Delete are visible in the detail header; sidebar tasks show their project and offer the same actions through right-click or the visible menu button. Deletion confirms the task name and retains existing chats. Edit switches the detail pane to an inline form with sticky Save and Cancel controls. Sidebar Edit uses the same pane, and chat Open cards navigate to the selected task. New task creation still uses a dialog. Custom rules are edited directly in the form.
 
-## Suggested routines
+## Task templates
 
 The welcome view includes an example week and four editable presets: Morning matter brief at 06:00 on weekdays, Upcoming deadline check at 08:00 on weekdays, End of Week review on Friday at 16:00, and Weekly planning on Monday at 09:00. Presets choose the next matching local date and use the computer's IANA time zone, saved with the task. Existing task schedules are unchanged; the blank New task editor still defaults to Daily.
 
@@ -98,6 +98,12 @@ Unread dots occupy a fixed trailing slot for short and long project names, pinne
 
 Verified normal and narrow sidebars, light/dark themes, project menus, and the running development Electron app after restarting it with the existing profile. All 869 app tests, including 14 sidebar/inbox checks, app typecheck and production build passed. Regression tests cover first-use history, late-loaded history, empty initial snapshots, restart persistence and upgrades from the first unread implementation without replaying pin actions. Verified historical dots disappear in the existing development profile and stay cleared after reload. A new fixture delivery still pins its chat and adds unread dots without a refresh, while older chats remain read. To reproduce the layout fixture, use `session-inbox-preview.html?layout` or `?layout&narrow&theme=dark`, then click **Schedule preview run**.
 
+## Scheduled-page copy and German prompts
+
+The English and German welcome pages name the feature directly as Scheduled tasks / Geplante Aufgaben, explain project selection, instructions and execution time, and describe each template's output. Removed the rhythm/routine slogans. All four presets already have full German prompts selected by the current app language; these are the instructions passed into the editor and saved, not just translated tile labels. Saved prompts keep their original language when the app language changes.
+
+Verified all four German prompts in the editor and saved/reloaded Weekly planning in the isolated fixture, confirming its German instructions persist. Checked both welcome pages and all four English descriptions visually. `pnpm --filter @legalwork/app test:i18n` passed for all 5,556 keys in English and German; `node scripts/i18n-audit.mjs --ci` and `git diff --check` passed.
+
 ## Screenshots
 
 ![Aligned clock, unread dots and project controls](sidebar-alignment.png)
@@ -117,7 +123,9 @@ Verified normal and narrow sidebars, light/dark themes, project menus, and the r
 
 [German model picker at 390 px](model-mobile-de.png)
 
-![Scheduled overview](overview.jpg)
+![Scheduled overview](overview-en.png)
+
+[German overview](overview-de.png) · [Task templates](templates-en.png) · [Saved German prompt](template-prompt-de.png)
 
 ![Inline task editing](inline-edit.jpg)
 
