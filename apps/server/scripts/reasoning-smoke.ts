@@ -1,18 +1,28 @@
 // Run from the repository root:
 // OPENCODE_BIN=/path/to/pinned/opencode bun apps/server/scripts/reasoning-smoke.ts [manifest.json]
 // Optional live verification: MODEL_API_TEST_BASE_URL + MODEL_API_TEST_KEY.
+// To exercise an Electron-managed engine through its LegalWork server, set
+// MODEL_REASONING_ENGINE_URL, MODEL_REASONING_ENGINE_KEY,
+// MODEL_REASONING_WORKSPACE and MODEL_REASONING_CAPTURE_REPORT. See docs/qa/model-reasoning.md.
 // The proxy binds only loopback; credentials stay in memory and are not logged.
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { z } from "zod";
 import { buildEigenweltModelsMap } from "../src/eigenwelt-auth";
 import { parseManifestModels } from "../src/eigenwelt-paid-manifest";
 import { getModelBehaviorSummary } from "../../app/src/app/lib/model-behavior";
 
 const manifestPath = process.argv[2] ?? new URL("./fixtures/model-reasoning-manifest.json", import.meta.url);
 const binary = process.env.OPENCODE_BIN;
-if (!binary) throw new Error("Set OPENCODE_BIN to LegalWork's pinned engine.");
+const existingEngine = process.env.MODEL_REASONING_ENGINE_URL;
+const captureReport = process.env.MODEL_REASONING_CAPTURE_REPORT;
+const workspace = process.env.MODEL_REASONING_WORKSPACE;
+if (!existingEngine && !binary) throw new Error("Set OPENCODE_BIN to LegalWork's pinned engine.");
+if (existingEngine && (!captureReport || !workspace || !["localhost", "127.0.0.1", "[::1]"].includes(new URL(existingEngine).hostname))) {
+  throw new Error("Existing-engine verification needs a loopback engine, disposable workspace and local request report.");
+}
 const models = parseManifestModels(await Bun.file(manifestPath).json());
 if (!models.length || models.some((model) => !model.variants)) throw new Error("Every model needs explicit OpenCode variants.");
 const liveBase = process.env.MODEL_API_TEST_BASE_URL;
@@ -46,7 +56,7 @@ const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 120, asyn
     const tool = nonce?.startsWith("MODEL_REASONING_TOOL_") && !body.messages.some((message) => isRecord(message) && message.role === "tool");
     const chunk = { id: "local-reasoning-check", object: "chat.completion.chunk", created: 1, model: body.model,
       choices: [{ index: 0, delta: tool ? { role: "assistant", reasoning_content: "Read the requested test value.",
-        tool_calls: [{ index: 0, id: "local-read", type: "function", function: { name: "read", arguments: JSON.stringify({ filePath: join(root, "reasoning-check.txt") }) } }] }
+        tool_calls: [{ index: 0, id: "local-read", type: "function", function: { name: "read", arguments: JSON.stringify({ filePath: inputFile }) } }] }
         : { role: "assistant", content: "4" }, finish_reason: tool ? "tool_calls" : "stop" }],
       usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } };
     response = body.stream
@@ -56,8 +66,8 @@ const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 120, asyn
   if (nonce) captured.push({ model: body.model, effort: body.reasoning_effort, stream: body.stream === true, nonce, status: response.status });
   return response;
 } });
-const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-reasoning-smoke-")));
-const inputFile = join(root, "reasoning-check.txt");
+const root = existingEngine && workspace ? await realpath(workspace) : await realpath(await mkdtemp(join(tmpdir(), "legalwork-reasoning-smoke-")));
+const inputFile = join(root, `reasoning-check-${crypto.randomUUID()}.txt`);
 await writeFile(inputFile, "4\n");
 const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("port reservation") });
 const port = probe.port;
@@ -68,23 +78,33 @@ const config = { enabled_providers: ["eigenwelt"], permission: { "*": "deny", re
   models: buildEigenweltModelsMap(models),
 } } };
 const configPath = join(root, "opencode.json");
-await writeFile(configPath, JSON.stringify(config));
+if (!existingEngine) await writeFile(configPath, JSON.stringify(config));
 const engineEnv: NodeJS.ProcessEnv = { ...process.env, OPENCODE_CONFIG: configPath, OPENCODE_DISABLE_MODELS_FETCH: "true",
     OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
     XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache") };
 delete engineEnv.MODEL_API_TEST_KEY;
-const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+delete engineEnv.MODEL_REASONING_ENGINE_KEY;
+const engine = !existingEngine && binary ? Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
   cwd: root, env: engineEnv,
   stdout: "ignore", stderr: "ignore",
+}) : undefined;
+const client = createOpencodeClient({ baseUrl: existingEngine ?? `http://127.0.0.1:${port}`, throwOnError: true,
+  ...(process.env.MODEL_REASONING_ENGINE_KEY ? { headers: { Authorization: `Bearer ${process.env.MODEL_REASONING_ENGINE_KEY}` } } : {}),
 });
-const client = createOpencodeClient({ baseUrl: `http://127.0.0.1:${port}`, throwOnError: true });
+const requestSchema = z.array(z.object({ model: z.string(), effort: z.unknown(), stream: z.boolean(), nonce: z.string().optional(), status: z.number() }));
+async function sentFor(nonce: string) {
+  const requests = existingEngine && captureReport ? requestSchema.parse(await Bun.file(captureReport).json())
+    .map((request) => ({ ...request, effort: request.effort === null ? undefined : request.effort })) : captured;
+  return requests.filter((request) => request.nonce === nonce);
+}
 try {
   for (let attempt = 0; ; attempt++) {
     try { await client.global.health(); break; }
     catch { if (attempt === 60) throw new Error("Local engine did not become healthy"); await Bun.sleep(500); }
   }
   const catalog = (await client.provider.list()).data?.all.find((provider) => provider.id === "eigenwelt");
-  if (!catalog || Object.keys(catalog.models).length !== models.length) throw new Error("Engine lost catalog models");
+  if (!catalog || models.some((model) => !catalog.models[model.id]) ||
+      (!existingEngine && Object.keys(catalog.models).length !== models.length)) throw new Error("Engine lost catalog models");
   if (process.env.MODEL_REASONING_CATALOG_REPORT) await writeFile(process.env.MODEL_REASONING_CATALOG_REPORT, JSON.stringify(catalog.models, null, 2));
   for (const entry of models) {
     const model = catalog.models[entry.id];
@@ -107,7 +127,7 @@ try {
       })).data;
       if (result?.info.error) throw new Error(`${entry.id}: engine ${result.info.error.name}`);
       const expected = variant ? entry.variants[variant]?.reasoningEffort : entry.options?.reasoningEffort;
-      const sent = captured.filter((request) => request.nonce === nonce);
+      const sent = await sentFor(nonce);
       if (!sent.length || sent.some((request) => request.effort !== expected || !request.stream || request.status !== 200)) {
         throw new Error(`${entry.id}: ${selection ?? "default"} sent wrong effort or upstream failed: ${JSON.stringify(sent)}`);
       }
@@ -119,11 +139,12 @@ try {
     // Exercise an actual engine tool round trip, including reasoning replay,
     // rather than only accepting a completion request with a tools schema.
     const variant = keys.includes("high") ? "high" : undefined;
+    const toolNonce = `MODEL_REASONING_TOOL_${crypto.randomUUID()}`;
     const session = (await client.session.create()).data;
     if (!session) throw new Error("Tool-check session not created");
     const result = (await client.session.prompt({ sessionID: session.id,
       model: { providerID: "eigenwelt", modelID: model.id }, ...(variant ? { variant } : {}),
-      parts: [{ type: "text", text: `MODEL_REASONING_TOOL_${crypto.randomUUID()} Use the read tool to read ${inputFile}. You must call the read tool before answering. Reply with only the file's numeral. Do not use other tools.` }],
+      parts: [{ type: "text", text: `${toolNonce} Use the read tool to read ${inputFile}. You must call the read tool before answering. Reply with only the file's numeral. Do not use other tools.` }],
     })).data;
     const read = result?.parts.some((part) => part.type === "tool" && part.tool === "read" && part.state.status === "completed");
     // prompt() returns the final message; completed tool parts are on earlier
@@ -131,7 +152,10 @@ try {
     const history = (await client.session.messages({ sessionID: session.id })).data;
     const completed = read || history?.some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "read" && part.state.status === "completed"));
     const answer = result?.parts.filter((part) => part.type === "text").map((part) => part.text).join("");
-    if (!completed || result?.info.error || answer?.trim() !== "4") {
+    const sent = await sentFor(toolNonce);
+    const expected = variant ? entry.variants[variant]?.reasoningEffort : entry.options?.reasoningEffort;
+    if (!completed || result?.info.error || answer?.trim() !== "4" || sent.length < 2 ||
+        sent.some((request) => request.effort !== expected || !request.stream || request.status !== 200)) {
       const tools = history?.flatMap((message) => message.parts.flatMap((part) => part.type === "tool"
         ? [{ tool: part.tool, status: part.state.status, ...(part.state.status === "error" ? { error: part.state.error.slice(0, 180) } : {}) }] : []));
       throw new Error(`${entry.id}: read tool round trip failed: ${JSON.stringify({ tools, error: result?.info.error?.name, answer })}`);
@@ -139,12 +163,16 @@ try {
     const check = { model: entry.id, selection: "tool-read", effort: variant ?? null, passed: true };
     checks.push(check); console.log(JSON.stringify(check));
   }
-  if (process.env.MODEL_REASONING_REPORT) await writeFile(process.env.MODEL_REASONING_REPORT, JSON.stringify({ live: Boolean(liveBase), models: models.length, checks }, null, 2));
-  console.log(JSON.stringify({ passed: true, live: Boolean(liveBase), models: models.length, checks: checks.length }));
+  // An external recorder may front a live or synthetic upstream; do not infer
+  // live-provider coverage merely from using an existing Electron engine.
+  const upstream = existingEngine ? "external-recorder" : liveBase ? "live" : "synthetic";
+  if (process.env.MODEL_REASONING_REPORT) await writeFile(process.env.MODEL_REASONING_REPORT, JSON.stringify({ upstream, existingEngine: Boolean(existingEngine), models: models.length, checks }, null, 2));
+  console.log(JSON.stringify({ passed: true, upstream, existingEngine: Boolean(existingEngine), models: models.length, checks: checks.length }));
 } finally {
   proxy.stop(true);
   // The isolated engine can retain background title tasks after the assertions.
   // Terminate it deterministically so a passing matrix does not leave workers.
-  engine.kill("SIGKILL"); await engine.exited;
-  await rm(root, { recursive: true, force: true });
+  if (engine) { engine.kill("SIGKILL"); await engine.exited; }
+  if (existingEngine) await rm(inputFile, { force: true });
+  else await rm(root, { recursive: true, force: true });
 }
