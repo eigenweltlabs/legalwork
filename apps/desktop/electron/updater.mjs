@@ -87,6 +87,12 @@ async function writeElectronUpdaterChannel(app, channel) {
   return normalized;
 }
 
+// NSIS chooses the first .exe in a manifest. Keep legacy x64 clients on
+// latest.yml and native ARM64 clients on latest-arm64.yml, including fallback.
+export function electronUpdaterFeedConfig(url, platform = process.platform, arch = process.arch) {
+  return { provider: "generic", url, ...(platform === "win32" && arch === "arm64" ? { channel: "latest-arm64" } : {}) };
+}
+
 function electronUpdaterFeedUrl(channel) {
   return ELECTRON_UPDATER_FEEDS[normalizeElectronUpdaterChannel(channel)];
 }
@@ -180,7 +186,7 @@ async function applyElectronUpdaterFeed(app, updater) {
   // the latest stable so users can return to the stable channel deliberately.
   updater.allowDowngrade = state.channel === "stable";
   if (updater?.setFeedURL) {
-    updater.setFeedURL({ provider: "generic", url: state.feedUrl });
+    updater.setFeedURL(electronUpdaterFeedConfig(state.feedUrl));
   }
   return state;
 }
@@ -209,7 +215,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater) {
       // whichever feed advertises the newer version. Costs one extra request
       // on up-to-date checks; buys immunity against a stale tracked feed.
       try {
-        updater.setFeedURL({ provider: "generic", url: fallbackUrl });
+        updater.setFeedURL(electronUpdaterFeedConfig(fallbackUrl));
         const crossResult = await updater.checkForUpdates();
         const crossVersion = crossResult?.updateInfo?.version;
         if (crossVersion && isVersionNewer(crossVersion, resolveAppVersion(app))) {
@@ -222,13 +228,13 @@ export async function checkForUpdatesWithFeedFallback(app, updater) {
       } catch {
         // Best-effort freshness check; the tracked feed already answered.
       }
-      updater.setFeedURL({ provider: "generic", url: channelState.feedUrl });
+      updater.setFeedURL(electronUpdaterFeedConfig(channelState.feedUrl));
     }
     return { channelState: { ...channelState, feedFallback: false }, result };
   } catch (error) {
     if (!fallbackUrl || !updater?.setFeedURL) throw error;
     console.warn("[updater] feed check failed, retrying via GitHub", error?.message ?? error);
-    updater.setFeedURL({ provider: "generic", url: fallbackUrl });
+    updater.setFeedURL(electronUpdaterFeedConfig(fallbackUrl));
     try {
       const result = await updater.checkForUpdates();
       return {
@@ -409,7 +415,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       const channel = await readElectronUpdaterChannel(app);
       if (channel === "stable" && !error?.githubFallbackAttempted) {
         try {
-          updater.setFeedURL({ provider: "generic", url: ELECTRON_UPDATER_FALLBACK_FEEDS.stable });
+          updater.setFeedURL(electronUpdaterFeedConfig(ELECTRON_UPDATER_FALLBACK_FEEDS.stable));
           const result = await updater.checkForUpdates();
           return shapeCheckResult(result?.updateInfo ?? null, {
             channel: "stable",
@@ -460,7 +466,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         if (channel !== "stable" || error?.githubFallbackAttempted) {
           return { ok: false, reason: String(error?.message ?? error) };
         }
-        updater.setFeedURL({ provider: "generic", url: ELECTRON_UPDATER_FALLBACK_FEEDS.stable });
+        updater.setFeedURL(electronUpdaterFeedConfig(ELECTRON_UPDATER_FALLBACK_FEEDS.stable));
         const result = await updater.checkForUpdates();
         const info = result?.updateInfo ?? null;
         if (!info?.version || !isVersionNewer(info.version, resolveAppVersion(app))) {

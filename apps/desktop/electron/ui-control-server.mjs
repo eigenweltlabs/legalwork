@@ -7,6 +7,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
   let uiControlServer = null;
@@ -153,7 +154,17 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
         `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
         { encoding: "utf8", mode: 0o600, flag: "wx" },
       );
-      await rename(temporaryPath, discoveryPath);
+      // Windows readers and antivirus scans can briefly prevent replacement.
+      // Retry the atomic rename, never write a new token into the old inode.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await rename(temporaryPath, discoveryPath);
+          break;
+        } catch (error) {
+          if (process.platform !== "win32" || !["EPERM", "EACCES", "EBUSY"].includes(error.code) || attempt === 5) throw error;
+          await sleep(50 * (attempt + 1));
+        }
+      }
       uiControlDiscoveryPath = discoveryPath;
     } catch (error) {
       await new Promise((resolve) => uiControlServer.close(() => resolve(undefined)));

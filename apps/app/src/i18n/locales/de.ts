@@ -5179,6 +5179,13 @@ const de = {
   "model_picker.all_models": "Alle Modelle",
   "app.collect_logs_failed":
     "Die Protokolle konnten nicht erfasst werden. Nutzen Sie Hilfe > Support-Protokolle sammeln…",
+  "architecture.performance_title": "Eine native Version kann schneller laufen",
+  "architecture.performance_body": "Sie nutzen die {appArch}-Version von LegalWork auf {systemArch}-{platform}. Eine native Version kann den Aufwand der Emulation vermeiden.",
+  "architecture.not_available": "Für die aktuelle Version ist kein {arch}-Installationsprogramm verfügbar. Sie können diese Version weiter nutzen.",
+  "architecture.check_failed": "Die native Version konnte nicht geprüft werden. Versuchen Sie es erneut, wenn Sie online sind.",
+  "architecture.checking": "Wird geprüft…",
+  "architecture.check_native": "Native Version suchen",
+  "architecture.keep_using": "Diese Version weiter nutzen",
   "architecture.mismatch_title": "Architektur passt nicht",
   "architecture.install_correct": "Installieren Sie den passenden LegalWork-Build",
   "architecture.download_correct": "Passende Version herunterladen",

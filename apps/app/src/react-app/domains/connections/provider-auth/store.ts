@@ -37,6 +37,7 @@ import type {
   EigenweltSignInPayload,
   CustomProviderModelRefreshStatus,
 } from "../../../../app/lib/legalwork-server";
+import { LegalworkServerError } from "../../../../app/lib/legalwork-server";
 import { invalidateEigenweltEntitlements } from "../eigenwelt-entitlements";
 import type { EigenweltPlanId } from "../../../../app/lib/eigenwelt-plans";
 
@@ -165,6 +166,7 @@ export type ProviderAuthStoreSnapshot = {
 
 type CreateProviderAuthStoreOptions = {
   client: () => Client | null;
+  baseUrl: () => string;
   providers: () => ProviderListItem[];
   providerDefaults: () => Record<string, string>;
   providerConnectedIds: () => string[];
@@ -763,8 +765,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             reloaded = true;
           }
         }
-      } catch {
-        // fall back to a direct engine dispose below
+      } catch (error) {
+        // Keep direct recovery for slow cloud-backed folders, after the
+        // server reload's extended deadline. Missing or forbidden workspaces
+        // cannot be recovered by disposing the engine again.
+        if (error instanceof LegalworkServerError &&
+          (error.code === "workspace_not_found" || error.status === 401 || error.status === 403)) throw error;
       }
 
       if (!reloaded) {
@@ -776,13 +782,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
 
       try {
-        await waitForHealthy(options.client() ?? c, { timeoutMs: 8000, pollMs: 250 });
+        await waitForHealthy(options.client() ?? c, { timeoutMs: 30_000, pollMs: 250 });
       } catch {
         // ignore health wait failures and still attempt provider reads
       }
-      // The composer and model picker cache the list under a key that carries
-      // the engine URL, which this store does not know. Refetch every cached
-      // list, or they keep showing the engine as it was before the reload.
+      // Refresh active observers and drop inactive lists before reading the
+      // same cache below. A forced second fetch would enumerate models twice.
       await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);
     }
 
@@ -804,8 +809,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const updated = filterProviderList(
         await ensureProviderListQuery(getReactQueryClient(), {
           client: activeClient,
+          baseUrl: options.baseUrl(),
           directory: options.selectedWorkspaceRoot(),
-          force: Boolean(optionsArg?.dispose),
         }),
         disabledProviders,
       );
@@ -1227,29 +1232,27 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // account (entitlements + tokens) AND the gateway manifest ({baseURL, apiKey,
     // models}) to the LegalWork server, which caches them globally and injects
     // the `eigenwelt` provider into EVERY workspace's engine config (like the
-    // free tier). No per-workspace provider block is written here. Best-effort:
-    // a persistence failure must not fail the sign-in itself.
+    // free tier). The browser callback is not a completed sign-in until these
+    // credentials have been saved. Never hide a failed save behind a reload.
     const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } =
       await resolveLegalworkConfigTarget("write");
-    if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-      try {
-        await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
-          systemOne: payload.systemOne,
-          account: payload.account ?? null,
-          entitlements: payload.entitlements ?? null,
-          platformURL: payload.platformURL ?? null,
-          platformToken: payload.platformToken ?? null,
-          refreshToken: payload.refreshToken ?? null,
-          accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
-          ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
-        });
-        invalidateEigenweltEntitlements();
-      } catch {
-        // ignore: best-effort — a persistence failure must not fail the sign-in.
-      }
+    if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) {
+      throw new Error(t("providers.not_connected"));
     }
+    await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+      systemOne: payload.systemOne,
+      account: payload.account ?? null,
+      entitlements: payload.entitlements ?? null,
+      platformURL: payload.platformURL ?? null,
+      platformToken: payload.platformToken ?? null,
+      refreshToken: payload.refreshToken ?? null,
+      accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
+      ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
+    });
+    invalidateEigenweltEntitlements();
 
-    options.markOpencodeConfigReloadRequired();
+    // This refresh already reloads the engine. Scheduling the automatic
+    // reload as well disposes the instance a second time during sign-in.
     await refreshProviders({ dispose: true });
   };
 
