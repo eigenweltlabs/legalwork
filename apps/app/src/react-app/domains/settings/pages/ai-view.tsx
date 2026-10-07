@@ -207,7 +207,8 @@ export function AiSettingsView(props: AiSettingsViewProps) {
               </div>
             </div>
             {provider.key === "oauth" ? (
-              <ChatGptSignInButton disabled={props.busy || props.providerAuthBusy} onClick={() => void props.onSignInFirmProvider(provider.id)} />
+              // The row's size, like the other buttons here.
+              <ChatGptSignInButton className="h-8 gap-2 rounded-lg px-3 text-[13px] [&>span]:size-4" disabled={props.busy || props.providerAuthBusy} onClick={() => void props.onSignInFirmProvider(provider.id)} />
             ) : provider.key === "member" ? (
               <Button variant="outline" size="sm" disabled={props.busy || props.providerAuthBusy} onClick={() => setKeyFor(provider)}>
                 {t("org_policy.add_own_key")}
