@@ -90,7 +90,7 @@ export class SandboxFilesystem {
 
   private writable(location: Location): void {
     if (!location.suffix) error("EPERM", "Authorized folder roots cannot be replaced.");
-    if (!location.mount.writable || this.mounts.some((mount) => !mount.writable && within(mount.source, location.host))) error("EROFS");
+    if (!location.mount.writable || this.mounts.some((mount) => !mount.writable && within(keyFor(mount.source), keyFor(location.host)))) error("EROFS");
     if (protectedPath(location.suffix) && location.suffix.toLowerCase() !== ".legalwork") error("EACCES");
   }
 
@@ -108,6 +108,9 @@ export class SandboxFilesystem {
     const location = this.locate(path);
     const cached = this.entries.get(location.key);
     if (cached) {
+      // Case-sensitive APFS and Windows Unicode names can contain distinct
+      // files whose portable keys collide. Never merge their data silently.
+      if (cached.host !== location.host) error("EEXIST", "Ambiguous path spelling. Use consistent capitalization and Unicode spelling.");
       if (cached.deleted && !missing) error("ENOENT");
       return cached;
     }
@@ -196,7 +199,10 @@ export class SandboxFilesystem {
   }
 
   private attributes(entry: Entry) {
-    return { st_mode: (entry.directory ? 0o40000 : 0o100000) | entry.mode,
+    // Node reports Windows directories as 0666. Linux FUSE needs traversal
+    // bits; actual host access remains checked by the broker and Windows ACLs.
+    const traverse = process.platform === "win32" && entry.directory ? 0o111 : 0;
+    return { st_mode: (entry.directory ? 0o40000 : 0o100000) | entry.mode | traverse,
       st_nlink: entry.directory ? 2 : 1, st_uid: 1000, st_gid: 1000, st_size: entry.directory ? 4096 : entry.size,
       st_atime: 0, st_mtime: 0, st_ctime: 0 };
   }
@@ -314,10 +320,10 @@ export class SandboxFilesystem {
     } else if (request.op === "rename") {
       const destination = this.locate(request.destination);
       this.writable(destination);
+      const target = await this.entry(request.destination, true);
       if (entry.key === destination.key) return 0;
       // mv/shutil can use their copy-and-delete path for directories.
       if (entry.directory) error("EXDEV");
-      const target = await this.entry(request.destination, true);
       if (target.directory && !target.deleted) error("EISDIR");
       if (!(await this.entry(request.destination.slice(0, request.destination.lastIndexOf("/")))).directory) error("ENOTDIR");
       await this.stage(entry);

@@ -59,6 +59,8 @@ test("staged output can exceed the former 512 MiB limit without a content buffer
 
 test("edits stay on disk staging until commit and read-only folders reject writes", async () => {
   const f = await fixture();
+  const directory = z.object({ st_mode: z.number() }).parse(await f.filesystem.request({ op: "stat", path: "/workspace" }));
+  expect(directory.st_mode & 0o100).toBe(0o100);
   await writeFile(join(f.workspace, "input"), "before");
   await writeFile(join(f.reference, "input"), "reference");
   const handle = await openFile(f.filesystem, "/workspace/input", true);
@@ -155,4 +157,15 @@ test("overlapping aliases share staged contents and cannot bypass a read-only gr
     { source: child, target: "/authorized/0", writable: false },
   ], f.controller.signal); filesystems.push(restricted);
   await expect(openFile(restricted, "/workspace/child/input", true)).rejects.toMatchObject({ code: "EROFS" });
+  await expect(openFile(restricted, "/workspace/CHILD/input", true)).rejects.toThrow();
+});
+
+test.skipIf(process.platform === "linux")("case and Unicode spelling collisions cannot silently merge staged outputs", async () => {
+  const f = await fixture();
+  const handle = await openFile(f.filesystem, "/workspace/Report.txt", true, true);
+  await write(f.filesystem, handle, "first");
+  await expect(openFile(f.filesystem, "/workspace/report.txt", true, true)).rejects.toMatchObject({ code: "EEXIST" });
+  await expect(f.filesystem.request({ op: "rename", path: "/workspace/Report.txt", destination: "/workspace/report.txt" })).rejects.toMatchObject({ code: "EEXIST" });
+  await f.filesystem.commit();
+  expect(await readFile(join(f.workspace, "Report.txt"), "utf8")).toBe("first");
 });
