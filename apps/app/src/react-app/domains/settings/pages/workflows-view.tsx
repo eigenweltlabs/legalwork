@@ -226,7 +226,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   </section>;
 
   const workflows = !props.inlineEditor || scope === "team" ? library : <ResizablePanelGroup orientation="horizontal" className="min-h-[600px] w-full flex-1 overflow-hidden rounded-xl border border-border">
-    <ResizablePanel minSize="240px" defaultSize={inlineId ? "40%" : "100%"}>{library}</ResizablePanel>
+    <ResizablePanel className="p-4" minSize="240px" defaultSize={inlineId ? "40%" : "100%"}>{library}</ResizablePanel>
     {inlineId ? <><ResizableHandle withHandle /><ResizablePanel minSize="320px" defaultSize="60%">{inlineResource
       ? <WorkflowResourceEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(inlineResource.workflowId); }} />
       : <WorkflowEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(null); }} />}</ResizablePanel></> : null}
