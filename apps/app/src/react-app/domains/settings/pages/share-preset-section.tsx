@@ -51,7 +51,7 @@ export function SharePresetControl({ client, workspaceId, onShared }: SharePrese
       setName("");
       onShared?.();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("firm_hub.share_failed"));
+      toast.error(error instanceof Error ? error.message : t("firm_hub.share_failed"), { error });
     } finally {
       setSharing(false);
     }

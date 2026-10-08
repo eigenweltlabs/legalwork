@@ -67,3 +67,6 @@ apps/app/dist-docx-performance/
 
 # Checksum-pinned runtime downloaded during desktop builds.
 apps/desktop/resources/node/
+
+# Private build symbols; never shipped with app assets.
+.error-symbols/

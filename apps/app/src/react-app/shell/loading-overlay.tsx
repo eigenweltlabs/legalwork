@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -9,6 +9,7 @@ import { isDesktopRuntime } from "../../app/utils";
 import { useBootState, useBootOverlayVisible } from "./boot-state";
 import { OwDotTicker } from "./dot-ticker";
 import { SettingsSurface } from "./settings-route";
+import { openErrorReport, recordError } from "@/app/lib/error-reports";
 import { t } from "@/i18n";
 
 const RELEASES_URL = "https://github.com/eigenweltlabs/legalwork/releases";
@@ -75,6 +76,12 @@ function CollectLogsButton() {
 export function LoadingOverlay() {
   const visible = useBootOverlayVisible();
   const { phase, message, error } = useBootState();
+  const [incidentId, setIncidentId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!error) { setIncidentId(null); return; }
+    const diagnostic = recordError(new Error(error), { source: "startup", operation: "startup", phase: "startup", component: "desktop" });
+    setIncidentId(diagnostic?.incident_id ?? null);
+  }, [error]);
   const [updatesOpen, setUpdatesOpen] = useState(false);
 
   const openUpdates = () => {
@@ -103,6 +110,7 @@ export function LoadingOverlay() {
         {error ? (
           <div className="flex flex-col items-center gap-3 text-[12px] leading-5 text-red-11">
             <div>{error}</div>
+            {incidentId ? <Button variant="outline" size="sm" onClick={() => openErrorReport(incidentId)}>{t("error_report.share")}</Button> : null}
             {isDesktopRuntime() ? (
               <>
                 <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>

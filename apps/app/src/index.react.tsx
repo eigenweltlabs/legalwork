@@ -15,10 +15,15 @@ import {
   PlatformProvider,
 } from "./react-app/kernel/platform";
 import { AppProviders } from "./react-app/shell/providers";
+import { AppErrorBoundary } from "./react-app/shell/app-error-boundary";
+import { ErrorReportHost } from "./react-app/shell/error-report-dialog";
+import { Toaster } from "@/components/ui/sonner";
+import { initErrorAnalytics } from "./app/lib/app-error";
 import { AppRoot } from "./react-app/shell/app-root";
 import { startDeepLinkBridge } from "./react-app/shell/startup-deep-links";
 import "./app/index.css";
 
+initErrorAnalytics();
 bootstrapTheme();
 initLocale();
 startDeepLinkBridge();
@@ -37,6 +42,9 @@ const Router = isDesktopRuntime() ? HashRouter : BrowserRouter;
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
+    <ErrorReportHost />
+    <Toaster />
+    <AppErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <PlatformProvider value={platform}>
@@ -48,5 +56,6 @@ ReactDOM.createRoot(root).render(
         </PlatformProvider>
       </TooltipProvider>
     </QueryClientProvider>
+    </AppErrorBoundary>
   </React.StrictMode>,
 );

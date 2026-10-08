@@ -53,7 +53,9 @@
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
     "./calculation": "./src/calculation.ts",
-    "./scheduled-tasks": "./src/scheduled-tasks.ts"
+    "./scheduled-tasks": "./src/scheduled-tasks.ts",
+    "./error-report": "./src/error-report.ts",
+    "./error-diagnostics": "./src/error-diagnostics.ts"
   },
   "files": [
     "src",

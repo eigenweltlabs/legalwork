@@ -115,7 +115,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       }
       const message = error instanceof Error ? error.message : t("markdown.save_failed");
       setSaveError(message);
-      toast.error(t("markdown.save_failed_toast"), { description: `${t("markdown.edits_still_here")} ${message}` });
+      toast.error(t("markdown.save_failed_toast"), { error,  description: `${t("markdown.edits_still_here")} ${message}` });
       return false;
     } finally {
       savingRef.current = false;
@@ -141,7 +141,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         await client.writeWorkspaceFile(workspaceId, { path: copy, content: mine.content });
       } catch (error) {
         setClash(theirs);
-        toast.error(t("markdown.save_failed_toast"), { description: error instanceof Error ? error.message : undefined });
+        toast.error(t("markdown.save_failed_toast"), { error,  description: error instanceof Error ? error.message : undefined });
         return;
       }
       toast.success(t("markdown.saved_as_copy", { name: projectFileDisplayName(copy, copy.split("/").at(-1) ?? copy) }));
@@ -210,7 +210,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   };
   const absolutePath = `${workspaceRoot.replace(/\/$/, "")}/${target.value}`;
   const runFileAction = async (action: () => Promise<unknown>) => {
-    try { await action(); } catch (error) { toast.error(error instanceof Error ? error.message : t("markdown.open_file_failed")); }
+    try { await action(); } catch (error) { toast.error(error instanceof Error ? error.message : t("markdown.open_file_failed"), { error }); }
   };
   return <div className="h-full min-h-0" onKeyDownCapture={(event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void save(); }

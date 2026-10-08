@@ -5,6 +5,7 @@ import { getReactQueryClient } from "../../../infra/query-client";
 import { analyticsSurface, captureAnalyticsEvent, isAnalyticsSending, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import { allowlistedErrorName, sessionErrorFingerprint } from "@/app/lib/app-error";
+import { recordError, getRunErrorContext, diagnosticAnalyticsFields } from "@/app/lib/error-reports";
 import { createClient, resolveLegalworkWorkspaceMount, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isAnthropicUsageLimitError, isProviderUsageLimitError, providerUsageLimitErrorText, usageLimitRetryEvent } from "@/app/lib/provider-usage-limit";
@@ -817,6 +818,14 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       const errorText = usageLimitStop ?? describeOpencodeSessionError(sessionError, "Session failed", provider);
       if (isAnthropicUsageLimitError(sessionError)) useComposerStateStore.getState().setQueuePaused(sessionId, true);
       const runStartedAt = aborted ? null : takeTaskRunStart(sessionId);
+      const modelId = info?.role === "assistant" ? info.modelID : info?.model.modelID;
+      const diagnostic = aborted ? null : recordError(sessionError, {
+        ...getRunErrorContext(sessionId),
+        ...(provider ? { providerId: provider } : {}), ...(modelId ? { modelId } : {}),
+        component: "engine", source: "session_error", operation: "run", phase: "unknown",
+        ...(usageLimitStop ? { code: "budget_limit" } : {}),
+        ...(runStartedAt !== null ? { duration_ms: Date.now() - runStartedAt } : {}),
+      });
       if (runStartedAt !== null) {
         captureRunOutcome(workspaceId, sessionId, "task_run_errored", {
           duration_ms: Date.now() - runStartedAt,
@@ -827,6 +836,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           error_fingerprint: sessionErrorFingerprint(sessionError),
           service: analyticsErrorService(sessionError),
           status_code: analyticsErrorStatus(sessionError),
+          ...(diagnostic ? diagnosticAnalyticsFields(diagnostic) : {}),
         });
       }
       if (aborted) {

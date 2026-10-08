@@ -7,6 +7,7 @@ import { useLocale } from "../../i18n/use-locale";
 import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
 import { captureRelayedAppError, initErrorAnalytics } from "../../app/lib/app-error";
 import { AppErrorBoundary } from "./app-error-boundary";
+import { initDiagnosticAssets, restoreLocalErrorReports, adoptErrorDiagnostic } from "@/app/lib/error-reports";
 import { NewProvidersListener } from "./new-providers-listener";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
@@ -36,19 +37,17 @@ export function AppRoot() {
     appOpenedCaptured = true;
     initAnalytics();
     initErrorAnalytics();
+    restoreLocalErrorReports();
+    void initDiagnosticAssets();
     // Relay main-process / sidecar errors (content-free) into app_error.
-    const electron = (
-      window as Window & {
-        __LEGALWORK_ELECTRON__?: {
-          onAppError?: (cb: (d: Parameters<typeof captureRelayedAppError>[0]) => void) => () => void;
-        };
-      }
-    ).__LEGALWORK_ELECTRON__;
+    const electron = window.__LEGALWORK_ELECTRON__;
     electron?.onAppError?.((data) => captureRelayedAppError(data));
+    void electron?.getErrorRecords?.().then(records => records.forEach(record => adoptErrorDiagnostic(record, false))).catch(() => {});
     captureAnalyticsEvent("app_opened", {});
   }, []);
 
   return (
+    <>
     <AppErrorBoundary>
     <>
       <DevProfiler id="AppRoot">
@@ -174,5 +173,6 @@ export function AppRoot() {
       <ReactRenderWatchdogOverlay />
     </>
     </AppErrorBoundary>
+    </>
   );
 }

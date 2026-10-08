@@ -18,7 +18,8 @@
  *   choice: events captured while it is pending are held in memory and only
  *   flushed if the user left the toggle on. Opting out (welcome toggle or
  *   Settings -> Privacy) takes effect immediately: captures stop and the send
- *   queue is purged. Nothing is sent after opt-out.
+ *   queue is purged. Only an explicit Share error click can send one selected
+ *   technical error after opt-out; it never enables general analytics.
  * - Every capture is mirrored into the local app inspector
  *   (`window.__legalwork.record("analytics.<event>")`) so coded evals can
  *   assert instrumentation without any analytics backend.
@@ -26,6 +27,7 @@
 import { recordInspectorEvent } from "./app-inspector";
 import { isOfficeAddinRuntime } from "./runtime-env";
 import { officeHostName } from "@/word-addin/office";
+import { ErrorDiagnosticSchema, errorExceptionProperties, type ErrorDiagnostic } from "@legalwork/types/error-report";
 
 const ENV_POSTHOG_KEY = String(import.meta.env.VITE_LEGALWORK_POSTHOG_KEY ?? "").trim();
 const ENV_POSTHOG_HOST = String(import.meta.env.VITE_LEGALWORK_POSTHOG_HOST ?? "").trim();
@@ -59,13 +61,18 @@ export type AnalyticsProperties = Record<string, string | number | boolean | nul
 
 type QueuedEvent = {
   event: string;
-  properties: AnalyticsProperties;
+  properties: Record<string, unknown>;
   timestamp: string;
+  uuid: string;
+  attempts: number;
 };
+type PostHogEvent = Omit<QueuedEvent, "attempts"> & { distinct_id: string };
 
 let queue: QueuedEvent[] = [];
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
+let flushing = false;
+let consentEpoch = 0;
 
 /** The stored consent choice, or null when the user never made one. */
 export function getStoredAnalyticsConsent(): boolean | null {
@@ -89,6 +96,7 @@ export function getStoredAnalyticsConsent(): boolean | null {
 let consentOverride: boolean | null = null;
 export function setAnalyticsConsentOverride(enabled: boolean): void {
   consentOverride = enabled;
+  if (!enabled) discardPendingAnalytics();
 }
 
 export function isAnalyticsEnabled(): boolean {
@@ -156,6 +164,50 @@ export function analyticsSurface(): AnalyticsSurface {
  * only sent over the network when enabled and a key is configured.
  */
 export function captureAnalyticsEvent(event: string, properties: AnalyticsProperties = {}) {
+  enqueueAnalyticsEvent(event, properties);
+}
+
+const recentExceptions = new Map<string, number>();
+export function captureErrorAnalytics(diagnostic: ErrorDiagnostic): void {
+  if (diagnostic.code === "cancelled" || !POSTHOG_KEY || isAnalyticsRefused()) return;
+  const now = Date.now();
+  if (now - (recentExceptions.get(diagnostic.fingerprint) ?? 0) < 5000) return;
+  for (const [key, at] of recentExceptions) if (now - at >= 60_000) recentExceptions.delete(key);
+  if (recentExceptions.size >= 20) return;
+  recentExceptions.set(diagnostic.fingerprint, now);
+  enqueueAnalyticsEvent("$exception", { ...errorExceptionProperties(diagnostic), error_origin: "automatic" });
+}
+
+/** The exact event previewed by Share error, with an anonymous, per-event identity. */
+export function makeManualErrorEvent(diagnostic: ErrorDiagnostic, eventId: string) {
+  const error = ErrorDiagnosticSchema.parse(diagnostic);
+  const id = ErrorDiagnosticSchema.shape.incident_id.parse(eventId);
+  return {
+    uuid: id, event: "$exception", distinct_id: `manual-error:${id}`,
+    timestamp: error.occurred_at,
+    properties: { ...errorExceptionProperties(error), error_origin: "manual" },
+  };
+}
+
+/** Call only after an explicit Share click. Does not read or change analytics consent. */
+export async function sendManualErrorEvent(diagnostic: ErrorDiagnostic, eventId: string, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
+  if (!POSTHOG_KEY) throw new Error("error_sharing_unavailable");
+  const event = makeManualErrorEvent(diagnostic, eventId);
+  const response = await postHogBatch([event], fetchImpl);
+  if (!response.ok) throw new Error("error_event_not_sent");
+  return event.uuid;
+}
+
+function postHogBatch(events: readonly PostHogEvent[], fetchImpl: typeof fetch = globalThis.fetch): Promise<Response> {
+  return fetchImpl(`${POSTHOG_HOST}/batch/`, {
+    method: "POST", keepalive: true, credentials: "omit", cache: "no-store",
+    signal: AbortSignal.timeout(5000),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: POSTHOG_KEY, batch: events }),
+  });
+}
+
+function enqueueAnalyticsEvent(event: string, properties: Record<string, unknown>) {
   try {
     recordInspectorEvent(`analytics.${event}`, properties);
   } catch {
@@ -167,12 +219,13 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
   // flushAnalytics holds them until it does. Held events are capped at one
   // batch: the choice may never come (no welcome screen shown this launch).
   if (!POSTHOG_KEY || isAnalyticsRefused()) return;
-  if (queue.length >= MAX_BATCH && !isAnalyticsEnabled()) return;
+  if (queue.length >= MAX_BATCH * (isAnalyticsEnabled() ? 2 : 1)) return;
 
   queue.push({
     event,
     properties: { ...baseProperties(), ...properties },
     timestamp: new Date().toISOString(),
+    uuid: crypto.randomUUID(), attempts: 0,
   });
   if (queue.length >= MAX_BATCH) {
     void flushAnalytics();
@@ -182,40 +235,43 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
 /** Drop events captured before a newly committed opt-out. */
 export function discardPendingAnalytics(): void {
   queue = [];
+  consentEpoch++;
 }
 
 export async function flushAnalytics(): Promise<void> {
-  if (!POSTHOG_KEY) return;
+  if (!POSTHOG_KEY || flushing) return;
   if (isAnalyticsRefused()) {
     // Consent withdrawn — drop anything still queued.
-    queue = [];
+    discardPendingAnalytics();
     return;
   }
   // Choice still pending: hold the queue. Nothing leaves the machine before
   // the user could turn analytics off on the welcome screen.
   if (!isAnalyticsEnabled() || queue.length === 0) return;
+  flushing = true;
+  const epoch = consentEpoch;
   const batch = queue.splice(0, MAX_BATCH);
+  for (const entry of batch) entry.attempts++;
+  const retry = () => {
+    if (epoch !== consentEpoch || isAnalyticsRefused()) return;
+    queue = [...batch.filter(entry => entry.attempts < 3), ...queue].slice(0, MAX_BATCH * 2);
+  };
   const distinctId = getAnalyticsDistinctId();
 
   try {
-    await fetch(`${POSTHOG_HOST}/batch/`, {
-      method: "POST",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: POSTHOG_KEY,
-        batch: batch.map((entry) => ({
-          event: entry.event,
-          distinct_id: distinctId,
-          timestamp: entry.timestamp,
-          // Anonymous events — no person profiles.
-          properties: { ...entry.properties, $process_person_profile: false },
-        })),
-      }),
-    });
+    const response = await postHogBatch(batch.map((entry) => ({
+      uuid: entry.uuid,
+      event: entry.event,
+      distinct_id: distinctId,
+      timestamp: entry.timestamp,
+      // Anonymous events — no person profiles.
+      properties: { ...entry.properties, $process_person_profile: false },
+    })));
+    if (!response.ok && (response.status === 429 || response.status >= 500)) retry();
   } catch {
-    // Network failure — drop silently. Analytics must never surface errors.
-  }
+    // Bounded, in-memory retry; no content-bearing disk queue or user-facing error.
+    retry();
+  } finally { flushing = false; }
 }
 
 // Task run duration tracking: sendDraft marks the start, the session.idle
@@ -262,5 +318,7 @@ export function disposeAnalytics() {
     flushTimer = null;
   }
   initialized = false;
-  queue = [];
+  consentOverride = null;
+  recentExceptions.clear();
+  discardPendingAnalytics();
 }

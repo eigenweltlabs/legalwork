@@ -126,6 +126,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@posthog/rollup-plugin": "1.6.1",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.2",

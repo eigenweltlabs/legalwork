@@ -487,13 +487,13 @@ export function SidePanel({
             usePanelTabStore.getState().openTab(sessionId, tab);
             if (usePanelTabStore.getState().sessions[sessionId]?.activeTabId !== tab.id) break;
           } catch (error) {
-            toast.error(`Could not open ${file.name}`, { description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
+            toast.error(`Could not open ${file.name}`, { error,  description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
           }
         }
       }
       void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     } catch (error) {
-      toast.error(t("side_panel.file_open_failed"), { description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
+      toast.error(t("side_panel.file_open_failed"), { error,  description: error instanceof Error ? error.message : t("side_panel.file_copy_failed") });
     } finally {
       importing.current = false;
       if (mounted.current) setCopyingFile(null);

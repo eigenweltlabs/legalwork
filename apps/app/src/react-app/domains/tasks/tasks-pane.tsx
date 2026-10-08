@@ -355,7 +355,7 @@ export function TasksPane(props: TasksPaneProps) {
       toast.error(
         error instanceof Error
           ? error.message
-          : t(selection.workflowName ? "tasks.run_failed" : "tasks.session_failed"),
+          : t(selection.workflowName ? "tasks.run_failed" : "tasks.session_failed"), { error },
       );
     } finally {
       setStarting(false);

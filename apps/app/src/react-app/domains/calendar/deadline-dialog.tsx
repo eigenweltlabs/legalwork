@@ -93,7 +93,7 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
       if (result.item) setRevision(result.item.revision);
       if (close) { toast.success(t(item ? "calendar.saved" : "calendar.created")); props.onSaved(); }
       return result.item;
-    } catch (error) { toast.error(calendarError(error)); } finally { setSaving(false); }
+    } catch (error) { toast.error(calendarError(error), { error }); } finally { setSaving(false); }
   };
   const startSession = async () => {
     if (!item || busy || startingRef.current) return;
@@ -107,7 +107,7 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
       const sessionId = await startCalendarSession({ item: saved, client, workspaceId, workspace, baseUrl: sessionContext.baseUrl, token: sessionContext.token });
       props.onSaved();
       sessionContext.onOpenSession(project.id, sessionId);
-    } catch (error) { toast.error(calendarError(error)); }
+    } catch (error) { toast.error(calendarError(error), { error }); }
     finally { startingRef.current = false; setStarting(false); }
   };
   const remove = async () => {
@@ -116,7 +116,7 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
     try {
       await client.calendarWrite(workspaceId, `/${item.id}/delete`, { revision });
       toast.success(t("calendar.deleted")); props.onSaved();
-    } catch (error) { toast.error(calendarError(error)); } finally { setDeleting(false); }
+    } catch (error) { toast.error(calendarError(error), { error }); } finally { setDeleting(false); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) props.onClose(); }}>
     <ItemDialogContent>

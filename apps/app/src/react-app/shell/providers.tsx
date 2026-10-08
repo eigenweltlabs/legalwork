@@ -3,8 +3,6 @@ import { useEffect, type ReactNode } from "react";
 
 import { MotionConfig } from "motion/react";
 
-import { Toaster } from "@/components/ui/sonner";
-
 import { isWebDeployment } from "@/app/lib/legalwork-deployment";
 import { hydrateLegalworkServerSettingsFromEnv } from "@/app/lib/legalwork-server";
 import { isDesktopRuntime } from "@/app/utils";
@@ -67,7 +65,6 @@ export function AppProviders({ children }: AppProvidersProps) {
           <DesktopRuntimeBoot />
           <LocalProvider>
             <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
-            <Toaster />
           </LocalProvider>
         </ArchitectureMismatchGate>
       </ServerProvider>

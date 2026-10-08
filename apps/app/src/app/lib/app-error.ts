@@ -9,6 +9,7 @@
 import { captureAnalyticsEvent, analyticsSurface, type AnalyticsSurface } from "./analytics";
 import { analyticsErrorService, analyticsErrorStatus, type AnalyticsErrorService } from "./analytics-error";
 import { hashString } from "./hash";
+import { recordError, adoptErrorDiagnostic, diagnosticAnalyticsFields } from "./error-reports";
 
 export type AppErrorSource =
   // global (caught automatically in the renderer)
@@ -21,7 +22,8 @@ export type AppErrorSource =
   // main process (relayed from Electron main over IPC)
   | "main_uncaught"
   | "main_unhandledrejection"
-  | "sidecar_exit";
+  | "sidecar_exit"
+  | "renderer_exit";
 
 type AppErrorService = AnalyticsErrorService | "renderer" | "sidecar";
 
@@ -142,14 +144,20 @@ function emit(fields: AppErrorFields): void {
 export function captureAppError(source: AppErrorSource, error: unknown, service?: AppErrorService): void {
   try {
     const name = allowlistedErrorName(error);
+    const diagnostic = recordError(error, {
+      source, component: service === "server" ? "server" : service === "opencode" ? "engine" : service === "network" ? "network" : service === "sidecar" ? "desktop" : "renderer",
+      operation: source === "workspace_create" ? "create_workspace" : source === "integration_connect" ? "connect_provider" : source === "react_render" ? "render" : "uncaught",
+      phase: source === "react_render" ? "render" : "unknown",
+    });
     emit({
       source,
       error_name: name,
-      error_fingerprint: errorFingerprint(name, error),
+      error_fingerprint: diagnostic?.fingerprint ?? errorFingerprint(name, error),
       service: service ?? (GLOBAL_SOURCES.has(source) ? "renderer" : analyticsErrorService(error)),
       status_code: analyticsErrorStatus(error),
       exit_code: null,
       surface: analyticsSurface(),
+      ...(diagnostic ? diagnosticAnalyticsFields(diagnostic) : {}),
     });
   } catch {
     // Error reporting must never surface an error itself.
@@ -157,22 +165,29 @@ export function captureAppError(source: AppErrorSource, error: unknown, service?
 }
 
 /** Report an error relayed from the Electron main process (precomputed, content-free). */
-export function captureRelayedAppError(fields: {
-  source: AppErrorSource;
+export type RelayedAppError = {
+  source: AppErrorSource | "renderer_exit";
   error_name?: string | null;
   service: AppErrorService;
   exit_code?: number | null;
-}): void {
+  diagnostic?: unknown;
+};
+export function captureRelayedAppError(fields: RelayedAppError): void {
   try {
     const name = fields.error_name && ALLOWED_ERROR_NAMES.has(fields.error_name) ? fields.error_name : "other";
+    const diagnostic = adoptErrorDiagnostic(fields.diagnostic) ?? recordError({ name }, {
+      source: fields.source, component: "desktop", operation: "startup", phase: "startup",
+      exit_code: typeof fields.exit_code === "number" ? fields.exit_code : null,
+    });
     emit({
       source: fields.source,
       error_name: name,
-      error_fingerprint: null,
+      error_fingerprint: diagnostic?.fingerprint ?? null,
       service: fields.service,
       status_code: null,
       exit_code: typeof fields.exit_code === "number" ? fields.exit_code : null,
       surface: analyticsSurface(),
+      ...(diagnostic ? diagnosticAnalyticsFields(diagnostic) : {}),
     });
   } catch {
     // no-op

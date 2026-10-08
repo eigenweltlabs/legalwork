@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 import { analyticsSurface, captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
+import { getRunErrorContext, recordError, diagnosticAnalyticsFields } from "@/app/lib/error-reports";
 import {
   isEigenweltBudgetExceededErrorText,
 } from "@/app/lib/eigenwelt-budget";
@@ -706,7 +707,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       );
       if (started) toast.success(t("composer.live_transcript_started"));
     } catch (toggleError) {
-      toast.error(toggleError instanceof Error ? toggleError.message : t("app.unknown_error"));
+      toast.error(toggleError instanceof Error ? toggleError.message : t("app.unknown_error"), { error: toggleError });
     } finally {
       liveTranscriptToggleBusyRef.current = false;
       if (officeAddinRuntime) await refetchOfficeRecorder();
@@ -1118,11 +1119,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setSending(false);
     } catch (nextError) {
       const parsed = parseSessionError(nextError);
+      const diagnostic = recordError(nextError, {
+        ...getRunErrorContext(props.sessionId),
+        component: "engine", source: "task_send", operation: "send_message", phase: "request",
+        providerId: props.selectedModel.providerID, modelId: props.selectedModel.modelID,
+      });
       captureAnalyticsEvent("task_send_failed", {
         session_id: props.sessionId,
         service: analyticsErrorService(nextError),
         status_code: analyticsErrorStatus(nextError),
         surface: analyticsSurface(),
+        ...(diagnostic ? diagnosticAnalyticsFields(diagnostic) : {}),
       });
       setError(parsed);
       useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId, parsed.message);
@@ -1130,7 +1137,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setSending(false);
       throw nextError;
     }
-  }, [appendComposerHistory, props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages.length, setComposerDraft]);
+  }, [appendComposerHistory, props.onSendDraft, props.selectedModel, props.sessionId, props.workspaceId, renderedMessages.length, setComposerDraft]);
 
   const clearComposer = useCallback(() => {
     clearComposerSession(props.sessionId);
@@ -1439,7 +1446,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         void queryClient.invalidateQueries({ queryKey: ["workspace-files", props.workspaceId] });
         toast.dismiss(notification);
       } catch (error) {
-        toast.error(t("session.attach_failed", { name: file.name }), {
+        toast.error(t("session.attach_failed", { name: file.name }), { error,
           id: notification,
           description: error instanceof Error ? error.message : t("session.file_upload_failed"),
         });
@@ -1510,7 +1517,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       const result = await materializeLegalMemoryFile(props.client, props.workspaceId, file.document_id);
       appendMemoryMention(createLegalMemoryComposerMention(file.document_id, file.name, result.path));
     } catch (error) {
-      toast.error(t("session.download_failed", { name: file.name }), {
+      toast.error(t("session.download_failed", { name: file.name }), { error,
         description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
     }
@@ -1537,7 +1544,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       }
     } catch (error) {
       toast.dismiss(pending);
-      toast.error(t("session.legalmemory_folder_failed", { name: folder.name }), {
+      toast.error(t("session.legalmemory_folder_failed", { name: folder.name }), { error,
         description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
       });
     }
@@ -1562,7 +1569,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       );
       setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "storage" });
     } catch (error) {
-      toast.error(t("session.download_failed", { name: file.name }), {
+      toast.error(t("session.download_failed", { name: file.name }), { error,
         description: error instanceof Error ? error.message : t("session.storage_download_failed"),
       });
     }
@@ -1592,7 +1599,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setComposerDraft(props.sessionId, `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `);
       setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "upload" });
     } catch (error) {
-      toast.error(t("session.attach_failed", { name: file.name }), {
+      toast.error(t("session.attach_failed", { name: file.name }), { error,
         description: error instanceof Error ? error.message : t("composer.workspace_file_unavailable"),
       });
     }
@@ -1701,7 +1708,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           props.onOpenTarget?.(target);
         } catch (error) {
           const label = "label" in detail && typeof detail.label === "string" ? detail.label : t("session.that_document");
-          toast.error(t("session.open_failed", { name: label }), {
+          toast.error(t("session.open_failed", { name: label }), { error,
             description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
           });
         }

@@ -459,7 +459,7 @@ export function SkillsView(props: SkillsViewProps) {
       const result = await extensions.installSkillCreator();
       toast.success(result.message);
     } catch (error) {
-      toast.error(maskError(error));
+      toast.error(maskError(error), { error });
     } finally {
       setInstallingSkillCreator(false);
     }
@@ -475,7 +475,7 @@ export function SkillsView(props: SkillsViewProps) {
         const result = await extensions.installHubSkill(skill.name);
         toast.success(result.message);
       } catch (error) {
-        toast.error(maskError(error));
+        toast.error(maskError(error), { error });
       } finally {
         setInstallingHubSkill(null);
       }

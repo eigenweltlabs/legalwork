@@ -1,4 +1,5 @@
 import { runtimeDbPath } from "./runtime-db.js";
+import { createErrorDiagnostic } from "./error-diagnostics.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
@@ -868,6 +869,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
       let errorMessage: string | undefined;
+      const diagnose = (error: unknown, status: number) => createErrorDiagnostic(error, {
+        component: "server", source: "server_request", operation: "server_request", phase: "request",
+        surface: "server", engine_version: OPENCODE_VERSION, server_version: SERVER_VERSION,
+        platform: process.platform === "darwin" || process.platform === "win32" || process.platform === "linux" ? process.platform : "unknown",
+        status_code: status, duration_ms: Math.max(0, Math.min(Date.now() - startedAt, 604_800_000)),
+      });
 
       const finalize = (response: Response) => {
         const wrapped = withCors(response, request, config);
@@ -904,7 +911,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
           errorMessage = apiError.message;
-          return finalize(jsonResponse(formatError(apiError), apiError.status));
+          return finalize(jsonResponse(formatError(apiError, diagnose(error, apiError.status)), apiError.status));
         }
       };
 
@@ -974,7 +981,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
           errorMessage = apiError.message;
-          return finalize(jsonResponse(formatError(apiError), apiError.status));
+          return finalize(jsonResponse(formatError(apiError, diagnose(error, apiError.status)), apiError.status));
         }
       }
 
@@ -1013,7 +1020,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
           ? error
           : new ApiError(500, "internal_error", "Unexpected server error");
         errorMessage = apiError.message;
-        return finalize(jsonResponse(formatError(apiError), apiError.status));
+        return finalize(jsonResponse(formatError(apiError, diagnose(error, apiError.status)), apiError.status));
       }
     },
   };

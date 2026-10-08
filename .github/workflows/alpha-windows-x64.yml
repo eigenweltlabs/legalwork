@@ -158,6 +158,8 @@ jobs:
       - name: Build Electron alpha app
         shell: bash
         env:
+          POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.POSTHOG_SOURCEMAP_API_KEY }}
+          POSTHOG_SOURCEMAP_PROJECT_ID: ${{ vars.POSTHOG_ALPHA_PROJECT_ID }}
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download.
           TARGET: ${{ matrix.target }}

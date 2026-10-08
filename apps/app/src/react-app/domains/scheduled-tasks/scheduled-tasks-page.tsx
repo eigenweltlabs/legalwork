@@ -56,7 +56,7 @@ export function ScheduledTasksPage({ client, projects, defaultModel, openTaskId,
     if (!client || busy || task.status === "completed") return;
     setBusy(true);
     try { await client.updateScheduledTask(task.workspaceId, task.id, task.revision, { status: task.status === "active" ? "paused" : "active" }); }
-    catch (failure) { toast.error(failure instanceof Error ? failure.message : t("scheduled.save_failed")); }
+    catch (failure) { toast.error(failure instanceof Error ? failure.message : t("scheduled.save_failed"), { error: failure }); }
     finally { setBusy(false); refresh(); }
   };
   return <div className="@container flex h-full min-h-0 w-full flex-col bg-background">

@@ -19,7 +19,7 @@ export function CalendarTrash(props: CalendarMutationProps & { items: CalendarIt
     try {
       await props.client.calendarWrite(props.workspaceId, `/${item.id}/restore`, { revision: item.revision });
       toast.success(t("calendar.restored")); props.onChanged();
-    } catch (error) { toast.error(calendarError(error)); } finally { setRestoring(null); }
+    } catch (error) { toast.error(calendarError(error), { error }); } finally { setRestoring(null); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !restoring) props.onClose(); }}><DialogContent className="sm:max-w-lg">
     <DialogHeader><DialogTitle>{t("calendar.trash")}</DialogTitle><DialogDescription>{t("calendar.trash_hint")}</DialogDescription></DialogHeader>
@@ -38,7 +38,7 @@ export function CalendarConflict(props: CalendarMutationProps & { current: Calen
   const resolve = async (keep: "mine" | "theirs") => {
     setBusy(true);
     try { await props.client.calendarWrite(props.workspaceId, `/${props.current.id}/conflict`, { revision: props.current.revision, keep }); props.onChanged(); }
-    catch (error) { toast.error(calendarError(error)); } finally { setBusy(false); }
+    catch (error) { toast.error(calendarError(error), { error }); } finally { setBusy(false); }
   };
   return <section role="alert" className="space-y-3 rounded-xl border border-amber-6 bg-amber-2/50 p-4 text-sm">
     <p className="font-medium">{t("calendar.conflict")}</p>

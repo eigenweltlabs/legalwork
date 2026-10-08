@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { createNativeIncidentStore } from "./error-incidents.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -654,27 +655,20 @@ const secondaryWindows = new Set();
 const eventStreams = createEventStreams();
 const pendingDeepLinks = [];
 
-// Relay a content-free error signal to the renderer, which turns it into an
-// `app_error` analytics event (only when the user has analytics enabled).
+let nativeIncidents;
+function incidentStore() {
+  nativeIncidents ??= createNativeIncidentStore(app.getPath("userData"));
+  return nativeIncidents;
+}
 function relayAppError(source, error, service, exitCode = null) {
   try {
-    const name =
-      error instanceof Error
-        ? error.name || "Error"
-        : error && typeof error === "object" && "name" in error
-          ? String(error.name)
-          : "Error";
-    if (mainWindow?.webContents && !mainWindow.isDestroyed()) {
+    const diagnostic = incidentStore().record(source, error, { version: app.getVersion(), platform: process.platform, exitCode });
+    if (diagnostic && mainWindow?.webContents && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("legalwork:app-error", {
-        source,
-        error_name: name,
-        service,
-        exit_code: typeof exitCode === "number" ? exitCode : null,
+        source, error_name: diagnostic.error_class, service, exit_code: diagnostic.exit_code, diagnostic,
       });
     }
-  } catch {
-    // Never let error reporting throw.
-  }
+  } catch { /* Error reporting must never throw. */ }
 }
 // `uncaughtExceptionMonitor` reports without suppressing Electron's default
 // crash behavior (unlike `uncaughtException`).
@@ -2786,6 +2780,7 @@ async function createMainWindow() {
   let rendererReloads = 0;
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason === "clean-exit" || details.reason === "killed") return;
+    relayAppError("renderer_exit", { name: "Error" }, "server", details.exitCode);
     // The dead renderer owned every active recording's capture; finalize or
     // cancel them so their power blocker and the close-to-hide latch release
     // instead of pinning the machine awake until quit.
@@ -2833,6 +2828,13 @@ async function createMainWindow() {
 }
 
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
+// guardIpcMain restricts this channel to LegalWork app pages. No write or file path input.
+ipcMain.handle("legalwork:error-records", () => incidentStore().list());
+ipcMain.handle("legalwork:error-records:clear", () => incidentStore().clear());
+ipcMain.handle("legalwork:diagnostic-assets", async () => {
+  try { return JSON.parse(await readFile(path.join(APP_ROOT, "diagnostics-assets.json"), "utf8")); }
+  catch { return []; }
+});
 ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   if (typeof url === "string" && url.trim().length > 0) {
     await safeOpen.openExternal(url);

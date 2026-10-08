@@ -25,6 +25,7 @@ preferWorkspacePackages: true
 # Installs are always explicit here, so skip the pre-run check.
 verifyDepsBeforeRun: false
 allowBuilds:
+  "@posthog/cli": true
   cpu-features: false
   ssh2: false
   "@whiskeysockets/baileys": true

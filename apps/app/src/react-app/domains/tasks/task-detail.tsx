@@ -229,7 +229,7 @@ function TaskConflictNotice(props: {
       const label = t(conflict.field === "title" ? "tasks.conflict_note_title" : "tasks.conflict_note_description");
       await props.onResolve({ field: conflict.field, keep, ...(both ? { note: `${label}\n\n${conflict.mine}` } : {}) });
     } catch (error) {
-      toast.error(t("tasks.conflict_failed"), { description: error instanceof Error ? error.message : undefined });
+      toast.error(t("tasks.conflict_failed"), { error,  description: error instanceof Error ? error.message : undefined });
     } finally {
       setWorking(false);
     }
@@ -324,7 +324,7 @@ export function TaskDetail(props: TaskDetailProps) {
       await props.onPatch(change);
       return true;
     } catch (error) {
-      toast.error(failure, { description: error instanceof Error ? error.message : undefined });
+      toast.error(failure, { error,  description: error instanceof Error ? error.message : undefined });
       return false;
     }
   };
@@ -380,7 +380,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await props.onDownloadAttachment(attachment);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("tasks.download_failed"));
+      toast.error(error instanceof Error ? error.message : t("tasks.download_failed"), { error });
     } finally {
       setDownloadingId(null);
     }
@@ -391,7 +391,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await props.onOpenAttachment(attachment);
     } catch (error) {
-      toast.error(t("tasks.open_attachment_failed"), {
+      toast.error(t("tasks.open_attachment_failed"), { error,
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -404,7 +404,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await props.onRemoveAttachment(attachment);
     } catch (error) {
-      toast.error(t("tasks.remove_attachment_failed"), {
+      toast.error(t("tasks.remove_attachment_failed"), { error,
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -418,7 +418,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await props.onUploadAttachments(files);
     } catch (error) {
-      toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
+      toast.error(t("tasks.upload_failed"), { error,  description: error instanceof Error ? error.message : undefined });
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -430,7 +430,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await props.onUploadStorageAttachment(file);
     } catch (error) {
-      toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
+      toast.error(t("tasks.upload_failed"), { error,  description: error instanceof Error ? error.message : undefined });
     } finally {
       setUploading(false);
     }

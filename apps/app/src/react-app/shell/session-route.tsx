@@ -38,6 +38,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
+import { rememberRunContext } from "@/app/lib/error-reports";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { systemReminderPart } from "@/app/lib/system-reminder";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
@@ -1391,6 +1392,10 @@ export function SessionRoute() {
           fusion_models: fusionModels.map((m) => `${m.providerID}/${m.modelID}`),
         });
         markTaskRunStart(targetSessionId);
+        rememberRunContext(targetSessionId, {
+          providerId: local.prefs.defaultModel.providerID, modelId: local.prefs.defaultModel.modelID,
+          baseURL: providerCatalog[local.prefs.defaultModel.providerID]?.[local.prefs.defaultModel.modelID]?.api?.url,
+        });
 
         if (draft.mode === "shell") {
           await shellInSession(opencodeClient, targetSessionId, text);
@@ -1518,7 +1523,7 @@ export function SessionRoute() {
           return true;
         } catch (error) {
           console.warn("[revert] failed", error);
-          toast.error(t("session.revert_failed"));
+          toast.error(t("session.revert_failed"), { error });
           return false;
         }
       },
@@ -1538,7 +1543,7 @@ export function SessionRoute() {
             void refreshRouteState();
           } catch (error) {
             console.warn("[fork] failed", error);
-            toast.error(t("session.branch_failed"));
+            toast.error(t("session.branch_failed"), { error });
           }
         })();
       },
@@ -1619,7 +1624,7 @@ export function SessionRoute() {
       await refreshRouteState();
       return true;
     } catch (error) {
-      toast.error(t("session_route.rename_failed"), {
+      toast.error(t("session_route.rename_failed"), { error,
         description: describeRouteError(error),
       });
       return false;
@@ -1748,7 +1753,7 @@ export function SessionRoute() {
       const message = describeTaskCreateError(error);
       setRouteError(message);
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: message }));
-      toast.error(t("session_route.opencode_unavailable"), {
+      toast.error(t("session_route.opencode_unavailable"), { error,
         description: message,
         action: {
           label: "Retry",
@@ -2012,7 +2017,7 @@ export function SessionRoute() {
           archived
             ? t("session_management.archive_failed")
             : t("session_management.unarchive_failed"),
-          { description: describeRouteError(error) },
+          { error,  description: describeRouteError(error) },
         );
       }
     },
@@ -2129,7 +2134,7 @@ export function SessionRoute() {
           const result = await firstClient.session.promptAsync({ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
           if (result.error) throw new Error(serializeSDKError(result.error));
         } catch (error) {
-          toast.error(t("projects.setup.session_failed"), { description: error instanceof Error ? error.message : String(error) });
+          toast.error(t("projects.setup.session_failed"), { error,  description: error instanceof Error ? error.message : String(error) });
         }
       }
       captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
@@ -2219,6 +2224,10 @@ export function SessionRoute() {
           return session;
         },
         sendPrompt: async (sessionId, prompt, fileContext, message) => {
+          rememberRunContext(sessionId, {
+            providerId: model.providerID, modelId: model.modelID,
+            baseURL: providerCatalog[model.providerID]?.[model.modelID]?.api?.url,
+          });
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
           const system = [environmentContext, fileContext].filter(Boolean).join("\n\n");
           const result = await workspaceClient.session.promptAsync({

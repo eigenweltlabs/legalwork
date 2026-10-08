@@ -1,4 +1,5 @@
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
+import { recordError, setDiagnosticEngineVersion } from "./error-reports";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
@@ -1365,12 +1366,15 @@ export class LegalworkServerError extends Error {
   status: number;
   code: string;
   details?: unknown;
+  diagnostic?: unknown;
 
-  constructor(status: number, code: string, message: string, details?: unknown) {
+  constructor(status: number, code: string, message: string, details?: unknown, diagnostic?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
     this.details = details;
+    this.diagnostic = diagnostic;
+    recordError(this, { component: "server", source: "server_request", operation: "server_request", phase: "request" });
   }
 }
 
@@ -1450,7 +1454,10 @@ async function fetchWithTimeout(
     return response;
   } catch (error) {
     // A caller that cancels on purpose (init.signal) is not a failure.
-    if (!init.signal?.aborted) console.warn(describe(), error instanceof Error ? error.message : error);
+    if (!init.signal?.aborted) {
+      console.warn(describe(), error instanceof Error ? error.message : error);
+      recordError(error, { component: "network", source: "server_request", operation: "server_request", phase: "request", duration_ms: Date.now() - startedAt });
+    }
     throw error;
   }
 }
@@ -1477,7 +1484,7 @@ async function fetchWithDeadline(
       } catch {
         // ignore
       }
-      reject(new Error(t("app.request_timed_out")));
+      reject(new DOMException(t("app.request_timed_out"), "TimeoutError"));
     }, timeoutMs);
   });
 
@@ -1487,7 +1494,7 @@ async function fetchWithDeadline(
     const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
     if (init.signal?.aborted) throw error;
     if (name === "AbortError") {
-      throw new Error(t("app.request_timed_out"));
+      throw new DOMException(t("app.request_timed_out"), "TimeoutError");
     }
     throw error;
   } finally {
@@ -1521,8 +1528,12 @@ async function requestJson<T>(
   if (!response.ok) {
     const code = typeof json?.code === "string" ? json.code : "request_failed";
     const message = typeof json?.message === "string" ? json.message : response.statusText;
-    throw new LegalworkServerError(response.status, code, message, json?.details);
+    const error = new LegalworkServerError(response.status, code, message, json?.details, json?.diagnostic);
+    recordError(error, { component: "server", source: "server_request", operation: "server_request", phase: "request" });
+    throw error;
   }
+
+  if (json && typeof json === "object" && "opencodeVersion" in json) setDiagnosticEngineVersion(json.opencodeVersion);
 
   return json as T;
 }
@@ -1626,7 +1637,7 @@ async function requestBinary(
     }
     const code = typeof json?.code === "string" ? json.code : "request_failed";
     const message = typeof json?.message === "string" ? json.message : response.statusText;
-    throw new LegalworkServerError(response.status, code, message, json?.details);
+    throw new LegalworkServerError(response.status, code, message, json?.details, json?.diagnostic);
   }
 
   const contentType = response.headers.get("content-type");

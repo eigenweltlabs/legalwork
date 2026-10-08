@@ -151,6 +151,8 @@ jobs:
       - name: Build Electron alpha app
         shell: bash
         env:
+          POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.POSTHOG_SOURCEMAP_API_KEY }}
+          POSTHOG_SOURCEMAP_PROJECT_ID: ${{ vars.POSTHOG_ALPHA_PROJECT_ID }}
           TARGET: aarch64-apple-darwin
           # The renderer bundle (vite build) peaks above Node's default heap
           # since the editors and media viewers joined it; the 7 GB runner has

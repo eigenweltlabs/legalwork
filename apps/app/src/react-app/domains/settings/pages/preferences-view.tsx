@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { Switch } from "@/components/ui/switch";
+import { RecentErrorsButton } from "@/react-app/shell/error-report-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { t } from "@/i18n";
@@ -105,6 +106,10 @@ export function PreferencesView(props: PreferencesViewProps) {
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
+      </LayoutSection>
+      <LayoutSection>
+        <LayoutSectionHeader><LayoutSectionTitle>{t("error_report.recent")}</LayoutSectionTitle></LayoutSectionHeader>
+        <LayoutSectionItem><RecentErrorsButton /></LayoutSectionItem>
       </LayoutSection>
     </LayoutStack>
   );

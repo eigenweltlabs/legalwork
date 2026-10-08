@@ -48,7 +48,7 @@ export function DeadlineLinks(props: {
         paths.push(written.path);
         props.onAttachments([...paths]);
       }
-    } catch (error) { toast.error(calendarError(error)); }
+    } catch (error) { toast.error(calendarError(error), { error }); }
     finally {
       setBusy(false); props.onBusy(false);
       for (const key of ["workspace-files", "project-files", "deadline-file-picker"]) void cache.invalidateQueries({ queryKey: [key] });
@@ -60,7 +60,7 @@ export function DeadlineLinks(props: {
       const url = URL.createObjectURL(new Blob([file.data], { type: file.contentType ?? "application/octet-stream" }));
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = path.split("/").at(-1) ?? "attachment";
       document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
-    } catch (error) { toast.error(calendarError(error)); }
+    } catch (error) { toast.error(calendarError(error), { error }); }
   };
   return <>
     <section className={cn("space-y-2 rounded-lg", over && "bg-muted/50 ring-1 ring-border")} onDragOver={event => {
