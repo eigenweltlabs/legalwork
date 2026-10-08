@@ -1,6 +1,6 @@
+import { WorkspaceTabDropTarget } from "../sidebar/workspace-tab-drop-target";
 import { ProjectFileProvider } from "../../workspace/project-file-context";
 import { isSessionListed, useSessionListRevision } from "../sidebar/session-list-visibility";
-import { acceptsProjectViewDrag } from "../sidebar/project-view-drag";
 import { ProjectFilesPage } from "../../workspace/project-files-page";
 import { ProjectSessionsPage } from "../../workspace/project-sessions-page";
 import { workspaceViewRoute } from "../../../shell/workspace-routes";
@@ -670,7 +670,7 @@ export function SessionPage(props: SessionPageProps) {
         void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, entry.path)).catch(() => undefined);
       } else {
         void downloadOpenTarget({
-          id: `file:${entry.path.toLowerCase()}`,
+          id: `file:${entry.path}`,
           kind: "file",
           value: entry.path,
           name: entry.name,
@@ -685,7 +685,7 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
     openTab(panelStateSessionId, {
-      id: `file:${entry.path.toLowerCase()}`,
+      id: `file:${entry.path}`,
       type: "artifact",
       label: entry.name,
       preview,
@@ -1547,11 +1547,8 @@ export function SessionPage(props: SessionPageProps) {
       {visitedOverviews.map(view => <DocumentPane key={`overview:${props.selectedWorkspaceId}:${view}`} destination={props.projectPage === view ? overviewHost : null}>
         <ControlActionScope active={props.projectPage === view}>
           <PanelTabDestinationProvider destination={{ kind: "workspace", workspaceId: props.selectedWorkspaceId }}>
-          <section className="flex h-full min-h-0 flex-col" aria-label={projectViewLabel(view)} onDragEnterCapture={event => {
-            // This handler belongs to the portal content, not its physical host.
-            // Reveal the retained workspace so the normal pane targets can take over.
-            if (props.projectPage === view && canRenderWorkspace && acceptsProjectViewDrag(event.dataTransfer, props.selectedWorkspaceId)) navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
-          }}>
+          <WorkspaceTabDropTarget projectId={props.selectedWorkspaceId} projectName={workspaceName} sessionTitle={id => sessionTitleForId(props.sidebar.workspaceSessionGroups, id) || t("session.default_title")} onOpen={async () => { navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} hint={false} className="flex h-full min-h-0 flex-col">
+            <section className="flex h-full min-h-0 flex-col" aria-label={projectViewLabel(view)}>
             {view !== "reviews" && <div className="flex shrink-0 justify-end px-5 pt-2">
               <Button variant="ghost" size="sm" onClick={() => {
                 openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
@@ -1560,6 +1557,7 @@ export function SessionPage(props: SessionPageProps) {
             </div>}
             <div className="min-h-0 flex-1 overflow-auto">{renderProjectView(view, false, props.projectPage === view)}</div>
           </section>
+          </WorkspaceTabDropTarget>
           </PanelTabDestinationProvider>
         </ControlActionScope>
       </DocumentPane>)}

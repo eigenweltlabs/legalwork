@@ -2,7 +2,7 @@ import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ProjectFileSource } from "@legalwork/types/project-files";
 import { Check, Copy, Link2, Loader2 } from "lucide-react";
-import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
+import { canTransferProjectFiles, hasProjectFileDrag, projectFileDragOriginatesHere, readProjectFilesDrag } from "@/app/lib/project-file-drag";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -12,25 +12,30 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { fileTransferItems, transferFileBatch } from "./project-file-batch";
 import { useProjectFiles } from "./project-file-context";
 
-export function ProjectFileDropTarget({ projectId, folder = "", mode = "files", children, className = "" }: { projectId: string; folder?: string; mode?: "files" | "chat"; children: ReactNode; className?: string }) {
+export function ProjectFileDropTarget({ projectId, folder = "", mode = "files", hint = false, children, className = "" }: { projectId: string; folder?: string; mode?: "files" | "chat"; hint?: boolean; children: ReactNode; className?: string }) {
   const files = useProjectFiles();
   const [over, setOver] = useState(false);
   const [pending, setPending] = useState<{ sources: ProjectFileSource[]; folder: string } | null>(null);
+  const project = files?.projects.find(project => project.projectId === projectId);
+  const accepts = (data: Pick<DataTransfer, "types">) => Boolean(project) && (mode === "chat" ? hasProjectFileDrag(data) : canTransferProjectFiles(data, projectId));
+  const ready = accepts({ types: files?.dragTypes ?? [] });
+  const label = t(mode === "chat" ? "project_files.drop_chat_in" : "project_files.drop_transfer_to", { project: project?.name ?? projectId });
   const destination = (event: DragEvent) => event.target instanceof Element ? event.target.closest<HTMLElement>("[data-project-folder]")?.dataset.projectFolder ?? folder : folder;
-  return <div className={`relative ${className}`} data-project-file-drop={projectId}
-    onDragEnter={event => { if (files && hasProjectFileDrag(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); setOver(true); } }}
-    onDragOver={event => { if (!files || !hasProjectFileDrag(event.dataTransfer)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; setOver(true); }}
+  return <div className={`relative ${hint && ready ? "rounded-md outline outline-1 outline-dashed outline-primary/50" : ""} ${className}`} data-project-file-drop={projectId} title={hint && ready ? label : undefined}
+    onDragEnter={event => { if (accepts(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); setOver(true); } }}
+    onDragOver={event => { if (!accepts(event.dataTransfer)) { setOver(false); return; } event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; setOver(true); }}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setOver(false); }}
     onDrop={event => {
-      if (!hasProjectFileDrag(event.dataTransfer)) return;
+      if (!accepts(event.dataTransfer)) return;
       event.preventDefault(); event.stopPropagation(); setOver(false);
       const sources = readProjectFilesDrag(event.dataTransfer);
       if (!sources.length || !files) return;
+      if (mode === "files" && (projectFileDragOriginatesHere(event.dataTransfer, projectId) || sources.some(source => source.projectId === projectId))) return;
       if (mode === "chat") void files.newChat(projectId, sources).catch(error => toast.error(error.message));
       else setPending({ sources, folder: destination(event) });
     }} onDragEnd={() => setOver(false)}>
     {children}
-    {over && <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-primary bg-background/95 px-2 py-1 text-center text-xs font-medium">{t(mode === "chat" ? "project_files.drop_chat" : "project_files.drop_add")}</div>}
+    {over && ready && <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border border-primary/40 bg-background/95 px-2 py-1 text-center text-xs font-medium">{label}</div>}
     {pending && <ProjectFileTransfer projectId={projectId} sources={pending.sources} folder={pending.folder} onClose={() => setPending(null)} />}
   </div>;
 }

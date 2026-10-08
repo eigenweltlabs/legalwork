@@ -1,3 +1,4 @@
+import { hasStorageEntryDragForWorkspace } from "@/app/lib/storage-entry-drag";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import { hasProjectFileDrag } from "@/app/lib/project-file-drag";
 /** @jsxImportSource react */
@@ -392,7 +393,9 @@ function StorageFolder(props: FolderProps) {
             onSelect({ root, path });
             setOpen((value) => !value);
           }}
+          data-workspace-file-intake={`storage:${workspaceId}`}
           onDragOver={(event) => {
+            if (hasStorageEntryDrag(event.dataTransfer) && !hasStorageEntryDragForWorkspace(event.dataTransfer, workspaceId)) { setDragging(false); clearExpandTimer(); return; }
             const storageDrag = hasStorageEntryDrag(event.dataTransfer);
             if (
               root.writable &&
@@ -421,6 +424,8 @@ function StorageFolder(props: FolderProps) {
             // Batch project-file drops belong to the containing project's Copy/Link target.
             if (hasProjectFileDrag(event.dataTransfer) && !hasStorageEntryDrag(event.dataTransfer)) return;
             if (!root.writable || busy) return;
+            const entry = hasStorageEntryDrag(event.dataTransfer) ? readStorageEntryDrag(event.dataTransfer) : null;
+            if (entry && entry.workspaceId !== workspaceId) return;
             event.preventDefault();
             event.stopPropagation();
             if (hasStorageEntryDrag(event.dataTransfer)) {

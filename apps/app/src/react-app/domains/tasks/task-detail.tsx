@@ -147,6 +147,7 @@ function Section(props: {
         "group/section border-t border-border/60",
         props.dropZone?.active && "rounded-[var(--lw-radius-lg)] ring-2 ring-primary/35",
       )}
+      data-workspace-file-intake={props.dropZone ? "task" : undefined}
       onDragOver={props.dropZone?.onDragOver}
       onDragLeave={props.dropZone?.onDragLeave}
       onDrop={props.dropZone?.onDrop}

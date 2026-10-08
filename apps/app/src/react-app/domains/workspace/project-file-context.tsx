@@ -1,4 +1,4 @@
-import { createContext, use, useMemo, type ReactNode } from "react";
+import { createContext, use, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ProjectFileSource } from "@legalwork/types/project-files";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -10,7 +10,7 @@ import { useComposerStateStore, getComposerDraft, getComposerMentions } from "..
 import { encodeComposerMentionValue } from "../session/surface/composer/mention-encoding";
 import { createProjectAttachmentMention } from "../session/surface/composer/workspace-attachment";
 
-const ProjectFilesContext = createContext<ReturnType<typeof createProjectFileAccess> | null>(null);
+const ProjectFilesContext = createContext<(ReturnType<typeof createProjectFileAccess> & { dragTypes: readonly string[] }) | null>(null);
 
 export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: LegalworkServerClient | null, createChat: (projectId: string) => void | string | Promise<string | void>) {
   const projects = groups.flatMap(({ workspace }) => {
@@ -68,7 +68,34 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
   };
 }
 export function ProjectFileProvider({ children, groups, client, createChat }: { children: ReactNode; groups: WorkspaceSessionGroup[]; client: LegalworkServerClient | null; createChat: (projectId: string) => void | string | Promise<string | void> }) {
-  const value = useMemo(() => createProjectFileAccess(groups, client, createChat), [groups, client, createChat]);
+  const [dragTypes, setDragTypes] = useState<readonly string[]>([]);
+  useEffect(() => {
+    const start = (event: DragEvent) => {
+      const types = Array.from(event.dataTransfer?.types ?? []);
+      setDragTypes(previous => previous.length === types.length && previous.every((type, index) => type === types[index]) ? previous : types);
+    };
+    const stop = () => setDragTypes(previous => previous.length ? [] : previous);
+    const leave = (event: DragEvent) => { if (!event.relatedTarget && (event.target === document || event.target === document.documentElement)) stop(); };
+    const cancel = (event: KeyboardEvent) => { if (event.key === "Escape") stop(); };
+    window.addEventListener("dragstart", start);
+    window.addEventListener("dragenter", start, true);
+    window.addEventListener("dragend", stop, true);
+    window.addEventListener("drop", stop, true);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("blur", stop);
+    window.addEventListener("keydown", cancel);
+    return () => {
+      window.removeEventListener("dragstart", start);
+      window.removeEventListener("dragenter", start, true);
+      window.removeEventListener("dragend", stop, true);
+      window.removeEventListener("drop", stop, true);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("blur", stop);
+      window.removeEventListener("keydown", cancel);
+    };
+  }, []);
+  const access = useMemo(() => createProjectFileAccess(groups, client, createChat), [groups, client, createChat]);
+  const value = useMemo(() => ({ ...access, dragTypes }), [access, dragTypes]);
   return <ProjectFilesContext value={value}>{children}</ProjectFilesContext>;
 }
 export function useProjectFiles() { return use(ProjectFilesContext); }

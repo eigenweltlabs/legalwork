@@ -13,6 +13,7 @@ import { projectFileTab } from "./project-file-tab";
 type FileSelectionItem = { key: string; name: string; source?: ProjectFileSource; pin?: FilePin; open: () => void };
 type RegisteredFile = { key: string; element: React.RefObject<HTMLDivElement | null>; current: React.RefObject<FileSelectionItem | null> };
 const FileSelectionContext = createContext<{
+  scope: string;
   ids: string[]; items: FileSelectionItem[];
   register: (entry: RegisteredFile) => () => void;
   toggle: (key: string, range: boolean, element: HTMLDivElement | null) => void;
@@ -57,7 +58,7 @@ export function FileSelectionProvider({ children, scope }: { children: (toolbar:
           <Button size="icon-sm" variant="ghost" aria-label={t("project_browser.clear_selection")} onClick={selection.clear}><X className="size-4" /></Button>
         </>}
       </div>;
-  return <FileSelectionContext value={{ ids: selection.ids, items, register, toggle }}>
+  return <FileSelectionContext value={{ scope, ids: selection.ids, items, register, toggle }}>
     <div className="flex h-full min-h-0 flex-col" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) selection.clear(); }}>
       {children(toolbar)}
     </div>

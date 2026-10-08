@@ -48,7 +48,7 @@ export function FileEntryActions({ children, name, actions, pin, source, onOpen,
         if (!selected || !selection || selection.items.length < 2) return;
         const sources = selection.items.flatMap(item => item.source ? [item.source] : []);
         if (sources.length !== selection.items.length) { event.preventDefault(); return; }
-        writeProjectFilesDrag(event.dataTransfer, sources);
+        writeProjectFilesDrag(event.dataTransfer, sources, selection.scope);
       }}>
       {selection && key && onOpen && <Checkbox className="ml-2 mr-1" aria-label={t("project_browser.select_item", { name })} checked={selected} onCheckedChange={(_checked, details) => selection.toggle(key, details.event instanceof MouseEvent && details.event.shiftKey, element.current)} />}
       <div className="min-w-0 flex-1" onClickCapture={event => {

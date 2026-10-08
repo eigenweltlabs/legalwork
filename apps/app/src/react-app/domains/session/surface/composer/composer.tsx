@@ -1054,6 +1054,7 @@ export function ReactSessionComposer(props: ComposerProps) {
         {props.queueAccessory}
         {/* Main composer panel */}
         <div
+          data-workspace-file-intake="composer"
           className={`lw-composer relative overflow-visible rounded-[22px] border ${
             props.fusionEnabled ? "fusion-rainbow-border border-transparent" : "border-dls-border"
           } ${panelRoundedClass}`}

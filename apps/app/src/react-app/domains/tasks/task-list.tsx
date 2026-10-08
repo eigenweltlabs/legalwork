@@ -1,3 +1,4 @@
+import { useProjectItemDrag } from "../session/panel/panel-tab-destination";
 /** @jsxImportSource react */
 /**
  * The queue itself: rows a legal assistant scans, selects and works through.
@@ -389,6 +390,7 @@ function TaskRow(props: {
   busy: boolean;
 }) {
   const { task } = props;
+  const drag = useProjectItemDrag();
   const assignee = !task.assigneeUserId
     ? t("tasks.unassigned")
     : props.accountUserId && task.assigneeUserId === props.accountUserId
@@ -413,6 +415,8 @@ function TaskRow(props: {
         <button
           type="button"
           data-task-row={task.id}
+          draggable={Boolean(drag) && !task.deletedAt}
+          onDragStart={event => drag?.(event.dataTransfer, { type: "task", id: `task:${task.id}`, taskId: task.id, label: task.title })}
           aria-current={props.selected ? "true" : undefined}
           className={cn(
             "lw-sidebar-item flex w-full flex-col gap-1 rounded-lg py-3 pe-3 ps-9 text-start outline-none",

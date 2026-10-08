@@ -2,6 +2,10 @@ import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import { writeStorageFileDrag } from "./storage-file-drag";
 
 export const STORAGE_ENTRY_DRAG_TYPE = "application/x-legalwork-storage-entry";
+const scopeType = (workspaceId: string) => `application/x-legalwork-storage-entry-${encodeURIComponent(workspaceId).toLowerCase()}`;
+export function hasStorageEntryDragForWorkspace(data: Pick<DataTransfer, "types">, workspaceId: string) {
+  return data.types.includes(STORAGE_ENTRY_DRAG_TYPE) && data.types.includes(scopeType(workspaceId));
+}
 export type StorageEntryDragItem = {
   workspaceId: string;
   connectionId: string;
@@ -19,6 +23,7 @@ export function writeStorageEntryDrag(data: DataTransfer, workspaceId: string, r
   if (entry.kind === "file") writeStorageFileDrag(data, root, entry);
   data.effectAllowed = "copy";
   data.setData(STORAGE_ENTRY_DRAG_TYPE, JSON.stringify(item));
+  data.setData(scopeType(workspaceId), workspaceId);
   data.setData("text/plain", entry.path);
   return item;
 }

@@ -1,3 +1,4 @@
+import { WorkspaceTabDropTarget } from "./workspace-tab-drop-target";
 import { ProjectFileDropTarget } from "../../workspace/project-file-transfer";
 import { startProjectViewDrag } from "./project-view-drag";
 import { projectViewFromPath, workspaceProjectRoute, workspaceViewRoute } from "@/react-app/shell/workspace-routes";
@@ -1057,7 +1058,7 @@ function WorkspaceSidebarGroup({
             className="group/collapsible"
           >
             <div className="group/workspace-header relative">
-              <ProjectFileDropTarget projectId={workspace.id}><WorkspaceHeader
+              <ProjectFileDropTarget hint projectId={workspace.id}><WorkspaceHeader
                 workspace={workspace}
                 unread={unread}
                 isActive={isSelected}
@@ -1106,7 +1107,7 @@ function WorkspaceSidebarGroup({
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
                 {<SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
-                  <SidebarMenuSubItem className="mb-1 border-b border-sidebar-border/70 pb-2"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></SidebarMenuSubItem>
+                  <SidebarMenuSubItem className="mb-1 border-b border-sidebar-border/70 pb-2"><WorkspaceTabDropTarget projectId={workspace.id} projectName={workspaceLabel(workspace)} sessionTitle={id => getDisplaySessionTitle(group.sessions.find(session => session.id === id)?.title)} onOpen={() => ctx.onOpenWorkspace(workspace.id)}><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></WorkspaceTabDropTarget></SidebarMenuSubItem>
                   {projectNavItems.map(key => ({
                   projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "calendar")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectHome: <SidebarMenuSubItem key="projectHome">
@@ -1128,14 +1129,14 @@ function WorkspaceSidebarGroup({
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectFiles: <SidebarMenuSubItem key="projectFiles">
-                    <ProjectFileDropTarget projectId={workspace.id}><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "files")} className={cn(PROJECT_FEATURE_CLASS, "border-t border-sidebar-border/60 mt-1 pt-2")} isActive={isSelected && ctx.activeProjectFeature === "files"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
+                    <ProjectFileDropTarget hint projectId={workspace.id}><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "files")} className={cn(PROJECT_FEATURE_CLASS, "border-t border-sidebar-border/60 mt-1 pt-2")} isActive={isSelected && ctx.activeProjectFeature === "files"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
                       <Files className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.files")}</span>
                     </SidebarMenuSubButton></ProjectFileDropTarget>
                   </SidebarMenuSubItem>,
                   projectSessions: <li key="projectSessions">
                     <div className="group/project-sessions-heading relative">
-                      <ProjectFileDropTarget projectId={workspace.id} mode="chat"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-24")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
+                      <ProjectFileDropTarget hint projectId={workspace.id} mode="chat"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-24")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
                         <MessageSquare className="size-4" strokeWidth={1.5} />
                         <span className="min-w-0 flex-1 truncate">{t("projects.sessions")}</span><span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread={!showSessions && unread} /></span>
                       </SidebarMenuSubButton></ProjectFileDropTarget>

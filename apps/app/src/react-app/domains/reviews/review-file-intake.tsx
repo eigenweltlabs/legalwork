@@ -67,6 +67,6 @@ export function ReviewFilePicker({ onFiles, disabled, label = t("review.add_file
       const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
       if (files.length) onFiles(files.map(file => ({ kind: "upload", file })));
     }} />
-    <Button variant="outline" size="sm" disabled={disabled} onClick={() => input.current?.click()}><FilePlus2 className="size-4" />{label}</Button>
+    <Button data-workspace-file-intake="review" variant="outline" size="sm" disabled={disabled} onClick={() => input.current?.click()}><FilePlus2 className="size-4" />{label}</Button>
   </>;
 }

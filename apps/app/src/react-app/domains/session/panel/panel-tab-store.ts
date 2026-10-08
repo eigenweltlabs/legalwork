@@ -199,17 +199,37 @@ function neighbour(session: SessionPanelState, pane: DocumentPaneState, tabId: s
   return left[index] ?? left[index - 1] ?? null;
 }
 
-function sameArtifact(scope: string, tab: PanelTab, other: PanelTab) {
-  if (tab.type !== "artifact" || other.type !== "artifact" || tab.storage || other.storage || tab.sourceProject?.connectionId || other.sourceProject?.connectionId || !tab.value || tab.value !== other.value) return false;
-  return (tab.sourceProject?.projectId ?? scope.slice(10)) === (other.sourceProject?.projectId ?? scope.slice(10));
+export function samePanelTab(scope: string, tab: PanelTab, other: PanelTab) {
+  if (tab.type !== "artifact" || other.type !== "artifact") return tab.id === other.id;
+  const projectId = scope.startsWith("workspace:") ? scope.slice(10) : undefined;
+  const identity = (entry: ArtifactPanelTab) => ({
+    project: entry.sourceProject?.projectId ?? projectId,
+    workspace: entry.sourceProject?.workspaceId ?? entry.storage?.workspaceId,
+    connection: entry.sourceProject?.connectionId ?? entry.storage?.root.id,
+    path: entry.sourceProject?.path ?? entry.storage?.file.path ?? entry.value,
+  });
+  const a = identity(tab), b = identity(other);
+  if (!a.path || !b.path) return tab.id === other.id;
+  return a.path === b.path && a.project === b.project && a.connection === b.connection &&
+    (!a.workspace || !b.workspace || a.workspace === b.workspace);
 }
 
 /** A drop is one transaction: validate capacity and any displaced draft before
  * changing membership or geometry. A lone source can relocate at the pane limit. */
 function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, paneId?: string, edge?: DocumentDropEdge): SessionPanelState {
-  const existing = session.tabs.find(entry => entry.id === tab.id ||
-    sameArtifact(sessionId, tab, entry));
-  if (existing) tab = { ...existing, ...tab, id: existing.id };
+  const existing = session.tabs.find(entry => samePanelTab(sessionId, tab, entry));
+  // Alias drops must retain the mounted editor and its draft, including whether
+  // the file was opened locally, from connected storage, or through a source link.
+  if (existing?.type === "artifact" && tab.type === "artifact" && existing.id !== tab.id) {
+    tab = { ...existing, ...tab, id: existing.id, value: existing.value, storage: existing.storage, sourceProject: existing.sourceProject, preview: existing.preview };
+  } else if (existing) tab = { ...existing, ...tab };
+  else if (session.tabs.some(entry => entry.id === tab.id)) {
+    // Older layouts lowercased file IDs. Keep their mounted drafts intact when
+    // a distinct case-sensitive path requests an already occupied legacy ID.
+    const requestedId = tab.id;
+    let suffix = 2;
+    while (session.tabs.some(entry => entry.id === tab.id)) tab = { ...tab, id: `${requestedId}:${suffix++}` };
+  }
   const source = session.panes.find(pane => pane.tabIds.includes(tab.id));
   const destination = session.panes.find(pane => pane.id === (paneId ?? source?.id ?? session.focusedPaneId ?? session.panes[0].id));
   // An async cloud import may finish after its drop target was closed.
@@ -232,12 +252,13 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
 }
 
 function openInSession(scope: string, session: SessionPanelState, tab: PanelTab, opening: WorkspaceOpening, width: number, pane?: string, edge?: DocumentDropEdge, preview = false) {
-  const existing = session.tabs.find(item => item.id === tab.id || sameArtifact(scope, tab, item));
+  const existing = session.tabs.find(item => samePanelTab(scope, tab, item));
   const automatic = !pane && !edge && !existing && scope.startsWith("workspace:")
     ? automaticTabDestination(session, tab, opening, width) : {};
   let next = dockTab(scope, session, tab, pane ?? automatic.pane, edge ?? automatic.edge);
   if (next === session) return next;
-  const id = existing?.id ?? tab.id;
+  const id = next.tabs.find(entry => samePanelTab(scope, tab, entry))?.id;
+  if (!id) return next;
   const destination = next.panes.find(item => item.tabIds.includes(id));
   if (!destination) return next;
   const eligible = tab.type === "artifact" || tab.type === "task" || tab.type === "review";
