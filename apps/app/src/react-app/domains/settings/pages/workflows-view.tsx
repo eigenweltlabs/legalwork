@@ -28,6 +28,8 @@ import { NewWorkflowDialog } from "./new-workflow-dialog";
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
 import { useWorkflowResourceStore } from "../state/workflow-resource-store";
 import { WorkflowResourceEditorPanel } from "./workflow-resource-editor-panel";
+import { FirmItemNote } from "../../connections/org-policy-ui";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
 
 export type WorkflowsViewProps = SkillsViewProps & {
   workspaceId: string;
@@ -86,6 +88,8 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const visibleEntries = entries.slice(currentPage * WORKFLOWS_PER_PAGE, (currentPage + 1) * WORKFLOWS_PER_PAGE);
 
   useEffect(() => { setPage(0); }, [workspaceId]);
+  // The firm's workflows change with its hub.
+  useEffect(() => onSyncPoke((poke) => { if (poke.hub) void extensions.refreshSkills({ force: true }); }), [extensions]);
   useEffect(() => { setPage((value) => Math.min(value, lastPage)); }, [lastPage]);
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0; }, [currentPage, scope, query]);
 
@@ -142,6 +146,16 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     const name = draft?.title || (skill ? workflowDisplayName(skill.name) : t("skills.new_workflow"));
     const description = draft?.description ?? skill?.description ?? "";
     const Icon = Workflow;
+    // The firm's workflow follows its hub: members cannot change or remove it here.
+    if (skill?.firm) {
+      return <div key={skill.name} className="flex gap-3 rounded-lg px-3 py-3">
+        <Workflow className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium">{name}</span>
+          {description ? <span className="mt-1 line-clamp-2 block text-xs leading-5 text-muted-foreground">{description}</span> : null}
+          <span className="mt-1.5 block"><FirmItemNote added={skill.firm === "optional"} /></span>
+        </span>
+      </div>;
+    }
     const selected = props.inlineEditor ? inlineId === draft?.id : panelOpen && activeTab?.type === "workflow" && activeTab.id === draft?.id;
     const open = () => skill ? void openWorkflow(workspaceId, skill) : draft && showWorkflow(draft);
     const menuItems = (context: boolean) => {

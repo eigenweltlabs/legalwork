@@ -150,7 +150,9 @@ describe("the firm's Knowledge Hub", () => {
       box: { type: "remote", url: "https://box.example.com/mcp", enabled: true, oauth: { clientId: "client-1", scope: "root_readonly" } },
     });
     expect([...(await firmHubConnectorNames(config))].sort()).toEqual(["box", "docs", "research"]);
-    expect((await readFirmHubView(config)).items.find((item) => item.id === "mcp-own")?.connector).toEqual({ access: "member", keyName: "Authorization", hasOwnKey: false });
+    expect((await readFirmHubView(config)).items.find((item) => item.id === "mcp-own")?.connector).toEqual({
+      serverName: "docs", url: "https://docs.example.com/mcp", access: "member", keyName: "Authorization", hasOwnKey: false,
+    });
 
     // The member's own key, kept on this computer.
     await setFirmHubMemberKey(config, "mcp-own", "Bearer own-key");

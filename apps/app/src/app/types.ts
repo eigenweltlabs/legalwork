@@ -299,6 +299,8 @@ export type SkillCard = {
   kind?: string;
   /** SKILL.md frontmatter `workflow_type` — "tabular" | "assistant" for workflows. */
   workflowType?: string;
+  /** From the firm's hub: installed for everyone, or added by the member. Members cannot change or remove it here. */
+  firm?: "automatic" | "optional";
 };
 
 /** A file attached to a skill — lives in the skill's own resources/ folder. */

@@ -18,8 +18,12 @@ export type FirmHubItem = {
   installation: "automatic" | "optional";
   /** The member added it (an offered one); one installed for everyone is always in. */
   added: boolean;
-  /** A connector: how members get in, and whether this member's own key is in. */
-  connector?: { access: FirmHubAccess; keyName: string | null; hasOwnKey: boolean };
+  /**
+   * A connector, once it is on this computer: the name the engine runs it
+   * under, its address (a server on the web), how members get in, and
+   * whether this member's own key is in.
+   */
+  connector?: { serverName: string; url: string | null; access: FirmHubAccess; keyName: string | null; hasOwnKey: boolean };
 };
 
 export type FirmHubView = {

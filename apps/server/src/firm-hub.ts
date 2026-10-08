@@ -462,7 +462,15 @@ export async function readFirmHubView(config: ServerConfig): Promise<FirmHubView
       installation: item.installation,
       added: added.has(item.id),
       ...(connector
-        ? { connector: { access: accessOf(item, connector), keyName: connector.access?.name ?? null, hasOwnKey: Boolean(await runtime.vault.get(item.id)) } }
+        ? {
+            connector: {
+              serverName: connector.key,
+              url: connector.mcp.type === "remote" ? connector.mcp.url : null,
+              access: accessOf(item, connector),
+              keyName: connector.access?.name ?? null,
+              hasOwnKey: Boolean(await runtime.vault.get(item.id)),
+            },
+          }
         : {}),
     });
   }

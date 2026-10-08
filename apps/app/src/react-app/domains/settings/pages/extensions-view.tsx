@@ -45,6 +45,8 @@ export type ExtensionsViewProps = {
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
+  /** Connectors tab, Local: the firm's connectors on this computer, with sign-in and own keys. */
+  firmConnectorsView?: ReactNode;
   storageView?: ReactNode;
   /** Skills tab — built-in, installed and imported skills, with add/import. */
   skillsView: ReactNode;
@@ -133,7 +135,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       </div>
 
       <HubScopeContext.Provider value={hubScope}>
-      {tab === "connectors" ? props.mcpView : null}
+      {tab === "connectors" ? (
+        <div className="space-y-8">
+          {hubScope === "local" ? props.firmConnectorsView : null}
+          {props.mcpView}
+        </div>
+      ) : null}
 
       {tab === "storage" ? props.storageView : null}
 

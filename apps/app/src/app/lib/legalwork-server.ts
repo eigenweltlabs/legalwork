@@ -1,6 +1,7 @@
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { OrgPolicyKey } from "@legalwork/types/org-policy";
 import type { OrgPolicyView } from "@legalwork/types/org-policy-view";
+import type { FirmHubView } from "@legalwork/types/firm-hub";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
@@ -577,6 +578,8 @@ export type LegalworkSkillItem = {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
+  /** From the firm's hub: installed for everyone, or added by the member. Members cannot change it. */
+  firm?: "automatic" | "optional";
 };
 
 export type LegalworkSkillContent = {
@@ -2744,6 +2747,25 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // The firm's policy as it applies on this computer; taking a setting back
     // needs the owner (host) token.
     orgPolicy: () => requestJson<OrgPolicyView>(baseUrl, "/org-policy", { token, hostToken, timeoutMs: timeouts.status }),
+    // The firm's Knowledge Hub as this computer follows it (server firm-hub.ts).
+    firmHub: () => requestJson<FirmHubView>(baseUrl, "/firm-hub", { token, hostToken, timeoutMs: timeouts.status }),
+    firmHubSkills: () => requestJson<{ items: LegalworkSkillItem[] }>(baseUrl, "/firm-hub/skills", { token, hostToken, timeoutMs: timeouts.status }),
+    setFirmHubAdded: (itemId: string, added: boolean) =>
+      requestJson<FirmHubView>(baseUrl, `/firm-hub/${encodeURIComponent(itemId)}/added`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: { added },
+        timeoutMs: timeouts.config,
+      }),
+    setFirmHubKey: (itemId: string, key: string | null) =>
+      requestJson<FirmHubView>(baseUrl, `/firm-hub/${encodeURIComponent(itemId)}/key`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: { key },
+        timeoutMs: timeouts.config,
+      }),
     releaseOrgPolicy: (key: OrgPolicyKey) =>
       requestJson<OrgPolicyView>(baseUrl, "/org-policy/release", {
         token,

@@ -74,6 +74,8 @@ import {
   type StagedResourceFile,
 } from "./skill-resources-panel";
 import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import { FirmItemNote } from "../../connections/org-policy-ui";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
 import { BuiltInSkills, ImportedPackages, packageParts, type SkillPackagesStore } from "./skill-packages";
 
@@ -318,6 +320,10 @@ export function SkillsView(props: SkillsViewProps) {
   useEffect(() => {
     void extensions.refreshSkills({ force: true });
   }, [extensions]);
+  // The firm's skills and workflows change with its hub.
+  useEffect(() => onSyncPoke((poke) => {
+    if (poke.hub) void extensions.refreshSkills({ force: true });
+  }), [extensions]);
 
   useEffect(() => {
     if (!SKILLS_HUB_UI_ENABLED && activeFilter === "hub") setActiveFilter("all");
@@ -830,6 +836,25 @@ export function SkillsView(props: SkillsViewProps) {
                   const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
                   const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
+                  // The firm's skill follows its hub: members cannot change or remove it here.
+                  if (skill.firm) {
+                    return (
+                      <div key={skill.path} className="flex flex-col rounded-[16px] border border-dls-border bg-dls-surface p-3.5">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border border-dls-border bg-dls-hover text-dls-accent">
+                            <TypeIcon size={14} strokeWidth={1.75} />
+                          </span>
+                          <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{displayName}</h4>
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
+                          {skill.description || t("skills.no_description")}
+                        </p>
+                        <div className="mt-2.5">
+                          <FirmItemNote added={skill.firm === "optional"} />
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={skill.path}

@@ -111,12 +111,12 @@ export function OrgPolicyFeatureOff({ policyKey }: { policyKey: "recorder.allow"
   );
 }
 
-/** On a provider or engine the firm added for every member. */
-export function FirmItemNote() {
+/** On a provider, engine or hub item the firm added for every member, or one the member added from what the firm offers. */
+export function FirmItemNote({ added = false }: { added?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
       <Building2 className="size-3.5 shrink-0" aria-hidden />
-      {t("org_policy.firm_item")}
+      {t(added ? "org_policy.firm_item_added" : "org_policy.firm_item")}
     </span>
   );
 }

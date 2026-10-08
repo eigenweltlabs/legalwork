@@ -764,6 +764,18 @@ export function createExtensionsStore(options: {
     }));
   };
 
+  function skillCardOf(entry: { name: string; description?: string; path: string; trigger?: string; kind?: string; workflowType?: string; firm?: "automatic" | "optional" }): SkillCard {
+    return {
+      name: entry.name,
+      description: entry.description,
+      path: entry.path,
+      trigger: entry.trigger,
+      kind: entry.kind,
+      workflowType: entry.workflowType,
+      ...(entry.firm ? { firm: entry.firm } : {}),
+    };
+  }
+
   async function refreshSkills(optionsOverride?: { force?: boolean }) {
     const root = options.selectedWorkspaceRoot().trim();
     const isLocalWorkspace = options.workspaceType() === "local";
@@ -784,18 +796,11 @@ export function createExtensionsStore(options: {
       try {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills("");
+        // The firm's skills sit in a folder of its own, which the LegalWork server keeps (firm-hub.ts).
+        const firm = legalworkClient ? await legalworkClient.firmHubSkills().then((result) => result.items, () => []) : [];
         if (refreshSkillsAborted) return;
         notifySkippedSkills("desktop-global", local.skipped);
-        const next: SkillCard[] = Array.isArray(local.items)
-          ? local.items.map((entry) => ({
-              name: entry.name,
-              description: entry.description,
-              path: entry.path,
-              trigger: entry.trigger,
-              kind: (entry as { kind?: string }).kind,
-              workflowType: (entry as { workflowType?: string }).workflowType,
-            }))
-          : [];
+        const next: SkillCard[] = [...(Array.isArray(local.items) ? local.items : []), ...firm].map(skillCardOf);
         mutateState((current) => ({
           ...current,
           skills: next,
@@ -839,16 +844,7 @@ export function createExtensionsStore(options: {
         const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: isLocalWorkspace });
         if (refreshSkillsAborted) return;
         notifySkippedSkills(`server:${skillCacheKey}`, response.skipped ?? []);
-        let next: SkillCard[] = Array.isArray(response.items)
-          ? response.items.map((entry) => ({
-              name: entry.name,
-              description: entry.description,
-              path: entry.path,
-              trigger: entry.trigger,
-              kind: (entry as { kind?: string }).kind,
-              workflowType: (entry as { workflowType?: string }).workflowType,
-            }))
-          : [];
+        let next: SkillCard[] = Array.isArray(response.items) ? response.items.map(skillCardOf) : [];
         // The legalwork list doesn't surface SKILL.md frontmatter `kind`/`workflow_type`,
         // so on desktop we enrich from the local files (which do) — that's how workflows
         // stay distinguishable from skills without a name prefix.
