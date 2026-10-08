@@ -4,6 +4,10 @@
  */
 
 export default {
+  "project_browser.pin_file": "Pin file",
+  "project_browser.unpin_file": "Unpin file",
+  "project_browser.file_actions": "Actions for {name}",
+  "project_browser.file_unavailable": "Connection unavailable",
   "project_browser.refresh_connected": "Refresh connected files",
   "project_browser.search_connected": "Search connected filenames",
   "project_browser.files_description": "Browse project files and connected storage. Open a file or drag it into your workspace.",

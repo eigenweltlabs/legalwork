@@ -1,3 +1,4 @@
+import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
@@ -121,6 +122,9 @@ function saveSnapshot(item: LegalworkSessionSnapshot) {
 }
 
 saveSnapshot(snapshot(welcomeId, "New task"));
+// Open the same untouched chat in two preview windows to exercise list visibility.
+const emptyChatId = previewParams.has("empty-chat") ? `visual-empty-${previewParams.get("empty-chat")}` : null;
+if (emptyChatId) { registerEmptySession(emptyChatId); saveSnapshot(snapshot(emptyChatId, "New chat visibility check")); }
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
@@ -139,7 +143,7 @@ if (limitParam) {
   }
 }
 
-const files: LegalworkWorkspaceDirectoryEntry[] = [
+let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Contracts", path: "Contracts", kind: "dir" },
   { name: "Policies", path: "Policies", kind: "dir" },
   { name: "Board materials", path: "Board materials", kind: "dir" },
@@ -401,6 +405,14 @@ const fixtureClient: LegalworkServerClient = {
   listMcp: async () => ({ items: [] }),
   resolveArtifacts: async () => ({ items: [] }),
   searchContents: async (_workspaceId, kind, query) => ({ items: kind === "files" ? files.filter(file => file.kind === "file" && file.name.toLowerCase().includes(query.toLowerCase())).map(file => ({ kind, id: file.path, workspaceId: workspace.id, title: file.name, path: file.path, excerpt: "Synthetic project file", updatedAt: now })) : [] }),
+  applyWorkspaceFileOperations: async (_workspaceId, operations) => operations.map(operation => {
+    if (operation.type === "mkdir") files = [...files, { path: operation.path, name: operation.path.split("/").at(-1)!, kind: "dir" }];
+    else if (operation.type === "rename") {
+      if (files.some(file => file.path === operation.to)) return { ok: false, message: "A synthetic file already has that name." };
+      files = files.map(file => file.path === operation.from ? { ...file, path: operation.to, name: operation.to.split("/").at(-1)! } : file);
+    } else files = files.filter(file => file.path !== operation.path);
+    return { ok: true };
+  }),
   listWorkspaceDirectory: async (_workspaceId, path) => ({
     path, entries: path ? files.filter((file) => file.kind === "file").map((file) => ({ ...file, path: `${path}/${file.name}` })) : files, truncated: false,
   }),
@@ -444,7 +456,7 @@ const fixtureClient: LegalworkServerClient = {
 function SessionPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : limitParam ? "visual-limit" : welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();
@@ -469,8 +481,10 @@ function SessionPreview() {
   ];
   const newTask = () => {
     const id = `visual-new-${crypto.randomUUID()}`;
+    registerEmptySession(id);
     queryClient.setQueryData(transcriptKey(workspace.id, id), []);
     saveSnapshot(snapshot(id, "New task"));
+    navigate(`/workspace/${activeWorkspace.id}/session/${id}`);
     setSelectedSessionId(id);
     setRevision((value) => value + 1);
     return id;
@@ -529,6 +543,7 @@ function SessionPreview() {
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
           mcpConnectedCount={0} onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
+          onCreateProjectSession={() => { newTask(); }}
           onRenameSession={(id, title) => {
             const item = snapshots.get(id);
             if (item) saveSnapshot({ ...item, session: { ...item.session, title } });

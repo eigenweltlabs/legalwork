@@ -1,3 +1,4 @@
+import { isSessionListed, useSessionListRevision } from "../sidebar/session-list-visibility";
 import { acceptsProjectViewDrag } from "../sidebar/project-view-drag";
 import { ProjectFilesPage } from "../../workspace/project-files-page";
 import { ProjectSessionsPage } from "../../workspace/project-sessions-page";
@@ -1043,9 +1044,14 @@ export function SessionPage(props: SessionPageProps) {
       onClose={closeFileSidebar}
     />
   );
+  const sessionListRevision = useSessionListRevision();
+  const listedSessionGroups = useMemo(() => props.sidebar.workspaceSessionGroups.map(group => ({
+    ...group, sessions: group.sessions.filter(session => isSessionListed(session.id)),
+  })), [props.sidebar.workspaceSessionGroups, sessionListRevision]);
+
   const mainView = props.projectsPage ? <ProjectsPage
     client={props.environmentClient ?? null}
-    groups={props.sidebar.workspaceSessionGroups}
+    groups={listedSessionGroups}
     onOpenSearch={props.sidebar.onOpenSearch}
     onOpenProject={async (id, page) => {
       if (await props.sidebar.onSelectWorkspace(id) === false) return;
@@ -1067,7 +1073,7 @@ export function SessionPage(props: SessionPageProps) {
     connected={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, onOpenFile: openLegalMemoryFile, onOpenStorageFile: openStorageFile, onConnectStorage: props.sidebar.onShowFileStorage }}
   /> : view === "sessions" ? <ProjectSessionsPage
     workspaceId={props.selectedWorkspaceId}
-    group={props.sidebar.workspaceSessionGroups.find(group => group.workspace.id === props.selectedWorkspaceId)}
+    group={listedSessionGroups.find(group => group.workspace.id === props.selectedWorkspaceId)}
     statuses={props.sidebar.sessionStatusById}
     onOpen={id => openSessionTab(props.selectedWorkspaceId, id)}
     onNew={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
@@ -1156,7 +1162,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [windowTitle]);
 
   return (
-    <ProjectPersonalisationProvider groups={props.sidebar.workspaceSessionGroups} client={props.environmentClient ?? null}>
+    <ProjectPersonalisationProvider groups={listedSessionGroups} client={props.environmentClient ?? null}>
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
       <SidebarProvider
         open={chatSidebarOpen}
@@ -1221,7 +1227,7 @@ export function SessionPage(props: SessionPageProps) {
         </header>
         <AppSidebar
           accountClient={props.environmentClient ?? props.legalworkServerClient ?? null}
-          workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
+          workspaceSessionGroups={listedSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}

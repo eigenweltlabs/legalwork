@@ -1,3 +1,4 @@
+import { registerEmptySession } from "../sidebar/session-list-visibility";
 import type {
   Agent,
   AgentPartInput,
@@ -436,6 +437,7 @@ export function createSessionActionsStore(options: {
       }
 
       const session = unwrap(rawResult);
+      registerEmptySession(session.id);
       if (initialPrompt) {
         saveSessionDraft(id, session.id, {
           text: initialPrompt,

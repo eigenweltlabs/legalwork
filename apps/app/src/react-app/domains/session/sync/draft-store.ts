@@ -1,3 +1,4 @@
+import { retainSessionInLists } from "../sidebar/session-list-visibility";
 /** @jsxImportSource react */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
@@ -90,6 +91,7 @@ export const saveSessionDraft = (
   const key = sessionDraftScopeKey(workspaceId, sessionId);
   if (!key) return;
 
+  if (snapshot.text.trim() && sessionId) retainSessionInLists(sessionId);
   const normalized: SessionDraftSnapshot = {
     text: snapshot.text,
     mode: snapshot.mode,

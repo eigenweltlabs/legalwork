@@ -958,7 +958,7 @@ function WorkspaceHeader({
   );
 }
 
-const PROJECT_FEATURE_CLASS = "min-h-8 h-auto gap-2 rounded-md px-2.5 ps-2.5 py-1.5 text-[13px] data-active:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-border/50 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip";
+const PROJECT_FEATURE_CLASS = "min-h-8 h-auto gap-2 rounded-md px-2.5 ps-2.5 py-1.5 text-[13px] data-active:bg-background data-active:hover:bg-background data-active:active:bg-background data-active:group-hover/menu-sub-item:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-border/50 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip";
 
 type WorkspaceSidebarGroupProps = {
   className?: string;
@@ -1525,7 +1525,7 @@ function SessionMenuItem({
           <CollapsibleTrigger
             render={
               <SidebarMenuSubButton
-                className={cn("relative h-7 rounded-md ps-2 text-xs data-[size=md]:text-xs data-active:bg-background", depth > 0 && "ps-5")}
+                className={cn("relative h-7 rounded-md ps-2 text-xs data-[size=md]:text-xs data-active:bg-background data-active:hover:bg-background data-active:active:bg-background data-active:group-hover/menu-sub-item:bg-background", depth > 0 && "ps-5")}
                 isActive={isSelected}
                 aria-current={isSelected ? "page" : undefined}
                 onClick={openSession}
@@ -1574,7 +1574,7 @@ function SessionMenuItem({
           onFocus={prefetchSession}
           className={cn(
             "transition-[padding] duration-75",
-            "h-7 rounded-md ps-2 text-xs data-[size=md]:text-xs data-active:bg-background",
+            "h-7 rounded-md ps-2 text-xs data-[size=md]:text-xs data-active:bg-background data-active:hover:bg-background data-active:active:bg-background data-active:group-hover/menu-sub-item:bg-background",
             compact && "text-xs",
             depth > 0 && "ps-5",
             showActivity

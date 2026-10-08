@@ -14,6 +14,10 @@
  */
 
 const de = {
+  "project_browser.pin_file": "Datei anheften",
+  "project_browser.unpin_file": "Datei lösen",
+  "project_browser.file_actions": "Aktionen für {name}",
+  "project_browser.file_unavailable": "Verbindung nicht verfügbar",
   "project_browser.refresh_connected": "Verbundene Dateien aktualisieren",
   "project_browser.search_connected": "Verbundene Dateinamen durchsuchen",
   "project_browser.files_description": "Projektdateien und verbundenen Speicher durchsuchen. Dateien öffnen oder in den Arbeitsbereich ziehen.",

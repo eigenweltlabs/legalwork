@@ -2,7 +2,8 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry, LegalworkWorkspaceFileOperation } from "@/app/lib/legalwork-server";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { FileEntryActions } from "./file-entry-actions";
+import { changePinnedPaths } from "./file-pins";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,16 +13,18 @@ import { joinDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
 import { toast } from "@/components/ui/sonner";
 import { useProjectFileImport } from "../../workspace/use-project-file-import";
 
-export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, children, className, onOpen, onRefresh }: {
+export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, children, className, onOpen, onRefresh, toolbar, contextOnly }: {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
   isRemoteWorkspace: boolean;
   folderPath: string;
   entry?: LegalworkWorkspaceDirectoryEntry;
-  children: ReactNode;
+  children?: ReactNode;
   className?: string;
   onOpen?: () => void;
+  toolbar?: boolean;
+  contextOnly?: boolean;
   onRefresh: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -46,30 +49,22 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
   };
 
   return <>
-    <ContextMenu>
-      <ContextMenuTrigger render={<div className={className} />} onContextMenu={(event) => event.stopPropagation()}>
-        {children}
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        {onOpen && <ContextMenuItem onClick={onOpen}><FolderOpen />{t("storage.open")}</ContextMenuItem>}
-        {!isRemoteWorkspace && isDesktopRuntime() && <ContextMenuItem disabled={!workspaceRoot} onClick={() => {
-          void joinDesktopPath(workspaceRoot, ...(entry?.path ?? folderPath).split("/").filter(Boolean))
-            .then(revealDesktopItemInDir)
-            .catch(() => toast.error(t("workspace_files.open_failed_title")));
-        }}><FolderOpen />{t(isWindowsPlatform() ? "workspace_list.reveal_explorer" : "workspace_list.reveal_finder")}</ContextMenuItem>}
-        {isFolder && <ContextMenuItem onClick={() => {
-          void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId, targetFolder] });
-          onRefresh();
-        }}><RefreshCw />{t("workspace_files.refresh_folder")}</ContextMenuItem>}
-        <ContextMenuSeparator />
-        {isFolder && canImport && <ContextMenuItem disabled={disabled} onClick={() => uploadRef.current?.click()}><Upload />{t("storage.upload")}</ContextMenuItem>}
-        {isFolder && <ContextMenuItem disabled={disabled} onClick={() => begin("mkdir")}><FolderPlus />{t("storage.new_folder")}</ContextMenuItem>}
-        {entry && <>
-          <ContextMenuItem disabled={disabled} onClick={() => begin("rename")}><Pencil />{t("storage.rename")}</ContextMenuItem>
-          <ContextMenuItem disabled={disabled} variant="destructive" onClick={() => begin("delete")}><Trash2 />{t(isFolder ? "storage.delete_folder" : "storage.delete_file")}</ContextMenuItem>
-        </>}
-      </ContextMenuContent>
-    </ContextMenu>
+    <FileEntryActions name={entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
+      pin={entry?.kind === "file" && workspaceId ? { workspaceId, source: "local", path: entry.path, name: entry.name } : undefined}
+      actions={[
+        ...(onOpen ? [{ label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen }] : []),
+        ...(!isRemoteWorkspace && isDesktopRuntime() ? [{ label: t(isWindowsPlatform() ? "workspace_list.reveal_explorer" : "workspace_list.reveal_finder"), icon: <FolderOpen />, disabled: !workspaceRoot, onClick: () => {
+          void joinDesktopPath(workspaceRoot, ...(entry?.path ?? folderPath).split("/").filter(Boolean)).then(revealDesktopItemInDir).catch(() => toast.error(t("workspace_files.open_failed_title")));
+        } }] : []),
+        ...(isFolder ? [{ label: t("workspace_files.refresh_folder"), icon: <RefreshCw />, onClick: () => { void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId, targetFolder] }); onRefresh(); } }] : []),
+        "separator",
+        ...(isFolder && canImport ? [{ label: t("storage.upload"), icon: <Upload />, disabled, onClick: () => uploadRef.current?.click() }] : []),
+        ...(isFolder ? [{ label: t("storage.new_folder"), icon: <FolderPlus />, disabled, onClick: () => begin("mkdir") }] : []),
+        ...(entry ? [
+          { label: t("storage.rename"), icon: <Pencil />, disabled, onClick: () => begin("rename") },
+          { label: t(isFolder ? "storage.delete_folder" : "storage.delete_file"), icon: <Trash2 />, disabled, destructive: true, onClick: () => begin("delete") },
+        ] : []),
+      ]}>{children}</FileEntryActions>
     {canImport && <input ref={uploadRef} type="file" multiple hidden onChange={(event) => {
       const files = Array.from(event.target.files ?? []);
       event.target.value = "";
@@ -100,6 +95,8 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
           try {
             const [result] = await client.applyWorkspaceFileOperations(workspaceId, [operation]);
             if (!result?.ok) throw new Error(result?.message ?? t("storage.failed"));
+            if (operation.type === "rename") changePinnedPaths(workspaceId, "local", operation.from, operation.to);
+            if (operation.type === "delete") changePinnedPaths(workspaceId, "local", operation.path);
             if (entry && action !== "mkdir") {
               // Discard cached note content at the old path, including notes inside removed folders.
               const filter = { predicate: (query: { queryKey: readonly unknown[] }) =>
@@ -112,7 +109,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
           } catch (cause) { setError(cause instanceof Error ? cause.message : t("storage.failed")); }
           finally {
             setBusy(false);
-            for (const key of ["workspace-files", "project-files", "project-notes"]) {
+            for (const key of ["workspace-files", "project-files", "project-notes", "project-file-search"]) {
               void queryClient.invalidateQueries({ queryKey: [key, workspaceId] });
             }
           }

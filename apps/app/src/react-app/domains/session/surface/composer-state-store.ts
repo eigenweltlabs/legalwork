@@ -1,3 +1,4 @@
+import { retainSessionInLists } from "../sidebar/session-list-visibility";
 import { create } from "zustand";
 
 import type { ComposerAttachment, ComposerDraft } from "../../../../app/types";
@@ -218,3 +219,16 @@ export function isComposerQueuePaused(state: ComposerStateStore, sessionId: stri
   return Boolean(state.pausedQueues[sessionId]
     || (editingId && editingId === state.queuedDrafts[sessionId]?.[0]?.id));
 }
+
+// Share only the fact that a chat has been used, never another window's input.
+useComposerStateStore.subscribe((state, previous) => {
+  for (const [id, composer] of Object.entries(state.sessions)) {
+    if (composer !== previous.sessions[id] && (composer.draft.trim() || composer.attachments.length || composer.pasteParts.length)) retainSessionInLists(id);
+  }
+  for (const [id, queue] of Object.entries(state.queuedDrafts)) {
+    if (queue !== previous.queuedDrafts[id] && queue.length) retainSessionInLists(id);
+  }
+  for (const [id, history] of Object.entries(state.history)) {
+    if (history !== previous.history[id] && history.length) retainSessionInLists(id);
+  }
+});

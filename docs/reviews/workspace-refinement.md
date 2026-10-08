@@ -96,3 +96,24 @@ Verification used synthetic content: review list → Supplier terms → Open as 
 ![Files page with synthetic local and connected files](workspace-refinement/project-files.png)
 
 ![Sessions page with synthetic conversations](workspace-refinement/project-sessions.png)
+
+## File actions, pinning and unused chats (2026-10-08)
+
+- Local, connected-storage and LegalMemory files can be pinned. Pins appear above their respective file browsers and update across app windows. Pin identity includes the project and source. Successful rename/delete operations update or remove matching pins, including descendants of renamed/deleted folders. A disconnected storage pin remains removable.
+- The visible ellipsis menu and right-click menu share the same actions. Local search results now expose these actions too; their rename destination uses the result's actual parent folder. Connected storage continues to expose write actions only when the source is writable. LegalMemory retains its read-only actions.
+- Selected project navigation rows retain their selected background under hover and mouse-down. Global pages are derived from the committed route, eliminating the separate page flags that exposed the workspace during navigation.
+- Newly created empty chats remain openable tabs but stay out of sidebar, recent-session and project-session lists. Non-whitespace input, an attachment, queued input or run/message activity retains the chat. Retention is monotonic: clearing a composer after sending, or an empty composer in another window, cannot hide it. Only visibility metadata is shared; unsent text remains independent between windows. Existing sessions are not classified by title or retroactively hidden, and no server sessions are deleted.
+
+Validation:
+
+- `pnpm --filter @legalwork/app test`: **978 passed**, 145 files, including 10 new pin/visibility tests. The temporary-server tests ran with localhost binding available.
+- `pnpm --filter @legalwork/app typecheck`: passed.
+- `pnpm --filter @legalwork/app test:i18n`: **5,561** complete English/German keys.
+- `node scripts/i18n-audit.mjs --ci`: passed.
+- `pnpm build:ui`: passed with existing bundle-size warnings.
+- Browser: pin/unpin synchronization across two windows; local pinned-file rename and rename-back; file actions from search; writable connected-file menus; unused new chats excluded, an unsent draft included, and another empty chat still excluded. The same shared synthetic chat became listed in both windows after typing in one, while the other composer stayed blank.
+- Electron: global Workflows → Projects → Evaluations → Tasks → Workspace navigation; project Files selection under the pointer also checked in the browser (`rgb(255, 255, 255)` while hovered).
+
+Reproduce the shared-chat case by opening `session-preview.html?unified=1&empty-chat=<fresh-test-id>` in two windows on the same origin. Both seed the same empty synthetic chat. Enter text in one: both session lists gain the chat, but the other composer remains empty. The preview uses synthetic data and simulated responses only.
+
+![Pinned local and connected files, with the shared file action menu](workspace-refinement/file-pins-actions.png)
