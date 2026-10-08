@@ -14,7 +14,7 @@ import {
   ListTodo,
   Settings,
   WandSparkles,
-  Table2,
+  TableProperties,
   Archive,
   ArchiveRestore,
   FlaskConical,
@@ -1073,7 +1073,7 @@ function WorkspaceSidebarGroup({
                   </SidebarMenuSubItem>,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
                     <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "reviews")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
-                      <Table2 className="size-4" strokeWidth={1.5} />
+                      <TableProperties className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.tab_review")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,

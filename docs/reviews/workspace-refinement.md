@@ -117,3 +117,17 @@ Validation:
 Reproduce the shared-chat case by opening `session-preview.html?unified=1&empty-chat=<fresh-test-id>` in two windows on the same origin. Both seed the same empty synthetic chat. Enter text in one: both session lists gain the chat, but the other composer remains empty. The preview uses synthetic data and simulated responses only.
 
 ![Pinned local and connected files, with the shared file action menu](workspace-refinement/file-pins-actions.png)
+
+## Preferred sides after manual moves (2026-10-08)
+
+Chat & documents now chooses new destinations from the split geometry. Chats use the preferred outer column; content uses the remaining columns. The active group wins only within its appropriate region. Manually placed tabs and already-open items stay where they were put. Full-width groups above/below existing columns remain available for explicit placement. A mixed single column can acquire a separate side when the workspace becomes wide enough; automatic splitting still respects the six-pane limit.
+
+Tabular Review uses the row-based `TableProperties` icon consistently in navigation, tabs, review lists, settings and sync options, distinguishing it from Workspace and Open as a tab.
+
+Validation:
+
+- `pnpm --filter @legalwork/app test`: **987 passed**, 145 files. Nine added regressions cover both preferred sides, mixed panes, browsers, stacked/resized columns, extra columns, narrow-to-wide layouts, preference changes, full-width groups, the six-pane limit and side collapse/recreation.
+- App typecheck and `pnpm build:ui`: passed; existing bundle-size warnings remain.
+- Synthetic browser check: drag `review-notes.md` into the left chat group, then open a new connected file through Files; the new file appears on the content side. Switch to Chats on the right: a newly opened chat appears on the right and a newly opened document on the left, despite mixed tabs. Existing placements remain intact.
+
+![Chats on the right with a manually placed document, and content on the left](workspace-refinement/mixed-pane-opening.png)

@@ -43,12 +43,23 @@ export function automaticTabDestination(session: SessionPanelState, tab: PanelTa
     return right ? { pane: right.id } : { pane: active.id, edge: canSplit ? "right" : undefined };
   }
   const chat = tab.type === "chat";
-  // A mixed group is still a valid destination after an explicit drag. Never
-  // rearrange existing work when changing a profile or opening a new item.
-  const matches = session.panes.filter(pane => session.tabs.some(item => pane.tabIds.includes(item.id) && (item.type === "chat") === chat));
-  if (matches.some(pane => pane.id === active.id)) return { pane: active.id };
   const side = chat ? opening.chatSide : opening.chatSide === "left" ? "right" : "left";
-  const ordered = side === "left" ? geometry : [...geometry].reverse();
+  const ordered = [...geometry].sort((a, b) => side === "left" ? a.left - b.left : b.left + b.width - a.left - a.width);
+  // Explicit drags are exceptions, not new opening rules. Once columns exist,
+  // reserve the outer column for chats and use the remaining columns for content.
+  // Full-width groups above/below those columns remain manual destinations.
+  const columnPanes = ordered.filter(pane => pane.width < 1 - 1e-9);
+  if (columnPanes.length) {
+    const candidates = columnPanes.filter(pane => {
+      const onChatSide = opening.chatSide === "left" ? pane.left < 1e-9 : pane.left + pane.width > 1 - 1e-9;
+      return onChatSide === chat;
+    });
+    return { pane: (candidates.find(pane => pane.id === active.id) ?? candidates[0]).id };
+  }
+  // In a single column, reuse an unmixed group. A mixed group can acquire the
+  // missing side once there is room, without moving any of its existing tabs.
+  const matches = session.panes.filter(pane => pane.tabIds.length > 0 && pane.tabIds.every(id => session.tabs.some(item => item.id === id && (item.type === "chat") === chat)));
+  if (matches.some(pane => pane.id === active.id)) return { pane: active.id };
   const match = ordered.find(pane => matches.some(item => item.id === pane.id));
   if (match) return { pane: match.id };
   if (canSplit) return { pane: active.id, edge: side };

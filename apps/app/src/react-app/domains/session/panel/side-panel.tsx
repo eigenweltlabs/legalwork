@@ -25,7 +25,7 @@ import {
   X,
   Workflow,
   MessageSquare,
-  Table2,
+  TableProperties,
 } from "lucide-react";
 
 import { openDesktopUrl } from "@/app/lib/desktop";
@@ -355,7 +355,7 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, prev
             ) : (
               <Globe />
             )
-          ) : tab.type === "project-view" ? <ProjectViewIcon view={tab.view} /> : tab.type === "chat" ? <MessageSquare /> : tab.type === "review" ? <Table2 /> : tab.type === "task" ? (
+          ) : tab.type === "project-view" ? <ProjectViewIcon view={tab.view} /> : tab.type === "chat" ? <MessageSquare /> : tab.type === "review" ? <TableProperties /> : tab.type === "task" ? (
             <ListTodo />
           ) : tab.type === "workflow" ? (
             <Workflow />
@@ -1053,5 +1053,5 @@ function PanelEmpty() {
 }
 
 function ProjectViewIcon({ view }: { view: ProjectView }) {
-  return view === "files" ? <Files /> : view === "sessions" ? <MessageSquare /> : view === "home" ? <House /> : view === "calendar" ? <CalendarDays /> : view === "tasks" ? <ListTodo /> : <Table2 />;
+  return view === "files" ? <Files /> : view === "sessions" ? <MessageSquare /> : view === "home" ? <House /> : view === "calendar" ? <CalendarDays /> : view === "tasks" ? <ListTodo /> : <TableProperties />;
 }
