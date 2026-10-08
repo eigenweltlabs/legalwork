@@ -186,8 +186,10 @@ export class MainAssistant {
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        if (this.config.workspaces.some(isMainAssistant)) await this.current();
-        if (!stopped) await afterDay?.();
+        if (!this.config.cloudSync || this.config.cloudSync.canExecute()) {
+          if (this.config.workspaces.some(isMainAssistant)) await this.current();
+          if (!stopped) await afterDay?.();
+        }
       } catch (error) { console.warn("[main-assistant]", error instanceof Error ? error.message : String(error)); }
       if (stopped) return;
       const now = this.now();

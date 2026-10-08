@@ -45,6 +45,7 @@ const fieldSchema = z.object({
 });
 
 const projectSchema = z.object({
+  purpose: z.enum(["project", "personal-state"]).optional(),
   id: z.string().uuid(),
   name: z.string(),
   ownerUserId: z.string(),
@@ -103,6 +104,7 @@ export async function listRemoteProjects(
 }
 
 export type RemoteProjectCreate = {
+  purpose?: "project" | "personal-state";
   personalizationPrompt?: string;
   remote?: ProjectRemote;
   id: string;

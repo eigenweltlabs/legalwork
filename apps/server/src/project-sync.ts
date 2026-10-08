@@ -679,10 +679,11 @@ async function syncDocuments(
   link: ProjectLink,
   runner: { userId: string; name: string | null },
 ): Promise<void> {
-  const label = runner.name ?? "LegalWork";
+  const label = config.cloudSync?.deviceName ?? runner.name ?? "LegalWork";
   // A project leaves sync only when it is removed from the list (noteProjectRemoved),
   // never because a server with another project list does not know it.
   const workspace = workspaceOf(config, link.workspaceId);
+  if (config.cloudSync && !config.cloudSync.shouldSyncFiles(link.workspaceId)) return;
   if (!workspace || !(await folderAvailable(workspace.path))) return;
   const scope = link.settings.scope;
   if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews && scope.calendar === false) {
@@ -713,7 +714,7 @@ async function syncDocuments(
       root: resolve(workspace.path),
       remote,
       base: store.fileBase(link.projectId),
-      includes: (path) => scopeIncludes(scope, path, reviewed, attached),
+      includes: (path) => !(config.cloudSync && /^opencode\.jsonc?$/i.test(path)) && scopeIncludes(scope, path, reviewed, attached),
       reconcile,
       allowDeletions: link.allowDeletions,
       label,
@@ -1078,6 +1079,9 @@ export async function stopProjectSync(config: ServerConfig, workspace: Workspace
   const link = store.linkByWorkspace(workspace.id);
   if (!link) return projectSyncStatus(config, workspace);
   requireOwner(link);
+  // Removing the last teammate ends sharing while retaining the owner's VM copy.
+  if (config.cloudSync?.maintainsProject?.(workspace.id)) return saveProjectSyncSettings(config, workspace,
+    { access: "members", memberIds: [], scope: link.settings.scope });
   const confirmed = link.confirmed;
   await keepAsLocal(config, store, link);
   if (confirmed) {
