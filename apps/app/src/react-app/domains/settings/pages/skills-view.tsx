@@ -73,7 +73,9 @@ import {
   type SkillResourcesStore,
   type StagedResourceFile,
 } from "./skill-resources-panel";
-import { orgPolicyAllows } from "../../connections/org-policy";
+import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
+import { BuiltInSkills, ImportedPackages, packageParts, type SkillPackagesStore } from "./skill-packages";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -110,7 +112,10 @@ export type ImportedCloudSkillRecord = {
 
 export type GithubSkillItem = { dir: string; name: string; description: string };
 
-export type SkillsExtensionsStore = SkillResourcesStore & {
+export type SkillsExtensionsStore = SkillResourcesStore & SkillPackagesStore & {
+  /** A GitHub repo that is a package (skills, connectors and commands together): what it would bring, and importing it. */
+  previewClaudePlugin: (url: string) => Promise<LegalworkClaudePluginPreview>;
+  installClaudePlugin: (url: string) => Promise<{ ok: boolean; message: string }>;
   skills: () => SkillCard[];
   skillsStatus: () => string | null;
   hubSkills: () => HubSkillCard[];
@@ -414,6 +419,8 @@ export function SkillsView(props: SkillsViewProps) {
   // Workflows are local-authored only — no Hub/Cloud catalogs.
   const effectiveActiveFilter = !SKILLS_HUB_UI_ENABLED && activeFilter === "hub" ? "all" : activeFilter;
   const showInstalledSection = showLocal && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
+  // Read the imported packages again once the import dialog brought one in.
+  const [packagesRevision, setPackagesRevision] = useState(0);
   const showHubSection = showLocal && SKILLS_HUB_UI_ENABLED && !isWorkflowsView && (effectiveActiveFilter === "all" || effectiveActiveFilter === "hub");
   const canCreateInChat = !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools);
 
@@ -688,6 +695,7 @@ export function SkillsView(props: SkillsViewProps) {
                   canUseDesktopTools={props.canUseDesktopTools}
                   existingNames={installedNames}
                   extensions={extensions}
+                  onPackageImported={() => setPackagesRevision((revision) => revision + 1)}
                 />
                 <button
                   type="button"
@@ -947,6 +955,13 @@ export function SkillsView(props: SkillsViewProps) {
             </div>
           )}
         </div>
+      ) : null}
+
+      {showInstalledSection && !isWorkflowsView ? (
+        <>
+          <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision} />
+          <BuiltInSkills />
+        </>
       ) : null}
 
       {/* Hub catalog hidden for now; flip SKILLS_HUB_UI_ENABLED to restore. */}
@@ -1642,8 +1657,13 @@ export function ImportSkillsButton(props: {
   canUseDesktopTools: boolean;
   existingNames: Set<string>;
   extensions: SkillsExtensionsStore;
+  /** A whole package was imported (skills, connectors and commands together). */
+  onPackageImported?: () => void;
 }) {
   const { extensions, asWorkflow } = props;
+  // A repo that is a package is offered whole, where the firm lets members import packages.
+  const offerPackages = !asWorkflow && !useOrgPolicyForbids("plugins.allowCustom");
+  const [found, setFound] = useState<{ url: string; preview: LegalworkClaudePluginPreview } | null>(null);
   const noun = asWorkflow ? "workflow" : "skill";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = props.open ?? internalOpen;
@@ -1671,6 +1691,7 @@ export function ImportSkillsButton(props: {
     setFilter("");
     setImporting(false);
     setStatus(null);
+    setFound(null);
   };
 
   const finalNameFor = (item: GithubSkillItem) => {
@@ -1688,11 +1709,17 @@ export function ImportSkillsButton(props: {
     setSelected(new Set());
     setStatus(null);
     setFilter("");
+    setFound(null);
     try {
-      const result = await extensions.scanGithubSkills(trimmed, sourceRef.trim() || undefined);
+      const [result, preview] = await Promise.all([
+        extensions.scanGithubSkills(trimmed, sourceRef.trim() || undefined),
+        // Not a package: the repo just has skill folders, if any.
+        offerPackages ? extensions.previewClaudePlugin(trimmed).catch(() => null) : Promise.resolve(null),
+      ]);
       setRef(result.ref);
       setScanned(result.skills);
-      if (result.skills.length === 0) setError(t("skills.repo_no_skills"));
+      setFound(preview ? { url: trimmed, preview } : null);
+      if (result.skills.length === 0 && !preview) setError(t("skills.repo_no_skills"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("skills.repo_scan_failed"));
     } finally {
@@ -1756,6 +1783,25 @@ export function ImportSkillsButton(props: {
         toast.success(result.message);
         setSelected(new Set());
       }
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const runPackageImport = async () => {
+    if (!found) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await extensions.installClaudePlugin(found.url);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      toast.success(t("skills.package_imported", { name: found.preview.name }));
+      props.onPackageImported?.();
+      setOpen(false);
+      reset();
     } finally {
       setImporting(false);
     }
@@ -1840,6 +1886,19 @@ export function ImportSkillsButton(props: {
 
               {error ? (
                 <div className="rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{error}</div>
+              ) : null}
+
+              {found ? (
+                <div className="space-y-3 rounded-xl border border-dls-border bg-dls-hover/40 p-4">
+                  <div>
+                    <div className="text-sm font-medium text-dls-text">{t("skills.package_found", { name: found.preview.name })}</div>
+                    <div className="mt-1 text-xs text-dls-secondary">{packageParts(found.preview.components.map((component) => component.type))}</div>
+                  </div>
+                  <Button type="button" disabled={importing} onClick={() => void runPackageImport()}>
+                    {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    {t("skills.package_import")}
+                  </Button>
+                </div>
               ) : null}
 
               {scanned && scanned.length > 0 ? (

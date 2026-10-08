@@ -896,7 +896,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
   const [teamShareOpen, setTeamShareOpen] = useState(false);
   const [teamShareInitial, setTeamShareInitial] = useState<{
-    kind: "skill" | "workflow" | "mcp" | "plugin" | "review_set";
+    kind: "skill" | "workflow" | "mcp" | "review_set";
     ref: string;
   } | null>(null);
   // The prompt library shares prompt sets only; every other entry point offers all kinds.
@@ -937,18 +937,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return;
       }
       setTeamShareInitial({ kind: "mcp", ref: mcpName });
-      setTeamShareOpen(true);
-    },
-    [legalworkClient, hubWorkspaceId],
-  );
-
-  const sharePluginWithFirm = useCallback(
-    async (pluginRef: string) => {
-      if (!legalworkClient || !hubWorkspaceId) {
-        toast.error(t("app.error_connect_first"));
-        return;
-      }
-      setTeamShareInitial({ kind: "plugin", ref: pluginRef });
       setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
@@ -2301,6 +2289,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             showHeader={props.singleView}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
+            developerMode={developerMode}
             canEditPlugins={canWriteWorkspacePlugins}
             canUseGlobalScope={!isRemoteWorkspace}
             accessHint={pluginsAccessHint}
@@ -2317,8 +2306,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
             }}
-            previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
-            installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
             storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
             mcpView={
               <McpView
@@ -2411,23 +2398,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             hasTeamHub={Boolean(hubWorkspaceId)}
-            canShareWithFirm={canShareWithFirm}
-            onSharePluginWithFirm={sharePluginWithFirm}
             onOpenTeamShare={canShareWithFirm ? () => {
               setTeamShareInitial(null);
               setTeamShareOpen(true);
             } : undefined}
-            pluginsFirmView={
-              <HubDownloadSection
-                legalworkClient={legalworkClient}
-                workspaceId={hubWorkspaceId}
-                kind="plugin"
-                onConfigApplied={() => {
-                  void extensionsStore.refreshPlugins();
-                  void reloadWorkspaceEngineFromUi();
-                }}
-              />
-            }
           />
         );
       case "advanced":

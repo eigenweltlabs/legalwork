@@ -53,6 +53,7 @@ import type {
   LegalworkServerClient,
   LegalworkServerStatus,
 } from "../../../../app/lib/legalwork-server";
+import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import type { LegalworkServerStore } from "../../connections/legalwork-server-store";
 import { orgPolicyAllows, orgPolicyOffText } from "../../connections/org-policy";
 
@@ -590,6 +591,24 @@ export function createExtensionsStore(options: {
     } finally {
       options.setBusy(false);
     }
+  }
+
+  /** The packages imported into this workspace: from GitHub or a marketplace. */
+  async function importedPackages(): Promise<ImportedPlugin[]> {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient || !target.legalworkWorkspaceId) return [];
+    const result = await target.legalworkClient.listCloudPlugins(target.legalworkWorkspaceId);
+    return Object.values(result.plugins);
+  }
+
+  /** Removes a package with everything it brought. */
+  async function removeImportedPackage(pluginId: string): Promise<void> {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient || !target.legalworkWorkspaceId) {
+      throw new Error(t("extensions.server_unavailable_github_plugins"));
+    }
+    await target.legalworkClient.removeCloudPlugin(target.legalworkWorkspaceId, pluginId);
+    await refreshSkills({ force: true });
   }
 
   async function installHubSkill(name: string): Promise<{ ok: boolean; message: string }> {
@@ -2191,6 +2210,8 @@ export function createExtensionsStore(options: {
     installHubSkill,
     previewClaudePlugin,
     installClaudePlugin,
+    importedPackages,
+    removeImportedPackage,
     revealSkillsFolder,
     uninstallSkill,
     readSkill,
