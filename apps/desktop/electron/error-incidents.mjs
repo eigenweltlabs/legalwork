@@ -24,7 +24,11 @@ function nativeFrames(error) {
 const TTL = 24 * 60 * 60 * 1000;
 const safeVersion = value => typeof value === "string" && /^\d+\.\d+\.\d+(?:-[a-z0-9.]+)?$/i.test(value) && value.length <= 80 ? value : null;
 
-/** Main-process signals only. Raw errors, stacks, logs and renderer input never reach disk. */
+/** Main-process signals only. Raw errors, stacks, logs and renderer input never reach disk.
+ * @param {string} source
+ * @param {{ name?: string; stack?: string }} error
+ * @param {{ version?: string; platform?: string; exitCode?: number | null }} [options]
+ */
 export function createNativeDiagnostic(source, error, { version, platform, exitCode } = {}) {
   if (!SOURCES.has(source)) return null;
   const name = CLASSES.has(error?.name) ? error.name : "other";

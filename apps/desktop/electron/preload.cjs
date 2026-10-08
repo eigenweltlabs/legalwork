@@ -70,6 +70,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   getErrorRecords() {
     return ipcRenderer.invoke("legalwork:error-records");
   },
+  saveErrorDetails(contents) {
+    return ipcRenderer.invoke("legalwork:error-details:save", contents);
+  },
   /** Subscribe to content-free error signals relayed from the main process. */
   onAppError(callback) {
     const handler = (_event, data) => callback(data);

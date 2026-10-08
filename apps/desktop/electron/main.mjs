@@ -21,6 +21,7 @@ import { parse as parseYaml } from "yaml";
 
 import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { createNativeIncidentStore } from "./error-incidents.mjs";
+import { saveErrorDetails } from "./error-export.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -2837,9 +2838,13 @@ async function createMainWindow() {
 }
 
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
-// guardIpcMain restricts this channel to LegalWork app pages. No write or file path input.
+// guardIpcMain restricts these channels to LegalWork app pages.
 ipcMain.handle("legalwork:error-records", () => incidentStore().list());
 ipcMain.handle("legalwork:error-records:clear", () => incidentStore().clear());
+// The native save dialog chooses the destination; no renderer-provided file path.
+ipcMain.handle("legalwork:error-details:save", (event, contents) => saveErrorDetails(
+  contents, options => dialog.showSaveDialog(activeWindowFromEvent(event), options), writeFile,
+));
 ipcMain.handle("legalwork:diagnostic-assets", async () => {
   try { return JSON.parse(await readFile(path.join(APP_ROOT, "diagnostics-assets.json"), "utf8")); }
   catch { return []; }

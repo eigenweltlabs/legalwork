@@ -81,6 +81,29 @@ test("waits for the HTTP listener even when the child announces readiness early"
   }
 }, 20000);
 
+test("reports an unexpected engine exit but ignores intentional close", async () => {
+  const { bin, counter } = fakeBin(0);
+  const exits: { code: number | null; signal: NodeJS.Signals | null }[] = [];
+  let reported = () => {};
+  const exit = new Promise<void>(resolve => { reported = resolve; });
+  const options = {
+    bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter },
+    onUnexpectedExit: (detail: { code: number | null; signal: NodeJS.Signals | null }) => {
+      exits.push(detail); reported();
+    },
+  };
+  const crashed = await createManagedOpencodeServer(options);
+  try {
+    if (crashed.pid === null) throw new Error("Missing engine PID");
+    process.kill(crashed.pid, "SIGKILL");
+    await exit;
+    expect(exits).toEqual([{ code: null, signal: "SIGKILL" }]);
+  } finally { await crashed.close(); }
+  const stopped = await createManagedOpencodeServer(options);
+  await stopped.close();
+  expect(exits).toHaveLength(1);
+}, 20000);
+
 test("does NOT retry a non-lock start failure (fails fast)", async () => {
   // fail "forever" but with a lock message would retry; use a bin that exits
   // with a different error so the loop must give up on the first attempt.

@@ -1446,6 +1446,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       manageOpencode: options.manageOpencode === true,
       opencodeBin: managedOpencode?.path ?? undefined,
       opencodeCwd: managedOpencodeWorkdir(),
+      onOpencodeUnexpectedExit: reportSidecarCrash,
       // Native folder picker for webview clients (Office task pane): the
       // pane cannot open OS dialogs itself, so the server forwards here.
       // Focus is stolen because the request originates from another app

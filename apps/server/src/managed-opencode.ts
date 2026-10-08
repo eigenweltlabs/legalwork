@@ -187,6 +187,7 @@ export async function createManagedOpencodeServer(options: {
   excludedPorts?: number[];
   timeoutMs?: number;
   env?: Record<string, string | undefined>;
+  onUnexpectedExit?: (detail: { code: number | null; signal: NodeJS.Signals | null }) => void;
 }): Promise<ManagedOpencodeServer> {
   const hostname = options.hostname ?? "127.0.0.1";
   const username = randomSecret();
@@ -240,6 +241,8 @@ export async function createManagedOpencodeServer(options: {
       child.once("exit", (code, signal) => {
         if (!closing) {
           console.error(`[managed-opencode] engine exited after startup (code ${code}, signal ${signal})${lastStderr.trim() ? `: ${lastStderr.trim()}` : ""}`);
+          try { options.onUnexpectedExit?.({ code, signal }); }
+          catch { /* Reporting must never disrupt process cleanup. */ }
         }
       });
       return {

@@ -17,6 +17,10 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
   const [sent, setSent] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const downloadUrls = useRef<string[]>([]);
+  useEffect(() => () => {
+    for (const url of downloadUrls.current) URL.revokeObjectURL(url);
+  }, []);
   const preview = JSON.stringify(makeManualErrorEvent(diagnostic, eventId), null, 2);
   async function send() {
     if (busy || sent) return;
@@ -29,11 +33,18 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
     try { await navigator.clipboard.writeText(preview); setCopied(true); }
     catch { setCopied(false); } // Save remains available if the clipboard is blocked.
   }
-  function save() {
+  async function save() {
+    const nativeSave = window.__LEGALWORK_ELECTRON__?.saveErrorDetails;
+    if (nativeSave) {
+      try { await nativeSave(preview); }
+      catch { toast.error(t("skill_resources.save_failed"), { reportable: false }); }
+      return;
+    }
     const url = URL.createObjectURL(new Blob([preview], { type: "application/json" }));
+    // Keep browser downloads alive while the report dialog is mounted.
+    downloadUrls.current.push(url);
     const link = document.createElement("a");
     link.href = url; link.download = `legalwork-error-${eventId}.json`; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
     <Dialog open onOpenChange={open => { if (!open && !busy) closeErrorReport(); }}>
@@ -63,7 +74,7 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
         {failed ? <p role="alert" className="text-sm text-red-11">{t("error_report.failed")}</p> : null}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => void copy()}>{t(copied ? "error_report.copied" : "error_report.copy")}</Button>
-          <Button variant="outline" size="sm" onClick={save}>{t("error_report.save")}</Button>
+          <Button variant="outline" size="sm" onClick={() => void save()}>{t("error_report.save")}</Button>
         </div>
         </div>
         <DialogFooter className="shrink-0">
@@ -100,10 +111,13 @@ export function ErrorReportHost() {
 
 export function RecentErrorsButton() {
   const incidents = useSyncExternalStore(subscribeErrorReports, getErrorReports, getErrorReports);
+  // Repeated failed requests must not crowd the original crash out of history.
+  const recent = [...new Map(incidents.map(incident => [incident.fingerprint, incident])).values()]
+    .sort((left, right) => right.occurred_at.localeCompare(left.occurred_at));
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">{t("error_report.local_only")}</p>
-      {incidents.slice(-5).reverse().map(incident => (
+      {recent.map(incident => (
         <Button key={incident.incident_id} variant="outline" size="sm" className="me-2" onClick={() => openErrorReport(incident.incident_id)}>
           {t(`error_report.reason.${incident.code}`)}
         </Button>

@@ -39,6 +39,8 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** Content-free signal for a ready managed engine that exits unexpectedly. */
+  onOpencodeUnexpectedExit?: Parameters<typeof createManagedOpencodeServer>[0]["onUnexpectedExit"];
   /** OS-resolved Documents project root provided by the desktop host. */
   projectsDirectory?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
@@ -132,6 +134,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       managedOpencode = await createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
         cwd,
+        onUnexpectedExit: options.onOpencodeUnexpectedExit,
         excludedPorts: [config.port],
         env: {
           ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),

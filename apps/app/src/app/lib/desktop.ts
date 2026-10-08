@@ -54,6 +54,7 @@ declare global {
       getDiagnosticAssets?: () => Promise<unknown>;
       clearErrorRecords?: () => Promise<void>;
       getErrorRecords?: () => Promise<unknown[]>;
+      saveErrorDetails?: (contents: string) => Promise<boolean>;
       onAppError?: (callback: (data: import("./app-error").RelayedAppError) => void) => () => void;
       invokeDesktop?: <C extends DesktopCommandName>(
         command: C,
