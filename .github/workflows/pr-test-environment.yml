@@ -16,7 +16,7 @@ on:
         default: linux-x64,windows-x64
       ttl_hours:
         description: Environment lifetime in hours (1–168)
-        default: '24'
+        default: '4'
       action:
         type: choice
         options: [create, destroy]
