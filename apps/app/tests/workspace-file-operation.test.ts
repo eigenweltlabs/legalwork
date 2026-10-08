@@ -45,3 +45,46 @@ test("a failed filesystem operation keeps cached content and reports its error",
   await expect(operateWorkspaceFile(file, { type: "delete", path: file.path }, queries)).rejects.toThrow("Permission denied");
   expect(queries.getQueryData(cacheKey)).toBe("old content");
 });
+
+test("folder mutations check descendant ownership and never evict drafts on rejection", async () => {
+  const { file, apply, request, queries } = setup(false);
+  file.path = "Folder";
+  const stat = spyOn(file.client, "statWorkspaceFile").mockImplementation(async (_workspace, path) => ({ ok: true, path, exists: true, kind: path === "Folder" ? "dir" : "file", fileId: path }));
+  spyOn(file.client, "listWorkspaceDirectory").mockResolvedValue({ path: "Folder", entries: [{ name: "note.md", path: "Folder/note.md", kind: "file" }], truncated: false });
+  request.mockImplementation(async (name, _options, callback) => callback(name.includes("Folder/note.md") ? null : { name, mode: "exclusive" }));
+  const key = ["markdown-editor", "project", "Folder/note.md"];
+  queries.setQueryData(key, "unsaved");
+  await expect(operateWorkspaceFile(file, { type: "rename", from: file.path, to: "Renamed", overwrite: false }, queries)).rejects.toThrow();
+  expect(stat).toHaveBeenCalledTimes(2);
+  expect(apply).not.toHaveBeenCalled();
+  expect(queries.getQueryData(key)).toBe("unsaved");
+});
+
+test("folder operations deduplicate aliases and evict descendants only after success", async () => {
+  const { file, apply, queries } = setup(false);
+  file.path = "Folder";
+  spyOn(file.client, "statWorkspaceFile").mockImplementation(async (_workspace, path) => ({ ok: true, path, exists: true, kind: path.endsWith("note.md") ? "file" : "dir", fileId: path.endsWith("note.md") ? "note-id" : "folder-id" }));
+  const list = spyOn(file.client, "listWorkspaceDirectory").mockResolvedValue({ path: "Folder", entries: [{ name: "cycle", path: "Folder/cycle", kind: "dir" }, { name: "note.md", path: "Folder/note.md", kind: "file" }], truncated: false });
+  const linksKey = ["project-file-links", file.client.baseUrl, "project"];
+  queries.setQueryData(linksKey, []);
+  queries.setQueryData(["markdown-editor", "project", "Folder/note.md"], "old");
+  queries.setQueryData(["markdown-editor", "project", "Folder-other/note.md"], "keep");
+  queries.setQueryData(["document-identity", file.client.baseUrl, "project", "Folder/note.md"], "old-id");
+  await operateWorkspaceFile(file, { type: "rename", from: file.path, to: "Renamed", overwrite: false }, queries);
+  expect(list).toHaveBeenCalledTimes(1); expect(apply).toHaveBeenCalledTimes(1);
+  expect(queries.getQueryState(linksKey)?.isInvalidated).toBe(true);
+  expect(queries.getQueryData(["markdown-editor", "project", "Folder/note.md"])).toBeUndefined();
+  expect(queries.getQueryData(["document-identity", file.client.baseUrl, "project", "Folder/note.md"])).toBeUndefined();
+  expect(queries.getQueryData(["markdown-editor", "project", "Folder-other/note.md"])).toBe("keep");
+});
+
+test("incomplete folder listings and missing identities cannot bypass the mutation guard", async () => {
+  const { file, apply, queries } = setup(false);
+  file.path = "Folder";
+  const stat = spyOn(file.client, "statWorkspaceFile").mockResolvedValue({ ok: true, path: "Folder", exists: true, kind: "dir", fileId: "folder-id" });
+  spyOn(file.client, "listWorkspaceDirectory").mockResolvedValue({ path: "Folder", entries: [], truncated: true });
+  await expect(operateWorkspaceFile(file, { type: "delete", path: file.path, recursive: true }, queries)).rejects.toThrow();
+  stat.mockResolvedValue({ ok: true, path: "Folder", exists: true, kind: "dir" });
+  await expect(operateWorkspaceFile(file, { type: "delete", path: file.path, recursive: true }, queries)).rejects.toThrow();
+  expect(apply).not.toHaveBeenCalled();
+});

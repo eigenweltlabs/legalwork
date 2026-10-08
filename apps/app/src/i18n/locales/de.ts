@@ -168,6 +168,7 @@ const de = {
   "workspace.window_preference_hint": "Wählen Sie das Verhalten für ein zweites Fenster. Per Rechtsklick auf den Fensterknopf können Sie anders wählen.",
   "project_browser.delete_selected": "Ausgewählte Dateien löschen",
   "project_browser.delete_selected_confirm": "Diese {count} Dateien endgültig löschen? Dies kann nicht rückgängig gemacht werden.",
+  "project_browser.file_change_unavailable": "Nicht alle betroffenen Dateien konnten geprüft werden. Bitte aktualisieren und das Verschieben oder Löschen erneut versuchen.",
   "project_browser.close_before_file_change": "Schließen Sie die Datei in ihrem Bearbeitungsfenster, bevor Sie sie verschieben oder löschen.",
   "workspace.toggle_files": "Projektdateien ein- oder ausblenden",
   "side_panel.open_tab_window": "In neuem Fenster öffnen",

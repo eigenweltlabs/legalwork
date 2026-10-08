@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry, LegalworkWorkspaceFileOperation } from "@/app/lib/legalwork-server";
 import { FileEntryActions } from "./file-entry-actions";
-import { changePinnedPaths } from "./file-pins";
+import { operateWorkspaceFile } from "../../workspace/workspace-file-operation";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,17 +98,11 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
           else operation = { type: "delete", path: entry.path, recursive: entry.kind === "dir" };
           setBusy(true); setError("");
           try {
-            const [result] = await client.applyWorkspaceFileOperations(workspaceId, [operation]);
-            if (!result?.ok) throw new Error(result?.message ?? t("storage.failed"));
-            if (operation.type === "rename") changePinnedPaths(workspaceId, "local", operation.from, operation.to);
-            if (operation.type === "delete") changePinnedPaths(workspaceId, "local", operation.path);
-            if (entry && action !== "mkdir") {
-              // Discard cached note content at the old path, including notes inside removed folders.
-              const filter = { predicate: (query: { queryKey: readonly unknown[] }) =>
-                query.queryKey[0] === "markdown-editor" && query.queryKey[1] === workspaceId &&
-                typeof query.queryKey[2] === "string" && (query.queryKey[2] === entry.path || query.queryKey[2].startsWith(`${entry.path}/`)) };
-              await queryClient.cancelQueries(filter);
-              queryClient.removeQueries(filter);
+            if (operation.type === "mkdir") {
+              const [result] = await client.applyWorkspaceFileOperations(workspaceId, [operation]);
+              if (!result?.ok) throw new Error(result?.message ?? t("storage.failed"));
+            } else {
+              await operateWorkspaceFile({ client, workspaceId, path: entry!.path, isRemoteWorkspace }, operation, queryClient);
             }
             setAction(null);
           } catch (cause) { setError(cause instanceof Error ? cause.message : t("storage.failed")); }

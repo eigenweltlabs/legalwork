@@ -275,7 +275,7 @@ const previewTask: LegalworkTask = {
     id: "visual-task", projectId: workspace.id, origin: "desktop", title: "Review supplier notice", description: "Check the notice period against the playbook.",
     status: "open", priority: 2, tags: [], dueDate: null, assigneeUserId: null, assigneeName: null, createdByUserId: null,
     endpointId: null, endpointName: null, submissionId: null, assignmentNote: null, workflowHubItemId: null, workflowVersion: null,
-    cloudRunId: null, lastLocalRunAt: null, attachments: [], createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(),
+    cloudRunId: null, lastLocalRunAt: null, attachments: previewParams.has("attachment-review") ? [{ id: "fixture-docx", filename: "Attachment review.docx", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: 4820, cached: true }] : [], createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(),
     deletedAt: null, sync: { orgId: null, syncedAt: null, pending: false, error: null }, sessions: [], createdSession: null,
   };
 const previewTasks = new Map([[previewTask.id, previewTask]]);
@@ -309,6 +309,7 @@ const fixtureClient: LegalworkServerClient = {
     const task: LegalworkTask = { ...previewTask, ...input, id: crypto.randomUUID() };
     previewTasks.set(task.id, task); return { ok: true, task };
   },
+  downloadTaskAttachment: async () => ({ data: await fetch(new URL("../scripts/fixtures/legal-review.docx", import.meta.url)).then(response => response.arrayBuffer()), filename: "Attachment review.docx", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }),
   listTaskEndpoints: async () => ({ endpoints: [] }),
   taskSyncStatus: async () => ({ connected: false, orgId: null, accountUserId: null, pending: 0, lastSyncAt: null, error: null, signedOut: false }),
   getProjectDetails: async () => ({ version: 1, revision: 1, fields: [] }),

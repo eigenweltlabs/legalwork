@@ -159,6 +159,7 @@ export default {
   "workspace.window_preference_hint": "Choose the default for a second workspace window. Right-click the new-window button to choose differently.",
   "project_browser.delete_selected": "Delete selected files",
   "project_browser.delete_selected_confirm": "Permanently delete these {count} files? This cannot be undone.",
+  "project_browser.file_change_unavailable": "Could not verify all affected files. Refresh and try again before moving or deleting them.",
   "project_browser.close_before_file_change": "Close this file in its editing window before moving or deleting it.",
   "workspace.toggle_files": "Show or hide project files panel",
   "side_panel.open_tab_window": "Open in new window",

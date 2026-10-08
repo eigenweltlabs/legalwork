@@ -1,5 +1,9 @@
 # Split-view adversarial review follow-up
 
+Latest: [second adversarial follow-up](adversarial-followup-r2.md) verifies and fixes
+the three findings against `6a7b9f58`, with updated test results and browser evidence.
+The findings and counts below describe the earlier review round.
+
 2026-10-08 — `feat/split-view-autosave`, compared with `dev`. The corrections below follow commit `5fc7de9d`; this report and its evidence ship with those corrections. Later interaction refinements are recorded in [files-window-ux.md](files-window-ux.md).
 
 The supplied review describes findings against that commit and explicitly excludes the edits then in progress. This follow-up checks the concrete findings in the supplied summary. Its claimed totals of 92 raw / 78 confirmed findings cannot be independently reconciled without the underlying individual reports; those totals are not adopted here.

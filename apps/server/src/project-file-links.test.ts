@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { importProjectFile, readProjectFileLinks, updateProjectFileLinks } from "./project-file-links.js";
+import { importProjectFile, readProjectFileLinks, renameProjectFileEntry, updateProjectFileLinks } from "./project-file-links.js";
 
 const roots: string[] = [];
 const root = async () => { const path = await mkdtemp(join(tmpdir(), "project-links-")); roots.push(path); return path; };
@@ -64,4 +64,23 @@ test("a missing destination is actionable and unsupported hard links fall back w
     expect(await readdir(to)).toEqual(["A.md"]);
     expect(unsupported).toHaveBeenCalledTimes(2);
   } finally { unsupported.mockRestore(); }
+});
+
+
+test("failed folder-link publication restores the original directory and metadata", async () => {
+  const to = await root(); await mkdir(join(to, "Folder"));
+  await writeFile(join(to, "Folder/kept.md"), "keep");
+  const original = [{ id: crypto.randomUUID(), name: "Linked", folder: "Folder", source, createdAt: 1 }];
+  await updateProjectFileLinks(to, () => original);
+  const rename = fs.rename;
+  const denied = spyOn(fs, "rename").mockImplementation(async (from, destination) => {
+    if (String(from).endsWith(".tmp") && String(destination).endsWith("project-file-links.json")) throw new Error("Metadata publication denied");
+    return rename(from, destination);
+  });
+  try {
+    await expect(renameProjectFileEntry(to, "Folder", "Renamed")).rejects.toThrow("Metadata publication denied");
+    expect(await readFile(join(to, "Folder/kept.md"), "utf8")).toBe("keep");
+    expect(await readProjectFileLinks(to)).toEqual(original);
+    expect(await readdir(join(to, ".legalwork"))).toEqual(["project-file-links.json"]);
+  } finally { denied.mockRestore(); }
 });

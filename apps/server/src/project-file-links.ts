@@ -37,10 +37,10 @@ export async function readProjectFileLinks(root: string): Promise<ProjectFileLin
     throw error;
   }
 }
-export async function updateProjectFileLinks(root: string, change: (links: ProjectFileLink[]) => ProjectFileLink[]) {
+export async function updateProjectFileLinks(root: string, change: (links: ProjectFileLink[]) => ProjectFileLink[] | Promise<ProjectFileLink[]>) {
   const path = await linksPath(root, true);
   return withFileWriteLock(path, async () => {
-    const links = change(await readProjectFileLinks(root));
+    const links = await change(await readProjectFileLinks(root));
     const temporary = `${path}.${randomUUID()}.tmp`;
     try { await writeFile(temporary, JSON.stringify(links), { mode: 0o600, flag: "wx" }); await rename(temporary, path); }
     finally { await rm(temporary, { force: true }); }
@@ -67,4 +67,25 @@ export async function importProjectFile(root: string, path: string, bytes: Uint8
     if (error instanceof Error && "code" in error && error.code === "EEXIST") throw new ApiError(409, "file_exists", "A file with this name already exists. Choose another name.");
     throw error;
   } finally { await rm(temporary, { force: true }); }
+}
+
+/** Rename the folder and its virtual children under the same metadata lock.
+ * Prepare the new metadata first; roll the folder back if publication fails. */
+export async function renameProjectFileEntry(root: string, from: string, to: string) {
+  const source = join(root, from), destination = join(root, to);
+  if (!(await stat(source)).isDirectory()) { await rename(source, destination); return; }
+  const path = await linksPath(root, true);
+  await withFileWriteLock(path, async () => {
+    const links = await readProjectFileLinks(root);
+    const affected = (folder: string) => folder === from || folder.startsWith(`${from}/`);
+    if (!links.some(link => affected(link.folder))) { await rename(source, destination); return; }
+    const next = links.map(link => affected(link.folder) ? { ...link, folder: `${to}${link.folder.slice(from.length)}` } : link);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, JSON.stringify(next), { mode: 0o600, flag: "wx" });
+      await rename(source, destination);
+      try { await rename(temporary, path); }
+      catch (error) { await rename(destination, source); throw error; }
+    } finally { await rm(temporary, { force: true }); }
+  });
 }

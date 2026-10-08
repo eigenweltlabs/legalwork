@@ -5,12 +5,18 @@ Reviewed all 43 existing PR commits and the final task-navigation, composer and
 file-picker follow-up. This report supersedes earlier test counts; historical
 interaction evidence remains in the linked review reports.
 
+The [second adversarial follow-up](adversarial-followup-r2.md) subsequently fixed
+file-menu ownership, dirty task-attachment navigation and folder-link renames.
+App/server/desktop suites, app end-to-end checks, typechecks, builds and language
+checks were rerun; their latest results are reflected below. The other checks
+retain the results of the preceding full branch validation.
+
 ## Results
 
 | Command / check | Result |
 | --- | --- |
-| `pnpm --filter @legalwork/app test` | **1,101 passed**, 0 failed, after the file-picker change |
-| `OPENCODE_TEST_BINARY="$PWD/apps/desktop/resources/sidecars/opencode" pnpm --filter legalwork-server test` | **1,586 passed, 16 skipped**, 0 failed |
+| `pnpm --filter @legalwork/app test` | **1,107 passed**, 0 failed, after the second adversarial follow-up |
+| `OPENCODE_TEST_BINARY="$PWD/apps/desktop/resources/sidecars/opencode" pnpm --filter legalwork-server test` | **1,590 passed, 16 skipped**, 0 failed |
 | `pnpm --filter @legalwork/desktop test` | **213 passed, 2 skipped**, 0 failed |
 | From `apps/app`: `pnpm exec bun test scripts/*.test.ts` | **92 passed**, 0 failed |
 | `pnpm --filter opencode-router test:unit` | **24 passed**, 0 failed; includes cross-platform path regressions |
@@ -29,7 +35,7 @@ interaction evidence remains in the linked review reports.
 | `pnpm --filter @legalwork/desktop check:electron` | Passed, 110 renderer bridge methods |
 | `pnpm --filter @legalwork/app build` | Passed after final changes; existing bundle-size warnings |
 | `pnpm --filter legalwork-server build` | Passed, including typecheck and packaged runtime schema bundles |
-| App `test:i18n` and `pnpm exec node scripts/i18n-audit.mjs --ci` | Passed; **5,755 keys** in English and German |
+| App `test:i18n` and `pnpm exec node scripts/i18n-audit.mjs --ci` | Passed; **5,756 keys** in English and German |
 | `pnpm --filter legalwork-ui-mcp test` and `pnpm --filter @legalwork/handsfree check:js` | Passed |
 | `git diff --check` | Passed |
 

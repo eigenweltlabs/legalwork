@@ -90,3 +90,57 @@ test("read-only servers reject both new file operations", async () => {
   const { request } = await serve(true);
   for (const route of ["links", "import"]) { const response = await request(route, { source: sourceRef, folder: "", name: "Reference", path: "copy.md", dataBase64: "" }); expect(response.status).toBe(403); await response.arrayBuffer(); }
 });
+
+test("renaming a folder relocates its linked-file entries and descendants without changing sources", async () => {
+  const { source, target, request, base, token } = await serve();
+  await mkdir(join(target, "Folder/Nested"));
+  await mkdir(join(target, "Folder-other"));
+  for (const folder of ["Folder", "Folder/Nested", "Folder-other"]) {
+    const response = await request("links", { name: folder.replaceAll("/", "-"), folder, source: sourceRef });
+    expect(response.status).toBe(200); await response.arrayBuffer();
+  }
+  const before = (await (await request("links")).json()).links;
+  const session = (await (await request("sessions", { write: true })).json()).session;
+  const response = await fetch(`${base}/files/sessions/${session.id}/ops`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ operations: [{ type: "rename", from: "Folder", to: "Renamed", overwrite: false }] }),
+  });
+  expect((await response.json()).items[0].ok).toBe(true);
+  const after = (await (await request("links")).json()).links;
+  expect(after).toEqual(before.map((link: { folder: string }) => ({ ...link, folder: link.folder === "Folder" || link.folder.startsWith("Folder/") ? `Renamed${link.folder.slice("Folder".length)}` : link.folder })));
+  expect(await readFile(join(source, "contract.md"), "utf8")).toBe("Original");
+  expect((await (await request("list?path=Renamed")).json()).entries.map((entry: { name: string }) => entry.name)).toContain("Nested");
+});
+
+test("a failed folder rename preserves both the folder and its link locations", async () => {
+  const { target, request, base, token } = await serve();
+  await mkdir(join(target, "Taken"));
+  await writeFile(join(target, "Folder/kept.md"), "keep");
+  await (await request("links", { name: "Linked", folder: "Folder", source: sourceRef })).arrayBuffer();
+  const before = (await (await request("links")).json()).links;
+  const session = (await (await request("sessions", { write: true })).json()).session;
+  const response = await fetch(`${base}/files/sessions/${session.id}/ops`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ operations: [{ type: "rename", from: "Folder", to: "Taken", overwrite: false }] }),
+  });
+  expect((await response.json()).items[0].code).toBe("file_exists");
+  expect((await (await request("links")).json()).links).toEqual(before);
+  expect(await readFile(join(target, "Folder/kept.md"), "utf8")).toBe("keep");
+});
+
+test("link creation racing a folder rename cannot leave a link in the old location", async () => {
+  const { request, base, token } = await serve();
+  const session = (await (await request("sessions", { write: true })).json()).session;
+  const [moved, linked] = await Promise.all([
+    fetch(`${base}/files/sessions/${session.id}/ops`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ operations: [{ type: "rename", from: "Folder", to: "Renamed", overwrite: false }] }),
+    }).then(response => response.json()),
+    request("links", { name: "Linked", folder: "Folder", source: sourceRef }),
+  ]);
+  expect(moved.items[0].ok).toBe(true);
+  expect([200, 404]).toContain(linked.status); await linked.arrayBuffer();
+  const links = (await (await request("links")).json()).links;
+  expect(links).toHaveLength(linked.status === 200 ? 1 : 0);
+  for (const link of links) expect(link.folder).toBe("Renamed");
+});

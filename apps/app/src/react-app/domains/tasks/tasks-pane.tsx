@@ -20,8 +20,8 @@
  * The shared surface also renders a project's filtered list, either on its
  * Tasks page or embedded in Home. Project links do not duplicate task data.
  */
-import { useEffect, useMemo, useState } from "react";
-import { projectViewTab, type ArtifactPanelTab } from "../session/panel/panel-tab-store";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { projectViewTab } from "../session/panel/panel-tab-store";
 import { useRequestOpenTask, useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { ArtifactPanel } from "../session/artifacts/artifact-panel";
 import {
@@ -74,6 +74,7 @@ import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
 import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
 import { artifactDocumentKey, hasUnsavedSessionDocument } from "../session/artifacts/docx-document-state";
+import { createTaskAttachmentState } from "./task-attachment-state";
 import { TaskDetail } from "./task-detail";
 import { getTaskDraft, retainTaskDraftScope, taskDraftScope } from "./task-draft-cache";
 import { LinkProjectTaskDialog } from "./link-project-task-dialog";
@@ -145,7 +146,9 @@ export function TasksPane(props: TasksPaneProps) {
   const requestOpenTask = useRequestOpenTask();
   const requestPanelTab = useRequestPanelTab();
   const viewAll = props.detailMode === "panel" ? () => requestPanelTab(projectViewTab("tasks", t("projects.tasks"))) : props.onViewAll;
-  const [attachment, setAttachment] = useState<{ taskId: string; tab: ArtifactPanelTab } | null>(null);
+  const attachments = useMemo(() => createTaskAttachmentState(props.workspaceId, draftScope), [props.workspaceId, draftScope]);
+  const attachment = useSyncExternalStore(attachments.subscribe, attachments.getSnapshot, attachments.getSnapshot);
+  const attachmentRequest = useRef(0);
   const context = { client: props.client, workspaceId: props.workspaceId };
   const access = useTaskAccess(context);
 
@@ -162,9 +165,12 @@ export function TasksPane(props: TasksPaneProps) {
   const sort = useTaskFilterStore((state) => state.sort);
   const setSort = useTaskFilterStore((state) => state.setSort);
   const clearFilters = useTaskFilterStore((state) => state.clear);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, selectTaskId] = useState<string | null>(null);
+  const setSelectedTaskId = useCallback((id: string | null) => attachments.closeThen(() => {
+    attachmentRequest.current++;
+    selectTaskId(id);
+  }), [attachments]);
   const attachmentTab = attachment?.taskId === selectedTaskId ? attachment.tab : null;
-  useEffect(() => { setAttachment(null); }, [selectedTaskId]);
   const [startMode, setStartMode] = useState<StartTaskMode | null>(null);
   const [starting, setStarting] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -177,7 +183,7 @@ export function TasksPane(props: TasksPaneProps) {
     if (!openTask) return;
     setView("tasks");
     setSelectedTaskId(openTask.id);
-  }, [openTask, setView]);
+  }, [openTask, setView, setSelectedTaskId]);
 
   const query = useMemo<TaskQuery>(() => {
     // Home always shows this project's tasks, independently of the full page's filters.
@@ -266,10 +272,10 @@ export function TasksPane(props: TasksPaneProps) {
   const emptyHint =
     syncQuery.data && !syncQuery.data.connected && syncQuery.data.signedOut ? t("tasks.empty_signed_out_body") : null;
 
-  const switchView = (next: "tasks" | "trash") => {
+  const switchView = (next: "tasks" | "trash") => attachments.closeThen(() => {
     setView(next);
     setSelectedTaskId(null);
-  };
+  });
 
   const refresh = () => {
     // A connected firm gets a real round trip; otherwise the store is re-read.
@@ -298,7 +304,7 @@ export function TasksPane(props: TasksPaneProps) {
     });
   };
 
-  const remove = (task: LegalworkTask) => {
+  const remove = (task: LegalworkTask) => attachments.closeThen(() => {
     deleteTask.mutate(task.id, {
       onSuccess: () => {
         setSelectedTaskId(null);
@@ -306,7 +312,7 @@ export function TasksPane(props: TasksPaneProps) {
       },
       onError: (error) => toast.error(t("tasks.delete_failed"), { description: error instanceof Error ? error.message : undefined }),
     });
-  };
+  });
 
   const restore = (task: LegalworkTask) => {
     restoreTask.mutate(task.id, {
@@ -336,11 +342,13 @@ export function TasksPane(props: TasksPaneProps) {
    */
   const openAttachment = async (task: LegalworkTask, attachment: LegalworkTaskAttachment) => {
     if (!props.client || !props.workspaceId) throw new Error(t("side_panel.wait_for_workspace"));
+    const request = ++attachmentRequest.current;
     const file = await props.client.downloadTaskAttachment(props.workspaceId, task.id, attachment.id);
     const copy = new File([file.data], attachment.filename, { type: attachment.contentType });
     const tab = await importViewerFile(props.client, props.workspaceId, copy);
+    if (request !== attachmentRequest.current) return;
     if (props.detailMode === "panel") requestPanelTab(tab);
-    else setAttachment({ taskId: task.id, tab });
+    else attachments.open({ taskId: task.id, tab });
   };
 
   const startRun = async (task: LegalworkTask, selection: StartWorkflowSelection) => {
@@ -384,7 +392,7 @@ export function TasksPane(props: TasksPaneProps) {
       ? t("tasks.count_more", { count: tasks.length })
       : t("tasks.count", { count: tasks.length })
     : null;
-  const requestRun = (task: LegalworkTask, mode: StartTaskMode) => {
+  const requestRun = (task: LegalworkTask, mode: StartTaskMode) => attachments.closeThen(() => {
     setSelectedTaskId(task.id);
     const project = task.projectId ? props.workspaces.find((workspace) => workspace.id === task.projectId) : null;
     if (task.projectId && !project) {
@@ -393,7 +401,7 @@ export function TasksPane(props: TasksPaneProps) {
     }
     if (project && mode === "session") { void startRun(task, { workspace: project, workflowName: null }); return; }
     setStartMode(mode);
-  };
+  });
   const showingDetail = selectedTask !== null && props.detailMode !== "panel";
   const selectTask = (id: string) => {
     setSelectedTaskId(id);
@@ -472,11 +480,11 @@ export function TasksPane(props: TasksPaneProps) {
               label={t("tasks.column_status")}
               emptyLabel={t("tasks.status_all")}
               selected={statuses}
-              onChange={(values) => {
+              onChange={(values) => attachments.closeThen(() => {
                 setView("tasks");
                 setStatuses(values.filter(isTaskStatusValue));
                 setSelectedTaskId(null);
-              }}
+              })}
               options={[
                 { value: "open", label: taskStatusLabel("open") },
                 { value: "in_progress", label: taskStatusLabel("in_progress") },
@@ -606,9 +614,9 @@ export function TasksPane(props: TasksPaneProps) {
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           {selectedTask.projectId && props.onOpenInProject && <div className="flex justify-end px-4 pt-2"><Button variant="ghost" size="sm" onClick={() => {
             if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
-            props.onOpenInProject?.(selectedTask.projectId!, selectedTask);
+            attachments.closeThen(() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask));
           }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
-          {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => setAttachment(null)}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId="global-tasks" client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => setAttachment(null)} /></div>}
+          {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
           <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
             key={selectedTask.id}
             draft={selectedDraft}

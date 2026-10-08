@@ -1,5 +1,5 @@
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
-import { importProjectFile, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
+import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -1068,7 +1068,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
               return;
             }
             await ensureDir(dirname(toAbs));
-            await rename(fromAbs, toAbs);
+            await renameProjectFileEntry(workspace.path, from, to);
             recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
             items.push({ ok: true, type, from, to });
           });
@@ -1103,8 +1103,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     }
     const parsed = projectFileLinkSchema.safeParse({ ...body, id: body.id ?? randomUUID(), createdAt: Date.now() });
     if (!parsed.success) throw new ApiError(400, "invalid_payload", "Invalid project file link");
-    await projectFileParent(workspace.path, parsed.data.folder);
-    const links = await updateProjectFileLinks(workspace.path, links => {
+    const links = await updateProjectFileLinks(workspace.path, async links => {
+      await projectFileParent(workspace.path, parsed.data.folder);
       const duplicate = links.find(link => link.folder === parsed.data.folder && link.source.projectId === parsed.data.source.projectId && link.source.workspaceId === parsed.data.source.workspaceId && link.source.path === parsed.data.source.path && link.source.connectionId === parsed.data.source.connectionId);
       const id = typeof body.id === "string" ? body.id : duplicate?.id ?? parsed.data.id;
       if (typeof body.id === "string" && !links.some(link => link.id === id)) throw new ApiError(404, "not_found", "Link no longer exists");
