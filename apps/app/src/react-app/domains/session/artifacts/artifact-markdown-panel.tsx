@@ -62,9 +62,10 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     setDraft(draftRef.current);
   }, []);
   const query = useQuery({
-    queryKey: ["markdown-editor", workspaceId, target.value],
+    queryKey: ["markdown-editor", workspaceId, target.value, client.baseUrl],
     queryFn: () => client.readWorkspaceFile(workspaceId, target.value),
     refetchOnWindowFocus: true,
+    refetchInterval: sourceReadOnly ? 2000 : false,
   });
   const access = useDocumentOwnership({
     enabled: !sourceReadOnly && target.kind === "file",
@@ -132,7 +133,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         // Typed on while saving: that stays, and behind the file, so the next save merges again.
         return result.merged ? { ...current, baseline: snapshot.content } : savedMarkdownDraft(current, snapshot.content, result.updatedAt ?? null);
       });
-      queryClient.setQueryData(["markdown-editor", workspaceId, target.value], { ...result, content: written });
+      queryClient.setQueryData(["markdown-editor", workspaceId, target.value, client.baseUrl], { ...result, content: written });
       void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
       void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
       if (result.merged) toast.info(t("markdown.merged_changes"));
@@ -188,7 +189,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
     }
     update(() => ({ content: theirs.content, baseline: theirs.content, updatedAt: theirs.updatedAt }));
-    queryClient.setQueryData(["markdown-editor", workspaceId, target.value], { content: theirs.content, updatedAt: theirs.updatedAt });
+    queryClient.setQueryData(["markdown-editor", workspaceId, target.value, client.baseUrl], { content: theirs.content, updatedAt: theirs.updatedAt });
   };
 
   const imageUpload = useCallback(async (file: File) => {

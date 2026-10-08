@@ -1,3 +1,4 @@
+import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
@@ -96,7 +97,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
+import { parseWorkspaceAttachmentMention, createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PendingStatus } from "@/components/chat/pending-status";
@@ -497,6 +498,7 @@ function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }
 }
 
 export function SessionSurface(props: SessionSurfaceProps) {
+  const projectFiles = useProjectFiles();
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
   // No model connected at all (free tier retired): offer trial / BYO inline.
@@ -1012,7 +1014,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     isError: snapshotQuery.isError || Boolean(error),
   });
 
-  const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
+  const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[], draftMentions = mentions): ComposerDraft => {
     const modelContexts: string[] = [];
     const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
       if (!segment) return [] as ComposerDraft["parts"];
@@ -1029,7 +1031,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       }
       if (segment.startsWith("@")) {
         const value = decodeComposerMentionValue(segment.slice(1));
-        const kind = mentions[value];
+        const kind = draftMentions[value];
         if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
         if (kind === "upload") {
@@ -1067,7 +1069,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       resolved = resolved.replace(`[pasted text ${part.label}]`, () => part.text);
     }
     resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
-    for (const [value, kind] of Object.entries(mentions)) {
+    for (const [value, kind] of Object.entries(draftMentions)) {
       resolved = resolved.replaceAll(
         `@${encodeComposerMentionValue(value)}`,
         kind === "memory"
@@ -1096,6 +1098,31 @@ export function SessionSurface(props: SessionSurfaceProps) {
       command: slashCommand ?? undefined,
     };
   }, [mentions, pasteParts]);
+
+  const preparedProjectDraft = useRef<{ signature: string; draft: ComposerDraft; mentions: typeof mentions } | null>(null);
+  const prepareProjectAttachments = async (text: string, nextAttachments: ComposerAttachment[]) => {
+    // Reusing the captured bytes on retries also keeps the queue's idempotency key stable.
+    const signature = JSON.stringify([props.client.baseUrl, props.workspaceId, props.sessionId, text, mentions, pasteParts, nextAttachments.map(attachment => attachment.id)]);
+    if (preparedProjectDraft.current?.signature === signature) return preparedProjectDraft.current;
+    const prepared = { ...mentions };
+    let resolved = text;
+    for (const [value, kind] of Object.entries(mentions)) {
+      const token = `@${encodeComposerMentionValue(value)}`;
+      if (kind !== "upload" || !resolved.includes(token)) continue;
+      const attachment = parseWorkspaceAttachmentMention(value);
+      if (!attachment?.source) continue;
+      if (!projectFiles) throw new Error(t("project_files.source_unavailable"));
+      const source = attachment.source;
+      const saved = await projectFiles.readSaved(source);
+      const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, new File([saved.data], source.name, { type: saved.contentType ?? "application/octet-stream" }), `${source.name} · ${saved.projectName}`);
+      const versioned = `${reference}&${new URLSearchParams({ origin: saved.projectName, version: saved.version, originProject: source.projectId, originPath: source.path })}`;
+      resolved = resolved.replaceAll(token, `@${encodeComposerMentionValue(versioned)}`);
+      delete prepared[value]; prepared[versioned] = "upload";
+    }
+    const result = { signature, draft: buildDraft(resolved, nextAttachments, prepared), mentions: prepared };
+    preparedProjectDraft.current = result;
+    return result;
+  };
 
   const handleComposerDraftChange = useCallback((value: string) => {
     setComposerDraft(props.sessionId, value);
@@ -1149,7 +1176,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     queueSubmitting.current = true; setQueueSaving(true);
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
     try {
-      await sharedQueue.enqueue(buildDraft(text, attachments), async queue => { await props.onSendDraft(buildDraft(text, attachments), props.sessionId, { queue }); });
+      const prepared = await prepareProjectAttachments(text, attachments);
+      await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions });
+      preparedProjectDraft.current = null;
       // Typing during the request must not be cleared by its acknowledgement.
       if (useComposerStateStore.getState().sessions[props.sessionId] === editor) clearComposer();
       else if (editor?.queuedDraftId) {
@@ -2111,6 +2140,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
         onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
         onDropStorageFile={handleDropStorageFile}
+        onDropProjectFile={source => { try { if (!projectFiles) throw new Error(t("project_files.source_unavailable")); projectFiles.attach(source, props.sessionId); } catch (error) { toast.error(error instanceof Error ? error.message : t("project_files.failed")); } }}
         onDropWorkspaceFile={handleDropWorkspaceFile}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}

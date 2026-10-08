@@ -24,6 +24,7 @@
       "development": "./src/den/inference.ts",
       "default": "./src/den/inference.ts"
     },
+    "./project-files": "./src/project-files.ts",
     "./workspace": {
       "types": "./src/workspace.ts",
       "development": "./src/workspace.ts",

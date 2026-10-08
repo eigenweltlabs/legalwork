@@ -1,3 +1,4 @@
+import { useProjectFiles } from "../../workspace/project-file-context";
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
@@ -320,6 +321,7 @@ type FolderProps = Location & {
   busy: boolean;
 };
 function StorageFolder(props: FolderProps) {
+  const projectFiles = useProjectFiles();
   const { client, workspaceId, root, path, name, depth, selected, onSelect, onFile, onUpload, busy } = props;
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -488,7 +490,7 @@ function StorageFolder(props: FolderProps) {
                 aria-busy={incoming?.rootId === root.id && incoming.entry.path === entry.path || undefined}
                 disabled={incoming?.rootId === root.id && incoming.entry.path === entry.path}
                 draggable={!busy}
-                onDragStart={(event) => props.onDragItem(writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry))}
+                onDragStart={(event) => { props.onDragItem(writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry)); projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: entry.name, connectionId: root.id }); }}
                 onDragEnd={() => props.onDragItem(null)}
                 onClick={() => onFile(entry)}
                 title={entry.path}

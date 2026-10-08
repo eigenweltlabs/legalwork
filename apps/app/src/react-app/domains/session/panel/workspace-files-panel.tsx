@@ -1,3 +1,6 @@
+import { useProjectFiles } from "../../workspace/project-file-context";
+import { ProjectFileDropTarget } from "../../workspace/project-file-transfer";
+import { ProjectLinkedFiles } from "../../workspace/project-linked-files";
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -63,6 +66,8 @@ export function WorkspaceFilesPanel({
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
+  const projectFiles = useProjectFiles();
+  const projectId = client && workspaceId ? projectFiles?.identify(client, workspaceId, { path: "_", name: "_" })?.projectId : undefined;
   const pins = useFilePins().filter(pin => pin.workspaceId === workspaceId && pin.source === "local");
   const [path, setPath] = React.useState(() => (workspaceId ? lastPathByWorkspace.get(workspaceId) ?? "" : ""));
   const [showHidden, setShowHidden] = React.useState(false);
@@ -148,6 +153,7 @@ export function WorkspaceFilesPanel({
         onDragStart={(event) => {
           if (entry.kind !== "file" || !workspaceId) { event.preventDefault(); return; }
           writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: entry.path, name: displayName });
+          if (client) projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: displayName });
         }}
         onClick={() => (entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry))}
         onDoubleClick={() => { if (entry.kind !== "dir") onOpenFile(entry, true); }}
@@ -174,6 +180,7 @@ export function WorkspaceFilesPanel({
 
   return (
     <TooltipProvider delay={1000}>
+      <ProjectFileDropTarget projectId={projectId ?? ""} folder={path} className="flex h-full min-h-0 flex-1 flex-col">
       <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
         <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")}>
@@ -256,6 +263,7 @@ export function WorkspaceFilesPanel({
         <WorkspaceEntryMenu client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
           folderPath={path} onRefresh={() => void refetch()} className="flex min-h-0 flex-1 flex-col" contextOnly>
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
+          {client && workspaceId && projectId && <ProjectLinkedFiles client={client} workspaceId={workspaceId} projectId={projectId} folder={path} query={query} active={active} />}
           {!searching && pins.length > 0 && <section className="mb-3 border-b border-border/60 pb-3" aria-label={t("project_browser.pinned")}>
             <h3 className="flex items-center gap-2 px-2 py-2 text-xs font-medium text-muted-foreground"><Pin className="size-3.5" />{t("project_browser.pinned")}</h3>
             {pins.map(pin => renderEntry({ kind: "file", name: pin.name, path: pin.path }, true))}
@@ -267,7 +275,7 @@ export function WorkspaceFilesPanel({
                 const entry: LegalworkWorkspaceDirectoryEntry = { kind: "file", name: filePath.split("/").at(-1) || item.title, path: filePath, updatedAt: item.updatedAt };
                 return <WorkspaceEntryMenu key={item.id} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
                   folderPath={filePath.slice(0, Math.max(0, filePath.lastIndexOf("/")))} entry={entry} onOpen={() => onOpenFile(entry)} onRefresh={() => void search.refetch()}>
-                  <button className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { if (workspaceId) writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: filePath, name: entry.name }); }} onClick={() => onOpenFile(entry)}>
+                  <button className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { if (workspaceId) { writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: filePath, name: entry.name }); if (client) projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: filePath, name: entry.name }); } }} onClick={() => onOpenFile(entry)}>
                     <ArtifactIcon type={classifyOpenTarget(filePath, "file")} className="mt-0.5 size-5 shrink-0" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{filePath}</span>{item.excerpt && <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.excerpt}</span>}</span>
                   </button>
                 </WorkspaceEntryMenu>;
@@ -329,6 +337,7 @@ export function WorkspaceFilesPanel({
         </WorkspaceEntryMenu>
       </div>
       </ProjectFilesDropzone>
+      </ProjectFileDropTarget>
     </TooltipProvider>
   );
 }

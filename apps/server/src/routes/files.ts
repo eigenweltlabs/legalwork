@@ -1,4 +1,6 @@
-import { createHash } from "node:crypto";
+import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "@legalwork/types/project-files";
+import { importProjectFile, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -1075,6 +1077,48 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const events = fileSessions.listWorkspaceEvents(workspace.id, Number.MAX_SAFE_INTEGER);
     return jsonResponse({ items, cursor: events.cursor });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/files/links", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ links: await readProjectFileLinks(workspace.path) });
+  });
+  addRoute(routes, "POST", "/workspace/:id/files/links", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: "Update linked project files", paths: [join(workspace.path, ".legalwork", "project-file-links.json")] });
+    if (body.remove === true && typeof body.id === "string") {
+      const links = await updateProjectFileLinks(workspace.path, links => links.filter(link => link.id !== body.id));
+      return jsonResponse({ links });
+    }
+    const parsed = projectFileLinkSchema.safeParse({ ...body, id: body.id ?? randomUUID(), createdAt: Date.now() });
+    if (!parsed.success) throw new ApiError(400, "invalid_payload", "Invalid project file link");
+    await projectFileParent(workspace.path, parsed.data.folder);
+    const links = await updateProjectFileLinks(workspace.path, links => {
+      const duplicate = links.find(link => link.folder === parsed.data.folder && link.source.projectId === parsed.data.source.projectId && link.source.workspaceId === parsed.data.source.workspaceId && link.source.path === parsed.data.source.path && link.source.connectionId === parsed.data.source.connectionId);
+      const id = typeof body.id === "string" ? body.id : duplicate?.id ?? parsed.data.id;
+      if (typeof body.id === "string" && !links.some(link => link.id === id)) throw new ApiError(404, "not_found", "Link no longer exists");
+      return [...links.filter(link => link.id !== id), { ...parsed.data, id }];
+    });
+    return jsonResponse({ links });
+  });
+  addRoute(routes, "POST", "/workspace/:id/files/import", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const source = projectFileSourceSchema.safeParse(body.source);
+    if (!source.success || typeof body.path !== "string" || typeof body.dataBase64 !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.dataBase64)) throw new ApiError(400, "invalid_payload", "Invalid project file import");
+    const parsedPath = projectFilePath.safeParse(body.path);
+    if (!parsedPath.success) throw new ApiError(400, "invalid_path", "Invalid destination file");
+    const path = parsedPath.data;
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${source.data.name} into this project`, paths: [join(workspace.path, path)] });
+    const result = await importProjectFile(workspace.path, path, Buffer.from(body.dataBase64, "base64"));
+    recordWorkspaceFileEvent(workspace.id, { type: "write", path });
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: join(workspace.path, path), summary: `Copied saved file from project ${source.data.projectId}: ${source.data.path}`, timestamp: Date.now() });
+    return jsonResponse({ ok: true, ...result }, 201);
   });
 
   addRoute(routes, "GET", "/workspace/:id/files/content", "client", async (ctx) => {

@@ -1,3 +1,6 @@
+import type { ProjectFileSource } from "@legalwork/types/project-files";
+import { useProjectFiles } from "../../workspace/project-file-context";
+import { writeProjectFileDrag } from "@/app/lib/project-file-drag";
 import { acceptsProjectViewDrag, readProjectViewDrag } from "../sidebar/project-view-drag";
 import { projectViewTab } from "./panel-tab-store";
 import { projectViewLabel } from "./project-view";
@@ -174,7 +177,7 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
       if (!data) return;
       const chat = Boolean(workspaceId && onChatDrop && acceptsSessionDrag(data, workspaceId));
       const view = Boolean(workspaceId && onProjectViewDrop && acceptsProjectViewDrag(data, workspaceId));
-      const file = hasViewerFileDrag(data);
+      const file = !dragging && hasViewerFileDrag(data);
       if (file && !acceptFileDrops) { setOver(null); return; }
       if (onTabInsert && dragging && data.types.includes(TAB_DRAG_TYPE)) {
         event.preventDefault(); event.stopPropagation(); data.dropEffect = "move";
@@ -212,7 +215,7 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
       const data = event.dataTransfer;
       if (!data) return;
       const split = splitEdge(event);
-      if (hasViewerFileDrag(data)) {
+      if (!dragging && hasViewerFileDrag(data)) {
         if (!acceptFileDrops) return;
         event.preventDefault();
         event.stopPropagation();
@@ -293,6 +296,7 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
 
 type SidePanelTabProps = {
   tab: PanelTabEntry;
+  fileSource?: ProjectFileSource;
   pane: ViewerPane;
   destinations: DocumentPaneState[];
   canSplit: boolean;
@@ -308,10 +312,11 @@ type SidePanelTabProps = {
   onDragChange: (tabId: string | null) => void;
 };
 
-function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onMove, onSplit, onDragChange }: SidePanelTabProps) {
+function SidePanelTab({ tab, fileSource, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onMove, onSplit, onDragChange }: SidePanelTabProps) {
   const tabRef = React.useRef<HTMLDivElement>(null);
+  const sourceName = useProjectFiles()?.projects.find(project => project.projectId === fileSource?.projectId)?.name;
   const label = tab.type === "artifact" && tab.value && !tab.storage
-    ? projectFileDisplayName(tab.value, tab.label) : tab.label;
+    ? projectFileDisplayName(tab.value, tab.label) : tab.type === "project-view" ? projectViewLabel(tab.view) : tab.label;
 
   React.useEffect(() => {
     if (active) {
@@ -331,11 +336,12 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, prev
         ref={tabRef}
         data-panel-tab-id={tab.id}
         className="relative"
-        draggable={canMove}
+        draggable={canMove || Boolean(fileSource)}
         onDragStart={(event) => {
           onKeepOpen();
           event.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
           event.dataTransfer.effectAllowed = "move";
+          if (fileSource) { writeProjectFileDrag(event.dataTransfer, fileSource); event.dataTransfer.effectAllowed = "copyMove"; }
           onDragChange(tab.id);
         }}
         onDragEnd={() => onDragChange(null)}
@@ -344,7 +350,7 @@ function SidePanelTab({ tab, pane, destinations, canSplit, active, canMove, prev
           active={active}
           onClick={() => onSelect(tab.id)}
           onDoubleClick={onKeepOpen}
-          title={preview ? `${label} · ${t("workspace.preview_hint")}` : label}
+          title={fileSource ? `${label} · ${sourceName ?? fileSource.projectId} / ${fileSource.path}` : preview ? `${label} · ${t("workspace.preview_hint")}` : label}
           aria-label={t("side_panel.select_tab", { label })}
         >
           {tab.type === "browser" ? (
@@ -671,6 +677,7 @@ export function SidePanel({
   onCloseChat,
   onNewChat, renderProjectView, onOpenTabWindow, onDropChat, projectId,
 }: SidePanelProps) {
+  const projectFiles = useProjectFiles();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = React.useState(false);
   const session = useSessionPanelState(sessionId);
@@ -724,7 +731,7 @@ export function SidePanel({
     let destination = pane;
     let pendingSplit = split;
     importing.current = true;
-    setOpeningFile(drop.workspace?.name ?? drop.storage?.name ?? drop.memory?.name ?? drop.files[0]?.name ?? null);
+    setOpeningFile(drop.project?.name ?? drop.workspace?.name ?? drop.storage?.name ?? drop.memory?.name ?? drop.files[0]?.name ?? null);
     try {
       for await (const tab of viewerFileTabs(client, workspaceId, drop)) {
         if (!mounted.current) return;
@@ -733,7 +740,7 @@ export function SidePanel({
         if (destination && before && !before.panes.some(pane => pane.id === destination)) { toast.error(t("side_panel.drop_target_closed")); break; }
         store.openTab(sessionId, tab, destination, pendingSplit);
         const next = usePanelTabStore.getState().sessions[sessionId];
-        const opened = next?.tabs.find(entry => entry.id === tab.id || (entry.type === "artifact" && !entry.storage && !tab.storage && tab.value && entry.value === tab.value));
+        const opened = next?.tabs.find(entry => entry.id === tab.id || (entry.type === "artifact" && !entry.storage && !tab.storage && !entry.sourceProject && !tab.sourceProject && tab.value && entry.value === tab.value));
         if (next === before) {
           if (pendingSplit && before.panes.length >= MAX_DOCUMENT_PANES) toast.info(t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }));
           break;
@@ -754,10 +761,10 @@ export function SidePanel({
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId]);
   const openFiles = React.useMemo(() => tabs.flatMap((tab) => {
     if (tab.type !== "artifact") return [];
-    const path = tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
+    const path = tab.sourceProject?.path ?? tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
     const active = workspaceVisible && tab.id === focusedId;
-    return path ? [{ id: tab.id, sessionId, name: tab.label, path, active }] : [];
-  }), [tabs, transcriptTargets, sessionId, focusedId, workspaceVisible]);
+    return path ? [{ id: tab.id, sessionId, name: tab.label, path, active, workspaceId: tab.sourceProject?.workspaceId ?? workspaceId ?? undefined, projectId: tab.sourceProject?.projectId ?? projectId }] : [];
+  }), [tabs, transcriptTargets, sessionId, focusedId, workspaceVisible, workspaceId, projectId]);
   useControlOpenFiles(openFiles);
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
@@ -820,10 +827,12 @@ export function SidePanel({
 
   const selectFileAction = React.useMemo<LegalworkControlAction>(() => ({
     id: "documents.select_open", label: "Show an open file", sideEffect: "navigation", requiresArgs: true,
-    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }],
+    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "projectId", type: "string", required: false }],
     execute: (args) => {
       if (typeof args !== "object" || !args || Reflect.get(args, "sessionId") !== sessionId) return { ok: false, error: "No matching sidebar for this session." };
-      const file = openFiles.find((file) => file.path === Reflect.get(args, "path"));
+      const matches = openFiles.filter(file => file.path === Reflect.get(args, "path") && (!Reflect.get(args, "projectId") || file.projectId === Reflect.get(args, "projectId")));
+      if (matches.length > 1) return { ok: false, error: "Files from multiple projects match. Specify projectId." };
+      const file = matches[0];
       if (!file) return { ok: false, error: "This file is not open in the sidebar." };
       const visible = panes.some(pane => pane.activeTabId === file.id);
       if (!visible) {
@@ -946,7 +955,7 @@ export function SidePanel({
       <div className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
-            {paneTabs.map(tab => <SidePanelTab key={tab.id} tab={tab} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}
+            {paneTabs.map(tab => <SidePanelTab key={tab.id} tab={tab} fileSource={tab.type === "artifact" ? tab.sourceProject ?? (client && workspaceId && (tab.value || tab.storage) ? projectFiles?.identify(client, workspaceId, { name: tab.label, path: tab.storage?.file.path ?? tab.value!, connectionId: tab.storage?.root.id }) ?? undefined : undefined) : undefined} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}
               onOpenWindow={onOpenTabWindow} onSelect={id => { selectTab(id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); }} onClose={closeDocumentTab} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
           </PanelTabList>
         </div>
@@ -967,7 +976,7 @@ export function SidePanel({
     const relocating = draggingTab && draggingTab.pane !== pane.id && panes.find(source => source.id === draggingTab.pane)?.tabIds.length === 1;
     const sameLoneTab = draggingTab?.pane === pane.id && pane.tabIds.length === 1;
     return <TabDropZone workspaceId={projectId ?? workspaceId} onChatDrop={onDropChat} onProjectViewDrop={renderProjectView ? dropProjectView : undefined} pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
-      acceptFileDrops={tab?.type !== "chat" && tab?.type !== "review"}
+      acceptFileDrops={tab?.type !== "chat" && tab?.type !== "review" && !(tab?.type === "project-view" && (tab.view === "files" || tab.view === "sessions"))}
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
       {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
       {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty />}
@@ -1011,7 +1020,7 @@ export function SidePanel({
       {expanded && <ExpandedDocumentBar label={t("side_panel.restore_workspace")} onRestore={() => setExpanded(false)} />}
       <input ref={fileInputRef} type="file" multiple className="hidden" aria-label={t("side_panel.open_in_viewer")} onChange={event => {
         const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
-        void openFilesInViewer({ workspace: null, storage: null, memory: null, files }, fileInputPane.current);
+        void openFilesInViewer({ project: null, workspace: null, storage: null, memory: null, files }, fileInputPane.current);
       }} />
       {openingFile && <div role="status" className="pointer-events-none absolute bottom-4 left-1/2 z-50 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs shadow-sm">
         <Loader2 className="size-4 shrink-0 animate-spin" /><span className="truncate">{t("side_panel.opening_file", { name: openingFile })}</span>

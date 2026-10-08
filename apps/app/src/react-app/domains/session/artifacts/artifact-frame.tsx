@@ -1,10 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { createContext, use, useState, type ReactNode } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PanelHeader } from "@/react-app/design-system/panel-chrome";
 import { t } from "@/i18n";
 import { ExpandedDocumentBar } from "./expanded-document-bar";
+
+export const ArtifactOriginContext = createContext<ReactNode>(null);
 
 export function ArtifactFrame({ title, icon, meta, actions, expandable, children }: {
   title: string;
@@ -15,6 +17,7 @@ export function ArtifactFrame({ title, icon, meta, actions, expandable, children
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const origin = use(ArtifactOriginContext);
   return (
     <div
       data-artifact-expanded={expanded}
@@ -23,6 +26,7 @@ export function ArtifactFrame({ title, icon, meta, actions, expandable, children
         : "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background"}
     >
       {expanded && <ExpandedDocumentBar label={t("artifact.exit_fullscreen")} onRestore={() => setExpanded(false)} />}
+      {origin}
       <PanelHeader wrapActions title={title} icon={icon} meta={meta}>
         {actions}
         {expandable && (

@@ -1,3 +1,4 @@
+import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -3156,6 +3157,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           body: payload,
         },
       ),
+
+    projectFileLinks: (workspaceId: string) => requestJson<{ links: ProjectFileLink[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/links`, { token, hostToken }),
+    updateProjectFileLink: (workspaceId: string, link: Omit<ProjectFileLink, "id" | "createdAt"> & { id?: string } | { id: string; remove: true }) => requestJson<{ links: ProjectFileLink[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/links`, { token, hostToken, method: "POST", body: link }),
+    importProjectFile: (workspaceId: string, path: string, source: ProjectFileSource, data: ArrayBuffer) => requestJson<LegalworkWorkspaceFileWriteResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/import`, { token, hostToken, method: "POST", body: { path, source, dataBase64: arrayBufferToBase64(data) }, timeoutMs: timeouts.binary }),
 
     copyWorkspaceFile: (workspaceId: string, path: string, targetPath: string) =>
       requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/copy`, { token, hostToken, method: "POST", body: { path, targetPath }, timeoutMs: 900_000 }),

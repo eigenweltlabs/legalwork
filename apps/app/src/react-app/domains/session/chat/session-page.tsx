@@ -1,3 +1,4 @@
+import { ProjectFileProvider } from "../../workspace/project-file-context";
 import { isSessionListed, useSessionListRevision } from "../sidebar/session-list-visibility";
 import { acceptsProjectViewDrag } from "../sidebar/project-view-drag";
 import { ProjectFilesPage } from "../../workspace/project-files-page";
@@ -1162,6 +1163,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [windowTitle]);
 
   return (
+    <ProjectFileProvider groups={listedSessionGroups} client={props.environmentClient ?? null} createChat={props.sidebar.onCreateChatInWorkspace}>
     <ProjectPersonalisationProvider groups={listedSessionGroups} client={props.environmentClient ?? null}>
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
       <SidebarProvider
@@ -1678,5 +1680,6 @@ export function SessionPage(props: SessionPageProps) {
       {/* Cloud provider notifications are now handled globally by CloudProvidersToast in app-root.tsx */}
     </div>
     </ProjectPersonalisationProvider>
+    </ProjectFileProvider>
   );
 }

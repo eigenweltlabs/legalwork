@@ -1,3 +1,4 @@
+import { ProjectFileDropTarget } from "../../workspace/project-file-transfer";
 import { startProjectViewDrag } from "./project-view-drag";
 import { projectViewFromPath, workspaceViewRoute } from "@/react-app/shell/workspace-routes";
 import { PanelsTopLeft } from "lucide-react";
@@ -1014,7 +1015,7 @@ function WorkspaceSidebarGroup({
             className="group/collapsible"
           >
             <div className="group/workspace-header relative">
-              <WorkspaceHeader
+              <ProjectFileDropTarget projectId={workspace.id}><WorkspaceHeader
                 workspace={workspace}
                 isActive={isSelected}
                 aria-current={isSelected ? "location" : undefined}
@@ -1023,7 +1024,7 @@ function WorkspaceSidebarGroup({
                 isLoading={group.status === "loading" || isConnecting}
                 isRunning={group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
-              />
+              /></ProjectFileDropTarget>
               <div data-workspace-actions className="group/workspace-actions absolute right-9 top-1/2 flex -translate-y-1/2 items-center gap-1">
                 <Button
                   variant="ghost"
@@ -1084,17 +1085,17 @@ function WorkspaceSidebarGroup({
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectFiles: <SidebarMenuSubItem key="projectFiles">
-                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "files")} className={cn(PROJECT_FEATURE_CLASS, "border-t border-sidebar-border/60 mt-1 pt-2")} isActive={isSelected && ctx.activeProjectFeature === "files"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
+                    <ProjectFileDropTarget projectId={workspace.id}><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "files")} className={cn(PROJECT_FEATURE_CLASS, "border-t border-sidebar-border/60 mt-1 pt-2")} isActive={isSelected && ctx.activeProjectFeature === "files"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
                       <Files className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.files")}</span>
-                    </SidebarMenuSubButton>
+                    </SidebarMenuSubButton></ProjectFileDropTarget>
                   </SidebarMenuSubItem>,
                   projectSessions: <li key="projectSessions">
                     <div className="group/project-sessions-heading relative">
-                      <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-18")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
+                      <ProjectFileDropTarget projectId={workspace.id} mode="chat"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-18")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
                         <MessageSquare className="size-4" strokeWidth={1.5} />
                         <span className="min-w-0 truncate">{t("projects.sessions")}</span>
-                      </SidebarMenuSubButton>
+                      </SidebarMenuSubButton></ProjectFileDropTarget>
                       {config.collapseProjectSessions && <Button variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground" aria-label={t(showSessions ? "project_browser.collapse_sessions" : "project_browser.expand_sessions")} aria-expanded={showSessions} onClick={() => setSessionsOpen(!showSessions)}><ChevronRight className={cn("size-3.5 transition-transform", showSessions && "rotate-90")} /></Button>}
                       <Button variant="ghost" size="icon-xs" className="absolute right-12 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" disabled={ctx.newChatDisabled} aria-label={t("session.new_task")} title={t("session.new_task")} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare className="size-3.5" strokeWidth={1.5} /></Button>
                       <Button variant="ghost" size="icon-xs" className="absolute right-6 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>

@@ -1,3 +1,5 @@
+import { hasProjectFileDrag, readProjectFileDrag } from "@/app/lib/project-file-drag";
+import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
@@ -116,6 +118,7 @@ type ComposerProps = {
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
   onDropLegalMemoryFolder: (folder: LegalMemoryFolderDragItem) => void | Promise<void>;
   onDropStorageFile: (file: StorageFileDragItem) => void | Promise<void>;
+  onDropProjectFile?: (file: ProjectFileSource) => void;
   onDropWorkspaceFile: (file: WorkspaceFileDragItem) => void | Promise<void>;
   pastedText: PastedTextChip[];
   onExpandPastedText: (id: string) => void;
@@ -310,7 +313,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
   const [, setExtensionStateVersion] = useState(0);
-  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | "workspace" | null>(null);
+  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | "workspace" | "project" | null>(null);
   const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
   const [previewPastedLabel, setPreviewPastedLabel] = useState<string | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1105,7 +1108,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">
-                  {dropzoneKind === "workspace"
+                  {dropzoneKind === "project" ? t("project_files.attach") : dropzoneKind === "workspace"
                     ? t("composer.reference_workspace_file")
                     : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder")
@@ -1114,7 +1117,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                       : t("composer.attach_files")}
                 </div>
                 <div className="mt-1 text-xs text-dls-secondary">
-                  {dropzoneKind === "workspace"
+                  {dropzoneKind === "project" ? t("project_files.snapshot_hint") : dropzoneKind === "workspace"
                     ? t("composer.reference_workspace_file_hint")
                     : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder_hint")
@@ -1194,10 +1197,11 @@ export function ReactSessionComposer(props: ComposerProps) {
                 }
               }}
               onDragOver={(event) => {
-                if (event.dataTransfer && hasWorkspaceFileDrag(event.dataTransfer)) {
+                if (event.dataTransfer && (hasProjectFileDrag(event.dataTransfer) || hasWorkspaceFileDrag(event.dataTransfer))) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "copy";
-                  if (dropzoneKind !== "workspace") setDropzoneKind("workspace");
+                  const kind = hasProjectFileDrag(event.dataTransfer) ? "project" : "workspace";
+                  if (dropzoneKind !== kind) setDropzoneKind(kind);
                   return;
                 }
                 if (event.dataTransfer && hasLegalMemoryFolderDrag(event.dataTransfer)) {
@@ -1226,6 +1230,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneKind(null);
               }}
               onDrop={(event) => {
+                const projectFile = event.dataTransfer ? readProjectFileDrag(event.dataTransfer) : null;
+                if (projectFile && props.onDropProjectFile) { event.preventDefault(); event.stopPropagation(); setDropzoneKind(null); props.onDropProjectFile(projectFile); return; }
                 const workspaceFile = event.dataTransfer ? readWorkspaceFileDrag(event.dataTransfer) : null;
                 const memoryFolder = event.dataTransfer ? readLegalMemoryFolderDrag(event.dataTransfer) : null;
                 const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;

@@ -206,6 +206,12 @@
 .lw-workspace-shell:has([data-document-workspace-expanded="true"], [data-artifact-expanded="true"]) > .lw-window-topbar > * {
   visibility: hidden;
 }
+
+/* Editor isolation keeps drag targets above toolbars, but an expanded document
+   must join the window stack so the sidebar cannot cover its return controls. */
+[data-viewer-drop-target] .isolate:has([data-artifact-expanded="true"]) {
+  isolation: auto;
+}
 /* An expanded document inside an expanded workspace owns the return action. */
 [data-document-workspace-expanded="true"]:has([data-artifact-expanded="true"]) > [data-expanded-document-bar] {
   visibility: hidden;

@@ -46,7 +46,7 @@ export type LegalworkControlSnapshot = {
   actions: LegalworkControlActionMetadata[];
 };
 
-export type LegalworkOpenFile = { id: string; sessionId: string; name: string; path: string; active: boolean };
+export type LegalworkOpenFile = { id: string; sessionId: string; name: string; path: string; active: boolean; workspaceId?: string; projectId?: string };
 
 export type LegalworkControlSurface = {
   id: string;

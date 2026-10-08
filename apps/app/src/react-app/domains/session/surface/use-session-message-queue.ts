@@ -63,8 +63,8 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, [client, workspaceId, sessionId, update]);
   return {
     ready: query.isSuccess, error: query.error,
-    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>) => {
-      const editor = useComposerStateStore.getState().sessions[sessionId];
+    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState) => {
+      const editor = preparedEditor ?? useComposerStateStore.getState().sessions[sessionId];
       const snapshot = await snapshotQueuedDraft(draft, editor);
       const signature = JSON.stringify(snapshot);
       const current = editor?.queuedDraftId ? claim.current : null;

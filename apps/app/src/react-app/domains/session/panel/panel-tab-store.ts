@@ -1,3 +1,5 @@
+import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
+import { projectFileTab } from "../../workspace/project-file-tab";
 import { isProjectView, type ProjectView } from "./project-view";
 export type { ProjectView } from "./project-view";
 import type { SearchSourceReference } from "@legalwork/types/search";
@@ -49,6 +51,7 @@ export type ArtifactPanelTab = {
   label: string;
   preview: OpenTargetPreview;
   sourceSessionId?: string;
+  sourceProject?: ProjectFileSource;
   // Workspace-relative path for tabs opened directly from the workspace file
   // browser. Tabs without it resolve through the session's transcript targets.
   value?: string;
@@ -87,12 +90,16 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string };
+type PersistedPanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function restoredTab(value: unknown): PanelTab | null {
   if (!record(value) || typeof value.id !== "string") return null;
+  if (value.type === "artifact" && value.sourceProject) {
+    const source = projectFileSourceSchema.safeParse(value.sourceProject);
+    return source.success ? { ...projectFileTab(source.data), id: value.id } : null;
+  }
   if (value.type === "artifact" && value.storage) {
     const storage = storageFileSourceSchema.safeParse(value.storage);
     return storage.success ? storageFileTab(storage.data.workspaceId, storage.data.root, storage.data.file) : null;
@@ -180,7 +187,7 @@ function reconcileOpenArtifactTabs(session: SessionPanelState, targets: Array<{ 
   const tabs = session.tabs.flatMap<PanelTab>(tab => {
     if (tab.type !== "artifact") return [tab];
     const target = targetMap.get(tab.id);
-    return target ? [{ ...tab, label: target.name, preview: target.preview }] : tab.value || tab.storage ? [tab] : [];
+    return target ? [{ ...tab, label: target.name, preview: target.preview }] : tab.value || tab.storage || tab.sourceProject ? [tab] : [];
   });
   return normalizeSession({ ...session, tabs });
 }
@@ -192,11 +199,16 @@ function neighbour(session: SessionPanelState, pane: DocumentPaneState, tabId: s
   return left[index] ?? left[index - 1] ?? null;
 }
 
+function sameArtifact(scope: string, tab: PanelTab, other: PanelTab) {
+  if (tab.type !== "artifact" || other.type !== "artifact" || tab.storage || other.storage || tab.sourceProject?.connectionId || other.sourceProject?.connectionId || !tab.value || tab.value !== other.value) return false;
+  return (tab.sourceProject?.projectId ?? scope.slice(10)) === (other.sourceProject?.projectId ?? scope.slice(10));
+}
+
 /** A drop is one transaction: validate capacity and any displaced draft before
  * changing membership or geometry. A lone source can relocate at the pane limit. */
 function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, paneId?: string, edge?: DocumentDropEdge): SessionPanelState {
   const existing = session.tabs.find(entry => entry.id === tab.id ||
-    (tab.type === "artifact" && entry.type === "artifact" && !tab.storage && !entry.storage && tab.value && tab.value === entry.value));
+    sameArtifact(sessionId, tab, entry));
   if (existing) tab = { ...existing, ...tab, id: existing.id };
   const source = session.panes.find(pane => pane.tabIds.includes(tab.id));
   const destination = session.panes.find(pane => pane.id === (paneId ?? source?.id ?? session.focusedPaneId ?? session.panes[0].id));
@@ -220,7 +232,7 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
 }
 
 function openInSession(scope: string, session: SessionPanelState, tab: PanelTab, opening: WorkspaceOpening, width: number, pane?: string, edge?: DocumentDropEdge, preview = false) {
-  const existing = session.tabs.find(item => item.id === tab.id || (tab.type === "artifact" && item.type === "artifact" && !tab.storage && !item.storage && tab.value && item.value === tab.value));
+  const existing = session.tabs.find(item => item.id === tab.id || sameArtifact(scope, tab, item));
   const automatic = !pane && !edge && !existing && scope.startsWith("workspace:")
     ? automaticTabDestination(session, tab, opening, width) : {};
   let next = dockTab(scope, session, tab, pane ?? automatic.pane, edge ?? automatic.edge);
@@ -592,6 +604,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource") return [];
                 if (tab.type === "browser") return [{ id: tab.id, type: tab.type }];
+                if (tab.type === "artifact" && tab.sourceProject) return [{ ...projectFileTab(tab.sourceProject), id: tab.id }];
                 // Restore original workspace files, not downloaded credentials,
                 // cached storage working copies or ephemeral evidence viewers.
                 if (tab.type === "artifact" && tab.value && !tab.storage && !tab.searchSources && !tab.reviewCitation && !tab.reviewRecognition)

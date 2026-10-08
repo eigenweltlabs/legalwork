@@ -1,3 +1,4 @@
+import { ProjectFileDropTarget } from "./project-file-transfer";
 import { useMemo, useState } from "react";
 import { Archive, ArrowUpRight, ChevronDown, GitBranch, MessageSquare, MoreHorizontal, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import { matchesSearch } from "@legalwork/types/search";
@@ -41,7 +42,7 @@ export function ProjectSessionsPage(props: {
     <div className="lw-project-page-content lw-project-page-top pb-8">
       <header className="flex flex-wrap items-start justify-between gap-4 pb-5">
         <div><h1 className="text-2xl font-semibold tracking-tight">{t("projects.sessions")}</h1><p className="mt-1.5 text-sm text-muted-foreground">{t("project_browser.sessions_description")}</p></div>
-        <Button disabled={props.newDisabled} onClick={props.onNew}><Plus className="size-4" />{t("project_browser.new_session")}</Button>
+        <ProjectFileDropTarget projectId={props.workspaceId} mode="chat"><Button disabled={props.newDisabled} onClick={props.onNew}><Plus className="size-4" />{t("project_browser.new_session")}</Button></ProjectFileDropTarget>
       </header>
       <div className="flex flex-wrap items-center gap-3 pb-4">
         <div className="relative min-w-40 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9 pr-9" value={query} onChange={event => setQuery(event.target.value)} placeholder={t("project_browser.search_sessions")} aria-label={t("project_browser.search_sessions")} />{query && <Button variant="ghost" size="icon-xs" className="absolute right-1.5 top-1/2 -translate-y-1/2" aria-label={t("legalmemory.clear_search")} onClick={() => setQuery("")}><X className="size-3.5" /></Button>}</div>

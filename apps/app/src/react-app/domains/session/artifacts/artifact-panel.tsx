@@ -1,3 +1,4 @@
+import { ProjectFilePanel } from "../../workspace/project-file-panel";
 import { keepHandoffCopy } from "./document-handoff-copy";
 import { flushSync } from "react-dom";
 /** @jsxImportSource react */
@@ -58,6 +59,7 @@ type ArtifactPanelProps = {
   workspaceId: string | null;
   workspaceRoot: string;
   isRemoteWorkspace?: boolean;
+  localReadOnly?: boolean;
   onClose: () => void;
 };
 
@@ -99,7 +101,7 @@ function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
-export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
+export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[tab.sourceSessionId ?? sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
   // Tabs opened from the workspace file browser carry their own path, so they
@@ -117,6 +119,8 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
     updatedAt: tab.updatedAt,
   } satisfies OpenTarget : null);
 
+  if (tab.sourceProject) return <ProjectFilePanel key={tab.id} source={tab.sourceProject} tab={tab} sessionId={sessionId} onClose={onClose} />;
+
   if (tab.storage && client && workspaceId === tab.storage.workspaceId) {
     return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
       <StorageFilePanel
@@ -126,6 +130,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
         isRemoteWorkspace={isRemoteWorkspace}
         client={client}
         workspaceId={tab.storage.workspaceId}
+        localReadOnly={localReadOnly}
         root={tab.storage.root}
         file={tab.storage.file}
         onClose={onClose}
@@ -149,7 +154,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
 
   if (target.preview === "markdown") {
     return <OfficeEditorBoundary key={`${workspaceId}:${target.id}`}><Suspense fallback={<PreviewLoading />}>
-      <ArtifactMarkdownPanel sessionId={sessionId} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} target={target} onClose={onClose} />
+      <ArtifactMarkdownPanel sessionId={sessionId} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} localReadOnly={localReadOnly} target={target} onClose={onClose} />
     </Suspense></OfficeEditorBoundary>;
   }
 
@@ -162,6 +167,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
       workspaceRoot={workspaceRoot}
       isRemoteWorkspace={isRemoteWorkspace}
       target={target}
+      localReadOnly={localReadOnly}
       sourcePage={tab.sourcePage}
       onClose={onClose}
     />
@@ -234,7 +240,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   });
 
   const { data, error, isError, isLoading, refetch } = useQuery<ArtifactQueryState>({
-    queryKey: ["artifact-panel", workspaceId, target.id] as const,
+    queryKey: ["artifact-panel", workspaceId, target.id, client.baseUrl] as const,
     queryFn: async () => {
       if (target.kind === "url") {
         throw new Error(t("artifact.urls_open_in_browser"));
@@ -260,6 +266,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         revision: nextBinaryRevision(result.updatedAt),
       };
     },
+    refetchInterval: localReadOnly ? 2000 : false,
     refetchOnMount: "always",
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
@@ -281,7 +288,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
     revision: () => isBinaryEditor ? (isOfficeEditor ? officeApi.current : docxApi.current)?.revision() ?? -1 : isTextSheet && !editing ? sheetApi.current?.revision() ?? "" : draft,
     dirty: () => {
       // The save acknowledgement updates the cache before React paints it.
-      const saved = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id]);
+      const saved = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl]);
       return Boolean((target.preview === "word" ? docxApi.current?.isDirty() : documentDirtyRef.current) || (saved?.kind === "text" && draft !== saved.data));
     },
     discard: async () => {
@@ -381,7 +388,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       if (savedDocx) { snapshotRef.current = savedDocx; setDocumentSnapshot(savedDocx); }
       access.saved();
       queryClient.setQueryData<ArtifactQueryState>(
-        ["artifact-panel", workspaceId, target.id] as const,
+        ["artifact-panel", workspaceId, target.id, client.baseUrl] as const,
         input.kind === "text"
           ? { kind: "text", data: input.data, updatedAt: result.updatedAt ?? null }
           : savedDocx ?? {

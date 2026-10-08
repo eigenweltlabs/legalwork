@@ -1,3 +1,4 @@
+import type { ProjectFileLink } from "@legalwork/types/project-files";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */
@@ -117,8 +118,9 @@ function snapshot(id: string, title: string, prompt?: string): LegalworkSessionS
 
 function saveSnapshot(item: LegalworkSessionSnapshot) {
   snapshots.set(item.session.id, item);
-  queryClient.setQueryData(snapshotKey(workspace.id, item.session.id), item);
-  seedSessionState(workspace.id, item);
+  const projectId = item.session.directory === otherWorkspace.path ? otherWorkspace.id : workspace.id;
+  queryClient.setQueryData(snapshotKey(projectId, item.session.id), item);
+  seedSessionState(projectId, item);
 }
 
 saveSnapshot(snapshot(welcomeId, "New task"));
@@ -413,6 +415,20 @@ const fixtureClient: LegalworkServerClient = {
     } else files = files.filter(file => file.path !== operation.path);
     return { ok: true };
   }),
+  projectFileLinks: async (id) => ({ links: JSON.parse(localStorage.getItem(`legalwork:synthetic-links:${id}`) ?? "[]") }),
+  updateProjectFileLink: async (id, input) => {
+    const links: ProjectFileLink[] = JSON.parse(localStorage.getItem(`legalwork:synthetic-links:${id}`) ?? "[]");
+    const next = "remove" in input ? links.filter(link => link.id !== input.id) : [...links.filter(link => link.id !== input.id), { ...input, id: input.id ?? crypto.randomUUID(), createdAt: Date.now() }];
+    localStorage.setItem(`legalwork:synthetic-links:${id}`, JSON.stringify(next));
+    return { links: next };
+  },
+  importProjectFile: async (_id, path, _source, data) => {
+    if (files.some(file => file.path === path)) throw new LegalworkServerError(409, "file_exists", "A synthetic file already has that name.");
+    const updatedAt = Date.now();
+    files.push({ name: path.split("/").at(-1)!, path, kind: "file", size: data.byteLength });
+    localStorage.setItem(`legalwork:synthetic-file:${path}`, JSON.stringify({ content: new TextDecoder().decode(data), updatedAt }));
+    return { ok: true, path, bytes: data.byteLength, updatedAt };
+  },
   listWorkspaceDirectory: async (_workspaceId, path) => ({
     path, entries: path ? files.filter((file) => file.kind === "file").map((file) => ({ ...file, path: `${path}/${file.name}` })) : files, truncated: false,
   }),
@@ -464,6 +480,8 @@ function SessionPreview() {
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   useEffect(() => {
+    const projectRoute = location.pathname.match(/^\/workspace\/([^/]+)/);
+    if (projectRoute) setActiveWorkspace(decodeURIComponent(projectRoute[1]) === workspace.id ? workspace : otherWorkspace);
     if (location.pathname === "/home") { setShowHome(true); setShowWorkflows(false); return; }
     const route = location.pathname.match(/^\/workspace\/[^/]+\/session(?:\/([^/]+))?$/);
     if (projectPage) { setShowHome(false); setShowWorkflows(false); }
@@ -476,22 +494,25 @@ function SessionPreview() {
   const pendingHome = useRef<PendingHomeMessage>({ sessionId: null, uploads: new Map() });
   const failHome = useRef(previewParams.has("home-fail"));
   const groups: WorkspaceSessionGroup[] = [
-    { workspace, status: "ready", sessions: Array.from(snapshots.values()).map((item) => item.session) },
-    { workspace: otherWorkspace, status: "ready", sessions: [] },
+    { workspace, status: "ready", sessions: Array.from(snapshots.values()).map((item) => item.session).filter(session => session.directory !== otherWorkspace.path) },
+    { workspace: otherWorkspace, status: "ready", sessions: Array.from(snapshots.values()).map(item => item.session).filter(session => session.directory === otherWorkspace.path) },
   ];
-  const newTask = () => {
+  const newTask = (projectId = activeWorkspace.id) => {
     const id = `visual-new-${crypto.randomUUID()}`;
     registerEmptySession(id);
-    queryClient.setQueryData(transcriptKey(workspace.id, id), []);
-    saveSnapshot(snapshot(id, "New task"));
-    navigate(`/workspace/${activeWorkspace.id}/session/${id}`);
+    queryClient.setQueryData(transcriptKey(projectId, id), []);
+    const created = snapshot(id, "New task");
+    const owner = projectId === workspace.id ? workspace : otherWorkspace;
+    saveSnapshot({ ...created, session: { ...created.session, directory: owner.path } });
+    navigate(`/workspace/${projectId}/session/${id}`);
     setSelectedSessionId(id);
     setRevision((value) => value + 1);
     return id;
   };
   const sendDraft = (draft: ComposerDraft, sessionId: string) => {
     const previous = snapshots.get(sessionId);
-    const next = snapshot(sessionId, draft.text.slice(0, 44) || "Sample review", draft.text);
+    const next = snapshot(sessionId, draft.resolvedText.slice(0, 44) || "Sample review", draft.resolvedText);
+    next.session.directory = previous?.session.directory ?? activeWorkspace.path;
     saveSnapshot({ ...next, messages: [...(previous?.messages ?? []), ...next.messages] });
     setRevision((value) => value + 1);
   };
@@ -539,7 +560,7 @@ function SessionPreview() {
           /> : showWorkflows ? <WorkflowsPreview reviewClient={fixtureClient} /> : undefined}
           selectedSessionId={selectedSessionId} selectedWorkspaceId={activeWorkspace.id} selectedWorkspaceDisplay={{ ...activeWorkspace, displayName: activeWorkspace.displayName ?? activeWorkspace.name }}
           selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={[workspace, otherWorkspace]}
-          clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient}
+          clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
           mcpConnectedCount={0} onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}

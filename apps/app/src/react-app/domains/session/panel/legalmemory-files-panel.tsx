@@ -1,3 +1,4 @@
+import { useProjectFiles } from "../../workspace/project-file-context";
 /** @jsxImportSource react */
 import { StorageDriveTree } from "./storage-drive-tree";
 import { StorageDriveSearch } from "./storage-drive-search";
@@ -103,7 +104,8 @@ export function LegalMemoryFilesPanel({
     return () => window.removeEventListener(LEGALMEMORY_CONNECTION_CHANGED_EVENT, resetDisconnectedTree);
   }, []);
 
-  const pins = useFilePins().filter(pin => pin.workspaceId === workspaceId && pin.source !== "local");
+  const projectFiles = useProjectFiles();
+  const pins = useFilePins().filter(pin => pin.workspaceId === workspaceId && pin.source !== "local" && pin.source !== "project-link");
   const storageRoots = useQuery({
     queryKey: ["storage-roots", workspaceId],
     queryFn: () => client!.storageRoots(workspaceId!),
@@ -378,7 +380,7 @@ export function LegalMemoryFilesPanel({
             if (!root || !client || !workspaceId) return <div key={filePinKey(pin)} className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"><span className="min-w-0 flex-1 truncate">{pin.name} · {t("project_browser.file_unavailable")}</span><Button size="icon-sm" variant="ghost" aria-label={t("project_browser.unpin", { name: pin.name })} onClick={() => toggleFilePin(pin)}><Pin className="size-3.5 fill-current" /></Button></div>;
             const file: StorageEntry = { name: pin.name, path: pin.path, kind: "file", size: null, modifiedAt: null };
             return <StorageEntryMenu key={filePinKey(pin)} client={client} workspaceId={workspaceId} root={root} file={file} onOpen={() => onOpenStorageFile(root, file)}>
-              <button className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => writeStorageEntryDrag(event.dataTransfer, workspaceId, root, file)} onClick={() => onOpenStorageFile(root, file)} title={`${root.name} / ${file.path}`}><ArtifactIcon type={classifyOpenTarget(file.name, "file")} className="size-5 shrink-0" /><span className="min-w-0 flex-1"><span className="block truncate">{file.name}</span><span className="block truncate text-[10px] text-muted-foreground">{root.name} / {file.path}</span></span></button>
+              <button className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { writeStorageEntryDrag(event.dataTransfer, workspaceId, root, file); projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: file.path, name: file.name, connectionId: root.id }); }} onClick={() => onOpenStorageFile(root, file)} title={`${root.name} / ${file.path}`}><ArtifactIcon type={classifyOpenTarget(file.name, "file")} className="size-5 shrink-0" /><span className="min-w-0 flex-1"><span className="block truncate">{file.name}</span><span className="block truncate text-[10px] text-muted-foreground">{root.name} / {file.path}</span></span></button>
             </StorageEntryMenu>;
           })}
         </section>}
