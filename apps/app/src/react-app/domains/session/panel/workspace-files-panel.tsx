@@ -54,7 +54,11 @@ function workspaceDisplayName(workspaceRoot: string): string {
   return name || "Workspace";
 }
 
-export function WorkspaceFilesPanel({
+export function WorkspaceFilesPanel(props: WorkspaceFilesPanelProps) {
+  return <WorkspaceFilesPanelContent key={`${props.client?.baseUrl}:${props.workspaceId}`} {...props} />;
+}
+
+function WorkspaceFilesPanelContent({
   client,
   workspaceId,
   workspaceRoot,
@@ -66,10 +70,11 @@ export function WorkspaceFilesPanel({
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
+  const scope = `${client?.baseUrl}:${workspaceId}`;
   const projectFiles = useProjectFiles();
   const projectId = client && workspaceId ? projectFiles?.identify(client, workspaceId, { path: "_", name: "_" })?.projectId : undefined;
   const pins = useFilePins().filter(pin => pin.workspaceId === workspaceId && pin.source === "local");
-  const [path, setPath] = React.useState(() => (workspaceId ? lastPathByWorkspace.get(workspaceId) ?? "" : ""));
+  const [path, setPath] = React.useState(() => (workspaceId ? lastPathByWorkspace.get(scope) ?? "" : ""));
   const [showHidden, setShowHidden] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -79,7 +84,7 @@ export function WorkspaceFilesPanel({
   }, [query]);
   const searching = searchable && Boolean(query.trim());
   const search = useQuery({
-    queryKey: ["project-file-search", workspaceId, searchQuery],
+    queryKey: ["project-file-search", workspaceId, searchQuery, client?.baseUrl],
     queryFn: ({ signal }) => client!.searchContents(workspaceId!, "files", searchQuery, signal),
     enabled: Boolean(searchable && active && client && workspaceId && searchQuery),
     staleTime: 15_000,
@@ -88,14 +93,14 @@ export function WorkspaceFilesPanel({
 
   React.useEffect(() => {
     if (workspaceId) {
-      lastPathByWorkspace.set(workspaceId, path);
+      lastPathByWorkspace.set(scope, path);
     }
-  }, [path, workspaceId]);
+  }, [path, workspaceId, scope]);
   const breadcrumbsRef = React.useRef<HTMLElement>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
 
   const { data, error, isError, isLoading, isFetching, refetch } = useQuery<LegalworkWorkspaceDirectoryList>({
-    queryKey: ["workspace-files", workspaceId, path] as const,
+    queryKey: ["workspace-files", workspaceId, path, client?.baseUrl] as const,
     queryFn: async () => {
       if (!client || !workspaceId) {
         throw new Error(t("workspace_files.not_connected"));
@@ -183,7 +188,7 @@ export function WorkspaceFilesPanel({
       <ProjectFileDropTarget projectId={projectId ?? ""} folder={path} className="flex h-full min-h-0 flex-1 flex-col">
       <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
-        <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")}>
+        <PanelHeader wrapActions headerTarget={headerTarget} title={t("workspace_files.files")}>
           <WorkspaceEntryMenu client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
             folderPath={path} onRefresh={() => void refetch()} toolbar />
           <Tooltip>

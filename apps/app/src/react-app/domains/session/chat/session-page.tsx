@@ -162,7 +162,7 @@ export type SessionPageSidebarProps = {
   onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
-  onCreateChatInWorkspace: (workspaceId: string) => void | string | Promise<string | void>;
+  onCreateChatInWorkspace: (workspaceId: string, options?: { paneId?: string }) => void | string | Promise<string | void>;
   onCreateChatWithPrompt?: (workspaceId: string, prompt: string) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;
@@ -1385,7 +1385,7 @@ export function SessionPage(props: SessionPageProps) {
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">
             <div className="relative h-full min-w-0 overflow-hidden bg-dls-surface mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-              {showStartupSkeleton ? (
+              {showStartupSkeleton && !canRenderWorkspace ? (
                 <div className="px-6 py-14" role="status" aria-live="polite">
                   <div className="mx-auto max-w-2xl space-y-6">
                     <div className="space-y-2">
@@ -1413,7 +1413,7 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {showDelayedSessionLoadingState && !canRenderReactSurface ? (
+              {showDelayedSessionLoadingState && !canRenderWorkspace ? (
                 <div className="px-6 py-16">
                   <div
                     className="mx-auto flex max-w-[320px] flex-col items-center gap-3 text-center"
@@ -1589,13 +1589,7 @@ export function SessionPage(props: SessionPageProps) {
                 openSessionTab(props.selectedWorkspaceId, id);
               }
             }}
-            onNewChat={async pane => {
-              const id = await props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId);
-              if (!id) return;
-              const store = usePanelTabStore.getState();
-              if (!store.sessions[workspaceScope]?.tabs.some(tab => tab.type === "chat" && tab.sessionId === id)) store.adoptChat(workspaceScope, id, t("session.default_title"));
-              store.moveTab(workspaceScope, `chat:${id}`, pane);
-            }}
+            onNewChat={pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
             onFocusChat={id => openSessionTab(props.selectedWorkspaceId, id)}
             onCloseChat={(id, nextId) => {
               if (id === props.selectedSessionId) navigate(workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });

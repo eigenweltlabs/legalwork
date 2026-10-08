@@ -106,8 +106,11 @@ export class SessionMessageQueue {
         if (!action.paused) for (const item of queue.entries) { if (item.status === "failed") item.status = "queued"; delete item.error; }
       } else if (action.type === "reorder") {
         const requested = new Set(action.ids);
-        if (requested.size !== action.ids.length || requested.size !== queue.entries.length || queue.entries.some(item => !requested.has(item.id)) || queue.entries.some(item => item.status === "sending")) throw conflict();
-        queue.entries.sort((a, b) => action.ids.indexOf(a.id) - action.ids.indexOf(b.id));
+        const waiting = queue.entries.filter(item => item.status !== "sending");
+        if (requested.size !== action.ids.length || requested.size !== waiting.length || waiting.some(item => !requested.has(item.id))) throw conflict();
+        waiting.sort((a, b) => action.ids.indexOf(a.id) - action.ids.indexOf(b.id));
+        // The in-flight delivery keeps its place and cannot be sent a second time.
+        queue.entries = [...queue.entries.filter(item => item.status === "sending"), ...waiting];
       } else {
         if (!entry || entry.status === "sending") throw conflict();
         if (action.type === "edit") {

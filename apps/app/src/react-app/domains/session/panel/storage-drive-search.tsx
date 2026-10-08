@@ -42,7 +42,7 @@ function ConnectionSearch({
   const projectFiles = useProjectFiles();
   const [visibleLimit, setVisibleLimit] = useState(STORAGE_PAGE_SIZE);
   const search = useInfiniteQuery({
-    queryKey: ["storage-filename-search", workspaceId, root.id, query, refreshKey],
+    queryKey: ["storage-filename-search", workspaceId, root.id, query, refreshKey, client.baseUrl],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       client.storageFilenameSearch(workspaceId, root.id, { query, path: "", cursor: pageParam }, signal),

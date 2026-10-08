@@ -133,3 +133,26 @@ test("a deleted session cannot dispatch queued work", async () => {
   expect((await queue.read("w", "s")).entries).toHaveLength(0);
   expect(sends).toBe(0);
 });
+
+test("waiting messages can be reordered during delivery without moving or resending the running prompt", async () => {
+  let idle = false;
+  let release = () => {};
+  const delivery = new Promise<void>(resolve => { release = resolve; });
+  const sent: string[] = [];
+  const { queue } = await setup({ idle: async () => idle, send: async (_w, _s, entry) => { sent.push(entry.id); await delivery; } });
+  const a = message("running"), b = message("second"), c = message("third");
+  for (const item of [a, b, c]) await queue.act("w", "s", item);
+  idle = true; await queue.tick();
+  await until(async () => { await queue.tick(); return (await queue.read("w", "s")).entries[0].status === "sending"; });
+  const before = await queue.read("w", "s");
+  await expect(queue.act("w", "s", { type: "reorder", ids: [c.id, b.id], revision: before.revision - 1 })).rejects.toThrow();
+  await expect(queue.act("w", "s", { type: "reorder", ids: [c.id, c.id], revision: before.revision })).rejects.toThrow();
+  await expect(queue.act("w", "s", { type: "reorder", ids: [a.id, c.id, b.id], revision: before.revision })).rejects.toThrow();
+  const reordered = await queue.act("w", "s", { type: "reorder", ids: [c.id, b.id], revision: before.revision });
+  expect(reordered.entries.map(item => item.id)).toEqual([a.id, c.id, b.id]);
+  expect(reordered.entries[0].status).toBe("sending");
+  release(); await until(async () => (await queue.read("w", "s")).entries.length === 2);
+  await until(async () => { await queue.tick(); return (await queue.read("w", "s")).entries.length === 1; });
+  await until(async () => { await queue.tick(); return (await queue.read("w", "s")).entries.length === 0; });
+  expect(sent).toEqual([a.id, c.id, b.id]);
+});

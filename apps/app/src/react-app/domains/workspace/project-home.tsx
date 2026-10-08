@@ -75,12 +75,12 @@ export function ProjectHome(props: {
     select: (data) => withInitialProjectFields(data, savedDefaults ?? defaultAkteFields()),
   });
   const rootFiles = useQuery({
-    queryKey: ["project-files", workspaceId, ""],
+    queryKey: ["project-files", workspaceId, "", client.baseUrl],
     queryFn: () => client.listWorkspaceDirectory(workspaceId, ""),
   });
   const hasNotes = Boolean(rootFiles.data?.entries.some((entry) => entry.kind === "dir" && entry.name === "Notes"));
   const notes = useQuery({
-    queryKey: ["project-notes", workspaceId],
+    queryKey: ["project-notes", workspaceId, client.baseUrl],
     queryFn: () => client.listWorkspaceDirectory(workspaceId, "Notes"),
     enabled: hasNotes,
   });

@@ -337,7 +337,7 @@ function StorageFolder(props: FolderProps) {
   }, [props.dragItem]);
   const isPending = props.pendingTransfer?.rootId === root.id && props.pendingTransfer.entry.kind === "folder" && props.pendingTransfer.entry.path === path;
   const children = useInfiniteQuery({
-    queryKey: ["storage-children", workspaceId, root.id, path, root.revision],
+    queryKey: ["storage-children", workspaceId, root.id, path, root.revision, client.baseUrl],
     queryFn: ({ pageParam }) => client.storageChildren(workspaceId, root.id, path, pageParam),
     initialPageParam: ((): string | undefined => undefined)(),
     getNextPageParam: (page) => page.nextCursor,

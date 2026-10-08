@@ -493,12 +493,13 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return execResult(true, `Wrote ${legalworkPath}`);
   }
 
-  async function writeWorkspaceState(nextState) {
+  async function writeWorkspaceStateUnchecked(nextState) {
     const outputPath = workspaceStatePath();
     const selectedId = String(nextState?.selectedId ?? nextState?.activeId ?? "");
     const watchedId = typeof nextState?.watchedId === "string" ? nextState.watchedId : "";
     const output = {
       ...nextState,
+      recoveryCompleted: true,
       // Tauri's Rust state uses selectedWorkspaceId/watchedWorkspaceId on disk
       // with activeId as a legacy alias. Keep Electron's selectedId/watchedId
       // too so older Electron builds can still read the same file.
@@ -512,7 +513,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return output;
   }
 
-  async function readWorkspaceState() {
+  async function readWorkspaceStateUnchecked() {
     const state = await readJsonFile(workspaceStatePath(), EMPTY_WORKSPACE_LIST);
     let selectedId =
       typeof state?.selectedId === "string"
@@ -530,8 +531,8 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
           : null;
     let activeId = typeof state?.activeId === "string" ? state.activeId : null;
     let workspaces = Array.isArray(state?.workspaces) ? state.workspaces : [];
-    let changed = false;
-    if (workspaces.length === 0 && process.env.LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY !== "1") {
+    let changed = state?.recoveryCompleted !== true;
+    if (!state?.recoveryCompleted && workspaces.length === 0 && process.env.LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY !== "1") {
       const recoveredWorkspaces = await recoverWorkspacesFromKnownState();
       if (recoveredWorkspaces.length > 0) {
         const selectedWorkspace = recoveredWorkspaces[0];
@@ -600,6 +601,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     if (migratedSelectedId !== selectedId || migratedWatchedId !== watchedId || migratedActiveId !== activeId) changed = true;
 
     const nextState = {
+      recoveryCompleted: true,
       selectedId: migratedSelectedId,
       watchedId: migratedWatchedId,
       activeId: migratedActiveId,
@@ -607,15 +609,35 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     };
 
     if (changed) {
-      return writeWorkspaceState(nextState);
+      return writeWorkspaceStateUnchecked(nextState);
     }
     return nextState;
   }
 
-  async function mutateWorkspaceState(mutator) {
-    const current = await readWorkspaceState();
-    const next = await mutator({ ...current, workspaces: [...current.workspaces] });
-    return writeWorkspaceState(next);
+  // Reads may migrate state too. Serialize the entire transaction so a second
+  // window cannot overwrite a removal with a selection based on an older list.
+  let stateOperations = Promise.resolve();
+  /** @template T
+   * @param {() => Promise<T>} operation
+   * @returns {Promise<T>}
+   */
+  function withWorkspaceState(operation) {
+    const result = stateOperations.then(operation);
+    stateOperations = result.then(() => undefined, () => undefined);
+    return result;
+  }
+  function readWorkspaceState() {
+    return withWorkspaceState(readWorkspaceStateUnchecked);
+  }
+  function writeWorkspaceState(state) {
+    return withWorkspaceState(() => writeWorkspaceStateUnchecked(state));
+  }
+  function mutateWorkspaceState(mutator) {
+    return withWorkspaceState(async () => {
+      const current = await readWorkspaceStateUnchecked();
+      const next = await mutator({ ...current, workspaces: [...current.workspaces] });
+      return writeWorkspaceStateUnchecked(next);
+    });
   }
 
   async function listLocalWorkspacePaths() {
@@ -638,6 +660,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
         const created = (await recoverWorkspacesFromServerConfig()).find((entry) => entry.id === workspaceId);
         if (created) state.workspaces.unshift(created);
       }
+      if (workspaceId && !state.workspaces.some((entry) => entry.id === workspaceId)) return state;
       state.selectedId = workspaceId;
       state.activeId = workspaceId || null;
       return state;

@@ -50,6 +50,7 @@ import { useSessionManagementStore as sessionManagementStore } from "@/react-app
 import {
   buildLegalworkWorkspaceBaseUrl,
   createLegalworkServerClient,
+  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerClient,
   type LegalworkWorkspaceInfo,
@@ -456,7 +457,7 @@ export function SessionRoute() {
     setLegacySelectedWorkspaceId,
     retryingWorkspaceIds,
     setRetryingWorkspaceIds,
-    refreshInFlightRef,
+    forgetSession,
     startupRetryTimerRef,
     selectedWorkspaceId,
     selectedWorkspace,
@@ -486,7 +487,7 @@ export function SessionRoute() {
     }
   }, (workspaceIds) => {
     // Sync took these projects off this computer (access ended, or removed from Home).
-    void Promise.all(workspaceIds.map((id) => forgetWorkspaceHere(id))).then(() => refreshRouteState());
+    void Promise.all(workspaceIds.map((id) => forgetWorkspaceHere(id))).then(() => refreshRouteState()).catch(error => toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) }));
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
@@ -1676,7 +1677,7 @@ export function SessionRoute() {
   const forgetWorkspaceHere = useCallback(
     async (workspaceId: string) => {
       if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId).catch(() => undefined);
+        await workspaceForget(workspaceId);
       }
       if (selectedWorkspaceId === workspaceId) {
         setLegacySelectedWorkspaceId("");
@@ -1697,17 +1698,25 @@ export function SessionRoute() {
           "Remove this workspace from the sidebar?";
         if (!window.confirm(message)) return;
       }
-      if (client) {
-        await client.deleteWorkspace(workspaceId).catch(() => undefined);
+      try {
+        const workspace = workspaces.find(item => item.id === workspaceId);
+        if (workspace?.workspaceType !== "remote") {
+          if (!client) throw new Error(t("session_route.create_server_unavailable"));
+          await client.deleteWorkspace(workspaceId).catch(error => {
+            if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
+          });
+        }
+        await forgetWorkspaceHere(workspaceId);
+        await refreshRouteState();
+      } catch (error) {
+        toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
       }
-      await forgetWorkspaceHere(workspaceId);
-      await refreshRouteState();
     },
-    [client, forgetWorkspaceHere, refreshRouteState],
+    [client, workspaces, forgetWorkspaceHere, refreshRouteState],
   );
 
 
-  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId: string }) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1761,6 +1770,11 @@ export function SessionRoute() {
         );
         if (!shared) toast.error(useRecorderStore.getState().error || t("recorder.live_transcript_failed"));
       }
+      if (options?.paneId) {
+        usePanelTabStore.getState().openTab(workspacePanelKey(workspaceId), {
+          id: `chat:${session.id}`, type: "chat", sessionId: session.id, label: session.title || t("session.default_title"),
+        }, options.paneId);
+      }
       navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
@@ -1782,7 +1796,6 @@ export function SessionRoute() {
         if (startupRetryTimerRef.current === null) {
           startupRetryTimerRef.current = window.setTimeout(() => {
             startupRetryTimerRef.current = null;
-            refreshInFlightRef.current = false;
             void refreshRouteState();
           }, 1_000);
         }
@@ -2766,6 +2779,7 @@ export function SessionRoute() {
           ? async (sessionId) => {
               const { workspace, endpoint } = sessionTarget(sessionId);
               await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              forgetSession(workspace.id, sessionId);
               await loadWorkspaceSessionsInBackground([workspace]);
               if (selectedSessionId === sessionId) {
                 writeLastSessionFor(selectedWorkspaceId, null);

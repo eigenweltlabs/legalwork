@@ -981,7 +981,11 @@ export function SidePanel({
       acceptFileDrops={tab?.type !== "chat" && tab?.type !== "review" && !(tab?.type === "project-view" && (tab.view === "files" || tab.view === "sessions"))}
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
       {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
-      {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty />}
+      {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty
+        onNewChat={onNewChat ? () => onNewChat(pane.id) : undefined}
+        onOpenFile={client && workspaceId && !openingFile ? () => { fileInputPane.current = pane.id; fileInputRef.current?.click(); } : undefined}
+        onOpenBrowser={isBrowserAvailable ? () => createTab(undefined, pane.id) : undefined}
+      />}
 
     </TabDropZone>;
   };
@@ -1053,13 +1057,23 @@ export function SidePanel({
   </TooltipProvider>;
 }
 
-function PanelEmpty() {
+function PanelEmpty({ onNewChat, onOpenFile, onOpenBrowser }: {
+  onNewChat?: () => void;
+  onOpenFile?: () => void;
+  onOpenBrowser?: () => void;
+}) {
   return (
     <PanelEmptyState
       icon={<PanelsTopLeft />}
       title={t("side_panel.empty_title")}
       description={t("side_panel.empty_body")}
-    />
+    >
+      <div className="flex max-w-sm flex-wrap justify-center gap-2">
+        {onNewChat && <Button size="sm" onClick={onNewChat}><MessageSquare />{t("session.new_task")}</Button>}
+        {onOpenFile && <Button variant="outline" size="sm" onClick={onOpenFile}><FolderInput />{t("side_panel.files")}</Button>}
+        {onOpenBrowser && <Button variant="outline" size="sm" onClick={onOpenBrowser}><Globe />{t("side_panel.browser")}</Button>}
+      </div>
+    </PanelEmptyState>
   );
 }
 

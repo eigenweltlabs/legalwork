@@ -1,3 +1,4 @@
+import { reconcileQueuedOrder } from "./queued-order";
 import { useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueueAction, QueueInput, QueuedDraftSnapshot, SessionQueue } from "@legalwork/types/session-queue";
@@ -43,6 +44,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, refetchInterval: 1000, refetchIntervalInBackground: true });
   const latest = useRef(query.data); latest.current = query.data;
   const apply = useCallback((queue: SessionQueue) => {
+    if (!latest.current || queue.revision >= latest.current.revision) latest.current = queue;
     queryClient.setQueryData<SessionQueue>(["session-message-queue", client.baseUrl, workspaceId, sessionId], previous => !previous || queue.revision >= previous.revision ? queue : previous);
   }, [client.baseUrl, workspaceId, sessionId, queryClient]);
   const update = useCallback(async (action: QueueAction) => {
@@ -51,7 +53,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, [client, workspaceId, sessionId, queryClient, apply]);
   useEffect(() => {
     if (!query.data) return;
-    const items = query.data.entries.map(entry => hydrateDraft(entry, claim.current?.token));
+    const items = query.data.entries.filter(entry => entry.status !== "sending").map(entry => hydrateDraft(entry, claim.current?.token));
     useComposerStateStore.setState(state => ({ queuedDrafts: { ...state.queuedDrafts, [sessionId]: items }, pausedQueues: { ...state.pausedQueues, [sessionId]: query.data.paused } }));
   }, [query.data, sessionId]);
   useEffect(() => {
@@ -81,7 +83,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       claim.current = { id, token };
       const entry = state.entries.find(item => item.id === id);
       if (!entry) return;
-      useComposerStateStore.setState(current => ({ queuedDrafts: { ...current.queuedDrafts, [sessionId]: state.entries.map(item => hydrateDraft(item, token)) } }));
+      useComposerStateStore.setState(current => ({ queuedDrafts: { ...current.queuedDrafts, [sessionId]: state.entries.filter(item => item.status !== "sending").map(item => hydrateDraft(item, token)) } }));
       useComposerStateStore.getState().editQueuedDraft(sessionId, id);
     },
     cancelEdit: async () => {
@@ -91,7 +93,19 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       claim.current = null;
     },
     remove: (id: string) => update({ type: "remove", id, revision: latest.current?.revision ?? 0 }),
-    reorder: (ids: string[]) => update({ type: "reorder", ids, revision: latest.current?.revision ?? 0 }),
+    reorder: async (ids: string[]) => {
+      const action = (state: SessionQueue | undefined): QueueAction => ({ type: "reorder",
+        ids: reconcileQueuedOrder(ids, state?.entries.filter(entry => entry.status !== "sending").map(entry => entry.id) ?? ids),
+        revision: state?.revision ?? 0 });
+      try { return await update(action(latest.current)); }
+      catch (error) {
+        if (!(error instanceof LegalworkServerError && error.status === 409)) throw error;
+        // A draft can begin delivery or arrive from another window during a drag.
+        const current = await client.sessionMessageQueue(workspaceId, sessionId);
+        apply(current);
+        return update(action(current));
+      }
+    },
     pause: (paused: boolean) => update({ type: "pause", paused }),
   };
 }

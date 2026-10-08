@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mergeRouteWorkspaces, resolveRouteWorkspaceId, type RouteWorkspace } from "../src/react-app/shell/route-workspaces";
+import { mergeRouteWorkspaces, preferLoadedSession, resolveRouteWorkspaceId, type RouteSession, type RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
 const project = (id: string, path = `C:\\Projects\\${id}`): RouteWorkspace => ({
   id, path, name: id, displayNameResolved: id, workspaceType: "local", preset: "starter",
@@ -33,4 +33,15 @@ test("desktop remote routing wins over a stale local registration with the same 
   const merged = mergeRouteWorkspaces([project("remote")], [remote]);
   expect(merged).toEqual([remote]);
   expect(resolveRouteWorkspaceId(merged, [remote.id])).toBe(remote.id);
+});
+
+const chat = (id: string, updated: number): RouteSession => ({ id, slug: id, projectID: "project", directory: "/project", title: id, version: "1", time: { created: 1, updated } });
+test("runtime data cannot put a deleted conversation back in the authoritative list", () => {
+  expect(preferLoadedSession([chat("remaining", 1)], chat("deleted", 3)).map(item => item.id)).toEqual(["remaining"]);
+  expect(preferLoadedSession([], chat("deleted", 3))).toEqual([]);
+});
+test("runtime titles stay current without overriding newer fetched data", () => {
+  const loaded = { ...chat("open", 3), title: "New title" };
+  expect(preferLoadedSession([chat("open", 1)], loaded)[0]).toEqual(loaded);
+  expect(preferLoadedSession([chat("open", 4)], loaded)[0].time.updated).toBe(4);
 });

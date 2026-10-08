@@ -1198,7 +1198,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const removeQueuedDraft = (id: string) => { void sharedQueue.remove(id).catch(queueFailure); };
   const editQueuedDraft = (id: string) => { void sharedQueue.edit(id).then(() => window.dispatchEvent(new Event("legalwork:focusPrompt"))).catch(queueFailure); };
   const cancelQueuedEdit = () => { void sharedQueue.cancelEdit().then(clearComposer).catch(queueFailure); };
-  const reorderQueuedDrafts = (ids: string[]) => { void sharedQueue.reorder(ids).catch(queueFailure); };
+  const reorderQueuedDrafts = async (ids: string[]) => { await sharedQueue.reorder(ids).catch(queueFailure); };
   const resumeQueue = () => { void sharedQueue.pause(false).then(() => useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId)).catch(queueFailure); };
 
   const handleAbort = useCallback(async () => {
@@ -2163,7 +2163,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           queueAccessory={queuedDrafts.length > 0 || editingQueuedDraftId ? (
-            <QueuedMessagesPanel onPause={() => { void sharedQueue.pause(true).catch(queueFailure); }} messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
+            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
           ) : null}
           compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={

@@ -52,6 +52,10 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
   };
 
   return <>
+    {toolbar && canImport && <Button variant="outline" size="sm" className="mr-2" disabled={disabled} onClick={() => uploadRef.current?.click()}>
+      {copying ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+      {t("storage.upload")}
+    </Button>}
     <FileEntryActions name={entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
       source={source ?? undefined} onOpen={entry?.kind === "file" ? onOpen : undefined}
       pin={entry?.kind === "file" && workspaceId ? { workspaceId, source: "local", path: entry.path, name: entry.name } : undefined}

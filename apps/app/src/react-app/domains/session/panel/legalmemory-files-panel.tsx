@@ -66,7 +66,11 @@ type LegalMemoryFilesPanelProps = {
 
 const folderKey = (sourceId: string, path: string) => `${sourceId}:${path}`;
 
-export function LegalMemoryFilesPanel({
+export function LegalMemoryFilesPanel(props: LegalMemoryFilesPanelProps) {
+  return <LegalMemoryFilesPanelContent key={`${props.client?.baseUrl}:${props.workspaceId}`} {...props} />;
+}
+
+function LegalMemoryFilesPanelContent({
   client,
   workspaceId,
   headerTarget,
@@ -107,7 +111,7 @@ export function LegalMemoryFilesPanel({
   const projectFiles = useProjectFiles();
   const pins = useFilePins().filter(pin => pin.workspaceId === workspaceId && pin.source !== "local" && pin.source !== "project-link");
   const storageRoots = useQuery({
-    queryKey: ["storage-roots", workspaceId],
+    queryKey: ["storage-roots", workspaceId, client?.baseUrl],
     queryFn: () => client!.storageRoots(workspaceId!),
     enabled: Boolean(client && workspaceId),
     refetchInterval: 30_000,
@@ -132,7 +136,7 @@ export function LegalMemoryFilesPanel({
   const hasStorage = browserRoots.length > 0;
 
   const rootsQuery = useQuery({
-    queryKey: ["legalmemory-tree-roots", workspaceId] as const,
+    queryKey: ["legalmemory-tree-roots", workspaceId, client?.baseUrl] as const,
     queryFn: async () => {
       if (!client || !workspaceId) throw new Error(t("legalmemory.workspace_not_connected"));
       return client.legalMemoryTreeRoots(workspaceId);
@@ -149,7 +153,7 @@ export function LegalMemoryFilesPanel({
   }, [query]);
 
   const search = useQuery({
-    queryKey: ["legalmemory-tree-search", workspaceId, searchQuery] as const,
+    queryKey: ["legalmemory-tree-search", workspaceId, searchQuery, client?.baseUrl] as const,
     queryFn: async () => {
       if (!client || !workspaceId) throw new Error(t("legalmemory.workspace_not_connected"));
       return client.legalMemoryTreeSearch(workspaceId, { query: searchQuery, limit: 100 });
