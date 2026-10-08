@@ -30,7 +30,7 @@ def configure_resources():
 
 
 class Worker:
-    def __init__(self, ident, config):
+    def __init__(self, ident, config, uid):
         self.ident = ident
         self.write_lock = threading.Lock()
         self.group = CGROUP / ident
@@ -45,7 +45,7 @@ class Worker:
             '/usr/local/bin/python3', '-I', '-u', '/opt/legalwork/relay.py', '--worker'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         try:
-            self.send(config)
+            self.send({**config, "uid": uid, "gid": uid})
         except Exception:
             self.stop()
             self.process.wait()
@@ -113,6 +113,7 @@ def main():
     connect_host_channel()
     configure_resources()
     emit({'protocol': 3})
+    uid = 1000
     while True:
         message = read_frame()
         ident = message['run']
@@ -122,7 +123,12 @@ def main():
             with LOCK:
                 if ident in WORKERS:
                     raise ValueError('Duplicate command identity')
-                worker = Worker(ident, message['config'])
+                # Never reuse identities during this VM's lifetime: kernel user
+                # resources (for example keyrings) are not all PID-namespaced.
+                uid += 1
+                if uid >= 2**31:
+                    raise ValueError('Command identity space exhausted')
+                worker = Worker(ident, message['config'], uid)
                 WORKERS[ident] = worker
             threading.Thread(target=worker.supervise, daemon=True).start()
         else:

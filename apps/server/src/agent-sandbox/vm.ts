@@ -123,7 +123,7 @@ export class VmSandbox {
     let filesystemWork = Promise.resolve();
     try {
       const runtime = await this.sharedRuntime();
-      await runtime.execute({ command: input.command, cwd: input.cwd, timeoutMs: input.timeoutMs, uid: 1000, gid: 1000,
+      await runtime.execute({ command: input.command, cwd: input.cwd, timeoutMs: input.timeoutMs,
         mounts: filesystem.mounts.map(({ target, writable }) => ({ target, writable })) }, signal, (raw, send, finish) => {
         try {
           const event = eventSchema.parse(raw);

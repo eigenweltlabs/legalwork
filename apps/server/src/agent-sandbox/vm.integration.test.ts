@@ -45,11 +45,17 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
             await barrier;
             return false;
           }, command: `python3 - <<'PY'
-import json, os, socket, urllib.request, urllib.error
+import ctypes, json, os, socket, urllib.request, urllib.error
 from pathlib import Path
 assert Path('/workspace/identity').read_text() == '${index}'
 assert not Path('/tmp/session-private').exists()
 Path('/tmp/session-private').write_text('${index}')
+# User keyrings are shared by UID, independently of PID/mount/network namespaces.
+libc = ctypes.CDLL(None, use_errno=True); libc.syscall.restype = ctypes.c_long
+add_key, keyctl = (217, 219) if os.uname().machine == 'aarch64' else (248, 250)
+key = libc.syscall(ctypes.c_long(add_key), ctypes.c_char_p(b'user'), ctypes.c_char_p(b'session-private'),
+                   ctypes.c_char_p(b'${index}'), ctypes.c_size_t(1), ctypes.c_long(-4))
+assert key >= 0, ctypes.get_errno()
 s = socket.socket(); s.bind(('127.0.0.1', 23456))
 assert not Path('/dev/vport0p1').exists()
 assert not Path('/sys/fs/cgroup').exists()
@@ -59,12 +65,15 @@ try:
 except urllib.error.HTTPError as e:
     assert e.code == 403
 assert Path('/tmp/session-private').read_text() == '${index}'
+payload = ctypes.create_string_buffer(32)
+assert libc.syscall(ctypes.c_long(keyctl), ctypes.c_long(11), ctypes.c_long(key), payload, ctypes.c_size_t(32)) == 1
+assert payload.value == b'${index}', 'Another session changed this user keyring'
 try:
     Path('/workspace/result').write_text('${index}')
     assert ${index % 2 === 0 ? "True" : "False"}
 except PermissionError:
     assert ${index % 2 !== 0 ? "True" : "False"}
-print(json.dumps({'boot': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+print(json.dumps({'uid': os.getuid(), 'gid': os.getgid(), 'boot': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
                   'pid': os.readlink('/proc/self/ns/pid'), 'net': os.readlink('/proc/self/ns/net'),
                   'mount': os.readlink('/proc/self/ns/mnt')}))
 PY` });
@@ -72,7 +81,7 @@ PY` });
       expect(arrived.size).toBe(10);
       const identities = runs.map((result) => { expect(result.exitCode).toBe(0); return JSON.parse(result.output); });
       expect(new Set(identities.map((identity) => identity.boot)).size).toBe(1);
-      for (const namespace of ["pid", "net", "mount"]) expect(new Set(identities.map((identity) => identity[namespace])).size).toBe(10);
+      for (const namespace of ["uid", "gid", "pid", "net", "mount"]) expect(new Set(identities.map((identity) => identity[namespace])).size).toBe(10);
       for (let index = 0; index < 10; index++) {
         expect(await readFile(join(root, String(index), "result"), "utf8").catch(() => null)).toBe(index % 2 === 0 ? String(index) : null);
       }
@@ -340,7 +349,7 @@ node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes
     }));
     const settled = Promise.allSettled(pending);
     try {
-      await started;
+      await Promise.race([started, settled.then(() => { throw new Error("Workers exited before approval"); })]);
       await VmSandbox.shutdown();
       const results = await settled;
       expect(results.every((result) => result.status === "rejected")).toBe(true);

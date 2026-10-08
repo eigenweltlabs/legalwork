@@ -13,8 +13,9 @@ CHUNK = 128 * 1024
 
 
 class ApprovedFolders(Operations):
-    def __init__(self, mounts, request):
+    def __init__(self, mounts, request, uid, gid):
         self.request = request
+        self.uid, self.gid = uid, gid
         self.mounts = {mount["target"]: mount for mount in mounts}
         self.handles = {}
         self.parents = {"/": ["workspace", "authorized", "skills"], "/authorized": [], "/skills": []}
@@ -39,6 +40,7 @@ class ApprovedFolders(Operations):
         if fh:
             args["handle"] = fh
         result = self.call("stat", **args)
+        result["st_uid"], result["st_gid"] = self.uid, self.gid
         if path in self.mounts and not self.mounts[path]["writable"]:
             result["st_mode"] &= ~0o222
         return result
@@ -118,7 +120,7 @@ class ApprovedFolders(Operations):
         return self.call("chmod", path=path, mode=mode)
 
     def chown(self, path, uid, gid):
-        if uid not in (-1, 1000) or gid not in (-1, 1000):
+        if uid not in (-1, self.uid) or gid not in (-1, self.gid):
             raise FuseOSError(errno.EPERM)
         return 0
 
@@ -139,8 +141,8 @@ class ApprovedFolders(Operations):
                     f_files=100000, f_ffree=100000, f_favail=100000, f_namemax=255)
 
 
-def serve(mounts, request):
-    FUSE(ApprovedFolders(mounts, request), "/mnt/approved", foreground=True, nothreads=True,
+def serve(mounts, request, uid, gid):
+    FUSE(ApprovedFolders(mounts, request, uid, gid), "/mnt/approved", foreground=True, nothreads=True,
          allow_other=True, default_permissions=True, nosuid=True, nodev=True,
          attr_timeout=0, entry_timeout=0, negative_timeout=0,
          big_writes=True, max_read=CHUNK, max_write=CHUNK)

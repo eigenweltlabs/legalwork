@@ -241,7 +241,7 @@ def pump(stream, name):
         emit({"event": "output", "stream": name, "data": base64.b64encode(chunk).decode("ascii")})
 
 
-def start_filesystem(mounts):
+def start_filesystem(mounts, uid, gid):
     spec = importlib.util.spec_from_file_location("approved_filesystem", "/opt/legalwork/filesystem.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -249,7 +249,7 @@ def start_filesystem(mounts):
 
     def serve():
         try:
-            module.serve(mounts, request_host)
+            module.serve(mounts, request_host, uid, gid)
         except Exception as error:
             emit({"event": "error", "message": "Protected filesystem failed: " + str(error)})
             os._exit(125)
@@ -301,14 +301,14 @@ def main():
         file.write("0")
     emit({"event": "ready", "protocol": 2})
     threading.Thread(target=replies, daemon=True).start()
-    filesystem = start_filesystem(config["mounts"])
+    uid, gid = config["uid"], config["gid"]
+    if not isinstance(uid, int) or not isinstance(gid, int) or uid <= 0 or gid <= 0:
+        raise ValueError("Sandbox commands require a non-root identity")
+    filesystem = start_filesystem(config["mounts"], uid, gid)
     timer = threading.Timer(config["timeoutMs"] / 1000, lambda: os._exit(124))
     timer.daemon = True
     timer.start()
     startup_timer.cancel()
-    uid, gid = config["uid"], config["gid"]
-    if not isinstance(uid, int) or not isinstance(gid, int) or uid <= 0 or gid <= 0:
-        raise ValueError("Sandbox commands require a non-root identity")
     os.mkdir("/tmp/private", 0o700)
     os.mkdir("/tmp/public", 0o755)
     os.mkdir("/tmp/home", 0o777)
