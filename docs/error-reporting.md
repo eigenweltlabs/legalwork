@@ -27,4 +27,33 @@ Set the GitHub Actions secret `POSTHOG_SOURCEMAP_API_KEY` (personal key with err
 - `NODE_OPTIONS=--max-old-space-size=6144 LEGALWORK_ELECTRON_BUILD=1 pnpm --filter @legalwork/app build`; `NODE_OPTIONS=--max-old-space-size=6144 pnpm --filter @legalwork/app build:word-addin`.
 - For the actual dialog, run `VITE_LEGALWORK_POSTHOG_KEY=phc_local_ui_fixture PORT=5198 pnpm --filter @legalwork/app dev` and open `/tests/ui/error-report.html`. This fixture intercepts PostHog requests locally, with analytics off and provider 400, upload timeout, render crash and unavailable-PostHog controls. Delivery state exposes the exact payload and manual/automatic request counts. No requests go to production. [Screenshot](assets/error-report-preview.png).
 
+## Electron smoke verification
+
+The same fixture runs inside the actual Electron main process with its sandboxed preload. Start the fixture server above, then run this from the repository root in a second terminal:
+
+```sh
+errorQaRoot="$(mktemp -d /tmp/legalwork-error-electron.XXXXXX)"
+node --input-type=module - "$errorQaRoot" <<'JS'
+import { createNativeIncidentStore } from './apps/desktop/electron/error-incidents.mjs';
+createNativeIncidentStore(process.argv[2]).record('sidecar_exit', new Error('PRIVATE_DOCUMENT_CANARY'), {
+  version: '0.0.0', platform: process.platform, exitCode: 7,
+});
+JS
+LEGALWORK_DEV_MODE=1 \
+LEGALWORK_ELECTRON_USERDATA="$errorQaRoot" \
+LEGALWORK_DATA_DIR="$errorQaRoot/data" \
+LEGALWORK_SERVER_CONFIG="$errorQaRoot/server.json" \
+LEGALWORK_ENV_STORE="$errorQaRoot/env" \
+LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY=1 \
+LEGALWORK_WORD_ADDIN=0 \
+LEGALWORK_ELECTRON_APP_NAME='LegalWork - Error QA' \
+LEGALWORK_ELECTRON_APP_IDENTIFIER=com.eigenweltlabs.legalwork.error-qa \
+LEGALWORK_ELECTRON_START_URL=http://localhost:5198/tests/ui/error-report.html \
+pnpm --filter @legalwork/desktop electron
+```
+
+Check desktop bridge loads the fixed asset manifest through guarded IPC and restores the seeded native incident without sending it. Provider 400 → Share error → Send should show success; Delivery state should show one manual request and zero automatic requests. Check copy and save through the native clipboard/file dialog. Toggle PostHog unavailable and verify failed delivery plus retry with the same UUID. Clear recent errors, then check the bridge again: the native backlog should be empty. Crash renderer triggers a caught React render failure; its Share error button must still open the dialog outside the failed boundary.
+
+Verified in the running macOS Electron development app: all checks above passed, including the actual saved JSON (no content canaries), 546 manifest assets and native backlog restoration/clearing. This exercises the real shell/preload with a local PostHog stub; it does not test a signed installer, live PostHog ingestion, or an operating-system renderer-process crash. [Electron screenshot](assets/error-report-electron.png).
+
 These changes improve evidence for future failures; they do not establish the cause of previously observed provider 400s. Raw production user content was not read or imported into these tests.
