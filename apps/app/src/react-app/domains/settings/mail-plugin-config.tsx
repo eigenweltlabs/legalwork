@@ -52,7 +52,9 @@ export function MailPluginConfig({ provider, hostLegalworkServerClient: client, 
   };
   const connect = async () => {
     if (!client || !localWorkspaceId) return;
+    const version = generation.current;
     const start = await client.mailPluginConnectStart(provider, { canWrite, workspaceId: localWorkspaceId });
+    if (!mounted.current || version !== generation.current) { await client.mailPluginConnectCancel(provider, start.flowId); return; }
     const flow = { id: start.flowId, cancelled: false };
     pending.current = flow;
     setConnecting(true);
