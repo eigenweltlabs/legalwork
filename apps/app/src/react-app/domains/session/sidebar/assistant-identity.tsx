@@ -65,39 +65,46 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
     }
   };
   return <Dialog open onOpenChange={open => { if (!open && !saving) onClose(); }}>
-    <DialogContent showCloseButton={!saving} className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-sm">
-      <div className="space-y-3 text-center">
-        <AssistantAvatar icon={draft.icon} className="mx-auto size-20" />
-        <DialogTitle>{t("assistant.customize")}</DialogTitle>
-        <DialogDescription>{t("assistant.customize_hint")}</DialogDescription>
-      </div>
-      <Collapsible defaultOpen={modelSettings?.modelPickerOpen} className="group/advanced border-b border-border pb-3">
-        <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-sm font-medium">
-          {t("settings.tab_advanced")}<ChevronDown className="size-4 -rotate-90 group-data-[open]/advanced:rotate-0" />
-        </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-4 pt-2">
-          <label className="flex items-start justify-between gap-4">
-            <span className="space-y-1"><span className="block text-sm font-medium">{t("assistant.desktop_notifications")}</span>
-              <span className="block text-xs text-muted-foreground">{t("assistant.desktop_notifications_hint")}</span></span>
-            <Switch aria-label={t("assistant.desktop_notifications")} checked={desktopNotifications} onCheckedChange={setDesktopNotifications} />
-          </label>
-      {modelSettings && <div className="space-y-1">
-        <div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{t("assistant.model")}</span>
-          <ModelSelect value={modelSettings.selectedModel} locked={modelSettings.modelSelectorLocked} disabled={busy} open={modelSettings.modelPickerOpen} onOpenChange={modelSettings.onModelPickerOpenChange} onChange={modelSettings.onModelChange} />
+    <DialogContent showCloseButton={!saving} className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 p-0 sm:max-w-[420px]">
+      <div className="flex shrink-0 items-center gap-3 px-6 pb-5 pt-6 pr-12">
+        <AssistantAvatar icon={draft.icon} className="size-12" />
+        <div className="min-w-0 space-y-1">
+          <DialogTitle>{t("assistant.customize")}</DialogTitle>
+          <DialogDescription className="text-xs">{t("assistant.customize_hint")}</DialogDescription>
         </div>
-        {!!modelSettings.modelBehaviorOptions?.length && <div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{t("assistant.effort")}</span>
-          <ModelBehaviorSelect value={modelSettings.modelVariant} label={modelSettings.modelVariantLabel} options={modelSettings.modelBehaviorOptions} onChange={modelSettings.onModelVariantChange} disabled={busy} />
-        </div>}
-        <p className="text-xs text-muted-foreground">{t("assistant.model_autosave")}</p>
-      </div>}
-        </CollapsibleContent>
-      </Collapsible>
-      <form className="space-y-5" onSubmit={event => { event.preventDefault(); void save(); }}>
-        <fieldset disabled={saving} className="space-y-4">
-          <AssistantAppearanceFields profile={draft} onChange={value => setDraft({ ...value, name: value.name ?? "" })} />
-        </fieldset>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2">
+      </div>
+      <form className="flex min-h-0 flex-col" onSubmit={event => { event.preventDefault(); void save(); }}>
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-6">
+          <fieldset disabled={saving} className="space-y-5 pb-5">
+            <AssistantAppearanceFields compact profile={draft} onChange={value => setDraft({ ...value, name: value.name ?? "" })} />
+          </fieldset>
+          <Collapsible defaultOpen={modelSettings?.modelPickerOpen} className="group/advanced border-t border-border">
+            <CollapsibleTrigger type="button" className="flex w-full items-center justify-between rounded-sm py-4 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              {t("settings.tab_advanced")}<ChevronDown className="size-4 -rotate-90 transition-transform group-data-[open]/advanced:rotate-0" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mb-4 space-y-3 rounded-xl bg-muted/40 p-3">
+                <label className="flex items-start justify-between gap-4">
+                  <span className="min-w-0 space-y-1"><span className="block text-sm font-medium">{t("assistant.desktop_notifications")}</span>
+                    <span className="block text-xs leading-relaxed text-muted-foreground">{t("assistant.desktop_notifications_hint")}</span></span>
+                  <Switch className="mt-0.5 shrink-0" aria-label={t("assistant.desktop_notifications")} checked={desktopNotifications} onCheckedChange={setDesktopNotifications} />
+                </label>
+                {modelSettings && <div className="space-y-1 border-t border-border/60 pt-2">
+                  <div className="flex items-center justify-between gap-3"><span className="shrink-0 text-xs text-muted-foreground">{t("assistant.model")}</span>
+                    <div className="flex min-w-0 justify-end"><ModelSelect value={modelSettings.selectedModel} locked={modelSettings.modelSelectorLocked} disabled={saving} open={modelSettings.modelPickerOpen} onOpenChange={modelSettings.onModelPickerOpenChange} onChange={modelSettings.onModelChange} /></div>
+                  </div>
+                  {!!modelSettings.modelBehaviorOptions?.length && <div className="flex items-center justify-between gap-3"><span className="shrink-0 text-xs text-muted-foreground">{t("assistant.effort")}</span>
+                    <ModelBehaviorSelect value={modelSettings.modelVariant} label={modelSettings.modelVariantLabel} options={modelSettings.modelBehaviorOptions} onChange={modelSettings.onModelVariantChange} disabled={saving} />
+                  </div>}
+                </div>}
+                <p className="text-xs text-muted-foreground">{t("assistant.advanced_autosave")}</p>
+                {busy && modelSettings && <p role="status" className="text-xs text-muted-foreground">{t("assistant.model_next_message")}</p>}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+          {error && <p role="alert" className="pb-4 text-sm text-destructive">{error}</p>}
+        </div>
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border bg-background/60 px-6 py-4">
           <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
           <Button type="submit" disabled={saving || !draft.name.trim()}>{t(saving ? "common.saving" : "common.save")}</Button>
         </div>

@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { notificationIcon, showNativeNotification } from "./desktop-notifications.mjs";
+import { CommunicationNotifications } from "./communication-notifications.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -866,30 +868,44 @@ function syncBackgroundPresence() {
 const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
 const MAX_LIVE_NOTIFICATIONS = 50;
 const liveNotifications = new Map();
+const communicationNotifications = new CommunicationNotifications({
+  load: () => createRequire(import.meta.url)(app.isPackaged
+    ? path.join(process.resourcesPath, "helpers/LegalWorkNotifications.node")
+    : fileURLToPath(new URL("../resources/helpers/LegalWorkNotifications.node", import.meta.url))),
+  onClick: openNotificationTarget,
+});
 
-function showDesktopNotification(input) {
+function openNotificationTarget(id) {
+  void createMainWindow().then(win => {
+    if (win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    if (process.platform === "darwin") app.focus({ steal: true });
+    if (!win.webContents.isLoading()) win.webContents.send(DESKTOP_NOTIFICATION_CLICK_EVENT, { id });
+  });
+}
+
+async function showDesktopNotification(input) {
   if (!Notification.isSupported()) return false;
   if (input?.backgroundOnly && BrowserWindow.getFocusedWindow()) return false;
   const id = String(input?.id ?? "").trim().slice(0, 200);
   const title = String(input?.title ?? "").trim().slice(0, 200);
   if (!id || !title) return false;
   const body = String(input?.body ?? "").slice(0, 500);
-  const notification = new Notification({ title, body });
+  const icon = notificationIcon(input?.iconDataUrl, nativeImage);
+  if (process.platform === "darwin" && icon && input?.conversationId) {
+    const result = await communicationNotifications.show({ id, title, body,
+      conversationId: String(input.conversationId).slice(0, 200), avatarBase64: icon.toPNG().toString("base64") });
+    if (result !== null) return result;
+  }
+  const notification = new Notification({ title, body, icon });
   const forget = () => {
     if (liveNotifications.get(id) === notification) liveNotifications.delete(id);
   };
   notification.on("click", () => {
     forget();
-    void createMainWindow().then((win) => {
-      if (win.isDestroyed()) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-      if (process.platform === "darwin") app.focus({ steal: true });
-      if (!win.webContents.isLoading()) {
-        win.webContents.send(DESKTOP_NOTIFICATION_CLICK_EVENT, { id });
-      }
-    });
+    openNotificationTarget(id);
   });
   notification.on("close", forget);
   liveNotifications.set(id, notification);
@@ -897,8 +913,7 @@ function showDesktopNotification(input) {
     const oldest = liveNotifications.keys().next().value;
     liveNotifications.delete(oldest);
   }
-  notification.show();
-  return true;
+  return showNativeNotification(notification, { onFailure: forget });
 }
 
 function normalizePlatform(value) {

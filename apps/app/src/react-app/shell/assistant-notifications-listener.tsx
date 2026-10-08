@@ -7,6 +7,7 @@ import { t } from "@/i18n";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { ASSISTANT_NOTIFICATION_PREFERENCES_KEY, useAssistantNotificationPreferences } from "../domains/session/sidebar/assistant-notification-preferences";
 import { AssistantMessageNotifications, assistantNotificationId, assistantNotificationTarget } from "../domains/session/sidebar/assistant-message-notifications";
+import { assistantNotificationIcon } from "../domains/session/sidebar/assistant-notification-icon";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { useDetachedWindow } from "./use-detached-window";
 import { workspaceSessionRoute } from "./workspace-routes";
@@ -71,6 +72,8 @@ export function AssistantNotificationsListener() {
           if (reply) await desktopNotificationShow({
             id: assistantNotificationId(entry.workspaceId, entry.sessionId, reply.messageId),
             title: assistant.profile.name ?? t("assistant.title"), body: reply.body,
+            iconDataUrl: await assistantNotificationIcon(assistant.profile.icon),
+            conversationId: `assistant:${entry.workspaceId}`,
             backgroundOnly: true,
           });
         }
