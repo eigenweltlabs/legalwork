@@ -17,6 +17,10 @@ on:
       ttl_hours:
         description: Environment lifetime in hours (1–168)
         default: '4'
+      live_smoke:
+        description: Optional capped real-provider connectivity check (synthetic data only)
+        type: boolean
+        default: false
       action:
         type: choice
         options: [create, destroy]
@@ -83,6 +87,9 @@ jobs:
         id: tests
         if: steps.stack.outputs.environment_id != ''
         run: node "$RUNNER_TEMP/controller/scripts/run-tests.mjs" '${{ steps.stack.outputs.environment_id }}'
+      - name: Optional bounded real-provider smoke test
+        if: steps.stack.outputs.environment_id != '' && github.event_name == 'workflow_dispatch' && inputs.live_smoke && inputs.action == 'create'
+        run: node "$RUNNER_TEMP/controller/scripts/live-model.mjs" '${{ steps.stack.outputs.environment_id }}'
       - name: Upload test artifacts
         if: always() && steps.stack.outputs.environment_id != ''
         uses: actions/upload-artifact@v4
