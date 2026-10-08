@@ -2,8 +2,16 @@ import { z } from "zod";
 import type { ProviderConfig } from "@opencode-ai/sdk/v2/client";
 
 export function modelCatalogBaseURL(): string {
-  return process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") ||
-    "https://models.opencode.ai";
+  const baseURL = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") ||
+    "https://platform.eigenweltlabs.com/api/public/model-catalog";
+  const url = new URL(baseURL);
+  const ownHost = url.hostname === "platform.eigenweltlabs.com";
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.username || url.password || url.search || url.hash ||
+    !(url.protocol === "https:" && ownHost || loopback && ["http:", "https:"].includes(url.protocol))) {
+    throw new Error("Model catalog updates must use Eigenwelt or a local development server.");
+  }
+  return baseURL;
 }
 
 const cost = z.object({
@@ -22,16 +30,14 @@ const model = z.object({
   status: z.enum(["alpha", "beta", "deprecated", "active"]).optional(),
   provider: z.object({ npm: z.string().optional(), api: z.string().optional() }).optional(),
 });
-const catalog = z.record(z.string(), z.unknown());
+export const modelCatalogSchema = z.record(z.string(), z.object({
+  models: z.record(z.string(), z.unknown()),
+}).passthrough()).refine((value) => Object.keys(value).length > 0);
 const catalogProvider = z.object({ models: z.record(z.string(), model) });
 
 /** Keep catalog capabilities for new built-in models without replacing user overrides. */
-export async function fetchProviderModelCatalog(providerId: string, baseURL = modelCatalogBaseURL()): Promise<NonNullable<ProviderConfig["models"]>> {
-  const response = await fetch(`${baseURL.replace(/\/+$/, "")}/api.json`, {
-    cache: "no-store", signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw new Error(`Could not refresh the model catalog (HTTP ${response.status}).`);
-  const result = catalog.safeParse(await response.json());
+export function providerModelsFromCatalog(providerId: string, value: unknown): NonNullable<ProviderConfig["models"]> {
+  const result = z.record(z.string(), z.unknown()).safeParse(value);
   if (!result.success) throw new Error("The model catalog returned invalid model information.");
   if (!result.data[providerId]) throw new Error(`No model catalog is available for ${providerId}.`);
   const provider = catalogProvider.safeParse(result.data[providerId]);

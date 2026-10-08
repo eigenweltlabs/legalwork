@@ -1,5 +1,6 @@
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
+import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
@@ -1657,6 +1658,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     deleteWorkspace: 10_000,
     deleteSession: 12_000,
     sessionRead: 12_000,
+    // Listing sessions can bootstrap the engine and install plugin dependencies.
+    sessionList: 90_000,
     status: 6_000,
     config: 10_000,
     workspaceExport: 30_000,
@@ -1707,6 +1710,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "PUT",
         body: payload,
         timeoutMs: timeouts.status,
+      }),
+    getModelCatalogSettings: () =>
+      requestJson<{ onlineUpdatesEnabled: boolean }>(baseUrl, "/model-catalog/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setModelCatalogSettings: (onlineUpdatesEnabled: boolean) =>
+      requestJson<{ onlineUpdatesEnabled: boolean }>(baseUrl, "/model-catalog/settings", {
+        token, hostToken, method: "PUT", body: { onlineUpdatesEnabled }, timeoutMs: timeouts.config,
       }),
     getPersonalization: () =>
       requestJson<{ settings: LegalworkPersonalizationSettings }>(baseUrl, "/personalization", {
@@ -1899,7 +1908,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       return requestJson<{ items: Session[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
+        { token, hostToken, timeoutMs: timeouts.sessionList },
       );
     },
     benchmarkGetCatalog: (
@@ -2729,6 +2738,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     decideCalculation: (workspaceId: string, id: string, action: "save" | "reject" | "acknowledge") => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}/decision`, { token, hostToken, method: "POST", body: { action } }),
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
+    sessionInbox: () => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken }),
+    scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
+    scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
+    scheduledTaskChats: (workspaceId: string, search = "") => requestJson<{ sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/chats?search=${encodeURIComponent(search)}`, { token, hostToken }),
+    previewTaskSchedule: (workspaceId: string, schedule: TaskSchedule) => requestJson<{ occurrences: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/preview`, { token, hostToken, method: "POST", body: { schedule } }),
+    createScheduledTask: (workspaceId: string, input: ScheduledTaskInput) => requestJson<{ task: ScheduledTask }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks`, { token, hostToken, method: "POST", body: input }),
+    updateScheduledTask: (workspaceId: string, id: string, revision: number, input: Partial<ScheduledTaskInput> & { status?: "active" | "paused" }) => requestJson<{ task: ScheduledTask }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: { ...input, revision } }),
+    deleteScheduledTask: (workspaceId: string, id: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", body: { revision } }),
     calendarLinks: (workspaceId: string, search = "") => requestJson<{ projectName: string; sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/links?search=${encodeURIComponent(search)}`, { token, hostToken }),
     calendarItems: (workspaceId: string, includeDeleted = false) => requestJson<{ items: CalendarItem[]; conflicts: CalendarItem[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${includeDeleted ? "?deleted=include" : ""}`, { token, hostToken }),
     calendarSubscription: (workspaceId: string | null, method = "GET") => requestJson<{ available: boolean; url: string | null; lastSyncedAt: string | null }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/subscription`, { token, hostToken, method }),
@@ -2825,6 +2842,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         token,
         hostToken,
         method: "POST",
+        // The server waits for instance initialization and MCP restoration.
+        // Its readiness phase alone can outlast the normal 10-second request.
+        timeoutMs: 90_000,
       }),
     listPlugins: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
       const query = options?.includeGlobal ? "?includeGlobal=true" : "";

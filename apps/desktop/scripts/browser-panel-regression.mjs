@@ -7,7 +7,7 @@ import { createBrowserPanel } from "../electron/browser-panel.mjs";
 
 const userData = mkdtempSync(path.join(os.tmpdir(), "legalwork-browser-test-"));
 app.setPath("userData", userData);
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const main = new BrowserWindow({ show: false });
   const detached = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
@@ -16,6 +16,7 @@ app.whenReady().then(() => {
     getWindowForEvent: (event) => BrowserWindow.fromWebContents(event.sender),
     isAllowedAppNavigation: () => false,
     safeOpen: { openExternal: async () => false, openPath: async () => "", showItemInFolder: () => {} },
+    resolveDownloadDirectory: async () => null,
   });
   const handlers = new Map();
   panel.registerIpc({
@@ -30,7 +31,7 @@ app.whenReady().then(() => {
   let exitCode = 0;
 
   try {
-    const { tabId } = invoke(main, "createTab", "about:blank");
+    const { tabId } = await invoke(main, "createTab", "about:blank");
     invoke(main, "show", mainBounds, tabId);
     const view = main.contentView.children[0];
     assert.ok(view);
@@ -44,7 +45,7 @@ app.whenReady().then(() => {
     assert.deepEqual(detached.contentView.children, []);
     console.log("PASS: another window cannot adopt or move the original tab");
 
-    const copyId = invoke(detached, "createTab", "about:blank").tabId;
+    const copyId = (await invoke(detached, "createTab", "about:blank")).tabId;
     invoke(detached, "show", detachedBounds, copyId);
     const copyView = detached.contentView.children[0];
     assert.ok(copyView);
@@ -66,7 +67,7 @@ app.whenReady().then(() => {
     assert.deepEqual(main.contentView.children, [view]);
     console.log("PASS: closing copied browsers leaves originals open");
 
-    const secondId = invoke(main, "createTab", "about:blank").tabId;
+    const secondId = (await invoke(main, "createTab", "about:blank")).tabId;
     const rightBounds = { ...mainBounds, x: 920, width: 350 };
     invoke(main, "show", rightBounds, secondId);
     assert.equal(main.contentView.children.length, 2);

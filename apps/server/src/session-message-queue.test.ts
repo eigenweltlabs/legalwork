@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { QueueAction } from "@legalwork/types/session-queue";
 import { SessionMessageQueue, type QueueTransport } from "./session-message-queue.js";
+import { queueActionSchema, queuedPromptPayload } from "./session-queue-schema.js";
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(fn => fn())); });
 const message = (text = "hello"): Extract<QueueAction, { type: "enqueue" }> => ({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text, parts: [{ type: "text", text }], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text }] } });
@@ -42,6 +43,32 @@ test("restart retains queued attachments, pause, order and independent conversat
   expect((await restored.read("w", "s")).entries[0].draft).toEqual(a.draft);
   expect((await restored.read("w", "s")).paused).toBe(true);
   expect((await restored.read("other", "s")).entries).toEqual([]);
+});
+test("hidden queued context survives validation and restart without changing the system prompt", async () => {
+  const transport = { idle: async () => false, send: async () => {} };
+  const { queue, dir } = await setup(transport);
+  const a = message();
+  if (a.execution.kind !== "prompt") throw new Error("Expected prompt");
+  const reminder: (typeof a.execution.parts)[number] = { type: "text", text: "<system-reminder>\nAttachment context\n</system-reminder>", synthetic: true };
+  const parsed = queueActionSchema.parse({ ...a, execution: { ...a.execution, parts: [...a.execution.parts, reminder] } });
+  await queue.act("w", "s", parsed); queue.stop();
+  const restored = new SessionMessageQueue(dir, transport); cleanups.push(async () => restored.stop());
+  const execution = (await restored.read("w", "s")).entries[0].execution;
+  if (execution.kind !== "prompt") throw new Error("Expected prompt");
+  const payload = queuedPromptPayload(execution);
+  expect(payload.parts).toEqual([...a.execution.parts, reminder]);
+  expect(payload).not.toHaveProperty("system");
+  expect(payload).not.toHaveProperty("kind");
+});
+test("legacy queued context dispatches as a hidden message part without mutating the saved entry", () => {
+  const execution = message().execution;
+  if (execution.kind !== "prompt") throw new Error("Expected prompt");
+  execution.system = "Legacy Fusion and attachment context";
+  const payload = queuedPromptPayload(execution);
+  expect(payload).not.toHaveProperty("system");
+  expect(payload.parts.at(-1)).toEqual({ type: "text", text: "<system-reminder>\nLegacy Fusion and attachment context\n</system-reminder>", synthetic: true });
+  expect(queuedPromptPayload(execution)).toEqual(payload);
+  expect(execution.parts).toHaveLength(1);
 });
 test("editing reserves the item across windows; stale changes cannot overwrite it", async () => {
   const { queue } = await setup({ idle: async () => false, send: async () => {} });

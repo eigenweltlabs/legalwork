@@ -273,6 +273,9 @@ describe("artifact file routes", () => {
 
   test("lists workspace directories with dirs-first ordering and path safety", async () => {
     const root = await createWorkspaceRoot();
+    for (const name of ["Matter 10.txt", "Matter 2.txt", "München.txt", "münchen 2.txt"]) {
+      await writeFile(join(root, "reports", name), "fixture");
+    }
     const { base, token } = await startLegalworkServer(root);
 
     const rootList = await fetch(`${base}/workspace/ws_1/files/list`, { headers: auth(token) });
@@ -293,6 +296,7 @@ describe("artifact file routes", () => {
     expect(csvEntry.updatedAt).toBeGreaterThan(0);
     const names = reportsListing.entries.map((entry) => entry.name);
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })));
+    expect(names.indexOf("Matter 2.txt")).toBeLessThan(names.indexOf("Matter 10.txt"));
 
     const fileList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("reports/artifact-eval.csv")}`, { headers: auth(token) });
     expect(fileList.status).toBe(400);

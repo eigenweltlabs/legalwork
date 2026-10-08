@@ -54,7 +54,8 @@
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
     "./calculation": "./src/calculation.ts",
-    "./session-queue": "./src/session-queue.ts"
+    "./session-queue": "./src/session-queue.ts",
+    "./scheduled-tasks": "./src/scheduled-tasks.ts"
   },
   "files": [
     "src",

@@ -1,5 +1,6 @@
 import { t } from "@/i18n";
 import { documentIdentityKey } from "./document-identity";
+import type { DocxEditorApi } from "./artifact-docx-editor";
 export type DocxRecovery = {
   key: string;
   buffer: ArrayBuffer;
@@ -136,3 +137,21 @@ export async function keepDocxVersion(key: string, buffer: ArrayBuffer, automati
 
 /** Await queued draft writes before giving another window editing ownership. */
 export async function drainDocxRecovery() { await queue; }
+/**
+ * The editor while the user still has to decide about a kept draft. Agent
+ * tools get the reason instead of "still loading", so the agent asks the user
+ * rather than looking for the document elsewhere on the computer.
+ */
+export function draftDecisionPendingApi(name: string): DocxEditorApi {
+  const error = `${name} has an unsaved draft kept on this device. The user must choose "Recover draft" or "Discard draft and open file" in LegalWork's editor before the document can be read or edited. Ask the user to decide. Do not look for the document elsewhere or inspect the app.`;
+  return {
+    save: async () => false,
+    flushSave: async () => false,
+    drain: async () => {},
+    revision: () => 0,
+    isDirty: () => true,
+    getBuffer: async () => null,
+    executeAgentTool: async () => ({ success: false, error }),
+    discardRecovery: async () => {},
+  };
+}

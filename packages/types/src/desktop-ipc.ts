@@ -385,7 +385,7 @@ export type OfficeAddinOpenAppResult = {
 export type DesktopCommandMap = {
   // Native windows
   openAppWindow: {
-    args: [input: { page: "home" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "evals" }];
+    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "evals" }];
     result: boolean;
   };
   openSessionWindow: {
@@ -801,8 +801,9 @@ export type DesktopCommandMap = {
   __homeDir: { args: []; result: string };
   __joinPath: { args: [...segments: string[]]; result: string };
   __setZoomFactor: { args: [factor: number]; result: boolean };
-  __setNativeTheme: { args: [theme: string]; result: unknown };
+  __setNativeTheme: { args: [theme: string, appearance?: string]; result: unknown };
   __setApplicationMenuVisible: { args: [visible: boolean]; result: unknown };
+  __showApplicationMenu: { args: [menu: "File" | "Edit" | "View" | "Help", point: { x: number; y: number }]; result: boolean };
 };
 
 export type DesktopCommandName = keyof DesktopCommandMap;

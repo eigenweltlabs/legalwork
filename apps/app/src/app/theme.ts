@@ -64,7 +64,7 @@ const emitThemeChange = () => {
 
 const syncNativeTheme = (mode: ThemeMode) => {
   if (typeof window === "undefined") return;
-  void window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("__setNativeTheme", mode === "blackout" ? "dark" : mode);
+  void window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("__setNativeTheme", mode === "blackout" ? "dark" : mode, mode);
 };
 
 const getCurrentMode = () => {

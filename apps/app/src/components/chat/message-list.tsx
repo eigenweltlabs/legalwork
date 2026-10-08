@@ -1,4 +1,5 @@
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
+import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
@@ -418,6 +419,7 @@ const AssistantMessage = React.memo(
             if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "reviews") return <ReviewToolGroup key={group.parts[0].toolCallId} parts={group.parts} />;
 
+            if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
 

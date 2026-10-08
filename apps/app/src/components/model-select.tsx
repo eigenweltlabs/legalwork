@@ -136,6 +136,7 @@ interface ModelSelectProps {
   onOpenChange: (open: boolean) => void;
   onChange: (model: ModelRef) => void;
   disabled?: boolean;
+  showManageModels?: boolean;
   /** Render a plain label instead of a picker — for setups where there is
    *  nothing to pick (a single provider serving a single model). */
   locked?: boolean;
@@ -147,6 +148,7 @@ export function ModelSelect({
   onOpenChange,
   onChange,
   disabled = false,
+  showManageModels = true,
   locked = false,
 }: ModelSelectProps) {
   const [search, setSearch] = React.useState("");
@@ -221,12 +223,12 @@ export function ModelSelect({
               disabled={disabled}
               aria-label={t("model_select.change_model")}
               aria-keyshortcuts="Meta+Alt+/"
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
+              className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
             />
           }
         >
           <span className="max-w-48 truncate">
-            {selectedOption?.title ?? value.modelID ?? t("model_select.select_model")}
+            {selectedOption?.title ?? (value.modelID || t("model_select.select_model"))}
           </span>
           <ChevronDown className="h-3 w-3" />
         </TooltipTrigger>
@@ -289,22 +291,24 @@ export function ModelSelect({
             )}
           </CommandList>
           {/* Link to full model picker */}
-          <div className="border-t border-border px-2 py-1.5">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                onClick={() => {
-                  onOpenChange(false);
-                  setSearch("");
-                  window.dispatchEvent(new CustomEvent(openModelPickerEvent));
-                }}
-              >
-                <Settings2 className="size-3.5" />
-                {t("model_picker.all_models")}
-              </button>
+          {showManageModels && (
+            <div className="border-t border-border px-2 py-1.5">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    onOpenChange(false);
+                    setSearch("");
+                    window.dispatchEvent(new CustomEvent(openModelPickerEvent));
+                  }}
+                >
+                  <Settings2 className="size-3.5" />
+                  {t("model_picker.all_models")}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>

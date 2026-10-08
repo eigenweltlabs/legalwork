@@ -1,6 +1,6 @@
-name: Alpha Channel (Windows x64)
+name: Alpha Channel (Windows x64 + ARM64)
 
-# Dispatch this workflow manually (Actions tab) to publish a fresh Windows x64
+# Dispatch this workflow manually (Actions tab) to publish a fresh Windows
 # build to the LegalWork alpha release channel.
 #
 # Mirrors alpha-macos-aarch64.yml: each run publishes an immutable prerelease
@@ -15,7 +15,7 @@ name: Alpha Channel (Windows x64)
 #   - .github/workflows/release-macos-aarch64.yml (stable channel)
 
 on:
-  # Manual-only: dispatch from the GitHub Actions tab to publish a Windows x64
+  # Manual-only: dispatch from the GitHub Actions tab to publish a Windows
   # alpha build to the rolling alpha-windows-latest release. Builds are signed
   # via SignPath when the SIGNPATH_* configuration is present; otherwise the
   # installer ships unsigned (SmartScreen warning — acceptable for the
@@ -30,14 +30,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish-alpha-windows-x64:
-    name: Build + Publish alpha (x86_64-pc-windows-msvc)
-    runs-on: windows-2022
+  publish-alpha-windows:
+    name: Build + Publish alpha (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+            target: x86_64-pc-windows-msvc
+            manifest: latest.yml
+          - os: windows-11-arm
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            manifest: latest-arm64.yml
     timeout-minutes: 180
 
     env:
       ALPHA_RELEASE_TAG: alpha-windows-latest
-      ALPHA_RELEASE_NAME: LegalWork Alpha (Windows x64)
+      ALPHA_RELEASE_NAME: LegalWork Alpha (Windows)
+      ALPHA_ARCH: ${{ matrix.arch }}
+      UPDATER_MANIFEST: ${{ matrix.manifest }}
       SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
       SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
       SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
@@ -81,9 +95,9 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-electron-pnpm-
+            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -127,7 +141,7 @@ jobs:
           {
             echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}.g${sha}"
             echo "base_version=${major}.${minor}.${next_patch}"
-            echo "release_tag=alpha-windows-v${major}.${minor}.${next_patch}-alpha.${run}-${sha}"
+            echo "release_tag=alpha-windows-${ALPHA_ARCH}-v${major}.${minor}.${next_patch}-alpha.${run}-${sha}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Stamp alpha version
@@ -146,7 +160,7 @@ jobs:
         env:
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download.
-          TARGET: x86_64-pc-windows-msvc
+          TARGET: ${{ matrix.target }}
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm --filter @legalwork/desktop build:electron
@@ -157,7 +171,7 @@ jobs:
           set -euo pipefail
           pnpm --dir apps/desktop exec electron-builder \
             --config electron-builder.yml \
-            --win --x64 \
+            --win --${{ matrix.arch }} \
             --publish never
 
       - name: Validate SignPath configuration (Windows)
@@ -191,7 +205,7 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/signpath-unsigned"
           shopt -s nullglob
-          installers=(apps/desktop/dist-electron/legalwork-win-x64-*.exe)
+          installers=(apps/desktop/dist-electron/legalwork-win-${ALPHA_ARCH}-*.exe)
           if [ "${#installers[@]}" -ne 1 ]; then
             printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
             printf '%s\n' "${installers[@]}" >&2
@@ -203,7 +217,7 @@ jobs:
         id: upload-unsigned-windows-installer
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-legalwork-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          name: unsigned-legalwork-windows-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/signpath-unsigned/*.exe
           if-no-files-found: error
           retention-days: 1
@@ -240,6 +254,11 @@ jobs:
         # sha512/size in latest.yml so the updater accepts the signed binary.
         run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
 
+      - name: Separate Windows ARM64 updater feed
+        if: matrix.arch == 'arm64'
+        shell: bash
+        run: mv apps/desktop/dist-electron/latest.yml apps/desktop/dist-electron/latest-arm64.yml
+
       - name: Create immutable alpha prerelease
         shell: bash
         env:
@@ -248,14 +267,14 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
-          body="Rolling alpha build for LegalWork (Windows x64) from ${GITHUB_SHA}."
+          body="Rolling alpha build for LegalWork (Windows ${ALPHA_ARCH}) from ${GITHUB_SHA}."
           if gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Alpha prerelease $ALPHA_RUN_RELEASE_TAG already exists; reusing it."
             exit 0
           fi
           gh release create "$ALPHA_RUN_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "LegalWork Alpha ${ALPHA_VERSION} (Windows x64)" \
+            --title "LegalWork Alpha ${ALPHA_VERSION} (Windows ${ALPHA_ARCH})" \
             --notes "$body" \
             --target "$GITHUB_SHA" \
             --prerelease
@@ -271,7 +290,7 @@ jobs:
           assets=(
             apps/desktop/dist-electron/*.exe
             apps/desktop/dist-electron/*.blockmap
-            apps/desktop/dist-electron/latest.yml
+            apps/desktop/dist-electron/"$UPDATER_MANIFEST"
           )
           if [ ${#assets[@]} -eq 0 ]; then
             echo "No Electron alpha assets found in apps/desktop/dist-electron" >&2
@@ -288,11 +307,11 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
-          POINTER_MANIFEST="$RUNNER_TEMP/latest.yml"
+          POINTER_MANIFEST="$RUNNER_TEMP/$UPDATER_MANIFEST"
           export POINTER_MANIFEST
           node <<'NODE'
           const fs = require("node:fs");
-          const manifestPath = "apps/desktop/dist-electron/latest.yml";
+          const manifestPath = `apps/desktop/dist-electron/${process.env.UPDATER_MANIFEST}`;
           const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
           const baseUrl = `https://github.com/eigenweltlabs/legalwork/releases/download/${releaseTag}`;
           const rewritten = fs.readFileSync(manifestPath, "utf8")
@@ -305,11 +324,11 @@ jobs:
             gh release create "$ALPHA_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$ALPHA_RELEASE_NAME" \
-              --notes "Stable Electron updater pointer for the newest Windows x64 alpha prerelease." \
+              --notes "Stable Electron updater pointer for the newest Windows alpha prerelease." \
               --target "$GITHUB_SHA" \
-              --prerelease
+              --prerelease || gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
 
-          gh release upload "$ALPHA_RELEASE_TAG" "$POINTER_MANIFEST#latest.yml" \
+          gh release upload "$ALPHA_RELEASE_TAG" "$POINTER_MANIFEST#$UPDATER_MANIFEST" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

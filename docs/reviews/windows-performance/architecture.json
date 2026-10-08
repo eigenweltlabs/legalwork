@@ -1,0 +1,17 @@
+{
+  "info": {
+    "appArch": "x64",
+    "appArchLabel": "x64",
+    "systemArch": "arm64",
+    "systemArchLabel": "ARM64",
+    "mismatch": true,
+    "platform": "windows",
+    "version": "43.7.5",
+    "downloadUrl": null,
+    "releaseUrl": "https://github.com/eigenweltlabs/legalwork/releases/latest"
+  },
+  "localMs": 7,
+  "checkMs": 1070,
+  "notice": "A native build may run faster\n\nYou are running the x64 version of LegalWork on ARM64 Windows. A native version can avoid emulation overhead.\n\nNo ARM64 installer is available in the current release. You can keep using this version.\n\nCheck for native build\nKeep using this version",
+  "accountVisible": true
+}

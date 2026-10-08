@@ -3,8 +3,10 @@ import { projectViewFromPath } from "./workspace-routes";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
+import { useSessionInbox } from "./use-session-inbox";
+import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
-import { workspaceCalendarRoute } from "./workspace-routes";
+import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import {
@@ -42,6 +44,7 @@ import type {
 
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
+import { systemReminderPart } from "@/app/lib/system-reminder";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
@@ -218,8 +221,6 @@ import {
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
-/** How long a task opened on arrival from another screen outlasts the route settling. */
-
 /**
  * Serialize an SDK error value into a string that parseSessionError can parse.
  * Preserves the original shape (name, data, message) as JSON when possible,
@@ -363,31 +364,26 @@ export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const detached = useDetachedWindow();
-  const showEvals = location.pathname.endsWith("/evals");
-  // Derive the main page from the committed route. Clearing separate page flags
-  // before navigation briefly exposed the workspace between global pages.
-  const showWorkflows = location.pathname === "/workflows";
-  const showRecorder = location.pathname === "/recorder";
+  // Page content and sidebar layout must change with the same route render.
+  // Mirroring the URL in state lets urgent updates reopen the chat sidebar
+  // while React Router is still committing a top-level navigation.
+  const mainPage = sessionMainPage(location.pathname);
+  const showEvals = mainPage === "evals";
+  const showWorkflows = mainPage === "workflows";
+  const showRecorder = mainPage === "recorder";
+  const showTasks = mainPage === "tasks";
   const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
   const recordingSessionStarting = useRef(false);
-  const showTasks = location.pathname === "/tasks";
-  // A task a notification asked to show: the pane opens on it (see
-  // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
-  // their task in the side panel instead.
+  // A task a notification asked to show: a null id opens the task list.
+  // Chat chips open their task in the side panel instead.
   const [openTask, setOpenTask] = useState<{ id: string | null; at: number } | null>(null);
-  const showEvalsPane = useCallback(() => {
-    navigate("/evals");
-  }, [navigate]);
-  const showWorkflowsPane = useCallback(() => {
-    navigate("/workflows");
-  }, [navigate]);
-  const showRecorderPane = useCallback(() => {
-    navigate("/recorder");
+  const showEvalsPane = () => navigate("/evals");
+  const showWorkflowsPane = () => navigate("/workflows");
+  const showRecorderPane = () => {
     setRecorderProject(null);
-  }, [navigate]);
-  const showTasksPane = useCallback(() => {
-    navigate("/tasks");
-  }, [navigate]);
+    navigate("/recorder");
+  };
+  const showTasksPane = useCallback(() => navigate("/tasks"), [navigate]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
@@ -416,18 +412,17 @@ export function SessionRoute() {
     const pending = takePendingTasksPaneRequest();
     if (pending) {
       setOpenTask({ id: pending.taskId, at: Date.now() });
-      showTasksPane();
     }
     const handleRequest = (event: Event) => {
-      // Taken here: nothing is left for a later mount.
+      // useShowTasksPane owns navigation. Only consume the selection here,
+      // so a notification does not add the same page to history twice.
       takePendingTasksPaneRequest();
       const taskId = (event as CustomEvent<Partial<TasksPaneOpenDetail>>).detail?.taskId ?? null;
       setOpenTask({ id: taskId, at: Date.now() });
-      showTasksPane();
     };
     window.addEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
     return () => window.removeEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
-  }, [showTasksPane]);
+  }, []);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
@@ -495,6 +490,7 @@ export function SessionRoute() {
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
+  useSessionInbox(client, workspaces, sessionsByWorkspaceId, loadWorkspaceSessionsInBackground);
   useEffect(() => {
     if (!client || detached) return;
     let cancelled = false;
@@ -1032,7 +1028,7 @@ export function SessionRoute() {
   // Organizing local project files, notes and tasks does not need an AI model.
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
-    location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
+    location.pathname !== "/scheduled" && location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -1437,14 +1433,14 @@ export function SessionRoute() {
         const turnSystemContext = [envSystemContext, draft.modelContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
+        if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
 
         if (options?.queue) {
-          let system = turnSystemContext;
           if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId) && fusionModels.length) {
             const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
-            system = [system, trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n");
+            parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
           }
-          await enqueue({ kind: "prompt", parts, model: local.prefs.defaultModel, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined, system: system || undefined });
+          await enqueue({ kind: "prompt", parts, model: local.prefs.defaultModel, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined });
           return;
         }
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
@@ -1468,7 +1464,6 @@ export function SessionRoute() {
               mainModel: local.prefs.defaultModel ?? undefined,
               agent: selectedAgent ?? undefined,
               variant: modelVariantValue ?? undefined,
-              baseSystem: turnSystemContext || undefined,
             }).catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
@@ -1486,7 +1481,6 @@ export function SessionRoute() {
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(turnSystemContext ? { system: turnSystemContext } : {}),
         };
         if (options?.waitForCompletion) {
           // The queue advances after the engine's whole loop, not after a tool
@@ -2173,7 +2167,8 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  const calendarPage = location.pathname === "/calendar";
+  const scheduledPage = mainPage === "scheduled";
+  const calendarPage = mainPage === "calendar";
   const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname) && new URLSearchParams(location.search).get("view") !== "workspace");
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
@@ -2480,7 +2475,7 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
-      projectsPage={location.pathname === "/projects"}
+      projectsPage={mainPage === "projects"}
       projectPage={projectViewFromPath(location.pathname)}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
@@ -2540,7 +2535,13 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        calendarPage ? (
+        scheduledPage ? (
+          <ScheduledTasksPage client={client}
+            projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
+            defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
+            openTaskId={new URLSearchParams(location.search).get("task")}
+            onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+        ) : calendarPage ? (
           <CalendarView client={client}
             projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
             remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
@@ -2573,9 +2574,6 @@ export function SessionRoute() {
             onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
           />
         ) : showWorkflows ? (
-          // onClose drops the pane so actions that navigate to a session (e.g.
-          // opening the workflow-generation session) always reveal the chat —
-          // even when returning to the previously selected session.
           workflowLibraryView
         ) : showEvals ? (
           <EvalsPane workspaceId={selectedWorkspaceId} />
@@ -2632,12 +2630,8 @@ export function SessionRoute() {
       sidebar={{
         onOpenSearch: () => setCommandPaletteOpen(true),
         onNewChat: () => setNewChatOpen(true),
-        onShowChats: () => {
-          navigate("/home");
-        },
-        onShowProjects: () => {
-          navigate("/projects");
-        },
+        onShowChats: () => navigate("/home"),
+        onShowProjects: () => navigate("/projects"),
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
@@ -2646,7 +2640,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: calendarPage ? "calendar" : showWorkflows ? "workflows" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
+        activeNav: mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -2689,9 +2683,6 @@ export function SessionRoute() {
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
-          // Opening a session returns to the chat view — drop any open top-level
-          // pane (Evals/Workflows/Integrations) so it doesn't stay rendered
-          // over the session.
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);

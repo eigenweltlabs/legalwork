@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
+import { installBrowserDownloads } from "./browser-downloads.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BROWSER_SESSION_PARTITION = "persist:legalwork-browser";
@@ -80,7 +81,7 @@ export function createBrowserPanel(options) {
   };
 }
 
-function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, automationBroker, proxyState }) {
+function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, automationBroker, proxyState }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -94,6 +95,12 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
   let menuOverlayReady = false;
   let menuOverlayReadyResolvers = [];
   let menuOverlayShowSerial = 0;
+  let removeDownloadHandler = null;
+
+  function ensureDownloadHandler() {
+    removeDownloadHandler ??= installBrowserDownloads(session.fromPartition(BROWSER_SESSION_PARTITION),
+      (contents) => [...browserTabs.values()].find((tab) => tab.view.webContents === contents));
+  }
 
   function window() { return getWindow?.() ?? null; }
 
@@ -158,20 +165,28 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     });
   }
 
-  async function openBrowserUrlForAutomation(rawUrl, provider = "auto") {
+  async function openBrowserUrlForAutomation(rawUrl, provider = "auto", context = {}) {
     const requestedProvider = String(provider || "auto").trim().toLowerCase();
     if (requestedProvider && requestedProvider !== "auto" && requestedProvider !== "builtin") {
       throw new Error(`Browser provider is not available yet: ${requestedProvider}`);
     }
     const url = normalizeBrowserUrl(rawUrl);
-    const tab = createBrowserTab("about:blank", { select: true });
-    await tab.view.webContents.loadURL(url);
-    const connection = await automationBroker.grant(tab.view.webContents);
+    const downloadDirectory = await resolveDownloadDirectory(context);
+    const tab = createBrowserTab("about:blank", { select: true, downloadDirectory });
+    const connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads);
+    try { await tab.view.webContents.loadURL(url); } catch (error) {
+      // A direct file URL can abort navigation while the download continues.
+      if (error.code !== "ERR_ABORTED" || tab.downloads.length === 0) throw error;
+    }
+    const snapshot = await automationBroker.snapshot(tab.view.webContents).catch((error) => ({ error: error.message }));
     return {
       provider: "builtin",
       ...connection,
       tab_id: tab.tabId,
       url,
+      download_directory: downloadDirectory ? path.join(downloadDirectory, "Downloads") : null,
+      downloads: tab.downloads,
+      snapshot,
     };
   }
 
@@ -472,7 +487,8 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     return browserProxyState();
   }
 
-  function createBrowserTab(url = "about:blank", { select = true } = {}) {
+  function createBrowserTab(url = "about:blank", { select = true, downloadDirectory = null } = {}) {
+    ensureDownloadHandler();
     const tabId = createBrowserTabId();
     const view = new WebContentsView({
       webPreferences: {
@@ -484,7 +500,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
         partition: BROWSER_SESSION_PARTITION,
       },
     });
-    const tab = { tabId, view, favicon: null };
+    const tab = { tabId, view, favicon: null, downloadDirectory, downloads: [] };
     browserTabs.set(tabId, tab);
     browserTabOrder.push(tabId);
     // Load about:blank immediately to preempt persistent-session restore.
@@ -722,6 +738,8 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
   }
 
   function destroyBrowserView() {
+    removeDownloadHandler?.();
+    removeDownloadHandler = null;
     hideBrowserView();
     const overlayView = menuOverlayView;
     menuOverlayView = null;
@@ -757,11 +775,11 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       if (event.sender !== window()?.webContents) return;
       return hideBrowserView(tabId);
     });
-    ipcMain.handle("legalwork:browser:openUrl", (event, url, provider) => {
-      return openBrowserUrlForAutomation(url, provider);
+    ipcMain.handle("legalwork:browser:openUrl", (event, url, provider, context) => {
+      return openBrowserUrlForAutomation(url, provider, context);
     });
-    ipcMain.handle("legalwork:browser:navigate", (event, url, tabId) => {
-      const view = tabId ? getBrowserTab(tabId)?.view : getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true }).view;
+    ipcMain.handle("legalwork:browser:navigate", async (event, url, tabId) => {
+      const view = tabId ? getBrowserTab(tabId)?.view : getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true, downloadDirectory: await resolveDownloadDirectory({}) }).view;
       view?.webContents.loadURL(normalizeBrowserUrl(url));
     });
     ipcMain.handle("legalwork:browser:back", (event, tabId) => {
@@ -794,9 +812,9 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     ipcMain.handle("legalwork:browser:state", () => {
       return browserStatePayload();
     });
-    ipcMain.handle("legalwork:browser:createTab", (event, url) => {
+    ipcMain.handle("legalwork:browser:createTab", async (event, url) => {
       const target = typeof url === "string" && url.trim() ? url : BROWSER_NEW_TAB_URL;
-      const tab = createBrowserTab(target, { select: true });
+      const tab = createBrowserTab(target, { select: true, downloadDirectory: await resolveDownloadDirectory({}) });
       return { tabId: tab.tabId };
     });
     ipcMain.handle("legalwork:browser:closeTab", (event, tabId) => {

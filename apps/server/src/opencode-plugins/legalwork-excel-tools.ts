@@ -3,10 +3,10 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
-  describeOtherOpenApps,
-  officePaneForHost,
+  officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /**
  * Agent tools for the Microsoft Excel workbook open next to the LegalWork
@@ -26,7 +26,7 @@ const EXCEL_TOOL_RULES = `Rules for excel_* tools:
 - excel_run_code executes raw Office.js for anything the typed tools cannot do (number formats, charts, tables, conditional formatting, sorting). Prefer the typed tools when they fit; keep the highlight-and-report discipline for any cell you change.
 - If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in Excel and retry.`;
 
-/** Injected when no pane is connected: the tools exist but may be offline. */
+/** Always in the system prompt; a connected pane is reported as a reminder. */
 const EXCEL_TOOLS_INSTRUCTION = `## Microsoft Excel workbook tools
 For a Excel workbook open in LegalWork’s own sidebar, prefer inapp_documents_list and the inapp_* editor tools; those operate on its live draft. The native tools below target a separate Microsoft Office application.
 
@@ -34,15 +34,13 @@ The user may work with the LegalWork pane open inside Microsoft Excel. The excel
 
 ${EXCEL_TOOL_RULES}`;
 
-/** Injected when an Excel pane is live: switch to workbook-first behavior. */
+/** Reported when an Excel pane connects: switch to workbook-first behavior. */
 const excelModeInstruction = (documentUrl: string | null) => `## You are working inside Microsoft Excel right now
 The user has the LegalWork pane open inside Microsoft Excel with a workbook next to the chat. ${describeOpenDocument(documentUrl)} Behave accordingly:
 
 - Assume data-related requests refer to the open workbook. Orient with excel_read_workbook, then read the relevant ranges before answering.
 - Prefer excel_* tools for workbook work over editing files in the workspace.
-- The chat is a narrow sidebar: keep replies short and skimmable, and do not paste large ranges back into the chat — the user can see the workbook.
-
-${EXCEL_TOOL_RULES}`;
+- The chat is a narrow sidebar: keep replies short and skimmable, and do not paste large ranges back into the chat — the user can see the workbook.`;
 
 const readRangeArgs = z.object({
   sheet: z.string().optional().describe("Worksheet name. Defaults to the active sheet."),
@@ -92,16 +90,27 @@ const runCodeArgs = z.object({
     ),
 });
 
-export const LegalWorkExcelTools = async () => ({
+export const LegalWorkExcelTools = async (pluginInput?: SavedConversations) => {
+  const excelPane = appStateReminders(
+    "excel-pane",
+    async () => {
+      const pane = await officePaneIfKnown("excel");
+      if (pane === undefined) return null;
+      return pane ? excelModeInstruction(pane.documentUrl) : "";
+    },
+    "The LegalWork pane in Microsoft Excel is no longer connected. Earlier Excel reminders no longer apply; excel_* tools are unavailable until the user opens the pane again.",
+    pluginInput,
+  );
+  return ({
   "experimental.chat.system.transform": async (
     _input: unknown,
     output: { system: string[] },
   ) => {
-    const pane = await officePaneForHost("excel");
-    output.system.push(
-      pane ? excelModeInstruction(pane.documentUrl) + (await describeOtherOpenApps("excel")) : EXCEL_TOOLS_INSTRUCTION,
-    );
+    output.system.push(EXCEL_TOOLS_INSTRUCTION);
   },
+  "chat.message": excelPane.userMessage,
+  "tool.execute.after": excelPane.toolResult,
+  event: excelPane.event,
   tool: {
     excel_read_workbook: {
       description:
@@ -171,4 +180,5 @@ export const LegalWorkExcelTools = async () => ({
       },
     },
   },
-});
+  });
+};

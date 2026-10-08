@@ -22,11 +22,19 @@ export const queuedDraftSchema = z.object({
 const prompt = z.object({
   kind: z.literal("prompt"), model, agent: z.string().optional(), variant: z.string().optional(), system: z.string().optional(),
   parts: z.array(z.discriminatedUnion("type", [
-    z.object({ type: z.literal("text"), text: z.string() }),
+    z.object({ type: z.literal("text"), text: z.string(), synthetic: z.boolean().optional() }),
     z.object({ type: z.literal("file"), url: z.string(), mime: z.string(), filename: z.string().optional() }),
     z.object({ type: z.literal("agent"), name: z.string() }),
   ])),
 });
+/** Older persisted queues carried per-turn context in `system`. Keep it on the
+ * message when dispatching too, so resuming a queue cannot invalidate caching. */
+export function queuedPromptPayload(execution: z.infer<typeof prompt>) {
+  const { kind, system, ...payload } = execution;
+  const parts = [...payload.parts];
+  if (system?.trim()) parts.push({ type: "text", text: `<system-reminder>\n${system}\n</system-reminder>`, synthetic: true });
+  return { ...payload, parts };
+}
 export const queueExecutionSchema = z.discriminatedUnion("kind", [
   prompt,
   z.object({ kind: z.literal("command"), command: z.string(), arguments: z.string(), model: z.string(), agent: z.string().optional(), variant: z.string().optional() }),

@@ -63,6 +63,7 @@ export type OpencodeAuth = {
 };
 
 const DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS = 10_000;
+const ENGINE_BOOTSTRAP_TIMEOUT_MS = 90_000;
 const OAUTH_OPENCODE_REQUEST_TIMEOUT_MS = 5 * 60_000;
 const MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS = 90_000;
 const SESSION_LONG_RUNNING_URL_RE = /\/session\/[^/?#]+\/(?:command|prompt_async|summarize)(?:[?#]|$)/;
@@ -76,8 +77,19 @@ function getRequestUrl(input: RequestInfo | URL): string {
 
 export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number): number {
   const url = getRequestUrl(input);
+  // The first metadata read initializes plugins and their dependencies. On a
+  // fresh Windows profile this took over a minute. Avoid timing out and
+  // queueing retries behind the same initialization work.
+  if (!(input instanceof Request && input.method !== "GET") && /\/(?:provider(?:\/auth)?|config(?:\/providers)?|mcp|session)(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, ENGINE_BOOTSTRAP_TIMEOUT_MS);
+  }
   if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
     return 0;
+  }
+  // Disposing an instance may wait for OneDrive-backed files. Give the
+  // direct recovery path the same window as the server-managed reload.
+  if (/\/instance\/dispose(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, 90_000);
   }
   // The OAuth callback long-polls until the user finishes signing in. Cut
   // short, the app reloads the engine, which drops the pending sign-in.
@@ -229,9 +241,10 @@ async function fetchWithTimeout(
     return fetchImpl(input, init);
   }
 
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const signal = controller?.signal;
-  const initWithSignal = signal && !init?.signal ? { ...(init ?? {}), signal } : init;
+  const controller = new AbortController();
+  const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+  const signal = callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal;
+  const initWithSignal = { ...init, signal };
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -248,8 +261,7 @@ async function fetchWithTimeout(
   try {
     return await Promise.race([fetchImpl(input, initWithSignal), timeoutPromise]);
   } catch (error) {
-    const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
-    if (name === "AbortError") {
+    if (controller.signal.aborted) {
       throw new Error(t("app.request_timed_out"));
     }
     throw error;
@@ -335,12 +347,14 @@ export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
   if (result.data !== undefined) {
     return result.data as NonNullable<T>;
   }
-  const message =
-    result.error instanceof Error
-      ? result.error.message
-      : typeof result.error === "string"
-        ? result.error
-        : JSON.stringify(result.error);
+  const error = result.error;
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error);
   throw new Error(message || t("app.unknown_error"));
 }
 

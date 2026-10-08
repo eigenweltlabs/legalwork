@@ -9,6 +9,7 @@ import { WorkspaceViewMenu } from "../panel/workspace-view-menu";
 import { openWorkspaceWindow, restoreWorkspaceWindow } from "../panel/workspace-window";
 import { chatPanelTab, projectViewTab, type ProjectView } from "../panel/panel-tab-store";
 import { projectViewLabel } from "../panel/side-panel";
+import { WindowMenubar } from "@/react-app/shell/window-menubar";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
@@ -147,7 +148,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -623,6 +624,7 @@ export function SessionPage(props: SessionPageProps) {
     args: [
       { name: "url", type: "string", required: true, description: "The website URL to open." },
       { name: "provider", type: "string", description: "Browser provider. Use builtin or auto. External is reserved for future support." },
+      { name: "directory", type: "string", description: "Originating agent project directory. Downloads remain bound to this project." },
     ],
     previewArgs: { url: "https://example.com", provider: "builtin" },
     disabled: !isElectronRuntime(),
@@ -634,9 +636,11 @@ export function SessionPage(props: SessionPageProps) {
         return { ok: false, error: `Browser provider is not available yet: ${provider}` };
       }
       setCurrentSidePanel("panel");
-      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider);
+      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider, {
+        directory: controlStringArg(args, "directory") || props.selectedWorkspaceRoot,
+      });
     },
-  }), [setCurrentSidePanel]);
+  }), [props.selectedWorkspaceRoot, setCurrentSidePanel]);
   useControlAction(openBrowserUrlControlAction);
   const setBrowserProxyControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.set_proxy",
@@ -954,7 +958,7 @@ export function SessionPage(props: SessionPageProps) {
 
   const openNavWindow = useCallback((key: ShellNavKey) => {
     const pages = {
-      navHome: "home", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
+      navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
       navTasks: "tasks", navRecorder: "recorder", navEvaluations: "evals",
     } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
     void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
@@ -1149,6 +1153,7 @@ export function SessionPage(props: SessionPageProps) {
   const windowTitle = props.projectPage ? `${workspaceName} · ${projectViewLabel(props.projectPage)}`
     : props.homePage ? t("home.nav_label")
     : props.projectsPage ? t("projects.plural")
+    : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
     : props.sidebar.activeNav === "calendar" ? t("calendar.title")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
@@ -1184,6 +1189,7 @@ export function SessionPage(props: SessionPageProps) {
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
               {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+              <WindowMenubar />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>

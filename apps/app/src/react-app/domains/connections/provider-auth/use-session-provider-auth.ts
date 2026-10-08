@@ -88,6 +88,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     () =>
       createProviderAuthStore({
         client: () => stateRef.current.opencodeClient,
+        baseUrl: () => stateRef.current.selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "",
         providers: () => stateRef.current.providers,
         providerDefaults: () => stateRef.current.providerDefaults,
         providerConnectedIds: () => stateRef.current.providerConnectedIds,

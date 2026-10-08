@@ -4,10 +4,14 @@
  * LegalMemory is Eigenwelt Labs' own knowledge appliance — the sibling product
  * of LegalWork. When its MCP server is connected, the agent should reach for
  * it by default instead of waiting for the user to say "using the knowledge
- * index". This plugin checks the engine's live MCP status each chat turn and
- * pushes a use-it-first system-prompt section only while the server is
- * actually connected, so the instruction never dangles over dead tools.
+ * index". This plugin checks the engine's live MCP status and reports a
+ * use-it-first section as a reminder in the conversation while the server is
+ * actually connected, and reports when it disconnects, so the instruction
+ * never dangles over dead tools. It stays out of the system prompt, which must
+ * not change within a conversation (see app-state-reminders.ts).
  */
+
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /** Server names under which firms connect the appliance: the LegalWork
  * quick-connect catalog uses "legalmemory"; the appliance's own admin UI
@@ -44,7 +48,7 @@ LegalMemory is this firm's institutional memory. Use it BY DEFAULT — the user 
 
 Tool names may carry the server prefix (e.g. legalmemory_search_semantic); use whatever form the tool list shows.`;
 
-type McpStatusClient = {
+type McpStatusClient = NonNullable<SavedConversations["client"]> & {
   mcp?: {
     status?: (options: { directory?: string }) => Promise<unknown>;
   };
@@ -68,24 +72,32 @@ export const LegalWorkLegalMemoryKnowledge = async (pluginInput?: {
   directory?: string;
   client?: McpStatusClient;
 }) => {
-  const connected = async (): Promise<Set<string>> => {
+  const status = async (): Promise<Set<string> | null> => {
     try {
       return connectedServerNames(await pluginInput?.client?.mcp?.status?.({ directory: pluginInput?.directory }));
     } catch {
-      return new Set();
+      return null;
     }
   };
+  const connected = async () => (await status()) ?? new Set<string>();
+  // A failed status check is not a disconnect: report nothing rather than flip.
+  const legalMemory = appStateReminders(
+    "legalmemory",
+    async () => {
+      const names = await status();
+      if (!names) return null;
+      return LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name)) ? LEGALMEMORY_CONNECTED_INSTRUCTION : "";
+    },
+    "LegalMemory is no longer connected. Earlier LegalMemory reminders no longer apply: do not call its tools, and ask the user to reconnect it in Settings when firm knowledge is needed.",
+    pluginInput,
+  );
   const serverForTool = (tool: string) => LEGALMEMORY_SERVER_NAMES.find(
     (name) => tool.startsWith(`${name}_`) || tool.startsWith(`${name.replaceAll("-", "_")}_`),
   );
 
   return {
-    "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-      const names = await connected();
-      if (LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name))) {
-        output.system.push(LEGALMEMORY_CONNECTED_INSTRUCTION);
-      }
-    },
+    "chat.message": legalMemory.userMessage,
+    event: legalMemory.event,
     // Tool definitions can survive inside an already-running turn. Check the
     // live connection again before each call, without a positive cache.
     "tool.execute.before": async (input: { tool: string }) => {
@@ -96,7 +108,8 @@ export const LegalWorkLegalMemoryKnowledge = async (pluginInput?: {
     },
     // MCP results reach this hook before OpenCode saves oversized output. A
     // compact JSON page can exceed ripgrep's 64 KiB record limit by itself.
-    "tool.execute.after": async (input: { tool: string }, output: { content?: unknown }) => {
+    "tool.execute.after": async (input: { tool: string; sessionID?: string }, output: { content?: unknown; output?: unknown }) => {
+      await legalMemory.toolResult(input, output);
       if (!serverForTool(input.tool) || !Array.isArray(output.content)) return;
       for (const item of output.content) {
         if (!item || typeof item !== "object" || item.type !== "text" || typeof item.text !== "string") continue;

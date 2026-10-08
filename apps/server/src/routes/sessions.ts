@@ -1,4 +1,4 @@
-import { queueActionSchema } from "../session-queue-schema.js";
+import { queueActionSchema, queuedPromptPayload } from "../session-queue-schema.js";
 import { registerMessageQueue } from "../session-message-queue.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
@@ -79,7 +79,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const execution = entry.execution;
       unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
       if (execution.kind === "prompt") {
-        const result = unwrapOpencodeResult(await client.session.prompt({ sessionID, messageID: `msg_${entry.id.replaceAll("-", "")}`, ...execution }), "session/prompt");
+        const result = unwrapOpencodeResult(await client.session.prompt({ sessionID, messageID: `msg_${entry.id.replaceAll("-", "")}`, ...queuedPromptPayload(execution) }), "session/prompt");
         if (result.info.error) throw new Error(JSON.stringify(result.info.error));
       } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, ...execution }), "session/command");
       else unwrapOpencodeResult(await client.session.shell({ sessionID, command: execution.command }), "session/shell");

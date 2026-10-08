@@ -124,7 +124,7 @@ if (!existsSync(distDir)) {
 }
 
 const signedInstaller = findOne(
-  walk(signedArtifactDir).filter((file) => /^legalwork-win-x64-.+\.exe$/i.test(basename(file))),
+  walk(signedArtifactDir).filter((file) => /^legalwork-win-(?:x64|arm64)-.+\.exe$/i.test(basename(file))),
   "signed Windows installer from SignPath",
 );
 const distInstaller = findOne(

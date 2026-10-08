@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { createBrowserPanel } from "./browser-panel.mjs";
 
-function fixture() {
+function fixture(resolveDownloadDirectory = async () => null) {
   const views = [];
   class View {
     constructor() {
@@ -28,20 +31,22 @@ function fixture() {
   });
   const first = window(true), second = window(false), third = window(false);
   const handlers = new Map();
-  const controller = createBrowserPanel({ app: new EventEmitter(), WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => ({}) },
+  const browserSession = new EventEmitter();
+  const controller = createBrowserPanel({ app: new EventEmitter(), WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
     getWindow: () => first, getWindowForEvent: event => [first, second, third].find(host => event.sender === host.webContents),
+    resolveDownloadDirectory,
     isAllowedAppNavigation: () => true, safeOpen: { openExternal: () => {} },
   });
   controller.registerIpc({ handle: (name, handler) => handlers.set(name, handler), on: () => {} });
   const call = (name, host, ...args) => handlers.get(`legalwork:browser:${name}`)({ sender: host.webContents }, ...args);
   const left = { x: 20, y: 50, width: 400, height: 600 }, right = { ...left, x: 425 };
-  return { controller, views, first, second, third, call, left, right };
+  return { controller, views, first, second, third, call, left, right, browserSession };
 }
 
-test("native browser panes keep separate bounds, navigation and visibility", t => {
+test("native browser panes keep separate bounds, navigation and visibility", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
-  const a = f.call("createTab", f.first, "https://example.com").tabId;
-  const b = f.call("createTab", f.first, "https://example.org").tabId;
+  const a = (await f.call("createTab", f.first, "https://example.com")).tabId;
+  const b = (await f.call("createTab", f.first, "https://example.org")).tabId;
   f.call("show", f.first, f.left, a); f.call("show", f.first, f.right, b);
   assert.equal(f.first.contentView.children.length, 2);
   assert.deepEqual(f.views[0].bounds, { x: 25, y: 63, width: 500, height: 750 });
@@ -64,9 +69,9 @@ test("native browser panes keep separate bounds, navigation and visibility", t =
   assert.deepEqual(f.first.contentView.children, [f.views[0]]);
 });
 
-test("background windows cannot steal panes or move their host's bounds", t => {
+test("background windows cannot steal panes or move their host's bounds", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
-  const a = f.call("createTab", f.first, "about:blank").tabId;
+  const a = (await f.call("createTab", f.first, "about:blank")).tabId;
   f.call("show", f.first, f.left, a);
   const bounds = f.views[0].bounds;
   f.call("show", f.second, f.right, a);
@@ -84,9 +89,9 @@ test("background windows cannot steal panes or move their host's bounds", t => {
   assert.equal(f.call("state", f.first).tabs.length, 1);
 });
 
-test("bad geometry and late resize reports never resurrect a hidden pane", t => {
+test("bad geometry and late resize reports never resurrect a hidden pane", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
-  const a = f.call("createTab", f.first, "about:blank").tabId;
+  const a = (await f.call("createTab", f.first, "about:blank")).tabId;
   for (const bounds of [null, {}, { ...f.left, width: NaN }, { ...f.left, x: Infinity }, { ...f.left, height: -1 }]) f.call("show", f.first, bounds, a);
   assert.equal(f.first.contentView.children.length, 0);
   f.call("show", f.first, f.left, a);
@@ -95,9 +100,10 @@ test("bad geometry and late resize reports never resurrect a hidden pane", t => 
   assert.equal(f.first.contentView.children.length, 0);
 });
 
-test("reordering one strip leaves other panes in place and rejects stale orders atomically", t => {
+test("reordering one strip leaves other panes in place and rejects stale orders atomically", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
-  const ids = Array.from({ length: 4 }, () => f.call("createTab", f.first, "about:blank").tabId);
+  const ids = [];
+  for (let i = 0; i < 4; i++) ids.push((await f.call("createTab", f.first, "about:blank")).tabId);
   const order = () => f.call("state", f.first).tabs.map(tab => tab.id);
   f.call("reorderTabs", f.first, [ids[2], ids[0]]);
   assert.deepEqual(order(), [ids[2], ids[1], ids[0], ids[3]]);
@@ -109,11 +115,11 @@ test("reordering one strip leaves other panes in place and rejects stale orders 
   assert.deepEqual(order(), [ids[1], ids[0], ids[3]]);
 });
 
-test("three windows keep independent tabs, events and close-all operations", t => {
+test("three windows keep independent tabs, events and close-all operations", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
-  const original = f.call("createTab", f.first, "https://example.com/source").tabId;
-  const copy = f.call("createTab", f.second, "https://example.com/source").tabId;
-  const third = f.call("createTab", f.third, "https://example.com/third").tabId;
+  const original = (await f.call("createTab", f.first, "https://example.com/source")).tabId;
+  const copy = (await f.call("createTab", f.second, "https://example.com/source")).tabId;
+  const third = (await f.call("createTab", f.third, "https://example.com/third")).tabId;
   assert.equal(new Set([original, copy, third]).size, 3);
   for (const [host, id] of [[f.first, original], [f.second, copy], [f.third, third]]) {
     assert.deepEqual(f.call("listTabs", host).map(tab => tab.id), [id]);
@@ -131,15 +137,45 @@ test("three windows keep independent tabs, events and close-all operations", t =
   assert.equal(f.call("state", f.third).tabs.length, 1);
 });
 
-test("closing a native window destroys only its browser views", t => {
+test("closing a native window destroys only its browser views", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
-  f.call("createTab", f.first, "about:blank");
-  f.call("createTab", f.second, "about:blank");
+  await f.call("createTab", f.first, "about:blank");
+  await f.call("createTab", f.second, "about:blank");
   f.second.emit("closed");
   assert.equal(f.views[1].webContents.isDestroyed(), true);
   assert.equal(f.views[0].webContents.isDestroyed(), false);
-  f.call("createTab", f.third, "about:blank");
+  await f.call("createTab", f.third, "about:blank");
   assert.equal(f.call("state", f.third).tabs.length, 1);
   f.controller.destroy(f.first);
   assert.equal(f.views[2].webContents.isDestroyed(), false);
+});
+
+test("shared browser cookies do not mix download destinations or retain closed-window handlers", async t => {
+  const firstRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "legalwork-download-a-")));
+  const secondRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "legalwork-download-b-")));
+  let currentProject = firstRoot;
+  const f = fixture(async () => currentProject);
+  t.after(() => {
+    f.controller.destroy();
+    rmSync(firstRoot, { recursive: true, force: true });
+    rmSync(secondRoot, { recursive: true, force: true });
+  });
+  await f.call("createTab", f.first, "about:blank");
+  currentProject = secondRoot;
+  await f.call("createTab", f.second, "about:blank");
+  assert.equal(f.browserSession.listenerCount("will-download"), 2);
+  for (const [index, root] of [firstRoot, secondRoot].entries()) {
+    const paths = [];
+    const item = Object.assign(new EventEmitter(), {
+      getFilename: () => "record.txt", getTotalBytes: () => 1,
+      setSavePath: destination => paths.push(destination),
+      cancel: () => assert.fail("The other window must not cancel this download"),
+    });
+    f.browserSession.emit("will-download", {}, item, f.views[index].webContents);
+    assert.deepEqual(paths, [path.join(root, "Downloads", "record.txt")]);
+  }
+  f.second.emit("closed");
+  assert.equal(f.browserSession.listenerCount("will-download"), 1);
+  f.controller.destroy();
+  assert.equal(f.browserSession.listenerCount("will-download"), 0);
 });

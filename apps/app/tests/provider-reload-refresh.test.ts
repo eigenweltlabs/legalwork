@@ -18,9 +18,8 @@ import { getReactQueryClient } from "../src/react-app/infra/query-client";
 /**
  * After an engine reload the provider-auth store re-read the provider list
  * under a cache key without the engine URL, while the composer reads the key
- * with it. The composer kept the list from before the reload, so "Model no
- * longer available" stayed up until the window was reloaded — even though the
- * reload had brought the Eigenwelt models back.
+ * with it. Both must share one fresh list after reload and keep different
+ * engine endpoints separate, even when their workspace paths match.
  */
 
 const providerList = (connected: string[]): ProviderListResponse =>
@@ -41,8 +40,9 @@ const providerList = (connected: string[]): ProviderListResponse =>
 test("an engine reload refreshes the provider list the composer reads", async () => {
   // The engine lost the provider; the reload brings it back.
   let engineList = providerList([]);
+  let providerCalls = 0;
   const client = {
-    provider: { list: async () => ({ data: engineList }) },
+    provider: { list: async () => { providerCalls += 1; return { data: engineList }; } },
     instance: {
       dispose: async () => {
         engineList = providerList(["eigenwelt"]);
@@ -53,6 +53,7 @@ test("an engine reload refreshes the provider list the composer reads", async ()
     config: { get: async () => ({ data: {} }) },
   } as unknown as Client;
   const baseUrl = "http://127.0.0.1:4096";
+  let currentBaseUrl = baseUrl;
   const directory = "/tmp/workspace";
 
   // The composer's query (session-route's useProviderListQuery), kept active.
@@ -67,6 +68,7 @@ test("an engine reload refreshes the provider list the composer reads", async ()
 
   const store = createProviderAuthStore({
     client: () => client,
+    baseUrl: () => currentBaseUrl,
     providers: () => [],
     providerDefaults: () => ({}),
     providerConnectedIds: () => [],
@@ -88,8 +90,20 @@ test("an engine reload refreshes the provider list the composer reads", async ()
     setDisabledProviders: () => undefined,
     markOpencodeConfigReloadRequired: () => undefined,
   });
+  providerCalls = 0;
   await store.refreshProviders({ dispose: true });
 
+  expect(composer.getCurrentResult().data?.connected).toEqual(["eigenwelt"]);
+  expect(providerCalls).toBe(1);
+  // Returning to settings or opening the picker reuses the same fresh list.
+  await store.refreshProviders();
+  expect((await ensureProviderListQuery(getReactQueryClient(), { client, baseUrl, directory })).connected).toEqual(["eigenwelt"]);
+  expect(providerCalls).toBe(1);
+  // A different server can use the same directory name without sharing models.
+  currentBaseUrl = "http://127.0.0.1:5096";
+  engineList = providerList([]);
+  expect((await store.refreshProviders())?.connected).toEqual([]);
+  expect(providerCalls).toBe(2);
   expect(composer.getCurrentResult().data?.connected).toEqual(["eigenwelt"]);
   unsubscribe();
 });
@@ -120,4 +134,25 @@ test("an engine reload drops the cached lists of workspaces not on screen", asyn
   await refreshProviderListQueries(getReactQueryClient());
 
   expect(getReactQueryClient().getQueryData(otherWorkspace)).toBeUndefined();
+});
+
+test("one refresh enumerates each active provider list only once", async () => {
+  const queryClient = getReactQueryClient();
+  const key = providerListQueryKey({ baseUrl: "http://localhost:4098", directory: "/tmp/single-refresh" });
+  let calls = 0;
+  const observer = new QueryObserver(queryClient, {
+    queryKey: key,
+    queryFn: async () => { calls += 1; return providerList([]); },
+    staleTime: Infinity,
+  });
+  const unsubscribe = observer.subscribe(() => undefined);
+  try {
+    await observer.refetch();
+    calls = 0;
+    await refreshProviderListQueries(queryClient);
+    expect(calls).toBe(1);
+  } finally {
+    unsubscribe();
+    queryClient.removeQueries({ queryKey: key });
+  }
 });

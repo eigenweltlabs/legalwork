@@ -14,10 +14,14 @@ import { within } from "./reviews/storage.js";
 
 const RESULT_LIMIT = 60;
 
+export function localSessionDatabasePath(config: ServerConfig) {
+  const managedPath = join(runtimeStorageDir(config), MANAGED_ENGINE_DB_FILENAME);
+  return !process.env.OPENCODE_DB?.trim() && process.env.LEGALWORK_DEV_MODE !== "1" && existsSync(managedPath) ? managedPath : resolveOpencodeDbPath();
+}
+
 /** Read the engine's own local transcripts, including messages older than the UI's history window. */
 export async function searchSessionContents(config: ServerConfig, workspace: WorkspaceInfo, query: string, signal: AbortSignal): Promise<ContentSearchResponse> {
-  const managedPath = join(runtimeStorageDir(config), MANAGED_ENGINE_DB_FILENAME);
-  const dbPath = !process.env.OPENCODE_DB?.trim() && process.env.LEGALWORK_DEV_MODE !== "1" && existsSync(managedPath) ? managedPath : resolveOpencodeDbPath();
+  const dbPath = localSessionDatabasePath(config);
   if (!existsSync(dbPath)) throw new Error("The local session database is unavailable.");
   const db = await openSqliteReadonly(dbPath);
   try {

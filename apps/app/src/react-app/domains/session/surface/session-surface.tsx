@@ -1221,6 +1221,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
     setSending(false);
     setAwaitingAssistantBaseline(null);
+    useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, IDLE_STATUS);
     queryClient.setQueryData(statusQueryKey, IDLE_STATUS);
     // Take the run-start marker here so this stop is the run's single

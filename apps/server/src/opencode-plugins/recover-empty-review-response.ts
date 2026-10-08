@@ -36,7 +36,9 @@ export function recoverEmptyReviewResponse(client: Client, directory?: string) {
       const user = messages?.slice().reverse().find(message => message.info.role === "user")
         ?? (await client.session.message({ path: { id: sessionId, messageID: last.info.parentID }, query })).data;
       if (!user || user.info.role !== "user" || last.info.parentID !== user.info.id) return;
-      if (user.parts.some(part => part.type === "compaction" || (part.type === "text" && part.synthetic))) return;
+      // Skip system-written turns such as this recovery prompt. A human turn may
+      // still carry synthetic app-state reminders next to the user's own text.
+      if (user.parts.some(part => part.type === "compaction") || !user.parts.some(part => part.type === "text" && !part.synthetic)) return;
       if (retried.get(sessionId) === user.info.id) return;
       const hasReview = (items: typeof messages) => items?.some(message => message.parts.some(part => part.type === "tool" && part.tool.startsWith("legalwork_review_")));
       if (!reviewSessions.has(sessionId) && !hasReview(messages)) {

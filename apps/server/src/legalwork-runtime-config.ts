@@ -1,3 +1,4 @@
+import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
@@ -29,6 +30,7 @@ import {
   legalworkStorageToolsPluginPath,
   legalworkTaskToolsPluginPath,
   legalworkCalendarToolsPluginPath,
+  legalworkScheduledTaskToolsPluginPath,
   legalworkProjectToolsPluginPath,
   legalworkReviewToolsPluginPath,
   legalworkExcelToolsPluginPath,
@@ -236,6 +238,7 @@ export async function buildLegalworkRuntimeConfigObject(
   // Append the specific rule after wildcard rules; approvals cannot be saved
   // for this tool, so every proposed instructions change is reviewed.
   delete permission.legalwork_project_set_instructions;
+  const agentPrompt = personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT;
   return {
     ...runtimeConfig,
     permission: { ...permission, legalwork_project_set_instructions: instructionPermission },
@@ -247,13 +250,21 @@ export async function buildLegalworkRuntimeConfigObject(
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
       ...runtimeAgentMap(runtimeConfig),
+      [PROJECT_TASK_AGENT]: {
+        description: "Scheduled task with access to this project only", mode: "primary", hidden: true,
+        prompt: agentPrompt + "\nThis scheduled run may access only its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial. Explain any missing capability. Existing chat history remains visible.",
+        permission: projectTaskPermissions(permission),
+      },
+      [ALL_PROJECTS_TASK_AGENT]: {
+        description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
+        prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
+        permission: allProjectTaskPermissions(permission),
+      },
       legalwork: {
         description: "LegalWork default agent",
         mode: "primary",
         temperature: 0.2,
-        prompt: personalization
-          ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization)
-          : LEGALWORK_AGENT_PROMPT,
+        prompt: agentPrompt,
       },
     },
     plugin: (await Promise.all([
@@ -275,6 +286,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkStorageToolsPluginPath(), config),
       bundledPluginSpec(legalworkTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkCalendarToolsPluginPath(), config),
+      bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       ...runtimePluginList(runtimeConfig),

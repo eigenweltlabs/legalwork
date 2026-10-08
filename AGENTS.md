@@ -60,6 +60,11 @@ When uncertain, prefer: Tailwind, TypeScript, React, shadcn/ui (Base UI), TanSta
 - Use the smallest possible diff to make a change. Then think of how to make it smaller and do that again.
 - Avoid fallback expressions when types or control flow already guarantee a value.
 
+### Prompt caching
+
+- The system prompt must not change within a conversation: providers reuse their prompt cache only as far as a request matches the previous one from the start, so one changed line costs the cache for the whole conversation.
+- `experimental.chat.system.transform` hooks add fixed text only. Live app state (open files, Office panes, project details, connections) goes into the conversation as a reminder via `app-state-reminders.ts`; per-turn context from the app goes into a hidden part of the user's message (`systemReminderPart`), never the prompt's `system` field.
+
 ### Workflow
 
 - If asked to do too much work at once, stop and state that clearly.

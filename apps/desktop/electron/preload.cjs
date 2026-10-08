@@ -25,6 +25,12 @@ function applyShellDocumentMarkers() {
       root.classList.add("legalwork-platform-mac");
     } else if (process.platform === "win32") {
       root.classList.add("legalwork-platform-windows");
+      const overlay = typeof navigator === "undefined" ? null : navigator.windowControlsOverlay;
+      if (overlay) {
+        const syncOverlay = () => root.classList.toggle("legalwork-window-controls-hidden", !overlay.visible);
+        syncOverlay();
+        overlay.addEventListener("geometrychange", syncOverlay);
+      }
     } else if (process.platform === "linux") {
       root.classList.add("legalwork-platform-linux");
     }
@@ -81,6 +87,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     getArchitectureInfo() {
       return ipcRenderer.invoke("legalwork:system:architecture");
     },
+    getArchitectureDownload() {
+      return ipcRenderer.invoke("legalwork:system:architecture-download");
+    },
     getMicrophoneStatus() {
       return ipcRenderer.invoke("legalwork:system:microphoneStatus");
     },
@@ -124,7 +133,7 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   browser: {
     show(bounds, tabId) { return ipcRenderer.invoke("legalwork:browser:show", bounds, tabId); },
     hide(tabId) { return ipcRenderer.invoke("legalwork:browser:hide", tabId); },
-    openUrl(url, provider) { return ipcRenderer.invoke("legalwork:browser:openUrl", url, provider); },
+    openUrl(url, provider, context) { return ipcRenderer.invoke("legalwork:browser:openUrl", url, provider, context); },
     navigate(url, tabId) { return ipcRenderer.invoke("legalwork:browser:navigate", url, tabId); },
     back(tabId) { return ipcRenderer.invoke("legalwork:browser:back", tabId); },
     forward(tabId) { return ipcRenderer.invoke("legalwork:browser:forward", tabId); },

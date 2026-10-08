@@ -159,3 +159,37 @@ Approvals endpoints:
 The standalone server defaults to `manual`. The desktop defaults to `auto` for convenient local use, while preserving explicit `LEGALWORK_APPROVAL_MODE` and `server.json` `approval.mode` settings. Set either to `manual` to require host confirmation for gated writes, including requests from the desktop, agents, and remote clients. The desktop presents these requests in a native dialog; dismissing it, closing the host window, or reaching the approval timeout denies the request. The host API above remains available in either environment.
 
 Precedence is explicit `--approval`, `LEGALWORK_APPROVAL_MODE`, `server.json` `approval.mode`, then the environment's default. `LEGALWORK_APPROVAL_TIMEOUT_MS` or `approval.timeoutMs` controls the wait (30 seconds by default). `auto` skips this additional confirmation; token authentication and scope checks still apply.
+
+## Online model catalog updates
+
+LegalWork fetches the public model registry from Eigenwelt at
+`https://platform.eigenweltlabs.com/api/public/model-catalog/api.json`.
+Catalog requests contain no prompts, documents, provider keys or provider
+selection. They are ordinary HTTP requests, so Eigenwelt's infrastructure sees
+the client IP and request metadata. The platform mirrors upstream metadata
+without forwarding client details.
+
+**Settings → Privacy → Update the model list online** is enabled by default.
+Turning it off stops online catalog requests from the server and its managed
+engine, including manual refreshes. The saved or bundled model list remains
+available. This preference persists alongside `server.json` in
+`model-catalog-settings.json`; the last successful registry is saved in
+`model-catalog.json`. Invalid saved preferences disable online updates.
+
+Authenticated clients can read/update `{ "onlineUpdatesEnabled": boolean }`
+using `GET`/`PUT /model-catalog/settings`; updates require collaborator scope
+and a writable server. `GET /model-catalog/api.json` serves only public model
+metadata for orchestrator-managed engines. The desktop starts a dedicated
+loopback catalog relay before its engine so the preference also applies during
+startup. External engines started outside LegalWork must be configured by
+their operator; the setting cannot control those processes.
+
+Catalog redirects are rejected and failures never fall back to a third-party
+URL. For development, `OPENCODE_MODELS_URL` may target a loopback server. Remote
+catalog overrides must use `https://platform.eigenweltlabs.com`. The standalone
+orchestrator router uses Eigenwelt directly; without a LegalWork settings server,
+operators can disable its catalog updates with `OPENCODE_DISABLE_MODELS_FETCH=1`.
+
+Deploy the model-api mirror before releasing this client. The catalog switch
+does not affect model inference, custom provider discovery, Eigenwelt billing
+manifests, software updates or other user-selected services.

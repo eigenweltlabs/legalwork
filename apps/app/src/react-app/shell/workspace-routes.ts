@@ -62,3 +62,17 @@ export function projectViewFromPath(pathname: string): ProjectView | undefined {
   const view = match?.[1] === "project" ? "home" : match?.[1];
   return isProjectView(view) ? view : undefined;
 }
+
+/** Routed main panes are derived synchronously so content and sidebar cannot disagree. */
+export function sessionMainPage(pathname: string) {
+  switch (pathname) {
+    case "/projects": return "projects";
+    case "/tasks": return "tasks";
+    case "/scheduled": return "scheduled";
+    case "/calendar": return "calendar";
+    case "/workflows": return "workflows";
+    case "/recorder": return "recorder";
+    case "/evals": return "evals";
+    default: return /^\/workspace\/[^/]+\/evals$/.test(pathname) ? "evals" : null;
+  }
+}

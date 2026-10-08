@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, ChevronDown, X } from "lucide-react";
 
+import { WindowMenubar } from "@/react-app/shell/window-menubar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -73,6 +74,7 @@ export function SettingsShell(props: SettingsShellProps) {
   };
   const actions: MainRailActions = {
     navHome: { onClick: props.onClose },
+    navScheduled: { onClick: () => navigate("/scheduled") },
     navCalendar: { onClick: () => navigate("/calendar") },
     navProjects: { onClick: () => navigate("/projects") },
     navTasks: { onClick: () => navigate("/tasks") },
@@ -135,6 +137,7 @@ export function SettingsShell(props: SettingsShellProps) {
             <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
             <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
             <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />
+            <WindowMenubar />
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-3">
             {props.headerLeadingSlot}

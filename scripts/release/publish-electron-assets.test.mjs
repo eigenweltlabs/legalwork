@@ -27,6 +27,16 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
     await writeFile(join(platform, "SHA256SUMS"), await createChecksums([file]));
     await writeFile(join(platform, "latest-mac.yml"), `version: 1.0.0\nfiles:\n  - url: ${name}\n    sha512: fixture\n`);
   }
+  for (const arch of ["arm64", "x64"]) {
+    const platform = join(dist, `win-${arch}`);
+    await mkdir(platform, { recursive: true });
+    const name = `legalwork-win-${arch}-1.0.0.exe`;
+    const file = join(platform, name);
+    assetFiles.push(file);
+    await writeFile(file, `final Windows ${arch} bytes`);
+    await writeFile(join(platform, "SHA256SUMS"), await createChecksums([file]));
+    await writeFile(join(platform, arch === "arm64" ? "latest-arm64.yml" : "latest.yml"), `version: 1.0.0\nfiles:\n  - url: ${name}\n    sha512: fixture\n`);
+  }
   const script = fileURLToPath(new URL("./publish-electron-assets.mjs", import.meta.url));
   const run = () => spawnSync(process.execPath, [script, "--manifests-only", dist, "v1.0.0"], {
     encoding: "utf8",
@@ -38,19 +48,30 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
   const checksumFile = join(dir, "legalwork-electron-manifests", "SHA256SUMS");
   assert.equal(await readFile(checksumFile, "utf8"), await createChecksums(assetFiles));
   const uploads = (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse);
-  assert.equal(uploads.length, 2);
-  assert.deepEqual(uploads[1], ["release", "upload", "v1.0.0", checksumFile, "--repo", "fixture/legalwork", "--clobber"]);
+  assert.equal(uploads.length, 4);
+  assert.deepEqual(uploads[3], ["release", "upload", "v1.0.0", checksumFile, "--repo", "fixture/legalwork", "--clobber"]);
+  const output = join(dir, "legalwork-electron-manifests");
+  assert.match(await readFile(join(output, "latest-arm64.yml"), "utf8"), /legalwork-win-arm64/);
+  assert.doesNotMatch(await readFile(join(output, "latest.yml"), "utf8"), /arm64/);
+
+  const windowsManifest = join(dist, "win-x64", "latest.yml");
+  const originalWindowsManifest = await readFile(windowsManifest, "utf8");
+  await writeFile(windowsManifest, originalWindowsManifest + "  - url: legalwork-win-arm64-1.0.0.exe\n    sha512: fixture\n");
+  const mixed = run();
+  assert.notEqual(mixed.status, 0);
+  assert.match(mixed.stderr, /latest.yml must contain only Windows x64 installers/);
+  await writeFile(windowsManifest, originalWindowsManifest);
 
   // A present, valid list can still be stale or omit its installer.
   await writeFile(join(dist, "x64", "SHA256SUMS"), await createChecksums([assetFiles[0]]));
   const stale = run();
   assert.notEqual(stale.status, 0);
   assert.match(stale.stderr, /Missing SHA256SUMS entry for legalwork-mac-x64/);
-  assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 2);
+  assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 4);
 
   await rm(join(dist, "x64", "SHA256SUMS"));
   const incomplete = run();
   assert.notEqual(incomplete.status, 0);
   assert.match(incomplete.stderr, /Missing SHA256SUMS alongside/);
-  assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 2);
+  assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 4);
 });

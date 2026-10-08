@@ -3,10 +3,11 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
-  describeOtherOpenApps,
   officePaneForHost,
+  officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /**
  * Agent tools for editing the Microsoft Word document that is open next to
@@ -30,7 +31,7 @@ const WORD_TOOL_RULES = `Rules for word_* tools:
 - word_run_code executes raw Office.js for anything the typed tools cannot do (formatting, styles, tables, headers/footers, sections). Prefer the typed tools when they fit; keep snippets small and return a compact summary.
 - If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in Word and retry.`;
 
-/** Injected when no pane is connected: the tools exist but may be offline. */
+/** Always in the system prompt; a connected pane is reported as a reminder. */
 const WORD_TOOLS_INSTRUCTION = `## Microsoft Word document tools
 The user may have a Word document open either in LegalWork's in-app right sidebar or in the LegalWork pane inside Microsoft Word.
 
@@ -38,7 +39,7 @@ For an open/current document, try inapp_docx_read_document first. If it succeeds
 
 ${WORD_TOOL_RULES}`;
 
-/** Injected when a Word pane is live: switch to document-first behavior. */
+/** Reported when a Word pane connects: switch to document-first behavior. */
 const wordModeInstruction = (documentUrl: string | null) => `## You are working inside Microsoft Word right now
 The user has the LegalWork pane open inside Microsoft Word with a document next to the chat. ${describeOpenDocument(documentUrl)} Behave accordingly:
 
@@ -50,9 +51,7 @@ The user has the LegalWork pane open inside Microsoft Word with a document next 
 - Attach a short word_add_comment rationale to each substantive edit, like a careful colleague would.
 - The user reviews your edits in Word itself (Review ribbon, accept/reject). Never tell them to open another file or the LegalWork viewer — the redlines are already in front of them.
 - The chat is a narrow sidebar: keep replies short and skimmable. Lead with what you did or found, avoid wide tables and long headed sections, and do not paste large document excerpts back into the chat — the user can see the document.
-- After editing, summarize the redlines in one or two sentences and remind the user to review and accept or reject them in Word.
-
-${WORD_TOOL_RULES}`;
+- After editing, summarize the redlines in one or two sentences and remind the user to review and accept or reject them in Word.`;
 
 const readDocumentArgs = z.object({
   max_chars: z
@@ -141,19 +140,27 @@ export function isOpenWordFilePipelineCall(
   return text.includes(documentUrl.toLowerCase()) || text.includes(decodedUrl) || Boolean(name && text.includes(name));
 }
 
-export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) => ({
+export const LegalWorkWordTools = async (pluginInput?: SavedConversations) => {
+  const wordPane = appStateReminders(
+    "word-pane",
+    async () => {
+      const pane = await officePaneIfKnown("word", pluginInput?.directory);
+      if (pane === undefined) return null;
+      return pane ? wordModeInstruction(pane.documentUrl) : "";
+    },
+    "The LegalWork pane in Microsoft Word is no longer connected. Earlier Word reminders no longer apply; word_* tools are unavailable until the user opens the pane again.",
+    pluginInput,
+  );
+  return ({
   "experimental.chat.system.transform": async (
     _input: unknown,
     output: { system: string[] },
   ) => {
-    const pane = await officePaneForHost("word", pluginInput?.directory);
-    output.system.push(
-      pane
-        ? wordModeInstruction(pane.documentUrl) +
-          (await describeOtherOpenApps("word", pluginInput?.directory))
-        : WORD_TOOLS_INSTRUCTION,
-    );
+    output.system.push(WORD_TOOLS_INSTRUCTION);
   },
+  "chat.message": wordPane.userMessage,
+  "tool.execute.after": wordPane.toolResult,
+  event: wordPane.event,
   "tool.execute.before": async (
     input: { tool: string },
     output: { args: Record<string, unknown> },
@@ -230,4 +237,5 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
       },
     },
   },
-});
+  });
+};
