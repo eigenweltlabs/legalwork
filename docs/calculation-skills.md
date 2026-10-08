@@ -40,7 +40,7 @@ def calculate(inputs, recorder):
     ]}
 ```
 
-`legalwork_calculation_run(skill, input)` executes a snapshot of this installed script under the server's execution approval policy. The child receives JSON via stdin and runs the bundled Python inside a disposable VM, with read-only input files and network access denied. Users do not need to install Python. Missing sandbox resources block execution. Shipped calculators do not need the Python runtime.
+`legalwork_calculation_run(skill, input)` executes a snapshot of this installed script under the server's execution approval policy. The child receives JSON via stdin and runs the bundled Python in an isolated command environment inside the shared VM, with read-only input files and network access denied. Users do not need to install Python. Missing sandbox resources block execution. Shipped calculators do not need the Python runtime.
 
 The recorder captures each called function's bound inputs, actual return value, source and line number. `reason` and `title` are authored by the skill. They are explanatory labels, not independent proof of legal correctness. Instrument every meaningful decision, including branches that stop calculation. Uninstrumented arbitrary scripts do not gain a trustworthy step-by-step explanation automatically. The complete executed script and its hash remain in the stored audit record. The chat card shows readable dates, concise recorded steps and the result; it does not render dependency bundles, hashes or raw intermediate arguments.
 
