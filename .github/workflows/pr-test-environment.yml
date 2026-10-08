@@ -90,14 +90,15 @@ jobs:
       - name: Optional bounded real-provider smoke test
         if: steps.stack.outputs.environment_id != '' && github.event_name == 'workflow_dispatch' && inputs.live_smoke && inputs.action == 'create'
         run: node "$RUNNER_TEMP/controller/scripts/live-model.mjs" '${{ steps.stack.outputs.environment_id }}'
-      - name: Upload test artifacts
+      - name: Store sensitive traces and screenshots privately
+        if: always() && steps.stack.outputs.environment_id != ''
+        run: node "$RUNNER_TEMP/controller/scripts/publish-results.mjs" '${{ steps.stack.outputs.environment_id }}'
+      - name: Upload safe test summary
         if: always() && steps.stack.outputs.environment_id != ''
         uses: actions/upload-artifact@v4
         with:
           name: test-lab-${{ steps.stack.outputs.environment_id }}
-          path: |
-            ${{ runner.temp }}/controller/test-results
-            ${{ runner.temp }}/controller/playwright-report
+          path: ${{ runner.temp }}/controller/test-results/public-summary.json
           retention-days: 30
       - name: Report environment on PR
         if: always() && steps.stack.outputs.environment_id != ''
