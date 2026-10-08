@@ -607,7 +607,7 @@ export function TasksPane(props: TasksPaneProps) {
           {selectedTask.projectId && props.onOpenInProject && <div className="flex justify-end px-4 pt-2"><Button variant="ghost" size="sm" onClick={() => {
             if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
             props.onOpenInProject?.(selectedTask.projectId!, selectedTask);
-          }}>{t(props.projectId ? "workspace.open_here" : "workspace.open_in_project")}</Button></div>}
+          }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
           {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => setAttachment(null)}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId="global-tasks" client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => setAttachment(null)} /></div>}
           <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
             key={selectedTask.id}

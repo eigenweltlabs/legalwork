@@ -19,7 +19,7 @@ import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-chrome";
 
 import { useFilePins } from "./file-pins";
-import { WorkspaceEntryMenu } from "./workspace-entry-menu";
+import { WorkspaceEntryMenu, WorkspaceUploadButton } from "./workspace-entry-menu";
 
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
@@ -29,6 +29,9 @@ import { writeWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
 import { t } from "@/i18n";
 import { projectErrorMessage } from "../../workspace/project-errors";
 import { ProjectFilesDropzone } from "../../workspace/project-files-dropzone";
+import { FileSelectionProvider, useHasFileSelection } from "../../workspace/file-selection";
+import { WorkspaceFileMoveTarget } from "../../workspace/workspace-file-move-target";
+import { writeWorkspaceFileMove } from "@/app/lib/workspace-file-move";
 
 type WorkspaceFilesPanelProps = {
   client: LegalworkServerClient | null;
@@ -39,6 +42,7 @@ type WorkspaceFilesPanelProps = {
   isRemoteWorkspace: boolean;
   active: boolean;
   searchable?: boolean;
+  uploadPlacement?: "header" | "footer";
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry, permanent?: boolean) => void;
   onClose?: () => void;
 };
@@ -55,7 +59,11 @@ function workspaceDisplayName(workspaceRoot: string): string {
 }
 
 export function WorkspaceFilesPanel(props: WorkspaceFilesPanelProps) {
-  return <WorkspaceFilesPanelContent key={`${props.client?.baseUrl}:${props.workspaceId}`} {...props} />;
+  const hasSelection = useHasFileSelection();
+  const files = useProjectFiles();
+  const project = props.client && props.workspaceId ? files?.identify(props.client, props.workspaceId, { path: "_", name: "_" }) : null;
+  const content = <WorkspaceFilesPanelContent key={`${props.client?.baseUrl}:${props.workspaceId}`} {...props} />;
+  return hasSelection ? content : <FileSelectionProvider key={`${props.client?.baseUrl}:${props.workspaceId}`} scope={project?.projectId ?? ""} compact>{toolbar => <>{toolbar}{content}</>}</FileSelectionProvider>;
 }
 
 function WorkspaceFilesPanelContent({
@@ -67,6 +75,7 @@ function WorkspaceFilesPanelContent({
   isRemoteWorkspace,
   active,
   searchable = false,
+  uploadPlacement = "footer",
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
@@ -157,13 +166,14 @@ function WorkspaceFilesPanelContent({
         draggable={entry.kind === "file" && Boolean(workspaceId)}
         onDragStart={(event) => {
           if (entry.kind !== "file" || !workspaceId) { event.preventDefault(); return; }
-          writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: entry.path, name: displayName });
-          if (client) projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: displayName });
+          writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: entry.path, name: entry.name });
+          if (client) projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: entry.name });
+          if (client) writeWorkspaceFileMove(event.dataTransfer, { baseUrl: client.baseUrl, workspaceId, paths: [entry.path] });
         }}
         onClick={() => (entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry))}
         onDoubleClick={() => { if (entry.kind !== "dir") onOpenFile(entry, true); }}
         title={entry.path}
-        className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/50 hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+        className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/50 hover:bg-muted/60 data-[file-move-over]:bg-primary/10 data-[file-move-over]:ring-1 data-[file-move-over]:ring-primary/40 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
       >
         {entry.kind === "dir" ? (
           <FolderIcon />
@@ -185,10 +195,12 @@ function WorkspaceFilesPanelContent({
 
   return (
     <TooltipProvider delay={1000}>
+      <WorkspaceFileMoveTarget client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace} folder={path}>
       <ProjectFileDropTarget projectId={projectId ?? ""} folder={path} className="flex h-full min-h-0 flex-1 flex-col">
       <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
         <PanelHeader wrapActions headerTarget={headerTarget} title={t("workspace_files.files")}>
+          {uploadPlacement === "header" && client && workspaceId && <WorkspaceUploadButton workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace} folderPath={path} compact />}
           <WorkspaceEntryMenu client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
             folderPath={path} onRefresh={() => void refetch()} toolbar />
           <Tooltip>
@@ -248,11 +260,12 @@ function WorkspaceFilesPanelContent({
                 {index > 0 ? <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" /> : null}
                 <button
                   type="button"
+                  data-project-folder={crumb.path}
                   onClick={() => navigateTo(crumb.path)}
                   disabled={current}
                   aria-current={current ? "location" : undefined}
                   className={cn(
-                    "shrink-0 rounded-md px-1.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "shrink-0 rounded-md px-1.5 py-1 text-xs transition-colors data-[file-move-over]:bg-primary/10 data-[file-move-over]:ring-1 data-[file-move-over]:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                     current
                       ? "font-medium text-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -280,7 +293,7 @@ function WorkspaceFilesPanelContent({
                 const entry: LegalworkWorkspaceDirectoryEntry = { kind: "file", name: filePath.split("/").at(-1) || item.title, path: filePath, updatedAt: item.updatedAt };
                 return <WorkspaceEntryMenu key={item.id} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
                   folderPath={filePath.slice(0, Math.max(0, filePath.lastIndexOf("/")))} entry={entry} onOpen={() => onOpenFile(entry)} onRefresh={() => void search.refetch()}>
-                  <button className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { if (workspaceId) { writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: filePath, name: entry.name }); if (client) projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: filePath, name: entry.name }); } }} onClick={() => onOpenFile(entry)}>
+                  <button className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { if (workspaceId) { writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: filePath, name: entry.name }); if (client) projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: filePath, name: entry.name }); if (client) writeWorkspaceFileMove(event.dataTransfer, { baseUrl: client.baseUrl, workspaceId, paths: [filePath] }); } }} onClick={() => onOpenFile(entry)}>
                     <ArtifactIcon type={classifyOpenTarget(filePath, "file")} className="mt-0.5 size-5 shrink-0" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{filePath}</span>{item.excerpt && <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.excerpt}</span>}</span>
                   </button>
                 </WorkspaceEntryMenu>;
@@ -340,9 +353,11 @@ function WorkspaceFilesPanelContent({
           )}
         </div>
         </WorkspaceEntryMenu>
+        {uploadPlacement === "footer" && client && workspaceId && <WorkspaceUploadButton workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace} folderPath={path} />}
       </div>
       </ProjectFilesDropzone>
       </ProjectFileDropTarget>
+      </WorkspaceFileMoveTarget>
     </TooltipProvider>
   );
 }

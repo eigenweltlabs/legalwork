@@ -1,3 +1,8 @@
+import { toast } from "@/components/ui/sonner";
+import { ProjectFileImportContext } from "./react-app/domains/workspace/use-project-file-import";
+import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspace-window-button";
+import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
+import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
@@ -159,6 +164,9 @@ const memoryFiles: LegalMemoryTreeFile[] = files.filter((file) => file.kind === 
   source_object_id: file.path, source_id: "visual-drive", name: file.name, path: file.path,
   mime_type: null, size_bytes: file.size ?? null, mtime: new Date(now).toISOString(), document_id: file.path,
 }));
+if (new URLSearchParams(window.location.search).get("memory") === "large") {
+  memoryFiles.push(...Array.from({ length: 196 }, (_, index) => ({ source_object_id: `synthetic-${index}`, source_id: "visual-drive", name: `Synthetic file ${String(index + 1).padStart(3, "0")}.pdf`, path: `Synthetic file ${index + 1}.pdf`, mime_type: "application/pdf", size_bytes: 1000, mtime: new Date(now).toISOString(), document_id: `synthetic-${index}` })));
+}
 const previewNotice = () => { toast("Visual preview", { description: "This action needs the running desktop app or a connected service." }); };
 
 // `?plans=new|signed-out|ended|no-models|onboarding` lays the plan screen over
@@ -430,7 +438,7 @@ const fixtureClient: LegalworkServerClient = {
     return { ok: true, path, bytes: data.byteLength, updatedAt };
   },
   listWorkspaceDirectory: async (_workspaceId, path) => ({
-    path, entries: path ? files.filter((file) => file.kind === "file").map((file) => ({ ...file, path: `${path}/${file.name}` })) : files, truncated: false,
+    path, entries: files.filter(file => file.path.slice(0, Math.max(0, file.path.lastIndexOf("/"))) === path), truncated: false,
   }),
   readWorkspaceFile: async (_workspaceId, path) => ({ path, ...previewFile(path), bytes: previewFile(path).content.length }),
   writeWorkspaceFile: async (_workspaceId, payload) => {
@@ -441,6 +449,7 @@ const fixtureClient: LegalworkServerClient = {
     return { ok: true, path: payload.path, bytes: payload.content.length, ...saved };
   },
   downloadWorkspaceFile: async (_workspaceId, path) => {
+    if (path.endsWith(".pdf")) return { data: await fetch(new URL("../scripts/fixtures/workspace-preview.pdf", import.meta.url)).then(response => response.arrayBuffer()), contentType: "application/pdf", filename: path, updatedAt: now };
     if (path.endsWith(".md")) return { data: await new Blob([previewFile(path).content]).arrayBuffer(), contentType: "text/markdown", filename: path, updatedAt: previewFile(path).updatedAt };
     if (!path.endsWith(".docx")) throw new Error("Open review-notes.md or a DOCX to inspect the synthetic document panel.");
     const saved = localStorage.getItem(`legalwork:synthetic-binary:${path}`);
@@ -478,6 +487,7 @@ function SessionPreview() {
   const navigate = useNavigate();
   const projectPage = projectViewFromPath(location.pathname);
   const [revision, setRevision] = useState(0);
+  const [projectOrder, setProjectOrder] = useState([workspace.id, otherWorkspace.id]);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   useEffect(() => {
     const projectRoute = location.pathname.match(/^\/workspace\/([^/]+)/);
@@ -525,10 +535,16 @@ function SessionPreview() {
           <button onClick={() => requestPanelTab({ id: `review:${previewReview.id}`, type: "review", reviewId: previewReview.id, label: previewReview.name })}>Open sample review</button>
           <button onClick={() => requestPanelTab({ id: "task:visual-task", type: "task", taskId: "visual-task", label: "Review supplier notice" })}>Open sample task</button>
           <button onClick={() => setShowWorkflows(true)}>Open workflow library</button>
+          <WorkspaceWindowButton workspaceId={workspace.id} openWindow={async (_id, _tab, mode) => { toast.success(mode === "empty" ? "Preview: empty workspace window" : "Preview: copied workspace window"); }} />
+          <button onClick={() => {
+            usePanelTabStore.getState().openTab(workspacePanelKey(otherWorkspace.id), projectFileTab({ projectId: workspace.id, workspaceId: workspace.id, path: "Annual report.pdf", name: "Annual report.pdf" }));
+            navigate(`/workspace/${otherWorkspace.id}/session?view=workspace`);
+          }}>Open cross-project PDF</button>
         </span>}
       </div>
       <div className="min-h-0 flex-1">
         <SessionPage
+          projectsPage={location.pathname === "/projects"}
           projectPage={projectPage}
           projectTasksView={(embedded, inWorkspace) => <TasksPane embedded={embedded} client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(_projectId, task) => { usePanelTabStore.getState().openTab(workspacePanelKey(activeWorkspace.id), { id: `task:${task.id}`, type: "task", taskId: task.id, label: task.title }); navigate(`/workspace/${activeWorkspace.id}/session?view=workspace`); }} baseUrl={fixtureClient.baseUrl} token="visual-fixture" workspaces={[workspace, otherWorkspace]} defaultModel={model} onOpenSession={(_workspaceId, id) => setSelectedSessionId(id)} />}
           projectCalendarView={<CalendarView client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} projectName={activeWorkspace.name} />}
@@ -576,7 +592,7 @@ function SessionPreview() {
             setRevision((value) => value + 1);
           }}
           sidebar={{
-            workspaceSessionGroups: groups, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
+            workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
             sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
@@ -585,6 +601,7 @@ function SessionPreview() {
             onOpenSession: (workspaceId, id) => { setActiveWorkspace(workspaceId === workspace.id ? workspace : otherWorkspace); setShowWorkflows(false); setSelectedSessionId(id); navigate(workspaceSessionRoute(workspaceId, id)); }, onCreateChatInWorkspace: newTask,
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
+            onShowProjects: () => { setShowHome(false); setShowWorkflows(false); navigate("/projects"); },
             onShowChats: () => { setShowHome(true); setShowWorkflows(false); }, onShowEvals: previewNotice, onShowWorkflows: () => setShowWorkflows(true), onShowExtensions: previewNotice, onShowRecorder: previewNotice,
             activeNav: showWorkflows ? "workflows" : null,
           }}
@@ -617,9 +634,14 @@ previewRoot.render(
             <ReloadCoordinatorProvider>
               <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
                 <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
-                  <SessionPreview />
+                  <ProjectFileImportContext value={async (_projectId, imported, folder) => ({ files: imported.map(file => {
+                    const path = folder ? `${folder}/${file.name}` : file.name;
+                    if (files.some(entry => entry.path === path)) return { name: file.name, path, status: "already_here" };
+                    files = [...files, { name: file.name, path, kind: "file", size: file.size }];
+                    return { name: file.name, path, status: "copied" };
+                  }) })}><SessionPreview /></ProjectFileImportContext>
                   <PlansPreview />
-                  <Toaster />
+                  <Toaster /><DocumentDiscardDialog />
                 </MemoryRouter>
               </WorkspaceProvider>
             </ReloadCoordinatorProvider>

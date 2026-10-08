@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createBrowserPanel } from "./browser-panel.mjs";
+import { resolveBrowserProject } from "./browser-project.mjs";
 
 function fixture(resolveDownloadDirectory = async () => null) {
   const views = [];
@@ -26,7 +27,7 @@ function fixture(resolveDownloadDirectory = async () => null) {
   }
   const window = focused => Object.assign(new EventEmitter(), {
     focused, isDestroyed: () => false, isFocused() { return this.focused; },
-    webContents: { messages: [], isDestroyed: () => false, send(channel, payload) { this.messages.push({ channel, payload }); }, getZoomFactor: () => 1.25 },
+    webContents: { messages: [], url: "file:///app/index.html", getURL() { return this.url; }, isDestroyed: () => false, send(channel, payload) { this.messages.push({ channel, payload }); }, getZoomFactor: () => 1.25 },
     contentView: { children: [], addChildView(view) { this.children.push(view); }, removeChildView(view) { this.children = this.children.filter(child => child !== view); } },
   });
   const first = window(true), second = window(false), third = window(false);
@@ -153,15 +154,20 @@ test("closing a native window destroys only its browser views", async t => {
 test("shared browser cookies do not mix download destinations or retain closed-window handlers", async t => {
   const firstRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "legalwork-download-a-")));
   const secondRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "legalwork-download-b-")));
-  let currentProject = firstRoot;
-  const f = fixture(async () => currentProject);
+  const projects = { selectedId: "second", workspaces: [
+    { id: "first", workspaceType: "local", path: firstRoot },
+    { id: "second", workspaceType: "local", path: secondRoot },
+  ] };
+  const f = fixture((context, windowUrl) => resolveBrowserProject(context, projects, { running: false }, windowUrl));
+  f.first.webContents.url = "file:///app/index.html#/workspace/first/session/chat-a";
+  f.second.webContents.url = "file:///app/index.html#/workspace/second/session/chat-b";
   t.after(() => {
     f.controller.destroy();
     rmSync(firstRoot, { recursive: true, force: true });
     rmSync(secondRoot, { recursive: true, force: true });
   });
   await f.call("createTab", f.first, "about:blank");
-  currentProject = secondRoot;
+  projects.selectedId = "first";
   await f.call("createTab", f.second, "about:blank");
   assert.equal(f.browserSession.listenerCount("will-download"), 2);
   for (const [index, root] of [firstRoot, secondRoot].entries()) {
@@ -178,4 +184,15 @@ test("shared browser cookies do not mix download destinations or retain closed-w
   assert.equal(f.browserSession.listenerCount("will-download"), 1);
   f.controller.destroy();
   assert.equal(f.browserSession.listenerCount("will-download"), 0);
+});
+
+test("a window without a project route cannot borrow another window's download folder", async t => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "legalwork-browser-project-")));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const state = { selectedId: "a", workspaces: [{ id: "a", workspaceType: "local", path: root }] };
+  const server = { running: false };
+  assert.equal(await resolveBrowserProject({}, state, server, "file:///app/index.html#/evals"), null);
+  assert.equal(await resolveBrowserProject({}, state, server, "file:///app/index.html#/workspace/missing/session"), null);
+  assert.equal(await resolveBrowserProject({}, state, server, "http://localhost:5188/workspace/a/session"), root);
+  assert.equal(await resolveBrowserProject({ directory: root }, state, server, "file:///app/index.html#/evals"), root);
 });

@@ -35,7 +35,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean }) {
+function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; promptError?: () => { name: string; data: { message: string } } | undefined }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -79,7 +79,7 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
       }
 
       if (url.pathname === "/session/ses_1/message" && request.method === "POST") {
-        return Response.json({ info: { id: "response", role: "assistant" }, parts: [] });
+        return Response.json({ info: { id: "response", role: "assistant", error: input?.promptError?.() }, parts: [] });
       }
 
       if (url.pathname === "/session/ses_1/message") {
@@ -422,6 +422,32 @@ describe("workspace session read APIs", () => {
 
 
 describe("shared session queue API", () => {
+  test("a confirmed aborted prompt completes delivery and follow-ups can resume without resending it", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let aborted = true;
+    const mock = startMockOpencode({ idle: () => true, promptError: () => aborted ? { name: "MessageAbortedError", data: { message: "Stopped by user" } } : undefined });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    const send = (body: unknown) => fetch(base, { method: "POST", headers, body: JSON.stringify(body) });
+    const read = () => fetch(base, { headers }).then(r => r.json());
+    const first = { type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "first", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text: "first" }] } };
+    const second = { ...first, id: crypto.randomUUID() };
+    await send({ type: "pause", paused: true });
+    await send(first); await send(second);
+    await send({ type: "pause", paused: false });
+    for (let attempt = 0; attempt < 100 && !(await read()).paused; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+    const stopped = await read();
+    expect(stopped.paused).toBe(true);
+    expect(stopped.completedIds).toContain(first.id);
+    expect(stopped.entries.map((entry: { id: string; status: string }) => [entry.id, entry.status])).toEqual([[second.id, "queued"]]);
+    aborted = false;
+    expect((await send({ type: "pause", paused: false })).status).toBe(200);
+    for (let attempt = 0; attempt < 100 && (await read()).entries.length; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+    expect((await read()).entries).toEqual([]);
+    await send(first); // An acknowledgement retry cannot resend the aborted original.
+    expect(mock.requests.filter(request => request.pathname === "/session/ses_1/message" && request.method === "POST")).toHaveLength(2);
+  });
   test("both windows read the same queue; server dispatch restores the chat once and rejects stale writes", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let idle = false;

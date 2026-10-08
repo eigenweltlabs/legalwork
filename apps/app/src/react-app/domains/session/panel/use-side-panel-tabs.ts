@@ -7,6 +7,7 @@ import {
   usePanelTabStore,
 } from "./panel-tab-store";
 import { getElectronBrowser } from "./utils";
+import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 
 export function useSidePanelTabs(sessionId: string, active = true) {
   const syncBrowserTabs = usePanelTabStore((state) => state.syncBrowserTabs);
@@ -97,13 +98,18 @@ export function useCloseTab() {
 export function useSelectTab() {
   const selectTab = usePanelTabStore((state) => state.selectTab);
 
-  return React.useCallback((sessionId: string, tabId: string) => {
+  return React.useCallback(function selectPanelTab(sessionId: string, tabId: string) {
     const tabs = usePanelTabStore.getState().sessions[sessionId]?.tabs ?? [];
     const tab = tabs.find((entry) => entry.id === tabId);
 
     if (!tab) {
       return;
     }
+
+    const previous = usePanelTabStore.getState().sessions[sessionId];
+    const pane = previous?.panes.find(pane => pane.tabIds.includes(tabId));
+    if (!sessionId.startsWith("workspace:") && pane && pane.activeTabId !== tabId &&
+      !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true, () => selectPanelTab(sessionId, tabId))) return;
 
     selectTab(sessionId, tabId);
     const session = usePanelTabStore.getState().sessions[sessionId];

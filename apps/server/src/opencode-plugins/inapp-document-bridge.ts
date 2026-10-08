@@ -85,6 +85,14 @@ export type InAppDocumentSurface = {
   agentEditsTracked: boolean;
 };
 
+/** Explicit chat membership takes precedence over the legacy pane/session id. */
+export function documentMatchesSession(value: unknown, sessionId: string): boolean {
+  if (!value || typeof value !== "object" || !sessionId) return false;
+  const sessions: unknown = Reflect.get(value, "sessionIds");
+  return sessions === undefined ? getStringProperty(value, "sessionId") === sessionId
+    : Array.isArray(sessions) && sessions.includes(sessionId);
+}
+
 export function inAppDocumentSurface(payload: unknown, sessionId?: string): InAppDocumentSurface | null {
   if (typeof payload !== "object" || payload === null) return null;
   const surface = Reflect.get(payload, "activeSurface");
@@ -94,7 +102,7 @@ export function inAppDocumentSurface(payload: unknown, sessionId?: string): InAp
   const surfaceSessionId = getStringProperty(surface, "sessionId");
   const name = getStringProperty(surface, "name");
   const path = getStringProperty(surface, "path");
-  if (!surfaceSessionId || !name || !path || (sessionId && surfaceSessionId !== sessionId)) return null;
+  if (!surfaceSessionId || !name || !path || (sessionId && !documentMatchesSession(surface, sessionId))) return null;
   return {
     format,
     sessionId: surfaceSessionId,

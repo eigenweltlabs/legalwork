@@ -1,5 +1,8 @@
+import { isDocumentReadTool } from "./document-agent-read";
+import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
 import { keepHandoffCopy } from "./document-handoff-copy";
+import { binaryMatchesStat, retainBinaryContent } from "./binary-content";
 import { flushSync } from "react-dom";
 /** @jsxImportSource react */
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -78,7 +81,7 @@ type ArtifactPanelViewProps = {
 
 type ArtifactQueryState =
   | (TextData & { updatedAt: number | null })
-  | (BinaryData & { contentType: string | null; updatedAt: number | null; revision: number });
+  | (BinaryData & { contentType: string | null; updatedAt: number | null; downloadedUpdatedAt?: number | null; revision: number });
 
 type SaveArtifactInput = Data & { baseUpdatedAt: number | null };
 
@@ -184,6 +187,7 @@ function stringProperty(value: Record<string, unknown>, key: string) {
 }
 
 export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+  const controlSessionIds = useDocumentControlSessions(sessionId);
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -255,13 +259,20 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         return { kind: "text", data: result.content, updatedAt: result.updatedAt ?? null };
       }
 
+      const previous = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl]);
+      if (localReadOnly && previous?.kind === "binary") {
+        // Older servers without stat/version metadata retain the download path.
+        const stat = await client.statWorkspaceFile(workspaceId, target.value).catch(() => null);
+        if (stat && binaryMatchesStat(previous, stat)) return previous;
+      }
       const result = await client.downloadWorkspaceFile(workspaceId, target.value);
       const updatedAt = result.updatedAt ?? target.updatedAt ?? null;
 
       return {
         kind: "binary",
-        data: result.data,
+        data: retainBinaryContent(previous?.kind === "binary" ? previous.data : undefined, result.data),
         contentType: result.contentType,
+        downloadedUpdatedAt: result.updatedAt,
         updatedAt,
         revision: nextBinaryRevision(result.updatedAt),
       };
@@ -332,6 +343,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   });
 
   const [binaryObjectUrl, setBinaryObjectUrl] = useState<string | null>(null);
+  const binaryContent = data?.kind === "binary" ? data.data : null;
+  const binaryContentType = data?.kind === "binary" ? data.contentType : null;
 
   useEffect(() => {
     if (!isBinaryEditor || data?.kind !== "binary") return;
@@ -339,7 +352,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   }, [data, documentDirty, documentSaving, isBinaryEditor]);
 
   useEffect(() => {
-    if (!data || data.kind !== "binary") {
+    if (!binaryContent) {
       setBinaryObjectUrl(null);
 
       return;
@@ -347,13 +360,13 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
     // Force application/pdf for PDF targets so the browser renders it inline
     // instead of treating an octet-stream blob as a download.
-    const blobType = target.preview === "pdf" ? "application/pdf" : data.contentType ?? "application/octet-stream";
-    const url = URL.createObjectURL(new Blob([data.data], { type: blobType }));
+    const blobType = target.preview === "pdf" ? "application/pdf" : binaryContentType ?? "application/octet-stream";
+    const url = URL.createObjectURL(new Blob([binaryContent], { type: blobType }));
 
     setBinaryObjectUrl(url);
 
     return () => URL.revokeObjectURL(url);
-  }, [data, target.preview]);
+  }, [binaryContent, binaryContentType, target.preview]);
 
   useEffect(() => {
     setEditing(false);
@@ -531,14 +544,13 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         { name: "toolName", type: "string", required: true, description: "Editor tool name." },
         { name: "args", type: "object", description: "Arguments for the editor tool." },
       ],
-      disabled: !access.editable,
       execute: async (rawArgs) => {
-        if (!access.editable) return { ok: false, error: t("document_access.read_only") };
         if (!isRecord(rawArgs)) return { ok: false, error: "Document tool arguments are required." };
-        if (stringProperty(rawArgs, "sessionId") !== sessionId) {
+        if (!controlSessionIds.includes(stringProperty(rawArgs, "sessionId"))) {
           return { ok: false, error: "No in-app document is open for this session." };
         }
         const toolName = stringProperty(rawArgs, "toolName");
+        if ((!isEditableDocument || !access.editable) && !isDocumentReadTool(target.preview === "word" ? "docx" : "office", toolName)) return { ok: false, error: t("document_access.read_only") };
         const toolArgs = isRecord(rawArgs.args) ? rawArgs.args : {};
         if (target.preview !== "word" && stringProperty(rawArgs, "path") !== target.value) return { ok: false, error: "The active file changed. Read the sidebar snapshot and select the intended file before retrying." };
         const api = target.preview === "word" ? docxApi.current : officeApi.current;
@@ -561,7 +573,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         };
       },
     } : null
-  ), [documentSurface, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose]);
+  ), [documentSurface, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose]);
   useControlAction(documentAgentControlAction);
 
   const saveDocument = async () => {
@@ -740,7 +752,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "offering" || access.status === "releasing"}>
-        {isLoading || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))) ? (
+        {isLoading || access.status === "checking" || (data?.kind === "binary" && (!binaryObjectUrl || (isBinaryEditor && !documentSnapshot))) ? (
           <PreviewLoading />
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : t("artifact.load_failed") } />
@@ -779,7 +791,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
             onSave={saveDocumentContent}
             apiRef={docxApi}
             onDirtyChange={onDocumentDirtyChange}
-            autosave={autosave && access.editable}
+            autosave={autosave}
             onAutosaveError={setAutosaveError}
             recoveryKey={isEditableDocument && access.ownsFile ? access.key ?? undefined : undefined}
             legacyRecoveryKey={JSON.stringify([workspaceId, target.value])}

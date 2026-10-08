@@ -1,9 +1,14 @@
-import { useRef, useState } from "react";
+import { createContext, use, useRef, useState } from "react";
+import type { WorkspaceCopyFilesResult } from "@legalwork/types/desktop-ipc";
 import { useQueryClient } from "@tanstack/react-query";
 import "@/app/lib/desktop";
 import { isElectronRuntime } from "@/app/lib/runtime-env";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
+
+type FileImporter = (projectId: string, files: File[], folder: string) => Promise<WorkspaceCopyFilesResult>;
+/** The visual fixture supplies an in-memory importer; production uses the native bridge. */
+export const ProjectFileImportContext = createContext<FileImporter | null>(null);
 
 export function useProjectFileImport({ projectId, workspaceId, isRemoteWorkspace }: {
   projectId: string;
@@ -13,12 +18,13 @@ export function useProjectFileImport({ projectId, workspaceId, isRemoteWorkspace
   const queryClient = useQueryClient();
   const copyingRef = useRef(false);
   const [copying, setCopying] = useState(false);
+  const importer = use(ProjectFileImportContext);
 
-  const canImport = !isRemoteWorkspace && isElectronRuntime();
+  const canImport = !isRemoteWorkspace && (Boolean(importer) || isElectronRuntime());
 
   const copyFiles = async (files: File[], destinationPath = "") => {
     if (!canImport || !files.length || copyingRef.current) return;
-    const copy = window.__LEGALWORK_ELECTRON__?.files?.copyIntoProject;
+    const copy = importer ?? window.__LEGALWORK_ELECTRON__?.files?.copyIntoProject;
     if (!copy) { toast.info(t("projects.files_restart")); return; }
     copyingRef.current = true;
     setCopying(true);

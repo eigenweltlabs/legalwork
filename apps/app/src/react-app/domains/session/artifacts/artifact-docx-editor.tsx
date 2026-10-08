@@ -1,3 +1,4 @@
+import { isDocumentReadTool } from "./document-agent-read";
 /** @jsxImportSource react */
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DocxEditor, type DocxEditorRef, type EditorMode } from "@eigenpal/docx-editor-react";
@@ -342,12 +343,19 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
   latestSave.current = () => save(true);
 
   useEffect(() => {
-    automaticSave.setEnabled(autosave && !readOnly);
-    onAutosaveError?.(null);
+    automaticSave.setEnabled(autosave);
+    latestAutosaveError.current?.(null);
+  }, [automaticSave, autosave]);
+
+  useEffect(() => {
+    automaticSave.setSuspended(readOnly || interactionLocked);
+  }, [automaticSave, readOnly, interactionLocked]);
+
+  useEffect(() => {
     const flush = () => { if (document.visibilityState === "hidden") void automaticSave.flush(); };
     document.addEventListener("visibilitychange", flush);
-    return () => { automaticSave.setEnabled(false); document.removeEventListener("visibilitychange", flush); };
-  }, [automaticSave, autosave, readOnly, onAutosaveError]);
+    return () => { automaticSave.setSuspended(true); document.removeEventListener("visibilitychange", flush); };
+  }, [automaticSave]);
 
   useEffect(() => {
     if (!apiRef) return;
@@ -364,7 +372,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         try { await pendingSave.current; } finally { await checkpointWork.current; await drainDocxRecovery(); }
       },
       executeAgentTool: async (toolName, args) => {
-        if (readOnly || interactionLocked) return { success: false, error: t("docx.read_only") };
+        if ((readOnly || interactionLocked) && !isDocumentReadTool("docx", toolName)) return { success: false, error: t("docx.read_only") };
         if (!ready.current) return { success: false, error: t("docx.editor_not_ready") };
         const isReviewDecision = REVIEW_TOOL_NAMES.has(toolName);
         let result: DocxEditorToolResult;

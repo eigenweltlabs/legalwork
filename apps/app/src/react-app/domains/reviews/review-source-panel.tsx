@@ -73,7 +73,7 @@ export function ReviewSourcePanel({ client, workspaceId, citation, name, onClose
       {source.quote && <blockquote className="max-h-36 shrink-0 overflow-auto border-b px-5 py-3 text-sm leading-relaxed text-muted-foreground">{source.quote}</blockquote>}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
         {page !== undefined && <Button variant="outline" size="sm" onClick={() => { setPage(undefined); setSelectedRegionId(undefined); }}>{t("review.return_to_citation")}</Button>}
-        {source.structure && <Button variant={layout ? "secondary" : "outline"} size="sm" aria-pressed={layout} onClick={() => { setLayout(!layout); setSelectedRegionId(undefined); }}>{t("review.layout")}</Button>}
+        {source.structure && <Button variant="choice" size="sm" aria-pressed={layout} onClick={() => { setLayout(!layout); setSelectedRegionId(undefined); }}>{t("review.layout")}</Button>}
         {source.structure?.status === "partial" && <span className="text-xs text-muted-foreground">{t("review.layout_partial")}</span>}
         {source.structure?.status === "unavailable" && <span className="text-xs text-muted-foreground">{t("review.layout_unavailable")}</span>}
       </div>

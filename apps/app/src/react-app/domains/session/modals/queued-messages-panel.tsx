@@ -33,7 +33,7 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
     try { await props.onReorder(order); }
     finally { dragOrderRef.current = null; setDragOrder(null); setSavingOrder(false); }
   };
-  if (!props.messages.length && !props.editingId) return null;
+  if (!props.messages.length && !props.editingId && !props.paused) return null;
   return (
     <section
       data-message-queue
@@ -46,7 +46,8 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
           <Play className="size-3" />{t("composer.resume_queue")}
         </Button>
       </div>}
-      {props.messages.some(message => message.error) && <p role="alert" className="px-2 py-2 text-xs text-destructive">{t("composer.queue_uncertain")}</p>}
+      {props.messages.some(message => message.status === "uncertain") && <p role="alert" className="px-2 py-2 text-xs text-destructive">{t("composer.queue_uncertain")}</p>}
+      {props.messages.filter(message => message.status === "failed" && message.error).map(message => <p key={message.id} role="alert" className="px-2 py-2 text-xs text-destructive">{message.error}</p>)}
       {props.editingId && !props.messages.some(message => message.id === props.editingId) && <Button variant="ghost" size="xs" onClick={props.onCancelEdit}>{t("composer.cancel_queued_edit")}</Button>}
       <LazyMotion features={domMax}>
         <Reorder.Group axis="y" values={ids} onReorder={order => { dragOrderRef.current = order; setDragOrder(order); }} layoutScroll className="max-h-40 overflow-y-auto overscroll-contain">

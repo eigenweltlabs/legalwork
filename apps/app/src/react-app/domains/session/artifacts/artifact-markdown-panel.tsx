@@ -1,3 +1,4 @@
+import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import { keepHandoffCopy } from "./document-handoff-copy";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,6 +49,7 @@ type Props = {
 };
 
 export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace, target, localReadOnly: sourceReadOnly = false, saveActions, onClose }: Props) {
+  const controlSessionIds = useDocumentControlSessions(sessionId);
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<MarkdownDraft | null>(null);
   const draftRef = useRef<MarkdownDraft | null>(null);
@@ -221,7 +223,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     id: "markdown.agent_tool", label: `Edit ${target.name}`, sideEffect: "mutation", requiresArgs: true,
     args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "toolName", type: "string", required: true }, { name: "args", type: "object" }],
     execute: async (args) => {
-      if (!args || typeof args !== "object" || Reflect.get(args, "sessionId") !== sessionId || Reflect.get(args, "path") !== target.value) return { ok: false, error: t("markdown.select_file_first") };
+      if (!args || typeof args !== "object" || !controlSessionIds.includes(Reflect.get(args, "sessionId")) || Reflect.get(args, "path") !== target.value) return { ok: false, error: t("markdown.select_file_first") };
       const current = draftRef.current;
       if (!current) return { ok: false, error: t("markdown.still_loading") };
       const tool = Reflect.get(args, "toolName");
@@ -240,7 +242,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         return { ok: saved, saved, ...(saved ? {} : { error: t("markdown.edit_remains") }) };
       } catch (error) { return { ok: false, error: error instanceof Error ? error.message : t("markdown.edit_failed") }; }
     },
-  }), [target.name, target.value, sessionId, save, onChange, localReadOnly, access.editable]);
+  }), [target.name, target.value, controlSessionIds, sessionId, save, onChange, localReadOnly, access.editable]);
   useControlAction(action);
 
   const download = () => {

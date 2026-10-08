@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { usePanelTabStore } from "../panel/panel-tab-store";
 import { useCallback, useMemo } from "react";
 
 import type { createClient } from "../../../../app/lib/opencode";
@@ -187,6 +188,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
       if (!targetWorkspace) return { ok: false, error: t("control.session_not_found") };
       await legalworkClient.deleteSession(targetWorkspace.id, sessionId);
+      usePanelTabStore.getState().clearSession(sessionId);
       if (selectedSessionId === sessionId) {
         navigateToSessionRoot();
       }

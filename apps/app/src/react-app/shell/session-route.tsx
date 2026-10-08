@@ -2664,8 +2664,8 @@ export function SessionRoute() {
         newChatDisabled: !canCreateChat,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
-        onSelectWorkspace: async (workspaceId) => {
-          if (workspaceId === selectedWorkspaceId) { navigate(workspaceProjectRoute(workspaceId)); return true; }
+        onSelectWorkspace: async (workspaceId, options) => {
+          if (workspaceId === selectedWorkspaceId) { if (options?.navigate !== false) navigate(workspaceProjectRoute(workspaceId)); return true; }
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2692,7 +2692,7 @@ export function SessionRoute() {
               void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
             }
           }
-          navigate(workspaceProjectRoute(workspaceId));
+          if (options?.navigate !== false) navigate(workspaceProjectRoute(workspaceId));
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
@@ -2779,6 +2779,7 @@ export function SessionRoute() {
           ? async (sessionId) => {
               const { workspace, endpoint } = sessionTarget(sessionId);
               await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              usePanelTabStore.getState().clearSession(sessionId);
               forgetSession(workspace.id, sessionId);
               await loadWorkspaceSessionsInBackground([workspace]);
               if (selectedSessionId === sessionId) {

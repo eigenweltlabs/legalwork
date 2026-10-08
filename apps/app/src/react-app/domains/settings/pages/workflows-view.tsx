@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { workspacePanelKey, useActivePanelTab, usePanelTabStore } from "../../session/panel/panel-tab-store";
 import { PANEL_OPEN_TAB_EVENT } from "../../session/panel/panel-tab-request";
-import { confirmDiscardDocuments } from "../../session/artifacts/docx-document-state";
+import { discardDocumentsThen } from "../../session/artifacts/docx-document-state";
 import { useUiStateStore } from "@/react-app/shell/ui-state-store";
 import { dismissTemplateWorkflowRun, retryTemplateWorkflowImport, useTemplateWorkflowRun } from "../state/template-workflow-generation";
 import { bindWorkflowServices, discardWorkflow, openWorkflow, showWorkflow, useWorkflowEditorStore, workflowDirty, type WorkflowDraft } from "../state/workflow-editor-store";
@@ -104,11 +104,11 @@ export function WorkflowsView(props: WorkflowsViewProps) {
       const id: unknown = Reflect.get(detail, "id");
       if (typeof id !== "string") return;
       const draft = type === "workflow" ? useWorkflowEditorStore.getState().drafts[id] : useWorkflowResourceStore.getState().drafts[id];
-      if (draft?.workspaceId === workspaceId) setInlineId((current) => current === id || confirmDiscardDocuments(undefined, undefined, true) ? id : current);
+      if (draft?.workspaceId === workspaceId && inlineId !== id) discardDocumentsThen(() => setInlineId(id), undefined, true);
     };
     window.addEventListener(PANEL_OPEN_TAB_EVENT, open);
     return () => window.removeEventListener(PANEL_OPEN_TAB_EVENT, open);
-  }, [props.inlineEditor, workspaceId]);
+  }, [props.inlineEditor, workspaceId, inlineId]);
 
   useEffect(() => {
     let active = true;
@@ -156,7 +156,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
           <Item variant="destructive" disabled={props.busy || !canEdit || draft?.saving} onClick={() => setRemoveTarget(skill)}><Trash2 />{t("skills.uninstall")}</Item>
         </> : draft ? <>
           <Separator />
-          <Item variant="destructive" disabled={draft.saving} onClick={() => { if (confirmDiscardDocuments(draft.id)) closeDraft(draft.id); }}><Trash2 />{t("workflows.discard_draft")}</Item>
+          <Item variant="destructive" disabled={draft.saving} onClick={() => discardDocumentsThen(() => closeDraft(draft.id), draft.id)}><Trash2 />{t("workflows.discard_draft")}</Item>
         </> : null}
       </>;
     };
@@ -218,19 +218,20 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     <ConfirmModal open={Boolean(removeTarget)} title={t("skills.uninstall_title")} message={t("skills.uninstall_warning").replace("{name}", removeTarget?.name ?? "")} confirmLabel={t("skills.uninstall")} cancelLabel={t("common.cancel")} confirmButtonVariant="destructive" onCancel={() => setRemoveTarget(null)} onConfirm={() => {
       const target = removeTarget; setRemoveTarget(null); if (!target) return;
       const draft = localDrafts.find((entry) => entry.name === target.name);
-      if (draft && !confirmDiscardDocuments(draft.id)) return;
-      void Promise.resolve(extensions.uninstallSkill(target.name)).then(() => {
+      const uninstall = () => { void Promise.resolve(extensions.uninstallSkill(target.name)).then(() => {
         if (!draft || extensions.skills().some((skill) => skill.name === target.name)) return;
         closeDraft(draft.id);
-      });
+      }); };
+      if (draft) discardDocumentsThen(uninstall, draft.id);
+      else uninstall();
     }} />
   </section>;
 
   const workflows = !props.inlineEditor || scope === "team" ? library : <ResizablePanelGroup orientation="horizontal" className="min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-border">
     <ResizablePanel className="flex flex-col p-4" minSize="240px" defaultSize={inlineId ? "40%" : "100%"}>{library}</ResizablePanel>
     {inlineId ? <><ResizableHandle withHandle /><ResizablePanel minSize="320px" defaultSize="60%">{inlineResource
-      ? <WorkflowResourceEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(inlineResource.workflowId); }} />
-      : <WorkflowEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(null); }} />}</ResizablePanel></> : null}
+      ? <WorkflowResourceEditorPanel key={inlineId} id={inlineId} onClose={() => discardDocumentsThen(() => setInlineId(inlineResource.workflowId), inlineId)} />
+      : <WorkflowEditorPanel key={inlineId} id={inlineId} onClose={() => discardDocumentsThen(() => setInlineId(null), inlineId)} />}</ResizablePanel></> : null}
   </ResizablePanelGroup>;
   return <div className="@container/page flex h-full min-h-0 w-full flex-1 flex-col bg-background">
     <div className="lw-page-content lw-page-top flex min-h-0 flex-1 flex-col pb-8">

@@ -59,6 +59,8 @@ test("pane drops open files unless the pointer is over a compatible explicit int
   expect(isFileIntakeTarget("composer", data)).toBe(true);
   expect(isFileIntakeTarget("", data)).toBe(false);
   expect(isFileIntakeTarget("review", { types: ["Files"] })).toBe(true);
+  expect(isFileIntakeTarget("project:project-b", data, "project-b")).toBe(true);
+  expect(isFileIntakeTarget("project:project-a", data, "project-a")).toBe(false);
   const cloud = { types: [...data.types, "application/x-legalwork-storage-entry", "application/x-legalwork-storage-entry-server-a"] };
   expect(isFileIntakeTarget("storage:server-a", cloud, "project-a")).toBe(true);
   expect(isFileIntakeTarget("storage:server-b", cloud, "project-b")).toBe(false);

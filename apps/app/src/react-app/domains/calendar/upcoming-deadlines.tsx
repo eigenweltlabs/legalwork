@@ -15,7 +15,7 @@ import { useCalendarOccurrences, useCalendarRefresh } from "./calendar-queries";
 import { calendarProjectColor } from "./calendar-colors";
 import { DeadlineDialog } from "./deadline-dialog";
 
-export function UpcomingDeadlines(props: { client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string }) {
+export function UpcomingDeadlines(props: { client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string; onViewAll?: () => void }) {
   const openTab = useRequestPanelTab(), refresh = useCalendarRefresh();
   const color = calendarProjectColor(props.projectId);
   const today = new Date(), from = calendarDay(today), to = calendarDay(shiftDay(today, 90));
@@ -50,7 +50,7 @@ export function UpcomingDeadlines(props: { client: LegalworkServerClient; worksp
         </Empty>}
     </div>
     <footer className="mt-auto border-t border-border/50">
-      <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={() => openTab(projectViewTab("calendar", t("calendar.title")))}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
+      <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={props.onViewAll ?? (() => openTab(projectViewTab("calendar", t("calendar.title"))))}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
     </footer>
     </Surface>
     {editing && <DeadlineDialog key={typeof editing === "string" ? "new" : editing.id} client={props.client} workspaceId={props.workspaceId} projectId={props.projectId} projectName={props.projectName} item={editing === "new" ? null : editing} day={from} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}

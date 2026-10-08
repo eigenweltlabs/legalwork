@@ -3,7 +3,7 @@
 // Extracted verbatim from session-route.tsx (cluster had no readers of its
 // internals besides the JSX).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 
 import { unwrap } from "@/app/lib/opencode";
 import type { Client, PendingPermission, PendingQuestion, TodoItem } from "@/app/types";

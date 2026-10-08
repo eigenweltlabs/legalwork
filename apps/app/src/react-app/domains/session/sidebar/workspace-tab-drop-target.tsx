@@ -23,6 +23,7 @@ export function WorkspaceTabDropTarget({ projectId, projectName, sessionTitle, o
   const label = t("project_files.drop_open_in", { project: projectName });
   const explicitIntake = (target: EventTarget, data: DataTransfer) => {
     if (!(target instanceof Element) || !hasProjectFileDrag(data)) return false;
+    if (target.closest("[data-file-explorer]")) return true;
     if (isFileIntakeTarget(target.closest<HTMLElement>("[data-workspace-file-intake]")?.dataset.workspaceFileIntake, data, projectId)) return true;
     // Full-page Files is an explicit transfer destination for foreign files.
     return Boolean(target.closest("[data-project-file-drop]")) && canTransferProjectFiles(data, projectId);

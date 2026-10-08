@@ -83,3 +83,37 @@ describe("original-file autosave", () => {
     expect(writes).toBeGreaterThanOrEqual(1);
   });
 });
+
+test("ownership suspension never resumes failure retries; explicit autosave toggle does", async () => {
+  let writes = 0;
+  const errors: unknown[] = [];
+  const auto = createDocumentAutosave({ delay: 5, isDirty: () => true, onError: error => errors.push(error), save: async () => { writes++; throw new Error("Conflict"); } });
+  auto.setEnabled(true);
+  await auto.flush();
+  expect(writes).toBe(1);
+  auto.setSuspended(true);
+  auto.setEnabled(true); // Effect replay is not a user preference change.
+  auto.setSuspended(false);
+  auto.changed();
+  await auto.flush();
+  expect(writes).toBe(1);
+  expect(errors).toHaveLength(1);
+  auto.setEnabled(false);
+  auto.setEnabled(true);
+  await auto.flush();
+  expect(writes).toBe(2);
+  auto.setSuspended(true);
+});
+
+test("ownership suspension cancels pending autosave and resumes a healthy draft", async () => {
+  let writes = 0;
+  const auto = createDocumentAutosave({ delay: 5, isDirty: () => true, onError: () => {}, save: async () => { writes++; return true; } });
+  auto.setEnabled(true);
+  auto.setSuspended(true);
+  await auto.flush();
+  expect(writes).toBe(0);
+  auto.setSuspended(false);
+  await auto.flush();
+  expect(writes).toBe(1);
+  auto.setSuspended(true);
+});

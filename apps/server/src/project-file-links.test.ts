@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs/promises";
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -48,6 +49,19 @@ test("imports and link metadata cannot escape through paths or symbolic links", 
 test("malformed metadata is retained rather than silently erased", async () => {
   const to = await root(); await mkdir(join(to, ".legalwork"));
   await writeFile(join(to, ".legalwork/project-file-links.json"), "invalid");
-  await expect(updateProjectFileLinks(to, () => [])).rejects.toThrow();
+  await expect(updateProjectFileLinks(to, () => [])).rejects.toMatchObject({ status: 409, code: "invalid_project_file_links" });
   expect(await readFile(join(to, ".legalwork/project-file-links.json"), "utf8")).toBe("invalid");
+});
+
+test("a missing destination is actionable and unsupported hard links fall back without overwriting", async () => {
+  const to = await root();
+  await expect(importProjectFile(to, "missing/A.md", new Uint8Array())).rejects.toMatchObject({ status: 404, code: "folder_not_found" });
+  const unsupported = spyOn(fs, "link").mockImplementation(async () => { throw Object.assign(new Error("No hard links on this volume"), { code: "ENOTSUP" }); });
+  try {
+    await importProjectFile(to, "A.md", new TextEncoder().encode("original"));
+    await expect(importProjectFile(to, "A.md", new TextEncoder().encode("replacement"))).rejects.toMatchObject({ status: 409 });
+    expect(await readFile(join(to, "A.md"), "utf8")).toBe("original");
+    expect(await readdir(to)).toEqual(["A.md"]);
+    expect(unsupported).toHaveBeenCalledTimes(2);
+  } finally { unsupported.mockRestore(); }
 });

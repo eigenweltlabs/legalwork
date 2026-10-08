@@ -1,12 +1,19 @@
-import { hasProjectFileDrag, projectFileDragBelongsHere } from "@/app/lib/project-file-drag";
+import { canTransferProjectFiles, hasProjectFileDrag, projectFileDragBelongsHere } from "@/app/lib/project-file-drag";
 import { WORKSPACE_FILE_DRAG_TYPE } from "@/app/lib/workspace-file-drag";
 import { STORAGE_FILE_DRAG_TYPE } from "@/app/lib/storage-file-drag";
 import { hasStorageEntryDragForWorkspace } from "@/app/lib/storage-entry-drag";
+
+// The MIME marker remains readable during dragover's protected payload mode.
+export const FILE_SIDEBAR_DRAG_TYPE = "application/x-legalwork-file-sidebar";
+export function isFileSidebarDrag(data: Pick<DataTransfer, "types">) {
+  return data.types.includes(FILE_SIDEBAR_DRAG_TYPE);
+}
 
 /** Explicit attachment/folder controls take priority over opening a workspace tab. */
 export function isFileIntakeTarget(kind: string | undefined, data: Pick<DataTransfer, "types">, projectId?: string | null) {
   if (kind === undefined) return false;
   if (kind === "composer") return true;
+  if (kind.startsWith("project:")) return canTransferProjectFiles(data, kind.slice(8));
   // Legacy intake can use an own-project single-file payload, never interpret a
   // foreign relative path or quietly import only the first file of a batch.
   if (hasProjectFileDrag(data) && (!projectId || !projectFileDragBelongsHere(data, projectId))) return false;

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { sessionQueueSchema, type QueueAction, type QueueEntry, type SessionQueue } from "./session-queue-schema.js";
@@ -8,8 +8,10 @@ import type { ServerConfig } from "./types.js";
 
 export type QueueTransport = {
   idle: (workspaceId: string, sessionId: string) => Promise<boolean>;
-  send: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void>;
+  send: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void | { pause: boolean; reason?: "stop" | "error" }>;
 };
+/** Only use before calling a delivery endpoint; later failures may have been accepted. */
+export class QueuePreparationError extends Error {}
 const keyOf = (workspaceId: string, sessionId: string) => JSON.stringify([workspaceId, sessionId]);
 const conflict = () => new ApiError(409, "queue_changed", "The queue changed in another window. Refresh and try again.");
 
@@ -19,6 +21,9 @@ export class SessionMessageQueue {
   private states = new Map<string, SessionQueue>();
   private writes = new Map<string, Promise<unknown>>();
   private running = new Set<string>();
+  private starting = new Map<string, Promise<void>>();
+  private pending = new Set<string>();
+  private removed = new Set<string>();
   private ready: Promise<void>;
   private timer: ReturnType<typeof setInterval>;
   private stopped = false;
@@ -43,16 +48,19 @@ export class SessionMessageQueue {
         continue;
       }
       for (const entry of queue.entries) {
-        if (entry.edit) { delete entry.edit; queue.paused = true; }
+        if (entry.edit) delete entry.edit;
         if (entry.status === "sending") {
           entry.status = "uncertain";
           entry.error = "Delivery was interrupted. Check the conversation before removing or submitting this message again.";
           queue.paused = true;
+          queue.pauseReason = "error";
         }
       }
       queue.revision++;
       await this.persist(queue);
-      this.states.set(keyOf(queue.workspaceId, queue.sessionId), queue);
+      const key = keyOf(queue.workspaceId, queue.sessionId);
+      this.states.set(key, queue);
+      if (queue.entries.length) this.pending.add(key);
     }
   }
   private async persist(queue: SessionQueue) {
@@ -61,9 +69,20 @@ export class SessionMessageQueue {
     await writeFile(temporary, JSON.stringify(queue), { mode: 0o600 });
     await rename(temporary, join(this.directory, name));
   }
+  private snapshot(workspaceId: string, sessionId: string): SessionQueue {
+    return structuredClone(this.states.get(keyOf(workspaceId, sessionId)) ?? { workspaceId, sessionId, revision: 0, paused: false, completedIds: [], entries: [] });
+  }
   async read(workspaceId: string, sessionId: string): Promise<SessionQueue> {
     await this.ready;
-    return structuredClone(this.states.get(keyOf(workspaceId, sessionId)) ?? { workspaceId, sessionId, revision: 0, paused: false, completedIds: [], entries: [] });
+    // Publish the dispatch decision, not the transient persisted "queued" state.
+    // An unavailable transport still leaves the durable message visible to retry.
+    await this.starting.get(keyOf(workspaceId, sessionId))?.catch(() => {});
+    return this.snapshot(workspaceId, sessionId);
+  }
+  async readIfChanged(workspaceId: string, sessionId: string, revision: string | null) {
+    await this.ready;
+    const current = await this.read(workspaceId, sessionId);
+    return revision === String(current.revision) ? null : current;
   }
   private async change(workspaceId: string, sessionId: string, update: (queue: SessionQueue) => void) {
     await this.ready;
@@ -71,11 +90,13 @@ export class SessionMessageQueue {
     const previous = this.writes.get(key);
     const operation = (async () => {
       await previous?.catch(() => {});
-      const queue = await this.read(workspaceId, sessionId);
+      if (this.removed.has(key)) throw new ApiError(404, "session_not_found", "This conversation was deleted.");
+      const queue = this.snapshot(workspaceId, sessionId);
       update(queue);
       queue.revision++;
       await this.persist(queue);
       this.states.set(key, queue);
+      if (queue.entries.length) this.pending.add(key); else this.pending.delete(key);
       return structuredClone(queue);
     })();
     this.writes.set(key, operation);
@@ -88,7 +109,10 @@ export class SessionMessageQueue {
       for (const entry of queue.entries) if (entry.edit && entry.edit.expires <= now) delete entry.edit;
       const entry = "id" in action ? queue.entries.find(item => item.id === action.id) : undefined;
       if (action.type === "enqueue") {
-        if (queue.completedIds.includes(action.id)) return;
+        if (queue.completedIds.includes(action.id)) {
+          if (action.editToken) throw conflict();
+          return;
+        }
         if (entry) {
           if (!action.editToken) return; // A retried enqueue is idempotent.
           if (entry.lastEditToken === action.editToken) return;
@@ -99,10 +123,16 @@ export class SessionMessageQueue {
           if (action.editToken) throw conflict();
           if (queue.entries.length >= 100) throw new ApiError(400, "queue_full", "The queue is full.");
           queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued" });
+          if (queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
+            queue.paused = false; delete queue.pauseReason;
+            queue.resumeRevision = queue.revision + 1;
+          }
         }
       } else if (action.type === "pause") {
         if (!action.paused && queue.entries.some(item => item.edit || item.status === "uncertain")) throw conflict();
         queue.paused = action.paused;
+        if (action.paused) queue.pauseReason = action.reason;
+        else { delete queue.pauseReason; queue.resumeRevision = queue.revision + 1; }
         if (!action.paused) for (const item of queue.entries) { if (item.status === "failed") item.status = "queued"; delete item.error; }
       } else if (action.type === "reorder") {
         const requested = new Set(action.ids);
@@ -115,7 +145,7 @@ export class SessionMessageQueue {
         if (!entry || entry.status === "sending") throw conflict();
         if (action.type === "edit") {
           if (entry.status === "uncertain" || (entry.edit && entry.edit.token !== action.token)) throw conflict();
-          entry.edit = { token: action.token, expires: now + 120_000 }; queue.paused = true;
+          entry.edit = { token: action.token, expires: now + 120_000 };
         } else if (action.type === "remove") {
           if (entry.edit) throw conflict();
           queue.entries = queue.entries.filter(item => item.id !== action.id);
@@ -127,53 +157,86 @@ export class SessionMessageQueue {
         }
       }
     });
-    void this.tick().catch(() => {});
+    const starting = this.start(result);
+    if (action.type === "enqueue") {
+      // Only wait for the idle check and durable claim, never for the model reply.
+      await starting.catch(() => {});
+      return this.read(workspaceId, sessionId);
+    }
+    // Stop and edit controls must remain responsive during a slow idle check.
+    void starting.catch(() => {});
     return result;
   }
   async tick() {
     await this.ready;
     if (this.stopped) return;
-    for (const [key, queue] of this.states) {
+    for (const key of this.pending) {
+      const queue = this.states.get(key);
+      if (!queue) continue;
       if (queue.entries.some(entry => entry.edit && entry.edit.expires <= Date.now())) {
         await this.change(queue.workspaceId, queue.sessionId, current => {
           for (const entry of current.entries) if (entry.edit && entry.edit.expires <= Date.now()) delete entry.edit;
         });
       }
-      if (this.running.has(key) || queue.paused || !queue.entries.length) continue;
-      this.running.add(key);
-      void this.dispatch(queue.workspaceId, queue.sessionId).finally(() => this.running.delete(key)).catch(() => {});
+      void this.start(this.states.get(key) ?? queue).catch(() => {});
     }
   }
-  private async dispatch(workspaceId: string, sessionId: string) {
+  private start(queue: SessionQueue): Promise<void> {
+    const key = keyOf(queue.workspaceId, queue.sessionId);
+    if (this.running.has(key)) return this.starting.get(key) ?? Promise.resolve();
+    if (this.stopped || queue.paused || queue.entries[0]?.status !== "queued" || queue.entries.some(entry => entry.edit)) return Promise.resolve();
+    this.running.add(key);
+    const starting = this.prepareDispatch(queue.workspaceId, queue.sessionId).then(prepared => {
+      if (!prepared) { this.running.delete(key); return; }
+      void this.deliver(queue.workspaceId, queue.sessionId, prepared.item, prepared.revision)
+        .finally(() => this.running.delete(key)).catch(() => {});
+    }, error => { this.running.delete(key); throw error; }).finally(() => this.starting.delete(key));
+    this.starting.set(key, starting);
+    return starting;
+  }
+  private async prepareDispatch(workspaceId: string, sessionId: string) {
     if (!await this.transport.idle(workspaceId, sessionId) || this.stopped) return;
     let item: QueueEntry | undefined;
+    let dispatchRevision = 0;
     await this.change(workspaceId, sessionId, queue => {
       const first = queue.entries[0];
-      if (queue.paused || !first || first.status !== "queued" || first.edit) return;
-      first.status = "sending"; item = structuredClone(first);
+      if (queue.paused || !first || first.status !== "queued" || queue.entries.some(entry => entry.edit)) return;
+      first.status = "sending"; item = structuredClone(first); dispatchRevision = queue.revision;
     });
     if (!item || this.stopped) return;
-    const sent = item;
+    return { item, revision: dispatchRevision };
+  }
+  private async deliver(workspaceId: string, sessionId: string, sent: QueueEntry, dispatchRevision: number) {
     try {
-      await this.transport.send(workspaceId, sessionId, sent);
-      await this.change(workspaceId, sessionId, queue => { queue.entries = queue.entries.filter(entry => entry.id !== sent.id); queue.completedIds = [...queue.completedIds, sent.id].slice(-500); });
+      const result = await this.transport.send(workspaceId, sessionId, sent);
+      await this.change(workspaceId, sessionId, queue => {
+        queue.entries = queue.entries.filter(entry => entry.id !== sent.id);
+        queue.completedIds = [...queue.completedIds, sent.id].slice(-500);
+        if (result?.pause && (queue.resumeRevision ?? 0) <= dispatchRevision) {
+          queue.paused = true; queue.pauseReason = result.reason ?? "error";
+        }
+      });
     } catch (error) {
+      if (this.removed.has(keyOf(workspaceId, sessionId))) return;
       await this.change(workspaceId, sessionId, queue => {
         const entry = queue.entries.find(entry => entry.id === sent.id);
         if (entry) {
-          entry.status = "uncertain";
+          entry.status = error instanceof QueuePreparationError ? "failed" : "uncertain";
           entry.error = error instanceof Error ? error.message : "Message delivery failed.";
         }
         queue.paused = true;
+        queue.pauseReason = "error";
       });
     }
   }
   async removeSession(workspaceId: string, sessionId: string) {
-    await this.change(workspaceId, sessionId, queue => {
-      queue.completedIds = [...queue.completedIds, ...queue.entries.map(entry => entry.id)].slice(-500);
-      queue.entries = [];
-      queue.paused = true;
-    });
+    await this.ready;
+    const key = keyOf(workspaceId, sessionId);
+    this.removed.add(key);
+    await this.writes.get(key)?.catch(() => {});
+    this.states.delete(key); this.pending.delete(key);
+    const name = createHash("sha256").update(key).digest("hex") + ".json";
+    await rm(join(this.directory, name), { force: true });
   }
   stop() { this.stopped = true; clearInterval(this.timer); }
 }

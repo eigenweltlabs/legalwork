@@ -19,7 +19,7 @@ function PanelTabList<Value>({ className, ...props }: PanelTabListProps<Value>) 
     <Reorder.Group<Value, "div">
       as="div"
       axis="x"
-      className={cn("flex min-w-max items-center gap-1", className)}
+      className={cn("lw-panel-tab-list flex min-w-max items-center gap-1", className)}
       {...props}
     />
   );
@@ -34,7 +34,7 @@ function PanelTabItem({ className, ...props }: React.ComponentProps<typeof Reord
       transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 36 }}
       dragElastic={0}
       dragListener={false}
-      className={cn("group relative w-40 min-w-0 shrink-0", className)}
+      className={cn("lw-panel-tab-item group relative w-40 min-w-0 shrink-0", className)}
       {...props}
     />
   );

@@ -41,7 +41,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     const queue = await client.sessionMessageQueue(workspaceId, sessionId, queryClient.getQueryData<SessionQueue>(key));
     const previous = queryClient.getQueryData<SessionQueue>(key);
     return previous && previous.revision > queue.revision ? previous : queue;
-  }, refetchInterval: 1000, refetchIntervalInBackground: true });
+  }, refetchInterval: query => query.state.data?.entries.length ? 1000 : 5000 });
   const latest = useRef(query.data); latest.current = query.data;
   const apply = useCallback((queue: SessionQueue) => {
     if (!latest.current || queue.revision >= latest.current.revision) latest.current = queue;
@@ -51,6 +51,8 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     try { const state = await client.updateSessionMessageQueue(workspaceId, sessionId, action); apply(state); return state; }
     catch (error) { void queryClient.invalidateQueries({ queryKey: ["session-message-queue", client.baseUrl, workspaceId, sessionId] }); throw error; }
   }, [client, workspaceId, sessionId, queryClient, apply]);
+  const connection = useRef({ client, update });
+  connection.current = { client, update };
   useEffect(() => {
     if (!query.data) return;
     const items = query.data.entries.filter(entry => entry.status !== "sending").map(entry => hydrateDraft(entry, claim.current?.token));
@@ -59,10 +61,16 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   useEffect(() => {
     const timer = setInterval(() => {
       const current = claim.current;
-      if (current) void update({ type: "renew", ...current }).catch(() => {});
+      if (current) void connection.current.update({ type: "renew", ...current }).catch(() => {});
     }, 30_000);
-    return () => { clearInterval(timer); const current = claim.current; if (current) void client.updateSessionMessageQueue(workspaceId, sessionId, { type: "release", ...current }).catch(() => {}); claim.current = null; };
-  }, [client, workspaceId, sessionId, update]);
+    return () => {
+      clearInterval(timer);
+      const current = claim.current;
+      const releaseClient = connection.current.client.baseUrl === client.baseUrl ? connection.current.client : client;
+      if (current) void releaseClient.updateSessionMessageQueue(workspaceId, sessionId, { type: "release", ...current }).catch(() => {});
+      claim.current = null;
+    };
+  }, [client.baseUrl, workspaceId, sessionId]);
   return {
     ready: query.isSuccess, error: query.error,
     enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState) => {
@@ -106,6 +114,6 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
         return update(action(current));
       }
     },
-    pause: (paused: boolean) => update({ type: "pause", paused }),
+    pause: (paused: boolean, reason?: "stop") => update({ type: "pause", paused, reason }),
   };
 }

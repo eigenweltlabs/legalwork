@@ -104,6 +104,10 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
 
   function window() { return getWindow?.() ?? null; }
 
+  function resolveTabDownloadDirectory(context = {}) {
+    return resolveDownloadDirectory(context, window()?.webContents.getURL?.() ?? "");
+  }
+
   function resetMenuOverlayReady({ resolvePending = false } = {}) {
     menuOverlayReady = false;
     if (resolvePending) {
@@ -171,7 +175,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       throw new Error(`Browser provider is not available yet: ${requestedProvider}`);
     }
     const url = normalizeBrowserUrl(rawUrl);
-    const downloadDirectory = await resolveDownloadDirectory(context);
+    const downloadDirectory = await resolveTabDownloadDirectory(context);
     const tab = createBrowserTab("about:blank", { select: true, downloadDirectory });
     const connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads);
     try { await tab.view.webContents.loadURL(url); } catch (error) {
@@ -779,7 +783,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       return openBrowserUrlForAutomation(url, provider, context);
     });
     ipcMain.handle("legalwork:browser:navigate", async (event, url, tabId) => {
-      const view = tabId ? getBrowserTab(tabId)?.view : getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true, downloadDirectory: await resolveDownloadDirectory({}) }).view;
+      const view = tabId ? getBrowserTab(tabId)?.view : getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true, downloadDirectory: await resolveTabDownloadDirectory() }).view;
       view?.webContents.loadURL(normalizeBrowserUrl(url));
     });
     ipcMain.handle("legalwork:browser:back", (event, tabId) => {
@@ -814,7 +818,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     });
     ipcMain.handle("legalwork:browser:createTab", async (event, url) => {
       const target = typeof url === "string" && url.trim() ? url : BROWSER_NEW_TAB_URL;
-      const tab = createBrowserTab(target, { select: true, downloadDirectory: await resolveDownloadDirectory({}) });
+      const tab = createBrowserTab(target, { select: true, downloadDirectory: await resolveTabDownloadDirectory() });
       return { tabId: tab.tabId };
     });
     ipcMain.handle("legalwork:browser:closeTab", (event, tabId) => {

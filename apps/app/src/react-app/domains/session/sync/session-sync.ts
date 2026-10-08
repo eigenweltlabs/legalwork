@@ -1,3 +1,4 @@
+import { usePanelTabStore } from "../panel/panel-tab-store";
 import type { UIMessage } from "ai";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
@@ -797,6 +798,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     const sessionId = props.sessionID ?? props.info?.id ?? "";
     usageLimitStops.delete(`${workspaceId}:${sessionId}`);
     if (sessionId) useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
+    if (sessionId) usePanelTabStore.getState().clearSession(sessionId);
     return;
   }
 

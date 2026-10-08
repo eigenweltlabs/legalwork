@@ -40,7 +40,7 @@ export function ReviewFileDropTarget({ children, disabled, onFiles, className }:
   children: ReactNode; disabled?: boolean; onFiles: (sources: ReviewFileSource[]) => void; className?: string;
 }) {
   const [over, setOver] = useState(false);
-  return <div className={cn("relative", className)} onDragOver={event => {
+  return <div data-workspace-file-intake="review" className={cn("relative", className)} onDragOver={event => {
     if (!acceptsReviewFiles(event.dataTransfer)) return;
     event.preventDefault(); event.stopPropagation();
     event.dataTransfer.dropEffect = disabled ? "none" : "copy";

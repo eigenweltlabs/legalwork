@@ -1,4 +1,5 @@
 import { useProjectFiles } from "../../workspace/project-file-context";
+import { useFileSelectionCollection, type FileSelectionItem } from "../../workspace/file-selection";
 /** @jsxImportSource react */
 import { StorageDriveTree } from "./storage-drive-tree";
 import { StorageDriveSearch } from "./storage-drive-search";
@@ -313,6 +314,13 @@ function LegalMemoryFilesPanelContent({
       .catch(() => undefined)
       .finally(() => setOpeningId(null));
   }, [onOpenFile, openingId]);
+
+  const selectableFiles = React.useMemo(() => rows.flatMap((row): FileSelectionItem[] => {
+    if (row.kind !== "file" || !workspaceId) return [];
+    const pin: FilePin = { workspaceId, source: `memory:${row.file.source_id}`, path: row.file.source_object_id, name: row.file.name, memory: row.file };
+    return [{ key: filePinKey(pin), name: row.file.name, pin, open: () => openFile(row.file) }];
+  }), [rows, workspaceId, openFile]);
+  useFileSelectionCollection(selectableFiles);
 
   const refresh = React.useCallback(() => {
     for (const row of rows) {

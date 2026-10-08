@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
-import { projectFileLinkSchema, projectFilePath, type ProjectFileLink } from "@legalwork/types/project-files";
+import { projectFileLinkSchema, projectFilePath, type ProjectFileLink } from "./project-file-schema.js";
 import { ApiError } from "./errors.js";
 import { withFileWriteLock } from "./file-write-lock.js";
 
@@ -10,7 +11,10 @@ import { withFileWriteLock } from "./file-write-lock.js";
 export async function projectFileParent(root: string, folder: string) {
   if (folder && !projectFilePath.safeParse(folder).success) throw new ApiError(400, "invalid_path", "Invalid destination folder");
   const canonical = await realpath(root);
-  const parent = await realpath(join(canonical, folder));
+  const parent = await realpath(join(canonical, folder)).catch(error => {
+    if (error?.code === "ENOENT") throw new ApiError(404, "folder_not_found", "The destination folder no longer exists. Choose another folder.");
+    throw error;
+  });
   const path = relative(canonical, parent);
   if (isAbsolute(path) || path === ".." || path.startsWith(`..${sep}`)) throw new ApiError(403, "invalid_path", "The destination must remain in the project");
   if (!(await stat(parent)).isDirectory()) throw new ApiError(400, "invalid_path", "Choose a destination folder");
@@ -28,6 +32,8 @@ export async function readProjectFileLinks(root: string): Promise<ProjectFileLin
     return z.array(projectFileLinkSchema).parse(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    if (error instanceof ApiError && error.code === "folder_not_found") return [];
+    if (error instanceof SyntaxError || error instanceof z.ZodError) throw new ApiError(409, "invalid_project_file_links", "Project file links are damaged. Restore the links file before changing links; the original file has been preserved.");
     throw error;
   }
 }
@@ -41,7 +47,7 @@ export async function updateProjectFileLinks(root: string, change: (links: Proje
     return links;
   });
 }
-/** Publish complete bytes exclusively. A collision never overwrites a file or symlink. */
+/** Publish exclusively. A collision never overwrites a file or symlink. */
 export async function importProjectFile(root: string, path: string, bytes: Uint8Array) {
   if (!projectFilePath.safeParse(path).success) throw new ApiError(400, "invalid_path", "Invalid destination file");
   const parent = await projectFileParent(root, dirname(path) === "." ? "" : dirname(path));
@@ -49,7 +55,13 @@ export async function importProjectFile(root: string, path: string, bytes: Uint8
   const temporary = join(parent, `.legalwork-import-${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, bytes, { flag: "wx", mode: 0o600 });
-    await link(temporary, destination);
+    try { await link(temporary, destination); }
+    catch (error) {
+      // exFAT/FAT and some network shares do not support hard links. COPYFILE_EXCL
+      // still refuses existing files/symlinks and removes a partial copy on failure.
+      if (!(error instanceof Error && "code" in error && ["ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EPERM", "EXDEV"].includes(String(error.code)))) throw error;
+      await copyFile(temporary, destination, constants.COPYFILE_EXCL);
+    }
     return { path, bytes: bytes.byteLength, updatedAt: (await stat(destination)).mtimeMs };
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "EEXIST") throw new ApiError(409, "file_exists", "A file with this name already exists. Choose another name.");

@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 
 import { useEffect } from "react";
+import { DocumentDiscardDialog } from "../domains/session/artifacts/document-discard-dialog";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useLocale } from "../../i18n/use-locale";
@@ -51,6 +52,7 @@ export function AppRoot() {
   return (
     <AppErrorBoundary>
     <>
+      <DocumentDiscardDialog />
       <DevProfiler id="AppRoot">
         <ShellConfigProvider>
         <AppMenuProvider>

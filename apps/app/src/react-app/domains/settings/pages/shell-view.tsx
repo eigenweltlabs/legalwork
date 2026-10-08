@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 import {
   LayoutSection,
@@ -33,6 +34,8 @@ export function ShellCustomizationView() {
       {/* ---- Language ---- carries its own section header and card. */}
       <LanguageSection />
       <ProjectDefaultsSection />
+
+      <NewWindowPreference />
 
       <LayoutSection>
         <LayoutSectionItem className="gap-3">
@@ -76,5 +79,21 @@ export function ShellCustomizationView() {
         </LayoutSectionItem>
       </LayoutSection>
     </LayoutStack>
+  );
+}
+
+export function NewWindowPreference() {
+  const { config, update } = useShellConfig();
+  return (
+      <LayoutSection><LayoutSectionItem><LayoutSectionItemHeader>
+        <LayoutSectionItemTitle>{t("workspace.open_window")}</LayoutSectionItemTitle>
+        <LayoutSectionItemDescription>{t("workspace.window_preference_hint")}</LayoutSectionItemDescription>
+        <LayoutSectionItemHeaderActions>
+          <Select value={config.newWindowBehavior} onValueChange={value => { if (value === "ask" || value === "empty" || value === "copy") update({ newWindowBehavior: value }); }}>
+            <SelectTrigger aria-label={t("workspace.open_window")}><SelectValue>{t(config.newWindowBehavior === "ask" ? "workspace.window_ask" : config.newWindowBehavior === "empty" ? "workspace.window_empty" : "workspace.window_copy")}</SelectValue></SelectTrigger>
+            <SelectContent><SelectItem value="ask">{t("workspace.window_ask")}</SelectItem><SelectItem value="empty">{t("workspace.window_empty")}</SelectItem><SelectItem value="copy">{t("workspace.window_copy")}</SelectItem></SelectContent>
+          </Select>
+        </LayoutSectionItemHeaderActions>
+      </LayoutSectionItemHeader></LayoutSectionItem></LayoutSection>
   );
 }

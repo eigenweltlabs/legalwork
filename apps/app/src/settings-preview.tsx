@@ -28,6 +28,7 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
+import { NewWindowPreference } from "@/react-app/domains/settings/pages/shell-view";
 import "./app/index.css";
 
 if (!import.meta.env.DEV) throw new Error("The settings fixture is available only in development.");
@@ -160,6 +161,8 @@ function SettingsPreview() {
               ocrView={<OcrSettingsSection client={ocrPreview} />}
               systemOneView={<SystemOneSettingsSection client={systemOnePreview} onManageSubscription={() => toast("Preview subscription")} />}
             />
+          ) : activeTab === "shell" ? (
+            <><AppearanceView busy={false} /><NewWindowPreference /></>
           ) : activeTab === "appearance" ? (
             // The same language picker Settings -> Customization renders.
             <AppearanceView busy={false} />

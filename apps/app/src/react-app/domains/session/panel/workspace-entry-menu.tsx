@@ -52,12 +52,9 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
   };
 
   return <>
-    {toolbar && canImport && <Button variant="outline" size="sm" className="mr-2" disabled={disabled} onClick={() => uploadRef.current?.click()}>
-      {copying ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-      {t("storage.upload")}
-    </Button>}
     <FileEntryActions name={entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
       source={source ?? undefined} onOpen={entry?.kind === "file" ? onOpen : undefined}
+      file={entry?.kind === "file" && client && workspaceId ? { client, workspaceId, path: entry.path, isRemoteWorkspace } : undefined}
       pin={entry?.kind === "file" && workspaceId ? { workspaceId, source: "local", path: entry.path, name: entry.name } : undefined}
       actions={[
         ...(onOpen ? [{ label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen }] : []),
@@ -66,7 +63,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
         } }] : []),
         ...(isFolder ? [{ label: t("workspace_files.refresh_folder"), icon: <RefreshCw />, onClick: () => { void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId, targetFolder] }); onRefresh(); } }] : []),
         "separator",
-        ...(isFolder && canImport ? [{ label: t("storage.upload"), icon: <Upload />, disabled, onClick: () => uploadRef.current?.click() }] : []),
+        ...(entry?.kind === "dir" && canImport ? [{ label: t("storage.upload"), icon: <Upload />, disabled, onClick: () => uploadRef.current?.click() }] : []),
         ...(isFolder ? [{ label: t("storage.new_folder"), icon: <FolderPlus />, disabled, onClick: () => begin("mkdir") }] : []),
         ...(entry ? [
           { label: t("storage.rename"), icon: <Pencil />, disabled, onClick: () => begin("rename") },
@@ -137,4 +134,20 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
       </DialogContent>
     </Dialog>
   </>;
+}
+
+export function WorkspaceUploadButton({ workspaceId, isRemoteWorkspace, folderPath, compact = false }: { workspaceId: string; isRemoteWorkspace: boolean; folderPath: string; compact?: boolean }) {
+  const input = useRef<HTMLInputElement>(null);
+  const { canImport, copying, copyFiles } = useProjectFileImport({ projectId: workspaceId, workspaceId, isRemoteWorkspace });
+  if (!canImport) return null;
+  return <div className={compact ? "shrink-0" : "shrink-0 border-t border-border/70 p-2"}>
+    <Button variant={compact ? "default" : "ghost"} size={compact ? "default" : "sm"} aria-label={t("storage.upload")} className={compact ? "gap-2 px-3" : "w-full justify-start text-muted-foreground"} disabled={copying} onClick={() => input.current?.click()}>
+      {copying ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{t("storage.upload")}
+    </Button>
+    <input ref={input} type="file" multiple hidden onChange={event => {
+      const files = Array.from(event.target.files ?? []);
+      event.target.value = "";
+      void copyFiles(files, folderPath);
+    }} />
+  </div>;
 }

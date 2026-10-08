@@ -4,6 +4,8 @@ import type { ProjectFileSource } from "@legalwork/types/project-files";
 import { projectFileSourceKey, writeProjectFilesDrag } from "@/app/lib/project-file-drag";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useFileSelectionItem } from "../../workspace/file-selection";
+import type { WorkspaceFile } from "../../workspace/workspace-file-operation";
+import { writeWorkspaceFileMove } from "@/app/lib/workspace-file-move";
 import { ProjectFileTransfer } from "../../workspace/project-file-transfer";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -15,11 +17,11 @@ import { filePinKey, toggleFilePin, useFilePins, type FilePin } from "./file-pin
 type Action = { label: string; icon?: ReactNode; onClick: () => void; disabled?: boolean; destructive?: boolean } | "separator";
 
 /** One action list serves both right-click and the visible, keyboard-accessible menu. */
-export function FileEntryActions({ children, name, actions, pin, source, onOpen, className, toolbar = false, contextOnly = false }: {
-  children?: ReactNode; name: string; actions: Action[]; pin?: FilePin; source?: ProjectFileSource; onOpen?: () => void; className?: string; toolbar?: boolean; contextOnly?: boolean;
+export function FileEntryActions({ children, name, actions, pin, source, file, onOpen, className, toolbar = false, contextOnly = false }: {
+  children?: ReactNode; name: string; actions: Action[]; pin?: FilePin; source?: ProjectFileSource; file?: WorkspaceFile; onOpen?: () => void; className?: string; toolbar?: boolean; contextOnly?: boolean;
 }) {
   const key = pin ? filePinKey(pin) : source ? projectFileSourceKey(source) : undefined;
-  const { selection, element, selected } = useFileSelectionItem(key && onOpen ? { key, name, pin, source, open: onOpen } : null);
+  const { selection, element, selected } = useFileSelectionItem(key && onOpen ? { key, name, pin, source, file, open: onOpen } : null);
   const [transfer, setTransfer] = useState<"copy" | "link" | null>(null);
   const pins = useFilePins();
   const pinned = Boolean(pin && pins.some(item => filePinKey(item) === filePinKey(pin)));
@@ -49,6 +51,11 @@ export function FileEntryActions({ children, name, actions, pin, source, onOpen,
         const sources = selection.items.flatMap(item => item.source ? [item.source] : []);
         if (sources.length !== selection.items.length) { event.preventDefault(); return; }
         writeProjectFilesDrag(event.dataTransfer, sources, selection.scope);
+        const files = selection.items.flatMap(item => item.file ? [item.file] : []);
+        const first = files[0];
+        if (first && files.length === selection.items.length && files.every(file => file.workspaceId === first.workspaceId && file.client.baseUrl === first.client.baseUrl)) {
+          writeWorkspaceFileMove(event.dataTransfer, { baseUrl: first.client.baseUrl, workspaceId: first.workspaceId, paths: files.map(file => file.path) });
+        }
       }}>
       {selection && key && onOpen && <Checkbox className="ml-2 mr-1" aria-label={t("project_browser.select_item", { name })} checked={selected} onCheckedChange={(_checked, details) => selection.toggle(key, details.event instanceof MouseEvent && details.event.shiftKey, element.current)} />}
       <div className="min-w-0 flex-1" onClickCapture={event => {

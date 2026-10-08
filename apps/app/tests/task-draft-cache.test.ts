@@ -19,6 +19,8 @@ describe("task draft route lifetime", () => {
     const releaseReturn = retainTaskDraftScope(scope);
     expect(getTaskDraft(scope, "workspace", task)).toBe(draft);
     expect(draft.getSnapshot().note).toBe("Unsent");
+    expect(confirmDiscardDocuments(undefined, () => { throw new Error("An unrelated panel must not ask to discard this draft"); })).toBe(true);
+    expect(draft.getSnapshot().note).toBe("Unsent");
     expect(confirmDiscardDocuments(artifactDocumentKey("workspace", scope, "task:task"), () => true)).toBe(true);
     expect(draft.getSnapshot().note).toBe("");
     releaseReturn();

@@ -28,3 +28,10 @@ export async function withFileWriteLock<T>(path: string, write: () => Promise<T>
     if (pending.get(key) === current) pending.delete(key);
   }
 }
+
+/** Deterministic ordering prevents opposite-direction moves from deadlocking. */
+export async function withFileWriteLocks<T>(paths: string[], write: () => Promise<T>): Promise<T> {
+  const keys = [...new Set(await Promise.all(paths.map(canonicalFilePath)))].sort();
+  const acquire = (index: number): Promise<T> => index === keys.length ? write() : withFileWriteLock(keys[index], () => acquire(index + 1));
+  return acquire(0);
+}

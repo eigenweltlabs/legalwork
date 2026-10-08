@@ -326,3 +326,56 @@ html.legalwork-electron.legalwork-platform-mac .lw-window-navigation {
 [data-theme="dark"] .lw-workspace-shell .lw-chat-sidebar {
   background: var(--lw-sidebar);
 }
+
+/* Lift whole project blocks without exposing the text underneath. */
+[data-project-dragging] [data-workspace-actions] { visibility: hidden; }
+[data-project-dragging] [data-workspace-drag-handle] { padding-right: 0; }
+
+.lw-panel-tab-list { position: relative; min-height: 2rem; }
+.lw-panel-tab-item[data-tab-drag-preview] {
+  translate: var(--lw-tab-drag-x, 0px) 0;
+  transition: translate 160ms var(--lw-ease-out);
+}
+.lw-panel-tab-item[data-tab-gap-source] { opacity: 0; }
+.lw-tab-drop-placeholder {
+  position: absolute;
+  inset-block: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent);
+  pointer-events: none;
+}
+.lw-native-drag-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+  box-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.2);
+  pointer-events: none;
+  overflow: hidden;
+}
+.lw-native-drag-preview svg { width: 16px; height: 16px; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .lw-panel-tab-item[data-tab-drag-preview] { transition: none; }
+}
+/* Separators only between adjacent inactive tabs; the active tab has its own outline. */
+.lw-panel-tab-item:has(button[aria-pressed="false"]) + .lw-panel-tab-item:has(button[aria-pressed="false"])::before,
+.lw-panel-tab-list > :has(.lw-panel-tab-item button[aria-pressed="false"]) + * .lw-panel-tab-item:has(button[aria-pressed="false"])::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 8px;
+  height: 16px;
+  width: 1px;
+  background: var(--border);
+}

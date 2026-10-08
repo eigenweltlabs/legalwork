@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createJSONStorage } from "zustand/middleware";
-import { artifactDocumentKey, registerUnsavedDocument } from "../src/react-app/domains/session/artifacts/docx-document-state";
+import { artifactDocumentKey, registerUnsavedDocument, getDocumentDiscardPrompt, resolveDocumentDiscardPrompt } from "../src/react-app/domains/session/artifacts/docx-document-state";
 import { layoutLeaves, MAX_DOCUMENT_PANES, type DocumentDropEdge, type DocumentLayoutNode } from "../src/react-app/domains/session/panel/document-layout";
 import type { ArtifactPanelTab, BrowserPanelTab } from "../src/react-app/domains/session/panel/panel-tab-store";
 
@@ -18,7 +18,8 @@ Object.defineProperty(globalThis, "localStorage", {
     },
   },
 });
-const { usePanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+const { createPanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+const usePanelTabStore = createPanelTabStore();
 if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
 else Reflect.deleteProperty(globalThis, "localStorage");
 usePanelTabStore.persist.setOptions({
@@ -86,17 +87,10 @@ function invariants() {
   }
 }
 function refuseDirty(name: string) {
-  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  let asked = 0;
-  Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => { asked++; return false; } } });
   const unregister = registerUnsavedDocument(artifactDocumentKey("workspace", "session", `file:${name}.docx`), name, () => true);
   return {
-    asked: () => asked,
-    restore: () => {
-      unregister();
-      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
-      else Reflect.deleteProperty(globalThis, "window");
-    },
+    cancel: () => { expect(getDocumentDiscardPrompt()?.names).toEqual([name]); resolveDocumentDiscardPrompt(false); },
+    restore: () => { unregister(); resolveDocumentDiscardPrompt(false); },
   };
 }
 
@@ -237,42 +231,79 @@ describe("closing and collapsing", () => {
 });
 
 describe("draft safety", () => {
+  test("focusing an already visible Evals document does not discard its draft", () => {
+    add("A"); add("B", "A", "right"); const dirty = refuseDirty("A");
+    try {
+      store().selectTab("session", "file:A.docx");
+      expect(getDocumentDiscardPrompt()).toBeNull();
+      expect(session().focusedPaneId).toBe(paneOf("A").id);
+      expect(shape()).toEqual(["horizontal", "file:A.docx", "file:B.docx"]);
+    } finally { dirty.restore(); }
+  });
+  test("transcript refreshes do not persist empty pane states for every visited chat", () => {
+    for (let index = 0; index < 100; index++) store().syncTranscriptArtifacts(`chat-${index}`, []);
+    expect(store().sessions).toEqual({});
+    store().syncTranscriptArtifacts("chat-with-artifact", [{ id: "sample.pdf", name: "sample.pdf", preview: "pdf", value: "sample.pdf", kind: "file" }]);
+    expect(store().sessions).toEqual({});
+    expect(store().transcriptArtifactTargets["chat-with-artifact"]).toHaveLength(1);
+  });
+  test("native browser synchronization resumes after consent using the latest tabs", () => {
+    add("A"); const dirty = refuseDirty("A");
+    try {
+      store().syncBrowserTabs("session", [browser], browser.id);
+      expect(getDocumentDiscardPrompt()?.names).toEqual(["A"]);
+      expect(session().tabs.map(tab => tab.id)).toEqual(["file:A.docx"]);
+      const latest = { ...browser, label: "Updated search", url: "https://example.com/updated" };
+      store().syncBrowserTabs("session", [latest], latest.id);
+      resolveDocumentDiscardPrompt(true);
+      expect(session().tabs.find(tab => tab.id === browser.id)).toEqual(latest);
+      expect(shape()).toBe(browser.id);
+      invariants();
+    } finally { dirty.restore(); }
+  });
+  test("a browser closed while consent is pending cannot be revived by approval", () => {
+    add("A"); const dirty = refuseDirty("A");
+    try {
+      store().syncBrowserTabs("session", [browser], browser.id);
+      expect(getDocumentDiscardPrompt()?.names).toEqual(["A"]);
+      store().syncBrowserTabs("session", [], null);
+      resolveDocumentDiscardPrompt(true);
+      expect(session().tabs.map(tab => tab.id)).toEqual(["file:A.docx"]);
+      expect(shape()).toBe("file:A.docx");
+      invariants();
+    } finally { dirty.restore(); }
+  });
   test("splitting, relocation and sibling promotion do not discard the moved draft", () => {
     add("A"); add("B"); const dirty = refuseDirty("B");
     try {
       move("B", "B", "left"); move("B", "A", "bottom"); close("A");
-      expect(dirty.asked()).toBe(0); expect(shape()).toBe("file:B.docx");
+      expect(getDocumentDiscardPrompt()).toBeNull(); expect(shape()).toBe("file:B.docx");
     } finally { dirty.restore(); }
   });
   test("cancelling a centre drop onto a dirty editor changes nothing", () => {
     add("A"); add("B", "A", "right"); const dirty = refuseDirty("B"); const before = session();
     try {
-      move("A", "B"); expect(session()).toBe(before);
-      add("C", "B"); expect(session()).toBe(before);
-      expect(dirty.asked()).toBe(2);
+      move("A", "B"); dirty.cancel(); expect(session()).toBe(before);
+      add("C", "B"); dirty.cancel(); expect(session()).toBe(before);
     } finally { dirty.restore(); }
   });
   test("cancelling close or tab switch leaves the draft and tree untouched", () => {
     add("A"); add("B"); const dirty = refuseDirty("B"); const before = session();
     try {
-      close("B"); expect(session()).toBe(before);
-      store().selectTab("session", "file:A.docx"); expect(session()).toBe(before);
-      expect(dirty.asked()).toBe(2);
+      close("B"); dirty.cancel(); expect(session()).toBe(before);
+      store().selectTab("session", "file:A.docx"); dirty.cancel(); expect(session()).toBe(before);
     } finally { dirty.restore(); }
   });
   test("workflow drafts retain their close and switch guards", () => {
     add("A"); const id = "workflow-resource:template.docx";
     store().openTab("session", { id, type: "workflow-resource", label: "template.docx" });
-    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-    let asked = 0;
-    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => { asked++; return false; } } });
     const unregister = registerUnsavedDocument(id, "template.docx", () => true, undefined, true);
     try {
-      store().selectTab("session", "file:A.docx"); expect(asked).toBe(0);
-      store().closeTab("session", id); expect(asked).toBe(1); expect(session().tabs).toHaveLength(2);
+      store().selectTab("session", "file:A.docx"); expect(getDocumentDiscardPrompt()).toBeNull();
+      store().closeTab("session", id); expect(getDocumentDiscardPrompt()?.names).toEqual(["template.docx"]); resolveDocumentDiscardPrompt(false); expect(session().tabs).toHaveLength(2);
     } finally {
       unregister();
-      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow); else Reflect.deleteProperty(globalThis, "window");
+      resolveDocumentDiscardPrompt(false);
     }
   });
 });
@@ -296,6 +327,14 @@ describe("restoration and repeated moves", () => {
         panes: ids.map((name, index) => ({ id: ["main", "side", "third"][index], tabIds: [`file:${name}.docx`], activeTabId: `file:${name}.docx` })),
       } } }, version: 0 }));
       await usePanelTabStore.persist.rehydrate(); expect(session().tabs).toHaveLength(ids.length); invariants();
+      const expected: Record<string, unknown> = {
+        columns: ["horizontal", "file:A.docx", "file:B.docx"],
+        rows: ["vertical", "file:A.docx", "file:B.docx"],
+        "three-columns": ["horizontal", "file:A.docx", ["horizontal", "file:B.docx", "file:C.docx"]],
+        "main-and-stack": ["horizontal", "file:A.docx", ["vertical", "file:B.docx", "file:C.docx"]],
+      };
+      expect(shape()).toEqual(expected[preset]);
+      expect(session().sizes["legacy:main"].main).toBeCloseTo(preset === "three-columns" ? 100 / 3 : 50);
     }
     storage.set("legalwork:panel-tabs:v1", JSON.stringify({ state: { sessions: { session: { tabs: [document("A.docx"), document("B.docx")], activeTabId: "file:A.docx", sideTabIds: ["file:B.docx"], sideActiveTabId: "file:B.docx" } } }, version: 0 }));
     await usePanelTabStore.persist.rehydrate(); expect(shape()).toEqual(["horizontal", "file:A.docx", "file:B.docx"]); invariants();
@@ -434,23 +473,29 @@ describe("unified workspace tabs", () => {
     expect(state().tabs.map(tab => tab.type)).toEqual(["chat"]);
   });
 
+  test("project browser synchronization does not adopt Evals session tabs", () => {
+    store().syncBrowserTabs("eval-session", [browser], browser.id);
+    store().adoptChat(scope, "one", "Project chat");
+    const projectBrowser = { ...browser, id: "project-browser" };
+    store().syncBrowserTabs(scope, [browser, projectBrowser], projectBrowser.id);
+    store().syncBrowserTabs("eval-session", [browser, projectBrowser], projectBrowser.id);
+    expect(state().tabs.filter(tab => tab.type === "browser").map(tab => tab.id)).toEqual([projectBrowser.id]);
+    expect(store().sessions["eval-session"].tabs.map(tab => tab.id)).toEqual([browser.id]);
+  });
+
   test("hidden dirty files stay open on a tab switch but cannot close without consent", () => {
     store().openTab(scope, document("source.docx"));
-    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-    let asked = 0;
-    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => { asked++; return false; } } });
     const unregister = registerUnsavedDocument(artifactDocumentKey("project", scope, "file:source.docx"), "source", () => true);
     try {
       store().openTab(scope, review, "main");
       expect(pane(review.id).activeTabId).toBe(review.id);
-      expect(asked).toBe(0);
+      expect(getDocumentDiscardPrompt()).toBeNull();
       store().closeTab(scope, "file:source.docx");
-      expect(asked).toBe(1);
+      expect(getDocumentDiscardPrompt()?.names).toEqual(["source"]); resolveDocumentDiscardPrompt(false);
       expect(state().tabs).toHaveLength(2);
     } finally {
       unregister();
-      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
-      else Reflect.deleteProperty(globalThis, "window");
+      resolveDocumentDiscardPrompt(false);
     }
   });
 

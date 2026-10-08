@@ -856,7 +856,7 @@ export function AppSidebar(props: AppSidebarProps) {
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         {newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>
-        <div data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
+        <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
           {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
             if (key === "sectionPinnedProjects") return pinnedProjects.length ? <section key={key} className="px-2 pb-3">
               <button className="flex h-9 w-full items-center gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => toggleSection(key)} aria-expanded={!closedSections.has(key)}>
@@ -871,12 +871,12 @@ export function AppSidebar(props: AppSidebarProps) {
                 <Button variant="ghost" size="icon-xs" aria-label={t("sidebar.all_projects")} title={t("sidebar.all_projects")} onClick={() => props.onShowProjects?.()}><LayoutGrid className="size-3.5" /></Button>
                 <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>
               </div>
-              {!closedSections.has(key) && <LazyMotion features={domMax}><Reorder.Group as="div" axis="y" values={props.workspaceSessionGroups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(ids)} className="flex flex-col gap-px">
-                {props.workspaceSessionGroups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} />)}
-              </Reorder.Group></LazyMotion>}
+              {!closedSections.has(key) && <Reorder.Group as="div" axis="y" values={props.workspaceSessionGroups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(ids)} className="flex flex-col gap-px">
+                {props.workspaceSessionGroups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} canReorder={Boolean(props.onReorderWorkspaces)} />)}
+              </Reorder.Group>}
             </section>;
           })}
-        </div>
+        </m.div></LazyMotion>
         <div className="shrink-0">
           <SidebarUpdateBadge onOpenUpdatesSettings={() => navigate("/settings/updates")} />
         </div>
@@ -896,43 +896,30 @@ export function AppSidebar(props: AppSidebarProps) {
   );
 }
 
-type WorkspaceReorderItemProps = {
-  className?: string;
+function WorkspaceReorderItem({ group, showInitialLoading, canReorder }: {
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
-};
-
-function WorkspaceReorderItem({
-  className,
-  group,
-  showInitialLoading,
-}: WorkspaceReorderItemProps) {
+  canReorder: boolean;
+}) {
   const dragControls = useDragControls();
-
-  return (
-    <Reorder.Item
-      as="div"
-      value={group.workspace.id}
-      id={group.workspace.id}
-      layout="position"
-      dragElastic={0}
-      dragListener={false}
-      dragControls={dragControls}
-      transformTemplate={(_latest, generated) =>
-        // Keep Motion's translate-based reorder movement, but drop projection scale
-        // so expanded workspace contents don't stretch during collapse/expand.
-        generated.replace(/ ?scale[XY]?\([^)]*\)/g, "")
-      }
-      className="relative"
-    >
-      <WorkspaceSidebarGroup
-        className={className}
-        group={group}
-        showInitialLoading={showInitialLoading}
-        onWorkspaceTitlePointerDown={(event) => dragControls.start(event, { distanceThreshold: 10 })}
-      />
-    </Reorder.Item>
-  );
+  const completedDrag = React.useRef(false);
+  const [dragging, setDragging] = React.useState(false);
+  return <Reorder.Item as="div" value={group.workspace.id} data-sidebar-project={group.workspace.id} data-project-dragging={dragging || undefined}
+    onPointerDownCapture={() => { completedDrag.current = false; }}
+    onKeyDownCapture={() => { completedDrag.current = false; }}
+    onDragStart={() => { completedDrag.current = true; setDragging(true); }}
+    onDragEnd={() => setDragging(false)}
+    onClickCapture={event => {
+      // A pointer reorder must not activate the project on the trailing click.
+      if (completedDrag.current) { event.preventDefault(); event.stopPropagation(); }
+    }}
+    layout="position" dragListener={false} dragControls={dragControls} dragElastic={0} dragMomentum={false}
+    className="relative isolate rounded-xl bg-sidebar"
+    whileDrag={{ zIndex: 20, boxShadow: "0 12px 28px -8px rgb(0 0 0 / 0.2), 0 0 0 1px var(--border)" }}
+    transition={{ layout: { type: "spring", stiffness: 420, damping: 38 } }}>
+    <WorkspaceSidebarGroup group={group} showInitialLoading={showInitialLoading}
+      onWorkspaceTitlePointerDown={canReorder ? event => dragControls.start(event, { distanceThreshold: 10 }) : undefined} />
+  </Reorder.Item>;
 }
 
 type WorkspaceHeaderProps = React.ComponentProps<typeof SidebarMenuButton> & {
@@ -942,7 +929,7 @@ type WorkspaceHeaderProps = React.ComponentProps<typeof SidebarMenuButton> & {
   isLoading: boolean;
   isRunning: boolean;
   unread: boolean;
-  onTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
+  onTitlePointerDown?: React.PointerEventHandler<HTMLDivElement>;
 };
 
 function WorkspaceHeader({
@@ -985,6 +972,7 @@ function WorkspaceHeader({
       </span>
       <div
         className="min-w-0 flex-1 cursor-grab touch-none active:cursor-grabbing group-hover/workspace-header:pr-14 group-focus-within/workspace-header:pr-14 group-has-data-popup-open/workspace-header:pr-14 [@media(hover:none)]:pr-14"
+        data-workspace-drag-handle
         onPointerDown={onTitlePointerDown}
       >
         <span className="block truncate">{workspaceLabel(workspace)}</span>
@@ -1007,7 +995,7 @@ type WorkspaceSidebarGroupProps = {
   className?: string;
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
-  onWorkspaceTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
+  onWorkspaceTitlePointerDown?: React.PointerEventHandler<HTMLDivElement>;
 };
 
 function WorkspaceSidebarGroup({
@@ -1136,13 +1124,18 @@ function WorkspaceSidebarGroup({
                   </SidebarMenuSubItem>,
                   projectSessions: <li key="projectSessions">
                     <div className="group/project-sessions-heading relative">
-                      <ProjectFileDropTarget hint projectId={workspace.id} mode="chat"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-24")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
+                      <ProjectFileDropTarget hint projectId={workspace.id} mode="chat"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-14")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
                         <MessageSquare className="size-4" strokeWidth={1.5} />
-                        <span className="min-w-0 flex-1 truncate">{t("projects.sessions")}</span><span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread={!showSessions && unread} /></span>
+                        <span className="min-w-0 flex-1 truncate">{t("projects.sessions")}</span>{!showSessions && unread && <UnreadDot unread />}
                       </SidebarMenuSubButton></ProjectFileDropTarget>
                       {config.collapseProjectSessions && <Button variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground" aria-label={t(showSessions ? "project_browser.collapse_sessions" : "project_browser.expand_sessions")} aria-expanded={showSessions} onClick={() => setSessionsOpen(!showSessions)}><ChevronRight className={cn("size-3.5 transition-transform", showSessions && "rotate-90")} /></Button>}
-                      <Button variant="ghost" size="icon-xs" className="absolute right-12 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" disabled={ctx.newChatDisabled} aria-label={t("session.new_task")} title={t("session.new_task")} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare className="size-3.5" strokeWidth={1.5} /></Button>
-                      <Button variant="ghost" size="icon-xs" className="absolute right-6 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className={cn("absolute top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100", config.collapseProjectSessions ? "right-7" : "right-0.5")} aria-label={t("projects.session_actions")}><MoreHorizontal className="size-3.5" /></Button>} />
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare />{t("session.new_task")}</DropdownMenuItem>
+                          {ctx.onOpenCreateGroupModal && <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus />{t("session_management.create_group")}</DropdownMenuItem>}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                     <Collapsible open={config.collapseProjectSessions && showSessions}><CollapsibleContent>
                       <div className="mb-1 ml-[18px] mt-1.5 border-l border-sidebar-border pl-1">
@@ -1184,7 +1177,8 @@ function SessionGroupSeparator({ label, count, expanded, unread = false, onToggl
         <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none", expanded && "rotate-90")} />
         <span
           className="min-w-0 flex-1 cursor-grab touch-none truncate text-[11px] font-medium text-muted-foreground active:cursor-grabbing"
-          onPointerDown={onTitlePointerDown}
+          data-workspace-drag-handle
+        onPointerDown={onTitlePointerDown}
         >
           {label}
         </span>

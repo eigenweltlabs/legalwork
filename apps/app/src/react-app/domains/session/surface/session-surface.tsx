@@ -1205,7 +1205,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (!chatStreaming) return;
     setError(null);
     // Pause first so the next queued message cannot restart an aborted turn.
-    try { await sharedQueue.pause(true); } catch (error) { queueFailure(error); return; }
+    try { await sharedQueue.pause(true, "stop"); } catch (error) { queueFailure(error); return; }
     // The prompt was sent through a directory-scoped client (session-route
     // passes the workspace root), so the abort must target the same scope —
     // without it the server resolves the default project, finds no live run,
@@ -2162,7 +2162,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           realtimeVoiceActive={props.realtimeVoiceActive}
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
-          queueAccessory={queuedDrafts.length > 0 || editingQueuedDraftId ? (
+          queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
             <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
           ) : null}
           compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}

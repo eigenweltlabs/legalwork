@@ -17,6 +17,7 @@ import { automaticTabDestination, DEFAULT_WORKSPACE_OPENING, restoreWorkspaceOpe
 
 // Measurements are per window and must not trigger persisted layout writes during resize.
 const workspaceWidths = new Map<string, number>();
+const latestBrowserStates = new Map<string, { tabs: BrowserPanelTab[]; activeId: string | null }>();
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
 
@@ -146,7 +147,7 @@ export type PanelTabStore = {
 
 const EMPTY_SESSION: SessionPanelState = {
   tabs: [], panes: [{ id: "main", tabIds: [], activeTabId: null }], tree: { type: "pane", id: "main" }, sizes: {},
-  activeTabId: null, sideTabIds: [], sideActiveTabId: null,
+  activeTabId: null, sideTabIds: [], sideActiveTabId: null, focusedPaneId: "main",
 };
 
 function getWritableSession(state: PanelTabStore, sessionId: string): SessionPanelState {
@@ -216,7 +217,7 @@ export function samePanelTab(scope: string, tab: PanelTab, other: PanelTab) {
 
 /** A drop is one transaction: validate capacity and any displaced draft before
  * changing membership or geometry. A lone source can relocate at the pane limit. */
-function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, paneId?: string, edge?: DocumentDropEdge): SessionPanelState {
+function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, paneId?: string, edge?: DocumentDropEdge, retry?: () => void): SessionPanelState {
   const existing = session.tabs.find(entry => samePanelTab(sessionId, tab, entry));
   // Alias drops must retain the mounted editor and its draft, including whether
   // the file was opened locally, from connected storage, or through a source link.
@@ -238,7 +239,7 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
   if (split && source?.id === destination.id && source.tabIds.length === 1) return session;
   const sourceEmpties = source && source.id !== destination.id && source.tabIds.length === 1;
   if (split && session.panes.length + 1 - (sourceEmpties ? 1 : 0) > MAX_DOCUMENT_PANES) return session;
-  if (!sessionId.startsWith("workspace:") && !split && destination.activeTabId !== tab.id && !confirmDiscardSessionDocuments(sessionId, [destination.activeTabId], undefined, true)) return session;
+  if (!sessionId.startsWith("workspace:") && !split && destination.activeTabId !== tab.id && !confirmDiscardSessionDocuments(sessionId, [destination.activeTabId], undefined, true, retry)) return session;
   const tabs = existing ? session.tabs.map(entry => entry.id === tab.id ? tab : entry) : [...session.tabs, tab];
   const newPaneId = split ? `pane:${crypto.randomUUID()}` : destination.id;
   const panes = session.panes.map(pane => {
@@ -251,11 +252,11 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
   return normalizeSession({ ...session, tabs, focusedPaneId: newPaneId, panes: panes.filter(pane => pane.tabIds.length > 0), tree, sizes: reconcileLayoutSizes(session.tree, tree, session.sizes) });
 }
 
-function openInSession(scope: string, session: SessionPanelState, tab: PanelTab, opening: WorkspaceOpening, width: number, pane?: string, edge?: DocumentDropEdge, preview = false) {
+function openInSession(scope: string, session: SessionPanelState, tab: PanelTab, opening: WorkspaceOpening, width: number, pane?: string, edge?: DocumentDropEdge, preview = false, retry?: () => void) {
   const existing = session.tabs.find(item => samePanelTab(scope, tab, item));
   const automatic = !pane && !edge && !existing && scope.startsWith("workspace:")
     ? automaticTabDestination(session, tab, opening, width) : {};
-  let next = dockTab(scope, session, tab, pane ?? automatic.pane, edge ?? automatic.edge);
+  let next = dockTab(scope, session, tab, pane ?? automatic.pane, edge ?? automatic.edge, retry);
   if (next === session) return next;
   const id = next.tabs.find(entry => samePanelTab(scope, tab, entry))?.id;
   if (!id) return next;
@@ -370,7 +371,7 @@ function mergePersistedSessions(
   };
 }
 
-export const usePanelTabStore = create<PanelTabStore>()(
+export const createPanelTabStore = () => create<PanelTabStore>()(
   persist(
     (set, get) => ({
       sessions: {},
@@ -427,7 +428,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
       }),
       openTab: (sessionId, tab, paneId, edge, options) => set(state => {
         const session = getWritableSession(state, sessionId);
-        const next = openInSession(sessionId, session, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, paneId, edge, options?.preview);
+        const next = openInSession(sessionId, session, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, paneId, edge, options?.preview, () => get().openTab(sessionId, tab, paneId, edge, options));
         return next === session ? state : updateSession(state, sessionId, next);
       }),
       closeTab: (sessionId, tabId) => set(state => {
@@ -436,8 +437,8 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const pane = session.panes.find(pane => pane.tabIds.includes(tabId));
         if (!closing || !pane) return state;
         if (closing.type === "workflow" || closing.type === "workflow-resource") {
-          if (!confirmDiscardSessionDocuments(sessionId, [tabId])) return state;
-        } else if ((sessionId.startsWith("workspace:") || pane.activeTabId === tabId) && !confirmDiscardSessionDocuments(sessionId, [tabId], undefined, true)) return state;
+          if (!confirmDiscardSessionDocuments(sessionId, [tabId], undefined, false, () => get().closeTab(sessionId, tabId))) return state;
+        } else if ((sessionId.startsWith("workspace:") || pane.activeTabId === tabId) && !confirmDiscardSessionDocuments(sessionId, [tabId], undefined, true, () => get().closeTab(sessionId, tabId))) return state;
         return updateSession(state, sessionId, normalizeSession({ ...session, tabs: session.tabs.filter(tab => tab.id !== tabId),
           panes: session.panes.map(entry => entry.id === pane.id ? { ...entry, tabIds: entry.tabIds.filter(id => id !== tabId), activeTabId: entry.activeTabId === tabId ? neighbour(session, entry, tabId) : entry.activeTabId } : entry),
         }));
@@ -445,14 +446,14 @@ export const usePanelTabStore = create<PanelTabStore>()(
       selectTab: (sessionId, tabId) => set(state => {
         const session = getWritableSession(state, sessionId);
         const pane = session.panes.find(pane => pane.tabIds.includes(tabId));
-        if (!pane || (pane.activeTabId === tabId && session.focusedPaneId === pane.id) || (!sessionId.startsWith("workspace:") && !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true))) return state;
+        if (!pane || (pane.activeTabId === tabId && session.focusedPaneId === pane.id) || (pane.activeTabId !== tabId && !sessionId.startsWith("workspace:") && !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true, () => get().selectTab(sessionId, tabId)))) return state;
         return updateSession(state, sessionId, normalizeSession({ ...session, focusedPaneId: pane.id, panes: session.panes.map(entry => entry.id === pane.id ? { ...entry, activeTabId: tabId } : entry) }));
       }),
       moveTab: (sessionId, tabId, pane, edge) => set(state => {
         const session = getWritableSession(state, sessionId);
         const tab = session.tabs.find(tab => tab.id === tabId);
         if (!tab) return state;
-        const next = openInSession(sessionId, session, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, pane, edge);
+        const next = openInSession(sessionId, session, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, pane, edge, false, () => get().moveTab(sessionId, tabId, pane, edge));
         return next === session ? state : updateSession(state, sessionId, next);
       }),
       setPaneSizes: (sessionId, layout, sizes) => set(state => {
@@ -481,12 +482,14 @@ export const usePanelTabStore = create<PanelTabStore>()(
           tabs: reorderedTabs,
         });
       }),
-      syncBrowserTabs: (sessionId, browserTabs, activeBrowserTabId) => set((state) => {
+      syncBrowserTabs: (sessionId, browserTabs, activeBrowserTabId) => {
+        latestBrowserStates.set(sessionId, { tabs: browserTabs, activeId: activeBrowserTabId });
+        set((state) => {
         const session = getWritableSession(state, sessionId);
         // Native browser state is window-local. A project adopts new tabs but must
-        // not import another project's existing browser layout on every visit.
+        // not import another project's or an Evals session's existing browser tabs.
         const ownedElsewhere = new Set(Object.entries(state.sessions).flatMap(([key, value]) =>
-          key !== sessionId && key.startsWith("workspace:") ? value.tabs.filter(tab => tab.type === "browser").map(tab => tab.id) : []));
+          key !== sessionId ? value.tabs.filter(tab => tab.type === "browser").map(tab => tab.id) : []));
         browserTabs = browserTabs.filter(tab => !ownedElsewhere.has(tab.id) || session.tabs.some(item => item.id === tab.id));
         const browserTabsById = new Map(browserTabs.map((tab) => [tab.id, tab]));
 
@@ -513,7 +516,10 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const added = browserTabs.filter(tab => !assigned.has(tab.id));
         let nextSession = normalizeSession({ ...session, tabs: mergedTabs.filter(tab => !added.some(item => item.id === tab.id)) });
         for (const tab of added) {
-          nextSession = openInSession(sessionId, nextSession, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0);
+          nextSession = openInSession(sessionId, nextSession, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, undefined, undefined, false, () => {
+            const latest = latestBrowserStates.get(sessionId);
+            if (latest) get().syncBrowserTabs(sessionId, latest.tabs, latest.activeId);
+          });
         }
         if (activeBrowserTabId) {
           const owner = nextSession.panes.find(pane => pane.tabIds.includes(activeBrowserTabId));
@@ -527,7 +533,8 @@ export const usePanelTabStore = create<PanelTabStore>()(
         }
 
         return updateSession(state, sessionId, nextSession);
-      }),
+        });
+      },
       syncArtifactTargets: (sessionId, targets) => set((state) => {
         const session = getWritableSession(state, sessionId);
         const nextSession = reconcileOpenArtifactTabs(session, targets);
@@ -567,6 +574,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
         };
       }),
       clearSession: (sessionId) => set((state) => {
+        latestBrowserStates.delete(sessionId);
         workspaceWidths.delete(sessionId);
         const nextSessions = { ...state.sessions };
         const nextTranscriptArtifactTargets = { ...state.transcriptArtifactTargets };
@@ -653,6 +661,8 @@ export const usePanelTabStore = create<PanelTabStore>()(
     },
   ),
 );
+
+export const usePanelTabStore = createPanelTabStore();
 
 export function useSessionPanelState(sessionId: string): SessionPanelState {
   return usePanelTabStore((state) => state.sessions[sessionId] ?? EMPTY_SESSION);

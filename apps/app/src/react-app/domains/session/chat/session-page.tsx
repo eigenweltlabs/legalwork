@@ -1,3 +1,4 @@
+import { WorkspaceWindowButton } from "../panel/workspace-window-button";
 import { WorkspaceTabDropTarget } from "../sidebar/workspace-tab-drop-target";
 import { ProjectFileProvider } from "../../workspace/project-file-context";
 import { isSessionListed, useSessionListRevision } from "../sidebar/session-list-visibility";
@@ -20,7 +21,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, AppWindowMac, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import {
@@ -114,7 +115,6 @@ const STARTUP_SKELETON_ROWS = [
 ];
 const GLOBAL_VOICE_SIDE_PANEL_KEY = "__legalwork_voice__";
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
-const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-session-window";
 
 export type OpenSessionTab = {
   workspaceId: string;
@@ -159,7 +159,7 @@ export type SessionPageSidebarProps = {
   newChatDisabled: boolean;
   sidebarHydratedFromCache: boolean;
   startupPhase: BootPhase;
-  onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
+  onSelectWorkspace: (workspaceId: string, options?: { navigate?: boolean }) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
   onCreateChatInWorkspace: (workspaceId: string, options?: { paneId?: string }) => void | string | Promise<string | void>;
@@ -353,12 +353,17 @@ export function SessionPage(props: SessionPageProps) {
   const panelStateSessionId = props.sidebar.activeNav === "evals" ? EVALS_PANEL_SESSION_ID : workspacePanelKey(props.selectedWorkspaceId);
   const workspaceScope = workspacePanelKey(props.selectedWorkspaceId);
   const workspacePanel = useSessionPanelState(workspaceScope);
+  const controlSessionIds = useMemo(() => workspacePanel.tabs.flatMap(tab => tab.type === "chat" ? [tab.sessionId] : []), [workspacePanel.tabs]);
   const [overviewHost, setOverviewHost] = useState<HTMLDivElement | null>(null);
-  const [visitedOverviews, setVisitedOverviews] = useState<ProjectView[]>([]);
+  const [overviewVisits, setOverviewVisits] = useState<{ workspaceId: string; views: ProjectView[] }>({ workspaceId: props.selectedWorkspaceId, views: [] });
+  const visitedOverviews = overviewVisits.workspaceId === props.selectedWorkspaceId ? overviewVisits.views : [];
   useEffect(() => {
     const view = props.projectPage;
-    if (view) setVisitedOverviews(previous => previous.includes(view) ? previous : [...previous, view]);
-  }, [props.projectPage]);
+    setOverviewVisits(previous => {
+      const views = previous.workspaceId === props.selectedWorkspaceId ? previous.views : [];
+      return { workspaceId: props.selectedWorkspaceId, views: view && !views.includes(view) ? [...views, view] : views };
+    });
+  }, [props.projectPage, props.selectedWorkspaceId]);
   useEffect(() => { void restoreWorkspaceWindow(props.selectedWorkspaceId).catch(() => toast.error(t("projects.open_in_new_window_failed"))); }, [props.selectedWorkspaceId]);
   const [workspaceHost, setWorkspaceHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => { usePanelTabStore.getState().migrateWorkspace(props.selectedWorkspaceId); }, [props.selectedWorkspaceId]);
@@ -438,7 +443,7 @@ export function SessionPage(props: SessionPageProps) {
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
-  const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
+  const setCurrentSidePanel = useCallback(function setPanel(panel: SidePanelItem | null) {
     if (panel === "files" || panel === "memory") {
       setFileSidebarState(panelStateSessionId, panel);
       return;
@@ -447,7 +452,7 @@ export function SessionPage(props: SessionPageProps) {
       setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
-    if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments()) return;
+    if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments(undefined, undefined, false, () => setPanel(panel))) return;
     setSidePanelState(panelStateSessionId, panel);
     if (panel === "panel" && hasMainView && panelStateSessionId !== EVALS_PANEL_SESSION_ID) {
       navigate(workspaceSessionRoute(props.selectedWorkspaceId, props.selectedSessionId) + (props.selectedSessionId ? "" : "?view=workspace"));
@@ -482,7 +487,7 @@ export function SessionPage(props: SessionPageProps) {
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
   }, [setSidePanelState]);
 
-  const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
+  const toggleCurrentSidePanel = useCallback(function togglePanel(panel: SidePanelItem) {
     if (panel === "files" || panel === "memory") {
       setFileSidebarState(panelStateSessionId, fileSidebar === panel ? null : panel);
       return;
@@ -491,7 +496,7 @@ export function SessionPage(props: SessionPageProps) {
       toggleSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
-    if (activeSidePanel === "panel" && !confirmDiscardDocuments()) return;
+    if (activeSidePanel === "panel" && !confirmDiscardDocuments(undefined, undefined, false, () => togglePanel(panel))) return;
     toggleSidePanelState(panelStateSessionId, panel);
   }, [activeSidePanel, panelStateSessionId, toggleSidePanelState, fileSidebar, setFileSidebarState]);
 
@@ -718,7 +723,8 @@ export function SessionPage(props: SessionPageProps) {
     id: "documents.open", label: "Open a file in the side viewer", sideEffect: "navigation", requiresArgs: true,
     args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "connectionId", type: "string" }, { name: "copyTo", type: "string" }],
     execute: async (args) => {
-      if (controlStringArg(args, "sessionId") !== panelStateSessionId) return { ok: false, error: "No matching session is visible. Open this session first." };
+      const allowedSessions = panelStateSessionId === EVALS_PANEL_SESSION_ID ? [panelStateSessionId] : controlSessionIds;
+      if (!allowedSessions.includes(controlStringArg(args, "sessionId"))) return { ok: false, error: "No matching session is visible. Open this session first." };
       const client = props.legalworkServerClient, workspaceId = props.runtimeWorkspaceId;
       if (!client || !workspaceId) return { ok: false, error: "Workspace is not ready." };
       let path = controlStringArg(args, "path"), connectionId = controlStringArg(args, "connectionId");
@@ -762,7 +768,7 @@ export function SessionPage(props: SessionPageProps) {
         ? "The file is opening in the side viewer. Call inapp_documents_list for this file's activeDocument, then use its exact path with the matching inapp_* read/edit tools. Edits save locally; cloud saving is separate. If loading fails, report that failure instead of editing a different active file."
         : "The file is opening as a preview. This format has no live in-app editing tools. Use inapp_documents_list for the local path and the existing tools for this file format." }) };
     },
-  }), [panelStateSessionId, props.legalworkServerClient, props.runtimeWorkspaceId, openStorageFile, openTab, setCurrentSidePanel]);
+  }), [controlSessionIds, panelStateSessionId, props.legalworkServerClient, props.runtimeWorkspaceId, openStorageFile, openTab, setCurrentSidePanel]);
   useControlAction(openDocumentAction);
   const openLegalMemoryFile = useCallback(async (file: LegalMemoryTreeFile) => {
     const client = props.legalworkServerClient;
@@ -974,14 +980,7 @@ export function SessionPage(props: SessionPageProps) {
     });
   }, []);
 
-  useEffect(() => {
-    if (!props.selectedWorkspaceId || !isElectronRuntime() || hasMainView) return;
-    const handleNativeOpenSessionWindow = () => {
-      void openWorkspaceWindow(props.selectedWorkspaceId).catch(() => toast.error(t("projects.open_in_new_window_failed")));
-    };
-    window.addEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
-    return () => window.removeEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
-  }, [hasMainView, props.selectedWorkspaceId]);
+
 
 
   useEffect(() => {
@@ -1059,8 +1058,8 @@ export function SessionPage(props: SessionPageProps) {
     groups={listedSessionGroups}
     onOpenSearch={props.sidebar.onOpenSearch}
     onOpenProject={async (id, page) => {
-      if (await props.sidebar.onSelectWorkspace(id) === false) return;
-      navigate(page === "projectFiles" ? workspaceViewRoute(id, "files") : page === "projectCalendar" ? workspaceCalendarRoute(id) : page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
+      if (await props.sidebar.onSelectWorkspace(id, { navigate: false }) === false) return;
+      navigate(page === "workspace" ? workspaceSessionRoute(id) + "?view=workspace" : page === "projectFiles" ? workspaceViewRoute(id, "files") : page === "projectCalendar" ? workspaceCalendarRoute(id) : page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
     }}
     onOpenSession={openSessionTab}
     onNewChat={props.sidebar.onCreateChatInWorkspace}
@@ -1109,6 +1108,7 @@ export function SessionPage(props: SessionPageProps) {
         ? props.onCreateProjectSession(shareRecording)
         : void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
       tasksView={renderProjectTasks(true, inWorkspace)}
+      onViewAllDeadlines={inWorkspace ? undefined : () => navigate(workspaceCalendarRoute(props.selectedWorkspaceId))}
       onRename={props.onRenameProject}
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : null;
@@ -1198,16 +1198,8 @@ export function SessionPage(props: SessionPageProps) {
             </div>
             <div className="flex items-center gap-1.5 text-gray-10 titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
-              {!hasMainView && props.selectedWorkspaceId && isElectronRuntime() ? (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => void openWorkspaceWindow(props.selectedWorkspaceId).catch(() => toast.error(t("projects.open_in_new_window_failed")))}
-                  title={t("workspace.open_window")}
-                  aria-label={t("workspace.open_window")}
-                >
-                  <AppWindowMac size={16} />
-                </Button>
+              {props.selectedWorkspaceId && isElectronRuntime() ? (
+                <WorkspaceWindowButton workspaceId={props.selectedWorkspaceId} showButton={!hasMainView} />
               ) : null}
               {!hasMainView && props.selectedWorkspaceId && <WorkspaceViewMenu scope={workspaceScope} />}
               {hasMainView && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
@@ -1243,7 +1235,7 @@ export function SessionPage(props: SessionPageProps) {
           activeProjectView={props.projectPage ?? (hasMainView ? null : "workspace")}
           onOpenNavWindow={isElectronRuntime() ? openNavWindow : undefined}
           onOpenProjectFiles={workspaceId => {
-            void Promise.resolve(props.sidebar.onSelectWorkspace(workspaceId)).then(ok => { if (ok !== false) navigate(workspaceViewRoute(workspaceId, "files")); });
+            void Promise.resolve(props.sidebar.onSelectWorkspace(workspaceId, { navigate: false })).then(ok => { if (ok !== false) navigate(workspaceViewRoute(workspaceId, "files")); });
           }}
           showInitialLoading={sidebarInitialLoading}
           showSessionActions={Boolean(props.onRenameSession || props.onDeleteSession || props.onArchiveSession)}
@@ -1329,6 +1321,7 @@ export function SessionPage(props: SessionPageProps) {
                     <div className="min-h-0 flex-1"><SidePanel
                       headerTarget={!mobile ? viewerHeaderTarget : null}
                       sessionId={panelStateSessionId}
+                      controlSessionIds={panelStateSessionId === EVALS_PANEL_SESSION_ID ? undefined : controlSessionIds}
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
@@ -1566,6 +1559,7 @@ export function SessionPage(props: SessionPageProps) {
           <SidePanel
             key={workspaceScope}
             sessionId={workspaceScope}
+            controlSessionIds={controlSessionIds}
             client={props.legalworkServerClient}
             workspaceId={props.runtimeWorkspaceId}
             workspaceRoot={props.selectedWorkspaceRoot}

@@ -1,3 +1,4 @@
+import { isDocumentReadTool } from "./document-agent-read";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -63,7 +64,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
       } finally { finish(); setSaving(false); latest.current.onSavingChange?.(false); }
     };
     const executeAgentTool = async (toolName: string, args: Record<string, unknown>): Promise<OfficeAgentResult> => {
-      if (latest.current.interactionLocked) return { success: false, error: t("office_editor.read_only") };
+      if ((latest.current.readOnly || latest.current.interactionLocked) && !isDocumentReadTool("office", toolName)) return { success: false, error: t("office_editor.read_only") };
       if (toolName === "save") {
         try { const saved = await save(); return { success: saved, saved, ...(!saved ? { error: t("office_editor.not_ready") } : {}) }; }
         catch (cause) { return { success: false, saved: false, error: cause instanceof Error ? cause.message : t("office_editor.save_failed") }; }

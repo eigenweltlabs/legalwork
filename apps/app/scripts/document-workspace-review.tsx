@@ -1,3 +1,4 @@
+import { DocumentDiscardDialog } from "../src/react-app/domains/session/artifacts/document-discard-dialog";
 // Development-only harness; absent from production build inputs. The matching
 // server script creates disposable original DOCX files and uses real API routes.
 import { StrictMode, useMemo, useRef, useState } from "react";
@@ -166,7 +167,7 @@ function Harness() {
         <p>All documents are synthetic.</p>
       </aside>
       <main className="min-w-0 flex-1">{viewerOpen && <SidePanel headerTarget={dockHeader ? headerTarget : null} sessionId={sessionId} workspaceId={workspaceId} workspaceRoot="" client={client} onClose={() => setViewerOpen(false)} />}</main>
-    </div><Toaster />
+    </div><Toaster /><DocumentDiscardDialog />
   </div>;
 }
 

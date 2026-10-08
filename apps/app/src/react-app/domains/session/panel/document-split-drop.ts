@@ -8,3 +8,10 @@ export function documentSplitDropEdge(x: number, y: number, width: number, heigh
   const nearest = edges.reduce((best, edge) => edge[1] < best[1] ? edge : best);
   return nearest[1] <= 0.25 ? nearest[0] : null;
 }
+
+/** File browsers keep their folder targets; only the outer gutter offers a split. */
+export function fileExplorerSplitDropEdge(x: number, y: number, width: number, height: number): DocumentDropEdge | null {
+  const edge = documentSplitDropEdge(x, y, width, height);
+  if (!edge) return null;
+  return Math.min(x, width - x, y, height - y) <= 40 ? edge : null;
+}

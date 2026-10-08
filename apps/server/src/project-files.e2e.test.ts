@@ -23,9 +23,39 @@ async function serve(readOnly = false) {
   const server = await startServer(config); servers.push(server);
   const base = `http://127.0.0.1:${server.port}`;
   const request = (route: string, body?: object, token = config.token) => fetch(`${base}/workspace/target/files/${route}`, { method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  return { source, target, request };
+  return { source, target, request, base, token: config.token };
 }
 const sourceRef = { projectId: "source", workspaceId: "source", path: "contract.md", name: "contract.md" };
+
+test("file-session batch writes serialize revision checks for concurrent editors", async () => {
+  const { target, request, base, token } = await serve();
+  await writeFile(join(target, "shared.md"), "Before");
+  const session = (await (await request("sessions", { write: true })).json()).session;
+  const batch = (operation: string, body: object) => fetch(`${base}/files/sessions/${session.id}/${operation}`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }).then(response => response.json());
+  const before = (await batch("read-batch", { paths: ["shared.md"] })).items[0];
+  expect(before.ok).toBe(true);
+  const results = await Promise.all(Array.from({ length: 8 }, (_, index) => batch("write-batch", { writes: [{ path: "shared.md", contentBase64: Buffer.from(`After ${index}`).toString("base64"), ifMatchRevision: before.revision }] })));
+  const items = results.flatMap(result => result.items);
+  expect(items.filter(item => item.ok)).toHaveLength(1);
+  expect(items.filter(item => item.code === "conflict")).toHaveLength(7);
+});
+
+test("concurrent no-overwrite moves to one destination preserve the other source files", async () => {
+  const { target, request, base, token } = await serve();
+  const session = (await (await request("sessions", { write: true })).json()).session;
+  const names = Array.from({ length: 8 }, (_, index) => `source-${index}.md`);
+  await Promise.all(names.map(name => writeFile(join(target, name), name)));
+  const results = await Promise.all(names.map(from => fetch(`${base}/files/sessions/${session.id}/ops`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ operations: [{ type: "rename", from, to: "Folder/same.md", overwrite: false }] }),
+  }).then(response => response.json())));
+  expect(results.flatMap(result => result.items).filter(item => item.ok)).toHaveLength(1);
+  expect(results.flatMap(result => result.items).filter(item => item.code === "file_exists")).toHaveLength(7);
+  const winner = await readFile(join(target, "Folder/same.md"), "utf8");
+  for (const name of names.filter(name => name !== winner)) expect(await readFile(join(target, name), "utf8")).toBe(name);
+});
 
 test("cross-project API links persist, deduplicate and rename independently of original bytes", async () => {
   const { source, request } = await serve();

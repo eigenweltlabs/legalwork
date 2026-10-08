@@ -1,9 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { QueueAction } from "@legalwork/types/session-queue";
-import { SessionMessageQueue, type QueueTransport } from "./session-message-queue.js";
+import { QueuePreparationError, SessionMessageQueue, type QueueTransport } from "./session-message-queue.js";
 import { queueActionSchema, queuedPromptPayload } from "./session-queue-schema.js";
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(fn => fn())); });
@@ -18,6 +18,59 @@ async function until(check: () => Promise<boolean>) {
   for (let i = 0; i < 100; i++) { if (await check()) return; await new Promise(r => setTimeout(r, 5)); }
   expect(await check()).toBe(true);
 }
+test("an idle enqueue is acknowledged as sending without waiting for its reply", async () => {
+  const sent: string[] = [];
+  const { queue } = await setup({ idle: async () => true, send: async (_w, _s, entry) => { sent.push(entry.id); await new Promise(() => {}); } });
+  const first = message("start immediately");
+  const state = await queue.act("w", "s", first);
+  expect(sent).toEqual([first.id]);
+  expect(state.entries.map(entry => entry.status)).toEqual(["sending"]);
+  const waiting = await queue.act("w", "s", message("follow-up"));
+  expect(waiting.entries.map(entry => entry.status)).toEqual(["sending", "queued"]);
+  expect(sent).toEqual([first.id]);
+});
+test("polling and concurrent enqueues wait for the same dispatch decision", async () => {
+  let release = () => {};
+  let checks = 0;
+  const idle = new Promise<boolean>(resolve => { release = () => resolve(true); });
+  const { queue } = await setup({ idle: async () => { checks++; return idle; }, send: () => new Promise(() => {}) });
+  const first = message("one"), second = message("two");
+  const sending = queue.act("w", "s", first);
+  await until(async () => checks === 1);
+  let published = false;
+  const reading = queue.read("w", "s").then(state => { published = true; return state; });
+  const waiting = queue.act("w", "s", second);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  expect(published).toBe(false);
+  release();
+  const states = await Promise.all([sending, reading, waiting]);
+  expect(checks).toBe(1);
+  for (const state of states) {
+    expect(state.entries.map(entry => entry.id)).toEqual([first.id, second.id]);
+    expect(state.entries.map(entry => entry.status)).toEqual(["sending", "queued"]);
+  }
+});
+test("busy and paused conversations keep new messages visibly queued", async () => {
+  const { queue } = await setup({ idle: async () => false, send: async () => { throw new Error("Must not dispatch"); } });
+  expect((await queue.act("w", "busy", message())).entries[0].status).toBe("queued");
+  await queue.act("w", "paused", { type: "pause", paused: true });
+  const paused = await queue.act("w", "paused", message());
+  expect(paused.paused).toBe(true);
+  expect(paused.entries[0].status).toBe("queued");
+});
+test("Stop can pause while an idle check is pending, before delivery is claimed", async () => {
+  let release = () => {};
+  let checking = false, sends = 0;
+  const idle = new Promise<boolean>(resolve => { release = () => resolve(true); });
+  const { queue } = await setup({ idle: async () => { checking = true; return idle; }, send: async () => { sends++; } });
+  const sending = queue.act("w", "s", message());
+  await until(async () => checking);
+  const paused = await queue.act("w", "s", { type: "pause", paused: true, reason: "stop" });
+  expect(paused.paused).toBe(true);
+  release();
+  expect((await sending).entries[0].status).toBe("queued");
+  expect(sends).toBe(0);
+});
 test("two windows enqueue durably and only one dispatcher sends in order", async () => {
   const sent: string[] = []; let idle = false; let release = () => {};
   const pending = new Promise<void>(r => { release = r; });
@@ -76,7 +129,7 @@ test("editing reserves the item across windows; stale changes cannot overwrite i
   const editing = await queue.act("w", "s", { type: "edit", id: a.id, token, revision: state.revision });
   await expect(queue.act("w", "s", { type: "edit", id: a.id, token: crypto.randomUUID(), revision: editing.revision })).rejects.toThrow();
   await expect(queue.act("w", "s", { type: "pause", paused: false })).rejects.toThrow();
-  await expect(queue.act("w", "s", { type: "remove", id: a.id, revision: state.revision })).rejects.toThrow();
+  await expect(queue.act("w", "s", { type: "remove", id: a.id, revision: editing.revision })).rejects.toThrow();
   const changed = await queue.act("w", "s", { ...a, editToken: token, draft: { ...a.draft, text: "edited" } });
   expect(changed.entries[0].draft.text).toBe("edited"); expect(changed.entries[0].edit).toBeUndefined();
 });
@@ -118,20 +171,88 @@ test("a lost edit acknowledgement can be retried without overwriting a later edi
   const retry = await queue.act("w", "s", edit);
   expect(retry.entries).toHaveLength(1);
   expect(retry.entries[0].draft.text).toBe("changed");
-  expect(retry.paused).toBe(true);
+  expect(retry.paused).toBe(false);
 });
 
 test("a deleted session cannot dispatch queued work", async () => {
   let idle = false, sends = 0;
-  const { queue } = await setup({ idle: async () => idle, send: async () => { sends++; } });
+  const { queue, dir } = await setup({ idle: async () => idle, send: async () => { sends++; } });
   const a = message();
   await queue.act("w", "s", a);
   await queue.removeSession("w", "s");
   idle = true;
   await queue.tick();
-  await queue.act("w", "s", a);
+  await expect(queue.act("w", "s", a)).rejects.toThrow("deleted");
   expect((await queue.read("w", "s")).entries).toHaveLength(0);
+  expect(await readdir(dir)).toEqual([]);
   expect(sends).toBe(0);
+});
+
+test("an expired editor cannot acknowledge a draft removed by another window", async () => {
+  const { queue } = await setup({ idle: async () => false, send: async () => {} });
+  const item = message(); const token = crypto.randomUUID();
+  const initial = await queue.act("w", "s", item);
+  const editing = await queue.act("w", "s", { type: "edit", id: item.id, token, revision: initial.revision });
+  const clock = spyOn(Date, "now").mockReturnValue(Date.now() + 121_000);
+  try {
+    await queue.act("w", "s", { type: "remove", id: item.id, revision: editing.revision });
+    await expect(queue.act("w", "s", { ...item, editToken: token })).rejects.toThrow("queue changed");
+    expect((await queue.read("w", "s")).entries).toEqual([]);
+  } finally { clock.mockRestore(); }
+});
+
+test("edit leases suspend delivery without changing manual pause; release, submit and expiry resume", async () => {
+  const { queue } = await setup({ idle: async () => false, send: async () => {} });
+  const item = message(); let state = await queue.act("w", "s", item);
+  const token = crypto.randomUUID();
+  state = await queue.act("w", "s", { type: "edit", id: item.id, token, revision: state.revision });
+  expect(state.paused).toBe(false);
+  state = await queue.act("w", "s", { type: "release", id: item.id, token });
+  expect(state.paused).toBe(false); expect(state.entries[0].edit).toBeUndefined();
+  state = await queue.act("w", "s", { type: "edit", id: item.id, token, revision: state.revision });
+  state = await queue.act("w", "s", { ...item, editToken: token });
+  expect(state.paused).toBe(false); expect(state.entries[0].edit).toBeUndefined();
+  const nextToken = crypto.randomUUID();
+  await queue.act("w", "s", { type: "edit", id: item.id, token: nextToken, revision: state.revision });
+  const clock = spyOn(Date, "now").mockReturnValue(Date.now() + 121_000);
+  try { await queue.tick(); } finally { clock.mockRestore(); }
+  state = await queue.read("w", "s");
+  expect(state.paused).toBe(false); expect(state.entries[0].edit).toBeUndefined();
+  state = await queue.act("w", "s", { type: "pause", paused: true });
+  await queue.act("w", "s", { type: "edit", id: item.id, token: nextToken, revision: state.revision });
+  state = await queue.act("w", "s", { type: "release", id: item.id, token: nextToken });
+  expect(state.paused).toBe(true);
+});
+
+test("a plain message resumes Stop even before the aborted response returns", async () => {
+  let release = () => {};
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let sends = 0;
+  const { queue } = await setup({ idle: async () => true, send: async () => { sends++; if (sends === 1) { await pending; return { pause: true, reason: "stop" }; } } });
+  await queue.act("w", "s", message());
+  await until(async () => sends === 1);
+  await queue.act("w", "s", { type: "pause", paused: true, reason: "stop" });
+  await queue.act("w", "s", message("continue"));
+  expect((await queue.read("w", "s")).paused).toBe(false);
+  release();
+  await until(async () => { await queue.tick(); return (await queue.read("w", "s")).entries.length === 0; });
+  expect(sends).toBe(2);
+  await queue.act("w", "s", { type: "pause", paused: true });
+  await queue.act("w", "s", message("manual pause stays"));
+  expect((await queue.read("w", "s")).paused).toBe(true);
+});
+
+test("definite preparation failures remain retryable and conditional reads skip unchanged payloads", async () => {
+  let fail = true;
+  const { queue } = await setup({ idle: async () => true, send: async () => { if (fail) throw new QueuePreparationError("Could not restore the chat"); } });
+  await queue.act("w", "s", message());
+  await until(async () => (await queue.read("w", "s")).paused);
+  const state = await queue.read("w", "s");
+  expect(state.entries[0].status).toBe("failed");
+  expect(await queue.readIfChanged("w", "s", String(state.revision))).toBeNull();
+  fail = false;
+  await queue.act("w", "s", { type: "pause", paused: false });
+  await until(async () => (await queue.read("w", "s")).entries.length === 0);
 });
 
 test("waiting messages can be reordered during delivery without moving or resending the running prompt", async () => {

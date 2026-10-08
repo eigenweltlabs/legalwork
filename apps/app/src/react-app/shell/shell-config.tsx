@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { createContext, useCallback, use, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, use, useEffect, useMemo, useState, type ReactNode } from "react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -15,6 +15,7 @@ const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "se
 const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
+  newWindowBehavior: "ask" | "empty" | "copy";
   navHome: boolean;
   navCalendar: boolean;
   navScheduled: boolean;
@@ -72,6 +73,7 @@ export type ShellConfig = {
 /* ------------------------------------------------------------------ */
 
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
+  newWindowBehavior: "ask",
   navOrder: DEFAULT_NAV_ORDER,
   navHome: true,
   navCalendar: true,
@@ -149,6 +151,7 @@ function readShellConfig(): ShellConfig {
     }
     return {
       ...next,
+      newWindowBehavior: next.newWindowBehavior === "empty" || next.newWindowBehavior === "copy" ? next.newWindowBehavior : "ask",
       navOrder,
       chatSectionOrder,
       projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
@@ -187,6 +190,11 @@ const ShellConfigContext = createContext<ShellConfigContextValue | undefined>(un
 
 export function ShellConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<ShellConfig>(readShellConfig);
+  useEffect(() => {
+    const changed = (event: StorageEvent) => { if (event.key === STORAGE_KEY) setConfig(readShellConfig()); };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, []);
 
   const update = useCallback((patch: Partial<ShellConfig>) => {
     setConfig((prev) => {

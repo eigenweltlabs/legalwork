@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { useDocumentControlSessions } from "./document-control-sessions";
 import {
   createContext,
   useCallback,
@@ -46,13 +47,14 @@ export type LegalworkControlSnapshot = {
   actions: LegalworkControlActionMetadata[];
 };
 
-export type LegalworkOpenFile = { id: string; sessionId: string; name: string; path: string; active: boolean; workspaceId?: string; projectId?: string };
+export type LegalworkOpenFile = { id: string; sessionId: string; sessionIds?: readonly string[]; name: string; path: string; active: boolean; workspaceId?: string; projectId?: string };
 
 export type LegalworkControlSurface = {
   id: string;
   kind: "document";
   format: "docx" | "xlsx" | "pptx" | "md";
   sessionId: string;
+  sessionIds?: readonly string[];
   workspaceId: string;
   name: string;
   path: string;
@@ -461,11 +463,12 @@ export function useControlSurface(surface: LegalworkControlSurface | null | fals
   const control = useLegalworkControl();
   const active = use(ControlActionScopeContext);
   const registerSurface = active ? control?.registerSurface : undefined;
+  const sessionIds = useDocumentControlSessions(surface ? surface.sessionId : "");
 
   useEffect(() => {
     if (!registerSurface || !surface) return undefined;
-    return registerSurface(surface);
-  }, [registerSurface, surface]);
+    return registerSurface({ ...surface, sessionIds });
+  }, [registerSurface, surface, sessionIds]);
 }
 
 /**
@@ -641,5 +644,6 @@ export function LegalworkRouteControlActions() {
 export function useControlOpenFiles(files: LegalworkOpenFile[]) {
   const control = use(LegalworkControlContext);
   const register = control?.registerOpenFiles;
-  useEffect(() => register?.(files), [register, files]);
+  const sessionIds = useDocumentControlSessions(files[0]?.sessionId ?? "");
+  useEffect(() => register?.(files.map(file => ({ ...file, sessionIds }))), [register, files, sessionIds]);
 }

@@ -1,4 +1,4 @@
-import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "@legalwork/types/project-files";
+import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
 import { importProjectFile, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -9,7 +9,7 @@ import { recordAudit } from "../audit.js";
 import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
-import { canonicalFilePath, withFileWriteLock } from "../file-write-lock.js";
+import { canonicalFilePath, withFileWriteLock, withFileWriteLocks } from "../file-write-lock.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { mergeableText, mergeText } from "../text-merge.js";
@@ -930,46 +930,48 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     for (const entry of plan) {
       try {
-        const before = (await exists(entry.absPath)) ? await stat(entry.absPath) : null;
-        const currentRevision = before ? fileRevision(before) : null;
-        if (!entry.force && entry.ifMatchRevision && currentRevision !== entry.ifMatchRevision) {
-          items.push({
-            ok: false,
-            path: entry.path,
-            code: "conflict",
-            message: "File changed before write could be applied",
-            expectedRevision: entry.ifMatchRevision,
-            currentRevision,
+        await withFileWriteLock(entry.absPath, async () => {
+          const before = (await exists(entry.absPath)) ? await stat(entry.absPath) : null;
+          const currentRevision = before ? fileRevision(before) : null;
+          if (!entry.force && entry.ifMatchRevision && currentRevision !== entry.ifMatchRevision) {
+            items.push({
+              ok: false,
+              path: entry.path,
+              code: "conflict",
+              message: "File changed before write could be applied",
+              expectedRevision: entry.ifMatchRevision,
+              currentRevision,
+            });
+            return;
+          }
+
+          await ensureDir(dirname(entry.absPath));
+          const tmp = `${entry.absPath}.tmp-${shortId()}`;
+          await writeFile(tmp, entry.bytes);
+          await rename(tmp, entry.absPath);
+          const after = await stat(entry.absPath);
+          const revision = fileRevision(after);
+
+          recordWorkspaceFileEvent(workspace.id, { type: "write", path: entry.path, revision });
+
+          await recordAudit(workspace.path, {
+            id: shortId(),
+            workspaceId: workspace.id,
+            actor: ctx.actor ?? { type: "remote" },
+            action: "workspace.files.session.write",
+            target: entry.absPath,
+            summary: `Wrote ${entry.path} via file session`,
+            timestamp: Date.now(),
           });
-          continue;
-        }
 
-        await ensureDir(dirname(entry.absPath));
-        const tmp = `${entry.absPath}.tmp-${shortId()}`;
-        await writeFile(tmp, entry.bytes);
-        await rename(tmp, entry.absPath);
-        const after = await stat(entry.absPath);
-        const revision = fileRevision(after);
-
-        recordWorkspaceFileEvent(workspace.id, { type: "write", path: entry.path, revision });
-
-        await recordAudit(workspace.path, {
-          id: shortId(),
-          workspaceId: workspace.id,
-          actor: ctx.actor ?? { type: "remote" },
-          action: "workspace.files.session.write",
-          target: entry.absPath,
-          summary: `Wrote ${entry.path} via file session`,
-          timestamp: Date.now(),
-        });
-
-        items.push({
-          ok: true,
-          path: entry.path,
-          bytes: entry.bytes.byteLength,
-          updatedAt: after.mtimeMs,
-          revision,
-          previousRevision: entry.beforeRevision,
+          items.push({
+            ok: true,
+            path: entry.path,
+            bytes: entry.bytes.byteLength,
+            updatedAt: after.mtimeMs,
+            revision,
+            previousRevision: entry.beforeRevision,
+          });
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to write file";
@@ -1039,13 +1041,15 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         if (type === "delete") {
           const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
           const absPath = resolveSafeChildPath(workspace.path, path);
-          if (!(await exists(absPath))) {
-            items.push({ ok: false, type, path, code: "file_not_found", message: "Path not found" });
-            continue;
-          }
-          await rm(absPath, { recursive: op.recursive === true, force: false });
-          recordWorkspaceFileEvent(workspace.id, { type: "delete", path });
-          items.push({ ok: true, type, path });
+          await withFileWriteLock(absPath, async () => {
+            if (!(await exists(absPath))) {
+              items.push({ ok: false, type, path, code: "file_not_found", message: "Path not found" });
+              return;
+            }
+            await rm(absPath, { recursive: op.recursive === true, force: false });
+            recordWorkspaceFileEvent(workspace.id, { type: "delete", path });
+            items.push({ ok: true, type, path });
+          });
           continue;
         }
 
@@ -1054,18 +1058,20 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
           const to = normalizeWorkspaceRelativePath(String(op.to ?? ""), { allowSubdirs: true });
           const fromAbs = resolveSafeChildPath(workspace.path, from);
           const toAbs = resolveSafeChildPath(workspace.path, to);
-          if (!(await exists(fromAbs))) {
-            items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
-            continue;
-          }
-          if (op.overwrite === false && from !== to && await exists(toAbs)) {
-            items.push({ ok: false, type, from, to, code: "file_exists", message: "An item with this name already exists" });
-            continue;
-          }
-          await ensureDir(dirname(toAbs));
-          await rename(fromAbs, toAbs);
-          recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
-          items.push({ ok: true, type, from, to });
+          await withFileWriteLocks([fromAbs, toAbs], async () => {
+            if (!(await exists(fromAbs))) {
+              items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
+              return;
+            }
+            if (op.overwrite === false && from !== to && await exists(toAbs)) {
+              items.push({ ok: false, type, from, to, code: "file_exists", message: "An item with this name already exists" });
+              return;
+            }
+            await ensureDir(dirname(toAbs));
+            await rename(fromAbs, toAbs);
+            recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
+            items.push({ ok: true, type, from, to });
+          });
           continue;
         }
 

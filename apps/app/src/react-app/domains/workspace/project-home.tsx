@@ -43,6 +43,7 @@ export function ProjectHome(props: {
   onBeforeDeleteNote: (entry: LegalworkWorkspaceDirectoryEntry) => boolean;
   onNewSession: (shareRecording: boolean) => void | Promise<void>;
   tasksView: ReactNode;
+  onViewAllDeadlines?: () => void;
   onRename?: (name: string) => Promise<boolean>;
 }) {
   const { client, workspaceId } = props;
@@ -197,7 +198,7 @@ export function ProjectHome(props: {
 
         <div className="grid grid-cols-1 items-stretch gap-4 @min-[640px]/project-page:grid-cols-2">
           <div className="min-w-0">{props.tasksView}</div>
-          <UpcomingDeadlines client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />
+          <UpcomingDeadlines onViewAll={props.onViewAllDeadlines} client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />
         </div>
 
         <ContextMenu>

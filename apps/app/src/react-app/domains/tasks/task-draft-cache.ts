@@ -48,7 +48,8 @@ export function getTaskDraft(scope: string, workspaceId: string, task: TaskText)
   const existing = state.entries.get(task.id);
   if (existing) return existing.draft;
   const draft = createTaskDraft(task);
-  const unregister = registerUnsavedDocument(artifactDocumentKey(workspaceId, scope, `task:${task.id}`), task.title, draft.isDirty, draft.discard);
+  // These drafts survive navigation; unrelated panel guards must not discard them.
+  const unregister = registerUnsavedDocument(artifactDocumentKey(workspaceId, scope, `task:${task.id}`), task.title, draft.isDirty, draft.discard, true, { scopedOnly: true });
   const unsubscribe = draft.subscribe(() => pruneLater(scope));
   state.entries.set(task.id, { draft, dispose: () => { unsubscribe(); unregister(); } });
   return draft;

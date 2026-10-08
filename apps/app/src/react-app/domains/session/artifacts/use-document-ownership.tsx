@@ -74,6 +74,8 @@ export function useDocumentOwnership(options: Options) {
   const status = options.enabled ? identity.isError || (identity.isSuccess && !key) ? "unavailable" : access : "owner";
   return {
     status,
+    requiresServerUpdate: options.enabled && identity.isSuccess && identity.data.exists && identity.data.kind === "file" && !identity.data.fileId,
+    retry: () => { void identity.refetch(); },
     confirmHandoff, choose,
     key,
     editable: status === "owner",
@@ -97,7 +99,8 @@ export function DocumentAccessBanner({ access }: { access: ReturnType<typeof use
       <Button variant="ghost" onClick={() => access.choose("cancel")}>{t("common.cancel")}</Button>
     </div>
   </DialogContent></Dialog><div role="status" data-document-access={access.status} className="flex shrink-0 items-center gap-2 border-b border-border bg-muted px-3 py-2 text-xs">
-    <span className="min-w-0 flex-1">{t(access.status === "offering" ? "document_access.awaiting_choice" : access.status === "releasing" ? "document_access.releasing" : access.status === "requesting" ? "document_access.requesting" : access.status === "checking" ? "document_access.checking" : access.status === "unavailable" ? "document_access.unavailable" : "document_access.read_only")}</span>
+    <span className="min-w-0 flex-1">{t(access.requiresServerUpdate ? "document_access.update_server" : access.status === "offering" ? "document_access.awaiting_choice" : access.status === "releasing" ? "document_access.releasing" : access.status === "requesting" ? "document_access.requesting" : access.status === "checking" ? "document_access.checking" : access.status === "unavailable" ? "document_access.unavailable" : "document_access.read_only")}</span>
+    {access.status === "unavailable" && <Button size="sm" variant="outline" onClick={access.retry}>{t("workspace_files.try_again")}</Button>}
     {access.status === "reader" && <Button size="sm" variant="outline" onClick={access.request}>{t("document_access.edit_here")}</Button>}
   </div></>;
 }

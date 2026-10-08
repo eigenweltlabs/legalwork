@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createJSONStorage } from "zustand/middleware";
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
-import { registerUnsavedDocument } from "../src/react-app/domains/session/artifacts/docx-document-state";
+import { registerUnsavedDocument, getDocumentDiscardPrompt, resolveDocumentDiscardPrompt } from "../src/react-app/domains/session/artifacts/docx-document-state";
 import { storageFileTab } from "../src/react-app/domains/session/panel/storage-file-tab";
 
 const storage = new Map<string, string>();
@@ -18,7 +18,8 @@ Object.defineProperty(globalThis, "localStorage", {
     },
   },
 });
-const { usePanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+const { createPanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+const usePanelTabStore = createPanelTabStore();
 if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
 else Reflect.deleteProperty(globalThis, "localStorage");
 usePanelTabStore.persist.setOptions({
@@ -116,10 +117,7 @@ describe("connected storage document tabs", () => {
     const store = usePanelTabStore.getState();
     store.openTab("session", other);
     store.openTab("session", tab);
-    let allow = false;
     let discarded = false;
-    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-    Object.defineProperty(globalThis, "window", { configurable: true, value: { confirm: () => allow } });
     const unregister = registerUnsavedDocument(
       tab.id,
       file.name,
@@ -130,18 +128,20 @@ describe("connected storage document tabs", () => {
     );
     try {
       store.selectTab("session", other.id);
+      expect(getDocumentDiscardPrompt()?.names).toEqual([file.name]);
+      resolveDocumentDiscardPrompt(false);
       expect(usePanelTabStore.getState().sessions.session.activeTabId).toBe(tab.id);
       store.closeTab("session", tab.id);
+      resolveDocumentDiscardPrompt(false);
       expect(usePanelTabStore.getState().sessions.session.tabs).toHaveLength(2);
       expect(discarded).toBe(false);
-      allow = true;
       store.closeTab("session", tab.id);
+      resolveDocumentDiscardPrompt(true);
       expect(usePanelTabStore.getState().sessions.session.activeTabId).toBe(other.id);
       expect(discarded).toBe(true);
     } finally {
       unregister();
-      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
-      else Reflect.deleteProperty(globalThis, "window");
+      resolveDocumentDiscardPrompt(false);
     }
   });
 });

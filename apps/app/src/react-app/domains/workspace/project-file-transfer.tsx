@@ -5,6 +5,8 @@ import { Check, Copy, Link2, Loader2 } from "lucide-react";
 import { canTransferProjectFiles, hasProjectFileDrag, projectFileDragOriginatesHere, readProjectFilesDrag } from "@/app/lib/project-file-drag";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -21,7 +23,7 @@ export function ProjectFileDropTarget({ projectId, folder = "", mode = "files", 
   const ready = accepts({ types: files?.dragTypes ?? [] });
   const label = t(mode === "chat" ? "project_files.drop_chat_in" : "project_files.drop_transfer_to", { project: project?.name ?? projectId });
   const destination = (event: DragEvent) => event.target instanceof Element ? event.target.closest<HTMLElement>("[data-project-folder]")?.dataset.projectFolder ?? folder : folder;
-  return <div className={`relative ${hint && ready ? "rounded-md outline outline-1 outline-dashed outline-primary/50" : ""} ${className}`} data-project-file-drop={projectId} title={hint && ready ? label : undefined}
+  return <div className={`relative ${hint && ready ? "rounded-md outline outline-1 outline-dashed outline-primary/50" : ""} ${className}`} data-workspace-file-intake={mode === "files" ? `project:${projectId}` : undefined} data-project-file-drop={projectId} title={hint && ready ? label : undefined}
     onDragEnter={event => { if (accepts(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); setOver(true); } }}
     onDragOver={event => { if (!accepts(event.dataTransfer)) { setOver(false); return; } event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; setOver(true); }}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setOver(false); }}
@@ -44,6 +46,7 @@ export function ProjectFileTransfer({ projectId, sources, folder, initialMode = 
   const files = useProjectFiles();
   const queryClient = useQueryClient();
   const [destinationId, setDestinationId] = useState(projectId ?? "");
+  const destinations = files?.projects.filter(project => !sources.some(source => source.projectId === project.projectId)) ?? [];
   const [mode, setMode] = useState(initialMode);
   const [items, setItems] = useState(() => fileTransferItems(sources));
   const [busy, setBusy] = useState(false);
@@ -82,12 +85,14 @@ export function ProjectFileTransfer({ projectId, sources, folder, initialMode = 
     <DialogHeader><DialogTitle>{target ? t("project_files.add_title", { project: target.name }) : t("project_files.choose_project")}</DialogTitle><DialogDescription>{t("project_files.transfer_description", { count: items.length })}</DialogDescription></DialogHeader>
     {!projectId && <Select value={destinationId || null} disabled={locked} onValueChange={value => { setDestinationId(value ?? ""); setItems(items => items.map(item => ({ ...item, error: "" }))); }}>
       <SelectTrigger className="w-full" aria-label={t("project_files.choose_project")}><SelectValue placeholder={t("project_files.choose_project")}>{target?.name}</SelectValue></SelectTrigger>
-      <SelectContent>{files?.projects.map(project => <SelectItem key={project.projectId} value={project.projectId}>{project.name}</SelectItem>)}</SelectContent>
+      <SelectContent>{destinations.map(project => <SelectItem key={project.projectId} value={project.projectId}>{project.name}</SelectItem>)}</SelectContent>
     </Select>}
-    <div className="grid gap-2" role="group" aria-label={t("project_files.add_method")}>
-      <Button disabled={locked} variant={mode === "copy" ? "secondary" : "outline"} className="h-auto justify-start gap-3 whitespace-normal py-3 text-left" aria-pressed={mode === "copy"} onClick={() => setMode("copy")}><Copy className="size-4 shrink-0" /><span><span className="block">{t("project_files.copy")}</span><span className="block text-xs font-normal text-muted-foreground">{t("project_files.copy_hint")}</span></span></Button>
-      <Button disabled={locked} variant={mode === "link" ? "secondary" : "outline"} className="h-auto justify-start gap-3 whitespace-normal py-3 text-left" aria-pressed={mode === "link"} onClick={() => setMode("link")}><Link2 className="size-4 shrink-0" /><span><span className="block">{t("project_files.link")}</span><span className="block text-xs font-normal text-muted-foreground">{t("project_files.link_hint")}</span></span></Button>
-    </div>
+    <RadioGroup disabled={locked} value={mode} onValueChange={value => { if (value === "copy" || value === "link") setMode(value); }} className="gap-2 rounded-xl bg-muted/40 p-2" aria-label={t("project_files.add_method")}>
+      {(["copy", "link"] satisfies Array<typeof mode>).map(value => <label key={value} className={cn("flex items-center gap-3 rounded-lg border border-transparent px-3 py-3 text-sm transition-colors", locked ? "opacity-60" : "cursor-pointer hover:bg-background/60", mode === value && "border-border bg-background shadow-sm hover:bg-background")}>
+        <RadioGroupItem value={value} />{value === "copy" ? <Copy className="size-4 shrink-0" /> : <Link2 className="size-4 shrink-0" />}
+        <span><span className="block font-medium">{t(value === "copy" ? "project_files.copy" : "project_files.link")}</span><span className="block text-xs text-muted-foreground">{t(value === "copy" ? "project_files.copy_hint" : "project_files.link_hint")}</span></span>
+      </label>)}
+    </RadioGroup>
     <div className="min-h-0 max-h-64 flex-1 space-y-3 overflow-auto pr-1">{items.map((item, index) => <div key={index} className="space-y-1">
       <label className="block space-y-1 text-sm"><span className="flex items-center gap-2"><span className="truncate">{item.source.name}</span>{item.done && <Check className="size-4 shrink-0 text-emerald-600" aria-label={t("project_files.transfer_done")} />}</span>
         <Input disabled={busy || item.done} value={item.name} aria-label={t("project_files.destination_name", { name: item.source.name })} onChange={event => setItems(current => current.map((entry, position) => position === index ? { ...entry, name: event.target.value, error: "" } : entry))} />

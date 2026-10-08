@@ -449,7 +449,8 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
             <Button
               key={preset}
               type="button"
-              variant={value === String(preset) ? "secondary" : "outline"}
+              variant="choice"
+              aria-pressed={value === String(preset)}
               className="flex-1"
               onClick={() => {
                 setValue(String(preset));

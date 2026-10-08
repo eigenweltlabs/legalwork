@@ -689,8 +689,8 @@ process.on("unhandledRejection", (reason) => {
 
 const browserPanel = createBrowserPanel({
   app, WebContentsView, clipboard, session,
-  resolveDownloadDirectory: async (context) => resolveBrowserProject(
-    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(),
+  resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
+    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
   ),
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,

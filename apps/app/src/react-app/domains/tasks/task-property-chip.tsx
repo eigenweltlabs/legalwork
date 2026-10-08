@@ -91,7 +91,7 @@ export function DueDateChip(props: { value: string | null; disabled: boolean; on
       className={cn(
         "inline-flex h-8 min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-background ps-2.5 pe-1 text-xs font-medium shadow-xs",
         tone === "overdue" && "text-red-9",
-        tone === "today" && "text-amber-9",
+        tone === "today" && "text-amber-11",
       )}
     >
       <label htmlFor={id} className="sr-only">
@@ -122,4 +122,3 @@ export function DueDateChip(props: { value: string | null; disabled: boolean; on
     </span>
   );
 }
-

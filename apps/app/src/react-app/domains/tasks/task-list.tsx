@@ -451,7 +451,7 @@ function TaskRow(props: {
                   className={cn(
                     "inline-flex items-center gap-1 tabular-nums",
                     dueTone === "overdue" && "font-medium text-red-9",
-                    dueTone === "today" && "font-medium text-amber-9",
+                    dueTone === "today" && "font-medium text-amber-11",
                   )}
                   title={t("tasks.due_label", { date: formatTaskDueDate(task.dueDate) })}
                 >

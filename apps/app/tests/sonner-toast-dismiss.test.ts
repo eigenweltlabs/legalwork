@@ -12,6 +12,14 @@ if (typeof globalThis.requestAnimationFrame === "undefined") {
 }
 
 describe("sonner toast wrapper", () => {
+  test("app errors target only the app host, excluding embedded editors' default hosts", () => {
+    const id = toast.error("Cannot move the open file");
+    const entry = sonnerToast.getToasts().find(entry => entry.id === id);
+    expect(entry?.toasterId).toBe("legalwork-app");
+    // Sonner default hosts render only notifications without a toasterId.
+    expect(sonnerToast.getToasts().filter(entry => entry.id === id && !entry.toasterId)).toHaveLength(0);
+    sonnerToast.dismiss(id);
+  });
   test("the stored toast carries the id the wrapper returns (X button can dismiss it)", () => {
     // Regression: passing a literal `id: undefined` through to sonner's
     // custom() clobbered the generated id (`{jsx: jsx(id), id, ...data}`), so

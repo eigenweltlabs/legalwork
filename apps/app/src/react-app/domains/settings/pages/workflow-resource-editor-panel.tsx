@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Download, Loader2, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
 import { ArtifactFrame } from "../../session/artifacts/artifact-frame";
 import { ArtifactIcon } from "../../session/artifacts/artifact-icon";
@@ -29,6 +30,7 @@ export function WorkflowResourceEditorPanel({ id, onClose }: { id: string; onClo
   const officeApi = useRef<OfficeEditorApi | null>(null);
   const sheetApi = useRef<SpreadsheetEditorApi | null>(null);
   const [serializing, setSerializing] = useState(false);
+  const [confirmReload, setConfirmReload] = useState(false);
   const onDirtyChange = useCallback((documentDirty: boolean) => editWorkflowResource(id, { documentDirty }), [id]);
   const saveContent = useCallback(async (payload: Data) => {
     editWorkflowResource(id, { content: payload.kind === "binary" ? resourceBase64(payload.data) : payload.data });
@@ -74,7 +76,7 @@ export function WorkflowResourceEditorPanel({ id, onClose }: { id: string; onClo
       actions={<>
         {editable ? <Button size="sm" disabled={disabled || !dirty} onClick={() => void save()}>{busy ? <Loader2 className="animate-spin" /> : null}{t("common.save")}</Button> : <Button variant="ghost" size="icon-sm" aria-label={t("artifact.download")} disabled={!draft.loaded} onClick={download}><Download /></Button>}
         <Button variant="ghost" size="icon-sm" aria-label={t("workflows.reload")} disabled={!available || busy || draft.loading} onClick={() => {
-          if (dirty && !window.confirm(t("workflows.discard_file_changes"))) return;
+          if (dirty) { setConfirmReload(true); return; }
           void reloadWorkflowResource(id);
         }}><RefreshCw /></Button>
         <Button variant="ghost" size="icon-sm" aria-label={t("artifact.close")} disabled={busy} onClick={onClose}><X /></Button>
@@ -90,6 +92,9 @@ export function WorkflowResourceEditorPanel({ id, onClose }: { id: string; onClo
         </OfficeEditorBoundary>}
       </div>
     </ArtifactFrame>
+    <ConfirmModal open={confirmReload} variant="danger" title={t("document_discard.title")} message={t("workflows.discard_file_changes")}
+      confirmLabel={t("document_discard.confirm")} cancelLabel={t("common.cancel")}
+      onCancel={() => setConfirmReload(false)} onConfirm={() => { setConfirmReload(false); if (available && !busy) void reloadWorkflowResource(id); }} />
   </div>;
 }
 

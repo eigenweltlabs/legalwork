@@ -1,5 +1,5 @@
 import { queueActionSchema, queuedPromptPayload } from "../session-queue-schema.js";
-import { registerMessageQueue } from "../session-message-queue.js";
+import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
@@ -74,21 +74,29 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     },
     send: async (workspaceId, sessionID, entry) => {
       ensureWritable(config);
-      const workspace = await resolveWorkspace(config, workspaceId);
-      const client = createWorkspaceOpencodeClient(config, workspace);
+      const client = await (async () => {
+        try {
+          const workspace = await resolveWorkspace(config, workspaceId);
+          const client = createWorkspaceOpencodeClient(config, workspace);
+          unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
+          return client;
+        } catch (error) {
+          throw new QueuePreparationError(error instanceof Error ? error.message : "Could not prepare message delivery.");
+        }
+      })();
       const execution = entry.execution;
-      unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
       if (execution.kind === "prompt") {
         const result = unwrapOpencodeResult(await client.session.prompt({ sessionID, messageID: `msg_${entry.id.replaceAll("-", "")}`, ...queuedPromptPayload(execution) }), "session/prompt");
-        if (result.info.error) throw new Error(JSON.stringify(result.info.error));
+        // A terminal assistant result confirms delivery, including Stop/model errors.
+        // Pause follow-ups, but never offer to resend the already accepted prompt.
+        return { pause: Boolean(result.info.error), reason: result.info.error?.name === "MessageAbortedError" ? "stop" : "error" };
       } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, ...execution }), "session/command");
       else unwrapOpencodeResult(await client.session.shell({ sessionID, command: execution.command }), "session/shell");
     },
   });
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const queue = await messageQueue.read(workspace.id, ctx.params.sessionId);
-    return jsonResponse(new URL(ctx.request.url).searchParams.get("revision") === String(queue.revision) ? null : queue);
+    return jsonResponse(await messageQueue.readIfChanged(workspace.id, ctx.params.sessionId, new URL(ctx.request.url).searchParams.get("revision")));
   });
   addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
     ensureWritable(config); requireClientScope(ctx, "collaborator");
