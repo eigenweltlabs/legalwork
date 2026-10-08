@@ -3,6 +3,7 @@ import { createJSONStorage } from "zustand/middleware";
 import { artifactDocumentKey, registerUnsavedDocument, getDocumentDiscardPrompt, resolveDocumentDiscardPrompt } from "../src/react-app/domains/session/artifacts/docx-document-state";
 import { layoutLeaves, MAX_DOCUMENT_PANES, type DocumentDropEdge, type DocumentLayoutNode } from "../src/react-app/domains/session/panel/document-layout";
 import type { ArtifactPanelTab, BrowserPanelTab } from "../src/react-app/domains/session/panel/panel-tab-store";
+import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
 const storage = new Map<string, string>();
 const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -19,6 +20,7 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 const { createPanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+const { openTaskProject } = await import("../src/react-app/domains/tasks/task-project-navigation");
 const usePanelTabStore = createPanelTabStore();
 if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
 else Reflect.deleteProperty(globalThis, "localStorage");
@@ -95,6 +97,65 @@ function refuseDirty(name: string) {
 }
 
 beforeEach(() => { usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {}, opening: {} }); storage.clear(); });
+
+describe("open task in project", () => {
+  const project = (id: string): RouteWorkspace => ({
+    id, name: id, displayNameResolved: id, path: `/projects/${id}`, preset: "", workspaceType: "local",
+  });
+  const localServer = { baseUrl: "http://localhost:8787", token: "test" };
+  const openTask = (projectId: string, workspaces = [project("first"), project("second")], sourceBaseUrl = localServer.baseUrl) => openTaskProject({
+    projectId, task: { id: "todo", title: "Review agreement" }, workspaces, sourceBaseUrl, localServer, panels: store(),
+  });
+
+  test("opens and selects the task in its project without changing another workspace", () => {
+    store().openTab("workspace:first", document("other.docx"));
+    store().openTab("workspace:second", document("retained.docx"));
+    const other = store().sessions["workspace:first"];
+    expect(openTask("second")).toBe("/workspace/second/session?view=workspace");
+    expect(store().sessions["workspace:first"]).toBe(other);
+    const target = store().sessions["workspace:second"];
+    expect(target.tabs.map(tab => tab.id)).toEqual(["file:retained.docx", "task:todo"]);
+    expect(target.panes.find(pane => pane.id === target.focusedPaneId)?.activeTabId).toBe("task:todo");
+  });
+
+  test("legacy layout restoration cannot hide the task after navigation", () => {
+    store().openTab("project:second", document("legacy.docx"));
+    expect(openTask("second")).not.toBeNull();
+    // SessionPage also migrates when the destination mounts.
+    store().migrateWorkspace("second");
+    const target = store().sessions["workspace:second"];
+    expect(target.tabs.map(tab => tab.id)).toEqual(["file:legacy.docx", "task:todo"]);
+    expect(target.panes.find(pane => pane.id === target.focusedPaneId)?.activeTabId).toBe("task:todo");
+  });
+
+  test("reopening a task selects its existing tab without duplicating it", () => {
+    openTask("second");
+    store().openTab("workspace:second", document("next.docx"));
+    openTask("second");
+    const target = store().sessions["workspace:second"];
+    expect(target.tabs.filter(tab => tab.type === "task")).toHaveLength(1);
+    expect(target.panes.find(pane => pane.id === target.focusedPaneId)?.activeTabId).toBe("task:todo");
+  });
+
+  test("missing projects leave the current workspace intact and return no navigation", () => {
+    store().openTab("workspace:first", document("other.docx"));
+    const before = store().sessions;
+    expect(openTask("removed")).toBeNull();
+    expect(store().sessions).toBe(before);
+  });
+
+  test("remote tasks use the route ID of the correct server, not a same-named local project", () => {
+    const remote: RouteWorkspace = { ...project("rem_second"), workspaceType: "remote", legalworkWorkspaceId: "second", baseUrl: "https://worker.example/", legalworkToken: "test" };
+    expect(openTask("second", [project("second"), remote], "https://worker.example")).toBe("/workspace/rem_second/session?view=workspace");
+    expect(store().sessions["workspace:second"]).toBeUndefined();
+    expect(store().sessions["workspace:rem_second"].tabs[0].id).toBe("task:todo");
+  });
+
+  test("a project on a different server cannot receive the task", () => {
+    expect(openTask("second", [project("second")], "https://worker.example")).toBeNull();
+    expect(store().sessions).toEqual({});
+  });
+});
 
 describe("free document splits", () => {
   for (const edge of ["left", "right", "top", "bottom"] satisfies DocumentDropEdge[]) {

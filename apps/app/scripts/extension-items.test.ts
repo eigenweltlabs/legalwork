@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { buildExtensionItems } from "../src/react-app/domains/settings/extension-items";
 
-describe("extension item grouping", () => {
-  test("groups imported cloud plugin resources and suppresses child skill rows", () => {
+describe("installed extension items", () => {
+  test("keeps installed skills discoverable with their original nested resource paths", () => {
     const result = buildExtensionItems({
       quickConnect: [],
+      platform: "darwin",
       mcpServers: [],
       installedSkills: [
         {
@@ -13,38 +14,21 @@ describe("extension item grouping", () => {
           path: "/workspace/project/.opencode/skills/creative-brief-plugin/brief-builder/SKILL.md",
         },
       ],
-      importedCloudPlugins: {
-        plugin_1: {
-          pluginId: "plugin_1",
-          marketplaceId: "marketplace_1",
-          name: "Creative Brief Plugin",
-          description: "Brief writing workflow",
-          updatedAt: "2026-06-02T00:00:00.000Z",
-          importedAt: 1,
-          files: [
-            {
-              configObjectId: "config_skill_1",
-              versionId: "version_skill_1",
-              objectType: "skill",
-              title: "Brief Builder",
-              path: ".opencode/skills/creative-brief-plugin/brief-builder/SKILL.md",
-              updatedAt: "2026-06-02T00:00:00.000Z",
-            },
-          ],
-        },
-      },
-      cloudMarketplaces: [],
       enablementContext: {},
       isBuiltInConnected: () => false,
     });
 
-    expect(result.items.map((item) => item.id)).toEqual(["marketplace:installed:plugin_1"]);
+    expect(result.items.map((item) => item.id)).toEqual(["skill:brief-builder"]);
+    expect(result.items[0]).toMatchObject({
+      source: "skill", installState: "installed", setupState: "ready", active: true,
+    });
+    expect(result.installedSkills).toEqual([result.items[0]?.skill]);
     expect(result.items[0]?.resources).toEqual([
       {
-        id: "config_skill_1",
+        id: "brief-builder",
         type: "skill",
-        title: "Brief Builder",
-        path: ".opencode/skills/creative-brief-plugin/brief-builder/SKILL.md",
+        title: "brief-builder",
+        path: "/workspace/project/.opencode/skills/creative-brief-plugin/brief-builder/SKILL.md",
       },
     ]);
   });

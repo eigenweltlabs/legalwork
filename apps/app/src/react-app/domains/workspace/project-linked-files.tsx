@@ -11,11 +11,12 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { FileEntryActions } from "../session/panel/file-entry-actions";
 import { useFilePins, changePinnedPaths } from "../session/panel/file-pins";
-import { requestPanelTab } from "../session/panel/panel-tab-request";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { projectFileTab } from "./project-file-tab";
 import { useProjectFiles } from "./project-file-context";
 
 export function ProjectLinkedFiles({ client, workspaceId, projectId, folder, query, active }: { client: LegalworkServerClient; workspaceId: string; projectId: string; folder: string; query: string; active: boolean }) {
+  const requestPanelTab = useRequestPanelTab({ kind: "workspace", workspaceId: projectId });
   const access = useProjectFiles();
   const cache = useQueryClient();
   const pins = useFilePins();
@@ -42,10 +43,10 @@ export function ProjectLinkedFiles({ client, workspaceId, projectId, folder, que
   if (!visible.length) return null;
   return <section className="mb-3 border-b border-border/60 pb-3" aria-label={t("project_files.linked_files")}>
     <h3 className="px-2 py-2 text-xs font-medium text-muted-foreground">{t("project_files.linked_files")}</h3>
-    {visible.map(link => <FileEntryActions key={link.id} name={link.name} source={link.source} onOpen={() => requestPanelTab(projectFileTab(link.source), { kind: "workspace", workspaceId: projectId })} pin={{ workspaceId, source: "project-link", path: link.id, name: link.name }} actions={[
+    {visible.map(link => <FileEntryActions key={link.id} name={link.name} source={link.source} onOpen={() => requestPanelTab(projectFileTab(link.source))} pin={{ workspaceId, source: "project-link", path: link.id, name: link.name }} actions={[
       { label: t("project_files.rename_link"), icon: <Pencil />, onClick: () => { setName(link.name); setRenaming(link); setError(""); } },
       { label: t("project_files.remove_link"), icon: <Unlink />, onClick: () => void remove(link) },
-    ]}><button className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-muted/50" draggable onDragStart={event => writeProjectFileDrag(event.dataTransfer, link.source, projectId)} onClick={() => requestPanelTab(projectFileTab(link.source), { kind: "workspace", workspaceId: projectId })} title={link.source.path}>
+    ]}><button className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-muted/50" draggable onDragStart={event => writeProjectFileDrag(event.dataTransfer, link.source, projectId)} onClick={() => requestPanelTab(projectFileTab(link.source))} title={link.source.path}>
       <Link2 className="size-4 shrink-0 text-primary" /><span className="min-w-0"><span className="block truncate text-[13px]">{link.name}</span><span className="block truncate text-[11px] text-muted-foreground">{t("project_files.origin", { project: access?.projects.find(p => p.projectId === link.source.projectId)?.name ?? link.source.projectId })}</span></span>
     </button></FileEntryActions>)}
     <Dialog open={Boolean(renaming)} onOpenChange={open => { if (!open && !busy) setRenaming(null); }}><DialogContent><DialogTitle>{t("project_files.rename_link")}</DialogTitle><DialogDescription>{t("project_files.rename_link_hint")}</DialogDescription><Input value={name} disabled={busy} onChange={event => setName(event.target.value)} aria-label={t("project_files.name")} />{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button variant="ghost" disabled={busy} onClick={() => setRenaming(null)}>{t("common.cancel")}</Button><Button disabled={busy || !name.trim()} onClick={() => void rename()}>{t("common.save")}</Button></DialogFooter></DialogContent></Dialog>

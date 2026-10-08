@@ -4643,6 +4643,8 @@ const de = {
   "side_panel.file_copy_failed": "Das Kopieren der Datei ist fehlgeschlagen.",
   "side_panel.file_open_failed": "Die Datei konnte nicht geöffnet werden",
   "side_panel.open_in_viewer": "Dateien im Viewer öffnen",
+  "side_panel.choose_file": "Dateien öffnen",
+  "side_panel.choose_file_description": "Wählen Sie aus den Projektdateien oder Memory Drive.",
   "side_panel.new_tab": "Neuer Tab",
   "side_panel.close_preview": "Vorschau schließen",
   "side_panel.arrange_stacked": "Dokumente untereinander anordnen",

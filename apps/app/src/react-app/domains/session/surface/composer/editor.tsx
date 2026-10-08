@@ -55,6 +55,7 @@ type EditorProps = {
   mentions: Record<string, ComposerMentionKind>;
   pastedText?: Array<{ label: string; lines: number }>;
   disabled: boolean;
+  submitDisabled?: boolean;
   placeholder: string;
   ariaLabel?: string;
   onChange: (value: string) => void;
@@ -969,7 +970,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
         <OnChangePlugin onChange={syncPromptFromEditorState} />
         <HistoryPlugin />
         <SyncPlugin value={props.value} mentions={props.mentions} pastedText={props.pastedText} disabled={props.disabled} />
-        <SubmitPlugin onSubmit={props.onSubmit} disabled={props.disabled} />
+        <SubmitPlugin onSubmit={props.onSubmit} disabled={props.disabled || Boolean(props.submitDisabled)} />
         <PasteChipPlugin onPasteText={props.onPasteText} onExpandPastedText={props.onExpandPastedText} />
         <MentionChipNavigationPlugin />
         <ImperativeHandlePlugin editorRef={ref} />

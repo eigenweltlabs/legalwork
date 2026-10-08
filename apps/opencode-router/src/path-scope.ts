@@ -1,10 +1,10 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { posix, win32 } from "node:path";
 
 export function normalizeScopedDirectoryPath(input: string, platform = process.platform) {
   const trimmed = input.trim();
   if (!trimmed) return "";
   const withoutVerbatim = /^\\\\\?\\UNC[\\/]/i.test(trimmed)
-    ? `\\${trimmed.slice(8)}`
+    ? `\\\\${trimmed.slice(8)}`
     : /^\\\\\?\\[a-zA-Z]:[\\/]/.test(trimmed)
       ? trimmed.slice(4)
       : trimmed;
@@ -20,18 +20,24 @@ export function isWithinWorkspaceRootPath(input: {
   platform?: NodeJS.Platform;
 }) {
   const platform = input.platform ?? process.platform;
+  const paths = platform === "win32" ? win32 : posix;
+  const root = paths.resolve(input.workspaceRoot);
   const rootForComparison =
     platform === "win32"
-      ? normalizeScopedDirectoryPath(input.workspaceRoot, platform)
-      : input.workspaceRoot;
-  const resolved = resolve(input.candidate || input.workspaceRoot);
+      ? normalizeScopedDirectoryPath(root, platform)
+      : root;
+  const resolved = paths.resolve(input.candidate || input.workspaceRoot);
   const resolvedForComparison =
     platform === "win32"
       ? normalizeScopedDirectoryPath(resolved, platform)
       : resolved;
-  const relativePath = relative(rootForComparison, resolvedForComparison);
+  const relativePath = paths.relative(rootForComparison, resolvedForComparison);
   if (!relativePath || relativePath === ".") return true;
-  if (relativePath.startsWith("..") || isAbsolute(relativePath)) return false;
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${paths.sep}`) ||
+    paths.isAbsolute(relativePath)
+  ) return false;
   const boundary = rootForComparison.endsWith("/")
     ? rootForComparison
     : `${rootForComparison}/`;

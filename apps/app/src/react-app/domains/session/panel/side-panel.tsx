@@ -10,6 +10,7 @@ import { projectViewTab, samePanelTab } from "./panel-tab-store";
 import { projectViewLabel } from "./project-view";
 export { projectViewLabel } from "./project-view";
 import { PanelTabDestinationProvider } from "./panel-tab-destination";
+import { WorkspaceFilePicker } from "./workspace-file-picker";
 /** @jsxImportSource react */
 import * as React from "react";
 import {
@@ -762,8 +763,7 @@ function SidePanelContent({
     if (tabs.some(tab => tab.id === id && tab.type === "artifact")) setLastDocumentId(id);
     if (id) usePanelTabStore.getState().selectTab(sessionId, id);
   };
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const fileInputPane = React.useRef<string | undefined>(undefined);
+  const [filePickerPane, setFilePickerPane] = React.useState<string | null>(null);
   const [openingFile, setOpeningFile] = React.useState<string | null>(null);
   const importing = React.useRef(false);
   const mounted = React.useRef(true);
@@ -1033,7 +1033,7 @@ function SidePanelContent({
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
           <DropdownMenuContent align="end">
             {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
-            <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => { fileInputPane.current = pane.id; fileInputRef.current?.click(); }}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
+            <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
             <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab(undefined, pane.id)}><Globe /> {t("side_panel.browser")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1051,7 +1051,7 @@ function SidePanelContent({
       {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
       {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty
         onNewChat={onNewChat ? () => onNewChat(pane.id) : undefined}
-        onOpenFile={client && workspaceId && !openingFile ? () => { fileInputPane.current = pane.id; fileInputRef.current?.click(); } : undefined}
+        onOpenFile={client && workspaceId && !openingFile ? () => setFilePickerPane(pane.id) : undefined}
         onOpenBrowser={isBrowserAvailable ? () => createTab(undefined, pane.id) : undefined}
       />}
 
@@ -1092,10 +1092,15 @@ function SidePanelContent({
   return <TooltipProvider delay={1000}>
     <div ref={viewerRef} data-viewer-drop-target data-document-layout="free" data-document-workspace-expanded={expanded} className={cn("flex h-full min-h-0 flex-col bg-background", expanded ? "fixed inset-0 z-40 mac:top-11" : "relative")}>
       {expanded && <ExpandedDocumentBar label={t("side_panel.restore_workspace")} onRestore={() => setExpanded(false)} />}
-      <input ref={fileInputRef} type="file" multiple className="hidden" aria-label={t("side_panel.open_in_viewer")} onChange={event => {
-        const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
-        void openFilesInViewer({ projects: [], workspace: null, storage: null, memory: null, files }, fileInputPane.current);
-      }} />
+      {filePickerPane && client && workspaceId && <WorkspaceFilePicker client={client} workspaceId={workspaceId} projectId={projectId ?? workspaceId} paneId={filePickerPane} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
+        onClose={() => setFilePickerPane(null)}
+        onOpen={drop => { setFilePickerPane(null); void openFilesInViewer(drop, filePickerPane); }}
+        onOpenTab={tab => {
+          setFilePickerPane(null);
+          const store = usePanelTabStore.getState();
+          if (!store.sessions[sessionId]?.panes.some(pane => pane.id === filePickerPane)) { toast.error(t("side_panel.drop_target_closed")); return; }
+          store.openTab(sessionId, tab, filePickerPane);
+        }} />}
       {openingFile && <div role="status" className="pointer-events-none absolute bottom-4 left-1/2 z-50 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs shadow-sm">
         <Loader2 className="size-4 shrink-0 animate-spin" /><span className="truncate">{t("side_panel.opening_file", { name: openingFile })}</span>
       </div>}

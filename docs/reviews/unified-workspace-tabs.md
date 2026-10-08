@@ -6,6 +6,8 @@ Project Files and Memory Drive remain file sidebars. The [workspace refinement](
 
 ## Latest follow-up
 
+The latest full validation is in [split-view-validation.md](split-view-validation.md), including native Electron regressions, end-to-end results and explicitly recorded local/auxiliary failures. The tab's Files action now selects existing Project Files or Memory Drive content in an app dialog.
+
 The subsequent review rounds are recorded in [workspace UI polish and CI investigation](workspace-polish.md), [adversarial findings and fixes](adversarial-followup.md), and [Files, window preferences and reactive drag feedback](files-window-ux.md). These contain the current screenshots, reproduction steps, validation results and remaining verification limits; the sections below retain their original historical validation.
 
 Current tab strips make space while dragging and show an opaque floating tab. Project blocks also move with an opaque surface. Files dragged within an explorer move into folders, with split targets near the outer edges; files dragged from the right sidebar retain ordinary open/split behaviour. The window button offers an empty workspace or a copy of the existing layout, with a remembered preference that can be changed from settings or the button's context menu. The latest review also covers shared-queue recovery, document control scope, file selection, write locking and the bundled-server schema fix for the earlier CI failure.

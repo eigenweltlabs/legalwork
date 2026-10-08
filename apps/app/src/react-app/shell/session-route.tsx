@@ -21,6 +21,7 @@ import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
+import { openTaskProject } from "../domains/tasks/task-project-navigation";
 import {
   TASKS_PANE_OPEN_EVENT,
   takePendingTasksPaneRequest,
@@ -2506,7 +2507,11 @@ export function SessionRoute() {
       }}
       projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
       projectTasksView={(embedded, inWorkspace) =>
-        <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(projectId, task) => { usePanelTabStore.getState().openTab(workspacePanelKey(selectedWorkspaceId), { id: `task:${task.id}`, type: "task", taskId: task.id, label: task.title }); navigate(workspaceSessionRoute(selectedWorkspaceId) + "?view=workspace"); }} baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+        <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(projectId, task) => {
+          const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: (selectedWorkspaceEndpoint?.client ?? client)?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
+          if (route) navigate(route);
+          else toast.error(t("tasks.linked_project_unavailable"));
+        }} baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
       onStartProjectRecording={() => {
         const recorder = useRecorderStore.getState();
@@ -2600,9 +2605,9 @@ export function SessionRoute() {
             defaultModel={local.prefs.defaultModel}
             openTask={openTask}
             onOpenInProject={(projectId, task) => {
-              const panels = usePanelTabStore.getState();
-              panels.openTab(workspacePanelKey(projectId), { id: `task:${task.id}`, type: "task", taskId: task.id, label: task.title });
-              navigate(workspaceSessionRoute(projectId) + "?view=workspace");
+              const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: client?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
+              if (route) navigate(route);
+              else toast.error(t("tasks.linked_project_unavailable"));
             }}
             onOpenSession={(workspaceId, sessionId) => {
               writeActiveWorkspaceId(workspaceId || null);

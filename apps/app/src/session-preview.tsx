@@ -61,7 +61,7 @@ if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "d
 if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
 const limitParam = previewParams.get("limit");
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
-const model = { providerID: previewParams.get("provider") ?? "openai", modelID: "Preview model" };
+const model = { providerID: previewParams.get("provider") ?? "openai", modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
 const upgradePreview = previewParams.get("upgrade");
 const topUpPreview = previewParams.get("topup");
@@ -608,9 +608,10 @@ function SessionPreview() {
           surface={{
             workspaceRoot: activeWorkspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
             onChooseAiPlan: async () => previewNotice(),
-            modelPickerOpen: false, modelSelectorLocked: true, selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
+            modelPickerOpen: false, modelSelectorLocked: !previewParams.has("composer-layout"), selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,
+            modelBehaviorOptions: previewParams.has("composer-layout") ? [{ value: null, label: "Reasoning effort", isDefault: true }, { value: "high", label: "High" }] : [],
             listAgents: async () => [], onSelectAgent: () => {}, listCommands: async () => [],
             recentFiles: files.map((file) => file.path), searchFiles: async (query) => files.filter((file) => file.name.toLowerCase().includes(query.toLowerCase())).map((file) => file.path),
             isRemoteWorkspace: false, isSandboxWorkspace: false, providerConnectedCount: 1,

@@ -14,6 +14,60 @@ Branch: `feat/split-view-autosave`, local uncommitted changes. This follows
 - Global Projects exposes Workspace alongside Home, Calendar, Reviews, Tasks, and Files.
 - File-operation errors are scoped to the app's notification host. Embedded DOCX editors no longer render a second copy of the same app error.
 
+## Task navigation and composer follow-up
+
+“Open in project” previously opened a tab under the task's stored project ID
+without checking whether that project was still available. The route resolver
+then fell back to another project, losing the workspace query and leaving the
+task tab in an unreachable scope. The local task store contains such stale
+links. The action now resolves the project against the task's own server before
+changing tabs or navigating. Unavailable links leave the task detail open and
+explain that its project must be reconnected or changed. Remote project IDs are
+mapped to their desktop route IDs, without matching projects on another server.
+Legacy tabs migrate before opening the task so they cannot take its focus when
+the destination mounts.
+
+The composer toolbar now wraps its controls in one flex flow. The nested
+16-rem group previously forced Run task onto a third row even when it could fit
+beside Reasoning effort. At 277 CSS pixels of toolbar width both now share the
+second row; at 639 pixels all controls fit on one row. Draft editing is also
+independent of model readiness: a missing model blocks submission, while the
+user can still type. Session transitions continue to disable editing.
+
+Verification for this follow-up:
+
+- `pnpm --filter @legalwork/app exec bun test tests/panel-side-pane.test.ts tests/workspace-routes.test.ts tests/task-draft.test.ts`: 88 passed. Six new navigation regressions cover project isolation, legacy focus, reopening, missing projects, remote IDs and server ownership.
+- `pnpm --filter @legalwork/app typecheck`: passed.
+- `pnpm --filter @legalwork/app test:i18n`: passed, 5,753 keys in both languages.
+- Browser preview with `?unified=1&empty-chat=layout&composer-layout=1&lang=en`: inspected actual controls at 390- and 760-pixel viewport widths. The running Electron app and its user data were not driven by UI automation. Task navigation was verified against the production tab store in the tests above, not end-to-end in Electron.
+
+![Reasoning and Run task share the second row](files-window-ux/composer-wrapping.jpg)
+
+## Existing files from the tab's + menu
+
+The Files action in a tab strip, and the Files action in an empty pane, now open
+an in-app chooser with Project Files and Memory Drive. They no longer launch
+the operating system's file picker. The existing file browsers provide folder
+navigation, search, linked originals and connected-storage files; Upload files
+remains an explicit action.
+
+The chooser retains the pane that opened it. Normal files use the established
+source-aware opening path. Linked files and bulk selection use a scoped opening
+callback so neither an opening profile nor another focused pane can redirect
+the selection. A closed destination is rejected instead of reopening elsewhere.
+
+Browser checks with synthetic data: opened a local Markdown file without an
+extra split; split that file to the right; selected two project files through
+the left pane's + menu and verified both appeared on the left; opened a connected
+Memory Drive file through the right pane's + menu and verified it appeared on
+the right. The dialog closed after each selection. No native file picker or
+live storage upload was used.
+
+![Project and Memory Drive file chooser](files-window-ux/workspace-file-picker.jpg)
+
+The complete validation rerun and its remaining failures are recorded in
+[split-view-validation.md](split-view-validation.md).
+
 ## Data handling
 
 Move/delete acquire the same document identity Web Lock as the editor. An open editing owner produces one close-file-first message before filesystem mutation. Successful operations evict stale content caches and update pins. A failed operation preserves cached content. Batch deletion keeps failed items in its confirmation dialog.

@@ -552,7 +552,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     ? noAiPlanNoticeVisible || pickModelNoticeVisible
     : noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
   // While nothing can serve the prompt (no selection, a selection on a
-  // provider that is gone, or a plan without models), lock the composer
+  // provider that is gone, or a plan without models), block submission
   // exactly as a vanished model does, so the notice's buttons or the plan
   // screen are the way forward instead of a send that fails inside the
   // engine. Read from those conditions, not from which notice shows: under
@@ -2104,6 +2104,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         busy={chatStreaming}
         queuedCount={queuedDrafts.length}
         disabled={model.transitionState !== "idle" || sendBlocked}
+        inputDisabled={model.transitionState !== "idle"}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableLabelHidden={lockedOutNoticeVisible}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}

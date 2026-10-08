@@ -75,6 +75,7 @@ type ComposerProps = {
   busy: boolean;
   queuedCount: number;
   disabled: boolean;
+  inputDisabled?: boolean;
   modelUnavailable?: boolean;
   /** The notice above the composer already explains the dead selection. */
   modelUnavailableLabelHidden?: boolean;
@@ -1123,7 +1124,8 @@ export function ReactSessionComposer(props: ComposerProps) {
               value={props.draft}
               mentions={props.mentions}
               pastedText={pastedTextTokens}
-              disabled={props.disabled}
+              disabled={Boolean(props.inputDisabled)}
+              submitDisabled={props.disabled}
               placeholder={t("composer.placeholder")}
               onChange={props.onDraftChange}
               onSubmit={handleEditorSubmit}
@@ -1252,8 +1254,8 @@ export function ReactSessionComposer(props: ComposerProps) {
             />
 
             {/* Action row — attachments, quick actions, model controls, and send */}
-            <div className="mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-[var(--lw-border-subtle)] pt-2">
-              <div className="flex min-w-0 flex-[1_1_16rem] flex-wrap items-center gap-1.5">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--lw-border-subtle)] pt-2">
+              <div className="contents">
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;

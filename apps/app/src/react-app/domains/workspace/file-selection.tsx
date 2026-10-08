@@ -10,7 +10,7 @@ import { t } from "@/i18n";
 import { filePinKey, toggleFilePin, useFilePins, type FilePin } from "../session/panel/file-pins";
 import { ProjectFileTransfer } from "./project-file-transfer";
 import { useListSelection } from "./use-list-selection";
-import { requestPanelTab } from "../session/panel/panel-tab-request";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { projectFileTab } from "./project-file-tab";
 import { fileSelectionCatalogue, fileSelectionRange } from "./file-selection-catalogue";
 
@@ -26,6 +26,7 @@ const FileSelectionContext = createContext<{
 export function useHasFileSelection() { return use(FileSelectionContext) !== null; }
 
 export function FileSelectionProvider({ children, scope, compact = false }: { children: (toolbar: ReactNode) => ReactNode; scope: string; compact?: boolean }) {
+  const requestPanelTab = useRequestPanelTab({ kind: "workspace", workspaceId: scope });
   const queries = useQueryClient();
   const [deleting, setDeleting] = useState<FileSelectionItem[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,7 +69,7 @@ export function FileSelectionProvider({ children, scope, compact = false }: { ch
         <Checkbox aria-label={t("project_browser.select_visible_files")} disabled={!visible.length} checked={visible.length > 0 && selection.ids.length === visible.length} indeterminate={selection.ids.length > 0 && selection.ids.length < visible.length} onCheckedChange={checked => checked ? selection.all() : selection.clear()} />
         {selection.ids.length ? <span className="mr-auto text-xs text-muted-foreground" aria-live="polite">{t("project_browser.selected_count", { count: selection.ids.length })}</span> : <Button variant="ghost" size="sm" className="mr-auto px-1 text-xs text-muted-foreground" disabled={!visible.length} onClick={selection.all}>{t("project_browser.select_files")}</Button>}
         {!!items.length && <>
-          <Button size={compact ? "icon-sm" : "sm"} aria-label={t("project_browser.open_selected")} title={t("project_browser.open_selected")} variant="ghost" onClick={() => { items.forEach(item => item.source ? requestPanelTab(projectFileTab(item.source), { kind: "workspace", workspaceId: scope }) : item.open()); selection.clear(); }}><FolderOpen className="size-3.5" />{!compact && t("project_browser.open_selected")}</Button>
+          <Button size={compact ? "icon-sm" : "sm"} aria-label={t("project_browser.open_selected")} title={t("project_browser.open_selected")} variant="ghost" onClick={() => { items.forEach(item => item.source ? requestPanelTab(projectFileTab(item.source)) : item.open()); selection.clear(); }}><FolderOpen className="size-3.5" />{!compact && t("project_browser.open_selected")}</Button>
           <Button size={compact ? "icon-sm" : "sm"} aria-label={t(allPinned ? "project_browser.unpin_selected" : "project_browser.pin_selected")} title={t(allPinned ? "project_browser.unpin_selected" : "project_browser.pin_selected")} variant="ghost" onClick={() => items.forEach(item => { if (item.pin && pins.some(pin => filePinKey(pin) === filePinKey(item.pin!)) === allPinned) toggleFilePin(item.pin); })}><Pin className="size-3.5" />{!compact && t(allPinned ? "project_browser.unpin_selected" : "project_browser.pin_selected")}</Button>
           <Button size={compact ? "icon-sm" : "sm"} aria-label={t("project_files.copy_to_project")} title={t("project_files.copy_to_project")} variant="ghost" disabled={!canTransfer} onClick={() => setTransfer({ sources, mode: "copy" })}><Copy className="size-3.5" />{!compact && t("project_files.copy_to_project")}</Button>
           <Button size={compact ? "icon-sm" : "sm"} aria-label={t("project_files.link_to_project")} title={t("project_files.link_to_project")} variant="ghost" disabled={!canTransfer} onClick={() => setTransfer({ sources, mode: "link" })}><Link2 className="size-3.5" />{!compact && t("project_files.link_to_project")}</Button>
