@@ -16,8 +16,8 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
           : `Connected client (app, agent or remote connection)${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
         const result = await showMessageBox(window, {
           type: "question",
-          title: "LegalWork approval",
-          message: "Allow this workspace change?",
+          title: request.action === "mail.send" ? "Review email" : "LegalWork approval",
+          message: request.action === "mail.send" ? "Send this email?" : "Allow this workspace change?",
           detail: [
             `Source: ${source}`,
             ...(request.actor.scope ? [`Access: ${request.actor.scope}`] : []),
@@ -26,7 +26,7 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
             request.summary,
             ...(request.paths.length ? ["Paths:", ...request.paths] : []),
           ].join("\n"),
-          buttons: ["Deny", "Allow"],
+          buttons: request.action === "mail.send" ? ["Cancel", "Send email"] : ["Deny", "Allow"],
           defaultId: 0,
           cancelId: 0,
           noLink: true,

@@ -151,6 +151,24 @@ export function isTrustedBuiltInExtension(manifest: LegalWorkExtensionManifest |
 }
 
 export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[] = [
+  ...["gmail", "outlook"].map((provider): LegalWorkExtensionManifest => ({
+    schemaVersion: 1,
+    id: provider,
+    name: provider === "gmail" ? "Gmail" : "Outlook",
+    get description() { return t("mail_plugin.catalog_description"); },
+    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
+    icon: { simpleIconSlug: provider === "gmail" ? "gmail" : "microsoftoutlook" },
+    setup: {
+      get instructions() { return t("mail_plugin.description"); },
+      get primaryCta() { return t("mail_plugin.connect", { provider: provider === "gmail" ? "Gmail" : "Outlook" }); },
+    },
+    resources: [
+      { type: "provider", id: `${provider}-oauth`, label: provider === "gmail" ? "Google account" : "Microsoft account", providerId: provider, required: true },
+      { type: "tool", id: `${provider}-mail`, get label() { return t("mail_plugin.catalog_description"); }, required: true },
+    ],
+    contributions: [{ type: "settings-panel", ref: `legalwork.${provider}.settings`, location: "settings-detail" }],
+    platform: ["darwin", "linux", "windows"],
+  })),
   {
     schemaVersion: 1,
     id: "legalwork-voice",

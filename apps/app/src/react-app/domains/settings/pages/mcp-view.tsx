@@ -818,6 +818,7 @@ export function McpView(props: McpViewProps) {
           ? props.isExtensionConnected?.(detailEntry) ?? false
           : isQuickConnectConfigured(detailEntry);
         const isGoogleWorkspace = detailEntry.id === "google-workspace";
+        const hasAccountConfig = isGoogleWorkspace || detailEntry.id === "gmail" || detailEntry.id === "outlook";
         return (
           <ExtensionDetailModal
             open={!!detailEntry}
@@ -836,15 +837,15 @@ export function McpView(props: McpViewProps) {
             hidden={hidden}
             preview={detailEntry.preview}
             disabledReason={disabledReason}
-            setupInstructions={isGoogleWorkspace ? undefined : detailEntry.extensionManifest?.setup?.instructions}
-            resourceLabels={isGoogleWorkspace ? [] : extensionResourceLabels(detailEntry)}
-            contributionLabels={isGoogleWorkspace ? [] : extensionContributionLabels(detailEntry)}
+            setupInstructions={hasAccountConfig ? undefined : detailEntry.extensionManifest?.setup?.instructions}
+            resourceLabels={hasAccountConfig ? [] : extensionResourceLabels(detailEntry)}
+            contributionLabels={hasAccountConfig ? [] : extensionContributionLabels(detailEntry)}
             launchCommand={launchCommandForEntry(detailEntry)}
             environment={detailEntry.serverName === "legalwork-ui" ? legalworkUiMcpEnvironment ?? undefined : undefined}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={disabledReason ? null : extensionConfigSlot}
-            showEnablementCard={!isGoogleWorkspace}
+            showEnablementCard={!hasAccountConfig}
             onConnect={disabledReason || detailEntry.requestAccessUrl ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
               setLegalWorkExtensionEnabled(detailEntry, true);
               setDetailEntry(null);

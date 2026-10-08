@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { mkdir } from "node:fs/promises";
+import { localMailEngineToken } from "./mail-plugins/access.js";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
@@ -85,6 +86,7 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
         ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
         LEGALWORK_SERVER_URL: serverUrl,
         LEGALWORK_SERVER_TOKEN: config.token,
+        LEGALWORK_MAIL_PLUGIN_TOKEN: localMailEngineToken(config),
         OPENCODE_CONFIG: runtimeConfigPath,
         ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
       },

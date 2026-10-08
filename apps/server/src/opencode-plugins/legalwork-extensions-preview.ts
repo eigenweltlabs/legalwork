@@ -1,4 +1,5 @@
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
+import { legalworkMailTools, MAIL_PLUGIN_INSTRUCTION } from "./legalwork-mail-plugin-tools.js";
 import { uiBridgeRequest, inAppDocumentSurface, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
@@ -326,6 +327,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
   // Fixed text only: what is open arrives as reminders (see app-state-reminders.ts).
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     output.system.push(LEGALWORK_EXTENSION_DISCOVERY_INSTRUCTION);
+    output.system.push(MAIL_PLUGIN_INSTRUCTION);
     output.system.push(LEGALWORK_UI_CONTROL_INSTRUCTION);
     output.system.push(APP_STATE_INSTRUCTION);
   },
@@ -580,6 +582,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
         return JSON.stringify(result, null, 2);
       },
     },
+    ...legalworkMailTools,
     ...legalworkBrowserTools,
     legalwork_browser_open_url: {
       description: "Open a URL in a LegalWork browser tab bound to this session project. Returns the initial page snapshot, browser_url, target_id, and project download directory. Use legalwork_browser_batch for subsequent actions and legalwork_browser_downloads for completed file paths.",

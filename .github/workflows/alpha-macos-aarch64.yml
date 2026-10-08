@@ -152,6 +152,8 @@ jobs:
         shell: bash
         env:
           TARGET: aarch64-apple-darwin
+          LEGALWORK_GMAIL_PLUGIN_CLIENT_ID: ${{ secrets.LEGALWORK_GMAIL_PLUGIN_CLIENT_ID }}
+          LEGALWORK_GMAIL_PLUGIN_CLIENT_SECRET: ${{ secrets.LEGALWORK_GMAIL_PLUGIN_CLIENT_SECRET }}
           # The renderer bundle (vite build) peaks above Node's default heap
           # since the editors and media viewers joined it; the 7 GB runner has
           # room for this.

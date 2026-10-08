@@ -115,6 +115,8 @@ import { registerDocumentPreparationRoutes } from "./routes/document-preparation
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
 import { registerCoreRoutes } from "./routes/core.js";
+import { registerMailPluginRoutes } from "./routes/mail-plugins.js";
+import { MailPlugins } from "./mail-plugins/service.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
@@ -769,6 +771,7 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
+  const mailPlugins = new MailPlugins(join(dirname(config.configPath || join(homedir(), ".config", "legalwork", "server.json")), "extensions", "mail-plugins", "accounts.vault"));
   const approvals = new ApprovalService(config.approval, config.requestHostApproval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -852,7 +855,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     },
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, mailPlugins);
 
   const serverOptions: {
     hostname: string;
@@ -1065,6 +1068,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      mailPlugins.oauth.dispose();
       approvals.dispose();
       await corpus.stop();
       reviews.stop();
@@ -1588,6 +1592,7 @@ function createRoutes(
   reviews: ReviewService,
   corpus: CorpusService,
   scheduledTasks: ScheduledTaskStore,
+  mailPlugins: MailPlugins,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -1698,6 +1703,8 @@ function createRoutes(
     getOpenAiRealtimeVoiceCapability,
     createOpenAiRealtimeVoiceCall,
   });
+
+  registerMailPluginRoutes({ routes, config, plugins: mailPlugins, jsonResponse, readJsonBodyLimited, requireClientScope, resolveWorkspace, ensureWritable });
 
   registerWorkspaceRoutes({
     projectFolders,

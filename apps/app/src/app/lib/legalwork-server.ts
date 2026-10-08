@@ -1,4 +1,5 @@
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
+import type { MailProvider, MailPluginStatus, MailConnectStart, MailConnectStatus } from "@legalwork/types/mail-plugins";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
@@ -1757,6 +1758,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
+    mailPluginStatus: (provider: MailProvider, workspaceId?: string) => requestJson<MailPluginStatus>(baseUrl, `/mail-plugins/${provider}/status${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`, { token, hostToken, timeoutMs: timeouts.status }),
+    mailPluginConnectStart: (provider: MailProvider, options: { canWrite: boolean; workspaceId: string }) => requestJson<MailConnectStart>(baseUrl, `/mail-plugins/${provider}/connect`, { token, hostToken, method: "POST", body: options, timeoutMs: timeouts.status }),
+    mailPluginConnectStatus: (provider: MailProvider, flowId: string) => requestJson<MailConnectStatus>(baseUrl, `/mail-plugins/${provider}/connect/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),
+    mailPluginConnectCancel: (provider: MailProvider, flowId: string) => requestJson<{ ok: boolean }>(baseUrl, `/mail-plugins/${provider}/connect/${encodeURIComponent(flowId)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.status }),
+    mailPluginDisconnect: (provider: MailProvider, accountId: string) => requestJson<MailPluginStatus & { providerRevoked: boolean; revocationUrl: string }>(baseUrl, `/mail-plugins/${provider}/accounts/${encodeURIComponent(accountId)}`, { token, hostToken, method: "DELETE", timeoutMs: 45_000 }),
+    mailPluginWorkspaceAccess: (provider: MailProvider, accountId: string, workspaceId: string, enabled: boolean) => requestJson<MailPluginStatus>(baseUrl, `/mail-plugins/${provider}/accounts/${encodeURIComponent(accountId)}/access`, { token, hostToken, method: "POST", body: { workspaceId, enabled }, timeoutMs: timeouts.status }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),

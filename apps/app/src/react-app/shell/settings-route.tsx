@@ -71,6 +71,7 @@ import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
 import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/google-workspace-config";
+import "@/react-app/domains/settings/mail-plugin-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
@@ -462,6 +463,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [providerDisconnectStatus, setProviderDisconnectStatus] = useState<string | null>(null);
   const [providerDisconnectError, setProviderDisconnectError] = useState<string | null>(null);
   const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
+  const [mailPluginConnections, setMailPluginConnections] = useState<Record<string, boolean>>({});
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
   const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
@@ -1745,6 +1747,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
   }, [legalworkServerStore, refreshRouteState]);
   const extensionController = useSettingsExtensionController({
+    localWorkspaceId: selectedWorkspace?.workspaceType === "remote" ? undefined : selectedWorkspace?.id,
+    mailPluginConnections,
+    setMailPluginConnections,
     legalworkServerClient: selectedWorkspaceEndpoint?.client ?? legalworkClient,
     hostLegalworkServerClient: legalworkClient,
     enablementContext,
