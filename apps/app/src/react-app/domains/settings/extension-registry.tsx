@@ -9,6 +9,7 @@ import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
  * Each extension picks what it needs; unused fields are ignored.
  */
 export type ExtensionConfigContext = {
+  localWorkspaceId?: string;
   legalworkServerClient?: LegalworkServerClient | null;
   hostLegalworkServerClient?: LegalworkServerClient | null;
   extensionConnections?: Record<string, boolean>;

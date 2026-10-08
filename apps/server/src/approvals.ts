@@ -31,11 +31,12 @@ export class ApprovalService {
   async requestApproval(
     input: Omit<ApprovalRequest, "id" | "createdAt">,
     signal?: AbortSignal,
+    options?: { requireExplicit?: boolean },
   ): Promise<ApprovalResult> {
     if (this.disposed || signal?.aborted) {
       return { id: "cancelled", allowed: false, reason: "cancelled" };
     }
-    if (this.config.mode === "auto") {
+    if (this.config.mode === "auto" && !options?.requireExplicit) {
       return { id: "auto", allowed: true };
     }
     const id = shortId();

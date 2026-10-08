@@ -53,7 +53,8 @@
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
     "./calculation": "./src/calculation.ts",
-    "./scheduled-tasks": "./src/scheduled-tasks.ts"
+    "./scheduled-tasks": "./src/scheduled-tasks.ts",
+    "./mail-plugins": "./src/mail-plugins.ts"
   },
   "files": [
     "src",

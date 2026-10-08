@@ -37,6 +37,7 @@ run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", 
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
 // Build the server TS → JS so Electron can import it in-process
 run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);
+run(pnpmCmd, ["--filter", "legalwork-server", "build:mail-registration"], repoRoot);
 // LEGALWORK_ELECTRON_BUILD tells Vite to emit relative asset paths so
 // index.html resolves /assets/* correctly when loaded via file:// from
 // inside the packaged .app bundle.

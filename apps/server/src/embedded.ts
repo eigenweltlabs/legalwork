@@ -6,6 +6,7 @@
  * of owning the process lifecycle.
  */
 import { mkdir } from "node:fs/promises";
+import { localMailEngineToken } from "./mail-plugins/access.js";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
@@ -138,6 +139,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
+          LEGALWORK_MAIL_PLUGIN_TOKEN: localMailEngineToken(config),
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_MODELS_URL: catalogRelay.url,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
