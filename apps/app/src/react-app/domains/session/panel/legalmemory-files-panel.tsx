@@ -56,7 +56,8 @@ type LegalMemoryFilesPanelProps = {
   onOpenFile: (file: LegalMemoryTreeFile) => Promise<void> | void;
   onOpenStorageFile: (root: StorageRoot, file: StorageEntry) => void;
   onConnectStorage?: () => void;
-  onClose: () => void;
+  onClose?: () => void;
+  title?: string;
 };
 
 const folderKey = (sourceId: string, path: string) => `${sourceId}:${path}`;
@@ -69,6 +70,7 @@ export function LegalMemoryFilesPanel({
   onOpenStorageFile,
   onConnectStorage,
   onClose,
+  title,
 }: LegalMemoryFilesPanelProps) {
   const storageQueryClient = useQueryClient();
   const [storageRevision, setStorageRevision] = React.useState(0);
@@ -324,20 +326,20 @@ export function LegalMemoryFilesPanel({
 
   return (
     <TooltipProvider delay={800}>
-      <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
-        <PanelHeader headerTarget={headerTarget} title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
+      <aside aria-label={title ?? t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
+        <PanelHeader headerTarget={headerTarget} title={title ?? t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
           <Tooltip>
-            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t("legalmemory.refresh_drive")} />}>
+            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t(title ? "project_browser.refresh_connected" : "legalmemory.refresh_drive")} />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />
             </TooltipTrigger>
             <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
-          <Tooltip>
+          {onClose && <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("legalmemory.close_drive")} />}>
               <X className="size-4" />
             </TooltipTrigger>
             <TooltipContent>Close</TooltipContent>
-          </Tooltip>
+          </Tooltip>}
         </PanelHeader>
 
         {!notConfigured || hasStorage ? <div className="flex h-(--lw-panel-toolbar-height) shrink-0 items-center border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl">
@@ -348,7 +350,7 @@ export function LegalMemoryFilesPanel({
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={t("legalmemory.search_placeholder")}
-              aria-label={t("legalmemory.search_aria")}
+              aria-label={t(title ? "project_browser.search_connected" : "legalmemory.search_aria")}
               className="h-8 w-full rounded-lg border border-input/80 bg-background/90 pl-8 pr-8 text-[13px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring/50 focus:ring-2 focus:ring-ring/15"
             />
             {query ? (

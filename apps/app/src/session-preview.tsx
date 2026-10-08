@@ -1,3 +1,4 @@
+import { projectViewFromPath } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
@@ -399,6 +400,7 @@ const fixtureClient: LegalworkServerClient = {
   listSkills: async () => ({ items: [], skipped: [] }),
   listMcp: async () => ({ items: [] }),
   resolveArtifacts: async () => ({ items: [] }),
+  searchContents: async (_workspaceId, kind, query) => ({ items: kind === "files" ? files.filter(file => file.kind === "file" && file.name.toLowerCase().includes(query.toLowerCase())).map(file => ({ kind, id: file.path, workspaceId: workspace.id, title: file.name, path: file.path, excerpt: "Synthetic project file", updatedAt: now })) : [] }),
   listWorkspaceDirectory: async (_workspaceId, path) => ({
     path, entries: path ? files.filter((file) => file.kind === "file").map((file) => ({ ...file, path: `${path}/${file.name}` })) : files, truncated: false,
   }),
@@ -446,8 +448,7 @@ function SessionPreview() {
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();
-  const projectRoute = location.pathname.split("/").at(-1);
-  const projectPage = projectRoute === "project" ? "home" : projectRoute === "tasks" || projectRoute === "reviews" || projectRoute === "calendar" ? projectRoute : undefined;
+  const projectPage = projectViewFromPath(location.pathname);
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   useEffect(() => {

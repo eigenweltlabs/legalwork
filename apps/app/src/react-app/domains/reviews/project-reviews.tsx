@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { workspaceSettingsRoute } from "../../shell/workspace-routes";
-import { ArrowLeft, ArrowUpRight, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Settings2, Square, Table2, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, PanelsTopLeft, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Settings2, Square, Table2, Trash2, X } from "lucide-react";
 import type { ReviewCell, ReviewColumn, RunReview, SavedReview } from "@legalwork/types/reviews";
 import { incompatibleJevQuestion, reviewRunAction, reviewRunningElsewhere } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -38,7 +38,7 @@ function exportReview(review: SavedReview) {
 export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, overview, onClose, onTitleChange, onOpenInWorkspace, localNavigation = false }: {
   client: LegalworkServerClient; workspaceId: string; projectName: string; onOpenSession: (sessionId: string) => void;
   localNavigation?: boolean;
-  onOpenInWorkspace?: (review: { id: string; name: string }) => void;
+  onOpenInWorkspace?: (review: { id: string; name: string } | null) => void;
   reviewId?: string; overview?: boolean; onClose?: () => void; onTitleChange?: (title: string) => void;
 }) {
   const requestPanelTab = useRequestPanelTab();
@@ -143,9 +143,10 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const error = intake.error || (reviewId ? detail.error : listing.error) || change.error || discussion.error || remove.error || rows.error;
   const pickedDocuments = selectedDocuments.filter(id => review?.documents.some(document => document.id === id));
   return <ReviewFileDropTarget disabled={busy || !!dialog || !!removeTarget || (!!reviewId && !review)} onFiles={sources => void intake.add(sources)} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    {onOpenInWorkspace && <div className="flex shrink-0 justify-end px-5 pt-2"><Button variant="ghost" size="sm" disabled={!!reviewId && !review} onClick={() => onOpenInWorkspace(reviewId && review ? review : null)}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab")}</Button></div>}
     <div className={tabReviewId ? "flex h-full min-h-0 flex-col p-3" : "lw-project-page-content flex h-full min-h-0 flex-col pb-8"}>
     <header className={tabReviewId ? "shrink-0 pb-3" : "lw-project-page-top shrink-0 pb-4"}>
-      {!tabReviewId && <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">{review && onOpenInWorkspace && <Button variant="ghost" size="sm" className="ml-auto order-last" onClick={() => onOpenInWorkspace(review)}>{t("workspace.open_here")}</Button>}{reviewId ? <Button variant="ghost" size="sm" className="-ml-2 h-6 text-xs" disabled={intake.busy} onClick={() => openReview()}><ArrowLeft className="size-3.5" />{t("review.back")}</Button> : <span>{projectName}</span>}</div>}
+      {!tabReviewId && <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">{reviewId ? <Button variant="ghost" size="sm" className="-ml-2 h-6 text-xs" disabled={intake.busy} onClick={() => openReview()}><ArrowLeft className="size-3.5" />{t("review.back")}</Button> : <span>{projectName}</span>}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0"><h1 className={tabReviewId ? "truncate text-lg font-semibold" : "truncate text-2xl font-semibold leading-tight tracking-tight"}>{reviewId ? review?.name ?? t("review.loading") : t("review.title")}</h1>{!reviewId && <p className="mt-1.5 text-sm text-muted-foreground">{t("review.subtitle")}</p>}</div>
         <div className="flex flex-wrap items-center gap-2">{!reviewId ? <>

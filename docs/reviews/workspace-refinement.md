@@ -1,12 +1,12 @@
 # Workspace navigation and window coordination
 
-Project Overview, Calendar, Tasks and Tabular Review lists are separate project destinations by default. A permanent **Workspace** sidebar entry returns to the retained chats, files and layout. Visiting an overview preserves mounted editors, drafts, undo history and scroll state. An overview can be deliberately opened as a singleton work tab through **Open as a tab**. Individual documents still maximize; the redundant whole-workspace maximize button is removed.
+Project Overview, Calendar, Tasks, Tabular Review, Files and Sessions are separate project destinations by default. A permanent **Workspace** sidebar entry returns to the retained chats, files and layout. Visiting an overview preserves mounted editors, drafts, undo history and scroll state. An overview can be deliberately opened as a singleton work tab through **Open as a tab**. Individual documents still maximize; the redundant whole-workspace maximize button is removed.
 
-Workspace has a separated sidebar row with the usual active-page styling. Its header return action appears only when the sidebar is hidden; **Open as a tab** sits at the top right inside the project view, below the window header. Files remains a panel toggle rather than another selected page. Overview uses the same Pin action as the project list, with title and actions stacked in narrow panes. Narrow week/month calendars expose horizontal scrolling without changing the selected calendar mode.
+Workspace has a separated sidebar row with the usual active-page styling. Its header return action appears only when the sidebar is hidden; **Open as a tab** sits at the top right inside the project view, below the window header. Files and Sessions open their own project pages. The Sessions label navigates; its separate arrow expands or collapses the sidebar list. The right-hand file rail remains available for quick access. Overview uses the same Pin action as the project list, with title and actions stacked in narrow panes. Narrow week/month calendars expose horizontal scrolling without changing the selected calendar mode.
 
 ![Responsive Overview actions and separated Workspace navigation, with synthetic content](workspace-refinement/overview-responsive.png)
 
-The pane's `+` menu creates a chat, opens files or a browser. Project task selection and creation stay in the overview's list/detail layout (detail with a back button on narrow windows). **Open in workspace** explicitly promotes a task or review to a work tab. Pending task edits and unsubmitted notes prevent promotion until saved or cleared. Global task and workflow creation remain in their global areas. Sidebar chats can still be dragged into tab groups or any split edge, with the six-pane limit.
+The pane's `+` menu creates a chat, opens files or a browser. Project task selection and creation stay in the overview's list/detail layout (detail with a back button on narrow windows). **Open in workspace** explicitly promotes a task to a work tab. In Tabular Review, **Open as a tab** opens the currently selected review, or the review list when no review is selected. Pending task edits and unsubmitted notes prevent promotion until saved or cleared. Global task and workflow creation remain in their global areas. Sidebar chats can still be dragged into tab groups or any split edge, with the six-pane limit.
 
 Task notes, failed text edits and in-flight writes survive closing an inline detail, changing filters and leaving the project or global Tasks view. Drafts remain in memory for the current window and warn before closing it; they are not disk recovery drafts. Background refreshes preserve local edits, and returning during a note submission or upload cannot submit it twice. A global task request no longer changes a hidden project task selection. Document/source links in a standalone review explicitly target its project workspace.
 
@@ -53,7 +53,7 @@ One server dispatcher sends messages in order. Submission IDs make acknowledgeme
 
 | Command | Result |
 | --- | --- |
-| `pnpm --filter @legalwork/app test` | 958 passed, 0 failed |
+| `pnpm --filter @legalwork/app test` | 968 passed, 0 failed |
 | `pnpm --filter legalwork-server exec bun test src/session-message-queue.test.ts src/session-read-model.e2e.test.ts src/artifact-files.e2e.test.ts` | 27 passed, 0 failed |
 | `pnpm --filter @legalwork/desktop test` | 197 passed, 1 skipped, 0 failed |
 | `pnpm --filter @legalwork/desktop test:browser-panel` | Passed with isolated native Electron views |
@@ -61,7 +61,7 @@ One server dispatcher sends messages in order. Submission IDs make acknowledgeme
 | `pnpm --filter legalwork-server typecheck` | Passed |
 | `pnpm --filter @legalwork/desktop typecheck:electron` | Passed |
 | `pnpm --filter @legalwork/desktop check:electron` | Passed, 110 bridge methods |
-| `pnpm --filter @legalwork/app test:i18n` | 5,524 keys complete in English and German |
+| `pnpm --filter @legalwork/app test:i18n` | 5,557 keys complete in English and German |
 | `node scripts/i18n-audit.mjs --ci` | Passed |
 | `pnpm build:ui` | Passed, existing bundle-size warnings |
 
@@ -81,3 +81,18 @@ Two Astra adversarial reviews covered the opening-policy code and the UI/user jo
 Browser-window regression checks cover three independent owners, event routing, foreign-tab rejection, close-all isolation, window destruction and stale-copy filtering. In the running Electron app, a temporary `example.com` tab was copied into a second and then a third window: each showed exactly one browser. Closing that tab and immediately copying again produced a fourth window without it. Test windows and the temporary browser were then closed, leaving the original app window intact.
 
 Queue integration tests use a real local HTTP server and a mock agent transport, covering shared reads, authentication, read-only servers, stale edits, archive restoration before dispatch, deletion, attachment persistence, lost acknowledgements and interrupted sends. No live model run or connected-storage publishing was performed for this change.
+
+
+## Project file and session browsers
+
+The Files page puts project files and connected storage in two responsive panels, stacked when the pane is narrow. Project search uses the existing server content-search API, including partial-result and failure states. Connected filename search and file opening reuse the existing storage browsers; files retain their source identity and editing permissions. Folder navigation, hidden files, refresh, context menus and file dragging remain available.
+
+The Sessions page searches conversation names and offers pinned/archived filters, recency sorting, branch and group labels, running status and the existing rename/archive/delete actions. Clicking a row opens its chat; rows can also be dragged into the workspace. These are client views over the existing project session data, not a second chat store.
+
+Overview, Calendar, Tasks, Tabular Review, Files and Sessions can all be dragged from the project sidebar into tab groups or split edges. Page drags are project-scoped. Existing pages move as singletons, preserving the usual source-pane collapse and six-pane limit. Dragging a page over a standalone project view reveals the retained workspace. The pane's plus menu remains focused on creating work rather than duplicating navigation pages.
+
+Verification used synthetic content: review list → Supplier terms → Open as a tab selected the review detail; Files search found the expected document; connected folders expanded; Sessions search and pinning filtered correctly; the expansion arrow left the Sessions page open; dragging Tasks created a split, and dragging it again moved its single tab while the empty source collapsed. Files was also dragged into an existing group. At a 483-pixel pane width, the Files page stacked its panels and had no horizontal overflow. Added tests cover all six project routes, malformed/foreign drag payloads, singleton movement and restoration of Files/Sessions tabs.
+
+![Files page with synthetic local and connected files](workspace-refinement/project-files.png)
+
+![Sessions page with synthetic conversations](workspace-refinement/project-sessions.png)

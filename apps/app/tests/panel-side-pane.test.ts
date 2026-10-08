@@ -618,3 +618,19 @@ describe("workspace opening profiles and previews", () => {
     expect(state().tabs.map(tab => tab.id)).toEqual(["file:b.docx"]);
   });
 });
+
+
+describe("project browser tabs", () => {
+  test("Files and Sessions are singletons and survive layout restoration", () => {
+    const files = { id: "project-view:files", type: "project-view", view: "files", label: "Files" } satisfies import("../src/react-app/domains/session/panel/panel-tab-store").ProjectViewTab;
+    const sessions = { id: "project-view:sessions", type: "project-view", view: "sessions", label: "Sessions" } satisfies import("../src/react-app/domains/session/panel/panel-tab-store").ProjectViewTab;
+    store().openTab("session", files);
+    store().openTab("session", sessions, "main", "right");
+    store().openTab("session", files, session().panes[1].id);
+    expect(session().tabs).toHaveLength(2);
+    expect(session().panes).toHaveLength(1);
+    const restored = store().readLayout(session());
+    expect(restored?.tabs.map(tab => tab.id).sort()).toEqual([files.id, sessions.id].sort());
+    expect(restored?.panes).toEqual(session().panes);
+  });
+});

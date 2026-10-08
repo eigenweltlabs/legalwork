@@ -1,3 +1,5 @@
+import { startProjectViewDrag } from "./project-view-drag";
+import { projectViewFromPath, workspaceViewRoute } from "@/react-app/shell/workspace-routes";
 import { PanelsTopLeft } from "lucide-react";
 import { projectViewTab, usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { projectViewLabel } from "../panel/side-panel";
@@ -101,7 +103,7 @@ import { useProjectPersonalisation } from "../../workspace/project-personalisati
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
 import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
-import { workspaceProjectRoute, workspaceSessionRoute, workspaceTasksRoute, workspaceReviewsRoute, workspaceCalendarRoute } from "@/react-app/shell/workspace-routes";
+import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
   flattenSessionRows,
@@ -736,16 +738,15 @@ export function AppSidebar(props: AppSidebarProps) {
   const contextValue: SidebarContextValue = {
     workspaceSessionGroups: props.workspaceSessionGroups,
     selectedWorkspaceId: props.selectedWorkspaceId,
-    selectedSessionId: props.activeNav || projectsPage || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar") || location.pathname === "/home" ? null : props.selectedSessionId,
-    activeProjectFeature: props.activeProjectView !== undefined ? props.activeProjectView : props.activeNav || projectsPage || location.pathname === "/home" ? null : location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
-      : location.pathname.endsWith("/project") ? "home" : props.selectedSessionId ? "sessions" : null,
+    selectedSessionId: props.activeNav || projectsPage || projectViewFromPath(location.pathname) || location.pathname === "/home" ? null : props.selectedSessionId,
+    activeProjectFeature: props.activeProjectView !== undefined ? props.activeProjectView : props.activeNav || projectsPage || location.pathname === "/home" ? null : projectViewFromPath(location.pathname) ?? (props.selectedSessionId ? "sessions" : null),
     onOpenWorkspace: async workspaceId => {
       if (await props.onSelectWorkspace(workspaceId) === false) return;
       navigate(workspaceSessionRoute(workspaceId) + "?view=workspace");
     },
     onOpenProjectPage: async (workspaceId, page) => {
       if (await props.onSelectWorkspace(workspaceId) === false) return;
-      navigate(page === "calendar" ? workspaceCalendarRoute(workspaceId) : page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
+      navigate(workspaceViewRoute(workspaceId, page));
     },
     onOpenProjectFiles: props.onOpenProjectFiles,
     projectFilesOpen: props.projectFilesOpen,
@@ -986,11 +987,8 @@ function WorkspaceSidebarGroup({
   const isSelected = ctx.selectedWorkspaceId === workspace.id;
   const [sessionsOpen, setSessionsOpen] = React.useState(false);
   const { config } = useShellConfig();
-  React.useEffect(() => {
-    if (isSelected && ctx.selectedSessionId) setSessionsOpen(true);
-  }, [isSelected, ctx.selectedSessionId]);
   const showSessions = !config.collapseProjectSessions || sessionsOpen;
-  const projectNavItems = config.projectNavOrder.filter(key => key === "projectSessions" ? config.collapseProjectSessions : config[key]);
+  const projectNavItems = config.projectNavOrder.filter(key => key === "projectSessions" || config[key]);
 
 
   const statusLabel = (() => {
@@ -1066,44 +1064,42 @@ function WorkspaceSidebarGroup({
                 {<SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
                   <SidebarMenuSubItem className="mb-1 border-b border-sidebar-border/70 pb-2"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></SidebarMenuSubItem>
                   {projectNavItems.map(key => ({
-                  projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
+                  projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "calendar")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectHome: <SidebarMenuSubItem key="projectHome">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "home"); }}>
+                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "home")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "home"); }}>
                       <House className="size-4" strokeWidth={1.5} />
                       <span>{t("workspace.overview")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
+                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "reviews")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
                       <Table2 className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.tab_review")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectTasks: <SidebarMenuSubItem key="projectTasks">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "tasks"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "tasks")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "tasks"); }}>
+                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "tasks")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "tasks"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "tasks")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "tasks"); }}>
                       <ListTodo className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.tasks")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectFiles: <SidebarMenuSubItem key="projectFiles">
-                    <SidebarMenuSubButton title={t("workspace.toggle_files")} className={cn(PROJECT_FEATURE_CLASS, "border-t border-sidebar-border/60 mt-1 pt-2")} aria-pressed={isSelected && Boolean(ctx.projectFilesOpen)} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
+                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "files")} className={cn(PROJECT_FEATURE_CLASS, "border-t border-sidebar-border/60 mt-1 pt-2")} isActive={isSelected && ctx.activeProjectFeature === "files"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
                       <Files className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.files")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectSessions: <li key="projectSessions">
                     <div className="group/project-sessions-heading relative">
-                      <SidebarMenuSubButton className={cn(PROJECT_FEATURE_CLASS, "pe-18")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} aria-expanded={showSessions} onClick={() => {
-                        setSessionsOpen(!showSessions);
-                      }}>
+                      <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-18")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
                         <MessageSquare className="size-4" strokeWidth={1.5} />
                         <span className="min-w-0 truncate">{t("projects.sessions")}</span>
-                        <ChevronRight className={cn("absolute right-2.5 size-3.5 text-muted-foreground transition-transform", showSessions && "rotate-90")} />
                       </SidebarMenuSubButton>
+                      {config.collapseProjectSessions && <Button variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground" aria-label={t(showSessions ? "project_browser.collapse_sessions" : "project_browser.expand_sessions")} aria-expanded={showSessions} onClick={() => setSessionsOpen(!showSessions)}><ChevronRight className={cn("size-3.5 transition-transform", showSessions && "rotate-90")} /></Button>}
                       <Button variant="ghost" size="icon-xs" className="absolute right-12 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" disabled={ctx.newChatDisabled} aria-label={t("session.new_task")} title={t("session.new_task")} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare className="size-3.5" strokeWidth={1.5} /></Button>
                       <Button variant="ghost" size="icon-xs" className="absolute right-6 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>
                     </div>
-                    <Collapsible open={showSessions}><CollapsibleContent>
+                    <Collapsible open={config.collapseProjectSessions && showSessions}><CollapsibleContent>
                       <div className="mb-1 ml-[18px] mt-1.5 border-l border-sidebar-border pl-1">
                         <WorkspaceSessions group={group} loading={showInitialLoading} />
                       </div>

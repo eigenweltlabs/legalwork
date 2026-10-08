@@ -1,3 +1,5 @@
+import { isProjectView, type ProjectView } from "./project-view";
+export type { ProjectView } from "./project-view";
 import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
@@ -28,7 +30,6 @@ export { PANEL_OPEN_TAB_EVENT, requestPanelTab } from "./panel-tab-request";
 export type PanelTabType = PanelTab["type"];
 
 export function workspacePanelKey(workspaceId: string) { return `workspace:${workspaceId}`; }
-export type ProjectView = "home" | "calendar" | "tasks" | "reviews";
 export type ProjectViewTab = { id: string; type: "project-view"; view: ProjectView; label: string };
 export function projectViewTab(view: ProjectView, label: string): ProjectViewTab {
   return { id: `project-view:${view}`, type: "project-view", view, label };
@@ -99,7 +100,7 @@ function restoredTab(value: unknown): PanelTab | null {
   if (value.type === "artifact" && typeof value.label === "string" && typeof value.value === "string" && value.value)
     return { id: value.id, type: "artifact", label: value.label, value: value.value, preview: classifyOpenTarget(value.value, "file") };
   if (typeof value.label === "string") {
-    if (value.type === "project-view" && (value.view === "home" || value.view === "calendar" || value.view === "tasks" || value.view === "reviews")) return projectViewTab(value.view, value.label);
+    if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label);
     if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };

@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, ChevronRight, Eye, EyeOff, RotateCw, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Eye, EyeOff, RotateCw, Search, X } from "lucide-react";
 
 import type {
   LegalworkServerClient,
@@ -34,6 +34,7 @@ type WorkspaceFilesPanelProps = {
   headerTarget?: HTMLElement | null;
   isRemoteWorkspace: boolean;
   active: boolean;
+  searchable?: boolean;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry, permanent?: boolean) => void;
   onClose?: () => void;
 };
@@ -57,11 +58,26 @@ export function WorkspaceFilesPanel({
   headerTarget,
   isRemoteWorkspace,
   active,
+  searchable = false,
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
   const [path, setPath] = React.useState(() => (workspaceId ? lastPathByWorkspace.get(workspaceId) ?? "" : ""));
   const [showHidden, setShowHidden] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [searchQuery, setSearchQuery] = React.useState("");
+  React.useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(query.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const searching = searchable && Boolean(query.trim());
+  const search = useQuery({
+    queryKey: ["project-file-search", workspaceId, searchQuery],
+    queryFn: ({ signal }) => client!.searchContents(workspaceId!, "files", searchQuery, signal),
+    enabled: Boolean(searchable && active && client && workspaceId && searchQuery),
+    staleTime: 15_000,
+  });
+
 
   React.useEffect(() => {
     if (workspaceId) {
@@ -112,6 +128,7 @@ export function WorkspaceFilesPanel({
   }, [path]);
 
   const navigateTo = React.useCallback((nextPath: string) => {
+    setQuery("");
     setPath(nextPath);
     listRef.current?.scrollTo({ top: 0 });
   }, []);
@@ -165,6 +182,7 @@ export function WorkspaceFilesPanel({
           </Tooltip> : null}
         </PanelHeader>
 
+        {searchable && <div className="shrink-0 border-b border-border/70 px-3 py-2"><div className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><input maxLength={512} className="h-8 w-full rounded-lg border border-input bg-background pl-8 pr-8 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40" placeholder={t("project_browser.search_files")} aria-label={t("project_browser.search_files")} value={query} onChange={event => setQuery(event.target.value)} />{query && <Button variant="ghost" size="icon-xs" className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setQuery("")} aria-label={t("legalmemory.clear_search")}><X className="size-3.5" /></Button>}</div></div>}
         <nav
           ref={breadcrumbsRef}
           aria-label={t("workspace_files.current_folder")}
@@ -197,7 +215,15 @@ export function WorkspaceFilesPanel({
         <WorkspaceEntryMenu client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
           folderPath={path} onRefresh={() => void refetch()} className="flex min-h-0 flex-1 flex-col">
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
-          {isLoading ? (
+          {searching ? <div>
+            {query.trim() !== searchQuery || search.isFetching ? <p role="status" className="p-3 text-sm text-muted-foreground">{t("project_browser.searching")}</p> : search.error ? <PanelEmptyState icon={<AlertCircle />} title={t("project_browser.search_failed")} description={projectErrorMessage(search.error)}><Button variant="outline" size="sm" onClick={() => void search.refetch()}>{t("workspace_files.try_again")}</Button></PanelEmptyState> : <>
+              {search.data?.items.filter(item => item.path).map(item => <button key={item.id} className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { if (workspaceId && item.path) writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: item.path, name: item.title }); }} onClick={() => { if (item.path) onOpenFile({ kind: "file", name: item.title, path: item.path, updatedAt: item.updatedAt }); }}>
+                <ArtifactIcon type={classifyOpenTarget(item.path ?? item.title, "file")} className="mt-0.5 size-5 shrink-0" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.path}</span>{item.excerpt && <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.excerpt}</span>}</span>
+              </button>)}
+              {!search.data?.items.length && <PanelEmptyState icon={<Search />} title={t("project_browser.no_matches")} description={t("project_browser.try_search")} />}
+              {(search.data?.limited || search.data?.skipped || search.data?.preparing || search.data?.incomplete) ? <p role="status" className="p-3 text-xs text-muted-foreground">{t("project_browser.partial_search")}</p> : null}
+            </>}
+          </div> : isLoading ? (
             <div className="space-y-0.5">
               {SKELETON_ROW_WIDTHS.map((width, index) => (
                 <div key={index} className="flex items-center gap-2.5 px-2.5 py-2">
