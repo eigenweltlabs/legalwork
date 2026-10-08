@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import type { AssistantOnboardingState } from "@legalwork/types/main-assistant";
+import { AssistantOnboardingConversation } from "./assistant-onboarding-conversation";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -19,9 +21,10 @@ export function AssistantDateDivider({ date }: { date: string }) {
 }
 
 /** Older engine contexts are rendered here only. They never enter today's prompt or transcript cache. */
-export function AssistantHistory({ client, workspaceId, sessionId, date, scrollRef, onOpenTarget }: {
+export function AssistantHistory({ client, workspaceId, sessionId, date, scrollRef, onOpenTarget, onboarding }: {
   client: LegalworkServerClient; workspaceId: string; sessionId: string; date: string; scrollRef: RefObject<HTMLDivElement | null>;
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions) => void;
+  onboarding?: AssistantOnboardingState;
 }) {
   const anchor = useRef<{ top: number; height: number } | null>(null);
   const history = useInfiniteQuery({
@@ -72,14 +75,16 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
     {history.isFetching && <p role="status" className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("assistant.loading_history")}</p>}
     {history.isError && <div role="alert" className="py-3 text-center text-xs text-muted-foreground">{t("assistant.history_failed")}<Button variant="ghost" size="sm" onClick={() => void (history.isFetchNextPageError ? history.fetchNextPage() : history.refetch())}>{t("scheduled.retry")}</Button></div>}
     {history.hasNextPage && !history.isFetching && <Button variant="ghost" size="sm" className="mx-auto block text-xs text-muted-foreground" onClick={loadOlder}>{t("assistant.older")}</Button>}
-    {days.map(day => <section key={day.sessionId} aria-label={day.date}>
-      <AssistantDateDivider date={day.date} />
+    {days.map((day, index) => <section key={day.sessionId} aria-label={day.date}>
+      {(index > 0 || history.hasNextPage) && <AssistantDateDivider date={day.date} />}
+      {onboarding?.step === "complete" && onboarding.sessionId === day.sessionId && <AssistantOnboardingConversation workspaceId={workspaceId} state={onboarding} />}
       <OpenTargetProvider openTargets={day.openTargets} onOpenTarget={onOpenTarget}>
-      <MessageListProvider legalworkClient={client} workspaceId={workspaceId} sessionId={day.sessionId} readOnly showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0}
+      <MessageListProvider assistantChat legalworkClient={client} workspaceId={workspaceId} sessionId={day.sessionId} readOnly showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0}
         dispatchAction={() => {}} setPrompt={() => {}} onRevertToUserMessage={() => {}} onForkAtMessage={() => {}} onEditUserMessage={() => {}}>
         <MessageList messages={day.messages} status="ready" showWelcome={false} />
       </MessageListProvider>
       </OpenTargetProvider>
     </section>)}
+    {days.length > 0 && <AssistantDateDivider date={date} />}
   </>;
 }

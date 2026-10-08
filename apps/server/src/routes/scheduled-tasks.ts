@@ -1,3 +1,5 @@
+import { matchesSearch } from "../search-schema.js";
+import { searchFingerprint } from "../assistant-session-search.js";
 import { isMainAssistant } from "../main-assistant.js";
 import { readSessionInbox } from "../session-inbox.js";
 import { resolve } from "node:path";
@@ -44,7 +46,23 @@ export function registerScheduledTaskRoutes(options: {
   addRoute(options.routes, "GET", "/scheduled-tasks", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const local = new Set(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
-    return options.jsonResponse({ tasks: store.list().filter(task => local.has(task.workspaceId)) });
+    const tasks = store.list().filter(task => local.has(task.workspaceId));
+    if (!ctx.url.searchParams.has("limit")) return options.jsonResponse({ tasks });
+    const input = z.object({ limit: z.coerce.number().int().min(1).max(50), query: z.string().max(300).default(""), cursor: z.string().optional(), status: z.enum(["active", "paused", "completed"]).optional() }).safeParse(Object.fromEntries(ctx.url.searchParams));
+    if (!input.success) throw new ApiError(400, "schedule_query", "Check schedule search and pagination.");
+    const fingerprint = searchFingerprint([input.data.query, input.data.status]);
+    let after = "";
+    if (input.data.cursor) {
+      try {
+        const cursor = z.object({ fingerprint: z.string(), after: z.string() }).parse(JSON.parse(Buffer.from(input.data.cursor, "base64url").toString()));
+        if (cursor.fingerprint !== fingerprint) throw new Error("filters changed");
+        after = cursor.after;
+      } catch { throw new ApiError(400, "schedule_cursor", "Keep the same filters with a valid cursor."); }
+    }
+    const matches = tasks.filter(task => (!input.data.status || task.status === input.data.status) && matchesSearch(`${task.title} ${task.prompt}`, input.data.query) && task.id.localeCompare(after) > 0).sort((a, b) => a.id.localeCompare(b.id));
+    const page = matches.slice(0, input.data.limit);
+    return options.jsonResponse({ tasks: page.map(({ id, workspaceId, title, status, revision, nextRunAt, schedule }) => ({ id, workspaceId, title, status, revision, nextRunAt, schedule })),
+      nextCursor: matches.length > page.length ? Buffer.from(JSON.stringify({ fingerprint, after: page.at(-1)?.id })).toString("base64url") : null });
   });
   addRoute(options.routes, "GET", "/scheduled-tasks/projects", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");

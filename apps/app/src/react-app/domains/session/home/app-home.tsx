@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, ChevronDown, Folder, Paperclip, Plus } from "lucide-react";
+import type { AssistantProfile } from "@legalwork/types/main-assistant";
+import { AssistantAvatar } from "../sidebar/assistant-appearance";
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ModelRef } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -13,11 +15,13 @@ import { PendingStatus } from "@/components/chat/pending-status";
 import { LexicalPromptEditor } from "../surface/composer/editor";
 import { activeHomeAttachments, hasHomeFileDrop, homeAttachmentToken, readHomeFileReference, replaceHomeAttachmentTokens, stageHomeAttachment, type HomeDraftAttachment, type HomeFileReference } from "./home-attachments";
 import { t } from "@/i18n";
+import { cn } from "@/lib/utils";
 import "./app-home.css";
 
 export type AppHomeProps = {
   workspaces: WorkspaceInfo[];
   projectId: string | null;
+  assistantProfile?: AssistantProfile;
   onProjectChange: (id: string | null) => void;
   onCreateProject: () => void;
   onSend: (text: string, attachments: HomeDraftAttachment[]) => Promise<void>;
@@ -44,6 +48,7 @@ export function AppHome(props: AppHomeProps) {
   const root = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
+  const assistantName = props.assistantProfile?.name ?? t("assistant.title");
   const busy = props.disabled || sending;
   const canSend = !busy && Boolean(text.trim());
   const mentions = Object.fromEntries(attachments.map(({ value, kind }) => [value, kind]));
@@ -102,9 +107,9 @@ export function AppHome(props: AppHomeProps) {
         <div className="lw-home-pending-transcript px-4 py-4 md:px-8">
           <div className="lw-session-column">
             <div className="flex w-full flex-col items-end gap-2" data-message-role="user">
-              <MessageContent className="bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]">{displayText.trim()}</MessageContent>
+              <MessageContent className={cn("text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]", props.projectId ? "bg-foreground/[0.06]" : "bg-blue-3")}>{displayText.trim()}</MessageContent>
             </div>
-            <div className="mt-6"><PendingStatus preparing label={t("session.preparing_workspace")} /></div>
+            <div className="mt-6"><PendingStatus label={t("home.sending_message")} /></div>
           </div>
         </div>
         <div className="lw-home-pending-composer px-4 md:px-8"><div className="lw-session-column lw-home-composer">{editor}{controls}</div></div>
@@ -139,16 +144,17 @@ export function AppHome(props: AppHomeProps) {
             <div className="lw-home-project-bar">
               <DropdownMenu>
                 <DropdownMenuTrigger render={<Button type="button" variant="ghost" disabled={busy} className="lw-home-project-picker" />}>
-                  <Folder size={18} /><span>{project ? project.displayName || project.name : t("home.choose_project")}</span><ChevronDown size={14} />
+                  {project ? <Folder size={18} /> : <AssistantAvatar icon={props.assistantProfile?.icon} />}<span>{project ? project.displayName || project.name : assistantName}</span><ChevronDown size={14} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-80 min-w-64 overflow-y-auto">
+                  <DropdownMenuItem onClick={() => props.onProjectChange(null)}><AssistantAvatar icon={props.assistantProfile?.icon} />{assistantName}</DropdownMenuItem>
                   <DropdownMenuItem onClick={props.onCreateProject}><Plus size={16} />{t("home.new_project")}</DropdownMenuItem>
                   {props.workspaces.length ? <DropdownMenuSeparator /> : null}
                   {props.workspaces.map((workspace) => <DropdownMenuItem key={workspace.id} onClick={() => props.onProjectChange(workspace.id)}><Folder size={16} /><span className="truncate">{workspace.displayName || workspace.name}</span></DropdownMenuItem>)}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button type="button" variant="ghost" disabled={busy} onClick={() => fileInput.current?.click()}><Paperclip size={17} />{t("home.files")}</Button>
-              <span className="lw-home-project-hint">{project ? t("home.existing_project_hint") : t("home.new_project_hint")}</span>
+              <span className="lw-home-project-hint">{project ? t("home.existing_project_hint") : t("home.assistant_hint", { name: assistantName })}</span>
             </div>
             <input ref={fileInput} className="sr-only" type="file" multiple tabIndex={-1} aria-label={t("home.add_files")} disabled={busy} onChange={(event) => { addAttachments(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
             {error ? <p role="alert" className="lw-home-error">{error}</p> : null}

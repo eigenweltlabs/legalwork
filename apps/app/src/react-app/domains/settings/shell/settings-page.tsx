@@ -1,5 +1,7 @@
 /** @jsxImportSource react */
 import type * as React from "react";
+import { useEffect, useState } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Bell,
   Bug,
@@ -240,14 +242,18 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "tabular-review", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "tabular-review", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
-  // Placed right after AI Providers.
-  if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");
+  // Placed right after Account.
+  if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");
   // Recorder models/settings are desktop-only (local transcription engine).
-  if (isDesktopRuntime()) tabs.splice(2, 0, "recorder");
+  if (isDesktopRuntime()) tabs.splice(1, 0, "recorder");
   if (developerMode) tabs.push("debug");
   return tabs;
+}
+
+export function getAdvancedSettingsTabs(): SettingsTab[] {
+  return ["ai", "notifications"];
 }
 
 type SettingsPageProps = {
@@ -277,6 +283,10 @@ type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" 
 export function SettingsSidebar(props: SettingsSidebarProps) {
   const workspaceTabs = getWorkspaceSettingsTabs();
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
+  const advancedTabs = getAdvancedSettingsTabs();
+  const advancedSelected = advancedTabs.includes(props.activeTab);
+  const [advancedOpen, setAdvancedOpen] = useState(advancedSelected);
+  useEffect(() => { if (advancedSelected) setAdvancedOpen(true); }, [advancedSelected, props.activeTab]);
 
   return (
     <nav aria-label={t("settings.navigation")} className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
@@ -381,6 +391,24 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <SidebarGroup>
+            <CollapsibleTrigger className="flex h-8 w-full items-center justify-between px-2 text-xs font-medium text-sidebar-foreground/70">
+              {t("settings.tab_advanced")}
+              <ChevronDown className={advancedOpen ? "size-3.5" : "size-3.5 -rotate-90"} />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent><SidebarMenu>
+                {advancedTabs.map(tab => {
+                  const Icon = getSettingsTabIcon(tab);
+                  return <SidebarMenuItem key={tab}><SidebarMenuButton type="button" isActive={props.activeTab === tab} aria-current={props.activeTab === tab ? "page" : undefined} onClick={() => props.onSelectTab(tab)}>
+                    <Icon /><span>{getSettingsTabLabel(tab)}</span>
+                  </SidebarMenuButton></SidebarMenuItem>;
+                })}
+              </SidebarMenu></SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
       </SidebarContent>
     </nav>
   );

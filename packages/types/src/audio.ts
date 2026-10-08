@@ -300,6 +300,7 @@ export type AudioSaveToWorkspaceResult = {
  * main window and the call overlay window.
  */
 export type AudioRecorderEvent =
+  | { type: "recordings-changed" }
   | { type: "model-download-progress"; modelId: string; downloadedBytes: number; totalBytes: number }
   | { type: "model-download-done"; modelId: string }
   | { type: "model-download-error"; modelId: string; error: string }

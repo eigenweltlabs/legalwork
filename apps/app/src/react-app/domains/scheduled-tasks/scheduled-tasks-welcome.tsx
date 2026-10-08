@@ -6,12 +6,12 @@ import { currentLocale, t } from "@/i18n";
 import type { ScheduledTaskDraft } from "./scheduled-task-dialog";
 import { suggestedSchedule } from "./schedule-format";
 
-export function ScheduledTasksWelcome({ connected, hasProjects, onCreate }: {
-  connected: boolean; hasProjects: boolean; onCreate: (draft?: ScheduledTaskDraft) => void;
+export function ScheduledTasksWelcome({ connected, hasProjects, assistantWorkspaceId, onCreate }: {
+  connected: boolean; hasProjects: boolean; assistantWorkspaceId?: string; onCreate: (draft?: ScheduledTaskDraft) => void;
 }) {
   const disabled = !connected || !hasProjects;
   const templates = [
-    { key: "brief", Icon: Sunrise, color: "text-amber-11", title: t("scheduled.template_brief"), description: t("scheduled.template_brief_description"), prompt: t("scheduled.template_brief_prompt"), cadence: t("scheduled.routine_mornings"), schedule: () => suggestedSchedule("weekdays", 6) },
+    { key: "brief", workspaceId: assistantWorkspaceId, Icon: Sunrise, color: "text-amber-11", title: t("scheduled.template_brief"), description: t("scheduled.template_brief_description"), prompt: t("scheduled.template_brief_prompt"), cadence: t("scheduled.routine_mornings"), schedule: () => suggestedSchedule("weekdays", 6) },
     { key: "deadlines", Icon: CalendarCheck2, color: "text-blue-11", title: t("scheduled.template_deadlines"), description: t("scheduled.template_deadlines_description"), prompt: t("scheduled.template_deadlines_prompt"), cadence: t("scheduled.routine_deadlines"), schedule: () => suggestedSchedule("weekdays", 8) },
     { key: "review", Icon: FileCheck2, color: "text-green-11", title: t("scheduled.template_review"), description: t("scheduled.template_review_description"), prompt: t("scheduled.template_review_prompt"), cadence: t("scheduled.routine_fridays"), schedule: () => suggestedSchedule("friday", 16) },
     { key: "planning", Icon: ListChecks, color: "text-violet-11", title: t("scheduled.template_planning"), description: t("scheduled.template_planning_description"), prompt: t("scheduled.template_planning_prompt"), cadence: t("scheduled.routine_mondays"), schedule: () => suggestedSchedule("monday", 9) },
@@ -47,7 +47,7 @@ export function ScheduledTasksWelcome({ connected, hasProjects, onCreate }: {
     <section>
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-base font-medium tracking-tight">{t("scheduled.start_routine")}</h2><p className="text-xs text-muted-foreground">{t("scheduled.templates_hint")}</p></div>
       <div className="grid gap-3 @md/welcome:grid-cols-2">
-        {templates.map(({ key, Icon, color, title, description, prompt, cadence, schedule }) => <Button key={key} variant="outline" disabled={disabled} onClick={() => onCreate({ title, prompt, schedule: schedule() })}
+        {templates.map(({ key, workspaceId, Icon, color, title, description, prompt, cadence, schedule }) => <Button key={key} variant="outline" disabled={disabled || (key === "brief" && !workspaceId)} onClick={() => onCreate({ title, prompt, workspaceId, schedule: schedule() })}
           className="group h-auto min-w-0 flex-col items-stretch gap-0 whitespace-normal rounded-[var(--lw-radius-2xl)] p-4 text-left font-normal shadow-none transition-[background-color,border-color,box-shadow] hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm">
           <span className="flex items-center justify-between gap-3"><IconTile size="sm" className={color}><Icon /></IconTile><span className="text-[11px] text-muted-foreground">{cadence}</span></span>
           <span className="mt-3 text-sm font-medium text-foreground">{title}</span><span className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{description}</span>

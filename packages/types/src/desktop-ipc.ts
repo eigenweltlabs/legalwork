@@ -773,7 +773,7 @@ export type DesktopCommandMap = {
    * with the notification's id. Resolves false where the system cannot show one.
    */
   desktopNotificationShow: {
-    args: [notification: { id: string; title: string; body?: string }];
+    args: [notification: { id: string; title: string; body?: string; backgroundOnly?: boolean }];
     result: boolean;
   };
   /**

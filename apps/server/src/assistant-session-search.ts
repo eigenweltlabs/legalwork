@@ -33,7 +33,7 @@ export async function searchAssistantSessions(config: ServerConfig, workspaces: 
   const db = await openSqliteReadonly(localSessionDatabasePath(config));
   try {
     const values = [...roots.keys()];
-    let where = `s.directory IN (${values.map(() => "?").join(",")}) AND s.time_archived IS NULL
+    let where = `s.directory IN (${values.map(() => "?").join(",")}) AND COALESCE(s.time_archived, 0) = 0
       AND json_extract(m.data, '$.role') IN ('user','assistant')
       AND json_extract(p.data, '$.type') IN (${input.includeToolOutputs ? "'text','tool'" : "'text'"})
       AND COALESCE(json_extract(p.data, '$.synthetic'),0) = 0 AND COALESCE(json_extract(p.data, '$.ignored'),0) = 0`;

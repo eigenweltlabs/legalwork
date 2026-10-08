@@ -104,6 +104,14 @@ export interface RecorderLiveTranscriptStatus {
 }
 
 export interface RecorderBridge {
+  library?: {
+    list: () => Promise<AudioRecordingMeta[]>;
+    read: (id: string) => Promise<AudioRecordingDetail | null>;
+    rename: (id: string, title: string) => Promise<void>;
+    link: (id: string, projectId: string, linked: boolean) => Promise<void>;
+    trash: (id: string) => Promise<void>;
+    control: (input: { action: "status" | "start" | "stop"; title?: string; projectId?: string; recordingId?: string; sources?: ("microphone" | "system")[] }) => Promise<unknown>;
+  };
   listProjectRecordings?: (projectId: string) => Promise<Pick<AudioRecordingMeta, "id" | "title" | "durationMs" | "status" | "segmentCount">[]>;
   readProjectRecording?: (projectId: string, id: string) => Promise<Pick<AudioRecordingDetail, "segments"> | null>;
   /** Copy a finished recording linked to the project into its `recordings/` folder, for project sync; false when not written. */

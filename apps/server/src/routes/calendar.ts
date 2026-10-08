@@ -16,7 +16,7 @@ import { addDays, dayInZone } from "../calendar/dates.js";
 import { ApiError } from "../errors.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { calendarStore } from "../calendar/store.js";
-import { calendarExport, calendarOccurrences, calendarVisible, collectCalendarReminders, datedTasks } from "../calendar/service.js";
+import { globalCalendarOccurrences, calendarExport, calendarOccurrences, calendarVisible, collectCalendarReminders, datedTasks } from "../calendar/service.js";
 import { DEADLINE_SKILLS } from "../calendar/deadline-rules.js";
 import { calculateWithSkill, DEADLINE_CODE_HASH, ensureDeadlineSkills } from "../calendar/skills.js";
 import { announceSyncChange } from "../app-sync-events.js";
@@ -127,14 +127,7 @@ export function registerCalendarRoutes(options: {
   });
   addRoute(options.routes, "GET", "/calendar/occurrences", "client", async ctx => {
     options.requireClientScope(ctx, "viewer"); const { from, to } = range(ctx);
-    const occurrences = (await Promise.all(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => calendarOccurrences(config, workspace, from, to)))).flat();
-    for (const task of await datedTasks(config)) {
-      if (task.projectId || !task.dueDate || task.status === "cancelled") continue;
-      const day = task.dueDate.length === 10 ? task.dueDate : dayInZone(task.dueDate, "Europe/Berlin");
-      if (day < from || day >= to) continue;
-      occurrences.push({ id: `task:${task.id}`, itemId: task.id, uid: `task-${task.id}@legalwork`, projectId: null, projectName: "Inbox", kind: "task", title: task.title,
-        start: task.dueDate, end: null, allDay: task.dueDate.length === 10, timeZone: "Europe/Berlin", status: task.status, assigneeUserId: task.assigneeUserId, provenance: null, verified: true, recurring: false });
-    }
+    const occurrences = await globalCalendarOccurrences(config, from, to);
     return options.jsonResponse({ occurrences });
   });
   addRoute(options.routes, "POST", "/calendar/reminders/claim", "client", async ctx => {

@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { sessionMainPage } from "../src/react-app/shell/workspace-routes";
+import { parseWorkspaceSessionLink, sessionMainPage } from "../src/react-app/shell/workspace-routes";
+
+test("returned chat links navigate internally and reject external or non-chat destinations", () => {
+  const route = "/workspace/ws_project-1/session/ses_review-1";
+  expect(parseWorkspaceSessionLink(route)).toBe(route);
+  expect(parseWorkspaceSessionLink(`#${route}`)).toBe(route);
+  for (const href of ["https://example.com" + route, "//example.com" + route, "/workspace/a/settings", "/workspace/a/session/../settings", "javascript:alert(1)", route + "?redirect=https://example.com", "/workspace/%2e%2e/session/x"])
+    expect(parseWorkspaceSessionLink(href)).toBeNull();
+});
 
 describe("main page navigation", () => {
   test("Tasks to Projects and browser history always resolve to a collapsed-sidebar page", () => {

@@ -1,4 +1,6 @@
+import { isAssistantFileTool } from "./assistant-chat-presentation";
 import { isDelegationTool } from "./delegation-card";
+import { isAssistantNameTool } from "./assistant-name-card";
 import { isScheduledTaskTool } from "./scheduled-task-card";
 import { isCalculationTool } from "./calculation/calculation-card";
 import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
@@ -132,6 +134,8 @@ type AssistantRenderGroup =
   | { kind: "review"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "reviews"; parts: Array<ToolUIPart | DynamicToolUIPart> }
   | { kind: "delegation"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "assistant-file"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "assistant-name"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "scheduled-task"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "calculation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
@@ -294,6 +298,8 @@ export function getAssistantRenderGroups(
         groups.push({ kind: "review", part }); continue;
       }
       if (isDelegationTool(part)) { groups.push({ kind: "delegation", part }); continue; }
+      if (isAssistantFileTool(part)) { groups.push({ kind: "assistant-file", part }); continue; }
+      if (isAssistantNameTool(part)) { groups.push({ kind: "assistant-name", part }); continue; }
       if (isScheduledTaskTool(part)) { groups.push({ kind: "scheduled-task", part }); continue; }
       if (isCalculationTool(part)) { groups.push({ kind: "calculation", part }); continue; }
       if (isProjectListTool(part)) { groups.push({ kind: "project", part }); continue; }

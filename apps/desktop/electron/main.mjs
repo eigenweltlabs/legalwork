@@ -52,6 +52,7 @@ import {
   openComputerUseSetupApp,
 } from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
+import { assistantRecorderLibrary } from "./audio/assistant-recorder.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
@@ -868,6 +869,7 @@ const liveNotifications = new Map();
 
 function showDesktopNotification(input) {
   if (!Notification.isSupported()) return false;
+  if (input?.backgroundOnly && BrowserWindow.getFocusedWindow()) return false;
   const id = String(input?.id ?? "").trim().slice(0, 200);
   const title = String(input?.title ?? "").trim().slice(0, 200);
   if (!id || !title) return false;
@@ -1039,6 +1041,17 @@ const runtimeManager = createRuntimeManager({
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
+    library: assistantRecorderLibrary({
+      service: recorderService,
+      trashItem: (file) => shell.trashItem(file),
+      control: async (input) => {
+        if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Open LegalWork to control recording.");
+        return mainWindow.webContents.executeJavaScript(`(async () => {
+          if (!window.__legalworkRecorder) return { ok: false, error: "Recorder is not ready yet." };
+          return window.__legalworkRecorder(${JSON.stringify(input)});
+        })()`);
+      },
+    }),
     listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
       .filter((recording) => recording.projectIds?.includes(projectId))
       .map(({ id, title, durationMs, status, segmentCount }) => ({ id, title, durationMs, status, segmentCount })),

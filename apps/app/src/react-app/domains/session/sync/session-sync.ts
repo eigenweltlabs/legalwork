@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { textPartProviderMetadata } from "./assistant-message-sender";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
@@ -532,7 +533,7 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
       type: "text",
       text: part.text,
       state: "done",
-      providerMetadata: { opencode: { partId: part.id } },
+      providerMetadata: textPartProviderMetadata(part),
     };
   }
   if (part.type === "reasoning") {
@@ -996,7 +997,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     const next = {
       id: info.id,
       role: info.role,
-      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(info.summary ? { summary: true } : {}) } },
+      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(info.summary ? { summary: true } : {}), ...(info.role === "assistant" && (info.time?.completed || info.error) ? { completed: true } : {}) } },
       parts: [],
     } satisfies UIMessage;
     queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, info.sessionID), (current = []) =>

@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { existsSync, lstatSync } from "node:fs";
 import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +9,12 @@ const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
 const electronHelperDir = resolve(desktopRoot, "resources", "helpers");
+// Dev preparation must never write through a link into an installed app.
+for (const directory of [electronSidecarDir, electronHelperDir]) {
+  if (existsSync(directory) && lstatSync(directory).isSymbolicLink()) {
+    throw new Error(`Dev resources must be local to this checkout, not a symlink: ${directory}`);
+  }
+}
 const defaultDevDataDir = resolve(
   process.env.HOME ?? process.env.USERPROFILE ?? repoRoot,
   ".legalwork",

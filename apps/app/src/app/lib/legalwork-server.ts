@@ -1,4 +1,4 @@
-import type { AssistantProfile } from "@legalwork/types/main-assistant";
+import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -2729,9 +2729,15 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
     sessionInbox: () => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken }),
-    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant", { token, hostToken }),
+    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null }>(baseUrl, "/assistant", { token, hostToken }),
+    assistantAttention: (cursor?: string) => requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention?presented=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { token, hostToken }),
+    setAssistantAttentionVisibility: (item: Pick<AssistantAttentionItem, "id" | "revision" | "workspaceId" | "sessionId">, visible: boolean) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/visibility", { token, hostToken, method: "POST", body: { id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, visible } }),
+    replyAssistantAttention: (reply: AssistantAttentionReply) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/reply", { token, hostToken, method: "POST", body: reply }),
+    mainAssistantOnboarding: () => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding", { token, hostToken }),
+    viewAssistantGreeting: () => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding/view", { token, hostToken, method: "POST" }),
+    answerAssistantOnboarding: (answer: { name: string } | { icon: AssistantAvatarIcon }) => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding", { token, hostToken, method: "POST", body: answer }),
     updateAssistantProfile: (profile: AssistantProfile) => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant/profile", { token, hostToken, method: "PATCH", body: profile }),
-    mainAssistantCurrent: () => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST" }),
+    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields } }),
     mainAssistantHistory: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),

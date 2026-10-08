@@ -360,8 +360,38 @@ test("opens workspace and connected files in the engine session, then exposes li
   const output: { system: string[] } = { system: [] };
   await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
   expect(output.system.join("\n")).toContain("inapp_documents_open");
-  expect(output.system.join("\n")).toContain("inapp_md_*");
-  expect(output.system.join("\n")).toContain("An empty inapp_documents_list means you need to open the file");
+  expect(output.system.join("\n")).toContain("Do not open or select sidebar files merely to read them");
+  expect(output.system.join("\n")).not.toContain("An empty inapp_documents_list means you need to open the file");
+});
+
+test("Assistant UI changes need an explicit user request; background reads do not open files", async () => {
+  const previousUrl = process.env.LEGALWORK_SERVER_URL;
+  const server = Bun.serve({ port: 0, fetch: () => Response.json({ workspace: { path: "/Assistant" } }) });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin;
+  const calls: unknown[] = [];
+  await withBridge({}, body => { calls.push(body); return { ok: true }; });
+  // The fake UI bridge fetch should delegate Assistant identity checks to the server.
+  const bridgeFetch = globalThis.fetch;
+  const nativeFetch = originalFetch;
+  if (!nativeFetch) throw new Error("Missing fetch fixture");
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    return url.startsWith(server.url.origin) ? nativeFetch(input, init) : bridgeFetch(input, init);
+  }, { preconnect: nativeFetch.preconnect });
+  try {
+    const plugin = await LegalWorkExtensionsPreview();
+    const context = { sessionID: "assistant", directory: "/Assistant" };
+    await expect(plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf" }, context)).rejects.toThrow("only when the user explicitly asks");
+    await expect(plugin.tool.inapp_documents_select.execute({ path: "agreement.pdf" }, context)).rejects.toThrow("only when the user explicitly asks");
+    await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId: "documents.open", args: { path: "agreement.pdf" } }, context)).rejects.toThrow("only when the user explicitly asks");
+    await expect(plugin.tool.legalwork_browser_open_url.execute({ url: "https://example.com" }, context)).rejects.toThrow("only when the user explicitly asks");
+    expect(calls).toHaveLength(0);
+    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", userRequested: true }, context);
+    expect(calls).toHaveLength(1);
+  } finally {
+    server.stop(true);
+    if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
+  }
 });
 
 describe("PowerPoint visual feedback", () => {

@@ -57,6 +57,7 @@ type EditorProps = {
   disabled: boolean;
   placeholder: string;
   ariaLabel?: string;
+  compact?: boolean;
   onChange: (value: string) => void;
   onSubmit: (options: { queue: boolean }) => void | Promise<void>;
   onExpandPastedText?: (label: string) => void;
@@ -945,11 +946,11 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
         - max-h caps the composer — long pastes / multi-paragraph drafts scroll
           inside the editor instead of pushing the transcript out of view.
       */}
-      <div className="relative" onClickCapture={handlePastedTextPreviewPointer} onKeyDownCapture={handlePastedTextPreviewPointer} onMouseDownCapture={handlePastedTextPreviewMouseDown}>
+      <div className={props.compact ? "relative min-w-0 flex-1 py-1.5" : "relative"} onClickCapture={handlePastedTextPreviewPointer} onKeyDownCapture={handlePastedTextPreviewPointer} onMouseDownCapture={handlePastedTextPreviewMouseDown}>
         <PlainTextPlugin
           contentEditable={
             <ContentEditable
-              className="min-h-[72px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
+              className={`${props.compact ? "min-h-6 max-h-40" : "min-h-[72px] max-h-[280px]"} w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0`}
               aria-placeholder={props.placeholder}
               aria-label={props.ariaLabel}
               placeholder={<span />}
@@ -960,7 +961,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-0 top-0 text-[15px] leading-6 text-dls-secondary">
+            <div className={`pointer-events-none absolute left-0 right-0 ${props.compact ? "top-1.5 truncate" : "top-0"} text-[15px] leading-6 text-dls-secondary`}>
               {props.placeholder}
             </div>
           }

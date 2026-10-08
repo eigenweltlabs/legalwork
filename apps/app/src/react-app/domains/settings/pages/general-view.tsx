@@ -2,6 +2,7 @@
 import {
   ArrowRight,
   Bell,
+  ChevronDown,
   FileStack,
   FolderLock,
   KeyRound,
@@ -21,6 +22,7 @@ import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
@@ -41,7 +43,6 @@ const globalItems = (): SettingsItem[] => [
     title: t("settings.tab_account"),
     desc: t("settings.tab_description_account"),
   },
-  { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: `${t("settings.tab_description_ai")}.` },
   { tab: "tabular-review", icon: Table2, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
@@ -49,12 +50,6 @@ const globalItems = (): SettingsItem[] => [
     icon: Sparkles,
     title: t("settings.tab_personalisation"),
     desc: `${t("settings.tab_description_personalisation")}.`,
-  },
-  {
-    tab: "notifications",
-    icon: Bell,
-    title: t("settings.tab_notifications"),
-    desc: `${t("settings.tab_description_notifications")}.`,
   },
   { tab: "safety", icon: ShieldCheck, title: t("settings.tab_safety"), desc: `${t("settings.tab_description_safety")}.` },
   { tab: "shell", icon: Layout, title: t("settings.tab_shell"), desc: `${t("settings.tab_description_shell")}.` },
@@ -82,8 +77,8 @@ function resolveGlobalItems(): SettingsItem[] {
     // omits it because the settings-page tab header uses no trailing period.
     desc: `${t("office_addins.tab_description")}.`,
   };
-  // After Account and AI Providers, mirroring getGlobalSettingsTabs.
-  return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
+  // After Account, mirroring getGlobalSettingsTabs.
+  return [...items.slice(0, 1), recorderItem, officeAddinsItem, ...items.slice(1)];
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
@@ -132,6 +127,17 @@ export function GeneralSettingsView(props: GeneralSettingsViewProps) {
     <div className="w-full max-w-3xl space-y-9">
       <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems()} onNavigateTab={props.onNavigateTab} />
       <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
+      <Collapsible className="group/advanced space-y-2.5">
+        <CollapsibleTrigger className="lw-section-eyebrow flex w-full items-center justify-between px-1 text-left">
+          {t("settings.tab_advanced")}<ChevronDown className="size-4 -rotate-90 group-data-[open]/advanced:rotate-0" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Surface className="divide-y divide-border/70 overflow-hidden">
+            <SettingsRow icon={Zap} title={t("settings.tab_ai")} desc={t("settings.tab_description_ai")} onClick={() => props.onNavigateTab("ai")} />
+            <SettingsRow icon={Bell} title={t("settings.tab_notifications")} desc={t("settings.tab_description_notifications")} onClick={() => props.onNavigateTab("notifications")} />
+          </Surface>
+        </CollapsibleContent>
+      </Collapsible>
       <p className="px-1 text-[11px] text-muted-foreground/70">
         {t("settings.tab_description_general")}
       </p>

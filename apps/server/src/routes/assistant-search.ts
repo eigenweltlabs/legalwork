@@ -7,7 +7,7 @@ import { taskStore } from "../task-store.js";
 import { connectedTaskOrgId } from "../tasks-api.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { projectSyncStore } from "../project-sync-store.js";
-import { calendarOccurrences } from "../calendar/service.js";
+import { calendarOccurrences, globalCalendarOccurrences } from "../calendar/service.js";
 import { addDays } from "../calendar/dates.js";
 import type { CalendarOccurrence } from "@legalwork/types/calendar";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -50,7 +50,7 @@ export function registerAssistantSearchRoutes(options: {
   });
   addRoute(routes, "GET", "/assistant/tasks", "client", async ctx => {
     read(ctx);
-    const input = query(z.object({ ...page, status: z.enum(["open", "in_progress", "done", "cancelled"]).optional() }), ctx);
+    const input = query(z.object({ ...page, status: z.enum(["open", "in_progress", "done", "cancelled", "unfinished"]).optional(), sort: z.enum(["created", "updated", "due", "priority"]).optional() }), ctx);
     const accessible = await projects(input.projectId), connection = await readEigenweltConnection(config), orgId = connectedTaskOrgId(connection);
     const links = await projectSyncStore(config);
     const visible = new Set(accessible.workspaces.filter(workspace => {
@@ -58,7 +58,7 @@ export function registerAssistantSearchRoutes(options: {
       return !link || link.role === "owner" || (link.orgId === orgId && link.state === "active" && link.settings.scope.tasks);
     }).map(workspace => workspace.id));
     const store = await taskStore(config);
-    const result = store.listTasks({ projectId: input.projectId, status: input.status, cursor: input.cursor, limit: 200 }, orgId);
+    const result = store.listTasks({ projectId: input.projectId, ...(input.status === "unfinished" ? { statuses: ["open", "in_progress"] } : { status: input.status }), sort: input.sort, cursor: input.cursor, limit: 200 }, orgId);
     const items = []; let scanned = 0;
     for (const task of result.tasks) {
       ctx.request.signal.throwIfAborted(); scanned++;
@@ -73,29 +73,24 @@ export function registerAssistantSearchRoutes(options: {
     read(ctx);
     const input = query(z.object({ ...page, from: z.iso.date(), to: z.iso.date(), kind: z.enum(["deadline", "event", "task"]).optional() }), ctx);
     if (input.to <= input.from || input.to > addDays(input.from, 366)) throw new ApiError(400, "calendar_range", "Choose a date range of at most one year.");
-    const accessible = await projects(input.projectId);
+    const accessible = input.projectId ? await projects(input.projectId) : { workspaces: config.workspaces.filter(workspace => workspace.workspaceType !== "remote"), unavailable: [] };
     const fingerprint = searchFingerprint([input.query, input.from, input.to, input.kind, input.projectId]);
-    let cursor: { fingerprint: string; project: string; after: string } | undefined;
+    let after = "";
     if (input.cursor) {
-      try { cursor = z.object({ fingerprint: z.string(), project: z.string(), after: z.string() }).parse(JSON.parse(Buffer.from(input.cursor, "base64url").toString())); }
-      catch { throw new ApiError(400, "search_cursor", "The calendar cursor is invalid."); }
-      if (cursor.fingerprint !== fingerprint) throw new ApiError(400, "search_cursor", "Keep the same calendar filters when following a cursor.");
+      try {
+        const cursor = z.object({ fingerprint: z.string(), after: z.string() }).parse(JSON.parse(Buffer.from(input.cursor, "base64url").toString()));
+        if (cursor.fingerprint !== fingerprint) throw new Error("filters changed");
+        after = cursor.after;
+      } catch { throw new ApiError(400, "search_cursor", "Keep the same calendar filters with a valid cursor."); }
     }
-    const candidates = accessible.workspaces.filter(workspace => !cursor || workspace.id.localeCompare(cursor.project, "en") >= 0);
-    const encode = (project: string, after = "") => Buffer.from(JSON.stringify({ fingerprint, project, after })).toString("base64url");
-    const items: CalendarOccurrence[] = [];
-    for (let index = 0; index < Math.min(candidates.length, 10); index++) {
-      ctx.request.signal.throwIfAborted();
-      const workspace = candidates[index];
-      const key = (item: CalendarOccurrence) => `${item.start}\0${item.id}`;
-      const occurrences = (await calendarOccurrences(config, workspace, input.from, input.to)).sort((a, b) => key(a).localeCompare(key(b), "en"));
-      for (const item of occurrences) {
-        if (cursor?.project === workspace.id && key(item).localeCompare(cursor.after, "en") <= 0) continue;
-        if ((input.kind && input.kind !== item.kind) || !matchesSearch(item.title, input.query)) continue;
-        items.push(item);
-        if (items.length >= input.limit) return jsonResponse({ items, nextCursor: encode(workspace.id, key(item)), unavailable: accessible.unavailable });
-      }
-    }
-    return jsonResponse({ items, nextCursor: candidates.length > 10 ? encode(candidates[10].id) : null, unavailable: accessible.unavailable });
+    const occurrences = input.projectId
+      ? await calendarOccurrences(config, accessible.workspaces[0], input.from, input.to)
+      : await globalCalendarOccurrences(config, input.from, input.to, accessible.workspaces);
+    const key = (item: CalendarOccurrence) => `${item.start}\0${item.projectId ?? ""}\0${item.id}`;
+    const matches = occurrences.filter(item => (!input.kind || input.kind === item.kind) && matchesSearch(item.title, input.query) && key(item).localeCompare(after, "en") > 0)
+      .sort((a, b) => key(a).localeCompare(key(b), "en"));
+    const items = matches.slice(0, input.limit);
+    const last = items.at(-1);
+    return jsonResponse({ items, nextCursor: matches.length > items.length && last ? Buffer.from(JSON.stringify({ fingerprint, after: key(last) })).toString("base64url") : null, unavailable: accessible.unavailable });
   });
 }

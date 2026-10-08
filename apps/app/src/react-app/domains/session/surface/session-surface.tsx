@@ -1,4 +1,7 @@
-import { AssistantDateDivider, AssistantHistory } from "./assistant-history";
+import { AssistantHistory } from "./assistant-history";
+import { AssistantTypingBubble } from "@/components/chat/assistant-chat-cards";
+import { assistantBubbleMessages } from "./assistant-bubbles";
+import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
@@ -154,6 +157,8 @@ type SessionError = {
 
 export type SessionSurfaceProps = {
   assistantDate?: string;
+  assistantName?: string;
+  assistantOnboarding?: AssistantOnboardingControls;
   client: LegalworkServerClient;
   environmentClient?: LegalworkServerClient | null;
   workspaceId: string;
@@ -556,7 +561,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // the plan screen most of them show none. The red "model no longer
   // available" label stays tied to `modelUnavailable` alone; an empty
   // selection has no model to flag.
-  const sendBlocked =
+  const onboardingNeeded = Boolean(props.assistantOnboarding?.state.needed);
+  const showOnboarding = props.assistantOnboarding && (onboardingNeeded || props.assistantOnboarding.state.sessionId === props.sessionId);
+  const sendBlocked = (onboardingNeeded && props.assistantOnboarding?.state.step === "avatar") ||
     Boolean(props.modelUnavailable) ||
     noModelNoticeVisible ||
     lockedOutNoticeVisible ||
@@ -901,6 +908,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  const displayedMessages = useMemo(() => props.assistantDate ? assistantBubbleMessages(renderedMessages, snapshot, chatStreaming) : renderedMessages,
+    [props.assistantDate, renderedMessages, snapshot, chatStreaming]);
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -937,11 +946,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   useEffect(() => {
-    if (!autoOpenTarget || chatStreaming) return;
+    if (props.assistantDate || !autoOpenTarget || chatStreaming) return;
     if (autoOpenedTargetRef.current === autoOpenTarget.id) return;
     autoOpenedTargetRef.current = autoOpenTarget.id;
     props.onOpenTarget?.(autoOpenTarget, { auto: true }, props.sessionId);
-  }, [autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId]);
+  }, [autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId, props.assistantDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1163,6 +1172,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [appendQueuedDraft, attachments, buildDraft, clearComposer, draft, props.sessionId, startQueue, queuedDrafts, editingQueuedDraftId]);
 
   const handleSend = useCallback(async () => {
+    if (props.assistantOnboarding?.state.needed && props.assistantOnboarding.state.step === "avatar") return;
     // Include the shared run status: prompt acceptance and SSE can cross in flight.
     const activity = useSessionActivityStore.getState().getStatus(props.workspaceId, props.sessionId);
     if (chatStreaming || !["idle", "error"].includes(activity) || queuedDrafts.length > 0) {
@@ -1189,7 +1199,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         startQueue();
       }
     }
-  }, [attachments, buildDraft, chatStreaming, clearComposer, draft, handleQueue, props.sessionId, props.workspaceId, queuedDrafts.length, sendDraft, appendQueuedDraft, setQueuePaused, startQueue]);
+  }, [attachments, buildDraft, chatStreaming, clearComposer, draft, handleQueue, props.sessionId, props.workspaceId, queuedDrafts.length, sendDraft, appendQueuedDraft, setQueuePaused, startQueue, props.assistantOnboarding]);
 
   const removeQueuedDraft = useCallback((id: string) => {
     const state = useComposerStateStore.getState();
@@ -1824,6 +1834,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     contentRef,
   });
 
+  const onboardingStep = props.assistantOnboarding?.state.step;
+  useEffect(() => {
+    if (!onboardingNeeded || !onboardingStep) return;
+    const frame = requestAnimationFrame(() => sessionScroll.jumpToMessage(`assistant-onboarding-${onboardingStep}`));
+    return () => cancelAnimationFrame(frame);
+  }, [onboardingNeeded, onboardingStep, sessionScroll.jumpToMessage]);
+
   const searchMessagePresent = Boolean(searchMessageId && renderedMessages.some(message => message.id === searchMessageId));
   useEffect(() => {
     if (!searchMessageId || searchMessagePresent) return;
@@ -1958,7 +1975,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
-    <div className="lw-session-typography flex h-full min-h-0 flex-col">
+    <div className="lw-session-typography flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantDate ? "" : undefined}>
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">
@@ -1988,13 +2005,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onScroll={sessionScroll.handleScroll}
           className={cn(
             "lw-session-transcript absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-4 md:px-8",
+            props.assistantDate && "[&_[data-user-message-bubble]]:bg-blue-3",
             props.realtimeVoiceActive && "pointer-events-none",
           )}
         >
           <div ref={contentRef} className="lw-session-column">
-            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} />}
-            <div className={cn(props.assistantDate && renderedMessages.length === 0 && "min-h-[calc(100dvh-12rem)]")}>
-            {props.assistantDate && <AssistantDateDivider date={props.assistantDate} />}
+            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
+            <div className={cn(props.assistantDate && renderedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
+            {showOnboarding && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
@@ -2018,7 +2036,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
               </div>
             ) : renderedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
               <div className="px-6 py-12">
-                <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} />
+                {props.assistantDate ? <AssistantTypingBubble /> : <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} />}
               </div>
             ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 && error ? (
               <SessionErrorCard
@@ -2039,6 +2057,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onApplyChanges={props.onApplyEnvironmentChanges}
                   >
                     <MessageListProvider
+                      assistantChat={Boolean(props.assistantDate)}
                       legalworkClient={props.client}
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
@@ -2068,9 +2087,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
                           />;
                         }}
-                        messages={renderedMessages}
-                        status={status}
-                        retryStatus={retryStatusForDisplay}
+                        messages={displayedMessages}
+                        status={props.assistantDate && (props.activePermission || props.activeQuestion) ? "ready" : status}
+                        retryStatus={props.assistantDate && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
                       />
                       <RecordingDetailDialog />
                     </MessageListProvider>
@@ -2092,7 +2111,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             onStartJob={startVoiceJob}
             onClose={() => props.onRealtimeVoiceActiveChange?.(false)}
           />
-        ) : (
+        ) : onboardingNeeded ? null : (
           <SessionScrollOverlay
             sessionId={props.sessionId}
             isStreaming={chatStreaming}
@@ -2103,6 +2122,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       </div>
 
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",
+        onboardingNeeded && onboardingStep === "avatar" && "hidden",
         !pendingSessionLoad && renderedMessages.length === 0 && "lw-fade-enter",
       )}>
         {fusionEnabled && !fusionConfigured ? (
@@ -2119,6 +2139,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
+          assistantName={props.assistantDate ? props.assistantName ?? t("assistant.title") : undefined}
           draft={draft}
           mentions={mentions}
           onDraftChange={handleComposerDraftChange}
@@ -2138,7 +2159,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onAttachFiles={handleAttachFiles}
         uploading={pendingAttachmentUploads > 0}
         onRemoveAttachment={handleRemoveAttachment}
-        attachmentsEnabled={props.attachmentsEnabled}
+        attachmentsEnabled={!onboardingNeeded && props.attachmentsEnabled}
         attachmentsDisabledReason={props.attachmentsDisabledReason}
         modelVariantLabel={props.modelVariantLabel}
         modelVariant={props.modelVariant}
@@ -2199,7 +2220,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onPickModel={props.onModelClick}
                   />
                 ) : null}
-                {props.activeQuestion ? (
+                {props.activeQuestion && !props.assistantDate ? (
                   <QuestionPanel
                     questions={props.activeQuestion.questions}
                     busy={props.questionReplyBusy ?? false}
@@ -2213,7 +2234,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 {hasActivePlan ? (
                   <TodoPanel key={`${props.workspaceId}:${props.sessionId}`} todos={props.todos ?? []} />
                 ) : null}
-                {props.activePermission ? (
+                {props.activePermission && !props.assistantDate ? (
                   <PermissionApprovalPanel
                     permission={props.activePermission}
                     busy={props.permissionReplyBusy}

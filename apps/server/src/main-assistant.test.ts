@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
+import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
@@ -67,14 +68,74 @@ test("recovery only adopts a live root session inside the assistant folder", asy
 test("assistant appearance persists across restart and never changes its project folder or day", async () => {
   const f = await fixture();
   const before = await f.assistant.current();
-  expect(f.assistant.profile()).toEqual({ name: null, icon: "cat" });
+  expect(f.assistant.profile()).toEqual({ name: null, icon: "dot" });
+  expect(await f.assistant.needsOnboarding()).toBe(true);
   await f.assistant.updateProfile({ name: "Momo", icon: "otter" });
   const reopened = await f.factory();
   expect(reopened.profile()).toEqual({ name: "Momo", icon: "otter" });
+  await reopened.updateProfile({ name: "Momo", icon: "professional_owl" });
+  expect((await f.factory()).profile()).toEqual({ name: "Momo", icon: "professional_owl" });
+  expect(await reopened.needsOnboarding()).toBe(false);
   expect(await reopened.current()).toEqual(before);
   f.config.readOnly = true;
   await expect(reopened.updateProfile({ name: "Other", icon: "fox" })).rejects.toThrow("writable");
   expect(reopened.profile().name).toBe("Momo");
+});
+
+test("keeping the default completes onboarding across restarts, even with no user messages", async () => {
+  const f = await fixture();
+  await f.assistant.current();
+  expect(await f.assistant.needsOnboarding()).toBe(true);
+  await f.assistant.updateProfile({ name: null, icon: "dot" });
+  expect(await (await f.factory()).needsOnboarding()).toBe(false);
+});
+
+test("the greeting is read on first open, while name and avatar choices survive restarts", async () => {
+  const f = await fixture();
+  const initial = await f.assistant.onboarding();
+  expect(initial).toMatchObject({ needed: true, step: "name", greetingUnread: true, icon: "dot" });
+  const day = await f.assistant.current();
+  expect((await f.assistant.onboarding()).greetingUnread).toBe(true);
+  await expect(f.assistant.answerOnboarding({ icon: "bird" })).rejects.toThrow("name first");
+  await f.assistant.viewGreeting();
+  const reopened = await f.factory();
+  expect(await reopened.onboarding()).toMatchObject({ needed: true, step: "name", greetingUnread: false });
+  await reopened.viewGreeting();
+  const named = await reopened.answerOnboarding({ name: "Josi" });
+  expect(named).toMatchObject({ needed: true, step: "avatar", name: "Josi", icon: "dot", sessionId: day.day.sessionId });
+  expect(reopened.profile()).toEqual({ name: "Josi", icon: "dot" });
+  expect(await reopened.answerOnboarding({ name: "Josi" })).toEqual(named);
+  await expect(reopened.answerOnboarding({ name: "Different" })).rejects.toThrow("already been chosen");
+  const resumed = await f.factory();
+  expect(await resumed.onboarding()).toEqual(named);
+  const complete = await resumed.answerOnboarding({ icon: "professional_owl" });
+  expect(complete).toMatchObject({ needed: false, step: "complete", greetingUnread: false, name: "Josi", icon: "professional_owl" });
+  expect(await resumed.answerOnboarding({ icon: "professional_owl" })).toEqual(complete);
+  expect(await (await f.factory()).onboarding()).toEqual(complete);
+  expect(resumed.profile()).toEqual({ name: "Josi", icon: "professional_owl" });
+  expect(f.sessions).toHaveLength(1);
+  f.config.readOnly = true;
+  await expect(resumed.viewGreeting()).rejects.toThrow("writable");
+  await expect(resumed.answerOnboarding({ name: "Other" })).rejects.toThrow("writable");
+});
+
+test("agent naming persists before UI appearance selection, and later renames preserve the icon", async () => {
+  const f = await fixture();
+  await f.assistant.viewGreeting();
+  const named = await f.assistant.setName("Hannes");
+  expect(named).toMatchObject({ needed: true, step: "avatar", name: "Hannes", agentNamed: true });
+  const resumed = await f.factory();
+  expect(await resumed.onboarding()).toEqual(named);
+  await resumed.answerOnboarding({ icon: "bird" });
+  expect(await resumed.setName("Johann")).toMatchObject({ needed: false, step: "complete", name: "Johann", icon: "bird", agentNamed: true });
+  expect(resumed.profile()).toEqual({ name: "Johann", icon: "bird" });
+});
+
+test("users can keep the dot as their completed appearance", async () => {
+  const f = await fixture();
+  await f.assistant.answerOnboarding({ name: "Dot" });
+  expect(await f.assistant.answerOnboarding({ icon: "dot" })).toMatchObject({ needed: false, step: "complete", icon: "dot" });
+  expect((await f.factory()).profile()).toEqual({ name: "Dot", icon: "dot" });
 });
 
 test("the device calendar date handles midnight and daylight-saving days in different zones", async () => {
@@ -110,4 +171,16 @@ test("assistant schedules resolve the daily chat on each run and never bind yest
   expect(new Set(deliveries).size).toBe(2);
   expect(store.get(first.workspace.id, task.id).sessionId).toBeNull();
   expect(store.runs(task.id).every(run => run.status === "sent" && !run.pinSession)).toBe(true);
+});
+
+test("assistant-created project schemas preserve custom defaults across restart and clear their values", async () => {
+  const f = await fixture();
+  const field: ProjectField = { id: "our_client", label: "Our client", type: "text", value: "Never copy a previous client" };
+  f.assistant.updateProjectDefaults([field]);
+  const resumed = await f.factory();
+  expect(resumed.projectDefaults()).toEqual([{ ...field, value: null }]);
+  resumed.updateProjectDefaults([]);
+  expect((await f.factory()).projectDefaults()).toEqual([]);
+  f.config.readOnly = true;
+  expect(() => resumed.updateProjectDefaults([field])).toThrow("writable");
 });

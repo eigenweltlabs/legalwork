@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { ScheduledTaskInputSchema, ScheduledTaskSchema, ScheduledRunSchema, type ScheduledTask, type ScheduledRun } from "./schema.js";
@@ -13,6 +13,7 @@ export class ScheduledTaskStore {
     const db = await openSqlite(path);
     db.exec(`CREATE TABLE IF NOT EXISTS scheduled_tasks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS scheduled_task_runs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS scheduled_task_defaults (key TEXT PRIMARY KEY, task_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS scheduled_sessions (session_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, run_id TEXT NOT NULL, at INTEGER NOT NULL, pin_run_id TEXT);`);
     return new ScheduledTaskStore(db, onChange);
   }
@@ -32,6 +33,34 @@ export class ScheduledTaskStore {
     if (!nextRunAt) throw new ApiError(400, "schedule_expired", "Choose a schedule with a future run.");
     const task: ScheduledTask = { ...input, id: randomUUID(), workspaceId, revision: 1, status: "active", nextRunAt, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
     this.write(task); return task;
+  }
+  hasDefault(key: string) {
+    return Boolean(this.db.get("SELECT key FROM scheduled_task_defaults WHERE key = ?", [key]));
+  }
+  /** Upgrade an untouched preset without changing user edits, timing or deletion. */
+  migrateDefaultPrompt(key: string, previousHash: string, prompt: string, now = Date.now()) {
+    const task = this.transaction(() => {
+      const row = this.db.get("SELECT t.data FROM scheduled_tasks t JOIN scheduled_task_defaults d ON d.task_id = t.id WHERE d.key = ?", [key]);
+      if (!row) return null;
+      const current = ScheduledTaskSchema.parse(JSON.parse(String(row.data)));
+      if (createHash("sha256").update(current.prompt).digest("hex") !== previousHash) return null;
+      const updated = ScheduledTaskSchema.parse({ ...current, prompt, revision: current.revision + 1, updatedAt: new Date(now).toISOString() });
+      this.write(updated);
+      return updated;
+    });
+    if (task) this.onChange?.();
+    return task;
+  }
+  /** The marker survives task deletion. Creation and the marker commit together. */
+  createDefault(key: string, workspaceId: string, raw: unknown, now = Date.now()) {
+    const task = this.transaction(() => {
+      if (this.hasDefault(key)) return null;
+      const created = this.create(workspaceId, raw, now);
+      this.db.run("INSERT INTO scheduled_task_defaults (key, task_id) VALUES (?, ?)", [key, created.id]);
+      return created;
+    });
+    if (task) this.onChange?.();
+    return task;
   }
   update(workspaceId: string, id: string, revision: number, patch: Partial<ReturnType<typeof ScheduledTaskInputSchema.parse>> & { status?: "active" | "paused" }, now = Date.now()) {
     return this.transaction(() => {

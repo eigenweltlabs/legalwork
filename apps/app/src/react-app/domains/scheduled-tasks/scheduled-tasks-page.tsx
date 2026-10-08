@@ -78,7 +78,7 @@ export function ScheduledTasksPage({ client, projects, defaultModel, openTaskId,
         {editing && client ? <ScheduledTaskEditor key={editing.id} client={client} projects={projects} task={editing} onClose={closeEditor} onSaved={saved} onBusyChange={setBusy} onDirtyChange={setDirty} />
           : current ? <ScheduledTaskDetail key={current.id} task={current} assistant={projects.find(project => project.id === current.workspaceId)?.assistant} projectName={projectName(current)} runs={detail.data?.runs} loading={detail.isLoading} error={detail.isError} busy={busy}
           onEdit={() => edit(current)} onToggle={() => void toggle(current)} onDelete={() => setDeleting(current)} onOpenSession={onOpenSession} />
-          : <ScheduledTasksWelcome connected={Boolean(client)} hasProjects={Boolean(projects.length)} onCreate={create} />}
+          : <ScheduledTasksWelcome connected={Boolean(client)} hasProjects={Boolean(projects.length)} assistantWorkspaceId={projects.find(project => project.assistant)?.id} onCreate={create} />}
       </main>
     </div>
     {deleting && client && <DeleteScheduledTaskDialog client={client} task={deleting} onClose={() => setDeleting(null)} onDeleted={() => {

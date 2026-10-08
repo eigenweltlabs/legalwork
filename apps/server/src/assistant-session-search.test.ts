@@ -19,7 +19,7 @@ test("session search pages beyond recent history across 500 projects and exclude
     db.query("INSERT INTO part VALUES (?, ?, ?, ?, ?)").run(id, sessionId, id, time, JSON.stringify(data));
   };
   try {
-    session("today", workspaces[0].path); session("old-day", workspaces[499].path);
+    session("today", workspaces[0].path); session("old-day", workspaces[499].path, 0);
     session("foreign", join(root, "unregistered")); session("archived", workspaces[0].path, 1);
     for (let i = 0; i < 1100; i++) part(`noise-${i}`, "today", 100 + i, { type: "text", text: "Routine update" });
     part("old-match", "old-day", 1, { type: "text", text: "The Änderung ESCROW decision was approved last year." });

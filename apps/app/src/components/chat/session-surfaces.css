@@ -22,6 +22,34 @@
     margin-inline: auto;
   }
 
+  [data-assistant-chat] :is([data-assistant-message-bubble], [data-user-message-bubble]) {
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  [data-assistant-chat] [data-assistant-message-bubble] {
+    width: fit-content;
+    max-width: 85%;
+    flex: none;
+    border-radius: 24px;
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    padding: 10px 20px;
+    animation: assistant-bubble-arrive 180ms ease-out both;
+    transform-origin: bottom left;
+  }
+
+  @keyframes assistant-bubble-arrive {
+    from { opacity: 0; transform: translateY(5px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  [data-assistant-chat] [data-user-message-bubble] {
+    animation: assistant-bubble-arrive 180ms ease-out both;
+    transform-origin: bottom right;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-assistant-chat] :is([data-assistant-message-bubble], [data-user-message-bubble]) { animation: none; }
+  }
+
   .lw-session-transcript {
     /* Keep the fade fixed at the viewport edge while messages scroll through it. */
     -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px);
@@ -177,3 +205,16 @@
   }
 
   .lw-task-illustration { --lw-illustration-accent: var(--lw-task-accent); }
+
+  .assistant-typing-dot { animation: assistant-typing 1100ms ease-in-out infinite; }
+  @keyframes assistant-typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+  [data-assistant-reaction] { animation: assistant-bubble-arrive 160ms ease-out both; }
+  [data-assistant-chat] [data-legalwork-file-badge] { border: 0; border-radius: 0; background: transparent; font: inherit; }
+  [data-assistant-chat] [data-legalwork-file-badge] > a { padding: 0; color: var(--color-blue-10); text-decoration: underline; text-underline-offset: 3px; }
+  [data-assistant-chat] [data-legalwork-file-badge] :is(svg, button) { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .assistant-typing-dot, [data-assistant-reaction] { animation: none; }
+  }

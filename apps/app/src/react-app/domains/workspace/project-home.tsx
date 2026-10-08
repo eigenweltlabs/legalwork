@@ -2,7 +2,7 @@ import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, SquarePen, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -120,13 +120,13 @@ export function ProjectHome(props: {
           <div className="mt-5 flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-xl shadow-xs">
               <Button size="lg" className={cn("h-10 min-w-36 rounded-xl shadow-none", recordingActive && "rounded-r-none")} disabled={sessionStarting || recordingFinalizing} title={recordingActive ? t("projects.new_chat_recording_on") : undefined} onClick={() => { void newSession(recordingActive); }}>
-                {recordingActive ? <span aria-hidden="true" className="flex size-4 items-center justify-center"><span className="size-2.5 rounded-full bg-red-9" /></span> : <MessageSquare />}{t("projects.new_chat")}
+                {recordingActive ? <span aria-hidden="true" className="flex size-4 items-center justify-center"><span className="size-2.5 rounded-full bg-red-9" /></span> : <SquarePen strokeWidth={1.5} />}{t("projects.new_chat")}
                 {recordingActive ? <span className="sr-only">{t("projects.new_chat_recording_on")}</span> : null}
               </Button>
               {recordingActive ? <DropdownMenu>
                 <DropdownMenuTrigger render={<Button size="lg" className="h-10 rounded-l-none rounded-r-xl border-l-background/20 px-2.5 shadow-none" disabled={sessionStarting || recordingFinalizing} aria-label={t("projects.new_chat_options")}><ChevronDown className="size-3.5" /></Button>} />
                 <DropdownMenuContent align="end" className="w-auto">
-                  <DropdownMenuItem onClick={() => { void newSession(false); }}><MessageSquare />{t("projects.new_chat_recording_off")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { void newSession(false); }}><SquarePen strokeWidth={1.5} />{t("projects.new_chat_recording_off")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu> : null}
             </div>
@@ -136,7 +136,7 @@ export function ProjectHome(props: {
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem disabled={sessionStarting || recordingFinalizing} onClick={() => { void newSession(recordingActive); }}><MessageSquare />{t("projects.new_chat")}</ContextMenuItem>
+          <ContextMenuItem disabled={sessionStarting || recordingFinalizing} onClick={() => { void newSession(recordingActive); }}><SquarePen strokeWidth={1.5} />{t("projects.new_chat")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setNoteOpen(true)}><StickyNote />{t("projects.add_note")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>
           <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>

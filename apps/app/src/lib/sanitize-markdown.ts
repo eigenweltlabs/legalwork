@@ -14,6 +14,7 @@ export function sanitizeMarkdownHtml(value: string) {
     ADD_ATTR: [
       "checked",
       "class",
+      "data-legalwork-file-badge",
       "data-legalwork-image-preview",
       "data-legalwork-image-toggle",
       "data-legalwork-image-toggle-label",

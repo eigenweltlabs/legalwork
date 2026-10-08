@@ -46,6 +46,8 @@ import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
+import { AssistantIdentity } from "../sidebar/assistant-identity";
+import { AssistantAttentionPanel } from "../sidebar/assistant-attention-panel";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
 import {
@@ -127,8 +129,10 @@ export type SessionPageSidebarProps = {
   onNewChat?: () => void;
   onOpenAssistant?: () => void;
   assistantProfile?: AssistantProfile;
+  assistantWorkspaceId?: string;
   onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
   assistantActive?: boolean;
+  assistantGreetingUnread?: boolean;
   assistantDisabled?: boolean;
   onShowProjects?: () => void;
   onShowEvals?: () => void;
@@ -1268,8 +1272,10 @@ export function SessionPage(props: SessionPageProps) {
           onNewChat={props.sidebar.onNewChat}
           onOpenAssistant={props.sidebar.onOpenAssistant}
           assistantProfile={props.sidebar.assistantProfile}
+          assistantWorkspaceId={props.sidebar.assistantWorkspaceId}
           onSaveAssistantProfile={props.sidebar.onSaveAssistantProfile}
           assistantActive={props.sidebar.assistantActive}
+          assistantGreetingUnread={props.sidebar.assistantGreetingUnread}
           assistantDisabled={props.sidebar.assistantDisabled}
           onShowProjects={props.sidebar.onShowProjects}
           activeNav={props.sidebar.activeNav}
@@ -1418,6 +1424,9 @@ export function SessionPage(props: SessionPageProps) {
 
               {canRenderReactSurface ? (
                 <div className="flex h-full min-h-0 flex-col">
+                  {props.sidebar.assistantActive && <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={props.selectedSessionId!} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={props.surface!} />}
+                  {props.sidebar.assistantActive && props.legalworkServerClient && <AssistantAttentionPanel client={props.legalworkServerClient} profile={props.sidebar.assistantProfile} onOpenSession={props.sidebar.onOpenSession}
+                    permission={props.activePermission} question={props.activeQuestion} permissionBusy={props.permissionReplyBusy} questionBusy={props.questionReplyBusy} onPermission={props.respondPermission} onQuestion={props.respondQuestion} />}
                   {/* Session tab bar removed per design. */}
                   {false ? (
                     <div className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background/80 px-2 mac:backdrop-blur-xl">
@@ -1478,6 +1487,7 @@ export function SessionPage(props: SessionPageProps) {
                         // must come from the resolved workspace endpoint passed by
                         // SessionRoute, not from anything in `surface`.
                         {...props.surface!}
+                        assistantName={props.sidebar.assistantProfile?.name ?? t("assistant.title")}
                         client={props.legalworkServerClient!}
                         environmentClient={props.environmentClient}
                         workspaceId={props.runtimeWorkspaceId!}

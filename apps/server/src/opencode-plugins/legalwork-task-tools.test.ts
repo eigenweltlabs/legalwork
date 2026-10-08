@@ -171,6 +171,7 @@ describe("registration", () => {
       "legalwork_task_delete",
       "legalwork_task_get",
       "legalwork_task_list",
+      "legalwork_task_restore",
       "legalwork_task_update",
     ]);
     // Tasks live on this machine: no entitlement round-trip at engine start.

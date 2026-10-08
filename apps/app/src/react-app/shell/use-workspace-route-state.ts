@@ -68,6 +68,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
   const selectedSessionId = params.sessionId?.trim() || null;
+  const routeSelectionRef = useRef({ routeWorkspaceId, selectedSessionId });
+  routeSelectionRef.current = { routeWorkspaceId, selectedSessionId };
   const navigateToWorkspaceSession = useCallback((workspaceId: string, sessionId?: string | null, options?: { replace?: boolean }) => {
     const id = workspaceId.trim();
     if (!id) {
@@ -348,7 +350,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     // multiplied quickly on the event loop and caused the UI to freeze.
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
-    setLoading(true);
+    // Once connected, registry refreshes are background work. Navigation must
+    // keep the existing chat and composer available while they run.
+    if (!hasLoadedServerWorkspacesRef.current) setLoading(true);
     setRouteError(null);
     let desktopList: WorkspaceList | null = null;
     let desktopWorkspaces = workspacesRef.current;
@@ -425,6 +429,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       // the user's last-active workspace from localStorage, the desktop's
       // activeId, the server's activeId, then the first known workspace.
       const persistedActiveId = readActiveWorkspaceId();
+      const { routeWorkspaceId, selectedSessionId } = routeSelectionRef.current;
       let nextWorkspaceId = resolveRouteWorkspaceId(nextWorkspaces, [
         routeWorkspaceId,
         persistedActiveId,
@@ -519,7 +524,15 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         markBootRouteReady();
       }
     }
-  }, [loadWorkspaceSessionsInBackground, markBootRouteReady, routeWorkspaceId, selectedSessionId]);
+  }, [loadWorkspaceSessionsInBackground, markBootRouteReady]);
+
+  // Changing the URL selects a known project without rerunning desktop boot,
+  // reconnecting the server, or reloading every project's sessions.
+  useEffect(() => {
+    if (!hasLoadedServerWorkspaces || !routeWorkspaceId || selectedWorkspaceId !== routeWorkspaceId) return;
+    setLegacySelectedWorkspaceId(selectedWorkspaceId);
+    writeActiveWorkspaceId(selectedWorkspaceId);
+  }, [hasLoadedServerWorkspaces, routeWorkspaceId, selectedWorkspaceId]);
   const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
     if (!selectedWorkspaceId) return;
     setSessionsByWorkspaceId((current) => {

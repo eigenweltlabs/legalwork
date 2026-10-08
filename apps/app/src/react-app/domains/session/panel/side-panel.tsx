@@ -514,7 +514,8 @@ export function SidePanel({
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId]);
   const openFiles = React.useMemo(() => tabs.flatMap((tab) => {
     if (tab.type !== "artifact") return [];
-    const path = tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
+    const relativePath = tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
+    const path = relativePath && tab.source ? `${tab.source.workspaceRoot.replace(/[/\\]+$/, "")}/${relativePath}` : relativePath;
     return path ? [{ id: tab.id, sessionId, name: tab.label, path, active: tab.id === activeTab?.id }] : [];
   }), [tabs, transcriptTargets, sessionId, activeTab?.id]);
   useControlOpenFiles(openFiles);

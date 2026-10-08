@@ -93,7 +93,10 @@ function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
-export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
+export function ArtifactPanel({ sessionId, tab, client, workspaceId: parentWorkspaceId, workspaceRoot: parentWorkspaceRoot, isRemoteWorkspace: parentIsRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
+  const workspaceId = tab.source?.workspaceId ?? parentWorkspaceId;
+  const workspaceRoot = tab.source?.workspaceRoot ?? parentWorkspaceRoot;
+  const isRemoteWorkspace = tab.source ? false : parentIsRemoteWorkspace;
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
   // Tabs opened from the workspace file browser carry their own path, so they

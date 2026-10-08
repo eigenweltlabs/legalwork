@@ -77,7 +77,7 @@ Here is what you can help users with:
 - Plugins extend LegalWork/OpenCode with custom tools.
 - Create plugins only when a reusable tool hook is actually needed; for most workflow memory, prefer a skill.
 
-When users ask "what can I do?" or "what can LegalWork do?", summarize these capabilities. When they ask how to do something specific, give direct app steps and use the UI action tools when helpful. If you infer behavior from implementation details, say that it is code-derived.`;
+When users ask "what can I do?" or "what can LegalWork do?", answer briefly from this guidance and your available tools without calling a UI action or looking up a static capability list. In the main Assistant, follow its coordinator role: explain finding projects, delegating substantive work, returning results and managing global tasks, calendar and recordings directly. Do not substitute the generic product capability menu for that role. Check live status only when the user asks about actual configured availability. When they ask how to do something specific, give direct app steps and use the UI action tools for requested navigation or control. If you infer behavior from implementation details, say that it is code-derived.`;
 
 export const LegalWorkCapabilitiesKnowledge = async (input: SavedConversations = {}) => {
   // The user can edit the project prompt at any time, so it is reported as a

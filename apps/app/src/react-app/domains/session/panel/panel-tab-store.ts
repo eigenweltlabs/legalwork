@@ -1,4 +1,5 @@
 import type { SearchSourceReference } from "@legalwork/types/search";
+import type { AssistantFileSource } from "@legalwork/types/main-assistant";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
@@ -34,6 +35,8 @@ export type ArtifactPanelTab = {
   size?: number;
   updatedAt?: number;
   storage?: StorageFileSource;
+  /** A shared deliverable stays in its originating project, even in another chat's viewer. */
+  source?: AssistantFileSource;
   sourcePage?: number;
   searchSources?: SearchSourceReference[];
   reviewCitation?: ReviewSourceReference;
@@ -173,7 +176,9 @@ function isSameTab(left: PanelTab, right: PanelTab) {
       left.label === right.label &&
       left.preview === right.preview &&
       left.value === right.value &&
-      left.storage === right.storage
+      left.storage === right.storage &&
+      left.source?.workspaceId === right.source?.workspaceId &&
+      left.source?.workspaceRoot === right.source?.workspaceRoot
     );
   }
 

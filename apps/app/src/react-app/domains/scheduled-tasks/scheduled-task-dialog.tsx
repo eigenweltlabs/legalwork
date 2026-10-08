@@ -20,7 +20,7 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { formatRunTime, localDateTime, repeatMode, repeatOptions, weeklyRuleForStart } from "./schedule-format";
 
-export type ScheduledTaskDraft = { title: string; prompt: string; schedule?: TaskSchedule };
+export type ScheduledTaskDraft = { title: string; prompt: string; schedule?: TaskSchedule; workspaceId?: string };
 export type ScheduleProject = { id: string; name: string; assistant?: boolean; assistantIcon?: AssistantIcon };
 export type ScheduleClient = Pick<LegalworkServerClient, "baseUrl" | "scheduledTasks" | "scheduledTask" | "scheduledTaskChats" | "previewTaskSchedule" | "createScheduledTask" | "updateScheduledTask" | "deleteScheduledTask">;
 
@@ -53,7 +53,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
   const cache = useQueryClient();
   const id = useId();
   const initialSchedule = task?.schedule ?? initial?.schedule;
-  const [workspaceId, setWorkspaceId] = useState(task?.workspaceId ?? "");
+  const [workspaceId, setWorkspaceId] = useState(task?.workspaceId ?? initial?.workspaceId ?? "");
   const assistantTarget = projects.find(project => project.id === workspaceId)?.assistant === true;
   const [projectAccess, setProjectAccess] = useState<ScheduledTaskInput["projectAccess"]>(task?.projectAccess ?? "project");
   const [model, setModel] = useState<ScheduledTaskInput["model"]>(task ? task.model : defaultModel ?? null);

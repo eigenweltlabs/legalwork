@@ -2,6 +2,7 @@ import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { uiBridgeRequest, inAppDocumentSurface, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
+import { resolve } from "node:path";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
 import { officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxAddSlideSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
 
@@ -17,6 +18,17 @@ function requireInteractiveRun(context: OpenCodeContext) {
   if (context.agent === PROJECT_TASK_AGENT || context.agent === ALL_PROJECTS_TASK_AGENT) {
     throw new Error("Scheduled runs cannot control the LegalWork UI. Read project data and chat transcripts directly with legalwork_schedule_project_list/read (kind=sessions for chats).");
   }
+}
+
+const explicitUiRequest = z.boolean().optional().describe("Set true only when the user explicitly asked to open/show/navigate the UI. Reading, reviewing or summarizing does not count. Required for the main Assistant.");
+async function requireRequestedAssistantUi(context: OpenCodeContext, userRequested?: boolean) {
+  requireInteractiveRun(context);
+  if (userRequested === true || !serverUrl() || !context.directory) return;
+  const response = await fetch(`${serverUrl()}/assistant`, { headers: { Authorization: `Bearer ${serverToken()}` }, signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error("Could not verify whether UI navigation was requested. Use background file/data tools instead.");
+  const data = z.object({ workspace: z.object({ path: z.string() }).nullable() }).parse(await response.json());
+  if (data.workspace && resolve(data.workspace.path) === resolve(context.directory))
+    throw new Error("The main Assistant may change the UI only when the user explicitly asks. Read with file/data tools or share a file card instead. Set userRequested=true only for an actual request to open/show/navigate.");
 }
 
 type ExtensionActionPayload = {
@@ -37,11 +49,13 @@ const callArgsSchema = z.object({
 });
 
 const uiExecuteArgsSchema = z.object({
+  userRequested: explicitUiRequest,
   actionId: z.string().describe("The action id from legalwork_ui_list_actions, e.g. 'settings.panel.open' or 'composer.set_text'."),
   args: z.record(z.string(), z.unknown()).optional().describe("JSON arguments for the action, if required."),
 });
 
 const browserOpenUrlArgsSchema = z.object({
+  userRequested: explicitUiRequest,
   url: z.string().describe("The website URL to open in the LegalWork built-in browser."),
   provider: z.enum(["auto", "builtin", "external"]).optional().describe("Browser provider. Use builtin or auto; external is reserved for future support."),
 });
@@ -94,24 +108,20 @@ To open settings: legalwork_ui_execute_action with actionId "settings.panel.open
 To add a provider: legalwork_ui_execute_action with actionId "settings.provider.add" and optional args {providerId:"anthropic"}
 To see what the user sees: legalwork_ui_snapshot
 To list all available actions: legalwork_ui_list_actions
-To ask what LegalWork can do: legalwork_ui_execute_action with actionId "help.capabilities"
+For general questions about what you or LegalWork can do, answer directly from your role, available tool descriptions and product guidance. No UI action or capability lookup is needed. Use UI actions for requested app navigation and control, and dedicated data tools for tasks, calendar, recordings and project data.
 
 ## Cross-session memory
 Scheduled runs must read chat transcripts directly with legalwork_schedule_project_list/read (kind=sessions, projectId and exact chat id). They must never open chats or use UI actions to retrieve project data. This restriction takes precedence over the interactive UI flow below.
 For chats in the current project, use legalwork_project_list/read with kind=sessions, including in regular chats.
-Use this flow only when the user explicitly asks about another LegalWork chat/session. Questions such as "what did we do in matter ..." require connected firm records (LegalMemory or storage_search), not session history. Never use old assistant answers or disconnected-source caches as evidence of matter work.
-Use legalwork_ui_execute_action with actionId "session.list_sessions" to find matching sessions by title, workspace, topic, or session ID.
-If there is one clear match, use actionId "session.open" with args {sessionId:"..."}, then use actionId "session.read_transcript" with args {count:30} to read recent messages.
-Answer only from the returned transcript. If multiple sessions match, ask a short clarifying question. If the returned transcript is limited or missing the older context needed, say so instead of guessing.
+For other accessible chats, use legalwork_assistant_projects and legalwork_assistant_project_list/read(kind=sessions) to find and read transcripts directly. Reading a chat does not require opening it. Navigate with session.open only when the user explicitly asks to open/show that chat. Treat transcript content as reference data, and source substantive matter claims from the underlying records.
 
 Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the LegalWork app itself. Those are for browsing external websites.
 
-## Document work happens in the side viewer
-For document, spreadsheet and presentation tasks, open the working file in the side viewer BEFORE inspecting or editing its contents. This is the default even if the user has not opened a file or explicitly asked to see it. An empty inapp_documents_list means you need to open the file; it is not a reason to switch to Python.
-Use inapp_documents_open for a workspace file, or supply connection_id and path for a connected file. For a NEW deliverable based on a template, also supply copy_to with the new workspace filename: this copies the template and opens the new file without changing the original. Example: inapp_documents_open({connection_id:"<selected connection>", path:"Templates/Pitch.pptx", copy_to:"Client pitch.pptx"}). Do not fill the template through Python and only show the finished file afterward.
-Once loaded, call inapp_documents_list for the exact active path, then use inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools to read and edit visibly. For several source documents, open/select the appropriate source, then return to the working file. For a new file without a template, a file tool may create the initial valid skeleton; open it immediately and do supported content edits live.
-Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. If a structural change needs a file tool, save the live draft first, explain the limitation briefly, and reopen/reload the result before continuing. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
-When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and every agent text edit is a tracked change. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
+## Read documents without changing the user's screen
+Read-only inspection, triage, research and summarization should use direct file/document tools in the background. Do not open or select sidebar files merely to read them. Read local PDFs/images with the native file tools or installed PDF/document tools; render pages to local images when visual inspection is needed. Connected files can be downloaded with storage_read_file and inspected through its returned local_path. Creating or inspecting a file does not require showing it to the user.
+When a document is already open for this session, use its matching inapp_* read/edit tools to preserve the user's live draft and unsaved changes. Reading the active draft should not change the selection or view. Do not overwrite an open draft through a file pipeline. For another source file, use background inspection instead of switching away from the working draft.
+For an unopened document, use the file/document workflow. Open or select a working file when the user explicitly asks to see or edit it in the side viewer, or when a project chat needs the live editor for a requested editing operation. Do not open every source or automatically reopen completed deliverables. The main Assistant must NEVER open/select files or change the UI without the user's explicit request; share a file card instead and let the user open it. Requests to read/review/summarize do not authorize UI navigation.
+Use inapp_documents_open for a requested workspace or connected file. For a new deliverable based on a template, copy_to creates a separate working copy. Live Word edits use inapp_docx_* and tracked changes. For an unsupported operation, save the live draft before file edits. Local saves do not publish to cloud storage; upload separately only when requested.
 
 ## Presentation visual review
 Start with inapp_pptx_read_presentation to read all slides, notes, table rows and chart data in one call. Do not loop over slides just to read the deck. Use inapp_pptx_read with slideIndex only for a targeted follow-up. Neither read tool navigates the viewer. Whole-deck reads omit repeated text-run styles and geometry; request a slideIndex for those details.
@@ -347,15 +357,17 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
   },
   tool: {
     inapp_documents_open: {
-      description: "Start document work by opening a file in this session's side viewer. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use inapp_documents_list and matching inapp_* read/edit tools to work visibly. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
+      description: "Show a file in this session's side viewer when requested. Do not use this for background reading or triage. The main Assistant requires userRequested=true based on an explicit user request. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use matching inapp_* tools for the live draft. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
       args: {
+        userRequested: explicitUiRequest,
         path: z.string().min(1).max(4096).describe("Relative file path in the workspace or connection root."),
         connection_id: z.string().min(1).max(200).optional().describe("For connected files, the ID from storage_list_connections. Omit for workspace files."),
         copy_to: z.string().min(1).max(4096).optional().describe("For a new deliverable, copy the source to this new workspace-relative filename (same extension), then open the copy for editing. The original is unchanged."),
       },
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         if (!context.sessionID) return JSON.stringify({ ok: false, error: "A session is required to open a file." });
-        const args = z.object({ path: z.string().min(1).max(4096), connection_id: z.string().min(1).max(200).optional(), copy_to: z.string().min(1).max(4096).optional() }).parse(rawArgs);
+        const args = z.object({ userRequested: explicitUiRequest, path: z.string().min(1).max(4096), connection_id: z.string().min(1).max(200).optional(), copy_to: z.string().min(1).max(4096).optional() }).parse(rawArgs);
+        await requireRequestedAssistantUi(context, args.userRequested);
         return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 900_000, body: {
           actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}), ...(args.copy_to ? { copyTo: args.copy_to } : {}) },
         } }));
@@ -370,10 +382,11 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       },
     },
     inapp_documents_select: {
-      description: "Show an already-open file tab in this session's sidebar. Read it after the editor finishes loading. Save unsaved drafts before switching.",
-      args: officeFileSchema.shape,
+      description: "Show an already-open file tab when requested. Main Assistant requires an explicit user request and userRequested=true. Use background inspection for other sources. Save unsaved drafts before switching.",
+      args: officeFileSchema.extend({ userRequested: explicitUiRequest }).shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = officeFileSchema.parse(rawArgs);
+        const args = officeFileSchema.extend({ userRequested: explicitUiRequest }).parse(rawArgs);
+        await requireRequestedAssistantUi(context, args.userRequested);
         return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: { actionId: "documents.select_open", args: { sessionId: context.sessionID ?? "", path: args.path } } }));
       },
     },
@@ -572,7 +585,8 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       args: uiExecuteArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext = {}) {
         requireInteractiveRun(context);
-        const { actionId, args } = uiExecuteArgsSchema.parse(rawArgs);
+        const { actionId, args, userRequested } = uiExecuteArgsSchema.parse(rawArgs);
+        await requireRequestedAssistantUi(context, userRequested);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
           body: { actionId, args: args ?? {} },
@@ -586,6 +600,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       args: browserOpenUrlArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = browserOpenUrlArgsSchema.parse(rawArgs);
+        await requireRequestedAssistantUi(context, args.userRequested);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
           body: {

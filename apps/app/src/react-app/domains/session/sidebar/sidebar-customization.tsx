@@ -1,5 +1,7 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { DEFAULT_ASSISTANT_PROFILE, type AssistantProfile } from "@legalwork/types/main-assistant";
+import { AssistantAppearanceEditor } from "./assistant-appearance";
+import { CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, SquarePen, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -25,15 +27,30 @@ export const SIDEBAR_ITEMS = {
   projectTasks: { label: "projects.tasks", icon: ListTodo },
   projectFiles: { label: "projects.files", icon: Files },
   projectSessions: { label: "sidebar.collapse_sessions", icon: MessageSquare },
-  navNewChat: { label: "projects.new_chat", icon: PenLine },
+  navNewChat: { label: "projects.new_chat", icon: SquarePen },
   navTasks: { label: "sidebar.tasks", icon: Inbox },
   navWorkflows: { label: "sidebar.workflows", icon: Workflow },
   navRecorder: { label: "recorder.nav_label", icon: Mic },
   navEvaluations: { label: "sidebar.evals", icon: FlaskConical },
 };
 
-export function SidebarCustomization({ onDone }: { onDone: () => void }) {
+export function SidebarCustomization({ onDone, assistantProfile = DEFAULT_ASSISTANT_PROFILE, assistantDisabled, onSaveAssistantProfile }: {
+  onDone: () => void; assistantProfile?: AssistantProfile; assistantDisabled?: boolean; onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
+}) {
   const { config, update } = useShellConfig();
+  const [assistantDraft, setAssistantDraft] = useState<AssistantProfile | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const finish = async () => {
+    if (saving) return;
+    setSaving(true); setError(null);
+    try {
+      const profile = assistantDraft ? { ...assistantDraft, name: assistantDraft.name?.trim() || null } : assistantProfile;
+      if (onSaveAssistantProfile && (profile.name !== assistantProfile.name || profile.icon !== assistantProfile.icon)) await onSaveAssistantProfile(profile);
+      onDone();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : t("assistant.save_failed")); }
+    finally { setSaving(false); }
+  };
   const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string) => (
     <div className="mt-3">
       <h3 className="px-2 pb-1 text-xs text-muted-foreground">{label}</h3>
@@ -52,18 +69,20 @@ export function SidebarCustomization({ onDone }: { onDone: () => void }) {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        onDone();
+        void finish();
       }
     }}>
       <div className="lw-sidebar-brand flex shrink-0 items-center gap-2.5 px-3 pb-3 pt-2">
-        <SidebarBrandEditor onDone={onDone} />
+        <SidebarBrandEditor onDone={() => void finish()} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background p-2 shadow-sm">
         <div className="flex shrink-0 items-center justify-between px-2 pb-1">
           <h2 className="text-sm font-normal text-muted-foreground">{t("projects.customize")}</h2>
-          <Button autoFocus variant="ghost" size="sm" className="h-8 px-2 font-normal text-blue-11 hover:text-blue-12" onClick={onDone}>{t("projects.customize_done")}</Button>
+          <Button autoFocus variant="ghost" size="sm" disabled={saving} className="h-8 px-2 font-normal text-blue-11 hover:text-blue-12" onClick={() => void finish()}>{t(saving ? "common.saving" : "projects.customize_done")}</Button>
         </div>
+        {error && <p role="alert" className="px-2 text-xs text-destructive">{error}</p>}
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+        {onSaveAssistantProfile && <form onSubmit={event => { event.preventDefault(); void finish(); }}><AssistantAppearanceEditor profile={assistantDraft ?? assistantProfile} disabled={assistantDisabled || saving} onChange={setAssistantDraft} /></form>}
         <LazyMotion features={domMax}>
           {options(config.navOrder, navOrder => update({ navOrder }), t("sidebar.main_actions"))}
           {options(config.chatSectionOrder, chatSectionOrder => update({ chatSectionOrder }), t("sidebar.chat_sections"))}

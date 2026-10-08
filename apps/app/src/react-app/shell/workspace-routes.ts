@@ -17,6 +17,12 @@ export function workspaceSessionRoute(workspaceId: string, sessionId?: string | 
     : `/workspace/${workspace}/session`;
 }
 
+/** Only concrete in-app chat routes may be navigated from agent Markdown. */
+export function parseWorkspaceSessionLink(href: string) {
+  const match = /^#?(\/workspace\/[\w-]+\/session\/[\w-]+)$/.exec(href.trim());
+  return match?.[1] ?? null;
+}
+
 /** Last-session restoration belongs only to an empty chat route, never a project page. */
 export function isSessionIndexRoute(pathname: string) {
   return /^(?:\/workspace\/[^/]+)?\/session\/?$/.test(pathname);

@@ -1,1 +1,1 @@
-export { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE } from "@legalwork/types/main-assistant";
+export { AssistantReactionEmojiSchema, AssistantShareFileSchema, AssistantAvatarIconSchema, AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, MORNING_BRIEFING_PROMPT } from "@legalwork/types/main-assistant";

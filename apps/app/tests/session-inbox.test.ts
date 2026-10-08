@@ -7,12 +7,12 @@ Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
   setItem: (key: string, value: string) => storage.set(key, value),
   removeItem: (key: string) => storage.delete(key),
 } });
-const { useSessionInboxStore: inbox, unreadSession } = await import("../src/react-app/domains/session/sidebar/session-inbox-store");
+const { useSessionInboxStore: inbox, unreadSession, unreadWorkspace } = await import("../src/react-app/domains/session/sidebar/session-inbox-store");
 const { useSessionManagementStore: pins } = await import("../src/react-app/domains/session/sidebar/session-management-store");
 const { inboxNeedsRefresh } = await import("../src/react-app/shell/use-session-inbox");
 const entry = (assistantAt = 10): SessionInboxEntry => ({ workspaceId: "project", sessionId: "chat", updatedAt: assistantAt, assistantAt });
 beforeEach(() => {
-  inbox.setState({ entries: {}, readAt: {}, pinnedRunIds: {}, openSessionId: null, trackingStartedAt: 0 });
+  inbox.setState({ entries: {}, readAt: {}, pinnedRunIds: {}, openSessionId: null, openWorkspaceId: null, trackingStartedAt: 0 });
   pins.setState({ pinnedIds: [] });
   storage.clear();
 });
@@ -131,4 +131,31 @@ test("missing new chats keep requesting sidebar reconciliation after a skipped o
   const page = Array.from({ length: 200 }, (_, i) => ({ id: `s${i}`, time: { updated: 100 + i } }));
   expect(inboxNeedsRefresh([entry()], page)).toBe(false);
   expect(inboxNeedsRefresh([entry(500)], page)).toBe(true);
+});
+
+test("Assistant aggregates returned replies and scheduled deliveries across midnight and acknowledges them as one surface", async () => {
+  const yesterday = { ...entry(10), workspaceId: "assistant", sessionId: "yesterday" };
+  const today = { ...entry(0), workspaceId: "assistant", sessionId: "today", automation: { runId: "briefing", at: 20, pinRunId: null } };
+  inbox.getState().receive([yesterday, today, entry(25)]);
+  expect(unreadWorkspace(inbox.getState(), "assistant")).toBe(true);
+  expect(unreadSession(inbox.getState(), "today")).toBe(true);
+  expect(pins.getState().pinnedIds).toEqual([]);
+  inbox.getState().open("today", "assistant");
+  expect(unreadWorkspace(inbox.getState(), "assistant")).toBe(false);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(true);
+  inbox.getState().receive([{ ...today, assistantAt: 30 }]);
+  expect(unreadWorkspace(inbox.getState(), "assistant")).toBe(false);
+  inbox.getState().open(null);
+  inbox.getState().receive([{ ...today, assistantAt: 40 }]);
+  expect(unreadWorkspace(inbox.getState(), "assistant")).toBe(true);
+  const saved = storage.get("legalwork.react.sessionInbox")!;
+  expect(JSON.parse(saved).state.openWorkspaceId).toBeUndefined();
+  inbox.setState({ entries: {}, readAt: {} });
+  storage.set("legalwork.react.sessionInbox", saved);
+  await inbox.persist.rehydrate();
+  expect(unreadWorkspace(inbox.getState(), "assistant")).toBe(true);
+  inbox.getState().open("today", "assistant");
+  inbox.getState().open(null);
+  inbox.getState().receive([{ ...today, assistantAt: 40, automation: { runId: "later", at: 50, pinRunId: null } }]);
+  expect(unreadWorkspace(inbox.getState(), "assistant")).toBe(true);
 });

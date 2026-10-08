@@ -67,7 +67,10 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   }, [query.data, update]);
   const dirty = Boolean(draft && draft.content !== draft.baseline);
   const onChange = useCallback((content: string) => {
-    if (!localReadOnly) update((current) => current ? { ...current, content } : current);
+    if (!localReadOnly) {
+      setSaveError(null);
+      update((current) => current ? { ...current, content } : current);
+    }
   }, [update, localReadOnly]);
 
   useEffect(() => registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name,
@@ -122,6 +125,22 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       setSaving(false);
     }
   }, [client, workspaceId, target.value, target.id, queryClient, update, localReadOnly]);
+
+  const autosave = !isRemoteWorkspace && !localReadOnly && !saveActions;
+  useEffect(() => {
+    if (!autosave || !dirty || saving || clash || saveError) return;
+    const timer = window.setTimeout(() => { void save(); }, 600);
+    return () => window.clearTimeout(timer);
+  }, [autosave, dirty, draft?.content, saving, clash, saveError, save]);
+
+  const close = async () => {
+    if (autosave && draftRef.current?.content !== draftRef.current?.baseline) {
+      if (clash || !await save()) return;
+      // An edit made during the write must also be saved before closing.
+      if (draftRef.current?.content !== draftRef.current?.baseline) return;
+    }
+    onClose();
+  };
 
   /** Changed in the same place elsewhere: keep both (mine as a copy beside it), take theirs, or keep mine over it. */
   const resolveClash = async (choice: "both" | "theirs" | "mine") => {
@@ -212,11 +231,13 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   const runFileAction = async (action: () => Promise<unknown>) => {
     try { await action(); } catch (error) { toast.error(error instanceof Error ? error.message : t("markdown.open_file_failed")); }
   };
-  return <div className="h-full min-h-0" onKeyDownCapture={(event) => {
+  return <div className="h-full min-h-0" onBlurCapture={(event) => {
+    if (autosave && !clash && !saveError && !event.currentTarget.contains(event.relatedTarget)) void save();
+  }} onKeyDownCapture={(event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void save(); }
   }}>
     <ArtifactFrame expandable title={projectFileDisplayName(target.value, target.name)} icon={<ArtifactIcon type="markdown" className="size-5" />}
-      meta={<span role="status">{saving ? t("common.saving") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
+      meta={<span role="status" title={autosave ? t("markdown.autosave_hint") : undefined}>{saving ? t("common.saving") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
       actions={<>
         {saveActions ? saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}
         <Button variant="ghost" size="icon-sm" aria-label={t("artifact.download")} title={t("artifact.download_markdown")} onClick={download} disabled={!draft}><Download /></Button>
@@ -229,7 +250,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
             }
           })}><ExternalLink /></Button>
         </>}
-        <Button variant="ghost" size="icon-sm" aria-label={t("artifact.close")} title={t("artifact.close")} onClick={onClose} disabled={saving}><X /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label={t("artifact.close")} title={t("artifact.close")} onClick={() => void close()} disabled={saving}><X /></Button>
       </>}
     >
       {clash ? <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-4 py-2 text-xs">

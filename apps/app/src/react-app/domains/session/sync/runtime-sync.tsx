@@ -10,6 +10,7 @@ import { ensureWorkspaceSessionSync, snapshotKey, trackWorkspaceSessionsSync } f
 type ReactSessionRuntimeProps = {
   workspaceId: string;
   sessionId: string | null;
+  assistantActive?: boolean;
   activeSessionIds?: string[];
   opencodeBaseUrl: string;
   legalworkToken: string;
@@ -43,13 +44,14 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
     const key = snapshotKey(props.workspaceId, sessionId);
     const update = () => {
       const loaded = cache.getQueryData<LegalworkSessionSnapshot>(key)?.session.id === sessionId;
-      useSessionInboxStore.getState().open(loaded && document.visibilityState === "visible" && document.hasFocus() ? sessionId : null);
+      useSessionInboxStore.getState().open(loaded && document.visibilityState === "visible" && document.hasFocus() ? sessionId : null,
+        props.assistantActive ? props.workspaceId : null);
     };
     const unsubscribe = cache.getQueryCache().subscribe(event => { if (event.type === "updated" && key.every((part, index) => event.query.queryKey[index] === part)) update(); });
     window.addEventListener("focus", update); window.addEventListener("blur", update); document.addEventListener("visibilitychange", update);
     update();
     return () => { unsubscribe(); window.removeEventListener("focus", update); window.removeEventListener("blur", update); document.removeEventListener("visibilitychange", update); useSessionInboxStore.getState().open(null); };
-  }, [props.workspaceId, props.sessionId]);
+  }, [props.workspaceId, props.sessionId, props.assistantActive]);
 
   // The open chat's snapshot is authoritative even when the sidebar's
   // paginated session list is stale or does not contain this conversation.
