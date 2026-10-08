@@ -1081,7 +1081,7 @@ export function SessionPage(props: SessionPageProps) {
     newDisabled={props.sidebar.newChatDisabled}
     onRename={props.onRenameSession ? openRenameModal : undefined}
     onDelete={props.onDeleteSession ? id => { setSessionActionId(id); setDeleteOpen(true); } : undefined}
-    onArchive={props.onArchiveSession ? (id, archived) => { void props.onArchiveSession?.(id, archived); } : undefined}
+    onArchive={props.onArchiveSession}
   /> : view === "calendar" ? props.projectCalendarView : view === "tasks" ? renderProjectTasks(false, inWorkspace) : view === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
@@ -1572,10 +1572,16 @@ export function SessionPage(props: SessionPageProps) {
             projectId={props.selectedWorkspaceId}
             renderProjectView={(view, active) => renderProjectView(view, true, active)}
             onOpenTabWindow={isElectronRuntime() ? tab => { void openWorkspaceWindow(props.selectedWorkspaceId, tab).catch(() => toast.error(t("projects.open_in_new_window_failed"))); } : undefined}
-            onDropChat={(id, pane, edge) => {
-              const store = usePanelTabStore.getState();
-              store.openTab(workspaceScope, chatPanelTab(id, sessionTitleForId(props.sidebar.workspaceSessionGroups, id) || t("session.default_title")), pane, edge);
-              if (usePanelTabStore.getState().sessions[workspaceScope]?.tabs.some(tab => tab.id === `chat:${id}`)) openSessionTab(props.selectedWorkspaceId, id);
+            onDropChat={(ids, pane, edge) => {
+              let destination = pane;
+              for (const [index, id] of ids.entries()) {
+                const store = usePanelTabStore.getState();
+                store.openTab(workspaceScope, chatPanelTab(id, sessionTitleForId(props.sidebar.workspaceSessionGroups, id) || t("session.default_title")), destination, index === 0 ? edge : undefined);
+                const opened = usePanelTabStore.getState().sessions[workspaceScope]?.panes.find(pane => pane.activeTabId === `chat:${id}`);
+                if (!opened) break;
+                destination = opened.id;
+                openSessionTab(props.selectedWorkspaceId, id);
+              }
             }}
             onNewChat={async pane => {
               const id = await props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId);

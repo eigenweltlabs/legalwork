@@ -8,28 +8,40 @@ Dropping into a chat adds an unsent reference. Dropping onto Sessions or the Ses
 
 Project Overview is labelled **Home** again, including restored tabs.
 
+Files and Sessions support checkboxes, Shift-click ranges, Cmd/Ctrl-click and select-all for the current list. Hidden search/filter results are excluded. Files can be opened or pinned together; chats can also be archived and restored together. File menus and the selection toolbar offer **Copy to project** and **Link to project**, with a destination picker, editable names, per-file errors and retries that skip completed files. Removing a link still leaves its original untouched.
+
+Dragging selected files carries every original into the receiving pane, project or chat. Selected chats can be dropped together into a pane or session group. Single-file/single-chat-only drop targets do not silently consume the first item of a batch. Read-only catalog references support selection, opening and pinning; cross-project copy/link requires a registered project or connected-storage source.
+
 ## Verification
 
 Run from the repository root:
 
 | Command | Result |
 | --- | --- |
-| `pnpm --filter @legalwork/app test` | 995 passed |
+| `pnpm --filter @legalwork/app test` | 1,002 passed |
 | `pnpm --filter legalwork-server exec bun test src/project-file-links.test.ts src/project-files.e2e.test.ts` | 7 passed |
 | `pnpm --filter @legalwork/app typecheck` | Passed |
 | `pnpm --filter legalwork-server typecheck` | Passed |
-| `pnpm --filter @legalwork/app test:i18n` | 5,591 keys complete in English and German |
+| `pnpm --filter @legalwork/app test:i18n` | 5,612 keys complete in English and German |
 | `node scripts/i18n-audit.mjs --ci` | Passed |
 | `pnpm build:ui` | Passed; existing bundle-size and annotation warnings |
 | `pnpm --filter legalwork-server build` | Passed |
 
 New tests exercise source identity and tab restoration, exclusion of credentials from drag payloads, registered-connection resolution, changing files during snapshot capture, queued references, concurrent link updates, malformed metadata, traversal/symlink containment, authentication, read-only servers, and exclusive copies without overwriting.
 
+Selection tests cover sorted ranges, filtered-out items, source deduplication, multi-item drag validation, project-scoped chat payloads, one unsent draft for multiple references, and partial transfer retries. Browser checks additionally cover ranges with duplicate pinned rows, Cmd-click, batch copy collisions and retry, batch linking, opening selected files, chat pin/archive/restore, and native multi-file/multi-chat drags. The source pane is not shielded during `dragstart`, which otherwise cancels Chromium's drag before it reaches the destination. Multi-file drops also continue when their first file is already open.
+
 Browser checks used the synthetic session preview: Files-to-project transfer dialog, persistent links, foreign originals starting read-only, explicit editing, restoration, expanded-document source banners, Files-to-Sessions and lone-tab-to-Sessions drops, and sending a file reference. The API tests exercise real temporary files and server routes; the preview's server responses are fixtures.
 
 ![Copy or link a file into another project](workspace-refinement/cross-project-copy-link.png)
 
 ![Original file viewed from another project](workspace-refinement/cross-project-original.png)
+
+![File selection and cross-project actions](workspace-refinement/multiselect-files.png)
+
+![Selected chats and batch actions](workspace-refinement/multiselect-chats.png)
+
+![Two selected files dragged into another project](workspace-refinement/multiselect-transfer.png)
 
 ## Boundaries
 

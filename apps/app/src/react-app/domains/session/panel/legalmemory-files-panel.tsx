@@ -568,7 +568,7 @@ function LegalMemoryTreeRow({
 }
 
 function MemoryEntryMenu({ children, name, onOpen, onRefresh, pin }: { children: React.ReactNode; name: string; onOpen: () => void; onRefresh?: () => void; pin?: FilePin }) {
-  return <FileEntryActions name={name} pin={pin} actions={[
+  return <FileEntryActions name={name} pin={pin} onOpen={pin ? onOpen : undefined} actions={[
     { label: t("storage.open"), onClick: onOpen },
     ...(onRefresh ? [{ label: t("storage.refresh_folder", { name }), onClick: onRefresh }] : []),
   ]}>{children}</FileEntryActions>;

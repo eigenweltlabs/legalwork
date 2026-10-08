@@ -12,6 +12,7 @@ import { isDesktopRuntime, isWindowsPlatform } from "@/app/utils";
 import { joinDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
 import { toast } from "@/components/ui/sonner";
 import { useProjectFileImport } from "../../workspace/use-project-file-import";
+import { useProjectFiles } from "../../workspace/project-file-context";
 
 export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, children, className, onOpen, onRefresh, toolbar, contextOnly }: {
   client: LegalworkServerClient | null;
@@ -28,6 +29,8 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
   onRefresh: () => void;
 }) {
   const queryClient = useQueryClient();
+  const projectFiles = useProjectFiles();
+  const source = entry?.kind === "file" && client && workspaceId ? projectFiles?.identify(client, workspaceId, entry) : undefined;
   const formId = useId();
   const uploadRef = useRef<HTMLInputElement>(null);
   const [action, setAction] = useState<"rename" | "mkdir" | "delete" | null>(null);
@@ -50,6 +53,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
 
   return <>
     <FileEntryActions name={entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
+      source={source ?? undefined} onOpen={entry?.kind === "file" ? onOpen : undefined}
       pin={entry?.kind === "file" && workspaceId ? { workspaceId, source: "local", path: entry.path, name: entry.name } : undefined}
       actions={[
         ...(onOpen ? [{ label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen }] : []),

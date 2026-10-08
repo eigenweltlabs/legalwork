@@ -1,4 +1,4 @@
-import { hasProjectFileDrag, readProjectFileDrag } from "@/app/lib/project-file-drag";
+import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
 import { projectFileTab } from "../../workspace/project-file-tab";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { hasWorkspaceFileDrag, readWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
@@ -17,7 +17,7 @@ export function hasViewerFileDrag(data: DataTransfer) {
 /** Read drag data synchronously: browsers clear its contents after drop returns. */
 export function readViewerFileDrop(data: DataTransfer) {
   return {
-    project: readProjectFileDrag(data),
+    projects: readProjectFilesDrag(data),
     workspace: readWorkspaceFileDrag(data),
     storage: readStorageFileDrag(data),
     memory: readLegalMemoryFileDrag(data),
@@ -28,8 +28,8 @@ export function readViewerFileDrop(data: DataTransfer) {
 type DropClient = Pick<LegalworkServerClient, "storageRoots" | "legalMemoryOpen" | "downloadWorkspaceFile" | "writeWorkspaceBinaryFile">;
 
 export async function* viewerFileTabs(client: DropClient, workspaceId: string, drop: ReturnType<typeof readViewerFileDrop>): AsyncGenerator<ArtifactPanelTab> {
-  if (drop.project) {
-    yield projectFileTab(drop.project);
+  if (drop.projects.length) {
+    for (const source of drop.projects) yield projectFileTab(source);
   } else if (drop.workspace) {
     if (drop.workspace.workspaceId !== workspaceId) throw new Error(t("side_panel.drop_other_workspace"));
     const { path, name } = drop.workspace;

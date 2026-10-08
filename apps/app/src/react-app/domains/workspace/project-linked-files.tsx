@@ -42,7 +42,7 @@ export function ProjectLinkedFiles({ client, workspaceId, projectId, folder, que
   if (!visible.length) return null;
   return <section className="mb-3 border-b border-border/60 pb-3" aria-label={t("project_files.linked_files")}>
     <h3 className="px-2 py-2 text-xs font-medium text-muted-foreground">{t("project_files.linked_files")}</h3>
-    {visible.map(link => <FileEntryActions key={link.id} name={link.name} pin={{ workspaceId, source: "project-link", path: link.id, name: link.name }} actions={[
+    {visible.map(link => <FileEntryActions key={link.id} name={link.name} source={link.source} onOpen={() => requestPanelTab(projectFileTab(link.source), { kind: "workspace", workspaceId: projectId })} pin={{ workspaceId, source: "project-link", path: link.id, name: link.name }} actions={[
       { label: t("project_files.rename_link"), icon: <Pencil />, onClick: () => { setName(link.name); setRenaming(link); setError(""); } },
       { label: t("project_files.remove_link"), icon: <Unlink />, onClick: () => void remove(link) },
     ]}><button className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-muted/50" draggable onDragStart={event => writeProjectFileDrag(event.dataTransfer, link.source)} onClick={() => requestPanelTab(projectFileTab(link.source), { kind: "workspace", workspaceId: projectId })} title={link.source.path}>

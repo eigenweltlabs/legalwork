@@ -1,4 +1,5 @@
 import { useProjectFiles } from "../../workspace/project-file-context";
+import { hasProjectFileDrag } from "@/app/lib/project-file-drag";
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
@@ -417,6 +418,8 @@ function StorageFolder(props: FolderProps) {
           onDrop={(event) => {
             setDragging(false);
             clearExpandTimer();
+            // Batch project-file drops belong to the containing project's Copy/Link target.
+            if (hasProjectFileDrag(event.dataTransfer) && !hasStorageEntryDrag(event.dataTransfer)) return;
             if (!root.writable || busy) return;
             event.preventDefault();
             event.stopPropagation();

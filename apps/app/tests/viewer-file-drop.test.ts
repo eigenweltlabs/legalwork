@@ -3,7 +3,7 @@ import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
 import type { StorageRoot } from "@legalwork/types/file-storage";
 import { viewerFileTabs } from "../src/react-app/domains/session/panel/viewer-file-drop";
 
-const empty = { workspace: null, storage: null, memory: null, files: [] };
+const empty = { projects: [], workspace: null, storage: null, memory: null, files: [] };
 const unavailable = async (): Promise<never> => { throw new Error("Unexpected file API call"); };
 const client: Pick<LegalworkServerClient, "storageRoots" | "legalMemoryOpen" | "downloadWorkspaceFile" | "writeWorkspaceBinaryFile"> = {
   storageRoots: unavailable,

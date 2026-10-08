@@ -1,4 +1,4 @@
-import { hasProjectFileDrag, readProjectFileDrag } from "@/app/lib/project-file-drag";
+import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
 import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -1230,8 +1230,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneKind(null);
               }}
               onDrop={(event) => {
-                const projectFile = event.dataTransfer ? readProjectFileDrag(event.dataTransfer) : null;
-                if (projectFile && props.onDropProjectFile) { event.preventDefault(); event.stopPropagation(); setDropzoneKind(null); props.onDropProjectFile(projectFile); return; }
+                const projectFiles = event.dataTransfer ? readProjectFilesDrag(event.dataTransfer) : [];
+                if (projectFiles.length && props.onDropProjectFile) { event.preventDefault(); event.stopPropagation(); setDropzoneKind(null); projectFiles.forEach(props.onDropProjectFile); return; }
                 const workspaceFile = event.dataTransfer ? readWorkspaceFileDrag(event.dataTransfer) : null;
                 const memoryFolder = event.dataTransfer ? readLegalMemoryFolderDrag(event.dataTransfer) : null;
                 const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;

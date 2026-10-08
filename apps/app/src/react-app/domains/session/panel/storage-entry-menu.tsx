@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { StorageDeleteEntry } from "./storage-delete-entry";
+import { useProjectFiles } from "../../workspace/project-file-context";
 
 export function StorageEntryMenu({ client, workspaceId, root, file, children, onOpen, onRefresh, onUpload, onNewFolder, onDeleted, disabled }: {
   client: LegalworkServerClient; workspaceId: string; root: StorageRoot; file: StorageEntry; children: ReactNode;
@@ -18,6 +19,8 @@ export function StorageEntryMenu({ client, workspaceId, root, file, children, on
   onDeleted?: () => void;
 }) {
   const queryClient = useQueryClient();
+  const access = useProjectFiles();
+  const source = file.kind === "file" ? access?.identify(client, workspaceId, { name: file.name, path: file.path, connectionId: root.id }) : undefined;
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(file.name);
   const [busy, setBusy] = useState(false);
@@ -25,7 +28,7 @@ export function StorageEntryMenu({ client, workspaceId, root, file, children, on
   const writable = root.writable && !disabled && !busy;
   return <>
     <StorageDeleteEntry client={client} workspaceId={workspaceId} root={root} file={file} disabled={disabled || busy} onDeleted={() => { changePinnedPaths(workspaceId, root.id, file.path); onDeleted?.(); }} trigger={(remove) =>
-      <FileEntryActions name={file.name} pin={file.kind === "file" ? { workspaceId, source: root.id, path: file.path, name: file.name } : undefined} actions={[
+      <FileEntryActions name={file.name} source={source ?? undefined} onOpen={!disabled && file.kind === "file" ? onOpen : undefined} pin={file.kind === "file" ? { workspaceId, source: root.id, path: file.path, name: file.name } : undefined} actions={[
         { label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen, disabled },
         ...(onRefresh ? [{ label: t("storage.refresh_folder", { name: file.name }), icon: <RefreshCw />, onClick: onRefresh }] : []),
         ...(root.writable ? [

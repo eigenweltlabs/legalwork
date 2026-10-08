@@ -130,7 +130,7 @@ import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../st
 import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { allProjectSessions, SessionProjectHover } from "./session-project-hover";
 import { SidebarCustomization, SIDEBAR_ITEMS } from "./sidebar-customization";
-import { startSessionDrag, acceptsSessionDrag, readSessionDrag } from "./session-drag";
+import { startSessionDrag, acceptsSessionsDrag, readSessionsDrag } from "./session-drag";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
@@ -1175,7 +1175,7 @@ function GroupDropZone({ groupId, workspaceId, children }: {
         dragOver && "bg-accent/40 ring-1 ring-accent/60",
       )}
       onDragOver={(e) => {
-        if (acceptsSessionDrag(e.dataTransfer, workspaceId)) {
+        if (acceptsSessionsDrag(e.dataTransfer, workspaceId)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
           setDragOver(true);
@@ -1189,11 +1189,11 @@ function GroupDropZone({ groupId, workspaceId, children }: {
       }}
       onDrop={(e) => {
         setDragOver(false);
-        const sessionId = readSessionDrag(e.dataTransfer, workspaceId);
-        if (sessionId) {
+        const sessionIds = readSessionsDrag(e.dataTransfer, workspaceId);
+        if (sessionIds.length) {
           e.preventDefault();
           e.stopPropagation();
-          store.getState().assignGroup(workspaceId, sessionId, groupId);
+          sessionIds.forEach(id => store.getState().assignGroup(workspaceId, id, groupId));
         }
       }}
     >

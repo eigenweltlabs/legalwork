@@ -37,7 +37,7 @@ import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/component
 import { toast } from "@/components/ui/sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { hasViewerFileDrag, readViewerFileDrop, viewerFileTabs } from "./viewer-file-drop";
-import { acceptsSessionDrag, readSessionDrag } from "../sidebar/session-drag";
+import { acceptsSessionsDrag, readSessionsDrag } from "../sidebar/session-drag";
 import { type ProjectView } from "./panel-tab-store";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -101,7 +101,7 @@ type SidePanelProps = {
   onNewChat?: (pane: string) => void;
   renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
-  onDropChat?: (sessionId: string, pane: string, edge?: DocumentDropEdge) => void;
+  onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
 };
 
 // HMR can remount this module without unmounting BrowserPanelContent, leaving
@@ -143,7 +143,7 @@ type TabDropZoneProps = {
   acceptFileDrops?: boolean;
   workspaceId?: string | null;
   onProjectViewDrop?: (view: ProjectView, pane: string, split?: DocumentDropEdge) => void;
-  onChatDrop?: (sessionId: string, pane: string, split?: DocumentDropEdge) => void;
+  onChatDrop?: (sessionIds: string[], pane: string, split?: DocumentDropEdge) => void;
   onTabInsert?: (tabId: string, beforeId: string | null) => void;
   label: string;
   onDrop: (tabId: string, split?: DocumentDropEdge) => void;
@@ -175,7 +175,7 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
     const over = (event: DragEvent) => {
       const data = event.dataTransfer;
       if (!data) return;
-      const chat = Boolean(workspaceId && onChatDrop && acceptsSessionDrag(data, workspaceId));
+      const chat = Boolean(workspaceId && onChatDrop && acceptsSessionsDrag(data, workspaceId));
       const view = Boolean(workspaceId && onProjectViewDrop && acceptsProjectViewDrag(data, workspaceId));
       const file = !dragging && hasViewerFileDrag(data);
       if (file && !acceptFileDrops) { setOver(null); return; }
@@ -204,7 +204,9 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
     // document cannot bubble to this pane. Text/link drags keep their usual path.
     const start = (event: DragEvent) => {
       const data = event.dataTransfer;
-      if (inset && data && ((acceptFileDrops && hasViewerFileDrag(data)) || data.types.includes(TAB_DRAG_TYPE) || (workspaceId && onChatDrop && acceptsSessionDrag(data, workspaceId)) || (workspaceId && onProjectViewDrop && acceptsProjectViewDrag(data, workspaceId)))) setDragActive(true);
+      // Covering the source during dragstart can cancel Chromium's native drag.
+      if (event.type === "dragstart" && event.target instanceof Node && element.contains(event.target)) return;
+      if (inset && data && ((acceptFileDrops && hasViewerFileDrag(data)) || data.types.includes(TAB_DRAG_TYPE) || (workspaceId && onChatDrop && acceptsSessionsDrag(data, workspaceId)) || (workspaceId && onProjectViewDrop && acceptsProjectViewDrag(data, workspaceId)))) setDragActive(true);
     };
     const leaveWindow = (event: DragEvent) => {
       if (!event.relatedTarget && (event.target === document || event.target === document.documentElement)) stop();
@@ -224,8 +226,8 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
       }
       const view = workspaceId && onProjectViewDrop ? readProjectViewDrag(data, workspaceId) : null;
       if (view) { event.preventDefault(); event.stopPropagation(); onProjectViewDrop?.(view, pane, split ?? undefined); return; }
-      const chatId = workspaceId && onChatDrop ? readSessionDrag(data, workspaceId) : "";
-      if (chatId) { event.preventDefault(); event.stopPropagation(); onChatDrop?.(chatId, pane, split ?? undefined); return; }
+      const chatIds = workspaceId && onChatDrop ? readSessionsDrag(data, workspaceId) : [];
+      if (chatIds.length) { event.preventDefault(); event.stopPropagation(); onChatDrop?.(chatIds, pane, split ?? undefined); return; }
       const tabId = data.getData(TAB_DRAG_TYPE);
       if (onTabInsert && dragging && tabId === dragging.id) {
         event.preventDefault(); event.stopPropagation();
@@ -731,7 +733,7 @@ export function SidePanel({
     let destination = pane;
     let pendingSplit = split;
     importing.current = true;
-    setOpeningFile(drop.project?.name ?? drop.workspace?.name ?? drop.storage?.name ?? drop.memory?.name ?? drop.files[0]?.name ?? null);
+    setOpeningFile(drop.projects[0]?.name ?? drop.workspace?.name ?? drop.storage?.name ?? drop.memory?.name ?? drop.files[0]?.name ?? null);
     try {
       for await (const tab of viewerFileTabs(client, workspaceId, drop)) {
         if (!mounted.current) return;
@@ -741,8 +743,8 @@ export function SidePanel({
         store.openTab(sessionId, tab, destination, pendingSplit);
         const next = usePanelTabStore.getState().sessions[sessionId];
         const opened = next?.tabs.find(entry => entry.id === tab.id || (entry.type === "artifact" && !entry.storage && !tab.storage && !entry.sourceProject && !tab.sourceProject && tab.value && entry.value === tab.value));
-        if (next === before) {
-          if (pendingSplit && before.panes.length >= MAX_DOCUMENT_PANES) toast.info(t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }));
+        if (next === before && pendingSplit) {
+          if (before.panes.length >= MAX_DOCUMENT_PANES) toast.info(t("side_panel.pane_limit", { count: MAX_DOCUMENT_PANES }));
           break;
         }
         const openedPane = next?.panes.find(pane => pane.activeTabId === opened?.id);
@@ -1020,7 +1022,7 @@ export function SidePanel({
       {expanded && <ExpandedDocumentBar label={t("side_panel.restore_workspace")} onRestore={() => setExpanded(false)} />}
       <input ref={fileInputRef} type="file" multiple className="hidden" aria-label={t("side_panel.open_in_viewer")} onChange={event => {
         const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
-        void openFilesInViewer({ project: null, workspace: null, storage: null, memory: null, files }, fileInputPane.current);
+        void openFilesInViewer({ projects: [], workspace: null, storage: null, memory: null, files }, fileInputPane.current);
       }} />
       {openingFile && <div role="status" className="pointer-events-none absolute bottom-4 left-1/2 z-50 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs shadow-sm">
         <Loader2 className="size-4 shrink-0 animate-spin" /><span className="truncate">{t("side_panel.opening_file", { name: openingFile })}</span>

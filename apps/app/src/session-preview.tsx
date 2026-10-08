@@ -1,6 +1,6 @@
 import type { ProjectFileLink } from "@legalwork/types/project-files";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
-import { projectViewFromPath } from "./react-app/shell/workspace-routes";
+import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
@@ -565,6 +565,11 @@ function SessionPreview() {
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
           mcpConnectedCount={0} onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
           onCreateProjectSession={() => { newTask(); }}
+          onArchiveSession={(id, archived) => {
+            const item = snapshots.get(id);
+            if (item) saveSnapshot({ ...item, session: { ...item.session, time: { ...item.session.time, archived: archived ? Date.now() : undefined } } });
+            setRevision(value => value + 1);
+          }}
           onRenameSession={(id, title) => {
             const item = snapshots.get(id);
             if (item) saveSnapshot({ ...item, session: { ...item.session, title } });
@@ -577,7 +582,7 @@ function SessionPreview() {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
               setSelectedSessionId(id === workspace.id ? welcomeId : null); setShowWorkflows(false);
             },
-            onOpenSession: (workspaceId, id) => { setActiveWorkspace(workspaceId === workspace.id ? workspace : otherWorkspace); setShowWorkflows(false); setSelectedSessionId(id); }, onCreateChatInWorkspace: newTask,
+            onOpenSession: (workspaceId, id) => { setActiveWorkspace(workspaceId === workspace.id ? workspace : otherWorkspace); setShowWorkflows(false); setSelectedSessionId(id); navigate(workspaceSessionRoute(workspaceId, id)); }, onCreateChatInWorkspace: newTask,
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
             onShowChats: () => { setShowHome(true); setShowWorkflows(false); }, onShowEvals: previewNotice, onShowWorkflows: () => setShowWorkflows(true), onShowExtensions: previewNotice, onShowRecorder: previewNotice,

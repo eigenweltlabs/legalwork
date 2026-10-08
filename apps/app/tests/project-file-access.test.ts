@@ -55,3 +55,17 @@ test("a drop creates a draft in the receiving project, preserves text, and never
   expect(parseWorkspaceAttachmentMention(Object.keys(editor.mentions)[0])?.source).toEqual(source);
   useComposerStateStore.getState().clearSession(id);
 });
+
+test("a multi-file drop creates one draft containing every source and rejects unavailable projects before creating it", async () => {
+  const { useComposerStateStore } = await import("../src/react-app/domains/session/surface/composer-state-store");
+  const id = "multi-project-draft-test";
+  const local = createLegalworkServerClient({ baseUrl: "http://localhost:4000" });
+  let created = 0;
+  const access = createProjectFileAccess(groups, local, () => { created++; return id; });
+  await access.newChat("b", [source, { ...source, path: "second.md", name: "second.md" }]);
+  expect(created).toBe(1);
+  expect(Object.keys(useComposerStateStore.getState().sessions[id].mentions)).toHaveLength(2);
+  await expect(access.newChat("b", [source, { ...source, projectId: "missing" }])).rejects.toThrow();
+  expect(created).toBe(1);
+  useComposerStateStore.getState().clearSession(id);
+});

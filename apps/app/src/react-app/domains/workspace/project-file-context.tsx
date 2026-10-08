@@ -58,11 +58,12 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
       const version = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
       return { ...download, version, projectName: owner.name };
     },
-    async newChat(projectId: string, source: ProjectFileSource) {
-      sourceProject(source);
+    async newChat(projectId: string, source: ProjectFileSource | ProjectFileSource[]) {
+      const sources = Array.isArray(source) ? source : [source];
+      sources.forEach(sourceProject);
       const id = await createChat(projectId);
       if (!id) throw new Error(t("project_files.chat_unavailable"));
-      attach(source, id);
+      sources.forEach(source => attach(source, id));
     },
   };
 }
