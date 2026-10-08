@@ -71,3 +71,11 @@ Ran normal `pnpm dev` with a disposable profile and the complete app at `/`, inc
 Checks passed: app typechecking; Electron typechecking; 17 diagnostic/reporting tests; the complete desktop suite (199 passed, two platform skips); seven managed-engine/server-diagnostic tests; and the server build. The managed-engine regression launches a real child process and checks unexpected exit versus intentional shutdown.
 
 This verifies the full development application and live alpha ingestion. It does not verify a signed installer, a successful model completion with valid credentials, an OS-level renderer crash, or the cause of historical provider 400s. The deliberately invalid key produced a 401. [Full application screenshot](assets/error-report-full-app.png).
+
+### Copy, sizing and custom-provider context
+
+Removed the analytics-setting sentence from the English and German dialog copy. Toasts now stay expanded instead of shrinking older cards, and actionable cards reserve two lines for their title, giving the pictured authentication and engine errors consistent dimensions without clipping longer messages. [Updated dialog in the full app](assets/error-report-short-copy.png).
+
+The actual custom provider returned an empty `model.api.url` while its effective endpoint was in `provider.options.baseURL`. Run diagnostics now read that override and the selected SDK format before reducing them to safe enum values. A fresh real OpenRouter 401 was exported through the full app: its event identified `openrouter`, `chat_completions`, and `claude_opus`; prompt/key/name/URL/path canaries remained absent. Old local reports retain their original diagnostics. This identifies the failed route for triage; it does not prove why a credential was rejected.
+
+After these changes, app typechecking and i18n checks passed, and `pnpm --filter @legalwork/app exec bun test tests/error-reports.test.ts tests/error-diagnostics.test.ts tests/sonner-toast-dismiss.test.ts` passed all 20 tests. The new regression checks both custom Chat and Responses routes with an empty model URL and private configuration canaries.

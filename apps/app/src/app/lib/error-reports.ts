@@ -1,6 +1,7 @@
 import { createErrorDiagnostic } from "@legalwork/types/error-diagnostics";
 import { ErrorDiagnosticSchema, ErrorFrameSchema, type ErrorDiagnostic } from "@legalwork/types/error-report";
 import { analyticsSurface, captureErrorAnalytics } from "./analytics";
+import type { ModelRef, ProviderListItem } from "../types";
 
 const MAX_INCIDENTS = 50;
 const STORAGE_KEY = "legalwork.error-incidents.v1";
@@ -13,7 +14,8 @@ let expiryTimer: ReturnType<typeof setTimeout> | null = null;
 let selectedId: string | null = null;
 let engineVersion: string | null = null;
 let applicationAssets = new Map<string, string | null>();
-const runContexts = new Map<string, { providerId?: string; modelId?: string; baseURL?: string }>();
+type RunErrorContext = { providerId?: string; modelId?: string; baseURL?: string; api_format?: ErrorDiagnostic["api_format"] };
+const runContexts = new Map<string, RunErrorContext>();
 
 export function subscribeErrorReports(listener: () => void): () => void {
   listeners.add(listener);
@@ -44,7 +46,25 @@ export function clearLocalErrorReports(): void {
 function notify(): void { for (const listener of listeners) listener(); }
 export function openErrorReport(incidentId: string): void { selectedId = incidentId; notify(); }
 export function closeErrorReport(): void { selectedId = null; notify(); }
-export function rememberRunContext(sessionId: string, context: { providerId?: string; modelId?: string; baseURL?: string }): void {
+/** Read the effective provider override, rather than the catalog's often-empty model URL. */
+export function providerRunErrorContext(model: ModelRef, providers: readonly (Pick<ProviderListItem, "id" | "options"> & {
+  models: Record<string, Pick<ProviderListItem["models"][string], "api">>;
+})[] = []): RunErrorContext {
+  const provider = providers.find(item => item.id === model.providerID);
+  const api = provider?.models[model.modelID]?.api;
+  const override = provider?.options.baseURL;
+  const formats: Record<string, ErrorDiagnostic["api_format"]> = {
+    "@ai-sdk/openai-compatible": "chat_completions",
+    "@ai-sdk/anthropic": "anthropic_messages",
+    "@ai-sdk/openai": "responses",
+  };
+  return {
+    providerId: model.providerID, modelId: model.modelID,
+    baseURL: typeof override === "string" && override ? override : api?.url,
+    ...(api?.npm && formats[api.npm] ? { api_format: formats[api.npm] } : {}),
+  };
+}
+export function rememberRunContext(sessionId: string, context: RunErrorContext): void {
   runContexts.delete(sessionId);
   runContexts.set(sessionId, context);
   if (runContexts.size > MAX_INCIDENTS) {

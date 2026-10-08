@@ -6172,7 +6172,7 @@ const de = {
   "tasks.due_clear": "Entfernen",
   "error_report.title": "Fehler teilen",
   "error_report.share": "Fehler teilen",
-  "error_report.privacy": "Mit Senden teilen Sie nur die technischen Angaben zu diesem Fehler über PostHog mit Eigenwelt. Dokumente, Gespräche und Protokolle werden nicht angehängt. Ihre Analyseeinstellung bleibt unverändert.",
+  "error_report.privacy": "Mit Senden teilen Sie nur die technischen Angaben zu diesem Fehler über PostHog mit Eigenwelt. Dokumente, Gespräche und Protokolle werden nicht angehängt.",
   "error_report.preview": "Genau ansehen, was geteilt wird",
   "error_report.send": "An Eigenwelt senden",
   "error_report.sending": "Wird gesendet…",

@@ -23,6 +23,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme={theme}
+      expand
       className="toaster group"
       icons={{
         success: (
@@ -172,7 +173,9 @@ function ToastCard({ id, type, title, description, action, cancel, notification 
     <div className={cn("flex w-full items-start gap-3 rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-md md:max-w-sm ring-1 ring-popover-border/20")}>
       <ToastIcon type={type} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <ToastTitleRow id={id} title={title} />
+        <div className="min-h-10">
+          <ToastTitleRow id={id} title={title} />
+        </div>
         {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
         {action || cancel ? (
           <div className="mt-2 flex gap-2">

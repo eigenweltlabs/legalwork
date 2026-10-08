@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 process.env.VITE_LEGALWORK_POSTHOG_KEY = "phc_test_dummy_key";
-const { recordError, getErrorReports, clearLocalErrorReports, restoreLocalErrorReports } = await import("../src/app/lib/error-reports");
+const { recordError, getErrorReports, clearLocalErrorReports, restoreLocalErrorReports, providerRunErrorContext, rememberRunContext, getRunErrorContext } = await import("../src/app/lib/error-reports");
 const { makeManualErrorEvent, sendManualErrorEvent, captureAnalyticsEvent, flushAnalytics, disposeAnalytics, setAnalyticsConsentOverride, discardPendingAnalytics } = await import("../src/app/lib/analytics");
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
@@ -53,6 +53,30 @@ describe("manual error reporting with analytics off", () => {
     expect(JSON.parse(storage.get("legalwork.preferences") ?? "{}").analyticsEnabled).toBe(false);
     captureAnalyticsEvent("task_run_started"); recordError(new TypeError(canary));
     await flushAnalytics(); expect(outgoing).toHaveLength(1);
+  });
+  test("custom provider errors preserve the actual route without sharing configuration", async () => {
+    const model = { providerID: canary, modelID: "anthropic/claude-opus-4.6" };
+    for (const [npm, format] of [["@ai-sdk/openai-compatible", "chat_completions"], ["@ai-sdk/openai", "responses"]]) {
+      const context = providerRunErrorContext(model, [{
+        id: canary, options: { baseURL: `https://openrouter.ai/api/v1?private=${canary}`, apiKey: canary },
+        models: { [model.modelID]: { api: { id: model.modelID, url: "", npm } } },
+      }]);
+      rememberRunContext("private-session", context);
+      const diagnostic = recordError({ name: "APIError", data: { statusCode: 401, message: canary } }, {
+        ...getRunErrorContext("private-session"), component: "engine", source: "session_error", operation: "run",
+      });
+      if (!diagnostic) throw new Error("missing_diagnostic");
+      await sendManualErrorEvent(diagnostic, crypto.randomUUID());
+      const event = JSON.parse(outgoing.at(-1) ?? "{}").batch[0];
+      expect(event.properties.provider_id).toBe("openrouter");
+      expect(event.properties.api_format).toBe(format);
+      expect(event.properties.model_family).toBe("claude_opus");
+      expect(event.properties.status_code).toBe(401);
+      expect(JSON.stringify(event)).not.toContain(canary);
+      expect(JSON.stringify(event)).not.toContain("https://");
+      expect(JSON.stringify(event)).not.toContain("private-session");
+    }
+    expect(outgoing).toHaveLength(2);
   });
   test("restores safe recent records without automatically uploading old incidents", async () => {
     const diagnostic = recordError(failure());

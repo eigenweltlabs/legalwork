@@ -5781,7 +5781,7 @@ export default {
   "tasks.due_clear": "Clear",
   "error_report.title": "Share an error",
   "error_report.share": "Share error",
-  "error_report.privacy": "Clicking Send shares only this error’s technical details with Eigenwelt via PostHog. Documents, conversations and logs are not attached. Your analytics setting stays unchanged.",
+  "error_report.privacy": "Clicking Send shares only this error’s technical details with Eigenwelt via PostHog. Documents, conversations and logs are not attached.",
   "error_report.preview": "See exactly what will be shared",
   "error_report.send": "Send to Eigenwelt",
   "error_report.sending": "Sending…",
