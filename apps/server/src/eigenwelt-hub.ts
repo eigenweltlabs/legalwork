@@ -47,6 +47,8 @@ export type EigenweltHubItem = {
   /** Whether an encrypted key is attached and this caller may copy it. */
   hasSecret?: boolean;
   canAccessSecret?: boolean;
+  /** Who gets it (newer platform): installed for everyone, or offered for members to add. */
+  installation?: "automatic" | "optional";
 };
 
 export type EigenweltHubItemDetail = EigenweltHubItem & { payload: unknown };
@@ -191,6 +193,17 @@ export async function installWorkflowFiles(
   skillName: string,
   files: unknown,
 ): Promise<{ name: string; path: string; written: number }> {
+  // Install into the GLOBAL skills dir the desktop app reads from (skills are
+  // global there and auto-sync into projects).
+  return installSkillFiles(globalSkillsDir(), skillName, files);
+}
+
+/** Write a shared skill's files into `<skillsDir>/<skillName>/`, checked like installWorkflowFiles. */
+export async function installSkillFiles(
+  skillsDir: string,
+  skillName: string,
+  files: unknown,
+): Promise<{ name: string; path: string; written: number }> {
   const name = skillName.trim();
   validateSkillName(name);
   if (!Array.isArray(files) || files.length === 0 || files.length > EIGENWELT_HUB_MAX_FILES) {
@@ -203,10 +216,7 @@ export async function installWorkflowFiles(
     throw new ApiError(400, "invalid_workflow", "The shared workflow is missing its SKILL.md.");
   }
 
-  // Install into the GLOBAL skills dir the desktop app reads from (skills are
-  // global there and auto-sync into projects); fall back to the workspace's
-  // project dir for remote workspaces that don't have the global one.
-  const baseDir = join(globalSkillsDir(), name);
+  const baseDir = join(skillsDir, name);
   await writeHubFiles(baseDir, normalized);
   return { name, path: baseDir, written: normalized.length };
 }

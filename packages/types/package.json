@@ -41,7 +41,8 @@
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",
     "./org-policy": "./src/org-policy.ts",
-    "./org-policy-view": "./src/org-policy-view.ts"
+    "./org-policy-view": "./src/org-policy-view.ts",
+    "./firm-hub": "./src/firm-hub.ts"
   },
   "files": [
     "src",

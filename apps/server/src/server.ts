@@ -194,6 +194,7 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
+import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
@@ -795,6 +796,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     if (scopes.has("engine")) applyOrgPolicyToEngines(config);
   });
   void scheduleOrgPolicySync(config, { force: true });
+  // The firm's Knowledge Hub likewise: what it installs for everyone, and what
+  // the member added, follows the platform; connectors and skills reload the engines.
+  const stopFirmHub = onFirmHubChange(config, (changes) => {
+    if (changes.has("engine")) applyOrgPolicyToEngines(config);
+  });
+  void scheduleFirmHubSync(config, { force: true });
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
@@ -1044,6 +1051,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopProjectSyncTimer();
       stopSyncEvents();
       stopOrgPolicy();
+      stopFirmHub();
       stopTaskReminders();
       benchmarkRunner.dispose();
       watcherHandle.close();
@@ -2417,8 +2425,9 @@ function createRoutes(
       }
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
-      // The firm's settings stay, and enforced settings unlock.
+      // The firm's settings stay, and enforced settings unlock; what its hub installed goes.
       await scheduleOrgPolicySync(config, { force: true });
+      await scheduleFirmHubSync(config, { force: true });
       await rebuildEngineConfigFile(workspace);
       return jsonResponse(await readEigenweltEntitlementsView(config));
     }
@@ -2459,7 +2468,10 @@ function createRoutes(
       }
       return view;
     });
-    if (view.connected) void scheduleOrgPolicySync(config, { force: true });
+    if (view.connected) {
+      void scheduleOrgPolicySync(config, { force: true });
+      void scheduleFirmHubSync(config, { force: true });
+    }
     return jsonResponse(view);
   });
 
@@ -2482,6 +2494,24 @@ function createRoutes(
   // is the device owner's choice, made in the app: never an agent's or a
   // remote collaborator's.
   addRoute(routes, "GET", "/org-policy", "client", async () => jsonResponse(await readOrgPolicyView(config)));
+  // The firm's Knowledge Hub as this computer follows it (firm-hub.ts).
+  addRoute(routes, "GET", "/firm-hub", "client", async () => jsonResponse(await readFirmHubView(config)));
+  addRoute(routes, "GET", "/firm-hub/skills", "client", async () => jsonResponse({ items: await firmHubSkills(config) }));
+  addRoute(routes, "POST", "/firm-hub/:itemId/added", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const body = await readJsonBodyLimited(ctx.request, 1024);
+    if (typeof body.added !== "boolean") throw new ApiError(400, "invalid_payload", "added must be true or false");
+    return jsonResponse(await setFirmHubAdded(config, ctx.params.itemId ?? "", body.added));
+  });
+  addRoute(routes, "PUT", "/firm-hub/:itemId/key", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    const key = typeof body.key === "string" ? body.key.trim() : null;
+    if (body.key !== null && !key) throw new ApiError(400, "invalid_payload", "key must be a non-empty string, or null to remove it");
+    return jsonResponse(await setFirmHubMemberKey(config, ctx.params.itemId ?? "", key));
+  });
   // For the engine's guard plugin: what the firm enforces now. The folder it
   // enforces through is checked on the way: a changed one is restored, and the
   // engines reload once idle.
@@ -2504,8 +2534,10 @@ function createRoutes(
       for (const name of Object.keys(await runtimeMcpMapForWorkspace(config, workspace.id))) memberConnectors.add(name);
     }
     const allowed = new Set(Object.keys(await allowedMemberConnectors(config, Object.fromEntries([...memberConnectors].map((name) => [name, true])))));
+    // The firm's own connectors run under their names too, whatever members may add.
+    const firmConnectors = await firmHubConnectorNames(config);
     const blockedMcpServers = [...memberConnectors]
-      .filter((name) => !allowed.has(name))
+      .filter((name) => !allowed.has(name) && !firmConnectors.has(name))
       .map((name) => name.replace(/[^a-zA-Z0-9_-]/g, "_"));
     return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers });
   });
@@ -2533,6 +2565,7 @@ function createRoutes(
       // a good moment to bring the tasks, and the firm's policy, up to date too.
       scheduleTaskSync(config);
       void scheduleOrgPolicySync(config);
+      void scheduleFirmHubSync(config);
     }
     const cachedManifest = await readCachedEigenweltPaidManifest(config);
     const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
@@ -3898,7 +3931,8 @@ function createRoutes(
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
     const items = await listSkills(workspace.path, includeGlobal, skipped);
-    return jsonResponse({ items, skipped });
+    // The firm's skills apply in every workspace, like the member's global ones.
+    return jsonResponse({ items: includeGlobal ? [...items, ...(await firmHubSkills(config))] : items, skipped });
   });
 
   addRoute(routes, "POST", "/workspace/:id/skills/hub/:name", "client", async (ctx) => {

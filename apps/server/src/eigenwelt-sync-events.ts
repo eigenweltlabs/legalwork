@@ -3,6 +3,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "./sync-events.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { requireIntakeClient } from "./eigenwelt-intake.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { scheduleFirmHubSync } from "./firm-hub.js";
 import { scheduleOrgPolicySync } from "./org-policy.js";
 import { scheduleProjectSync, setProjectSyncPoked } from "./project-sync.js";
 import { scheduleTaskSync } from "./task-sync.js";
@@ -51,6 +52,7 @@ export function startSyncEvents(
       if (poke.projects || poke.resync) scheduleProjectSync(config, POKE_DELAY_MS);
       if (poke.tasks || poke.resync) scheduleTaskSync(config, POKE_DELAY_MS);
       if (poke.policy || poke.resync) void scheduleOrgPolicySync(config, { force: true });
+      if (poke.hub || poke.resync) void scheduleFirmHubSync(config, { force: true });
     });
   void (async () => {
     let backoff = 1_000;

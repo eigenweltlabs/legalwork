@@ -308,6 +308,7 @@ export default {
   "review.all": "All",
   "review.saved": "My prompts",
   "review.starters": "Suggestions",
+  "review.from_firm": "From your firm",
   "review.library_conflict": "Only JEV supports yes/no and fixed-choice classification. Rephrase open-ended questions or choose mixed or LLM mode.",
   "review.add_set": "Add set",
   "review.add_column": "Add column",

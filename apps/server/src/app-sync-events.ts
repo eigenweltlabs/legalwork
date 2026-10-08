@@ -13,7 +13,7 @@ import type { ServerConfig } from "./types.js";
  * what it covers.
  */
 
-type Change = "projects" | "tasks" | "policy";
+type Change = "projects" | "tasks" | "policy" | "hub";
 
 /** Changes close together go as one event: a round that brought ten notes reloads once. */
 const COALESCE_MS = 250;

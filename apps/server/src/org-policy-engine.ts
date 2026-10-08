@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PermissionActionSchema, type PermissionAction, type PermissionRule } from "./org-policy-schema.js";
 
+import { firmHubConnectorBlocks } from "./firm-hub.js";
 import { appliedOrgPolicy } from "./org-policy.js";
 import { orgChatProviderBlocks, orgEnabledProviders } from "./org-policy-ai.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
@@ -59,7 +60,10 @@ export async function orgPolicyPermissions(
   return { permission, enforced };
 }
 
-/** The folder's config: empty while the firm enforces nothing here. */
+/**
+ * The folder's config: empty while the firm enforces nothing here and gives
+ * no connectors. The firm's skills sit beside it (firm-hub.ts).
+ */
 export async function buildOrgPolicyEngineLayer(
   config: ServerConfig,
   own: { permission: Record<string, unknown> },
@@ -73,6 +77,8 @@ export async function buildOrgPolicyEngineLayer(
   }
   const providers = await orgChatProviderBlocks(config);
   if (Object.keys(providers).length > 0) layer.provider = providers;
+  const connectors = await firmHubConnectorBlocks(config);
+  if (Object.keys(connectors).length > 0) layer.mcp = connectors;
   // While the firm allows no chat providers of the member's own, only Eigenwelt's and the firm's.
   const enabledProviders = await orgEnabledProviders(config);
   if (enabledProviders) layer.enabled_providers = enabledProviders;

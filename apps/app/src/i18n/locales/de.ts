@@ -317,6 +317,7 @@ const de = {
   "review.all": "Alle",
   "review.saved": "Meine Prompts",
   "review.starters": "Vorschläge",
+  "review.from_firm": "Von Ihrer Kanzlei",
   "review.library_conflict": "Nur JEV unterstützt Ja/Nein-Fragen und Klassifikationen mit festen Antwortoptionen. Formulieren Sie offene Fragen um oder wählen Sie den gemischten oder LLM-Modus.",
   "review.add_set": "Set hinzufügen",
   "review.add_column": "Spalte hinzufügen",
