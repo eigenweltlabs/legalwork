@@ -15,12 +15,73 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
     workspace = await mkdtemp(join(tmpdir(), "legalwork-sandbox-canary-"));
     await sandbox.prepare();
   }, 600_000);
-  afterAll(async () => { if (workspace) await rm(workspace, { recursive: true, force: true }); });
+  afterAll(async () => { await VmSandbox.shutdown(); if (workspace) await rm(workspace, { recursive: true, force: true }); });
   const run = (command: string, writable = false, signal = new AbortController().signal) => sandbox.run({
     command, cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable }],
     // Cold document-library imports need headroom under software emulation.
     timeoutMs: 60_000, signal, authorizeNetwork: async () => false,
   });
+
+  test("ten concurrent commands share one VM with separate folders, processes, proxies and temporary files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sandbox-concurrent-"));
+    let release: () => void = () => {};
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const arrived = new Set<number>();
+    const controllers = Array.from({ length: 10 }, () => new AbortController());
+    const deadline = setTimeout(() => { for (const controller of controllers) controller.abort(); release(); }, 120000);
+    try {
+      const runs = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
+        const folder = join(root, String(index));
+        await mkdir(folder);
+        await writeFile(join(folder, "identity"), String(index));
+        // Different backend objects, as used by services, must reuse the VM too.
+        return new VmSandbox().run({ cwd: "/workspace", mounts: [{ source: folder, target: "/workspace", writable: index % 2 === 0 }],
+          timeoutMs: 120000, signal: controllers[index]!.signal,
+          authorizeNetwork: async (request) => {
+            expect(request.url).toBe(`https://example.com/session-${index}`);
+            expect(Buffer.from(request.bodyBase64, "base64").toString()).toBe(String(index));
+            arrived.add(index);
+            if (arrived.size === 10) release();
+            await barrier;
+            return false;
+          }, command: `python3 - <<'PY'
+import json, os, socket, urllib.request, urllib.error
+from pathlib import Path
+assert Path('/workspace/identity').read_text() == '${index}'
+assert not Path('/tmp/session-private').exists()
+Path('/tmp/session-private').write_text('${index}')
+s = socket.socket(); s.bind(('127.0.0.1', 23456))
+assert not Path('/dev/vport0p1').exists()
+assert not Path('/sys/fs/cgroup').exists()
+try:
+    urllib.request.urlopen(urllib.request.Request('https://example.com/session-${index}', data=b'${index}'))
+    raise AssertionError('Network permission leaked')
+except urllib.error.HTTPError as e:
+    assert e.code == 403
+assert Path('/tmp/session-private').read_text() == '${index}'
+try:
+    Path('/workspace/result').write_text('${index}')
+    assert ${index % 2 === 0 ? "True" : "False"}
+except PermissionError:
+    assert ${index % 2 !== 0 ? "True" : "False"}
+print(json.dumps({'boot': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                  'pid': os.readlink('/proc/self/ns/pid'), 'net': os.readlink('/proc/self/ns/net'),
+                  'mount': os.readlink('/proc/self/ns/mnt')}))
+PY` });
+      }));
+      expect(arrived.size).toBe(10);
+      const identities = runs.map((result) => { expect(result.exitCode).toBe(0); return JSON.parse(result.output); });
+      expect(new Set(identities.map((identity) => identity.boot)).size).toBe(1);
+      for (const namespace of ["pid", "net", "mount"]) expect(new Set(identities.map((identity) => identity[namespace])).size).toBe(10);
+      for (let index = 0; index < 10; index++) {
+        expect(await readFile(join(root, String(index), "result"), "utf8").catch(() => null)).toBe(index % 2 === 0 ? String(index) : null);
+      }
+    } finally {
+      clearTimeout(deadline); release();
+      for (const controller of controllers) controller.abort();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 180000);
 
   test("Python and Node work, approved writes appear in the project", async () => {
     await writeFile(join(workspace, "allowed.txt"), "original text");
@@ -200,7 +261,97 @@ node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes
     expect(result.output).toContain("Node HTTPS passed");
   }, 180_000);
 
-  test("cancellation destroys the VM without copying pending changes", async () => {
+  test("cancelling one worker preserves a concurrent worker, its approvals and the shared VM", async () => {
+    const cancelled = new AbortController();
+    let signalStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    let continueSurvivor: () => void = () => {};
+    const survivorGate = new Promise<void>((resolve) => { continueSurvivor = resolve; });
+    let arrived = 0;
+    const makeRun = (name: string, signal: AbortSignal) => sandbox.run({
+      command: `echo staged > ${name}.txt; curl -s https://example.com/${name}; cat /proc/sys/kernel/random/boot_id`,
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: true }],
+      timeoutMs: 30000, signal, authorizeNetwork: async (request) => {
+        expect(request.url).toBe(`https://example.com/${name}`);
+        if (++arrived === 2) signalStarted();
+        await survivorGate;
+        return false;
+      },
+    });
+    const first = makeRun("cancelled-worker", cancelled.signal);
+    const rejected = first.then(() => null, (error: unknown) => error);
+    const survivor = makeRun("surviving-worker", AbortSignal.timeout(60000));
+    try {
+      const timeout = setTimeout(() => cancelled.abort(new Error("Workers did not reach approval")), 30000);
+      try { await Promise.race([started, rejected.then(() => { throw new Error("Worker exited before approval"); })]); }
+      finally { clearTimeout(timeout); }
+      cancelled.abort(new Error("Cancel only this session"));
+      const error = await rejected;
+      expect(error).toBeInstanceOf(Error);
+      expect(error instanceof Error && error.message).toBe("Cancel only this session");
+      continueSurvivor();
+      const result = await survivor;
+      expect(result.exitCode).toBe(0);
+      const next = await run("cat /proc/sys/kernel/random/boot_id");
+      expect(result.output.trim().endsWith(next.output.trim())).toBe(true);
+      expect(await readFile(join(workspace, "cancelled-worker.txt")).catch(() => null)).toBeNull();
+      expect(await readFile(join(workspace, "surviving-worker.txt"), "utf8")).toBe("staged\n");
+    } finally {
+      cancelled.abort(); continueSurvivor();
+      await Promise.allSettled([first, survivor]);
+      await rm(join(workspace, "surviving-worker.txt"), { force: true });
+    }
+  }, 180000);
+
+  test("simultaneous edits to the same file produce a conflict instead of a lost update", async () => {
+    await writeFile(join(workspace, "shared-edit"), "original");
+    let release: () => void = () => {};
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    let arrived = 0;
+    const results = await Promise.allSettled(["first", "second"].map((text) => sandbox.run({
+      command: `echo ${text} > shared-edit; curl -s https://example.com/commit-barrier >/dev/null`,
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: true }],
+      timeoutMs: 30000, signal: AbortSignal.timeout(60000), authorizeNetwork: async () => {
+        if (++arrived === 2) release();
+        await barrier;
+        return false;
+      },
+    })));
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(["first\n", "second\n"]).toContain(await readFile(join(workspace, "shared-edit"), "utf8"));
+    await rm(join(workspace, "shared-edit"));
+  }, 180000);
+
+  test("a stopped shared runtime discards active edits and a later command starts cleanly", async () => {
+    let arrived = 0;
+    let signalStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const pending = [0, 1].map((index) => sandbox.run({
+      command: `echo unfinished > stopped-${index}; curl -s https://example.com/stopped-${index}`,
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: true }],
+      timeoutMs: 30000, signal: AbortSignal.timeout(60000), authorizeNetwork: async () => {
+        if (++arrived === 2) signalStarted();
+        await gate;
+        return false;
+      },
+    }));
+    const settled = Promise.allSettled(pending);
+    try {
+      await started;
+      await VmSandbox.shutdown();
+      const results = await settled;
+      expect(results.every((result) => result.status === "rejected")).toBe(true);
+      for (let index = 0; index < 2; index++) expect(await readFile(join(workspace, `stopped-${index}`)).catch(() => null)).toBeNull();
+      const restarted = await run("test ! -e /tmp/session-private && echo restarted");
+      expect(restarted.exitCode).toBe(0);
+      expect(restarted.output).toBe("restarted\n");
+    } finally { release(); await VmSandbox.shutdown(); await settled; }
+  }, 180000);
+
+  test("cancellation destroys only its worker without copying pending changes", async () => {
     const controller = new AbortController();
     const promise = run("echo started > started.txt; (sleep 30; echo escaped > late.txt) & wait", true, controller.signal);
     // Changes stay inside the guest until successful completion.

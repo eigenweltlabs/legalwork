@@ -1,35 +1,19 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
-import { setTimeout as delay } from "node:timers/promises";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { once } from "node:events";
 import { z } from "zod";
 import { brokerRequest, prepareOutboundRequest, type OutboundRequest } from "./network.js";
 import { validateMounts, type SandboxMount } from "./files.js";
 import { SandboxFilesystem, filesystemError, filesystemRequestSchema } from "./filesystem.js";
+import { SharedVmRuntime } from "./runtime.js";
 export { validateMounts, within, type SandboxMount } from "./files.js";
 
 const exec = promisify(execFile);
 const OUTPUT_LIMIT = 1024 * 1024;
-const FRAME_LIMIT = 24 * 1024 * 1024;
-
-async function connectPipe(name: string, signal: AbortSignal): Promise<Socket> {
-  while (true) {
-    signal.throwIfAborted();
-    const socket = createConnection(`\\\\.\\pipe\\${name}`);
-    try { await once(socket, "connect", { signal }); return socket; }
-    catch (error) {
-      socket.destroy();
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
-      await delay(50, undefined, { signal });
-    }
-  }
-}
 const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["aarch64", "x86_64"]),
   files: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
 });
@@ -37,7 +21,6 @@ export type SandboxResult = { output: string; exitCode: number; truncated: boole
 export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number;
   signal: AbortSignal; authorizeNetwork: (request: OutboundRequest) => Promise<boolean> };
 const eventSchema = z.discriminatedUnion("event", [
-  z.object({ event: z.literal("ready"), protocol: z.literal(2) }),
   z.object({ event: z.literal("output"), stream: z.enum(["stdout", "stderr"]), data: z.string().max(16384) }),
   z.object({ event: z.literal("exit"), code: z.number().int() }),
   z.object({ event: z.literal("error"), message: z.string().max(8192) }),
@@ -53,10 +36,16 @@ export function sandboxResources(): string {
     : fileURLToPath(new URL("../../resources/agent-sandbox/runtime/", import.meta.url));
 }
 
-/** The VM has no network device or host mounts. The host treats every guest
- * message as untrusted, including output from a compromised guest kernel. */
+/** The VM has no network device or host mounts. Each command has its own
+ * broker; the guest supervisor and kernel enforce separation between workers. */
 export class VmSandbox {
-  private static active = 0;
+  private static runtimes = new Map<string, Promise<SharedVmRuntime>>();
+  private static commits = Promise.resolve();
+  static async shutdown(): Promise<void> {
+    const runtimes = [...this.runtimes.values()];
+    this.runtimes.clear();
+    await Promise.all(runtimes.map(async (runtime) => (await runtime).close()));
+  }
   private prepared: Promise<z.infer<typeof manifestSchema>> | undefined;
   constructor(readonly resources = sandboxResources(), private readonly acceleration: "auto" | "software" = "auto") {}
   private executable(architecture: string) { return join(this.resources, `qemu-system-${architecture}${process.platform === "win32" ? ".exe" : ""}`); }
@@ -88,21 +77,20 @@ export class VmSandbox {
     return manifest;
   }
 
-  async run(input: SandboxRun): Promise<SandboxResult> {
-    if (VmSandbox.active >= 2) throw new Error("Two protected commands are already running. Wait for one to finish.");
-    VmSandbox.active++;
-    try { return await this.runIsolated(input); }
-    finally { VmSandbox.active--; }
+  private sharedRuntime(): Promise<SharedVmRuntime> {
+    const key = `${this.resources}:${this.acceleration}`;
+    let runtime = VmSandbox.runtimes.get(key);
+    if (!runtime) {
+      runtime = this.startRuntime(() => { if (VmSandbox.runtimes.get(key) === runtime) VmSandbox.runtimes.delete(key); });
+      VmSandbox.runtimes.set(key, runtime);
+      void runtime.catch(() => { if (VmSandbox.runtimes.get(key) === runtime) VmSandbox.runtimes.delete(key); });
+    }
+    return runtime;
   }
 
-  private async runIsolated(input: SandboxRun): Promise<SandboxResult> {
-    input.signal.throwIfAborted();
-    if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600000) throw new Error("Invalid sandbox timeout.");
-    if (!input.command || input.command.length > 128000) throw new Error("Invalid sandbox command.");
+  private async startRuntime(onClose: () => void): Promise<SharedVmRuntime> {
     const executable = await this.prepare();
     const manifest = await this.prepared!;
-    const mounts = await validateMounts(input.mounts);
-    if (!mounts.some((mount) => input.cwd === mount.target || input.cwd.startsWith(mount.target + "/")) || input.cwd.split("/").includes("..")) throw new Error("Command directory is outside the sandbox folders.");
     const arm = manifest.architecture === "aarch64";
     const nativeMac = this.acceleration === "auto" && process.platform === "darwin" && (arm ? process.arch === "arm64" : process.arch === "x64") &&
       await exec("/usr/sbin/sysctl", ["-n", "kern.hv_support"], { timeout: 5000 }).then(({ stdout }) => stdout.trim() === "1", () => false);
@@ -113,117 +101,86 @@ export class VmSandbox {
     const pipeName = process.platform === "win32" ? `legalwork-${randomUUID()}` : undefined;
     const args = ["-no-user-config", "-nodefaults", "-L", this.resources, "-machine", arm ? "virt" : "q35",
       "-accel", nativeMac ? "hvf" : "tcg", "-cpu", nativeMac ? "host" : arm ? "cortex-a72" : "max",
-      "-m", "2048", "-smp", "2", "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-nic", "none", "-no-reboot",
+      "-m", String(Math.max(2048, Math.min(8192, Math.floor(totalmem() / 1024 ** 2 / 4)))), "-smp", "2", "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-nic", "none", "-no-reboot",
       "-kernel", join(this.resources, "kernel"), "-initrd", join(this.resources, "initrd.gz"),
       "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}`,
       "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
       "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
-    const controller = new AbortController();
-    const signal = AbortSignal.any([input.signal, controller.signal, AbortSignal.timeout(180000 + input.timeoutMs)]);
-    let filesystem: SandboxFilesystem | undefined;
-    try {
-      filesystem = await SandboxFilesystem.create(mounts, signal);
-      const result = await this.execute(executable, args, input, filesystem, signal, consolePath, pipeName);
-      controller.abort();
-      // The VM process has exited before any file is written back to the host.
-      await filesystem.commit(input.signal);
-      return result;
-    } finally { controller.abort(); await filesystem?.dispose(); await rm(diagnostics, { recursive: true, force: true }); }
+    return new SharedVmRuntime(executable, args, diagnostics, consolePath, onClose, pipeName);
   }
 
-  private execute(executable: string, args: string[], input: SandboxRun, filesystem: SandboxFilesystem, signal: AbortSignal, consolePath: string, pipeName?: string): Promise<SandboxResult> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(executable, args, { stdio: ["pipe", "pipe", "pipe"], shell: false, signal, windowsHide: true,
-        env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP } });
-      let pending = "", output = "", stderr = "";
-      let exitCode: number | undefined, failure: Error | undefined;
-      let truncated = false, ready = false, requests = 0;
-      const active = new Set<string>(), activeFilesystem = new Set<string>();
-      let filesystemWork = Promise.resolve();
-      const pipeController = new AbortController();
-      let pipe: Socket | undefined;
-      let writer = child.stdin;
-      const fail = (error: unknown) => { failure = error instanceof Error ? error : new Error(String(error)); filesystem.cancel(); child.kill("SIGKILL"); };
-      const send = async (message: unknown) => {
-        signal.throwIfAborted();
-        if (!writer.write(JSON.stringify(message) + "\n")) await once(writer, "drain", { signal });
-      };
-      child.on("error", fail);
-      child.stdin.on("error", (error) => { if (exitCode === undefined) fail(error); });
-      child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-8192); });
-      const receive = (chunk: Buffer) => {
-        pending += chunk.toString();
-        if (pending.length > FRAME_LIMIT) return fail(new Error("Sandbox protocol frame exceeded its limit."));
-        let newline: number;
-        while ((newline = pending.indexOf("\n")) >= 0) {
-          if (exitCode !== undefined || failure) return;
-          const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
-          try {
-            const event = eventSchema.parse(JSON.parse(line));
-            if (event.event === "error") return fail(new Error(event.message));
-            if (event.event === "ready") {
-              if (ready) throw new Error("Duplicate sandbox startup.");
-              ready = true;
-              void send({ command: input.command, cwd: input.cwd, timeoutMs: input.timeoutMs, uid: 1000, gid: 1000,
-                mounts: filesystem.mounts.map(({ target, writable }) => ({ target, writable })) }).catch(fail);
-            }
-            if (event.event === "output") {
-              const text = Buffer.from(event.data, "base64").toString();
-              truncated ||= output.length + text.length > OUTPUT_LIMIT;
-              output = (output + text).slice(0, OUTPUT_LIMIT);
-            }
-            if (event.event === "filesystem") {
-              if (!ready || activeFilesystem.size >= 16 || activeFilesystem.has(event.id) || active.has(event.id)) throw new Error("Invalid filesystem request sequence.");
-              activeFilesystem.add(event.id);
-              filesystemWork = filesystemWork.then(async () => {
-                signal.throwIfAborted();
-                let response: unknown;
-                try { response = { result: await filesystem.request(event.request) }; }
-                catch (error) { response = { errno: filesystemError(error) }; }
+  async run(input: SandboxRun): Promise<SandboxResult> {
+    input.signal.throwIfAborted();
+    if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600000) throw new Error("Invalid sandbox timeout.");
+    if (!input.command || input.command.length > 128000) throw new Error("Invalid sandbox command.");
+    const mounts = await validateMounts(input.mounts);
+    if (!mounts.some((mount) => input.cwd === mount.target || input.cwd.startsWith(mount.target + "/")) || input.cwd.split("/").includes("..")) throw new Error("Command directory is outside the sandbox folders.");
+    const controller = new AbortController();
+    const signal = AbortSignal.any([input.signal, controller.signal, AbortSignal.timeout(180000 + input.timeoutMs)]);
+    const filesystem = await SandboxFilesystem.create(mounts, signal);
+    let output = "", truncated = false, requests = 0, exitCode: number | undefined;
+    const active = new Set<string>(), activeFilesystem = new Set<string>();
+    let filesystemWork = Promise.resolve();
+    try {
+      const runtime = await this.sharedRuntime();
+      await runtime.execute({ command: input.command, cwd: input.cwd, timeoutMs: input.timeoutMs, uid: 1000, gid: 1000,
+        mounts: filesystem.mounts.map(({ target, writable }) => ({ target, writable })) }, signal, (raw, send, finish) => {
+        try {
+          const event = eventSchema.parse(raw);
+          if (event.event === "error") { finish(new Error(event.message)); return; }
+          if (event.event === "exit") {
+            if (activeFilesystem.size) throw new Error("Incomplete sandbox filesystem operation.");
+            exitCode = event.code;
+            finish();
+            return;
+          }
+          if (signal.aborted) return;
+          if (event.event === "output") {
+            const text = Buffer.from(event.data, "base64").toString();
+            truncated ||= output.length + text.length > OUTPUT_LIMIT;
+            output = (output + text).slice(0, OUTPUT_LIMIT);
+          }
+          if (event.event === "filesystem") {
+            if (activeFilesystem.size >= 16 || activeFilesystem.has(event.id) || active.has(event.id)) throw new Error("Invalid filesystem request sequence.");
+            activeFilesystem.add(event.id);
+            filesystemWork = filesystemWork.then(async () => {
+              signal.throwIfAborted();
+              let response: unknown;
+              try { response = { result: await filesystem.request(event.request) }; }
+              catch (error) { response = { errno: filesystemError(error) }; }
+              await send({ id: event.id, response });
+              activeFilesystem.delete(event.id);
+            }).catch((error: unknown) => controller.abort(error));
+          }
+          if (event.event === "request") {
+            if (++requests > 200 || active.size >= 16 || active.has(event.id) || activeFilesystem.has(event.id)) throw new Error("Sandbox network request limit exceeded.");
+            active.add(event.id);
+            void (async () => {
+              try {
+                const response = await brokerRequest(prepareOutboundRequest(event.request), input.authorizeNetwork, signal);
                 await send({ id: event.id, response });
-                activeFilesystem.delete(event.id);
-              }).catch(fail);
-            }
-            if (event.event === "exit") { if (activeFilesystem.size || !ready) throw new Error("Incomplete sandbox filesystem operation."); exitCode = event.code; child.kill("SIGKILL"); }
-            if (event.event === "request") {
-              if (++requests > 200 || active.size >= 16 || active.has(event.id) || activeFilesystem.has(event.id)) throw new Error("Sandbox network request limit exceeded.");
-              active.add(event.id);
-              void (async () => {
-                try {
-                  const response = await brokerRequest(prepareOutboundRequest(event.request), input.authorizeNetwork, signal);
-                  await send({ id: event.id, response });
-                } catch (error) {
-                  if (!writer.destroyed) await send({ id: event.id, error: error instanceof Error ? error.message : "Request denied" });
-                } finally { active.delete(event.id); }
-              })().catch(fail);
-            }
-          } catch (error) { fail(error); }
-        }
-      };
-      if (pipeName) {
-        void connectPipe(pipeName, AbortSignal.any([signal, pipeController.signal])).then((socket) => {
-          pipe = socket; writer = socket;
-          socket.on("error", fail);
-          socket.on("data", receive);
-          socket.on("end", () => { if (exitCode === undefined) fail(new Error("Sandbox channel closed early.")); });
-        }).catch((error) => { if (!pipeController.signal.aborted) fail(error); });
-      } else child.stdout.on("data", receive);
-      child.on("close", async () => {
-        pipeController.abort();
-        pipe?.destroy();
-        filesystem.cancel();
-        await filesystemWork;
-        if (failure) {
-          const diagnostic = await readFile(consolePath, "utf8").catch(() => "");
-          return reject(new Error(`${failure.message}\n${stderr}\n${diagnostic.slice(-8192)}`, { cause: failure }));
-        }
-        if (signal.aborted) return reject(signal.reason);
-        if (exitCode === undefined) {
-          const diagnostic = await readFile(consolePath, "utf8").catch(() => "");
-          return reject(new Error(`Protected environment stopped unexpectedly: ${stderr}\n${diagnostic.slice(-8192)}`));
-        }
-        resolve({ output, exitCode, truncated });
+              } catch (error) {
+                if (!signal.aborted) await send({ id: event.id, error: error instanceof Error ? error.message : "Request denied" });
+              } finally { active.delete(event.id); }
+            })().catch((error: unknown) => controller.abort(error));
+          }
+        } catch (error) { controller.abort(error); }
       });
-    });
+      controller.abort();
+      filesystem.cancel();
+      await filesystemWork;
+      if (exitCode === undefined) throw new Error("Protected command did not finish.");
+      // Serialize validation and publication: concurrent workers must not both
+      // validate the same old contents and then overwrite each other's edits.
+      const commit = VmSandbox.commits.then(() => filesystem.commit(input.signal));
+      VmSandbox.commits = commit.catch(() => {});
+      await commit;
+      return { output, exitCode, truncated };
+    } finally {
+      controller.abort();
+      filesystem.cancel();
+      await filesystemWork;
+      await filesystem.dispose();
+    }
   }
 }

@@ -1,4 +1,4 @@
-"""VM supervisor. The only host channel is bounded JSON on virtio-serial.
+"""Isolated command worker. Its supervisor routes bounded JSON to the host.
 
 The VM has no network interface. Unprivileged commands can contact this local
 HTTP proxy, which forwards complete HTTP requests to the host permission broker.
@@ -245,7 +245,7 @@ def start_filesystem(mounts):
     spec = importlib.util.spec_from_file_location("approved_filesystem", "/opt/legalwork/filesystem.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    os.makedirs("/mnt/approved")
+    os.makedirs("/mnt/approved", exist_ok=True)
 
     def serve():
         try:
@@ -261,21 +261,45 @@ def start_filesystem(mounts):
         if time.monotonic() > deadline:
             raise TimeoutError("Protected filesystem did not start")
         time.sleep(0.01)
-    for name in ("workspace", "authorized", "skills"):
-        target = "/" + name
-        if os.path.exists(target):
-            os.rmdir(target)
-        os.symlink("/mnt/approved/" + name, target)
     return thread
+
+
+def isolate_worker():
+    # unshare already created private mount, PID, network, IPC and UTS namespaces.
+    # Shared packages are read-only; every writable runtime directory is private.
+    def mount(*args):
+        subprocess.run(['/bin/busybox', 'mount', *args], check=True)
+    mount('--make-rprivate', '/')
+    mount('--bind', '/', '/')
+    mount('-o', 'remount,bind,ro', '/')
+    for path in ('/tmp', '/run', '/mnt', '/dev', '/sys'):
+        mount('-t', 'tmpfs', '-o', 'nosuid,nodev,mode=755', 'tmpfs', path)
+    os.chmod('/tmp', 0o1777)
+    # Device nodes are private and only these harmless devices are exposed.
+    mount('-o', 'remount,dev', '/dev')
+    import stat
+    for name, major, minor, mode in [('null', 1, 3, 0o666), ('zero', 1, 5, 0o666),
+                                     ('random', 1, 8, 0o666), ('urandom', 1, 9, 0o666),
+                                     ('fuse', 10, 229, 0o600)]:
+        os.mknod('/dev/' + name, stat.S_IFCHR | mode, os.makedev(major, minor))
+        os.chmod('/dev/' + name, mode)
+    os.mkdir('/dev/shm', 0o1777)
+    os.symlink('/proc/self/fd', '/dev/fd')
+    for number, name in enumerate(('stdin', 'stdout', 'stderr')):
+        os.symlink('/proc/self/fd/' + str(number), '/dev/' + name)
+    subprocess.run(['/bin/busybox', 'ip', 'link', 'set', 'lo', 'up'], check=True)
 
 
 def main():
     startup_timer = threading.Timer(180, lambda: os._exit(124))
     startup_timer.daemon = True
     startup_timer.start()
-    connect_host_channel()
-    emit({"event": "ready", "protocol": 2})
     config = read_frame()
+    isolate_worker()
+    # Do not inherit PID 1's OOM exemption into commands.
+    with open("/proc/self/oom_score_adj", "w") as file:
+        file.write("0")
+    emit({"event": "ready", "protocol": 2})
     threading.Thread(target=replies, daemon=True).start()
     filesystem = start_filesystem(config["mounts"])
     timer = threading.Timer(config["timeoutMs"] / 1000, lambda: os._exit(124))
@@ -303,7 +327,7 @@ def main():
                    "SSL_CERT_FILE": "/tmp/public/ca.pem", "REQUESTS_CA_BUNDLE": "/tmp/public/ca.pem",
                    "CURL_CA_BUNDLE": "/tmp/public/ca.pem", "NODE_EXTRA_CA_CERTS": "/tmp/public/ca.pem",
                    "NODE_USE_ENV_PROXY": "1", "GIT_SSL_CAINFO": "/tmp/public/ca.pem"}
-    child = subprocess.Popen(["/usr/bin/setpriv", "--no-new-privs", f"--reuid={uid}", f"--regid={gid}", "--clear-groups",
+    child = subprocess.Popen(["/usr/bin/setpriv", "--no-new-privs", "--bounding-set=-all", "--inh-caps=-all", "--ambient-caps=-all", f"--reuid={uid}", f"--regid={gid}", "--clear-groups",
                               "/bin/bash", "--noprofile", "--norc", "-c", config["command"]],
                              cwd=config["cwd"], env=environment, stdin=subprocess.DEVNULL,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -313,8 +337,7 @@ def main():
     for thread in threads:
         thread.start()
     code = child.wait()
-    # The entire guest is disposable. Stop every remaining unprivileged
-    # process, including descendants that detached from the shell's group.
+    # This PID namespace belongs to one command. Stop its detached descendants.
     for pid in os.listdir("/proc"):
         if pid.isdigit():
             try:
@@ -329,9 +352,9 @@ def main():
     if filesystem.is_alive():
         raise TimeoutError("Protected filesystem did not stop")
     emit({"event": "exit", "code": code})
-    # The host kills QEMU before applying file changes. Keep PID 1 alive until
-    # that happens so a kernel panic cannot truncate the final virtio frame.
-    threading.Event().wait()
+    # The supervisor confirms the namespace and cgroup are empty before it
+    # forwards completion to the host and permits staged writes to be applied.
+    os._exit(0)
 
 
 if __name__ == "__main__":

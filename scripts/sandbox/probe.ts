@@ -81,4 +81,4 @@ node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes
   results.python_and_node_approved_https = true;
   results.seconds = (Date.now() - started) / 1000;
   console.log(JSON.stringify(results, null, 2));
-} finally { await rm(workspace, { recursive: true, force: true }); }
+} finally { await VmSandbox.shutdown(); await rm(workspace, { recursive: true, force: true }); }

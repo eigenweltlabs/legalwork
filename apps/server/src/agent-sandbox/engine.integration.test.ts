@@ -87,6 +87,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     expect(await readFile(join(folder, "host-escape.txt")).catch(() => null)).toBeNull();
   } finally {
     engine.kill("SIGKILL"); await engine.exited; fixture.stop(true);
+    await VmSandbox.shutdown();
     await closeRuntimeOpencodeConfig(serverConfig); Bun.gc(true);
     await rm(root, { recursive: true, force: true });
   }

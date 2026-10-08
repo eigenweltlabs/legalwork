@@ -9,15 +9,15 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY requirements.txt /opt/legalwork/requirements.txt
 RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
     && pip freeze > /opt/legalwork/python-packages.txt
-COPY relay.py /opt/legalwork/relay.py
+COPY relay.py supervisor.py /opt/legalwork/
 COPY filesystem.py /opt/legalwork/filesystem.py
 COPY test_relay.py /opt/legalwork/test_relay.py
 RUN python3 -B /opt/legalwork/test_relay.py && rm /opt/legalwork/test_relay.py
 COPY init /init
 RUN chmod 0555 /opt/legalwork /opt/legalwork/relay.py
-RUN chmod 0755 /init && mkdir -p /workspace /authorized /proc /sys /dev /run
+RUN chmod 0755 /init && mkdir -p /proc /sys /dev /run /mnt/approved && rm -rf /workspace /authorized /skills && ln -s /mnt/approved/workspace /workspace && ln -s /mnt/approved/authorized /authorized && ln -s /mnt/approved/skills /skills
 RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${source:Package}\t${source:Version}\n' > /opt/legalwork/guest-packages.tsv
-WORKDIR /workspace
+WORKDIR /
 
 # Docker is a build-time tool on CI, never an end-user dependency.
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS pack

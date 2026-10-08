@@ -1,6 +1,7 @@
 *
 !Dockerfile
 !relay.py
+!supervisor.py
 !filesystem.py
 !test_relay.py
 !init
