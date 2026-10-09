@@ -1,3 +1,4 @@
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
@@ -275,13 +276,7 @@ export interface Actor {
   scope?: TokenScope;
 }
 
-export interface ApprovalRequest {
-  id: string;
-  workspaceId: string;
-  action: string;
-  summary: string;
-  paths: string[];
-  createdAt: number;
+export interface ApprovalRequest extends HostApprovalRequest {
   actor: Actor;
 }
 

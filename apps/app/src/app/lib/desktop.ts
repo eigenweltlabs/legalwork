@@ -55,6 +55,10 @@ declare global {
         command: C,
         ...args: DesktopCommandArgs<C>
       ) => Promise<DesktopCommandResult<C>>;
+      approvals?: {
+        onChange: (callback: (request: import("@legalwork/types/desktop-ipc").HostApprovalRequest | null) => void) => () => void;
+        reply: (id: string, decision: "allow" | "deny") => void;
+      };
       files?: {
         copyIntoProject?: (workspaceId: string, files: File[], folder?: string) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>;
       };

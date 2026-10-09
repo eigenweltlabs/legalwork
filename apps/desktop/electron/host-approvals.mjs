@@ -1,41 +1,17 @@
-/** Present manual HTTP approvals only in the host's native main window. */
-export function createHostApprovalHandler({ getWindow, showMessageBox }) {
+/** One approval at a time, only while its host and requesting command are alive. */
+export function createHostApprovalHandler({ getWindow, showDialog = presentHostApproval }) {
   let queue = Promise.resolve();
   return (request, signal) => {
     const present = async () => {
       const window = getWindow?.();
       if (signal.aborted || !window || window.isDestroyed()) return "deny";
-
       const controller = new AbortController();
       const abort = () => controller.abort();
       signal.addEventListener("abort", abort, { once: true });
       window.once("closed", abort);
       try {
-        const source = request.actor.type === "host"
-          ? "Host"
-          : `Connected client (app, agent or remote connection)${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
-        const result = await showMessageBox(window, {
-          type: "question",
-          title: "LegalWork approval",
-          message: request.action === "sandbox.webfetch" ? "Allow this internet request?"
-            : request.action === "sandbox.bash" ? "Run this protected command?"
-            : request.action === "sandbox.read" ? "Allow access to these files?"
-            : "Allow this workspace change?",
-          detail: [
-            `Source: ${source}`,
-            ...(request.actor.scope ? [`Access: ${request.actor.scope}`] : []),
-            `Workspace: ${request.workspaceId}`,
-            `Action: ${request.action}`,
-            request.summary,
-            ...(request.paths.length ? ["Paths:", ...request.paths] : []),
-          ].join("\n"),
-          buttons: ["Deny", "Allow"],
-          defaultId: 0,
-          cancelId: 0,
-          noLink: true,
-          signal: controller.signal,
-        });
-        return !controller.signal.aborted && !window.isDestroyed() && result.response === 1 ? "allow" : "deny";
+        const reply = await showDialog(window, request, controller.signal);
+        return !controller.signal.aborted && !window.isDestroyed() && reply === "allow" ? "allow" : "deny";
       } catch {
         return "deny";
       } finally {
@@ -47,4 +23,38 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
     queue = result.then(() => {}, () => {});
     return result;
   };
+}
+
+/** Only the trusted host window's main frame may answer its active request. */
+export function presentHostApproval(window, request, signal) {
+  if (signal.aborted || window.isDestroyed()) return Promise.resolve("deny");
+  const contents = window.webContents;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (reply = "deny") => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      contents.ipc.removeListener("legalwork:approval:reply", respond);
+      contents.removeListener("render-process-gone", abort);
+      contents.removeListener("destroyed", abort);
+      contents.removeListener("did-start-navigation", navigate);
+      if (!contents.isDestroyed()) contents.send("legalwork:approval:dismiss", request.id);
+      resolve(reply);
+    };
+    const abort = () => finish();
+    const navigate = (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) finish(); };
+    const respond = (event, id, reply) => {
+      if (event.senderFrame !== contents.mainFrame || id !== request.id || (reply !== "allow" && reply !== "deny")) return;
+      finish(reply);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    contents.ipc.on("legalwork:approval:reply", respond);
+    contents.once("render-process-gone", abort);
+    contents.once("destroyed", abort);
+    contents.on("did-start-navigation", navigate);
+    try { contents.send("legalwork:approval:show", request); }
+    catch { finish(); }
+    if (signal.aborted) finish();
+  });
 }

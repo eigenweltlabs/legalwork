@@ -2,6 +2,7 @@
 !Dockerfile
 !relay.py
 !supervisor.py
+!network.py
 !filesystem.py
 !test_relay.py
 !init

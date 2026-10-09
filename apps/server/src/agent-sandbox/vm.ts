@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { brokerRequest, prepareOutboundRequest, type OutboundRequest } from "./network.js";
+import { brokerRequest, prepareOutboundRequest, type OutboundRequest, networkModeSchema, type NetworkMode } from "./network.js";
 import { validateMounts, type SandboxMount } from "./files.js";
 import { SandboxFilesystem, filesystemError, filesystemRequestSchema } from "./filesystem.js";
 import { SharedVmRuntime } from "./runtime.js";
@@ -19,7 +19,7 @@ const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["
 });
 export type SandboxResult = { output: string; exitCode: number; truncated: boolean };
 export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number;
-  signal: AbortSignal; authorizeNetwork: (request: OutboundRequest) => Promise<boolean> };
+  signal: AbortSignal; networkMode?: NetworkMode; authorizeNetwork: (request: OutboundRequest) => Promise<boolean> };
 const eventSchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("output"), stream: z.enum(["stdout", "stderr"]), data: z.string().max(16384) }),
   z.object({ event: z.literal("exit"), code: z.number().int() }),
@@ -32,12 +32,12 @@ const eventSchema = z.discriminatedUnion("event", [
 ]);
 
 export function sandboxResources(): string {
-  return process.resourcesPath ? join(process.resourcesPath, "agent-sandbox")
+  return process.resourcesPath && process.env.LEGALWORK_DEV_MODE !== "1" ? join(process.resourcesPath, "agent-sandbox")
     : fileURLToPath(new URL("../../resources/agent-sandbox/runtime/", import.meta.url));
 }
 
-/** The VM has no network device or host mounts. Each command has its own
- * broker; the guest supervisor and kernel enforce separation between workers. */
+/** Brokered and unrestricted commands use separate shared VMs. Only the latter
+ * has a NIC. Neither has host mounts; each command has its own folder broker. */
 export class VmSandbox {
   private static runtimes = new Map<string, Promise<SharedVmRuntime>>();
   private static commits = Promise.resolve();
@@ -77,18 +77,18 @@ export class VmSandbox {
     return manifest;
   }
 
-  private sharedRuntime(): Promise<SharedVmRuntime> {
-    const key = `${this.resources}:${this.acceleration}`;
+  private sharedRuntime(directNetwork: boolean): Promise<SharedVmRuntime> {
+    const key = `${this.resources}:${this.acceleration}:${directNetwork}`;
     let runtime = VmSandbox.runtimes.get(key);
     if (!runtime) {
-      runtime = this.startRuntime(() => { if (VmSandbox.runtimes.get(key) === runtime) VmSandbox.runtimes.delete(key); });
+      runtime = this.startRuntime(directNetwork, () => { if (VmSandbox.runtimes.get(key) === runtime) VmSandbox.runtimes.delete(key); });
       VmSandbox.runtimes.set(key, runtime);
       void runtime.catch(() => { if (VmSandbox.runtimes.get(key) === runtime) VmSandbox.runtimes.delete(key); });
     }
     return runtime;
   }
 
-  private async startRuntime(onClose: () => void): Promise<SharedVmRuntime> {
+  private async startRuntime(directNetwork: boolean, onClose: () => void): Promise<SharedVmRuntime> {
     const executable = await this.prepare();
     const manifest = await this.prepared!;
     const arm = manifest.architecture === "aarch64";
@@ -101,9 +101,10 @@ export class VmSandbox {
     const pipeName = process.platform === "win32" ? `legalwork-${randomUUID()}` : undefined;
     const args = ["-no-user-config", "-nodefaults", "-L", this.resources, "-machine", arm ? "virt" : "q35",
       "-accel", nativeMac ? "hvf" : "tcg", "-cpu", nativeMac ? "host" : arm ? "cortex-a72" : "max",
-      "-m", String(Math.max(2048, Math.min(8192, Math.floor(totalmem() / 1024 ** 2 / 4)))), "-smp", "2", "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-nic", "none", "-no-reboot",
+      "-m", String(Math.max(2048, Math.min(8192, Math.floor(totalmem() / 1024 ** 2 / 4)))), "-smp", "2", "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-no-reboot",
+      ...(directNetwork ? ["-netdev", "user,id=outbound", "-device", `${arm ? "virtio-net-device" : "virtio-net-pci"},netdev=outbound`] : ["-nic", "none"]),
       "-kernel", join(this.resources, "kernel"), "-initrd", join(this.resources, "initrd.gz"),
-      "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}`,
+      "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}${directNetwork ? " legalwork.network=allow" : ""}`,
       "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
       "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
     return new SharedVmRuntime(executable, args, diagnostics, consolePath, onClose, pipeName);
@@ -111,6 +112,7 @@ export class VmSandbox {
 
   async run(input: SandboxRun): Promise<SandboxResult> {
     input.signal.throwIfAborted();
+    const networkMode = networkModeSchema.parse(input.networkMode ?? "approve");
     if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600000) throw new Error("Invalid sandbox timeout.");
     if (!input.command || input.command.length > 128000) throw new Error("Invalid sandbox command.");
     const mounts = await validateMounts(input.mounts);
@@ -122,8 +124,8 @@ export class VmSandbox {
     const active = new Set<string>(), activeFilesystem = new Set<string>();
     let filesystemWork = Promise.resolve();
     try {
-      const runtime = await this.sharedRuntime();
-      await runtime.execute({ command: input.command, cwd: input.cwd, timeoutMs: input.timeoutMs,
+      const runtime = await this.sharedRuntime(networkMode === "allow");
+      await runtime.execute({ command: input.command, cwd: input.cwd, timeoutMs: input.timeoutMs, networkMode,
         mounts: filesystem.mounts.map(({ target, writable }) => ({ target, writable })) }, signal, (raw, send, finish) => {
         try {
           const event = eventSchema.parse(raw);
@@ -157,6 +159,7 @@ export class VmSandbox {
             active.add(event.id);
             void (async () => {
               try {
+                if (networkMode !== "approve") throw new Error("Network request broker is disabled by the sandbox network policy.");
                 const response = await brokerRequest(prepareOutboundRequest(event.request), input.authorizeNetwork, signal);
                 await send({ id: event.id, response });
               } catch (error) {

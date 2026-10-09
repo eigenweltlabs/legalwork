@@ -10,6 +10,7 @@ import time
 
 sys.path.insert(0, '/opt/legalwork')
 from relay import connect_host_channel, emit, read_frame, MAX_FRAME
+import network
 
 WORKERS = {}
 LOCK = threading.Lock()
@@ -37,11 +38,16 @@ class Worker:
         self.group.mkdir()
         self.group.joinpath('memory.oom.group').write_text('1')
         self.group.joinpath('pids.max').write_text('512')
+        mode = config.get('networkMode')
+        if mode not in ('allow', 'block', 'approve'):
+            raise ValueError('Invalid network mode')
+        self.network = network.CommandNetwork(ident) if mode == 'allow' else None
+        netns = ['/sbin/ip', 'netns', 'exec', ident] if self.network else []
         self.process = subprocess.Popen([
             '/bin/busybox', 'sh', '-ec',
             'echo $$ > "$1/cgroup.procs"; shift; exec "$@"', 'worker', str(self.group),
-            '/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=SIGKILL',
-            '--net', '--ipc', '--uts', '--mount-proc',
+            *netns, '/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=SIGKILL',
+            *([] if self.network else ['--net']), '--ipc', '--uts', '--mount-proc',
             '/usr/local/bin/python3', '-I', '-u', '/opt/legalwork/relay.py', '--worker'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         try:
@@ -71,6 +77,8 @@ class Worker:
                 raise TimeoutError('Command processes did not stop')
             time.sleep(.01)
         self.group.rmdir()
+        if self.network:
+            self.network.close()
 
     def supervise(self):
         final = {'event': 'error', 'message': 'Protected command stopped before completion (possibly its memory or process budget).'}
@@ -112,7 +120,8 @@ class Worker:
 def main():
     connect_host_channel()
     configure_resources()
-    emit({'protocol': 3})
+    network.configure()
+    emit({'protocol': 4})
     uid = 1000
     while True:
         message = read_frame()

@@ -1,3 +1,6 @@
+import { createServer, type Socket } from "node:net";
+import { createSocket } from "node:dgram";
+import { once } from "node:events";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
@@ -79,6 +82,41 @@ node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes
   assert.ok(approved.output.includes("Python HTTPS passed"));
   assert.ok(approved.output.includes("Node HTTPS passed"));
   results.python_and_node_approved_https = true;
+  const tcpSockets = new Set<Socket>();
+  const tcp = createServer((socket) => { tcpSockets.add(socket); socket.on("close", () => tcpSockets.delete(socket)); socket.pipe(socket); });
+  const udp = createSocket("udp4");
+  udp.on("message", (message, remote) => udp.send(message, remote.port, remote.address));
+  tcp.listen(0, "127.0.0.1"); udp.bind(0, "127.0.0.1");
+  await Promise.all([once(tcp, "listening"), once(udp, "listening")]);
+  const address = tcp.address(); if (!address || typeof address === "string") throw new Error("Missing TCP address");
+  try {
+    const start = Date.now();
+    const direct = await Promise.all(Array.from({ length: 10 }, (_, index) => sandbox.run({
+      networkMode: "allow", cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
+      timeoutMs: 90000, signal: AbortSignal.timeout(180000), authorizeNetwork: async () => { throw new Error("Unexpected broker"); },
+      command: `python3 - <<'PY'
+import socket, os, json
+from pathlib import Path
+Path('/tmp/identity').write_text('${index}')
+with socket.create_connection(('10.0.2.2', ${address.port}), timeout=30) as s:
+    s.sendall(b'tcp-canary')
+    assert s.recv(100) == b'tcp-canary'
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+    s.settimeout(30); s.sendto(b'udp-canary', ('10.0.2.2', ${udp.address().port}))
+    assert s.recv(100) == b'udp-canary'
+assert Path('/tmp/identity').read_text() == '${index}'
+print(json.dumps({'uid':os.getuid(), 'boot':Path('/proc/sys/kernel/random/boot_id').read_text()}))
+PY` })));
+    const identities = direct.map((result) => { assert.equal(result.exitCode, 0, result.output); return JSON.parse(result.output); });
+    assert.equal(new Set(identities.map((value) => value.uid)).size, 10);
+    assert.equal(new Set(identities.map((value) => value.boot)).size, 1);
+    results.ten_direct_tcp_udp_commands_seconds = (Date.now() - start) / 1000;
+    const blocked = await sandbox.run({ command: "curl --fail --silent --show-error https://example.com/", networkMode: "block",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }], timeoutMs: 30000,
+      signal: AbortSignal.timeout(180000), authorizeNetwork: async () => { throw new Error("Block must never ask"); } });
+    assert.notEqual(blocked.exitCode, 0);
+    results.block_without_approval = true;
+  } finally { for (const socket of tcpSockets) socket.destroy(); tcp.close(); udp.close(); }
   results.seconds = (Date.now() - started) / 1000;
   console.log(JSON.stringify(results, null, 2));
 } finally { await VmSandbox.shutdown(); await rm(workspace, { recursive: true, force: true }); }

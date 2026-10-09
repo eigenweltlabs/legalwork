@@ -12,7 +12,7 @@ const args = z.object({
 
 export const LegalWorkSandbox = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    output.system.push("Shell commands run in LegalWork's protected Linux environment. The project is /workspace; explicitly authorized folders are /authorized/0, /authorized/1 and so on. Python 3 and Node.js are available. Use sandbox paths in shell commands and host project paths in the normal file tools. Request write:true when a command must change project files. Outbound HTTP(S) is checked against the user's internet permissions. Direct network traffic, host credentials and host control sockets are unavailable. A protection error must be reported or resolved through the user's settings; never try another execution route to bypass it.");
+    output.system.push("Shell commands run in LegalWork's protected Linux environment. The project is /workspace; explicitly authorized folders are /authorized/0, /authorized/1 and so on. Python 3 and Node.js are available. Use sandbox paths in shell commands and host project paths in the normal file tools. Request write:true when a command must change project files. Sandbox network settings either allow outbound traffic, block it, or require approval of each HTTP(S) request. Stricter tool and agent permissions still apply. Host credentials and host control sockets are unavailable. A protection error must be reported or resolved through the user's settings; never try another execution route to bypass it.");
   },
   // Covers the engine's direct shell endpoint and fails closed if a future
   // engine version accidentally selects its built-in bash tool.

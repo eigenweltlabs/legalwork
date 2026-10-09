@@ -57,7 +57,7 @@ export async function executePython(code: string, input: Record<string, unknown>
     const execution = await calculationSandbox.run({
       command: "python3 -I /workspace/runner.py /workspace/calculation.py < /workspace/input.json",
       cwd: "/workspace", mounts: [{ source: directory, target: "/workspace", writable: false }],
-      timeoutMs: 15000, signal: signal ?? new AbortController().signal,
+      timeoutMs: 15000, signal: signal ?? new AbortController().signal, networkMode: "block",
       authorizeNetwork: async () => false,
     });
     if (execution.exitCode !== 0 || execution.truncated) {

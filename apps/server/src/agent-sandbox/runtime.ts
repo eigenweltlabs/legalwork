@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 
 const envelope = z.object({ run: z.string().regex(/^[a-f0-9]{32}$/), payload: z.unknown() });
-const boot = z.object({ protocol: z.literal(3) });
+const boot = z.object({ protocol: z.literal(4) });
 const FRAME_LIMIT = 24 * 1024 * 1024;
 type Run = { receive: (event: unknown) => void; fail: (error: Error) => void };
 

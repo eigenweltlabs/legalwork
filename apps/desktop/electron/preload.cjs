@@ -50,9 +50,34 @@ function installMenuOverlayDismissListeners() {
   }
 }
 
+// Keep the active request until React subscribes, including StrictMode remounts.
+let activeApproval = null;
+const approvalListeners = new Set();
+ipcRenderer.on("legalwork:approval:show", (_event, request) => {
+  activeApproval = request;
+  for (const listener of approvalListeners) listener(request);
+});
+ipcRenderer.on("legalwork:approval:dismiss", (_event, id) => {
+  if (activeApproval?.id !== id) return;
+  activeApproval = null;
+  for (const listener of approvalListeners) listener(null);
+});
+
 contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
+  },
+  approvals: {
+    onChange(callback) {
+      approvalListeners.add(callback);
+      callback(activeApproval);
+      return () => approvalListeners.delete(callback);
+    },
+    reply(id, decision) {
+      if (id === activeApproval?.id && (decision === "allow" || decision === "deny")) {
+        ipcRenderer.send("legalwork:approval:reply", id, decision);
+      }
+    },
   },
   files: {
     copyIntoProject(workspaceId, files, folder) {

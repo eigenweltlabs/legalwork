@@ -6,6 +6,7 @@ import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
 export type RuntimeOpencodeConfig = {
+  sandboxNetworkMode?: "allow" | "block" | "approve";
   default_agent?: string;
   plugin?: string[];
   disabled_providers?: string[];
@@ -99,6 +100,8 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ? normalizePersonalizationSettings(value.personalization)
     : undefined;
   return {
+    ...(value.sandboxNetworkMode !== undefined ? { sandboxNetworkMode:
+      value.sandboxNetworkMode === "allow" || value.sandboxNetworkMode === "approve" ? value.sandboxNetworkMode : "block" } : {}),
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
     ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),

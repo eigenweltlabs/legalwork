@@ -8,6 +8,6 @@
 /sbin/modprobe virtio_console
 /sbin/modprobe fuse
 /bin/busybox ip link set lo up
-# The only host connection is a framed stream. No NIC, disk passthrough,
-# host filesystem mount, clipboard or guest agent is attached to this VM.
+# The host enables a NIC only for the explicitly unrestricted runtime.
+# Restricted commands use the framed broker, with no NIC or host mounts.
 exec /usr/local/bin/python3 -I -u /opt/legalwork/supervisor.py 2>/dev/console

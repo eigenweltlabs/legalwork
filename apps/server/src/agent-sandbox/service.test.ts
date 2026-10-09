@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { AgentSandboxService } from "./service.js";
 import { prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
+import { readSandboxNetworkMode, writeSandboxNetworkMode } from "./settings.js";
 import { ApprovalService } from "../approvals.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
@@ -27,7 +28,7 @@ afterEach(async () => {
   }
 });
 
-async function fixture(permissions: Record<string, unknown>, approve = true) {
+async function fixture(permissions: Record<string, unknown>, approve = true, onRun?: (input: SandboxRun) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-sandbox-policy-"));
   roots.push(root);
   const matter = join(root, "matter");
@@ -45,7 +46,7 @@ async function fixture(permissions: Record<string, unknown>, approve = true) {
   const executions: SandboxRun[] = [];
   const service = new AgentSandboxService(config, approvals, {
     status: async () => ({ available: true }), prepare: async () => "test-image",
-    run: async (input) => { executions.push(input); return { output: "done", exitCode: 0, truncated: false }; },
+    run: async (input) => { executions.push(input); await onRun?.(input); return { output: "done", exitCode: 0, truncated: false }; },
   });
   const run = (write = false) => service.run(workspace, { command: "python report.py", write, timeoutMs: 1000 },
     { type: "remote", scope: "collaborator" }, new AbortController().signal);
@@ -57,6 +58,102 @@ test("shell denial prevents runtime launch", async () => {
   await expect(fixtureState.run()).rejects.toThrow("bash is blocked");
   expect(fixtureState.executions).toHaveLength(0);
   expect(fixtureState.prompts).toHaveLength(0);
+});
+
+const networkRequest = () => prepareOutboundRequest({ url: "https://example.com/", method: "POST", headers: {}, bodyBase64: Buffer.from("test body").toString("base64") });
+
+test("approve is the persistent default and prompts even when webfetch and server approvals allow", async () => {
+  const f = await fixture({ webfetch: "allow" }, true, async (input) => {
+    expect(input.networkMode).toBe("approve");
+    expect(await input.authorizeNetwork(networkRequest())).toBe(true);
+  });
+  expect(await readSandboxNetworkMode(f.config)).toBe("approve");
+  await f.run();
+  expect(f.prompts.map((prompt) => prompt.action)).toEqual(["sandbox.webfetch"]);
+  expect(f.prompts[0].summary).toContain("test body");
+  expect(f.prompts[0].network).toMatchObject({ url: "https://example.com/", method: "POST", body: "test body", bodyFormat: "text", bodyBytes: 9 });
+  await writeSandboxNetworkMode(f.config, "block");
+  await closeRuntimeOpencodeConfig(f.config);
+  expect(await readSandboxNetworkMode(f.config)).toBe("block");
+});
+
+test("block denies without an approval and allow sends without an approval", async () => {
+  for (const mode of ["block", "allow"] satisfies Array<"block" | "allow">) {
+    const f = await fixture({ webfetch: "allow" }, true, async (input) => {
+      expect(input.networkMode).toBe(mode);
+      if (mode === "block") await expect(input.authorizeNetwork(networkRequest())).rejects.toThrow("All sandbox network traffic is blocked");
+      else expect(await input.authorizeNetwork(networkRequest())).toBe(true);
+    });
+    await writeSandboxNetworkMode(f.config, mode);
+    await f.run();
+    expect(f.prompts).toHaveLength(0);
+  }
+});
+
+test("network approval denial blocks the request", async () => {
+  const f = await fixture({ webfetch: "allow" }, false, async (input) => {
+    await expect(input.authorizeNetwork(networkRequest())).rejects.toThrow("declined");
+  });
+  await f.run();
+  expect(f.prompts).toHaveLength(1);
+});
+
+test("allow never bypasses scoped tool or agent restrictions with a direct NIC", async () => {
+  const cases = [
+    { permissions: { webfetch: { "*": "allow", "https://example.com/*": "deny" } }, rules: [] },
+    { permissions: { webfetch: "allow" }, rules: [{ permission: "webfetch", pattern: "https://example.com/*", action: "deny" }] },
+  ] satisfies Array<{ permissions: Record<string, unknown>; rules: Array<{ permission: string; pattern: string; action: "deny" }> }>;
+  for (const entry of cases) {
+    const f = await fixture(entry.permissions, true, async (input) => {
+      expect(input.networkMode).toBe("approve");
+      await expect(input.authorizeNetwork(networkRequest())).rejects.toThrow("webfetch is blocked");
+    });
+    await writeSandboxNetworkMode(f.config, "allow");
+    await f.service.run(f.workspace, { command: "python3 report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal, entry.rules);
+    expect(f.prompts).toHaveLength(0);
+  }
+});
+
+test("changing network mode cancels running commands and pending approvals", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  await writeSandboxNetworkMode(f.config, "allow");
+  const service = new AgentSandboxService(f.config, new ApprovalService(f.config.approval), {
+    status: async () => ({ available: true }), prepare: async () => "test-image",
+    run: async (input) => {
+      expect(input.networkMode).toBe("allow");
+      await writeSandboxNetworkMode(f.config, "block");
+      expect(input.signal.aborted).toBe(true);
+      input.signal.throwIfAborted();
+      return { output: "", exitCode: 0, truncated: false };
+    },
+  });
+  await expect(service.run(f.workspace, { command: "python3 report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal)).rejects.toThrow("Permissions changed");
+});
+
+test("saving a network mode waits for cancelled workers to finish cleanup", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  let ready: () => void = () => {};
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  let release: () => void = () => {};
+  const cleanup = new Promise<void>((resolve) => { release = resolve; });
+  let sawAbort = false, saved = false;
+  const service = new AgentSandboxService(f.config, new ApprovalService(f.config.approval), {
+    status: async () => ({ available: true }), prepare: async () => "test-image",
+    run: async (input) => {
+      const cancelled = new Promise<void>((resolve) => input.signal.addEventListener("abort", () => { sawAbort = true; resolve(); }, { once: true }));
+      ready(); await cancelled; await cleanup;
+      input.signal.throwIfAborted();
+      return { output: "", exitCode: 0, truncated: false };
+    },
+  });
+  const command = service.run(f.workspace, { command: "sleep 100", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal).catch((error: unknown) => error);
+  await started;
+  const change = service.setNetworkMode("block").then(() => { saved = true; });
+  while (!sawAbort) await new Promise((resolve) => setTimeout(resolve, 1));
+  expect(saved).toBe(false);
+  release(); await change;
+  expect(await command).toBeInstanceOf(Error);
+  expect(saved).toBe(true);
 });
 
 test("installed helpers require skill permission and always enter read-only", async () => {

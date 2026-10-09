@@ -1,8 +1,12 @@
+import { z } from "zod";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import { createHash } from "node:crypto";
+
+export const networkModeSchema = z.enum(["allow", "block", "approve"]);
+export type NetworkMode = z.infer<typeof networkModeSchema>;
 
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 export const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;

@@ -3,6 +3,7 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo, TokenScope } from "../types.js";
 import type { AgentSandboxService, AgentPermissionRule } from "../agent-sandbox/service.js";
 import { addRoute, type Route, type RequestContext } from "./registry.js";
+import { networkModeSchema, readSandboxNetworkMode } from "../agent-sandbox/settings.js";
 
 const commandSchema = z.object({
   command: z.string().min(1).max(128000),
@@ -28,8 +29,18 @@ export function registerAgentSandboxRoutes(options: {
   addRoute(routes, "GET", "/sandbox/status", "client", async () => jsonResponse({
     enabled: config.agentSandboxEnabled === true,
     backend: "virtual-machine",
+    networkMode: await readSandboxNetworkMode(config),
     ...await sandbox.backend.status(),
   }));
+  addRoute(routes, "PATCH", "/sandbox/network", "client", async (ctx) => {
+    options.requireClientScope(ctx, "collaborator");
+    if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
+    if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "Protected execution is unavailable on this worker.");
+    const input = z.object({ mode: networkModeSchema }).strict().safeParse(await options.readJsonBodyLimited(ctx.request, 1024));
+    if (!input.success) throw new ApiError(400, "sandbox_network_mode", "Choose allow, block or approve for sandbox network traffic.");
+    await sandbox.setNetworkMode(input.data.mode);
+    return jsonResponse({ networkMode: input.data.mode });
+  });
   addRoute(routes, "POST", "/sandbox/prepare", "client", async (ctx) => {
     options.requireClientScope(ctx, "collaborator");
     if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "This worker does not manage its agent sandbox.");

@@ -331,7 +331,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
 
   return (
     <LayoutSectionItem className={cn("gap-6", props.className)}>
-      {!quick && props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} /> : null}
+      {!quick && props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} /> : null}
       {quick ? null : (
         <LayoutSectionItemHeader>
           <LayoutSectionItemTitle>

@@ -1,7 +1,7 @@
 """Isolated command worker. Its supervisor routes bounded JSON to the host.
 
-The VM has no network interface. Unprivileged commands can contact this local
-HTTP proxy, which forwards complete HTTP requests to the host permission broker.
+Restricted VMs have no network interface. Unprivileged commands use this local
+HTTP proxy to send complete HTTP requests to the host permission broker.
 CONNECT is terminated here, never forwarded as an unrestricted TCP tunnel.
 """
 import base64
@@ -270,6 +270,8 @@ def isolate_worker():
     def mount(*args):
         subprocess.run(['/bin/busybox', 'mount', *args], check=True)
     mount('--make-rprivate', '/')
+    if os.path.ismount('/run/netns'):
+        subprocess.run(['/bin/umount', '--recursive', '/run/netns'], check=True)
     mount('--bind', '/', '/')
     mount('-o', 'remount,bind,ro', '/')
     for path in ('/tmp', '/run', '/mnt', '/dev', '/sys'):
@@ -313,20 +315,21 @@ def main():
     os.mkdir("/tmp/public", 0o755)
     os.mkdir("/tmp/home", 0o777)
     os.chmod("/tmp/home", 0o777)
-    openssl("req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
-            "-keyout", "/tmp/private/ca.key", "-out", "/tmp/public/ca.pem", "-days", "1",
-            "-subj", "/CN=LegalWork session proxy", "-addext", "basicConstraints=critical,CA:TRUE",
-            "-addext", "keyUsage=critical,keyCertSign,cRLSign")
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 3128), Proxy)
-    server.daemon_threads = True
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    proxy = "http://127.0.0.1:3128"
-    environment = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp/home", "TMPDIR": "/tmp/home",
-                   "LANG": "C.UTF-8", "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy,
-                   "http_proxy": proxy, "https_proxy": proxy, "NO_PROXY": "", "no_proxy": "",
-                   "SSL_CERT_FILE": "/tmp/public/ca.pem", "REQUESTS_CA_BUNDLE": "/tmp/public/ca.pem",
-                   "CURL_CA_BUNDLE": "/tmp/public/ca.pem", "NODE_EXTRA_CA_CERTS": "/tmp/public/ca.pem",
-                   "NODE_USE_ENV_PROXY": "1", "GIT_SSL_CAINFO": "/tmp/public/ca.pem"}
+    environment = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp/home", "TMPDIR": "/tmp/home", "LANG": "C.UTF-8"}
+    if config["networkMode"] != "allow":
+        openssl("req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                "-keyout", "/tmp/private/ca.key", "-out", "/tmp/public/ca.pem", "-days", "1",
+                "-subj", "/CN=LegalWork session proxy", "-addext", "basicConstraints=critical,CA:TRUE",
+                "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 3128), Proxy)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        proxy = "http://127.0.0.1:3128"
+        environment.update({"HTTP_PROXY": proxy, "HTTPS_PROXY": proxy,
+                       "http_proxy": proxy, "https_proxy": proxy, "NO_PROXY": "", "no_proxy": "",
+                       "SSL_CERT_FILE": "/tmp/public/ca.pem", "REQUESTS_CA_BUNDLE": "/tmp/public/ca.pem",
+                       "CURL_CA_BUNDLE": "/tmp/public/ca.pem", "NODE_EXTRA_CA_CERTS": "/tmp/public/ca.pem",
+                       "NODE_USE_ENV_PROXY": "1", "GIT_SSL_CAINFO": "/tmp/public/ca.pem"})
     child = subprocess.Popen(["/usr/bin/setpriv", "--no-new-privs", "--bounding-set=-all", "--inh-caps=-all", "--ambient-caps=-all", f"--reuid={uid}", f"--regid={gid}", "--clear-groups",
                               "/bin/bash", "--noprofile", "--norc", "-c", config["command"]],
                              cwd=config["cwd"], env=environment, stdin=subprocess.DEVNULL,

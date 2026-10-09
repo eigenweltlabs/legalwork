@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
-import type { Actor, ServerConfig, WorkspaceInfo } from "../types.js";
+import type { Actor, ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import {
   GLOBAL_TOOL_PERMISSIONS_ID, onRuntimeOpencodeConfigWrite, readGlobalToolPermissions,
@@ -10,6 +10,7 @@ import {
 } from "../runtime-opencode-config-store.js";
 import { VmSandbox, validateMounts, type SandboxMount, type SandboxResult } from "./vm.js";
 import { permissionAction, permissionPatternMatches, type PermissionAction } from "./permissions.js";
+import { readSandboxNetworkMode, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
 
 export type SandboxCommand = { command: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -66,19 +67,27 @@ function authorizedFolders(entries: Record<string, unknown>): string[] {
 }
 
 export class AgentSandboxService {
-  private active = new Set<AbortController>();
+  private active = new Map<AbortController, Promise<void>>();
   constructor(readonly config: ServerConfig, readonly approvals: ApprovalService,
     readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox()) {}
 
   stop(): void {
-    for (const controller of this.active) controller.abort(new Error("LegalWork is stopping."));
+    for (const controller of this.active.keys()) controller.abort(new Error("LegalWork is stopping."));
+  }
+
+  async setNetworkMode(mode: NetworkMode): Promise<void> {
+    await writeSandboxNetworkMode(this.config, mode);
+    // Confirm old commands have lost their sockets before acknowledging a
+    // policy change. The VM transport kills the runtime if cleanup stalls.
+    await Promise.all([...this.active].filter(([controller]) => controller.signal.aborted).map(([, stopped]) => stopped));
   }
 
   async run(workspace: WorkspaceInfo, command: SandboxCommand, actor: Actor, parentSignal: AbortSignal,
     agentRules: AgentPermissionRule[] = []): Promise<SandboxResult> {
     if (this.config.readOnly && command.write) throw new ApiError(403, "read_only", "This server permits read-only sandbox commands.");
     const controller = new AbortController();
-    this.active.add(controller);
+    let stopped: () => void = () => {};
+    this.active.set(controller, new Promise<void>((resolve) => { stopped = resolve; }));
     const signal = AbortSignal.any([parentSignal, controller.signal]);
     const unsubscribe = onRuntimeOpencodeConfigWrite((config, id) => {
       if (config === this.config && (id === workspace.id || id === GLOBAL_TOOL_PERMISSIONS_ID)) {
@@ -87,16 +96,17 @@ export class AgentSandboxService {
     });
     try {
       const permissions = await readGlobalToolPermissions(this.config);
+      const networkMode = await readSandboxNetworkMode(this.config);
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
       signal.throwIfAborted();
-      const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true) => {
+      const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true, network?: ApprovalRequest["network"]) => {
         signal.throwIfAborted();
         const action = restrictive([override ?? permissionAction(permissions, permission, pattern), agentAction(agentRules, permission, pattern)]);
         if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", `${permission} is blocked by your permissions.`);
         if (action === "ask") {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
-            action: `sandbox.${permission}`, summary, paths }, signal, true);
+            action: `sandbox.${permission}`, summary, paths, ...(network ? { network } : {}) }, signal, true);
           if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
         }
         signal.throwIfAborted();
@@ -134,14 +144,21 @@ export class AgentSandboxService {
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
       return await this.backend.run({ command: command.command, cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, signal,
+        // Scoped tool/agent rules require the request broker even in allow mode.
+        networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
         authorizeNetwork: async (request) => {
+          signal.throwIfAborted();
+          if (networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "All sandbox network traffic is blocked in Settings.");
           const bytes = Buffer.from(request.bodyBase64, "base64");
           const text = bytes.toString("utf8");
-          const body = Buffer.from(text).equals(bytes) ? text : `Base64: ${request.bodyBase64}`;
+          const bodyFormat = Buffer.from(text).equals(bytes) ? "text" : "base64";
+          const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
           // The approval is bound to the in-memory immutable request. A changed
           // body, URL or header necessarily produces a separate request.
           const preview = `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
-          await ask("webfetch", request.url, preview, [], undefined, preview.length <= 16000);
+          const action = permissionAction(permissions, "webfetch", request.url);
+          await ask("webfetch", request.url, preview, [], networkMode === "approve" ? restrictive(["ask", action]) : action, preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
+            body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes });
           return true;
         },
       });
@@ -149,6 +166,7 @@ export class AgentSandboxService {
       unsubscribe();
       controller.abort();
       this.active.delete(controller);
+      stopped();
     }
   }
 }

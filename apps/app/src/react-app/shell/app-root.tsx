@@ -7,6 +7,7 @@ import { useLocale } from "../../i18n/use-locale";
 import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
 import { captureRelayedAppError, initErrorAnalytics } from "../../app/lib/app-error";
 import { AppErrorBoundary } from "./app-error-boundary";
+import { HostApprovalListener } from "./host-approval-listener";
 import { NewProvidersListener } from "./new-providers-listener";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
@@ -167,6 +168,7 @@ export function AppRoot() {
         self-renders for every real user-visible commit, masking the
         true app-level signal.
       */}
+      <HostApprovalListener />
       <NewProvidersListener />
       <TaskNotificationsListener />
       <StealthMode />
