@@ -61,3 +61,9 @@ The local file chooser walkthrough was blocked by the Chrome extension's missing
 ![Warning before moving a linked original](chris-review-2026-10-09/linked-original-warning.png)
 
 Additional evidence: [copy completed](chris-review-2026-10-09/copy-complete.png), [DOCX saved after moving](chris-review-2026-10-09/docx-moved-saved.png), [updated link opened](chris-review-2026-10-09/linked-original-opened.png).
+
+## Sidebar collapse follow-up
+
+The project-header **New chat** shortcut now disappears when its project is collapsed. The title reserves less space in that state, while the project menu stays available. Expanding restores the shortcut. Browser verification covered mouse collapse, keyboard expand/collapse and opening the collapsed project's menu. App typecheck and the 19 tests in `sidebar-primitives.test.ts`, `shell-config.test.tsx` and `project-view-navigation.test.ts` passed after this follow-up.
+
+![Collapsed project without the New chat shortcut](chris-review-2026-10-09/sidebar-collapsed.png)

@@ -944,6 +944,7 @@ function WorkspaceHeader({
   ...props
 }: WorkspaceHeaderProps) {
   const ctx = useSidebarContext();
+  const isExpanded = ctx.expandedWorkspaceIds.has(workspace.id);
 
   return (
     <SidebarMenuButton
@@ -960,7 +961,7 @@ function WorkspaceHeader({
       onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}
     >
       <span className="relative flex size-5 shrink-0">
-        <ProjectFolderIcon workspaceId={workspace.id} open={ctx.expandedWorkspaceIds.has(workspace.id)} />
+        <ProjectFolderIcon workspaceId={workspace.id} open={isExpanded} />
         {isRunning && (
           <SessionStatusIndicator
             className="absolute -right-1 -bottom-1 rounded-full bg-sidebar text-sidebar-foreground ring-2 ring-sidebar [&>svg]:size-3"
@@ -971,7 +972,9 @@ function WorkspaceHeader({
         )}
       </span>
       <div
-        className="min-w-0 flex-1 cursor-grab touch-none active:cursor-grabbing group-hover/workspace-header:pr-14 group-focus-within/workspace-header:pr-14 group-has-data-popup-open/workspace-header:pr-14 [@media(hover:none)]:pr-14"
+        className={cn("min-w-0 flex-1 cursor-grab touch-none active:cursor-grabbing", isExpanded
+          ? "group-hover/workspace-header:pr-14 group-focus-within/workspace-header:pr-14 group-has-data-popup-open/workspace-header:pr-14 [@media(hover:none)]:pr-14"
+          : "group-hover/workspace-header:pr-7 group-focus-within/workspace-header:pr-7 group-has-data-popup-open/workspace-header:pr-7 [@media(hover:none)]:pr-7")}
         data-workspace-drag-handle
         onPointerDown={onTitlePointerDown}
       >
@@ -1058,7 +1061,7 @@ function WorkspaceSidebarGroup({
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
               /></ProjectFileDropTarget>
               <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                <Button
+                {isExpanded && <Button
                   variant="ghost"
                   size="icon"
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100"
@@ -1071,7 +1074,7 @@ function WorkspaceSidebarGroup({
                   title={t("session.new_task")}
                 >
                   <MessageSquare className="size-3.5" strokeWidth={1.5} />
-                </Button>
+                </Button>}
                 <WorkspaceActionsMenu
                   workspace={workspace}
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100 data-popup-open:opacity-100"
