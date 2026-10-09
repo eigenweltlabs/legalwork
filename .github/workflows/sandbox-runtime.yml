@@ -151,7 +151,12 @@ jobs:
         timeout-minutes: 15
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
-        run: bun test --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = macOS ]; then
+            sysctl kern.hv_support kern.hv_vmm_present
+          fi
+          bun test --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
       - name: Preserve executable modes in runtime artifact
         shell: bash
         run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
