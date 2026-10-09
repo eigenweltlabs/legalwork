@@ -195,6 +195,9 @@ export async function registerChannelRuntimeRoutes(options: {
       if (!primary || primary.workspaceType === "remote") throw new ApiError(409, "channel_session", "Local Assistant configuration is unavailable.");
       await writeLegalworkRuntimeConfigFile(options.config, primary.id);
       for (const workspace of workspaces) await options.client(workspace).instance.dispose({}, requestOptions());
+      const providers = (await options.client(primary).config.providers({}, requestOptions())).data;
+      if (!providers?.providers.some(provider => provider.id === selected.providerID && selected.modelID in provider.models))
+        throw new ApiError(503, "channel_model", "The engine has not loaded the channel model.");
     }));
   });
   addRoute(options.routes, "GET", "/channel-runtime/jobs/:id", "host-token", async ctx => { await bind(); return options.json(await runtime.inspect(ctx.params.id)); });
