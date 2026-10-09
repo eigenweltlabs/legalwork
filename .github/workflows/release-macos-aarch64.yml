@@ -141,6 +141,9 @@ jobs:
           printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
             "**Verify downloads:** [SHA256SUMS](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/SHA256SUMS) · [Verification instructions](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs/verify-downloads.md)"
 
+          printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
+            "[Code signing policy](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/CODE_SIGNING_POLICY.md)"
+
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
@@ -465,6 +468,7 @@ jobs:
             --publish never
 
       - name: Stage unsigned Windows installer for SignPath
+        id: stage-unsigned-windows-installer
         if: matrix.os_type == 'windows'
         shell: bash
         run: |
@@ -478,6 +482,14 @@ jobs:
             printf '%s\n' "${installers[@]}" >&2
             exit 1
           fi
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          filename="$(basename "${installers[0]}")"
+          case "$filename" in
+            "legalwork-win-x64-${version}.exe") arch=x64 ;;
+            "legalwork-win-arm64-${version}.exe") arch=arm64 ;;
+            *) echo "Installer filename does not match stamped version: $filename" >&2; exit 1 ;;
+          esac
+          printf 'version=%s\narch=%s\n' "$version" "$arch" >> "$GITHUB_OUTPUT"
           cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
 
       - name: Upload unsigned Windows installer for SignPath
@@ -499,6 +511,9 @@ jobs:
           project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          parameters: |
+            version: "${{ steps.stage-unsigned-windows-installer.outputs.version }}"
+            arch: "${{ steps.stage-unsigned-windows-installer.outputs.arch }}"
           github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
           wait-for-completion: true
           # Allow time for the required manual production approval.

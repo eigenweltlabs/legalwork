@@ -15,6 +15,8 @@ uninstaller, or bundled third-party binaries.
 - Artifact configuration: `windows-installer`. Its XML is maintained in
   [`scripts/release/signpath-windows-installer.xml`](../scripts/release/signpath-windows-installer.xml).
   GitHub uploads a ZIP containing exactly one installer per architecture.
+  Requests supply the stamped package version and architecture. SignPath
+  requires that filename and PE product metadata match those values.
 - CI user: `CI builds`, a submitter for `test-signing` and `release-signing`.
 - The initial test certificate is self-signed. Its SHA-1 thumbprint is
   `8D1A630DC86683F8A02A86594E8D3E6A3547A7D6`. It is never installed as a trusted root.
@@ -78,7 +80,7 @@ GitHub draft-release publication remains a separate release approval step.
 ## Verification
 
 ```sh
-node --test scripts/release/validate-signpath-config.test.mjs scripts/release/checksums.test.mjs scripts/release/publish-electron-assets.test.mjs
+node --test scripts/release/*.test.mjs
 actionlint -shellcheck= .github/workflows/alpha-windows-x64.yml .github/workflows/release-macos-aarch64.yml
 ```
 

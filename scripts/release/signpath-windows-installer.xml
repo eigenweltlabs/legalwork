@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+    <parameter name="arch" required="true" />
+  </parameters>
   <zip-file>
-    <pe-file path="legalwork-win-*-*.exe">
+    <pe-file path="legalwork-win-${arch}-${version}.exe" product-name="LegalWork" product-version="${version}">
       <authenticode-sign />
     </pe-file>
   </zip-file>
