@@ -16,6 +16,7 @@ import { addRoute, type Route } from "./routes/registry.js";
 import { resolveWithinRoot } from "./paths.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import { createHash } from "node:crypto";
+import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 
 const sharedFileTypes: Record<string, string> = { ".txt": "text/plain", ".md": "text/plain", ".pdf": "application/pdf",
   ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -188,6 +189,11 @@ export async function registerChannelRuntimeRoutes(options: {
         const statuses = (await options.client(workspace).session.status({}, requestOptions())).data;
         if (!statuses || Object.values(statuses).some(status => status.type !== "idle")) throw new ApiError(409, "channel_busy", "Model configuration waits for idle sessions.");
       }
+      // Global OpenCode config is cached at process start. Its runtime file is
+      // re-read on dispose, so refresh the managed provider there before reload.
+      const primary = options.config.workspaces[0];
+      if (!primary || primary.workspaceType === "remote") throw new ApiError(409, "channel_session", "Local Assistant configuration is unavailable.");
+      await writeLegalworkRuntimeConfigFile(options.config, primary.id);
       for (const workspace of workspaces) await options.client(workspace).instance.dispose({}, requestOptions());
     }));
   });
