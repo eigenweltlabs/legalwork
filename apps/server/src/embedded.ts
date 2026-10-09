@@ -145,6 +145,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           LEGALWORK_SERVER_TOKEN: config.token,
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_MODELS_URL: catalogRelay.url,
+          OPENCODE_MODELS_PATH: catalogRelay.catalogPath,
           ...(config.agentSandboxEnabled ? {
             OPENCODE_DISABLE_PROJECT_CONFIG: "true",
             // In the pinned engine this controls home config/plugin discovery.

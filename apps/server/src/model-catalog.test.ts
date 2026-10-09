@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ModelCatalog, modelCatalogResponse, startModelCatalogRelay } from "./model-catalog.js";
+import { ModelCatalog, modelCatalogFor, modelCatalogResponse, startModelCatalogRelay } from "./model-catalog.js";
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
@@ -64,6 +64,7 @@ test("opt-out on a fresh device never requests online data and returns no empty 
   let requests = 0;
   const catalog = new ModelCatalog(root, async () => { requests++; return Response.json(registry); });
   expect((await modelCatalogResponse(catalog)).status).toBe(503);
+  expect(await catalog.engineCatalogPath()).toBeUndefined();
   await expect(catalog.providerModels("anthropic")).rejects.toThrow("disabled");
   expect(requests).toBe(0);
 });
@@ -149,4 +150,46 @@ test("the engine's loopback relay uses the same saved setting before its first r
   expect(response.status).toBe(503);
   expect(response.headers.get("location")).toBeNull();
   expect(requests).toBe(0);
+});
+
+test("prepares a plain engine catalog before startup and keeps it current after refresh", async () => {
+  const root = await directory();
+  let current = registry;
+  const mirror = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() {
+    return Response.json(current);
+  } });
+  stops.push(() => mirror.stop(true));
+  process.env.OPENCODE_MODELS_URL = `http://127.0.0.1:${mirror.port}`;
+  const config: ServerConfig = {
+    host: "127.0.0.1", port: 0, token: "test-client-token", hostToken: "test-host-token",
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [],
+    readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli",
+    logFormat: "pretty", logRequests: false, configPath: join(root, "server.json"),
+  };
+  const relay = await startModelCatalogRelay(config);
+  stops.push(relay.stop);
+  expect(relay.catalogPath).toBe(join(root, "model-catalog-engine.json"));
+  if (!relay.catalogPath) throw new Error("Engine catalog was not prepared");
+  expect(JSON.parse(await readFile(relay.catalogPath, "utf8"))).toEqual(registry);
+  current = { anthropic: { models: { model: { ...registry.anthropic.models.model, name: "New model" } } } };
+  await modelCatalogFor(config).get(true);
+  expect(JSON.parse(await readFile(relay.catalogPath, "utf8"))).toEqual(current);
+});
+
+test("prepares the saved engine catalog while opted out without making a request", async () => {
+  const root = await directory();
+  await writeFile(join(root, "model-catalog-settings.json"), JSON.stringify({ onlineUpdatesEnabled: false }));
+  await writeFile(join(root, "model-catalog.json"), JSON.stringify({ fetchedAt: 0, catalog: registry }));
+  let requests = 0;
+  const catalog = new ModelCatalog(root, async () => { requests++; return Response.json(registry); });
+  const path = await catalog.engineCatalogPath();
+  expect(path).toBe(join(root, "model-catalog-engine.json"));
+  if (!path) throw new Error("Saved engine catalog was not prepared");
+  expect(JSON.parse(await readFile(path, "utf8"))).toEqual(registry);
+  expect(requests).toBe(0);
+});
+
+test("unavailable catalog leaves the engine free to use its bundled snapshot", async () => {
+  const catalog = new ModelCatalog(await directory(), async () => Response.json({}, { status: 503 }));
+  expect(await catalog.engineCatalogPath()).toBeUndefined();
 });

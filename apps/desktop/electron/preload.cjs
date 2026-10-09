@@ -25,6 +25,12 @@ function applyShellDocumentMarkers() {
       root.classList.add("legalwork-platform-mac");
     } else if (process.platform === "win32") {
       root.classList.add("legalwork-platform-windows");
+      const overlay = typeof navigator === "undefined" ? null : navigator.windowControlsOverlay;
+      if (overlay) {
+        const syncOverlay = () => root.classList.toggle("legalwork-window-controls-hidden", !overlay.visible);
+        syncOverlay();
+        overlay.addEventListener("geometrychange", syncOverlay);
+      }
     } else if (process.platform === "linux") {
       root.classList.add("legalwork-platform-linux");
     }

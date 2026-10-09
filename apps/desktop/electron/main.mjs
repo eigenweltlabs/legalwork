@@ -53,6 +53,7 @@ import {
 } from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
+import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
 import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
@@ -1537,23 +1538,28 @@ function macosVibrancyForCurrentTheme() {
   return nativeTheme.shouldUseDarkColors ? "under-window" : "sidebar";
 }
 
-function applyNativeTheme(mode) {
+let nativeAppearanceMode = "system";
+
+function applyNativeTheme(mode, appearance) {
+  nativeAppearanceMode = appearance ?? mode;
   nativeTheme.themeSource = mode;
-
-  if (process.platform !== "darwin") {
-    return true;
-  }
-
-  mainWindow?.setVibrancy(macosVibrancyForCurrentTheme());
-  mainWindow?.setBackgroundColor("#00000001");
-  for (const window of secondaryWindows.values()) {
-    if (window.isDestroyed()) continue;
-    window.setVibrancy(macosVibrancyForCurrentTheme());
-    window.setBackgroundColor("#00000001");
-  }
-
+  updateWindowChrome();
   return true;
 }
+
+function updateWindowChrome() {
+  for (const window of [mainWindow, ...secondaryWindows]) {
+    if (!window || window.isDestroyed()) continue;
+    if (process.platform === "darwin") {
+      window.setVibrancy(macosVibrancyForCurrentTheme());
+      window.setBackgroundColor("#00000001");
+    } else if (process.platform === "win32") {
+      window.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"));
+    }
+  }
+}
+
+nativeTheme.on("updated", updateWindowChrome);
 
 function sessionWindowRoute(workspaceId, sessionId) {
   return `/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(sessionId)}?detached=1`;
@@ -1587,15 +1593,6 @@ async function openDetachedProjectWindow(event, input) {
 
 async function openAppWindow(event, route, title = "") {
   const preloadPath = path.join(__dirname, "preload.cjs");
-  const windowAppearanceOptions = {};
-  if (process.platform === "darwin") {
-    Object.assign(windowAppearanceOptions, {
-      backgroundColor: "#00000001",
-      titleBarStyle: "hiddenInset",
-      vibrancy: macosVibrancyForCurrentTheme(),
-      visualEffectState: "active",
-    });
-  }
 
   const sessionWindow = new BrowserWindow({
     width: 1180,
@@ -1604,7 +1601,7 @@ async function openAppWindow(event, route, title = "") {
     minHeight: 480,
     title: detachedWindowTitle(title),
     show: false,
-    ...windowAppearanceOptions,
+    ...windowAppearanceOptions(process.platform, nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"),
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
     webPreferences: {
       backgroundThrottling: false,
@@ -2672,10 +2669,13 @@ const desktopCommandHandlers = {
       return true;
   },
   "__setNativeTheme": async (event, ...args) => {
-      return applyNativeTheme(String(args[0]));
+      return applyNativeTheme(String(args[0]), args[1]);
   },
   "__setApplicationMenuVisible": async (event, ...args) => {
       return applicationMenu.setVisible(args[0]);
+  },
+  "__showApplicationMenu": async (event, ...args) => {
+      return applicationMenu.popup(activeWindowFromEvent(event), args[0], args[1]);
   },
 };
 
@@ -2697,22 +2697,13 @@ async function createMainWindow() {
   if (mainWindow) return mainWindow;
 
   const preloadPath = path.join(__dirname, "preload.cjs");
-  const windowAppearanceOptions = {};
-  if (process.platform === "darwin") {
-    Object.assign(windowAppearanceOptions, {
-      backgroundColor: "#00000001",
-      titleBarStyle: "hiddenInset",
-      vibrancy: macosVibrancyForCurrentTheme(),
-      visualEffectState: "active",
-    });
-  }
 
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 820,
     title: APP_NAME,
     show: false,
-    ...windowAppearanceOptions,
+    ...windowAppearanceOptions(process.platform, nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"),
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
     webPreferences: {
       // The renderer owns session dispatch + event streams; keep it running

@@ -104,7 +104,14 @@ app.whenReady().then(async () => {
   let client;
   let exitCode = 0;
   try {
+    // A real renderer shows and sizes the panel before reading visible controls.
+    // Initialize the host too, so Chromium can paint the screenshot on CI.
+    await main.loadURL("about:blank");
+    main.setContentSize(900, 700);
+    invoke("show", { x: 0, y: 0, width: 900, height: 700 });
+    main.show();
     const first = await invoke("openUrl", origin, "builtin", { directory: projectA });
+    assert.deepEqual(main.contentView.children[0].getBounds(), { x: 0, y: 0, width: 900, height: 700 });
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
     assert.equal(first.snapshot.error, undefined);
     for (const name of ["Applicant", "Notes", "Region", "Save", "Download record"]) {
@@ -141,6 +148,15 @@ app.whenReady().then(async () => {
     const fields = await command(client, "Runtime.evaluate", { expression: "[document.querySelector('#applicant').value, document.querySelector('#notes').value, document.querySelector('#region').value]", returnByValue: true });
     assert.deepEqual(fields.result.value, ["Alice", "Review complete", "East"]);
     console.log("PASS: one batch fills input, textarea and select, clicks, waits and shares the CDP attachment");
+
+    if (process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT) {
+      const contents = main.contentView.children[0].webContents;
+      await contents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      const screenshot = await contents.capturePage({ x: 0, y: 0, width: 900, height: 700 }, { stayAwake: true });
+      assert.equal(screenshot.isEmpty(), false);
+      writeFileSync(process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT, screenshot.toPNG());
+      console.log(`Screenshot: ${process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT}`);
+    }
 
     const failed = await batch(first, [
       { action: "fill", selector: selector("Applicant"), value: "Bob" },
@@ -186,18 +202,6 @@ app.whenReady().then(async () => {
     await assert.rejects(invoke("openUrl", origin, "builtin", { directory: root }), /not registered locally/);
     assert.equal((await fetch(`${first.browser_url}/downloads`, { headers: { Origin: origin } })).status, 403);
     console.log("PASS: remote and unknown projects cannot redirect local downloads; web origins are rejected");
-
-    if (process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT) {
-      invoke("selectTab", first.tab_id);
-      invoke("show", { x: 0, y: 0, width: 900, height: 700 });
-      main.setContentSize(900, 700);
-      main.showInactive();
-      const contents = main.contentView.children[0].webContents;
-      await contents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-      const screenshot = await contents.capturePage();
-      writeFileSync(process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT, screenshot.toPNG());
-      console.log(`Screenshot: ${process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT}`);
-    }
   } catch (error) {
     console.error(error);
     exitCode = 1;
