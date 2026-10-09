@@ -116,7 +116,7 @@ app.whenReady().then(async () => {
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
     assert.equal(first.snapshot.error, undefined);
     for (const name of ["Applicant", "Notes", "Region", "Save", "Download record"]) {
-      assert.ok(first.snapshot.controls.some((control) => control.name === name), `Missing control: ${name}`);
+      assert.ok(first.snapshot.controls.some((control) => control.name === name), `Missing control: ${name}; snapshot: ${JSON.stringify(first.snapshot)}`);
     }
     const selector = (name) => first.snapshot.controls.find((control) => control.name === name).selector;
     console.log("PASS: opening a project tab returns labeled controls and observed selectors");

@@ -1192,7 +1192,7 @@ const de = {
   "projects.file_changed": "Die Datei wurde während des Kopierens geändert. Das Original wurde beibehalten. Bitte erneut versuchen.",
   "projects.file_unavailable": "Die Originaldatei ist nicht mehr verfügbar.",
   "projects.file_copy_pending": "Wird ins Projekt kopiert… Sie können in anderen Tabs weiterarbeiten.",
-  "projects.add_files": "Dateien hinzufügen…",
+  "projects.add_files": "Dateien hinzufügen",
   "projects.files_copy_error": "Die Dateien konnten nicht kopiert werden. Prüfen Sie, ob die Dateien und der Projektordner zugänglich sind.",
   "projects.files_restart": "Starten Sie LegalWork neu, um Dateien in Projekte kopieren zu können.",
   "projects.add_note": "Notiz hinzufügen",

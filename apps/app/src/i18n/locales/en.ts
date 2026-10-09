@@ -1185,7 +1185,7 @@ export default {
   "projects.file_changed": "The file changed while copying. The original has been kept; please try again.",
   "projects.file_unavailable": "The original file is no longer available.",
   "projects.file_copy_pending": "Copying into the project… You can continue working in other tabs.",
-  "projects.add_files": "Add files…",
+  "projects.add_files": "Add files",
   "projects.files_copy_error": "Could not copy the files. Check that the files and project folder are accessible.",
   "projects.files_restart": "Restart LegalWork to enable copying files into projects.",
   "projects.add_note": "Add note",
