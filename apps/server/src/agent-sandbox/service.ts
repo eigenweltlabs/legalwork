@@ -12,7 +12,8 @@ import {
 } from "../runtime-opencode-config-store.js";
 import { VmSandbox, validateMounts, type SandboxMount, type SandboxResult } from "./vm.js";
 import { permissionAction, permissionPatternMatches, type PermissionAction } from "./permissions.js";
-import { readSandboxNetworkMode, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
+import { effectiveSandbox, onSandboxSettingsChange, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
+import { runHostCommand } from "./host.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -85,7 +86,7 @@ export class AgentSandboxService {
   }
 
   async run(workspace: WorkspaceInfo, command: SandboxCommand, actor: Actor, parentSignal: AbortSignal,
-    agentRules: AgentPermissionRule[] = []): Promise<SandboxResult> {
+    agentRules: AgentPermissionRule[] = [], lineage: string[] = command.sessionID ? [command.sessionID] : []): Promise<SandboxResult & { sandbox: "host" | "virtual-machine" }> {
     if (this.config.readOnly && command.write) throw new ApiError(403, "read_only", "This server permits read-only sandbox commands.");
     const controller = new AbortController();
     let stopped: () => void = () => {};
@@ -96,12 +97,20 @@ export class AgentSandboxService {
         controller.abort(new Error("Permissions changed. Run the command again with the current permissions."));
       }
     });
+    let dependencies: string[] | undefined;
+    const unsubscribeSandbox = onSandboxSettingsChange(async (config, id) => {
+      if (config !== this.config || (dependencies && !dependencies.includes(id))) return;
+      controller.abort(new Error("Sandbox settings changed. Run the command again with the current settings."));
+      await this.active.get(controller);
+    });
     const unsubscribePolicy = onOrgPolicyChange(this.config, (scopes) => {
       if (scopes.has("engine")) controller.abort(new Error("Organization policy changed. Run the command again with the current permissions."));
     });
     try {
       const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));
-      const networkMode = await readSandboxNetworkMode(this.config);
+      const settings = await effectiveSandbox(this.config, workspace.id, lineage);
+      dependencies = settings.dependencies;
+      const networkMode = settings.networkMode;
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
       signal.throwIfAborted();
       const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true, network?: ApprovalRequest["network"]) => {
@@ -118,7 +127,26 @@ export class AgentSandboxService {
         signal.throwIfAborted();
       };
       const commandAction = (tool: string) => restrictive([wholeCommandAction(permissions, tool), wholeAgentAction(agentRules, tool)]);
-      await ask("bash", command.command, `Run this command in the protected environment?\n\n${command.command}`, [workspace.path], commandAction("bash"));
+      await ask("bash", command.command, `Run this command ${settings.enabled ? "in the protected environment" : "on this computer"}?\n\n${command.command}`, [workspace.path], commandAction("bash"));
+      if (!settings.enabled) {
+        if (this.config.readOnly) throw new ApiError(403, "read_only", "Unprotected commands cannot guarantee read-only access. Enable sandboxing first.");
+        await ask("read", "*", "Allow this command to read files on this computer? Sandboxing is off.", [workspace.path], commandAction("read"));
+        await ask("edit", "*", "Allow this command to change files on this computer? Sandboxing is off, so file access is not confined to shared folders.", [workspace.path], commandAction("edit"));
+        await ask("webfetch", "*", "Allow this command to contact websites or the local network? Sandboxing is off, so individual requests cannot be restricted.", [], commandAction("webfetch"));
+        await ask("external_directory", "*", "Allow this command to access folders outside the project? Sandboxing is off, so folder boundaries cannot be enforced.", [workspace.path],
+          restrictive([wholeCommandAction({ external_directory: runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
+        if (command.skills?.length) {
+          const skills = await listSkills(workspace.path, true);
+          for (const name of command.skills) {
+            const skill = skills.find(item => item.name === name);
+            if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
+            await ask("skill", name, `Allow this command to use the installed skill ${name}?`, [skill.path]);
+          }
+        }
+        const cwd = command.workdir || workspace.path;
+        if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
+        return { ...await runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }), sandbox: "host" };
+      }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
       const sources = [workspace.path, ...authorizedFolders(externalRules)];
@@ -148,7 +176,7 @@ export class AgentSandboxService {
       const safeMounts = await validateMounts(mounts, [runtimeStorageDir(this.config)]);
       const cwd = command.workdir || "/workspace";
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
-      return await this.backend.run({ command: command.command, cwd, mounts: safeMounts,
+      const result = await this.backend.run({ command: command.command, cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, signal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
@@ -168,7 +196,9 @@ export class AgentSandboxService {
           return true;
         },
       });
+      return { ...result, sandbox: "virtual-machine" };
     } finally {
+      unsubscribeSandbox();
       unsubscribe();
       unsubscribePolicy();
       controller.abort();

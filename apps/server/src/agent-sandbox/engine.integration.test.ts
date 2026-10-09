@@ -1,3 +1,4 @@
+import { writeSandboxDefault } from "./settings.js";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,6 +25,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
   await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow", edit: "ask", webfetch: "deny" } }));
+  await writeSandboxDefault(serverConfig, { enabled: true, networkMode: "block" });
   const approvals: string[] = [];
   const chatApprovals = new ApprovalService(serverConfig.approval, async () => {
     throw new Error("Chat approvals must not open a host dialog.");
@@ -39,6 +41,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   const calls: { agent: string; sessionID: string }[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path.includes("/sandbox/session/")) return Response.json({ enabled: true, networkMode: "block", shell: "Bash", platform: "linux", cwd: "/workspace" });
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }] });
     if (path === "/workspace/matter/sandbox/execute") {
       const command = z.object({ command: z.string(), write: z.boolean(), agent: z.string(), sessionID: z.string() }).parse(await request.json());

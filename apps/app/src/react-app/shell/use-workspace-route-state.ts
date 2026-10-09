@@ -762,8 +762,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // For remote workspaces this is the worker that owns the workspace; for
   // local workspaces it's the user's local LegalWork server.
   const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
-    [baseUrl, selectedWorkspace, token],
+    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token, localClient: client }),
+    [baseUrl, selectedWorkspace, token, client],
   );
   const selectedWorkspaceServerToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";

@@ -44,6 +44,7 @@ export type ResolvedWorkspaceEndpoint = {
 };
 
 export type LocalServerHandle = {
+  localClient?: LegalworkServerClient | null;
   baseUrl: string | null | undefined;
   token: string | null | undefined;
 };
@@ -139,7 +140,7 @@ export function resolveWorkspaceEndpoint(
   if (!localBaseUrl) return null;
   const localToken = (localServer.token ?? "").trim();
   const workspaceId = workspace.id.trim();
-  const client = createLegalworkServerClient({
+  const client = localServer.localClient?.baseUrl === localBaseUrl.replace(/\/+$/, "") ? localServer.localClient : createLegalworkServerClient({
     baseUrl: localBaseUrl,
     token: localToken || undefined,
   });

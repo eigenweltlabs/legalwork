@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { AgentSandboxService } from "./service.js";
 import { prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
-import { readSandboxNetworkMode, writeSandboxNetworkMode } from "./settings.js";
+import { readSandboxNetworkMode, writeSandboxNetworkMode, writeSandboxDefault, writeSessionSandbox, effectiveSandbox } from "./settings.js";
 import { ApprovalService } from "../approvals.js";
 import { resetOrgPolicyRuntimeForTests } from "../org-policy.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
@@ -18,8 +18,7 @@ afterEach(async () => {
     await closeRuntimeOpencodeConfig(config);
     await resetOrgPolicyRuntimeForTests(config);
   }
-  // Bun's uncached Drizzle statements retain Windows file handles until GC,
-  // even after sqlite3_close_v2 has marked the connection closed.
+  // Other shared stores may retain prepared statements until GC on Windows.
   for (const root of roots.splice(0)) {
     for (let attempt = 0; ; attempt++) {
       Bun.gc(true);
@@ -44,6 +43,7 @@ async function fixture(permissions: Record<string, unknown>, approve = true, onR
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
   configs.push(config);
+  await writeSandboxDefault(config, { enabled: true, networkMode: "approve" });
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: permissions }));
   const prompts: ApprovalRequest[] = [];
   const approvals = new ApprovalService(config.approval, async (request) => { prompts.push(request); return approve ? "allow" : "deny"; });
@@ -134,13 +134,15 @@ test("changing network mode cancels running commands and pending approvals", asy
     status: async () => ({ available: true }), prepare: async () => "test-image",
     run: async (input) => {
       expect(input.networkMode).toBe("allow");
-      await writeSandboxNetworkMode(f.config, "block");
+      const changed = new Promise<void>(resolve => input.signal.addEventListener("abort", () => resolve(), { once: true }));
+      void writeSandboxNetworkMode(f.config, "block");
+      await changed;
       expect(input.signal.aborted).toBe(true);
       input.signal.throwIfAborted();
       return { output: "", exitCode: 0, truncated: false };
     },
   });
-  await expect(service.run(f.workspace, { command: "python3 report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal)).rejects.toThrow("Permissions changed");
+  await expect(service.run(f.workspace, { command: "python3 report.py", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal)).rejects.toThrow("Sandbox settings changed");
 });
 
 test("saving a network mode waits for cancelled workers to finish cleanup", async () => {
@@ -323,4 +325,61 @@ test("removing a folder grant cancels commands using the previous folder snapsho
     { type: "host" }, new AbortController().signal)).rejects.toThrow("Permissions changed");
   await f.run();
   expect(f.executions[0].mounts).toHaveLength(1);
+});
+
+test("application off and per-chat on run side by side, with all network modes and parent inheritance", async () => {
+  const f = await fixture({ "*": "allow" });
+  await writeSandboxDefault(f.config, { enabled: false, networkMode: "block" });
+  const run = (sessionID: string, lineage = [sessionID]) => f.service.run(f.workspace,
+    { command: "echo host-proof", sessionID, write: false, timeoutMs: 10000 }, { type: "host" }, new AbortController().signal, [], lineage);
+  const host = await run("ordinary");
+  expect(host).toMatchObject({ exitCode: 0, sandbox: "host" });
+  expect(host.output).toContain("host-proof");
+  expect(f.executions).toHaveLength(0);
+  for (const networkMode of ["allow", "block", "approve"] satisfies Array<"allow" | "block" | "approve">) {
+    await writeSessionSandbox(f.config, f.workspace.id, "protected", { enabled: true, networkMode });
+    expect((await run("protected")).sandbox).toBe("virtual-machine");
+    expect(f.executions.at(-1)?.networkMode).toBe(networkMode);
+    expect((await run("child", ["child", "protected"])).sandbox).toBe("virtual-machine");
+  }
+  await writeSandboxDefault(f.config, { enabled: true, networkMode: "allow" });
+  await writeSessionSandbox(f.config, f.workspace.id, "ordinary", { enabled: false, networkMode: "block" });
+  expect((await run("ordinary")).sandbox).toBe("host");
+  await writeSessionSandbox(f.config, f.workspace.id, "ordinary", null);
+  expect((await run("ordinary")).sandbox).toBe("virtual-machine");
+  await closeRuntimeOpencodeConfig(f.config);
+  expect(await effectiveSandbox(f.config, f.workspace.id, ["protected"])).toMatchObject({ enabled: true, networkMode: "approve", source: "session" });
+});
+
+test("ten chats retain independent overrides and only affected commands are cancelled", async () => {
+  const running = new Map<string, AbortSignal>();
+  const f = await fixture({ "*": "allow" }, true, async input => {
+    running.set(input.command, input.signal);
+    await new Promise<void>(resolve => input.signal.addEventListener("abort", () => resolve(), { once: true }));
+    input.signal.throwIfAborted();
+  });
+  const commands = Array.from({ length: 10 }, (_, i) => f.service.run(f.workspace,
+    { command: `command-${i}`, sessionID: `chat-${i}`, write: false, timeoutMs: 10000 }, { type: "host" }, new AbortController().signal).catch(error => error));
+  while (running.size < 10) await Bun.sleep(1);
+  await writeSessionSandbox(f.config, f.workspace.id, "chat-1", { enabled: false, networkMode: "approve" });
+  expect(running.get("command-1")?.aborted).toBe(true);
+  expect([...running.values()].filter(signal => signal.aborted)).toHaveLength(1);
+  // An explicit override is independent of application-wide changes.
+  await writeSessionSandbox(f.config, f.workspace.id, "chat-10", { enabled: true, networkMode: "block" });
+  const extra = f.service.run(f.workspace, { command: "override", sessionID: "chat-10", write: false, timeoutMs: 10000 }, { type: "host" }, new AbortController().signal).catch(error => error);
+  while (!running.has("override")) await Bun.sleep(1);
+  await writeSandboxDefault(f.config, { enabled: false, networkMode: "approve" });
+  expect(running.get("override")?.aborted).toBe(false);
+  expect([...running.values()].filter(signal => signal.aborted)).toHaveLength(10);
+  f.service.stop();
+  await Promise.all([...commands, extra]);
+});
+
+test("unprotected commands still respect shell, read and write denials", async () => {
+  for (const tool of ["bash", "read", "edit", "webfetch"]) {
+    const f = await fixture({ [tool]: "deny" });
+    await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+    await expect(f.service.run(f.workspace, { command: "echo must-not-run", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal)).rejects.toThrow();
+    expect(f.executions).toHaveLength(0);
+  }
 });

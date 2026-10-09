@@ -1,3 +1,4 @@
+import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -804,6 +805,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   const stopProjectSyncTimer = startProjectSyncTimer(config);
   // The firm pokes this computer when something changed, so rounds start at once.
   const stopSyncEvents = startSyncEvents(config);
+  const stopSandboxSettingsSync = startSandboxSettingsSync(config);
   // The firm's policy: pulled now and whenever the firm pokes; what changes
   // the engine's settings reloads the engines once they are idle.
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
@@ -881,6 +883,21 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks);
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
+    sessionLineage: async (workspace, sessionID) => {
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const lineage: string[] = [];
+      let id: string | undefined = sessionID;
+      while (id) {
+        if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
+        const currentId: string = id;
+        const session = unwrapOpencodeResult(await client.session.get({ sessionID: currentId }, { signal: AbortSignal.timeout(10000) }), "/session");
+        const directory = resolveOpencodeDirectory(workspace);
+        if (!directory || resolve(session.directory) !== resolve(directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
+        lineage.push(id);
+        id = session.parentID;
+      }
+      return lineage;
+    },
     agentRules: async (workspace, sessionID, agentName) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "/session");
@@ -1110,6 +1127,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      stopSandboxSettingsSync();
       agentSandbox.stop();
       approvals.dispose();
       await corpus.stop();

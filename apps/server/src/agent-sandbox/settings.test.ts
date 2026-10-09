@@ -33,20 +33,23 @@ test("network settings API authenticates, validates, persists and respects read-
   const base = `http://127.0.0.1:${server.port}`;
   const hostHeaders = { "x-legalwork-host-token": "host", "content-type": "application/json" };
   const patch = (body: unknown, token?: string) => fetch(base + "/sandbox/network", { method: "PATCH", headers: {
-    "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}),
+    "content-type": "application/json", ...(token === "host" ? { "x-legalwork-host-token": "host" } : token ? { authorization: `Bearer ${token}` } : {}),
   }, body: JSON.stringify(body) });
   try {
     expect((await patch({ mode: "allow" })).status).toBe(401);
+    expect((await patch({ mode: "allow" }, "client")).status).toBe(401);
+    expect(await (await fetch(base + "/sandbox/status", { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: false, supported: true, available: null, networkMode: "approve" });
+    expect((await fetch(base + "/sandbox/settings", { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ enabled: true, networkMode: "block" }) })).status).toBe(401);
     const issued = await fetch(base + "/tokens", { method: "POST", headers: hostHeaders, body: JSON.stringify({ scope: "viewer", label: "network-policy-test" }) });
     expect(issued.status).toBe(201);
     const viewer = await issued.json();
-    expect((await patch({ mode: "allow" }, viewer.token)).status).toBe(403);
+    expect((await patch({ mode: "allow" }, viewer.token)).status).toBe(401);
     for (const body of [{ mode: "unknown" }, { mode: "allow", extra: true }, { mode: null }, {}]) {
-      expect((await patch(body, "client")).status).toBe(400);
+      expect((await patch(body, "host")).status).toBe(400);
       expect(await readSandboxNetworkMode(config)).toBe("approve");
     }
     for (const mode of networkModeSchema.options) {
-      const response = await patch({ mode }, "client");
+      const response = await patch({ mode }, "host");
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ networkMode: mode });
       expect(await readSandboxNetworkMode(config)).toBe(mode);
@@ -59,6 +62,12 @@ test("network settings API authenticates, validates, persists and respects read-
       ? Response.json([{ name: "build", permission: [{ permission: "*", pattern: "*", action: "allow" }] }])
       : Response.json({ id: new URL(request.url).pathname.split("/").pop(), directory: folder }) });
     config.opencodeBaseUrl = engine.url.origin;
+    const sessionPath = base + "/workspace/matter/sandbox/session/chat-1";
+    expect((await fetch(sessionPath, { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ settings: { enabled: true, networkMode: "block" } }) })).status).toBe(401);
+    expect((await fetch(sessionPath, { method: "PATCH", headers: hostHeaders, body: JSON.stringify({ settings: { enabled: true, networkMode: "block" } }) })).status).toBe(200);
+    expect(await (await fetch(sessionPath, { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: true, networkMode: "block", source: "session" });
+    expect((await fetch(sessionPath, { method: "PATCH", headers: hostHeaders, body: JSON.stringify({ settings: null }) })).status).toBe(200);
+    expect(await (await fetch(sessionPath, { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: false, source: "application" });
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow" } }));
     const commands = Array.from({ length: 10 }, (_, index) => fetch(base + "/workspace/matter/sandbox/execute", {
       method: "POST", headers: { authorization: "Bearer client", "content-type": "application/json" },
@@ -86,7 +95,7 @@ test("network settings API authenticates, validates, persists and respects read-
       expect((await reply({ reply: "allow", workspaceId: request.workspaceId, sessionID: request.sessionID }, hostHeaders)).status).toBe(404);
     } finally { engine.stop(true); }
     config.readOnly = true;
-    expect((await patch({ mode: "allow" }, "client")).status).toBe(403);
+    expect((await patch({ mode: "allow" }, "host")).status).toBe(403);
     expect(await readSandboxNetworkMode(config)).toBe("approve");
   } finally {
     await server.stop();

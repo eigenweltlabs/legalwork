@@ -1,3 +1,4 @@
+import { writeSandboxDefault } from "./agent-sandbox/settings.js";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -88,6 +89,7 @@ describe("the firm's tool permissions in the engine", () => {
   test("protected commands enforce firm rules before launch even with stale agent permissions", async () => {
     const entries = { "tools.permissions": { mode: "enforced", value: { bash: "ask", edit: "deny" } } };
     const { config, root } = await setup(entries);
+    await writeSandboxDefault(config, { enabled: true, networkMode: "approve" });
     config.workspaces[0].path = join(root, "matter");
     await mkdir(config.workspaces[0].path);
     config.authorizedRoots = [config.workspaces[0].path];
@@ -117,6 +119,7 @@ describe("the firm's tool permissions in the engine", () => {
   test("a changed firm policy cancels an already running protected command", async () => {
     const entries = { "tools.permissions": { mode: "enforced", value: { bash: "allow" } } };
     const { config, root } = await setup(entries);
+    await writeSandboxDefault(config, { enabled: true, networkMode: "approve" });
     config.workspaces[0].path = join(root, "matter");
     await mkdir(config.workspaces[0].path);
     config.authorizedRoots = [config.workspaces[0].path];
