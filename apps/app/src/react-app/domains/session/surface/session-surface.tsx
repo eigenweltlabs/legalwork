@@ -203,6 +203,7 @@ export type SessionSurfaceProps = {
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
   respondQuestion?: (requestID: string, answers: string[][]) => void;
+  onOpenInteractionSession?: (sessionId: string) => void;
   safeStringify?: (value: unknown) => string;
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
@@ -2196,7 +2197,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
             trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission ? (
-              <div>
+              <div className={props.activePermission || props.activeQuestion ? "max-h-[50vh] overflow-y-auto" : undefined}>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
                   <NoModelNotice
@@ -2207,7 +2208,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 ) : null}
                 {props.activeQuestion ? (
                   <QuestionPanel
+                    key={props.activeQuestion.id}
                     questions={props.activeQuestion.questions}
+                    sourceSession={props.activeQuestion.sourceSession}
+                    onOpenSession={props.onOpenInteractionSession}
                     busy={props.questionReplyBusy ?? false}
                     onReply={(answers) => {
                       if (props.activeQuestion) {
@@ -2222,6 +2226,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 {props.activePermission ? (
                   <PermissionApprovalPanel
                     permission={props.activePermission}
+                    onOpenSession={props.onOpenInteractionSession}
                     busy={props.permissionReplyBusy}
                     respondPermission={props.respondPermission}
                     safeStringify={props.safeStringify}
