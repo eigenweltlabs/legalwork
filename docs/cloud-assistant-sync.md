@@ -54,10 +54,10 @@ The desktop can then start normally with `LEGALWORK_CLOUD_SYNC_CONFIG=/path/to/d
 
 The VM profile uses `role: "executor"`, `deviceId: "worker"`, and `projectsDirectory: "/data/projects"`. Leave `projectIds` empty for on-demand projects, or provide exact IDs to download them during startup. Keep the server config, runtime database, device marker, local transfer bases and project directories on persistent VM storage. The first version assumes one desktop workspace catalog is handed off to the VM; clients on other entry points connect to this execution owner.
 
-Preinstall the LegalWork server, its pinned OpenCode version from `constants.json`, bundled workflows/plugins and the document tools your workloads need into the VM image. The server Linux binary can be built without provisioning a VM:
+Preinstall the LegalWork server, its pinned OpenCode version from `constants.json`, bundled workflows/plugins and the document tools your workloads need into the VM image. The E2B template uses bundled JavaScript under Linux Bun with separately built Linux native dependencies. Prepare these assets without provisioning a user VM:
 
 ```sh
-pnpm --filter legalwork-server exec bun ./script/build.ts --target bun-linux-x64 --outdir dist/bin
+infra/e2b/prepare-template.sh
 ```
 
 Start the VM's managed engine:
@@ -87,15 +87,15 @@ The following host APIs work independently of E2B, Firecracker, GCE or another V
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /cloud-sync/status` | Client-authenticated enabled state, role, execution readiness, checkpoint time and next scheduled run. |
+| `GET /cloud-sync/status` | Client-authenticated `{ enabled, status }`; when enabled, `status` includes role, `canExecute`, checkpoint time and `nextRunAt`. |
 | `POST /cloud-sync/projects/:id/prepare` | Host-authenticated project availability barrier. Failures remain blocked rather than executing against a partial folder. |
 | `POST /cloud-sync/checkpoint` | Host-authenticated quiesce and checkpoint. Rejects active engine sessions. Success keeps execution quiesced. |
 | `POST /cloud-sync/resume` | Host-authenticated ownership renewal, file/preferences catch-up and execution resume. Rejects a VM whose ownership was replaced. |
 
-Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must discard a resumed VM that reports ownership loss and restore a replacement from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. Controller wake scheduling can read `nextRunAt`; provider timers and external entry points are not implemented here.
+Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must block a resumed VM that reports ownership loss; restoring a replacement requires a deliberate new handoff from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. The [Google Cloud controller](cloud-vm-gcp.md) reads `nextRunAt`, renews provider timeouts and wakes paused workers; external entry points and real-user connection provisioning remain separate work.
 
 ## Validation and current limits
 
 Tests exercise WAL snapshots, interrupted restores, stable session IDs, path remapping, private metadata, credential exclusion/preservation, chunk reuse and corruption checks, ownership fencing, preference convergence, on-demand project files, private reviews and retaining private sync when team sharing ends. Platform integration tests use PostgreSQL and the existing file routes to verify owner-only access and sharing rejection. Both server/platform typechecks and Linux cross-compilation are available locally.
 
-No live VM was provisioned and no provider startup latency was measured. This change is the sync/runtime layer; provider provisioning, template assembly, authenticated entry-point routing and waking a paused VM remain controller work. Credentials and OS-dependent integrations require separate setup. Unlinked desktop recordings and arbitrary external folders are not mirrored. Background checkpoints are consistent per database; the quiesced checkpoint API is the handoff boundary. Immutable checkpoint chunks currently remain in storage; retention/garbage collection must be added before a long-running production rollout. Removing projects from a secondary desktop catalog and merging independently created local workspace IDs across desktops are also outside this first handoff flow.
+The sync tests do not use real-user credentials or a deployed platform. The separate [Google Cloud VM setup](cloud-vm-gcp.md) provisions E2B Embed, builds the LegalWork template, provides a per-user controller and tests live isolated development workers, including recovery after host boot-disk replacement. Real-user handoff still requires the companion platform deployment and target connections. Credentials and OS-dependent integrations require separate setup. Unlinked desktop recordings and arbitrary external folders are not mirrored. Background checkpoints are consistent per database; the quiesced checkpoint API is the handoff boundary. Immutable checkpoint chunks currently remain in storage; retention/garbage collection must be added before a long-running production rollout. Removing projects from a secondary desktop catalog and merging independently created local workspace IDs across desktops are also outside this first handoff flow.

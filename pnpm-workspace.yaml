@@ -3,6 +3,8 @@ minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
   # Explicitly allow the reviewed Electron security update.
   - "electron@43.7.5"
+  # SDK for the reviewed, pinned E2B Embed runtime.
+  - "e2b@2.53.1"
 
 packages:
   - "apps/*"
