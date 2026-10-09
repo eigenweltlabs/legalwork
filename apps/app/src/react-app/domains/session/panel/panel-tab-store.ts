@@ -58,6 +58,7 @@ export type ArtifactPanelTab = {
   value?: string;
   size?: number;
   updatedAt?: number;
+  pendingImportId?: string;
   storage?: StorageFileSource;
   sourcePage?: number;
   searchSources?: SearchSourceReference[];
@@ -125,10 +126,11 @@ export type PanelTabStore = {
   keepTab: (scope: string, tabId: string) => void;
   readLayout: (value: unknown) => SessionPanelState | null;
   migrateWorkspace: (workspaceId: string) => void;
-  adoptChat: (scope: string, sessionId: string, label: string) => void;
+  adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout: boolean }) => void;
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean }) => void;
+  finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
@@ -402,7 +404,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         if (!session || !session.tabs.some(tab => tab.id === tabId && tab.label !== label)) return state;
         return updateSession(state, scope, { ...session, tabs: session.tabs.map(tab => tab.id === tabId ? { ...tab, label } : tab) });
       }),
-      adoptChat: (scope, sessionId, label) => set(state => {
+      adoptChat: (scope, sessionId, label, options) => set(state => {
         let session = getWritableSession(state, scope);
         const legacy = state.sessions[sessionId];
         if (legacy && scope !== sessionId) {
@@ -415,7 +417,11 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           else for (const tab of resolved) session = dockTab(scope, session, tab);
         }
         const chat = chatPanelTab(sessionId, label);
-        session = openInSession(scope, session, chat, state.opening[scope] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(scope) ?? 0);
+        // Opening a recent chat in another project must keep that project's
+        // geometry. Reuse its chat group (or focused group) instead of splitting.
+        const chatPane = session.panes.find(pane => pane.tabIds.some(id => session.tabs.some(tab => tab.id === id && tab.type === "chat")));
+        session = openInSession(scope, session, chat, state.opening[scope] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(scope) ?? 0,
+          options?.preserveLayout && session.tabs.length ? chatPane?.id ?? session.focusedPaneId ?? session.panes[0]?.id : undefined);
         const sessions = { ...state.sessions, [scope]: session };
         if (scope !== sessionId) delete sessions[sessionId];
         return { sessions };
@@ -430,6 +436,18 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         const session = getWritableSession(state, sessionId);
         const next = openInSession(sessionId, session, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, paneId, edge, options?.preview, () => get().openTab(sessionId, tab, paneId, edge, options));
         return next === session ? state : updateSession(state, sessionId, next);
+      }),
+      finishFileImport: (id, file) => set(state => {
+        const sessions = { ...state.sessions };
+        let changed = false;
+        for (const [scope, session] of Object.entries(sessions)) {
+          if (!session.tabs.some(tab => tab.type === "artifact" && tab.pendingImportId === id)) continue;
+          changed = true;
+          sessions[scope] = { ...session, tabs: session.tabs.map(tab => tab.type === "artifact" && tab.pendingImportId === id
+            ? { ...tab, pendingImportId: undefined, value: file.path, preview: classifyOpenTarget(file.path, "file"), size: file.size, updatedAt: file.updatedAt }
+            : tab) };
+        }
+        return changed ? { sessions } : state;
       }),
       closeTab: (sessionId, tabId) => set(state => {
         const session = getWritableSession(state, sessionId);

@@ -2,6 +2,8 @@ import { queueActionSchema, queuedPromptPayload } from "../session-queue-schema.
 import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
+import { canonicalFilePath } from "../file-write-lock.js";
+import { posix, win32 } from "node:path";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
@@ -64,6 +66,18 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     unwrapOpencodeResult,
   } = options;
   const sessionGroupEvents = new SessionGroupEventStore();
+  async function queueClient(workspace: WorkspaceInfo, sessionID: string) {
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "session");
+    const directory = workspace.directory?.trim() || (workspace.workspaceType === "local" ? workspace.path : unwrapOpencodeResult(await client.path.get(), "path").directory);
+    const normalize = async (path: string) => {
+      const clean = path.replace(/^\\\\\?\\/, "").replace(/^\/\/\?\//, "");
+      if (workspace.workspaceType === "local") return canonicalFilePath(clean);
+      return /^[a-z]:[\\/]|^\\\\/i.test(clean) ? win32.normalize(clean).replace(/[\\/]+$/, "").toLowerCase() : posix.normalize(clean).replace(/\/$/, "");
+    };
+    if (!directory || !session.directory || await normalize(directory) !== await normalize(session.directory)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+    return client;
+  }
   const messageQueue = registerMessageQueue(config, {
     idle: async (workspaceId, sessionId) => {
       if (config.readOnly) return false;
@@ -77,7 +91,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const client = await (async () => {
         try {
           const workspace = await resolveWorkspace(config, workspaceId);
-          const client = createWorkspaceOpencodeClient(config, workspace);
+          const client = await queueClient(workspace, sessionID);
           unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
           return client;
         } catch (error) {
@@ -96,6 +110,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   });
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    await queueClient(workspace, ctx.params.sessionId);
     return jsonResponse(await messageQueue.readIfChanged(workspace.id, ctx.params.sessionId, new URL(ctx.request.url).searchParams.get("revision")));
   });
   addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
@@ -104,8 +119,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
     // Reject stale/deleted or cross-workspace sessions before storing executable work.
-    const client = createWorkspaceOpencodeClient(config, workspace);
-    unwrapOpencodeResult(await client.session.get({ sessionID: ctx.params.sessionId }), "session");
+    await queueClient(workspace, ctx.params.sessionId);
     return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
   });
 

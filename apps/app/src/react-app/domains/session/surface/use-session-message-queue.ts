@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueueAction, QueueInput, QueuedDraftSnapshot, SessionQueue } from "@legalwork/types/session-queue";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
+import { toast } from "@/components/ui/sonner";
+import { t } from "@/i18n";
 import type { ComposerDraft } from "@/app/types";
 import { useComposerStateStore, type QueuedComposerDraft, type ComposerSessionState } from "./composer-state-store";
 
@@ -54,6 +56,11 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   const connection = useRef({ client, update });
   connection.current = { client, update };
   useEffect(() => {
+    // The old view released its lease. Keep every part of the edited buffer,
+    // but require a deliberate new submission instead of using a stale slot.
+    if (!claim.current && useComposerStateStore.getState().recoverQueuedEdit(sessionId)) toast.info(t("composer.queue_edit_recovered"));
+  }, [client.baseUrl, workspaceId, sessionId]);
+  useEffect(() => {
     if (!query.data) return;
     const items = query.data.entries.filter(entry => entry.status !== "sending").map(entry => hydrateDraft(entry, claim.current?.token));
     useComposerStateStore.setState(state => ({ queuedDrafts: { ...state.queuedDrafts, [sessionId]: items }, pausedQueues: { ...state.pausedQueues, [sessionId]: query.data.paused } }));
@@ -78,9 +85,20 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       const snapshot = await snapshotQueuedDraft(draft, editor);
       const signature = JSON.stringify(snapshot);
       const current = editor?.queuedDraftId ? claim.current : null;
-      if (editor?.queuedDraftId && current?.id !== editor.queuedDraftId) throw new Error("This queued edit is no longer owned by this window. Cancel editing to keep your original composer.");
+      if (editor?.queuedDraftId && current?.id !== editor.queuedDraftId) {
+        useComposerStateStore.getState().recoverQueuedEdit(sessionId);
+        throw new Error(t("composer.queue_edit_recovered"));
+      }
       if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };
-      await send({ id: current?.id ?? submission.current.id, draft: snapshot, ...(current ? { editToken: current.token } : {}) });
+      try { await send({ id: current?.id ?? submission.current.id, draft: snapshot, ...(current ? { editToken: current.token } : {}) }); }
+      catch (error) {
+        if (current && error instanceof LegalworkServerError && error.status === 409) {
+          claim.current = null;
+          useComposerStateStore.getState().recoverQueuedEdit(sessionId);
+          throw new Error(t("composer.queue_edit_recovered"));
+        }
+        throw error;
+      }
       submission.current = null; claim.current = null;
       await query.refetch();
     },

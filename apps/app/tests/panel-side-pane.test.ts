@@ -22,6 +22,38 @@ Object.defineProperty(globalThis, "localStorage", {
 const { createPanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
 const { openTaskProject } = await import("../src/react-app/domains/tasks/task-project-navigation");
 const usePanelTabStore = createPanelTabStore();
+
+test("opening a recent chat preserves the destination project's split geometry and document tabs", () => {
+  const panels = createPanelTabStore();
+  const scope = "workspace:destination";
+  panels.getState().openTab(scope, { id: "one", type: "artifact", label: "One", value: "one.docx", preview: "word" });
+  const first = panels.getState().sessions[scope].panes[0].id;
+  panels.getState().openTab(scope, { id: "two", type: "artifact", label: "Two", value: "two.docx", preview: "word" }, first, "right");
+  panels.getState().setWorkspaceWidth(scope, 1400);
+  const before = panels.getState().sessions[scope];
+  panels.getState().adoptChat(scope, "recent", "Recent chat", { preserveLayout: true });
+  const after = panels.getState().sessions[scope];
+  expect(after.tree).toEqual(before.tree);
+  expect(after.sizes).toEqual(before.sizes);
+  expect(after.panes.map(pane => pane.id)).toEqual(before.panes.map(pane => pane.id));
+  expect(after.tabs.map(tab => tab.id)).toEqual(["one", "two", "chat:recent"]);
+  panels.getState().adoptChat(scope, "recent", "Recent chat", { preserveLayout: true });
+  expect(panels.getState().sessions[scope].tabs).toHaveLength(3);
+});
+
+test("finishing a file copy retains its pane and never recreates a closed import tab", () => {
+  const panels = createPanelTabStore();
+  const scope = "workspace:copy";
+  panels.getState().openTab(scope, { id: "copy", type: "artifact", label: "Draft.docx", preview: "word", pendingImportId: "copy" });
+  const before = panels.getState().sessions[scope];
+  panels.getState().finishFileImport("copy", { path: "Folder/Draft.docx", updatedAt: 7 });
+  const after = panels.getState().sessions[scope];
+  expect(after.tree).toEqual(before.tree);
+  expect(after.tabs[0]).toMatchObject({ id: "copy", value: "Folder/Draft.docx", pendingImportId: undefined });
+  panels.getState().closeTab(scope, "copy");
+  panels.getState().finishFileImport("copy", { path: "late.docx" });
+  expect(panels.getState().sessions[scope].tabs).toEqual([]);
+});
 if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
 else Reflect.deleteProperty(globalThis, "localStorage");
 usePanelTabStore.persist.setOptions({

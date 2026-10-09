@@ -3,15 +3,20 @@ import type { LegalworkServerClient, LegalworkWorkspaceFileOperation } from "@/a
 import { documentIdentityKey } from "../session/artifacts/document-identity";
 import { changePinnedPaths } from "../session/panel/file-pins";
 import { t } from "@/i18n";
+import { prepareLinkedFileMove, type LinkProject } from "./linked-file-move";
 
-export type WorkspaceFile = { client: LegalworkServerClient; workspaceId: string; path: string; isRemoteWorkspace: boolean };
+export type WorkspaceFile = { client: LegalworkServerClient; workspaceId: string; path: string; isRemoteWorkspace: boolean; projects?: LinkProject[] };
 
 /** Hold the editor's identity lock so a move/delete cannot race an autosave. */
 export async function operateWorkspaceFile(file: WorkspaceFile, operation: LegalworkWorkspaceFileOperation, queryClient: QueryClient) {
   const within = (path: unknown) => typeof path === "string" && (path === file.path || path.startsWith(`${file.path}/`));
+  const relink = operation.type === "rename" && file.projects
+    ? await prepareLinkedFileMove(file.projects, file, operation.from, operation.to, queryClient) : async () => {};
+  if (!relink) return false;
   const perform = async () => {
     const [result] = await file.client.applyWorkspaceFileOperations(file.workspaceId, [operation]);
     if (!result?.ok) throw new Error(result?.message ?? t("storage.failed"));
+    await relink();
     if (operation.type === "rename") changePinnedPaths(file.workspaceId, "local", operation.from, operation.to);
     if (operation.type === "delete") changePinnedPaths(file.workspaceId, "local", operation.path);
     const filter = { predicate: (query: { queryKey: readonly unknown[] }) =>

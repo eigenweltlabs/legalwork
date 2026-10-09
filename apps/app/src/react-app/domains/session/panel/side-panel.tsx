@@ -1034,6 +1034,13 @@ function SidePanelContent({
           <DropdownMenuContent align="end">
             {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
+            {renderProjectView && (["calendar", "reviews", "tasks"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
+              const tab = projectViewTab(view, projectViewLabel(view));
+              const store = usePanelTabStore.getState();
+              const existing = store.sessions[sessionId]?.tabs.find(item => samePanelTab(sessionId, item, tab));
+              if (existing) store.selectTab(sessionId, existing.id);
+              else store.openTab(sessionId, tab, pane.id);
+            }}>{view === "calendar" ? <CalendarDays /> : view === "reviews" ? <TableProperties /> : <ListTodo />}{projectViewLabel(view)}</DropdownMenuItem>)}
             <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab(undefined, pane.id)}><Globe /> {t("side_panel.browser")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

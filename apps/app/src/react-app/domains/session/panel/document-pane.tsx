@@ -12,6 +12,11 @@ export function DocumentPane({ destination, children }: { destination: HTMLEleme
   useLayoutEffect(() => {
     if (!destination) { host.remove(); return; }
     if (host.parentElement === destination) return;
+    // A state-preserving move avoids blur/focus and selection teardown in
+    // native editors when both panes are connected (supported by Electron).
+    if (host.isConnected && destination.isConnected && "moveBefore" in destination && typeof destination.moveBefore === "function") {
+      destination.moveBefore(host, null); return;
+    }
     const focused = host.contains(document.activeElement) && document.activeElement instanceof HTMLElement ? document.activeElement : null;
     destination.appendChild(host);
     focused?.focus({ preventScroll: true });

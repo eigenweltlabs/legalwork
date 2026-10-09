@@ -46,6 +46,7 @@ export type ComposerStateStore = {
   appendHistory: (sessionId: string, text: string) => void;
   appendQueuedDraft: (sessionId: string, draft: ComposerDraft, editor?: ComposerSessionState) => void;
   editQueuedDraft: (sessionId: string, id: string) => void;
+  recoverQueuedEdit: (sessionId: string) => boolean;
   reorderQueuedDrafts: (sessionId: string, ids: string[]) => void;
   setQueuePaused: (sessionId: string, paused: boolean) => void;
   removeQueuedDraft: (sessionId: string, id: string) => void;
@@ -146,6 +147,16 @@ export const useComposerStateStore = create<ComposerStateStore>((set) => ({
       stashedDrafts: { ...state.stashedDrafts, [sessionId]: editor.draft.trim() || editor.attachments.length ? [...stash, editor] : stash },
     };
   }),
+  recoverQueuedEdit: (sessionId) => {
+    let recovered = false;
+    set(state => {
+      const editor = state.sessions[sessionId];
+      if (!editor?.queuedDraftId) return state;
+      recovered = true;
+      return { sessions: { ...state.sessions, [sessionId]: { ...editor, queuedDraftId: undefined } } };
+    });
+    return recovered;
+  },
   reorderQueuedDrafts: (sessionId, ids) => set((state) => {
     const current = state.queuedDrafts[sessionId];
     if (!current) return state;

@@ -1,5 +1,7 @@
 # Split-view branch: complete validation rerun
 
+Latest follow-up: [9 October review changes and verification](chris-review-2026-10-09.md), including refreshed `dev`, 2,947 passing app/server/desktop tests, queue project validation, chat isolation and document/copy/link UI evidence. The results below retain their original validation scope.
+
 2026-10-08 — `feat/split-view-autosave`, compared with `dev` at `2928745b`.
 Reviewed all 43 existing PR commits and the final task-navigation, composer and
 file-picker follow-up. This report supersedes earlier test counts; historical

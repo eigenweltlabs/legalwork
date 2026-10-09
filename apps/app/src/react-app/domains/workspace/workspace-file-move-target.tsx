@@ -5,11 +5,13 @@ import { hasWorkspaceFileMove, readWorkspaceFileMove, workspaceFileMoves } from 
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { operateWorkspaceFile } from "./workspace-file-operation";
+import { useProjectFiles } from "./project-file-context";
 
 export function WorkspaceFileMoveTarget({ client, workspaceId, isRemoteWorkspace, folder, children }: {
   client: LegalworkServerClient | null; workspaceId: string | null; isRemoteWorkspace: boolean; folder: string; children: ReactNode;
 }) {
   const queries = useQueryClient();
+  const projects = useProjectFiles()?.projects;
   const busy = useRef(false);
   const highlighted = useRef<HTMLElement | null>(null);
   const clear = () => { highlighted.current?.removeAttribute("data-file-move-over"); highlighted.current = null; };
@@ -40,7 +42,7 @@ export function WorkspaceFileMoveTarget({ client, workspaceId, isRemoteWorkspace
       void (async () => {
         const failures: string[] = [];
         for (const operation of workspaceFileMoves(paths, destination)) {
-          try { await operateWorkspaceFile({ client, workspaceId, path: operation.from, isRemoteWorkspace }, operation, queries); }
+          try { if (await operateWorkspaceFile({ client, workspaceId, path: operation.from, isRemoteWorkspace, projects }, operation, queries) === false) break; }
           catch (error) { failures.push(`${operation.from}: ${error instanceof Error ? error.message : t("storage.failed")}`); }
         }
         if (failures.length) toast.error(failures.join("\n"));

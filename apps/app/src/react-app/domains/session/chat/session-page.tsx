@@ -471,6 +471,9 @@ export function SessionPage(props: SessionPageProps) {
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
       openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview });
+      if (tab.type === "artifact" && tab.pendingImportId && destination?.kind === "workspace") {
+        navigate(workspaceSessionRoute(destination.workspaceId) + "?view=workspace");
+      }
       if (scope !== panelStateSessionId) return;
       preserveSidePanelOnPanelOpenRef.current = true;
       setCurrentSidePanel("panel");
@@ -949,7 +952,7 @@ export function SessionPage(props: SessionPageProps) {
     const tab = state?.tabs.find(tab => tab.type === "chat" && tab.sessionId === sessionId);
     if (tab) store.selectTab(scope, tab.id);
     else {
-      store.adoptChat(scope, sessionId, sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId) || t("session.default_title"));
+      store.adoptChat(scope, sessionId, sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId) || t("session.default_title"), { preserveLayout: true });
     }
     if (props.selectedSessionId !== sessionId || props.selectedWorkspaceId !== workspaceId || hasMainView || props.projectPage) props.sidebar.onOpenSession(workspaceId, sessionId);
   }, [props.sidebar, props.selectedSessionId, props.selectedWorkspaceId, hasMainView, props.projectPage]);

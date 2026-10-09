@@ -9,6 +9,7 @@ import { workspaceLabel } from "../session/sidebar/utils";
 import { useComposerStateStore, getComposerDraft, getComposerMentions } from "../session/surface/composer-state-store";
 import { encodeComposerMentionValue } from "../session/surface/composer/mention-encoding";
 import { createProjectAttachmentMention } from "../session/surface/composer/workspace-attachment";
+import { LinkedFileMoveDialogs } from "./linked-file-move";
 
 const ProjectFilesContext = createContext<(ReturnType<typeof createProjectFileAccess> & { dragTypes: readonly string[] }) | null>(null);
 
@@ -96,6 +97,6 @@ export function ProjectFileProvider({ children, groups, client, createChat }: { 
   }, []);
   const access = useMemo(() => createProjectFileAccess(groups, client, createChat), [groups, client, createChat]);
   const value = useMemo(() => ({ ...access, dragTypes }), [access, dragTypes]);
-  return <ProjectFilesContext value={value}>{children}</ProjectFilesContext>;
+  return <ProjectFilesContext value={value}>{children}<LinkedFileMoveDialogs /></ProjectFilesContext>;
 }
 export function useProjectFiles() { return use(ProjectFilesContext); }

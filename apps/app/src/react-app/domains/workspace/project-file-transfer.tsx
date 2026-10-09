@@ -13,6 +13,8 @@ import { t } from "@/i18n";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { fileTransferItems, transferFileBatch } from "./project-file-batch";
 import { useProjectFiles } from "./project-file-context";
+import { startFileCopy } from "./file-copy-job";
+import { requestPanelTab } from "../session/panel/panel-tab-request";
 
 export function ProjectFileDropTarget({ projectId, folder = "", mode = "files", hint = false, children, className = "" }: { projectId: string; folder?: string; mode?: "files" | "chat"; hint?: boolean; children: ReactNode; className?: string }) {
   const files = useProjectFiles();
@@ -56,19 +58,29 @@ export function ProjectFileTransfer({ projectId, sources, folder, initialMode = 
   const locked = busy || completed > 0;
   const submit = async () => {
     if (!files || !target || submitting.current) return;
+    if (mode === "copy") {
+      if (items.some(item => !item.name.trim() || /[\/\\\u0000-\u001f\u007f]/.test(item.name) || [".", ".."].includes(item.name.trim()))) {
+        toast.error(t("project_files.invalid_name")); return;
+      }
+      for (const item of items) {
+        const name = item.name.trim();
+        const path = folder ? `${folder}/${name}` : name;
+        void startFileCopy(name, tab => requestPanelTab(tab, { kind: "workspace", workspaceId: target.projectId }), async () => {
+          const saved = await files.readSaved(item.source);
+          const result = await target.client.importProjectFile(target.workspaceId, path, item.source, saved.data);
+          for (const key of ["workspace-files", "project-files", "project-file-search"]) void queryClient.invalidateQueries({ queryKey: [key, target.workspaceId] });
+          return { path, updatedAt: result.updatedAt };
+        });
+      }
+      onClose(); return;
+    }
     submitting.current = true; setBusy(true);
     try {
       const results = await transferFileBatch(items, async item => {
         const name = item.name.trim();
         if (!name || /[\/\\\u0000-\u001f\u007f]/.test(name) || name === "." || name === "..") throw new Error(t("project_files.invalid_name"));
-        const path = folder ? `${folder}/${name}` : name;
-        if (mode === "copy") {
-          const saved = await files.readSaved(item.source);
-          await target.client.importProjectFile(target.workspaceId, path, item.source, saved.data);
-        } else {
-          files.sourceProject(item.source);
-          await target.client.updateProjectFileLink(target.workspaceId, { name, folder, source: item.source });
-        }
+        files.sourceProject(item.source);
+        await target.client.updateProjectFileLink(target.workspaceId, { name, folder, source: item.source });
       }, setItems);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workspace-files", target.workspaceId] }),
@@ -76,7 +88,7 @@ export function ProjectFileTransfer({ projectId, sources, folder, initialMode = 
         queryClient.invalidateQueries({ queryKey: ["project-file-search", target.workspaceId] }),
       ]);
       if (results.every(item => item.done)) {
-        toast.success(t(mode === "copy" ? "project_files.copied" : "project_files.linked", { project: target.name }));
+        toast.success(t("project_files.linked", { project: target.name }));
         onClose();
       }
     } finally { submitting.current = false; setBusy(false); }

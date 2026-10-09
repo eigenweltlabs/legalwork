@@ -484,11 +484,20 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           rulerUnit="cm"
           i18n={EDITOR_LABELS}
           className="h-full"
-          onEditorViewReady={() => {
+          onEditorViewReady={(view) => {
+            // Plugins may retain a dispatch callback after React unmounts the
+            // editor. The pinned editor resets its teardown flag after destroy;
+            // reject those late transactions before ProseMirror reads docView.
+            const dispatch = view.props.dispatchTransaction;
+            view.setProps({ dispatchTransaction(transaction) {
+              if (view.isDestroyed) return;
+              if (dispatch) dispatch.call(view, transaction);
+              else view.updateState(view.state.apply(transaction));
+            } });
             // Initial import/normalization emits document and comment callbacks.
             // Establish the baseline after that first render, before accepting edits.
             requestAnimationFrame(() => {
-              if (ready.current) return;
+              if (view.isDestroyed || ready.current) return;
               lastDocument.current = editorRef.current?.getDocument() ?? null;
               ready.current = true;
               askAboutFonts();

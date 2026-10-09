@@ -35,7 +35,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; promptError?: () => { name: string; data: { message: string } } | undefined }) {
+function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; promptError?: () => { name: string; data: { message: string } } | undefined }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -73,7 +73,7 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
           id: "ses_1",
           title: "Hostname Check",
           slug: "hostname-check",
-          directory: request.headers.get("x-opencode-directory"),
+          directory: input?.sessionDirectory ?? request.headers.get("x-opencode-directory"),
           time: { created: 100, updated: 200 },
         });
       }
@@ -422,6 +422,20 @@ describe("workspace session read APIs", () => {
 
 
 describe("shared session queue API", () => {
+  test("a globally visible chat from another project cannot be read or changed through this project's queue", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const otherRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ sessionDirectory: otherRoot });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    for (const url of [base, `${base}?revision=0`]) expect((await fetch(url, { headers })).status).toBe(404);
+    for (const action of [
+      { type: "pause", paused: true },
+      { type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "wrong project", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "shell", command: "echo wrong" } },
+    ]) expect((await fetch(base, { method: "POST", headers, body: JSON.stringify(action) })).status).toBe(404);
+    expect(mock.requests.some(request => request.method === "POST" || request.method === "PATCH")).toBe(false);
+  });
   test("a confirmed aborted prompt completes delivery and follow-ups can resume without resending it", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let aborted = true;

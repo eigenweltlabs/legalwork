@@ -1378,7 +1378,9 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution"> }) => {
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
+        const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
+        const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1388,15 +1390,15 @@ export function SessionRoute() {
         // locked behind the connect-AI bar, so this only backstops programmatic
         // sends. Without it the prompt reaches the engine with no model and
         // fails there with a generic error.
-        if (!local.prefs.defaultModel) throw new Error(t("session_route.no_model"));
-        if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+        if (!sendModel) throw new Error(t("session_route.no_model"));
+        if (providerListQuery.data && sendModel && !isModelAvailableInConnectedProviders(providerListQuery.data, sendModel)) throw new Error(t("session_route.model_unavailable"));
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
           session_id: targetSessionId,
           is_command: Boolean(draft.command),
-          provider_id: local.prefs.defaultModel?.providerID ?? null,
-          model_id: local.prefs.defaultModel?.modelID ?? null,
+          provider_id: sendModel?.providerID ?? null,
+          model_id: sendModel?.modelID ?? null,
           surface: analyticsSurface(),
           fusion_enabled: isFusionEnabled(targetSessionId),
           fusion_model_count: fusionModels.length,
@@ -1415,16 +1417,16 @@ export function SessionRoute() {
         }
 
         if (draft.command) {
-          if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, arguments: draft.command.arguments, model: `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined }); return; }
+          if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, arguments: draft.command.arguments, model: `${sendModel.providerID}/${sendModel.modelID}`, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined }); return; }
           const result = await opencodeClient.session.command({
             sessionID: targetSessionId,
             command: draft.command.name,
             arguments: draft.command.arguments,
-            model: local.prefs.defaultModel
-              ? `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`
+            model: sendModel
+              ? `${sendModel.providerID}/${sendModel.modelID}`
               : undefined,
             agent: selectedAgent ?? undefined,
-            variant: modelVariantValue ?? undefined,
+            variant: sendVariant ?? undefined,
           });
           if (result.error) {
             throw new Error(serializeSDKError(result.error));
@@ -1447,7 +1449,7 @@ export function SessionRoute() {
             const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
             parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
           }
-          await enqueue({ kind: "prompt", parts, model: local.prefs.defaultModel, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined });
+          await enqueue({ kind: "prompt", parts, model: sendModel, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined });
           return;
         }
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
@@ -1468,9 +1470,9 @@ export function SessionRoute() {
               parts,
               userText: text,
               candidateModels,
-              mainModel: local.prefs.defaultModel ?? undefined,
+              mainModel: sendModel ?? undefined,
               agent: selectedAgent ?? undefined,
-              variant: modelVariantValue ?? undefined,
+              variant: sendVariant ?? undefined,
             }).catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
@@ -1485,9 +1487,9 @@ export function SessionRoute() {
         const request = {
           sessionID: targetSessionId,
           parts,
-          model: local.prefs.defaultModel ?? undefined,
+          model: sendModel ?? undefined,
           agent: selectedAgent ?? undefined,
-          ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+          ...(sendVariant ? { variant: sendVariant } : {}),
         };
         if (options?.waitForCompletion) {
           // The queue advances after the engine's whole loop, not after a tool
@@ -1605,6 +1607,7 @@ export function SessionRoute() {
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
+    providerListQuery.data,
     soloEigenweltModel,
     selectedWorkspace,
     selectedWorkspaceId,

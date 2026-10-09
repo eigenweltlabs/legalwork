@@ -6,6 +6,7 @@ import {
   reconcileDocxSnapshot,
   registerUnsavedDocument,
   savedDocxSnapshot,
+  publishedDocxSnapshot,
   type DocxSnapshot,
 } from "../src/react-app/domains/session/artifacts/docx-document-state.ts";
 
@@ -18,6 +19,18 @@ const snapshot = (revision: number): DocxSnapshot => ({
 });
 
 describe("DOCX document lifetime", () => {
+  test("publishing a save refreshes duplicate readers without resetting the writer or pending dirty edits", () => {
+    const writer = snapshot(1), reader = snapshot(1);
+    const bytes = new Uint8Array([7]).buffer;
+    const saved = savedDocxSnapshot(writer, bytes, 7);
+    const published = publishedDocxSnapshot(saved, 7);
+    const refreshed = reconcileDocxSnapshot(reader, published, false);
+    assert.equal(refreshed.data, bytes);
+    assert.notEqual(refreshed.revision, reader.revision);
+    assert.equal(reconcileDocxSnapshot(saved, published, false), saved);
+    assert.equal(reconcileDocxSnapshot(writer, published, true), writer);
+    assert.notEqual(publishedDocxSnapshot(saved, saved.revision).revision, saved.revision);
+  });
   test("an agent refresh retains a dirty draft and its original conflict baseline", () => {
     const loaded = snapshot(1);
     const changedOnDisk = snapshot(2);

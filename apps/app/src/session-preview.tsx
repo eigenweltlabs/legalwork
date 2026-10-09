@@ -1,4 +1,4 @@
-import { toast } from "@/components/ui/sonner";
+import { providerListQueryKey } from "@/react-app/infra/provider-list-query";
 import { ProjectFileImportContext } from "./react-app/domains/workspace/use-project-file-import";
 import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspace-window-button";
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
@@ -95,6 +95,18 @@ const reply = "I've reviewed the sample terms and organized the key points.\n\n#
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
 const queryClient = getReactQueryClient();
 queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
+if (previewParams.has("review-checks")) {
+  for (const directory of [workspace.path, otherWorkspace.path]) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory }), {
+    all: [{ id: model.providerID, name: "Preview models", source: "api", models: { [model.modelID]: { id: model.modelID, name: model.modelID, capabilities: { reasoning: false } }, "Drafting model": { id: "Drafting model", name: "Drafting model", capabilities: { reasoning: false } } } }], connected: [model.providerID], default: { [model.providerID]: model.modelID },
+  });
+}
+let copyFailed = false;
+async function previewCopyDelay() {
+  if (!previewParams.has("review-checks")) return;
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  if (!copyFailed) { copyFailed = true; throw new Error("Simulated interrupted copy. Retry to finish."); }
+}
+
 
 function snapshot(id: string, title: string, prompt?: string): LegalworkSessionSnapshot {
   const turn = snapshots.get(id)?.messages.length ?? 0;
@@ -432,6 +444,7 @@ const fixtureClient: LegalworkServerClient = {
     return { links: next };
   },
   importProjectFile: async (_id, path, _source, data) => {
+    await previewCopyDelay();
     if (files.some(file => file.path === path)) throw new LegalworkServerError(409, "file_exists", "A synthetic file already has that name.");
     const updatedAt = Date.now();
     files.push({ name: path.split("/").at(-1)!, path, kind: "file", size: data.byteLength });
@@ -460,6 +473,7 @@ const fixtureClient: LegalworkServerClient = {
   },
   statWorkspaceFile: async (_workspaceId, path) => ({ ok: true, path, exists: true, kind: "file", size: 4820, updatedAt: path.endsWith(".docx") ? JSON.parse(localStorage.getItem(`legalwork:synthetic-binary:${path}`) ?? "null")?.updatedAt ?? now : previewFile(path).updatedAt, fileId: `synthetic:${path}` }),
   writeWorkspaceBinaryFile: async (_workspaceId, payload) => {
+    if (previewParams.has("review-checks")) await new Promise(resolve => setTimeout(resolve, Number(previewParams.get("save-delay") ?? 2500)));
     const updatedAt = Date.now();
     localStorage.setItem(`legalwork:synthetic-binary:${payload.path}`, JSON.stringify({ data: btoa(Array.from(new Uint8Array(payload.data), byte => String.fromCharCode(byte)).join("")), updatedAt }));
     return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt };
@@ -609,7 +623,7 @@ function SessionPreview() {
           surface={{
             workspaceRoot: activeWorkspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
             onChooseAiPlan: async () => previewNotice(),
-            modelPickerOpen: false, modelSelectorLocked: !previewParams.has("composer-layout"), selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
+            modelPickerOpen: false, modelSelectorLocked: !previewParams.has("composer-layout") && !previewParams.has("review-checks"), selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,
             modelBehaviorOptions: previewParams.has("composer-layout") ? [{ value: null, label: "Reasoning effort", isDefault: true }, { value: "high", label: "High" }] : [],
@@ -636,12 +650,13 @@ previewRoot.render(
             <ReloadCoordinatorProvider>
               <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
                 <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
-                  <ProjectFileImportContext value={async (_projectId, imported, folder) => ({ files: imported.map(file => {
+                  <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
                     const path = folder ? `${folder}/${file.name}` : file.name;
                     if (files.some(entry => entry.path === path)) return { name: file.name, path, status: "already_here" };
                     files = [...files, { name: file.name, path, kind: "file", size: file.size }];
+                    localStorage.setItem(`legalwork:synthetic-file:${path}`, JSON.stringify({ content: await file.text(), updatedAt: Date.now() }));
                     return { name: file.name, path, status: "copied" };
-                  }) })}><SessionPreview /></ProjectFileImportContext>
+                  })) }; }}><SessionPreview /></ProjectFileImportContext>
                   <PlansPreview />
                   <Toaster /><DocumentDiscardDialog />
                 </MemoryRouter>

@@ -23,7 +23,7 @@ import { ArtifactIcon } from "./artifact-icon";
 import type { OfficeEditorApi } from "./office-editor-state";
 import type { SpreadsheetEditorApi } from "./artifact-spreadsheet-editor";
 import type { DocxEditorApi } from "./artifact-docx-editor";
-import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
+import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, publishedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
 import { drainDocxRecovery } from "./docx-recovery";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
@@ -32,6 +32,7 @@ import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, Prev
 import { t } from "@/i18n";
 import { Switch } from "@/components/ui/switch";
 import { DocumentAccessBanner, useDocumentOwnership } from "./use-document-ownership";
+import { FileCopyPanel } from "../../workspace/file-copy-job";
 import { useDocumentPreferences } from "./document-preferences";
 
 const ArtifactTextEditor = lazy(() =>
@@ -122,6 +123,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
     updatedAt: tab.updatedAt,
   } satisfies OpenTarget : null);
 
+  if (tab.pendingImportId) return <FileCopyPanel id={tab.pendingImportId} />;
   if (tab.sourceProject) return <ProjectFilePanel key={tab.id} source={tab.sourceProject} tab={tab} sessionId={sessionId} onClose={onClose} />;
 
   if (tab.storage && client && workspaceId === tab.storage.workspaceId) {
@@ -194,6 +196,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const [documentSnapshot, setDocumentSnapshot] = useState<DocxSnapshot | null>(null);
   const [documentDirty, setDocumentDirty] = useState(false);
   const documentDirtyRef = useRef(false);
+  const reader = useRef(false);
   const snapshotRef = useRef(documentSnapshot);
   snapshotRef.current = documentSnapshot;
   const pendingWrite = useRef<Promise<unknown> | null>(null);
@@ -260,7 +263,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       }
 
       const previous = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl]);
-      if (localReadOnly && previous?.kind === "binary") {
+      if ((localReadOnly || reader.current) && previous?.kind === "binary") {
         // Older servers without stat/version metadata retain the download path.
         const stat = await client.statWorkspaceFile(workspaceId, target.value).catch(() => null);
         if (stat && binaryMatchesStat(previous, stat)) return previous;
@@ -343,6 +346,17 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   });
 
   const [binaryObjectUrl, setBinaryObjectUrl] = useState<string | null>(null);
+  reader.current = access.status === "reader";
+  useEffect(() => {
+    if (access.status !== "reader" || localReadOnly) return;
+    let loading = false;
+    const timer = setInterval(() => {
+      if (loading || document.visibilityState === "hidden") return;
+      loading = true;
+      void refetch().finally(() => { loading = false; });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [access.status, localReadOnly, refetch]);
   const binaryContent = data?.kind === "binary" ? data.data : null;
   const binaryContentType = data?.kind === "binary" ? data.contentType : null;
 
@@ -404,7 +418,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         ["artifact-panel", workspaceId, target.id, client.baseUrl] as const,
         input.kind === "text"
           ? { kind: "text", data: input.data, updatedAt: result.updatedAt ?? null }
-          : savedDocx ?? {
+          : savedDocx ? publishedDocxSnapshot(savedDocx, nextBinaryRevision(result.updatedAt ?? null)) : {
               kind: "binary",
               data: input.data,
               contentType: data?.kind === "binary" ? data.contentType : null,

@@ -24,6 +24,12 @@ export function savedDocxSnapshot(current: DocxSnapshot, data: ArrayBuffer, upda
   return { ...current, data, updatedAt };
 }
 
+/** Readers must receive a new editor revision while the saving view retains its
+ * mounted editor. Publishing the writer's old revision leaves duplicate views stale. */
+export function publishedDocxSnapshot(saved: DocxSnapshot, revision: number): DocxSnapshot {
+  return { ...saved, revision: revision === saved.revision ? saved.revision + 1 : revision };
+}
+
 type UnsavedDocument = { name: string; isDirty: () => boolean; discard?: () => void; retainOnSwitch: boolean; scopedOnly: boolean };
 const unsavedDocuments = new Map<string, UnsavedDocument>();
 let approvedDocuments = new Set<UnsavedDocument>();

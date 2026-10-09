@@ -63,7 +63,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
         } }] : []),
         ...(isFolder ? [{ label: t("workspace_files.refresh_folder"), icon: <RefreshCw />, onClick: () => { void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId, targetFolder] }); onRefresh(); } }] : []),
         "separator",
-        ...(entry?.kind === "dir" && canImport ? [{ label: t("storage.upload"), icon: <Upload />, disabled, onClick: () => uploadRef.current?.click() }] : []),
+        ...(entry?.kind === "dir" && canImport ? [{ label: t("projects.add_files"), icon: <Upload />, disabled, onClick: () => uploadRef.current?.click() }] : []),
         ...(isFolder ? [{ label: t("storage.new_folder"), icon: <FolderPlus />, disabled, onClick: () => begin("mkdir") }] : []),
         ...(entry ? [
           { label: t("storage.rename"), icon: <Pencil />, disabled, onClick: () => begin("rename") },
@@ -102,7 +102,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
               const [result] = await client.applyWorkspaceFileOperations(workspaceId, [operation]);
               if (!result?.ok) throw new Error(result?.message ?? t("storage.failed"));
             } else {
-              await operateWorkspaceFile({ client, workspaceId, path: entry!.path, isRemoteWorkspace }, operation, queryClient);
+              if (await operateWorkspaceFile({ client, workspaceId, path: entry!.path, isRemoteWorkspace, projects: projectFiles?.projects }, operation, queryClient) === false) return;
             }
             setAction(null);
           } catch (cause) { setError(cause instanceof Error ? cause.message : t("storage.failed")); }
@@ -135,8 +135,8 @@ export function WorkspaceUploadButton({ workspaceId, isRemoteWorkspace, folderPa
   const { canImport, copying, copyFiles } = useProjectFileImport({ projectId: workspaceId, workspaceId, isRemoteWorkspace });
   if (!canImport) return null;
   return <div className={compact ? "shrink-0" : "shrink-0 border-t border-border/70 p-2"}>
-    <Button variant={compact ? "default" : "ghost"} size={compact ? "default" : "sm"} aria-label={t("storage.upload")} className={compact ? "gap-2 px-3" : "w-full justify-start text-muted-foreground"} disabled={copying} onClick={() => input.current?.click()}>
-      {copying ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{t("storage.upload")}
+    <Button variant={compact ? "default" : "ghost"} size={compact ? "default" : "sm"} aria-label={t("projects.add_files")} className={compact ? "gap-2 px-3" : "w-full justify-start text-muted-foreground"} disabled={copying} onClick={() => input.current?.click()}>
+      {copying ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{t("projects.add_files")}
     </Button>
     <input ref={input} type="file" multiple hidden onChange={event => {
       const files = Array.from(event.target.files ?? []);
