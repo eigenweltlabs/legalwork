@@ -143,6 +143,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           // The firm's enforced settings: read after every project's own config.
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
           OPENCODE_MODELS_URL: catalogRelay.url,
+          OPENCODE_MODELS_PATH: catalogRelay.catalogPath,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
       }).catch(async (error: unknown) => {
