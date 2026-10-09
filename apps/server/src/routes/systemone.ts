@@ -11,6 +11,7 @@ import {
   readSystemOneSettings,
   saveSystemOneProvider,
   deleteSystemOneProvider,
+  saveSystemOneMemberKey,
   selectSystemOneProvider,
   systemOne,
   testSystemOneProvider,
@@ -70,6 +71,14 @@ export function registerSystemOneRoutes(deps: {
       return jsonResponse({ ok: true });
     },
   );
+  addRoute(routes, "PUT", "/systemone/firm-providers/:providerId/key", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const { apiKey } = parse(z.object({ apiKey: z.string().trim().min(1).max(16_384).nullable() }), await readJsonBody(ctx.request));
+    await saveSystemOneMemberKey(config, ctx.params.providerId, apiKey);
+    await deps.onSettingsChanged?.();
+    return jsonResponse({ ok: true });
+  });
   addRoute(routes, "PUT", "/systemone/selection", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");

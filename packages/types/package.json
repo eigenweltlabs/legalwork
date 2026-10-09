@@ -9,16 +9,6 @@
       "development": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./den/desktop-app-restrictions": {
-      "types": "./src/den/desktop-app-restrictions.ts",
-      "development": "./src/den/desktop-app-restrictions.ts",
-      "default": "./src/den/desktop-app-restrictions.ts"
-    },
-    "./den/desktop-policies": {
-      "types": "./src/den/desktop-policies.ts",
-      "development": "./src/den/desktop-policies.ts",
-      "default": "./src/den/desktop-policies.ts"
-    },
     "./den/inference": {
       "types": "./src/den/inference.ts",
       "development": "./src/den/inference.ts",
@@ -53,7 +43,10 @@
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
     "./calculation": "./src/calculation.ts",
-    "./scheduled-tasks": "./src/scheduled-tasks.ts"
+    "./scheduled-tasks": "./src/scheduled-tasks.ts",
+    "./org-policy": "./src/org-policy.ts",
+    "./org-policy-view": "./src/org-policy-view.ts",
+    "./firm-hub": "./src/firm-hub.ts"
   },
   "files": [
     "src",

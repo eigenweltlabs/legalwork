@@ -8,6 +8,7 @@ import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
 import { captureRelayedAppError, initErrorAnalytics } from "../../app/lib/app-error";
 import { AppErrorBoundary } from "./app-error-boundary";
 import { NewProvidersListener } from "./new-providers-listener";
+import { OrgPolicyRoot } from "../domains/connections/org-policy-ui";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
@@ -169,6 +170,7 @@ export function AppRoot() {
       */}
       <NewProvidersListener />
       <TaskNotificationsListener />
+      <OrgPolicyRoot />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />

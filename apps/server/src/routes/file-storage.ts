@@ -38,6 +38,7 @@ import { TeamStorage, isTeamStorage, teamStorageId } from "../file-storage/team.
 import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
+import { appliedOrgPolicy, requireOrgPolicyAllows } from "../org-policy.js";
 
 type Options = {
   onProjectFoldersChanged?: (workspaceId: string) => Promise<void>;
@@ -90,6 +91,9 @@ export function registerStorageRoutes({
     }
   };
   const base = "/workspace/:id/storage";
+  // The member's own connections, unless the firm allows none (they are kept, not shown).
+  const personal = async (workspaceId: string) =>
+    (await appliedOrgPolicy(config, "storage.allowPersonal"))?.value === false ? [] : store.list(workspaceId);
   const workspace = async (ctx: RequestContext) => (await resolveWorkspace(config, ctx.params.id)).id;
   const canWrite = (ctx: RequestContext) =>
     !config.readOnly &&
@@ -97,7 +101,7 @@ export function registerStorageRoutes({
   const lookup = async (workspaceId: string, id: string) => {
     const item = isTeamStorage(id)
       ? (await team.list(workspaceId)).connections.find((item) => item.id === id)
-      : await store.get(workspaceId, id);
+      : (await personal(workspaceId)).find((item) => item.id === id);
     if (!item)
       throw new ApiError(404, "storage_not_found", "This team connection is unavailable. Refresh Memory Drive.");
     return item;
@@ -144,7 +148,7 @@ export function registerStorageRoutes({
     const seen = new Set<string>();
     let error: string | undefined;
     const available = await Promise.all(config.workspaces.filter((item) => item.workspaceType === "local").map(async (workspace) => ({
-      workspace, shared: await team.list(workspace.id), personal: await store.list(workspace.id),
+      workspace, shared: await team.list(workspace.id), personal: await personal(workspace.id),
     })));
     for (const { workspace, shared, personal } of available) {
       if (shared.status.error) error = shared.status.error;
@@ -193,14 +197,14 @@ export function registerStorageRoutes({
     const workspaceId = await workspace(ctx);
     const shared = await team.list(workspaceId);
     return jsonResponse({
-      connections: [...(await store.list(workspaceId)), ...shared.connections].map(publicConnection),
+      connections: [...(await personal(workspaceId)), ...shared.connections].map(publicConnection),
       team: shared.status,
     });
   });
   addRoute(routes, "GET", `${base}/roots`, "client", async (ctx) => {
     const workspaceId = await workspace(ctx);
     const shared = await team.list(workspaceId);
-    const connections = [...(await store.list(workspaceId)), ...shared.connections]
+    const connections = [...(await personal(workspaceId)), ...shared.connections]
       .filter((item) => item.enabled && item.team?.installed !== false);
     const details = await readProjectDetails((await resolveWorkspace(config, workspaceId)).path);
     const linkedRoots = (details.remote?.folders ?? []).map((folder) => {
@@ -226,6 +230,7 @@ export function registerStorageRoutes({
     addRoute(routes, method, method === "POST" ? base : `${base}/:storageId`, "host", async (ctx) => {
       requireClientScope(ctx, "owner");
       ensureWritable(config);
+      if (!isTeamStorage(ctx.params.storageId ?? "")) await requireOrgPolicyAllows(config, "storage.allowPersonal");
       const input = await parsedInput(ctx, ctx.params.storageId);
       if (ctx.params.storageId) {
         const id = await workspace(ctx);

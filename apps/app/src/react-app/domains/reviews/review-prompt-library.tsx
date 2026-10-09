@@ -15,6 +15,9 @@ import { ReviewError, ReviewSelect } from "./review-ui";
 import { HubTabs } from "../settings/segmented-tabs";
 import { ReviewLibraryEditor } from "./review-library-editor";
 
+/** Where a saved prompt or set comes from, as its column says. */
+const SOURCE_COPY = { builtin: "review.starters", firm: "review.from_firm", personal: "review.saved" } as const;
+
 type Editor = { kind: "prompt" | "set"; entry?: ReviewLibraryEntry; initialColumnKey?: string };
 export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
   client: LegalworkServerClient; workspaceId: string;
@@ -63,11 +66,11 @@ export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
           {view === "sets" ? sets.filter(entry => matches(entry.name, entry.description, ...entry.tags, ...entry.columns.map(column => `${column.label} ${column.question}`))).map(entry => <TableRow key={entry.id} className="cursor-pointer" onClick={() => edit(entry)}>
             <TableCell className="max-w-md whitespace-normal py-4 pl-4"><button className="text-left font-medium" onClick={event => { event.stopPropagation(); edit(entry); }}>{entry.name}</button><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{entry.description}</p></TableCell>
             <TableCell className="text-xs text-muted-foreground"><span className="block">{t("review.prompt_count", { count: entry.columns.length })}</span></TableCell>
-            <TableCell className="text-xs text-muted-foreground">{t(entry.source === "builtin" ? "review.starters" : "review.saved")}</TableCell><TableCell>{actions(entry)}</TableCell>
+            <TableCell className="text-xs text-muted-foreground">{t(SOURCE_COPY[entry.source])}</TableCell><TableCell>{actions(entry)}</TableCell>
           </TableRow>) : prompts.filter(item => matches(item.column.label, item.column.question, item.column.hint, ...item.entry.tags, ...item.sets.map(set => set.name))).map(item => <TableRow key={item.id} className="cursor-pointer" onClick={() => edit(item.entry, item.column.key)}>
             <TableCell className="max-w-md whitespace-normal py-4 pl-4"><button className="text-left font-medium" onClick={event => { event.stopPropagation(); edit(item.entry, item.column.key); }}>{item.column.label}</button><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{item.column.question}</p>{!!item.sets.length && <p className="mt-1 text-xs text-muted-foreground">{t("review.in_sets", { names: item.sets.map(set => set.name).join(", ") })}</p>}</TableCell>
             <TableCell className="text-xs text-muted-foreground">{reviewColumnLabel(item.column.kind)}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">{t(item.entry.source === "builtin" ? "review.starters" : "review.saved")}</TableCell><TableCell>{actions(item.entry, item.column.key)}</TableCell>
+            <TableCell className="text-xs text-muted-foreground">{t(SOURCE_COPY[item.entry.source])}</TableCell><TableCell>{actions(item.entry, item.column.key)}</TableCell>
           </TableRow>)}
         </TableBody>
       </Table>

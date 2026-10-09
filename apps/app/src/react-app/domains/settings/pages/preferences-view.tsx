@@ -4,6 +4,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 import { t } from "@/i18n";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
+import { useOrgPolicy } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 import {
   LayoutSection,
@@ -36,6 +38,7 @@ export type PreferencesViewProps = {
 };
 
 export function PreferencesView(props: PreferencesViewProps) {
+  const analyticsLocked = useOrgPolicy("privacy.shareAnonymousUsage")?.locked === true;
   return (
     <LayoutStack>
       <LayoutSection>
@@ -95,11 +98,12 @@ export function PreferencesView(props: PreferencesViewProps) {
           <LayoutSectionItemHeader>
             <LayoutSectionItemTitle>{t("settings.analytics_toggle")}</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>{t("settings.analytics_toggle_desc")}</LayoutSectionItemDescription>
+            <OrgPolicyNote policyKey="privacy.shareAnonymousUsage" />
             <LayoutSectionItemHeaderActions>
               <Switch
                 aria-label={t("settings.analytics_toggle")}
                 checked={props.analyticsEnabled}
-                disabled={props.busy}
+                disabled={props.busy || analyticsLocked}
                 onCheckedChange={props.onToggleAnalytics}
               />
             </LayoutSectionItemHeaderActions>

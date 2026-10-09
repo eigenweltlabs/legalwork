@@ -105,21 +105,31 @@ export class ReviewStore {
 
 /** User defaults live with application state, never inside an individual project. */
 export class ReviewDefaults {
-  constructor(private root: string) {}
+  /** `firm`: the firm's review defaults while its policy sets them, and the check before a member's change. */
+  constructor(
+    private root: string,
+    private firm?: { settings: () => Promise<Partial<ReviewSettings> | null>; requireUnmanaged: () => Promise<void> },
+  ) {}
   private async path() {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     return join(await realpath(this.root), "review-defaults.json");
   }
   async settings(fallback: ReviewSettings) {
+    const firm = await this.firm?.settings();
+    return firm ? { ...(await this.own(fallback)), ...firm } : this.own(fallback);
+  }
+  private async own(fallback: ReviewSettings) {
     try { return await readJson(await this.path(), ReviewSettingsSchema); }
     catch (error) { if (missing(error)) return fallback; throw error; }
   }
   async saveSettings(settings: ReviewSettings) {
+    await this.firm?.requireUnmanaged();
     const path = await this.path();
     await serialized(path, () => atomicJson(path, ReviewSettingsSchema.parse(settings)));
     return settings;
   }
   async reset() {
+    await this.firm?.requireUnmanaged();
     const path = await this.path();
     await serialized(path, () => rm(path, { force: true }));
   }

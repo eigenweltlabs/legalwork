@@ -5,6 +5,7 @@ import { applyEdits, modify } from "jsonc-parser";
 import { t } from "../../../i18n";
 import {
   getMcpServerName,
+  isBuiltInLegalWorkExtension,
   MCP_QUICK_CONNECT,
   type McpDirectoryInfo,
 } from "../../../app/constants";
@@ -43,6 +44,7 @@ import { isDesktopRuntime, normalizeDirectoryPath, safeStringify } from "../../.
 import { getReactQueryClient } from "../../infra/query-client";
 
 import type { LegalworkServerStore } from "./legalwork-server-store";
+import { orgPolicyAllows } from "./org-policy";
 
 type SetStateAction<T> = T | ((current: T) => T);
 
@@ -531,6 +533,8 @@ export function createConnectionsStore(options: {
   }
 
   async function connectMcp(entry: McpDirectoryInfo): Promise<boolean> {
+    // LegalWork's own connectors aside, the firm may allow no connectors of the member's own.
+    if (!isBuiltInLegalWorkExtension(entry) && entry.kind !== "ui-control" && !(await orgPolicyAllows("connectors.allowCustom"))) return false;
     const authGeneration = ++pendingMcpAuthGeneration;
     const authWorkspaceKey = getMcpAuthWorkspaceKey();
     const authRequestIsCurrent = () =>
