@@ -1,6 +1,6 @@
 # Review follow-up — 9 October 2026
 
-Implements [Chris's requested changes on PR #213](https://github.com/eigenweltlabs/legalwork/pull/213#pullrequestreview-5467766902), reviewed at `dedbc45a`. `origin/dev` at `4da59017` is merged, including the firm policies and model-catalog changes. The final fetch found no newer `dev` commits.
+Implements [Chris's requested changes on PR #213](https://github.com/eigenweltlabs/legalwork/pull/213#pullrequestreview-5467766902), reviewed at `dedbc45a`. `origin/dev` at `4c0a5d22` is merged, including the firm policies, model catalog and subsequent release-signing changes. The release-only integration is recorded below.
 
 ## Changes and evidence
 
@@ -19,7 +19,7 @@ Implements [Chris's requested changes on PR #213](https://github.com/eigenweltla
 
 ## Commands and results
 
-Executed on macOS after integrating `dev`:
+Executed on macOS after integrating `dev` at `4da59017`:
 
 | Command (from repository root) | Result |
 | --- | --- |
@@ -73,3 +73,7 @@ The project-header **New chat** shortcut now disappears when its project is coll
 The macOS browser-workflow step in [the earlier run](https://github.com/eigenweltlabs/legalwork/actions/runs/37963567643) failed with `Missing control: Applicant` in the synthetic form fixture. Six consecutive local executions of `pnpm --filter @legalwork/desktop test:browser-workflow` passed, and [the subsequent GitHub run](https://github.com/eigenweltlabs/legalwork/actions/runs/37964363579) passed on both macOS and Linux without a browser implementation change. The precise cause is not established. The assertion now includes the returned snapshot to make a recurrence diagnosable; it still requires every expected control.
 
 The local button labels are now **Add files** / **Dateien hinzufügen**, without an ellipsis. Verified in the running Electron app; the language audit passes for 5,838 keys in both shipped languages.
+
+## Latest dev integration
+
+Merged `dev` commit `4c0a5d22` (SignPath Windows signing and isolated onboarding builds, #233) without conflicts after the UI follow-ups. This upstream commit changes release workflows, release tooling and documentation. `node --test scripts/release/*.test.mjs` passes all **7 tests** after the merge; both staged and unstaged `git diff --check` pass. The full app/server/desktop counts above belong to the earlier validation, not a new full-suite rerun for this release-only merge. GitHub reruns the PR checks after the merge is pushed.
