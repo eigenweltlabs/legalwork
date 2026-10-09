@@ -113,7 +113,7 @@ import { TASK_REFERENCE_SOURCE, parseTaskReference, requestOpenTask } from "@/re
 import { useTaskRunStore } from "@/react-app/domains/tasks/task-run-store"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
-import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
+import { groupMessages, isMessageGroup, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
@@ -590,6 +590,7 @@ const UserMessage = React.memo(
       >
         <ContextMenu>
           <ContextMenuTrigger
+            className="select-text"
             render={
               <div className="group flex w-full flex-col items-end gap-1">
                 {message.parts.filter(isFileUIPart).map((part, index) => (
@@ -603,48 +604,50 @@ const UserMessage = React.memo(
                     {renderUserTextWithReferenceChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""))}
                   </MessageContent>
                 ) : null}
-                {!isStreaming && (
-                  <MessageActions
-                    className={cn(
-                      "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                    )}
-                  >
-                    <MessageTimestamp message={message} className="mr-1.5" />
-                    <CopyMessageButton messages={[message]} />
-                    {messageText ? (
-                      <MessageAction tooltip={t("message_list.edit_message")}>
+                <MessageActions
+                  className={cn(
+                    "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100"
+                  )}
+                >
+                  <MessageTimestamp message={message} className="mr-1.5" />
+                  <CopyMessageButton messages={[message]} />
+                  {!isStreaming && (
+                    <>
+                      {messageText ? (
+                        <MessageAction tooltip={t("message_list.edit_message")}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("message_list.edit_message")}
+                            onClick={() => onEditUserMessage(message.id, messageText)}
+                          >
+                            <Pencil />
+                          </Button>
+                        </MessageAction>
+                      ) : null}
+                      <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={t("message_list.edit_message")}
-                          onClick={() => onEditUserMessage(message.id, messageText)}
+                          aria-label={t("message_list.branch_in_new_chat")}
+                          onClick={() => onForkAtMessage(message.id)}
                         >
-                          <Pencil />
+                          <Split className="rotate-90" />
                         </Button>
                       </MessageAction>
-                    ) : null}
-                    <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("message_list.branch_in_new_chat")}
-                        onClick={() => onForkAtMessage(message.id)}
-                      >
-                        <Split className="rotate-90" />
-                      </Button>
-                    </MessageAction>
-                    <MessageAction tooltip={t("message_list.revert")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("message_list.revert")}
-                        onClick={() => onRevertToUserMessage(message.id)}
-                      >
-                        <Undo2 />
-                      </Button>
-                    </MessageAction>
-                  </MessageActions>
-                )}
+                      <MessageAction tooltip={t("message_list.revert")}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("message_list.revert")}
+                          onClick={() => onRevertToUserMessage(message.id)}
+                        >
+                          <Undo2 />
+                        </Button>
+                      </MessageAction>
+                    </>
+                  )}
+                </MessageActions>
               </div>
             }
           />
@@ -919,7 +922,7 @@ function MessageGroup({
   if (!lastItem || isMessageEmptyGroup(items)) return null
 
   const renderableItems = getRenderableMessages(items)
-  const lastTextMessage = getLastTextPart(lastItem.message)
+  const hasText = renderableItems.some((item) => item.message.parts.some((part) => part.type === "text" && part.text.trim()))
 
   const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
     const isLastMessage = item.index === messages.length - 1
@@ -957,11 +960,11 @@ function MessageGroup({
           streaming={isStreaming}
         />
       </div>
-      {lastTextMessage && !isStreaming && (
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100">
+      {hasText && !isLiveGroup && (
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 focus-within:opacity-100">
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
-            {lastRealItem ? (
+            {lastRealItem && !isStreaming ? (
               <>
                 <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                   <Button
