@@ -69,7 +69,15 @@ export async function collectFullErrorDetails(diagnostic: ErrorDiagnostic): Prom
   const results = await Promise.allSettled([server ? server() : Promise.resolve(null), desktop ? desktop(diagnostic.incident_id) : Promise.resolve(null)]);
   for (const [index, result] of results.entries()) {
     const name = index === 0 ? "server" : "desktop";
-    if (result.status === "fulfilled" && result.value !== null) details.attachments[name] = snapshotErrorDetails(result.value);
+    if (result.status === "fulfilled" && result.value !== null) {
+      if (name === "desktop") {
+        const value = result.value;
+        // Older desktop collectors also return global logs; keep only this incident.
+        if (typeof value === "object" && "error" in value && typeof value.error === "object" && value.error !== null) {
+          details.attachments.desktop = snapshotErrorDetails({ error: value.error });
+        }
+      } else details.attachments.server = snapshotErrorDetails(result.value);
+    }
     if (result.status === "rejected") details.unavailable.push(`${name} diagnostics could not be collected.`);
   }
   const desktopDetails = details.attachments.desktop;

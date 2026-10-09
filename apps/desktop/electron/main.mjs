@@ -2843,10 +2843,8 @@ ipcMain.handle("legalwork:error-records", () => incidentStore().list());
 ipcMain.handle("legalwork:error-records:clear", () => incidentStore().clear());
 ipcMain.handle("legalwork:error-details:collect", (_event, incidentId) => {
   if (typeof incidentId !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(incidentId)) throw new Error("Invalid incident ID");
-  return {
-    error: incidentStore().details(incidentId),
-    support_bundle: buildSupportBundleText({ app, runtimeManager }),
-  };
+  const error = incidentStore().details(incidentId);
+  return error ? { error } : null;
 });
 // The native save dialog chooses the destination; no renderer-provided file path.
 ipcMain.handle("legalwork:error-details:save", (event, contents) => saveErrorDetails(

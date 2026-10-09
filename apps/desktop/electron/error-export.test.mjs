@@ -37,7 +37,7 @@ test("cancelled and invalid error exports never write", async () => {
 });
 
 test("full reports larger than the old 128 KB limit save without losing details", async () => {
-  const full = JSON.stringify({ uuid, event: "$exception", properties: { error_details: { logs: "diagnostic line\n".repeat(20_000) } } });
+  const full = JSON.stringify({ uuid, event: "$exception", properties: { error_details: { error: { responseBody: "provider response detail\n".repeat(20_000) } } } });
   let saved;
   assert.equal(await saveErrorDetails(full, async () => ({ canceled: false, filePath: "/chosen/report.json" }), async (_file, text) => { saved = text; }), true);
   assert.equal(saved, full);

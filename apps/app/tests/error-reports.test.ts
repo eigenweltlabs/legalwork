@@ -25,6 +25,32 @@ afterEach(() => {
 const failure = () => ({ name: "APIError", data: { statusCode: 400, message: canary, responseBody: JSON.stringify({ error: { metadata: { flagged_input: canary } } }) } });
 
 describe("manual error reporting with analytics off", () => {
+  test("desktop reports retain only the selected native error and exclude broad support logs", async () => {
+    const selected = recordError(new Error("SELECTED_RENDERER_ERROR"));
+    const other = recordError(new Error("OTHER_RENDERER_ERROR"));
+    if (!selected || !other) throw new Error("missing_diagnostic");
+    const nativeError = { name: "Error", message: "SELECTED_NATIVE_ERROR", stack: "Error: SELECTED_NATIVE_ERROR\n at handle (/desktop/main.mjs:6:7)", context: { exitCode: 7 } };
+    const collected: string[] = [];
+    Object.defineProperty(window, "__LEGALWORK_ELECTRON__", { value: {
+      collectErrorDetails: async (id: string) => {
+        collected.push(id);
+        // Simulate an older main process during a renderer update.
+        return { error: id === selected.incident_id ? nativeError : null, support_bundle: "UNRELATED_SUPPORT_LOG_CONTENT", runtime: "UNRELATED_RUNTIME_CONTEXT" };
+      },
+    } });
+    const details = await collectFullErrorDetails(selected);
+    expect(details.attachments.desktop).toEqual({ error: nativeError });
+    await sendManualErrorEvent(selected, crypto.randomUUID(), globalThis.fetch, details);
+    expect(outgoing[0]).toContain("SELECTED_NATIVE_ERROR");
+    expect(outgoing[0]).toContain("/desktop/main.mjs");
+    for (const content of ["OTHER_RENDERER_ERROR", "UNRELATED_SUPPORT_LOG_CONTENT", "UNRELATED_RUNTIME_CONTEXT", "support_bundle"]) expect(outgoing[0]).not.toContain(content);
+    const otherDetails = await collectFullErrorDetails(other);
+    expect(otherDetails.attachments.desktop).toBeUndefined();
+    expect(JSON.stringify(otherDetails)).toContain("OTHER_RENDERER_ERROR");
+    expect(JSON.stringify(otherDetails)).not.toContain("SELECTED_NATIVE_ERROR");
+    expect(JSON.stringify(otherDetails)).not.toContain("UNRELATED_SUPPORT_LOG_CONTENT");
+    expect(collected).toEqual([selected.incident_id, other.incident_id]);
+  });
   test("the actual API client retrieves the server's original stack only when opening a report", async () => {
     const diagnostic = createErrorDiagnostic(new TypeError("PRIVATE_SERVER_ROOT"), { source: "server_request", component: "server" });
     const paths: string[] = [];
