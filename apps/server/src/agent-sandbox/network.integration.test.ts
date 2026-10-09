@@ -115,7 +115,7 @@ try:
 except OSError:
     pass
 assert Path('/tmp/private-data').read_text() == '${index}'
-assert not Path('/dev/vport0p1').exists()
+assert not list(Path('/dev').glob('vport*'))
 assert subprocess.run(['unshare', '--net', 'true'], capture_output=True).returncode != 0
 try:
     Path('/workspace/result').write_text('${index}')

@@ -20,7 +20,7 @@ try {
   const large = await open(join(workspace, "large.bin"), "wx");
   try { await large.truncate(largeSize); await large.write(Buffer.from("tail"), 0, 4, largeSize - 4); }
   finally { await large.close(); }
-  await writeFile(join(workspace, "canary.py"), `import os, socket, subprocess, json
+  await writeFile(join(workspace, "canary.py"), `import os, socket, subprocess, json, glob
 checks = {}
 def blocked(name, action):
     try:
@@ -35,6 +35,7 @@ blocked("udp", lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b
 blocked("read_only", lambda: open("/workspace/forbidden", "w"))
 blocked("private_supervisor", lambda: open("/proc/1/environ", "rb").read())
 blocked("host_channel", lambda: open("/dev/vport0p1", "r+b"))
+checks["no_host_channels"] = not glob.glob('/dev/vport*')
 checks["nonroot"] = os.getuid() != 0
 checks["no_host_environment"] = not any(k.startswith(("AWS_", "OPENAI_", "LEGALWORK_", "OPENCODE_")) for k in os.environ)
 with open('/workspace/large.bin', 'rb') as large:

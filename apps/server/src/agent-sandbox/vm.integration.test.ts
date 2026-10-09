@@ -57,7 +57,7 @@ key = libc.syscall(ctypes.c_long(add_key), ctypes.c_char_p(b'user'), ctypes.c_ch
                    ctypes.c_char_p(b'${index}'), ctypes.c_size_t(1), ctypes.c_long(-4))
 assert key >= 0, ctypes.get_errno()
 s = socket.socket(); s.bind(('127.0.0.1', 23456))
-assert not Path('/dev/vport0p1').exists()
+assert not list(Path('/dev').glob('vport*'))
 assert not Path('/sys/fs/cgroup').exists()
 try:
     urllib.request.urlopen(urllib.request.Request('https://example.com/session-${index}', data=b'${index}'))

@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import uuid
+from pathlib import Path
 from urllib.parse import urlsplit
 
 MAX_BODY = 4 * 1024 * 1024
@@ -30,13 +31,22 @@ PENDING_LOCK = threading.Lock()
 CERT_LOCK = threading.Lock()
 
 
+def host_channel_path(ports=Path('/sys/class/virtio-ports')):
+    # Adding a PCI NIC changes virtio device numbering on x86. Identify the
+    # host channel by its configured name, never by its enumeration index.
+    for port in ports.glob('vport*'):
+        if (port / 'name').read_text().strip() == 'org.legalwork.rpc':
+            return str(Path('/dev') / port.name)
+    raise FileNotFoundError(errno.ENOENT, 'Host channel is not available')
+
+
 def connect_host_channel():
     # devtmpfs can publish the port before virtio's host-connected event. A
     # shell redirection fails fatally on ENXIO, so retry the actual open here.
     deadline = time.monotonic() + 60
     while True:
         try:
-            descriptor = os.open("/dev/vport0p1", os.O_RDWR)
+            descriptor = os.open(host_channel_path(), os.O_RDWR)
             break
         except OSError as error:
             if error.errno not in (errno.ENOENT, errno.ENXIO) or time.monotonic() >= deadline:
