@@ -10,6 +10,7 @@ import { brokerRequest, prepareOutboundRequest, type OutboundRequest, networkMod
 import { validateMounts, type SandboxMount } from "./files.js";
 import { SandboxFilesystem, filesystemError, filesystemRequestSchema } from "./filesystem.js";
 import { SharedVmRuntime } from "./runtime.js";
+import { canUseMacHypervisor } from "./acceleration.js";
 export { validateMounts, within, type SandboxMount } from "./files.js";
 
 const exec = promisify(execFile);
@@ -93,10 +94,8 @@ export class VmSandbox {
     const manifest = await this.prepared!;
     const arm = manifest.architecture === "aarch64";
     const nativeMac = this.acceleration === "auto" && process.platform === "darwin" && (arm ? process.arch === "arm64" : process.arch === "x64") &&
-      await exec("/usr/sbin/sysctl", ["-n", "kern.hv_support"], { timeout: 5000 }).then(({ stdout }) => stdout.trim() === "1", () => false) &&
-      // Nested Intel HVF can corrupt the guest or hang despite hv_support=1.
-      // Physical Intel Macs retain HVF; virtual Intel Macs use the tested TCG path.
-      (arm || await exec("/usr/sbin/sysctl", ["-n", "kern.hv_vmm_present"], { timeout: 5000 }).then(({ stdout }) => stdout.trim() === "0", () => false));
+      await exec("/usr/sbin/sysctl", ["-i", "kern.hv_support", "kern.hv_vmm_present", "hw.optional.arm64"], { timeout: 5000 })
+        .then(({ stdout }) => canUseMacHypervisor(manifest.architecture, stdout), () => false);
     const diagnostics = await mkdtemp(join(tmpdir(), "legalwork-vm-"));
     const consolePath = join(diagnostics, "console.log");
     // QEMU's Windows stdio drops input when the guest cannot accept a byte.

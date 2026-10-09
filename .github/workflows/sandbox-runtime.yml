@@ -154,7 +154,7 @@ jobs:
         shell: bash
         run: |
           if [ '${{ runner.os }}' = macOS ]; then
-            sysctl kern.hv_support kern.hv_vmm_present
+            sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
           fi
           bun test --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
       - name: Preserve executable modes in runtime artifact
