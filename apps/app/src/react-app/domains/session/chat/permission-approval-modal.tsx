@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
+import { InteractionSource } from "./interaction-source";
 
 type PermissionPresentation = {
   title: string;
@@ -33,6 +34,7 @@ type PermissionDetail = {
 
 type PermissionApprovalModalProps = {
   permission: PendingPermission;
+  onOpenSession?: (sessionId: string) => void;
   busy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify?: (value: unknown) => string;
@@ -402,6 +404,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
+        <InteractionSource session={props.permission.sourceSession} onOpenSession={props.onOpenSession} />
         <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-hover text-dls-secondary">

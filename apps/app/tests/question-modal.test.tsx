@@ -38,4 +38,17 @@ describe("QuestionPanel", () => {
     expect(html).not.toContain("Or type a custom answer");
     expect(html).not.toContain("Type your answer here...");
   });
+
+  test("identifies the requesting subagent beside its question", () => {
+    const html = renderToStaticMarkup(React.createElement(QuestionPanel, {
+      questions: [{ header: "Choice", question: "Pick one", options: [{ label: "Yes", description: "Proceed" }] }],
+      busy: false,
+      onReply: () => {},
+      sourceSession: { id: "child", title: "Review policies" },
+      onOpenSession: () => {},
+    }));
+    expect(html).toContain("Request from subagent: Review policies");
+    expect(html).toContain("Open subagent chat");
+    expect(html).toContain("Pick one");
+  });
 });
