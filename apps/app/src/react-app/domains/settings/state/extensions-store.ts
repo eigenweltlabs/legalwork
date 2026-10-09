@@ -1,3 +1,4 @@
+import type { PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import * as React from "react";
 
 import { applyEdits, modify } from "jsonc-parser";
@@ -560,6 +561,26 @@ export function createExtensionsStore(options: {
     } finally {
       refreshHubSkillsInFlight = false;
     }
+  }
+
+  async function pluginImportTarget() {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient || !target.legalworkWorkspaceId) throw new Error(t("extensions.server_unavailable_github_plugins"));
+    return { client: target.legalworkClient, id: target.legalworkWorkspaceId };
+  }
+  async function discoverPluginImports(provider: PluginImportProvider) {
+    const target = await pluginImportTarget();
+    return (await target.client.discoverPluginImports(target.id, provider)).items;
+  }
+  async function previewPluginImports(request: PluginImportRequest) {
+    const target = await pluginImportTarget();
+    return (await target.client.previewPluginImports(target.id, request)).items;
+  }
+  async function installPluginImport(request: PluginImportRequest) {
+    const target = await pluginImportTarget();
+    const result = await target.client.installPluginImport(target.id, request);
+    await refreshSkills({ force: true });
+    return result.preview;
   }
 
   async function previewClaudePlugin(url: string): Promise<LegalworkClaudePluginPreview> {
@@ -2212,6 +2233,9 @@ export function createExtensionsStore(options: {
     importGithubSkills,
     installSkillCreator,
     installHubSkill,
+    discoverPluginImports,
+    previewPluginImports,
+    installPluginImport,
     previewClaudePlugin,
     installClaudePlugin,
     importedPackages,

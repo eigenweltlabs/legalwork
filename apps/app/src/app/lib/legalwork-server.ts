@@ -1,3 +1,4 @@
+import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -2264,6 +2265,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
+    discoverPluginImports: (workspaceId: string, provider: PluginImportProvider) =>
+      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: timeouts.config }),
+    previewPluginImports: (workspaceId: string, payload: PluginImportRequest) =>
+      requestJson<{ items: PluginImportPreview[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/preview`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
+    installPluginImport: (workspaceId: string, payload: PluginImportRequest) =>
+      requestJson<LegalworkCloudPluginInstallResult & { preview: PluginImportPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/install`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     previewClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string }) =>
       requestJson<{ preview: LegalworkClaudePluginPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/claude-plugins`, {
         token,
