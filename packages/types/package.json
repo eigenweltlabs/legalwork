@@ -55,7 +55,8 @@
     "./calculation": "./src/calculation.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./error-report": "./src/error-report.ts",
-    "./error-diagnostics": "./src/error-diagnostics.ts"
+    "./error-diagnostics": "./src/error-diagnostics.ts",
+    "./error-details": "./src/error-details.ts"
   },
   "files": [
     "src",

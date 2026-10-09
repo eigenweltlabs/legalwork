@@ -1,4 +1,5 @@
 import { createErrorDiagnostic } from "@legalwork/types/error-diagnostics";
+import { createFullErrorDetails, FullErrorDetailsSchema, snapshotErrorDetails, type FullErrorDetails } from "@legalwork/types/error-details";
 import { ErrorDiagnosticSchema, ErrorFrameSchema, type ErrorDiagnostic } from "@legalwork/types/error-report";
 import { analyticsSurface, captureErrorAnalytics } from "./analytics";
 import type { ModelRef, ProviderListItem } from "../types";
@@ -7,6 +8,9 @@ const MAX_INCIDENTS = 50;
 const STORAGE_KEY = "legalwork.error-incidents.v1";
 const LOCAL_TTL_MS = 24 * 60 * 60 * 1000;
 const incidents = new Map<string, ErrorDiagnostic>();
+// Full exceptions are memory-only. Persisted summaries and automatic events stay safe.
+const fullDetails = new Map<string, FullErrorDetails>();
+const detailLoaders = new Map<string, () => Promise<unknown>>();
 let errorObjects = new WeakMap<object, ErrorDiagnostic>();
 const listeners = new Set<() => void>();
 let snapshot: ErrorDiagnostic[] = [];
@@ -41,7 +45,37 @@ function persist(): void {
 }
 export function clearLocalErrorReports(): void {
   void globalThis.window?.__LEGALWORK_ELECTRON__?.clearErrorRecords?.().catch(() => {});
-  incidents.clear(); errorObjects = new WeakMap(); snapshot = []; selectedId = null; persist(); scheduleExpiry(); notify();
+  incidents.clear(); fullDetails.clear(); detailLoaders.clear(); errorObjects = new WeakMap(); snapshot = []; selectedId = null; persist(); scheduleExpiry(); notify();
+}
+function forget(id: string): void { incidents.delete(id); fullDetails.delete(id); detailLoaders.delete(id); }
+
+export function setErrorDetailsLoader(error: object, loader: () => Promise<unknown>): void {
+  const diagnostic = errorObjects.get(error);
+  if (diagnostic && incidents.has(diagnostic.incident_id)) detailLoaders.set(diagnostic.incident_id, loader);
+}
+export function addErrorDetailsContext(error: unknown, context: unknown): void {
+  if (!error || typeof error !== "object") return;
+  const id = errorObjects.get(error)?.incident_id;
+  const details = id ? fullDetails.get(id) : undefined;
+  if (details) details.attachments.additional_context = snapshotErrorDetails(context);
+}
+
+/** Local/authenticated collection only. Upload still requires the dialog's Send click. */
+export async function collectFullErrorDetails(diagnostic: ErrorDiagnostic): Promise<FullErrorDetails> {
+  const stored = fullDetails.get(diagnostic.incident_id);
+  const details = stored ? FullErrorDetailsSchema.parse(structuredClone(stored)) : createFullErrorDetails(null, diagnostic);
+  const server = detailLoaders.get(diagnostic.incident_id);
+  const desktop = globalThis.window?.__LEGALWORK_ELECTRON__?.collectErrorDetails;
+  const results = await Promise.allSettled([server ? server() : Promise.resolve(null), desktop ? desktop(diagnostic.incident_id) : Promise.resolve(null)]);
+  for (const [index, result] of results.entries()) {
+    const name = index === 0 ? "server" : "desktop";
+    if (result.status === "fulfilled" && result.value !== null) details.attachments[name] = snapshotErrorDetails(result.value);
+    if (result.status === "rejected") details.unavailable.push(`${name} diagnostics could not be collected.`);
+  }
+  const desktopDetails = details.attachments.desktop;
+  const nativeError = desktopDetails && typeof desktopDetails === "object" && !Array.isArray(desktopDetails) ? desktopDetails.error : null;
+  if (!stored && !nativeError) details.unavailable.push("Original exception is unavailable (older record or process exit).");
+  return details;
 }
 function notify(): void { for (const listener of listeners) listener(); }
 export function openErrorReport(incidentId: string): void { selectedId = incidentId; notify(); }
@@ -96,7 +130,7 @@ function scheduleExpiry(): void {
   const earliest = Math.min(...Array.from(incidents.values(), item => Date.parse(item.occurred_at) + LOCAL_TTL_MS));
   expiryTimer = setTimeout(() => {
     const cutoff = Date.now() - LOCAL_TTL_MS;
-    for (const [id, item] of incidents) if (Date.parse(item.occurred_at) <= cutoff) incidents.delete(id);
+    for (const [id, item] of incidents) if (Date.parse(item.occurred_at) <= cutoff) forget(id);
     snapshot = Array.from(incidents.values()); persist(); notify(); scheduleExpiry();
   }, Math.max(1, Math.min(earliest - Date.now() + 1, LOCAL_TTL_MS)));
   // Browser timers are numeric; Node/Bun test timers should not hold a process open.
@@ -105,11 +139,11 @@ function scheduleExpiry(): void {
 function remember(diagnostic: ErrorDiagnostic, automatic = true): ErrorDiagnostic {
   if (incidents.has(diagnostic.incident_id)) return diagnostic;
   const cutoff = Date.now() - LOCAL_TTL_MS;
-  for (const [id, item] of incidents) if (Date.parse(item.occurred_at) < cutoff) incidents.delete(id);
+  for (const [id, item] of incidents) if (Date.parse(item.occurred_at) < cutoff) forget(id);
   incidents.set(diagnostic.incident_id, diagnostic);
   if (incidents.size > MAX_INCIDENTS) {
     const oldest = incidents.keys().next().value;
-    if (oldest) incidents.delete(oldest);
+    if (oldest) forget(oldest);
   }
   snapshot = Array.from(incidents.values());
   persist(); scheduleExpiry();
@@ -131,6 +165,7 @@ export function recordError(error: unknown, context: Parameters<typeof createErr
       if (relayed.success) {
         const diagnostic = { ...relayed.data, app_version: version.success ? version.data : null, build_id: build.success ? build.data : null, surface: analyticsSurface() };
         errorObjects.set(error, diagnostic);
+        fullDetails.set(diagnostic.incident_id, createFullErrorDetails(error, context));
         return remember(diagnostic, options.automatic !== false);
       }
     }
@@ -142,6 +177,7 @@ export function recordError(error: unknown, context: Parameters<typeof createErr
       platform, surface: analyticsSurface(), applicationAssets, ...context,
     });
     if (error && typeof error === "object") errorObjects.set(error, diagnostic);
+    fullDetails.set(diagnostic.incident_id, createFullErrorDetails(error, context));
     return remember(diagnostic, options.automatic !== false);
   } catch { return null; } // Reporting must never become the failure.
 }

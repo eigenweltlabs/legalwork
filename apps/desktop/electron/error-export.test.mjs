@@ -31,7 +31,14 @@ test("cancelled and invalid error exports never write", async () => {
   const write = () => assert.fail("unexpected write");
   assert.equal(await saveErrorDetails(contents, async () => ({ canceled: true }), write), false);
   const choose = () => assert.fail("unexpected dialog");
-  for (const value of [null, "x".repeat(128_001), "{}", JSON.stringify({ uuid: "../file", event: "$exception" })]) {
+  for (const value of [null, "x".repeat(32_000_001), "{}", JSON.stringify({ uuid: "../file", event: "$exception" })]) {
     await assert.rejects(saveErrorDetails(value, choose, write));
   }
+});
+
+test("full reports larger than the old 128 KB limit save without losing details", async () => {
+  const full = JSON.stringify({ uuid, event: "$exception", properties: { error_details: { logs: "diagnostic line\n".repeat(20_000) } } });
+  let saved;
+  assert.equal(await saveErrorDetails(full, async () => ({ canceled: false, filePath: "/chosen/report.json" }), async (_file, text) => { saved = text; }), true);
+  assert.equal(saved, full);
 });

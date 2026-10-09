@@ -1,10 +1,10 @@
 /** @jsxImportSource react */
-import { Component, type ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { captureAppError } from "@/app/lib/app-error";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n"
-import { openErrorReport, recordError } from "@/app/lib/error-reports";
+import { addErrorDetailsContext, openErrorReport, recordError } from "@/app/lib/error-reports";
 
 type Props = { children: ReactNode; fallback?: ReactNode };
 type State = { hasError: boolean; incidentId: string | null };
@@ -21,9 +21,10 @@ export class AppErrorBoundary extends Component<Props, State> {
     return { hasError: true, incidentId: null };
   }
 
-  componentDidCatch(error: unknown): void {
+  componentDidCatch(error: unknown, info: ErrorInfo): void {
     captureAppError("react_render", error);
     const diagnostic = recordError(error);
+    addErrorDetailsContext(error, { componentStack: info.componentStack });
     this.setState({ incidentId: diagnostic?.incident_id ?? null });
   }
 

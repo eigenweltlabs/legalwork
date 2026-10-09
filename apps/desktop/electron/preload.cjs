@@ -70,6 +70,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   getErrorRecords() {
     return ipcRenderer.invoke("legalwork:error-records");
   },
+  collectErrorDetails(incidentId) {
+    return ipcRenderer.invoke("legalwork:error-details:collect", incidentId);
+  },
   saveErrorDetails(contents) {
     return ipcRenderer.invoke("legalwork:error-details:save", contents);
   },

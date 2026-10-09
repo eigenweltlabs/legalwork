@@ -1,5 +1,6 @@
 import { runtimeDbPath } from "./runtime-db.js";
 import { createErrorDiagnostic } from "./error-diagnostics.js";
+import { createServerErrorDetailsStore } from "./error-details.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
@@ -770,6 +771,7 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
+  const errorDetails = createServerErrorDetailsStore();
   const approvals = new ApprovalService(config.approval, config.requestHostApproval);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -869,12 +871,16 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
       let errorMessage: string | undefined;
-      const diagnose = (error: unknown, status: number) => createErrorDiagnostic(error, {
-        component: "server", source: "server_request", operation: "server_request", phase: "request",
-        surface: "server", engine_version: OPENCODE_VERSION, server_version: SERVER_VERSION,
-        platform: process.platform === "darwin" || process.platform === "win32" || process.platform === "linux" ? process.platform : "unknown",
-        status_code: status, duration_ms: Math.max(0, Math.min(Date.now() - startedAt, 604_800_000)),
-      });
+      const diagnose = (error: unknown, status: number) => {
+        const diagnostic = createErrorDiagnostic(error, {
+          component: "server", source: "server_request", operation: "server_request", phase: "request",
+          surface: "server", engine_version: OPENCODE_VERSION, server_version: SERVER_VERSION,
+          platform: process.platform === "darwin" || process.platform === "win32" || process.platform === "linux" ? process.platform : "unknown",
+          status_code: status, duration_ms: Math.max(0, Math.min(Date.now() - startedAt, 604_800_000)),
+        });
+        errorDetails.record(diagnostic.incident_id, error, request);
+        return diagnostic;
+      };
 
       const finalize = (response: Response) => {
         const wrapped = withCors(response, request, config);
@@ -985,6 +991,19 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         }
       }
 
+      const detailsRoute = url.pathname.match(/^\/error-reports\/([a-f0-9-]{36})$/i);
+      if (request.method === "GET" && detailsRoute) {
+        try {
+          if (request.headers.has("x-legalwork-host-token")) requireHostToken(request, config);
+          else await requireClient(request, config, tokens);
+          const details = errorDetails.get(detailsRoute[1], request);
+          const response = details ? jsonResponse(details) : jsonResponse({ code: "not_found", message: "Error details unavailable" }, 404);
+          response.headers.set("Cache-Control", "no-store");
+          return finalize(response);
+        } catch {
+          return finalize(jsonResponse({ code: "unauthorized", message: "Authentication required" }, 401));
+        }
+      }
       const route = matchRoute(routes, request.method, url.pathname);
       if (!route) {
         errorMessage = "not_found";

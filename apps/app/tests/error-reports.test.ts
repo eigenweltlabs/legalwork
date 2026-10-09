@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 process.env.VITE_LEGALWORK_POSTHOG_KEY = "phc_test_dummy_key";
-const { recordError, getErrorReports, clearLocalErrorReports, restoreLocalErrorReports, providerRunErrorContext, rememberRunContext, getRunErrorContext } = await import("../src/app/lib/error-reports");
+const { recordError, getErrorReports, clearLocalErrorReports, restoreLocalErrorReports, providerRunErrorContext, rememberRunContext, getRunErrorContext, collectFullErrorDetails, setErrorDetailsLoader } = await import("../src/app/lib/error-reports");
 const { makeManualErrorEvent, sendManualErrorEvent, captureAnalyticsEvent, flushAnalytics, disposeAnalytics, setAnalyticsConsentOverride, discardPendingAnalytics } = await import("../src/app/lib/analytics");
+const { createLegalworkServerClient } = await import("../src/app/lib/legalwork-server");
+const { createErrorDiagnostic } = await import("@legalwork/types/error-diagnostics");
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
 const outgoing: string[] = [];
@@ -23,6 +25,75 @@ afterEach(() => {
 const failure = () => ({ name: "APIError", data: { statusCode: 400, message: canary, responseBody: JSON.stringify({ error: { metadata: { flagged_input: canary } } }) } });
 
 describe("manual error reporting with analytics off", () => {
+  test("the actual API client retrieves the server's original stack only when opening a report", async () => {
+    const diagnostic = createErrorDiagnostic(new TypeError("PRIVATE_SERVER_ROOT"), { source: "server_request", component: "server" });
+    const paths: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      paths.push(String(input));
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer private-client-token");
+      return String(input).includes("/error-reports/")
+        ? Response.json({ error: { name: "TypeError", message: "PRIVATE_SERVER_ROOT", stack: "TypeError: PRIVATE_SERVER_ROOT\n at handle (/server/private.ts:6:7)" } })
+        : Response.json({ code: "internal_error", message: "Unexpected server error", diagnostic }, { status: 500 });
+    };
+    await expect(createLegalworkServerClient({ baseUrl: "http://localhost:1234", token: "private-client-token" }).listWorkspaces()).rejects.toThrow("Unexpected server error");
+    expect(paths).toEqual(["http://localhost:1234/workspaces"]);
+    const stored = getErrorReports().find(item => item.incident_id === diagnostic.incident_id);
+    if (!stored) throw new Error("Missing server incident");
+    const full = await collectFullErrorDetails(stored);
+    expect(paths).toEqual(["http://localhost:1234/workspaces", `http://localhost:1234/error-reports/${diagnostic.incident_id}`]);
+    expect(JSON.stringify(full)).toContain("PRIVATE_SERVER_ROOT"); expect(JSON.stringify(full)).toContain("/server/private.ts");
+    expect(JSON.stringify(full)).not.toContain("private-client-token");
+  });
+  test("both consent states can explicitly send full frozen reports, while automatic events and storage stay safe", async () => {
+    for (const enabled of [false, true]) {
+      consent(enabled);
+      const original = Object.assign(new Error("PRIVATE_REPORT_CONTENT /Users/Client/private.docx", { cause: new TypeError("ROOT_CAUSE_CONTENT") }), {
+        responseBody: "PRIVATE_PROVIDER_BODY", apiKey: "sk-or-v1-full-report-secret",
+      });
+      const diagnostic = recordError(original, { operation: enabled ? "render" : "run" });
+      if (!diagnostic) throw new Error("missing_diagnostic");
+      let collections = 0;
+      setErrorDetailsLoader(original, async () => { collections++; return { error: { name: "TypeError", message: "SERVER_ROOT_CONTENT", stack: "TypeError: SERVER_ROOT_CONTENT\n at server (/private/server.ts:4:5)" } }; });
+      expect(collections).toBe(0);
+      const details = await collectFullErrorDetails(diagnostic);
+      expect(collections).toBe(1);
+      expect(outgoing).toEqual([]);
+      original.message = "LATER_MUTATION";
+      const id = crypto.randomUUID();
+      const preview = makeManualErrorEvent(diagnostic, id, details);
+      const bodies: string[] = [];
+      const fetchImpl: typeof fetch = async (_url, init) => {
+        expect(init?.keepalive).toBe(false);
+        bodies.push(String(init?.body));
+        return new Response(null, { status: bodies.length === 1 ? 503 : 200 });
+      };
+      await expect(sendManualErrorEvent(diagnostic, id, fetchImpl, details)).rejects.toThrow("not_sent");
+      await sendManualErrorEvent(diagnostic, id, fetchImpl, details);
+      expect(bodies[0]).toBe(bodies[1]);
+      expect(JSON.parse(bodies[1]).batch).toEqual([preview]);
+      for (const content of ["PRIVATE_REPORT_CONTENT", "PRIVATE_PROVIDER_BODY", "ROOT_CAUSE_CONTENT", "SERVER_ROOT_CONTENT", "/Users/Client/private.docx"]) expect(bodies[1]).toContain(content);
+      expect(bodies[1]).not.toContain("LATER_MUTATION"); expect(bodies[1]).not.toContain("sk-or-v1-full-report-secret");
+      expect(preview.properties.$exception_list[0].value).toBe("SERVER_ROOT_CONTENT");
+      expect(storage.get("legalwork.error-incidents.v1")).not.toContain("PRIVATE_REPORT_CONTENT");
+      await flushAnalytics();
+      for (const automatic of outgoing) {
+        expect(automatic).not.toContain("PRIVATE_REPORT_CONTENT"); expect(automatic).not.toContain("PRIVATE_PROVIDER_BODY");
+        expect(automatic).not.toContain("error_details"); expect(automatic).not.toContain("/Users/Client");
+      }
+      outgoing.length = 0; clearLocalErrorReports(); disposeAnalytics();
+    }
+  });
+  test("clearing or restoring history cannot retain raw exceptions or loaders", async () => {
+    const original = new Error("PRIVATE_MEMORY_CONTENT");
+    const diagnostic = recordError(original);
+    if (!diagnostic) throw new Error("missing_diagnostic");
+    const stored = storage.get("legalwork.error-incidents.v1") ?? "[]";
+    setErrorDetailsLoader(original, async () => { throw new Error("Loader must have been cleared"); });
+    clearLocalErrorReports(); storage.set("legalwork.error-incidents.v1", stored); restoreLocalErrorReports();
+    const details = await collectFullErrorDetails(diagnostic);
+    expect(details.error).toBeNull(); expect(details.unavailable.join(" ")).toContain("unavailable");
+    expect(JSON.stringify(details)).not.toContain("PRIVATE_MEMORY_CONTENT");
+  });
   test("keeps a local incident and sends exactly the preview only on explicit submission", async () => {
     const diagnostic = recordError(failure(), { operation: "run", providerId: canary, modelId: "anthropic/claude-opus-4.6" });
     if (!diagnostic) throw new Error("missing_diagnostic");

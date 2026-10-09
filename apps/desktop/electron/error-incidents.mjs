@@ -2,6 +2,8 @@ import { randomUUID, createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inspect } from "node:util";
+import { scrubSecrets } from "./support-bundle.mjs";
 
 const SOURCES = new Set(["main_uncaught", "main_unhandledrejection", "sidecar_exit", "renderer_exit"]);
 const CLASSES = new Set(["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "EvalError", "URIError", "AggregateError", "DOMException"]);
@@ -24,7 +26,7 @@ function nativeFrames(error) {
 const TTL = 24 * 60 * 60 * 1000;
 const safeVersion = value => typeof value === "string" && /^\d+\.\d+\.\d+(?:-[a-z0-9.]+)?$/i.test(value) && value.length <= 80 ? value : null;
 
-/** Main-process signals only. Raw errors, stacks, logs and renderer input never reach disk.
+/** Sanitized main-process summary; raw details never enter the incident backlog.
  * @param {string} source
  * @param {{ name?: string; stack?: string }} error
  * @param {{ version?: string; platform?: string; exitCode?: number | null }} [options]
@@ -49,13 +51,18 @@ export function createNativeDiagnostic(source, error, { version, platform, exitC
 export function createNativeIncidentStore(directory) {
   const file = path.join(directory, "error-incidents.json");
   let records = [];
+  const details = new Map();
   try {
     if (statSync(file).size <= 128_000) {
       const value = JSON.parse(readFileSync(file, "utf8"));
       if (Array.isArray(value)) records = value.filter(item => SOURCES.has(item?.source) && typeof item.incident_id === "string");
     }
   } catch { /* First launch or unavailable storage. */ }
-  function prune() { records = records.filter(item => Date.parse(item.occurred_at) >= Date.now() - TTL).slice(-30); }
+  function prune() {
+    records = records.filter(item => Date.parse(item.occurred_at) >= Date.now() - TTL).slice(-30);
+    const retained = new Set(records.map(item => item.incident_id));
+    for (const id of details.keys()) if (!retained.has(id)) details.delete(id);
+  }
   function persist() {
     try {
       mkdirSync(directory, { recursive: true });
@@ -67,10 +74,20 @@ export function createNativeIncidentStore(directory) {
     record(source, error, context) {
       const diagnostic = createNativeDiagnostic(source, error, context);
       if (!diagnostic) return null;
-      prune(); records.push(diagnostic); prune(); persist();
+      prune(); records.push(diagnostic);
+      // Raw details remain in memory; the on-disk crash backlog stays sanitized.
+      details.set(diagnostic.incident_id, {
+        name: typeof error?.name === "string" ? scrubSecrets(error.name) : "Error",
+        message: typeof error?.message === "string" ? scrubSecrets(error.message) : typeof error === "string" ? scrubSecrets(error) : diagnostic.code,
+        stack: typeof error?.stack === "string" ? scrubSecrets(error.stack) : null,
+        exception: scrubSecrets(inspect(error, { depth: 20, maxArrayLength: 10_000, maxStringLength: 2_000_000, getters: false, customInspect: false })),
+        context: scrubSecrets(inspect(context, { depth: 20, getters: false, customInspect: false })),
+      });
+      prune(); persist();
       return diagnostic;
     },
     list() { prune(); persist(); return records; },
-    clear() { records = []; persist(); },
+    details(id) { prune(); return details.get(id) ?? null; },
+    clear() { records = []; details.clear(); persist(); },
   };
 }

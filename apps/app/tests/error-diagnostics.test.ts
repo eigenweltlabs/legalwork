@@ -85,10 +85,16 @@ describe("content-free diagnostics", () => {
       expect(ErrorDiagnosticSchema.safeParse(diagnostic).success).toBe(true);
       expect(diagnostic.code).toBe("engine_crash");
       expect(readFileSync(join(dir, "error-incidents.json"), "utf8")).not.toContain(canary);
+      expect(store.details(diagnostic.incident_id)?.stack).toContain("CONFIDENTIAL_Anna");
+      expect(store.details(diagnostic.incident_id)?.message).toContain("/Users/Anna/client-contract.docx");
       expect(createNativeIncidentStore(dir).list()).toEqual([diagnostic]);
+      expect(createNativeIncidentStore(dir).details(diagnostic.incident_id)).toBeNull();
       for (let i = 0; i < 35; i++) store.record("main_uncaught", new Error(canary));
       expect(store.list()).toHaveLength(30);
       expect(createNativeDiagnostic("bad_source", new Error(canary))).toBeNull();
+      expect(store.details(diagnostic.incident_id)).toBeNull();
+      const latest = store.record("main_uncaught", new Error("latest"));
+      store.clear(); expect(store.details(latest.incident_id)).toBeNull();
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

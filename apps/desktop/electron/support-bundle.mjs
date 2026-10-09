@@ -38,8 +38,11 @@ function readFileTail(filePath, limit = LOG_TAIL_LIMIT) {
 export function scrubSecrets(text) {
   return String(text ?? "")
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 <redacted>")
+    .replace(/\bsk-[A-Za-z0-9_-]{10,}/g, "<redacted>")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "<redacted>")
+    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1<redacted>@")
     .replace(
-      /((?:token|password|secret|credential|authorization|api[-_]?key)[^\s:=]*["']?\s*[:=]\s*)(["']?)[^"'\s,;}]+\2/gi,
+      /((?:token|password|secret|credential|authorization|cookie|api[-_]?key)[^\s:=]*["']?\s*[:=]\s*)(["']?)[^"'\s,;&}]+\2/gi,
       "$1$2<redacted>$2",
     );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ErrorDiagnostic } from "@legalwork/types/error-report";
+import { createFullErrorDetails, type FullErrorDetails } from "@legalwork/types/error-details";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
@@ -7,7 +8,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { t } from "@/i18n";
 import { makeManualErrorEvent, sendManualErrorEvent } from "@/app/lib/analytics";
 import {
-  clearLocalErrorReports, closeErrorReport, getErrorReports, getSelectedErrorId,
+  clearLocalErrorReports, closeErrorReport, collectFullErrorDetails, getErrorReports, getSelectedErrorId,
   openErrorReport, subscribeErrorReports,
 } from "@/app/lib/error-reports";
 
@@ -17,15 +18,26 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
   const [sent, setSent] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [details, setDetails] = useState<FullErrorDetails | null>(null);
   const downloadUrls = useRef<string[]>([]);
   useEffect(() => () => {
     for (const url of downloadUrls.current) URL.revokeObjectURL(url);
   }, []);
-  const preview = JSON.stringify(makeManualErrorEvent(diagnostic, eventId), null, 2);
+  useEffect(() => {
+    let active = true;
+    void collectFullErrorDetails(diagnostic).then(value => { if (active) setDetails(value); }).catch(() => {
+      if (!active) return;
+      const fallback = createFullErrorDetails(null, diagnostic);
+      fallback.unavailable.push("Full diagnostic collection failed.");
+      setDetails(fallback);
+    });
+    return () => { active = false; };
+  }, [diagnostic]);
+  const preview = details ? JSON.stringify(makeManualErrorEvent(diagnostic, eventId, details), null, 2) : "";
   async function send() {
-    if (busy || sent) return;
+    if (busy || sent || !details) return;
     setBusy(true); setFailed(false);
-    try { setSent(await sendManualErrorEvent(diagnostic, eventId)); }
+    try { setSent(await sendManualErrorEvent(diagnostic, eventId, globalThis.fetch, details)); }
     catch { setFailed(true); }
     finally { setBusy(false); }
   }
@@ -54,6 +66,7 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
           <DialogDescription>{t("error_report.privacy")}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 space-y-4 overflow-y-auto pe-1">
+        <p className="text-xs text-muted-foreground">{t("error_report.content_warning")}</p>
         {sent ? (
           <div role="status" className="space-y-2 rounded-xl border border-emerald-7/30 bg-emerald-3/30 p-4">
             <p>{t("error_report.sent")}</p>
@@ -69,17 +82,18 @@ function ErrorReportDialog({ diagnostic }: { diagnostic: ErrorDiagnostic }) {
         )}
         <details className="rounded-xl border border-border p-3">
           <summary className="cursor-pointer text-sm font-medium">{t("error_report.preview")}</summary>
-          <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">{preview}</pre>
+          <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">{details ? preview : t("error_report.collecting")}</pre>
         </details>
+        {details?.unavailable.length ? <p role="status" className="text-xs text-muted-foreground">{t("error_report.incomplete")}</p> : null}
         {failed ? <p role="alert" className="text-sm text-red-11">{t("error_report.failed")}</p> : null}
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => void copy()}>{t(copied ? "error_report.copied" : "error_report.copy")}</Button>
-          <Button variant="outline" size="sm" onClick={() => void save()}>{t("error_report.save")}</Button>
+          <Button variant="outline" size="sm" disabled={!details} onClick={() => void copy()}>{t(copied ? "error_report.copied" : "error_report.copy")}</Button>
+          <Button variant="outline" size="sm" disabled={!details} onClick={() => void save()}>{t("error_report.save")}</Button>
         </div>
         </div>
         <DialogFooter className="shrink-0">
           <Button variant="outline" onClick={closeErrorReport} disabled={busy}>{t(sent ? "common.close" : "common.cancel")}</Button>
-          {!sent ? <Button onClick={() => void send()} disabled={busy}>{t(busy ? "error_report.sending" : failed ? "error_report.retry" : "error_report.send")}</Button> : null}
+          {!sent ? <Button onClick={() => void send()} disabled={busy || !details}>{t(!details ? "error_report.collecting" : busy ? "error_report.sending" : failed ? "error_report.retry" : "error_report.send")}</Button> : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -28,6 +28,7 @@ import { recordInspectorEvent } from "./app-inspector";
 import { isOfficeAddinRuntime } from "./runtime-env";
 import { officeHostName } from "@/word-addin/office";
 import { ErrorDiagnosticSchema, errorExceptionProperties, type ErrorDiagnostic } from "@legalwork/types/error-report";
+import { FullErrorDetailsSchema, fullExceptionList, type FullErrorDetails } from "@legalwork/types/error-details";
 
 const ENV_POSTHOG_KEY = String(import.meta.env.VITE_LEGALWORK_POSTHOG_KEY ?? "").trim();
 const ENV_POSTHOG_HOST = String(import.meta.env.VITE_LEGALWORK_POSTHOG_HOST ?? "").trim();
@@ -179,29 +180,35 @@ export function captureErrorAnalytics(diagnostic: ErrorDiagnostic): void {
 }
 
 /** The exact event previewed by Share error, with an anonymous, per-event identity. */
-export function makeManualErrorEvent(diagnostic: ErrorDiagnostic, eventId: string) {
+export function makeManualErrorEvent(diagnostic: ErrorDiagnostic, eventId: string, fullDetails?: FullErrorDetails) {
   const error = ErrorDiagnosticSchema.parse(diagnostic);
   const id = ErrorDiagnosticSchema.shape.incident_id.parse(eventId);
+  const details = fullDetails ? FullErrorDetailsSchema.parse(fullDetails) : null;
   return {
     uuid: id, event: "$exception", distinct_id: `manual-error:${id}`,
     timestamp: error.occurred_at,
-    properties: { ...errorExceptionProperties(error), error_origin: "manual" },
+    properties: {
+      ...errorExceptionProperties(error), error_origin: "manual",
+      ...(details ? { $exception_list: fullExceptionList(details), error_details: details } : {}),
+    },
   };
 }
 
 /** Call only after an explicit Share click. Does not read or change analytics consent. */
-export async function sendManualErrorEvent(diagnostic: ErrorDiagnostic, eventId: string, fetchImpl: typeof fetch = globalThis.fetch): Promise<string> {
+export async function sendManualErrorEvent(diagnostic: ErrorDiagnostic, eventId: string, fetchImpl: typeof fetch = globalThis.fetch, fullDetails?: FullErrorDetails): Promise<string> {
   if (!POSTHOG_KEY) throw new Error("error_sharing_unavailable");
-  const event = makeManualErrorEvent(diagnostic, eventId);
-  const response = await postHogBatch([event], fetchImpl);
+  const event = makeManualErrorEvent(diagnostic, eventId, fullDetails);
+  // Full diagnostics exceed browsers' 64 KiB keepalive quota. Keep the dialog open
+  // until delivery finishes, with a longer timeout than automatic batches.
+  const response = await postHogBatch([event], fetchImpl, true);
   if (!response.ok) throw new Error("error_event_not_sent");
   return event.uuid;
 }
 
-function postHogBatch(events: readonly PostHogEvent[], fetchImpl: typeof fetch = globalThis.fetch): Promise<Response> {
+function postHogBatch(events: readonly PostHogEvent[], fetchImpl: typeof fetch = globalThis.fetch, manual = false): Promise<Response> {
   return fetchImpl(`${POSTHOG_HOST}/batch/`, {
-    method: "POST", keepalive: true, credentials: "omit", cache: "no-store",
-    signal: AbortSignal.timeout(5000),
+    method: "POST", keepalive: !manual, credentials: "omit", cache: "no-store",
+    signal: AbortSignal.timeout(manual ? 30_000 : 5000),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ api_key: POSTHOG_KEY, batch: events }),
   });

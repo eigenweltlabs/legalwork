@@ -38,6 +38,8 @@ test("main preload runs with sandbox APIs and preserves native invocation and ev
   assert.deepEqual(messages[1], ["legalwork:system:architecture-download"]);
   assert.equal(await bridge.saveErrorDetails("{}"), "ok");
   assert.deepEqual(messages[2], ["legalwork:error-details:save", "{}"]);
+  assert.equal(await bridge.collectErrorDetails("incident"), "ok");
+  assert.deepEqual(messages[3], ["legalwork:error-details:collect", "incident"]);
   assert.equal(documentElement.dataset.legalworkShell, "electron");
   assert.equal(classes.has("legalwork-electron"), true);
   let calls = 0;

@@ -1,5 +1,5 @@
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
-import { recordError, setDiagnosticEngineVersion } from "./error-reports";
+import { recordError, setDiagnosticEngineVersion, setErrorDetailsLoader } from "./error-reports";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
@@ -1396,6 +1396,19 @@ function buildHeaders(
   return headers;
 }
 
+function attachOriginalServerError(error: LegalworkServerError, baseUrl: string, options: { token?: string; hostToken?: string }): LegalworkServerError {
+  const diagnostic = error.diagnostic;
+  if (diagnostic && typeof diagnostic === "object" && "incident_id" in diagnostic && typeof diagnostic.incident_id === "string" && /^[a-f0-9-]{36}$/i.test(diagnostic.incident_id)) {
+    const url = `${baseUrl}/error-reports/${diagnostic.incident_id}`;
+    setErrorDetailsLoader(error, async () => {
+      const response = await fetchWithTimeout(resolveFetch(url), url, { headers: buildAuthHeaders(options.token, options.hostToken), cache: "no-store" }, 10_000);
+      if (!response.ok) throw new Error("Original server error unavailable");
+      return response.json();
+    });
+  }
+  return error;
+}
+
 function buildAuthHeaders(token?: string, hostToken?: string, extra?: Record<string, string>) {
   const headers: Record<string, string> = {};
   if (token) {
@@ -1528,7 +1541,7 @@ async function requestJson<T>(
   if (!response.ok) {
     const code = typeof json?.code === "string" ? json.code : "request_failed";
     const message = typeof json?.message === "string" ? json.message : response.statusText;
-    const error = new LegalworkServerError(response.status, code, message, json?.details, json?.diagnostic);
+    const error = attachOriginalServerError(new LegalworkServerError(response.status, code, message, json?.details, json?.diagnostic), baseUrl, options);
     recordError(error, { component: "server", source: "server_request", operation: "server_request", phase: "request" });
     throw error;
   }
@@ -1637,7 +1650,7 @@ async function requestBinary(
     }
     const code = typeof json?.code === "string" ? json.code : "request_failed";
     const message = typeof json?.message === "string" ? json.message : response.statusText;
-    throw new LegalworkServerError(response.status, code, message, json?.details, json?.diagnostic);
+    throw attachOriginalServerError(new LegalworkServerError(response.status, code, message, json?.details, json?.diagnostic), baseUrl, options);
   }
 
   const contentType = response.headers.get("content-type");
