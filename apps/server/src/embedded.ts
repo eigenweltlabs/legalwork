@@ -140,6 +140,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           LEGALWORK_SERVER_TOKEN: config.token,
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_MODELS_URL: catalogRelay.url,
+          OPENCODE_MODELS_PATH: catalogRelay.catalogPath,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
       }).catch(async (error: unknown) => {

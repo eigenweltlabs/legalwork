@@ -79,6 +79,22 @@ export class ModelCatalog {
     return providerModelsFromCatalog(providerId, await this.get(true));
   }
 
+  /** Seed the engine's first provider read before its background fetch starts. */
+  async engineCatalogPath(): Promise<string | undefined> {
+    try {
+      const catalog = await this.get();
+      await this.saveEngineCatalog(catalog);
+      return join(this.directory, "model-catalog-engine.json");
+    } catch {
+      // Offline with no saved catalog: let OpenCode use its bundled snapshot.
+      return undefined;
+    }
+  }
+
+  private saveEngineCatalog(catalog: CatalogCache["catalog"]) {
+    return writeJson(join(this.directory, "model-catalog-engine.json"), catalog);
+  }
+
   async get(refresh = false): Promise<CatalogCache["catalog"]> {
     await this.loaded;
     if (!this.enabled) return this.offline();
@@ -115,6 +131,9 @@ export class ModelCatalog {
       await writeJson(join(this.directory, "model-catalog.json"), this.cached).catch(() => {
         console.warn("[model-catalog] Could not save the public catalog cache.");
       });
+      await this.saveEngineCatalog(catalog).catch(() => {
+        console.warn("[model-catalog] Could not save the engine catalog cache.");
+      });
       return catalog;
     } finally { this.controller = undefined; }
   }
@@ -139,10 +158,10 @@ export async function modelCatalogResponse(catalog: ModelCatalog) {
 /** Started before the engine so its initial refresh also respects the saved switch. */
 export async function startModelCatalogRelay(config: ServerConfig) {
   const catalog = modelCatalogFor(config);
-  await catalog.settings();
+  const catalogPath = await catalog.engineCatalogPath();
   const server = await serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
     if (request.method !== "GET" || new URL(request.url).pathname !== "/api.json") return new Response(null, { status: 404 });
     return modelCatalogResponse(catalog);
   } });
-  return { url: `http://127.0.0.1:${server.port}`, stop: server.stop };
+  return { url: `http://127.0.0.1:${server.port}`, catalogPath, stop: server.stop };
 }
