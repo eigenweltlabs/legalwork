@@ -15,9 +15,33 @@ if ($env:SIGNPATH_TEST -eq "true") {
     if ($signature.SignerCertificate.Thumbprint -ne "8D1A630DC86683F8A02A86594E8D3E6A3547A7D6") {
         throw "Installer was not signed by LegalWork's SignPath test certificate."
     }
-    if ($signature.Status -notin @("Valid", "NotTrusted")) {
+    # PowerShell maps CERT_E_UNTRUSTEDROOT (0x800B0109) to UnknownError.
+    # Compare the localized Win32 message, accepting only this specific error;
+    # explicit distrust, digest errors, and other UnknownError results still fail.
+    $untrustedRootMessage = [System.ComponentModel.Win32Exception]::new(-2146762487).Message
+    $isUntrustedRoot = $signature.Status -eq "UnknownError" -and $signature.StatusMessage -eq $untrustedRootMessage
+    if ($signature.Status -ne "Valid" -and !$isUntrustedRoot) {
         throw "Invalid test signature: $($signature.Status): $($signature.StatusMessage)"
     }
+
+    # Confirm Windows detects a modified signed byte even with an untrusted
+    # test chain. Change a reserved DOS-header byte, preserving PE structure.
+    $tamperedInstaller = Join-Path ([System.IO.Path]::GetTempPath()) ("legalwork-signature-tamper-$([guid]::NewGuid()).exe")
+    try {
+        Copy-Item -LiteralPath $installers[0].FullName -Destination $tamperedInstaller
+        $stream = [System.IO.File]::Open($tamperedInstaller, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite)
+        try {
+            $stream.Position = 0x20
+            $originalByte = $stream.ReadByte()
+            $stream.Position = 0x20
+            $stream.WriteByte([byte]($originalByte -bxor 1))
+        } finally { $stream.Dispose() }
+        $tamperedSignature = Get-AuthenticodeSignature -LiteralPath $tamperedInstaller
+        if ($tamperedSignature.Status -ne "HashMismatch") {
+            throw "Tampered test installer was not rejected with HashMismatch: $($tamperedSignature.Status): $($tamperedSignature.StatusMessage)"
+        }
+        Write-Output "Verified tamper detection: modified installer rejected with HashMismatch."
+    } finally { Remove-Item -LiteralPath $tamperedInstaller -ErrorAction SilentlyContinue }
 } elseif ($signature.Status -ne "Valid") {
     throw "Windows installer signature is not trusted: $($signature.Status): $($signature.StatusMessage)"
 }

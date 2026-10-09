@@ -44,7 +44,8 @@ and review of the GitHub integration before they issue it.
    ```
 
    This forces `test-signing` and `windows-installer`, verifies the expected
-   test signer, signature status, and timestamp, regenerates updater metadata,
+   test signer, signature status, timestamp, and rejection of tampered bytes,
+   regenerates updater metadata,
    and stores the resulting installers as `signpath-test-windows-x64` and
    `signpath-test-windows-arm64` workflow artifacts for seven days. It does not
    create a GitHub release or change the alpha updater pointer.
