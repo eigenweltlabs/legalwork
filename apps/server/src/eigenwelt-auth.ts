@@ -162,6 +162,7 @@ export type EigenweltAccountIdentity = {
   userEmail: string | null;
   orgId: string;
   orgName: string;
+  orgRole?: string | null;
 };
 
 /**
@@ -347,6 +348,8 @@ export function parseEigenweltAccountIdentity(value: unknown): EigenweltAccountI
     userEmail: typeof value.userEmail === "string" && value.userEmail.trim() ? value.userEmail.trim() : null,
     orgId,
     orgName,
+    ...(typeof value.orgRole === "string" && value.orgRole.trim()
+      ? { orgRole: value.orgRole.trim() } : {}),
   };
 }
 

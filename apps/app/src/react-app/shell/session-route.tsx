@@ -1026,8 +1026,9 @@ export function SessionRoute() {
   // its composer notice keeps the ways out in the space it has.
   const aiPlansGateEnabled = !isOfficeAddinRuntime();
   // Organizing local project files, notes and tasks does not need an AI model.
+  // Expiry stays in the conversation with role-aware inline renewal actions.
   const aiPlansGateVisible =
-    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
+    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null && aiPlansVariant !== "ended" &&
     location.pathname !== "/scheduled" && location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and

@@ -26,6 +26,7 @@ import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay"
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
 import { seedSessionState, snapshotKey, transcriptKey } from "@/react-app/domains/session/sync/session-sync";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
+import { eigenweltEntitlementsQueryKey } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
@@ -44,7 +45,9 @@ const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
 if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
 if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
-const limitParam = previewParams.get("limit");
+// `?subscription=ended&role=member` previews expiry without connected services.
+const subscriptionPreview = previewParams.get("subscription") === "ended";
+const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : null);
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? "openai", modelID: "Preview model" };
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
@@ -80,6 +83,14 @@ const reply = "I've reviewed the sample terms and organized the key points.\n\n#
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
 const queryClient = getReactQueryClient();
 queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
+if (subscriptionPreview && limitFixture.entitlements.account && limitFixture.entitlements.entitlements) {
+  limitFixture.entitlements.account.orgRole = limitFixture.usage.isAdmin ? "org:admin" : "org:member";
+  limitFixture.entitlements.entitlements.subscriptionStatus = "canceled";
+  limitFixture.entitlements.entitlements.features = [];
+  limitFixture.usage.enabled = false;
+  limitFixture.usage.me.blockedReason = null;
+  queryClient.setQueryData(eigenweltEntitlementsQueryKey(), limitFixture.entitlements);
+}
 
 function snapshot(id: string, title: string, prompt?: string): LegalworkSessionSnapshot {
   const turn = snapshots.get(id)?.messages.length ?? 0;
@@ -121,7 +132,10 @@ if (limitParam) {
   saveSnapshot({
     ...item,
     messages: item.messages.map(message => message.info.role === "assistant" ? {
-      ...message, parts: [], info: { ...message.info, error: { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID) } } },
+      ...message, parts: [], info: { ...message.info, error: subscriptionPreview ? {
+        name: "APIError", data: { statusCode: 403, providerID: "eigenwelt", message: "Forbidden",
+          responseBody: '{"error":{"message":"team not allowed to access model","type":"team_model_access_denied"}}' },
+      } : { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID) } } },
     } : message),
   });
   if (previewParams.has("continued")) {
@@ -448,7 +462,15 @@ function SessionPreview() {
           }}
           surface={{
             workspaceRoot: workspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
-            onChooseAiPlan: async () => previewNotice(),
+            onChooseAiPlan: async plan => {
+              if (!subscriptionPreview) { previewNotice(); return; }
+              await new Promise<void>(resolve => window.setTimeout(resolve, 1_500));
+              const updated = usageLimitFixture(plan, true, model.providerID);
+              if (updated.entitlements.account) updated.entitlements.account.orgRole = "org:admin";
+              limitFixture.entitlements = updated.entitlements;
+              limitFixture.usage = updated.usage;
+              queryClient.setQueryData(eigenweltEntitlementsQueryKey(), updated.entitlements);
+            },
             modelPickerOpen: false, modelSelectorLocked: true, selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,
