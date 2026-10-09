@@ -7,6 +7,7 @@ import { t } from "@/i18n";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { ASSISTANT_NOTIFICATION_PREFERENCES_KEY, useAssistantNotificationPreferences } from "../domains/session/sidebar/assistant-notification-preferences";
 import { AssistantMessageNotifications, assistantNotificationId, assistantNotificationTarget } from "../domains/session/sidebar/assistant-message-notifications";
+import { assistantNotificationIcon } from "../domains/session/sidebar/assistant-notification-icon";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { useDetachedWindow } from "./use-detached-window";
 import { workspaceSessionRoute } from "./workspace-routes";
@@ -60,10 +61,12 @@ export function AssistantNotificationsListener() {
         for (const entry of sessions) {
           if (stopped) return;
           if (entry.workspaceId !== assistant.workspace.id || entry.assistantAt <= tracker.startedAt) continue;
+          if (entry.status && entry.status !== "idle") continue;
           const key = `${client.baseUrl}:${entry.workspaceId}:${entry.sessionId}`;
           if ((checked.get(key) ?? 0) >= entry.assistantAt) continue;
           const { item } = await client.getSessionSnapshot(entry.workspaceId, entry.sessionId, { limit: 40 });
           if (stopped) return;
+          if (item.status.type !== "idle") continue;
           // Electron also checks every app window immediately before showing it.
           const foreground = document.visibilityState === "visible" && document.hasFocus();
           const reply = tracker.receive(item.messages, useAssistantNotificationPreferences.getState().desktopNotifications, foreground);
@@ -71,6 +74,8 @@ export function AssistantNotificationsListener() {
           if (reply) await desktopNotificationShow({
             id: assistantNotificationId(entry.workspaceId, entry.sessionId, reply.messageId),
             title: assistant.profile.name ?? t("assistant.title"), body: reply.body,
+            iconDataUrl: await assistantNotificationIcon(assistant.profile.icon),
+            conversationId: `assistant:${entry.workspaceId}`,
             backgroundOnly: true,
           });
         }

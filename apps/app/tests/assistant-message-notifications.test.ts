@@ -38,3 +38,14 @@ test("reconnect batches show the latest reply once and notification clicks retai
   expect(assistantNotificationTarget("tasks:new")).toBeNull();
   expect(assistantNotificationTarget("assistant-message:%broken:chat:reply")).toBeNull();
 });
+
+
+test("completed tool steps with acknowledgements do not notify before the final result", () => {
+  const notifications = new AssistantMessageNotifications(100);
+  const step = reply("working", 120, "Taking care of that.");
+  if (step.info.role === "assistant") step.info.finish = "tool-calls";
+  expect(notifications.receive([step], true, false)).toBeNull();
+  const final = reply("done", 140, "Your review is ready.");
+  if (final.info.role === "assistant") final.info.finish = "stop";
+  expect(notifications.receive([step, final], true, false)?.messageId).toBe("done");
+});

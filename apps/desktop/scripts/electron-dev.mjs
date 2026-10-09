@@ -3,6 +3,7 @@ import { existsSync, lstatSync } from "node:fs";
 import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { prepareElectronDev } from "./prepare-electron-dev.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
@@ -215,6 +216,7 @@ if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
 runSync(pnpmCmd, ["exec", "electron-builder", "install-app-deps"], { cwd: desktopRoot });
 
 // Build the server TS → JS so Electron can import it in-process
+runSync(nodeCmd, [resolve(__dirname, "build-notifications.mjs")], { cwd: desktopRoot });
 console.log("[electron-dev] Building legalwork-server (tsc)...");
 runSync(pnpmCmd, ["--filter", "legalwork-server", "build"], { cwd: repoRoot });
 
@@ -272,7 +274,7 @@ const resolvedStartUrl = await waitForVite(startUrl);
 const cdpPortRaw = process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
 const cdpPort = cdpPortRaw === "" || cdpPortRaw === "0" ? "" : cdpPortRaw;
 
-electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
+electronChild = run(prepareElectronDev(desktopRoot), ["./electron/main.mjs"], {
   cwd: desktopRoot,
   env: {
     ...process.env,

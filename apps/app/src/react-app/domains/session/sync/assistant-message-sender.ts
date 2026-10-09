@@ -5,7 +5,7 @@ import type { UIMessage } from "ai";
 export function textPartProviderMetadata(part: TextPart) {
   const sender = AssistantProfileSchema.safeParse(part.metadata?.legalworkAssistantSender);
   const files = AssistantSharedFilesSchema.safeParse(part.metadata?.legalworkSharedFiles);
-  return { opencode: { partId: part.id, ...(sender.success ? { legalworkAssistantSender: sender.data } : {}), ...(files.success ? { legalworkSharedFiles: files.data } : {}) } };
+  return { opencode: { partId: part.id, ...(part.time?.end ? { textComplete: true } : {}), ...(sender.success ? { legalworkAssistantSender: sender.data } : {}), ...(files.success ? { legalworkSharedFiles: files.data } : {}) } };
 }
 
 export function assistantMessageSender(message: UIMessage) {

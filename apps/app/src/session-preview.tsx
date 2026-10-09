@@ -30,6 +30,7 @@ import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
 import { seedSessionState, snapshotKey, transcriptKey } from "@/react-app/domains/session/sync/session-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
+import { providerListQueryKey } from "@/react-app/infra/provider-list-query";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
@@ -49,6 +50,7 @@ const previewParams = new URLSearchParams(window.location.search);
 if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
 if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
 const assistantPreview = previewParams.has("assistant");
+const modelSettingsPreview = previewParams.has("model-settings");
 const assistantToday = "2026-10-07";
 const limitParam = previewParams.get("limit");
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
@@ -86,6 +88,13 @@ const reply = "I've reviewed the sample terms and organized the key points.\n\n#
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
 const queryClient = getReactQueryClient();
 queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
+if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ directory: workspace.path }), {
+  connected: [model.providerID],
+  all: [{ id: model.providerID, name: "Preview provider", models: {
+    [model.modelID]: { name: model.modelID },
+    "Another preview model": { name: "Another preview model" },
+  } }],
+});
 
 function snapshot(id: string, title: string, prompt?: string, response = reply): LegalworkSessionSnapshot {
   const turn = snapshots.get(id)?.messages.length ?? 0;
@@ -436,6 +445,9 @@ function SessionPreview() {
       automation: { runId: "briefing-preview", at: Date.now(), pinRunId: null } }]);
   }, []);
   const [announcementOpen, setAnnouncementOpen] = useState(previewParams.has("assistant-announcement"));
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(model);
+  const [modelVariant, setModelVariant] = useState<string | null>("balanced");
   const [assistantProfile, setAssistantProfile] = useState<AssistantProfile>(previewParams.has("messenger") ? { name: "Johann", icon: "cat" } : DEFAULT_ASSISTANT_PROFILE);
   const [onboarding, setOnboarding] = useState<AssistantOnboardingState | undefined>(assistantPreview && previewParams.has("onboarding") ? {
     needed: true, greetingUnread: true, step: "name", sessionId: null, name: null, icon: "dot",
@@ -552,9 +564,12 @@ function SessionPreview() {
             assistantDate: assistantPreview && selectedSessionId === welcomeId ? assistantToday : undefined,
             workspaceRoot: workspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
             onChooseAiPlan: async () => previewNotice(),
-            modelPickerOpen: false, modelSelectorLocked: true, selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
+            modelPickerOpen, modelSelectorLocked: !modelSettingsPreview, selectedModel, onModelPickerOpenChange: setModelPickerOpen,
+            onModelChange: next => { setSelectedModel(next); setModelPickerOpen(false); },
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
-            modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,
+            modelVariantLabel: "Standard", modelVariant, onModelVariantChange: setModelVariant,
+            modelBehaviorOptions: modelSettingsPreview ? [{ value: "balanced", label: "Balanced" }, { value: "light", label: "Light" }] : undefined,
+            agentLabel: "Assistant", selectedAgent: null,
             listAgents: async () => [], onSelectAgent: () => {}, listCommands: async () => [],
             recentFiles: files.map((file) => file.path), searchFiles: async (query) => files.filter((file) => file.name.toLowerCase().includes(query.toLowerCase())).map((file) => file.path),
             isRemoteWorkspace: false, isSandboxWorkspace: false, providerConnectedCount: 1,

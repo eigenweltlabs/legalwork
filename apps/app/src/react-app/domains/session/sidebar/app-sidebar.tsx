@@ -133,7 +133,8 @@ import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
-import { unreadSession, unreadWorkspace, useSessionInboxStore } from "./session-inbox-store";
+import { unreadSession, unreadWorkspace, runningWorkspace, useSessionInboxStore } from "./session-inbox-store";
+import { workspaceServerId } from "@/app/lib/workspace-endpoint";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
 
 function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
@@ -155,7 +156,7 @@ function SessionInboxIndicators({ unread, status, isStreaming, isActive }: Sessi
   if (!unread && !isStreaming && !isActive) return null;
   return <span className="pointer-events-none flex shrink-0 items-center gap-2">
     <SessionStatusIndicator status={status} isStreaming={isStreaming} isActive={isActive} />
-    {unread && <span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread /></span>}
+    {unread && !isStreaming && !isActive && <span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread /></span>}
   </span>;
 }
 
@@ -1022,6 +1023,7 @@ function WorkspaceSidebarGroup({
   const ctx = useSidebarContext();
   const workspace = group.workspace;
   const unread = useUnreadChats(group.sessions);
+  const backgroundRunning = useSessionInboxStore(state => runningWorkspace(state, workspaceServerId(workspace)));
   const isConnecting = ctx.connectingWorkspaceId === workspace.id;
   const connectionState: WorkspaceConnectionState = ctx.workspaceConnectionStateById[workspace.id] ?? {
     status: "idle",
@@ -1072,7 +1074,7 @@ function WorkspaceSidebarGroup({
                 statusLabel={statusLabel}
                 isError={group.status === "error"}
                 isLoading={group.status === "loading" || isConnecting}
-                isRunning={group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
+                isRunning={backgroundRunning || group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
               />
               <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
@@ -1761,10 +1763,11 @@ function PinnedProjectRow({ workspace }: { workspace: WorkspaceInfo }) {
   const location = useLocation();
   const toggleFavorite = useProjectFavoritesStore(state => state.toggleFavorite);
   const active = location.pathname === workspaceProjectRoute(workspace.id);
+  const backgroundRunning = useSessionInboxStore(state => runningWorkspace(state, workspaceServerId(workspace)));
   const unread = useUnreadChats(ctx.workspaceSessionGroups.find(group => group.workspace.id === workspace.id)?.sessions ?? []);
   return <SidebarMenuItem className="group/project-row">
     <ContextMenu>
-      <ContextMenuTrigger render={<SidebarMenuButton className="h-8 gap-2 pr-10 text-[13px]" isActive={active} aria-current={active ? "page" : undefined} onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><span className="min-w-0 flex-1 truncate">{workspaceLabel(workspace)}</span><span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread={unread} /></span></SidebarMenuButton>} />
+      <ContextMenuTrigger render={<SidebarMenuButton className="h-8 gap-2 pr-10 text-[13px]" isActive={active} aria-current={active ? "page" : undefined} onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><span className="min-w-0 flex-1 truncate">{workspaceLabel(workspace)}</span><SessionInboxIndicators unread={unread} status={backgroundRunning ? "thinking" : "idle"} isStreaming={backgroundRunning} isActive={backgroundRunning} /></SidebarMenuButton>} />
       <ContextMenuContent className="w-56">
         <ContextMenuItem onClick={() => void ctx.onOpenProjectPage(workspace.id, "home")}><FolderOpen className="size-4" />{t("projects.open_project")}</ContextMenuItem>
         {ctx.onOpenProjectWindow && <ContextMenuItem onClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}><AppWindowMac className="size-4" />{t("sidebar.open_in_new_window")}</ContextMenuItem>}

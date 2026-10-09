@@ -5,6 +5,14 @@ import { workspaceServerId } from "@/app/lib/workspace-endpoint";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { useSessionInboxStore } from "../domains/session/sidebar/session-inbox-store";
 import type { SessionInboxEntry } from "@legalwork/types/scheduled-tasks";
+import { useSessionActivityStore } from "../domains/session/status/session-activity-store";
+
+export function reconcileInboxActivity(sessions: SessionInboxEntry[]) {
+  const activity = useSessionActivityStore.getState();
+  for (const entry of sessions) {
+    if (entry.status && entry.status !== "unknown") activity.setRunStatus(entry.workspaceId, entry.sessionId, entry.status);
+  }
+}
 
 type ListedSession = { id: string; time?: { updated?: number; created?: number } };
 
@@ -32,6 +40,7 @@ export function useSessionInbox(client: LegalworkServerClient | null, workspaces
       try {
         const { sessions } = await latest.current.client!.sessionInbox();
         if (stopped) return;
+        reconcileInboxActivity(sessions);
         const changed = new Set(useSessionInboxStore.getState().receive(sessions));
         const fullRefresh = Date.now() - lastFullRefresh >= 30_000;
         const targets = latest.current.workspaces.filter(workspace => workspace.workspaceType !== "remote" && (
@@ -43,7 +52,7 @@ export function useSessionInbox(client: LegalworkServerClient | null, workspaces
       } catch { /* Server starting or reconnecting. Retain the last known state and retry. */ }
       finally {
         running = false;
-        if (!stopped) { timer = setTimeout(() => void poll(), pending ? 0 : 5000); pending = false; }
+        if (!stopped) { timer = setTimeout(() => void poll(), pending ? 0 : 2000); pending = false; }
       }
     };
     const unsubscribe = onSyncPoke(poke => { if (poke.sessions || poke.resync) void poll(); });

@@ -24,6 +24,8 @@ test("delegations persist, wait for a real reply and an idle Assistant, and retu
   try {
     const tracker = await AssistantDelegations.open(path, executor);
     tracker.track({ ...delegation, conversationLanguage: "en" }); tracker.track(delegation);
+    expect(tracker.hasPendingWork("assistant")).toBe(true);
+    expect(tracker.hasPendingWork("unrelated")).toBe(false);
     await tracker.tick();
     expect(sent).toHaveLength(0);
     result = { messageId: "final-reply", outcome: "reply", text: "Draft ready. Partner approval still needed." };
@@ -41,10 +43,13 @@ test("delegations persist, wait for a real reply and an idle Assistant, and retu
     expect(sent[0].text).toContain("user has not since changed languages");
     expect(sent[0].text).toContain("source-linked tasks in that project");
     expect(sent[0].text).toContain("check existing tasks, deduplicate");
-    expect(sent[0].text).toContain("BOTH the project-chat link and a file card");
+    expect(sent[0].text).toContain("Do not include a project-chat link");
     expect(sent[0].text).toContain("legalwork_assistant_share_file with projectId");
     await (await AssistantDelegations.open(path, executor)).tick();
     await reopened.tick();
+    expect(reopened.hasPendingWork("assistant")).toBe(false);
+    reopened.track({ ...delegation, sessionId: "internal-child", inputOnly: true });
+    expect(reopened.hasPendingWork("assistant")).toBe(false);
     expect(sent).toHaveLength(1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

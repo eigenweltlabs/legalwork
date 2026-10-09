@@ -12,16 +12,22 @@ type InboxState = {
   trackingStartedAt: number | null;
 };
 function activityAt(entry?: SessionInboxEntry) {
-  return Math.max(entry?.assistantAt ?? 0, entry?.automation?.at ?? 0);
+  // New servers supply terminal reply timestamps. A scheduled delivery is a
+  // user turn, not a reply. Keep compatibility with older servers only.
+  return entry?.status === undefined ? Math.max(entry?.assistantAt ?? 0, entry?.automation?.at ?? 0) : entry.assistantAt;
 }
 export function unreadSession(state: Pick<InboxState, "entries" | "readAt" | "trackingStartedAt">, sessionId: string) {
   // Older installs have no read history. Never turn their existing transcripts
   // into notifications, including cached entries before the first refresh.
   return state.trackingStartedAt !== null &&
+    (state.entries[sessionId]?.status === undefined || state.entries[sessionId]?.status === "idle") &&
     activityAt(state.entries[sessionId]) > Math.max(state.trackingStartedAt, state.readAt[sessionId] ?? 0);
 }
 export function unreadWorkspace(state: Pick<InboxState, "entries" | "readAt" | "trackingStartedAt">, workspaceId?: string) {
   return Boolean(workspaceId) && Object.values(state.entries).some(entry => entry.workspaceId === workspaceId && unreadSession(state, entry.sessionId));
+}
+export function runningWorkspace(state: Pick<InboxState, "entries">, workspaceId: string) {
+  return Object.values(state.entries).some(entry => entry.workspaceId === workspaceId && (entry.status === "busy" || entry.status === "retry"));
 }
 
 export const useSessionInboxStore = create<InboxState & {
@@ -39,10 +45,10 @@ export const useSessionInboxStore = create<InboxState & {
     const changed = new Set<string>();
     for (const incoming of [...sessions].sort((a, b) => (a.automation?.at ?? 0) - (b.automation?.at ?? 0))) {
       const old = entries[incoming.sessionId];
-      const entry = { ...incoming, assistantAt: Math.max(incoming.assistantAt, old?.assistantAt ?? 0) };
+      const entry = { ...incoming, assistantAt: incoming.status === undefined ? Math.max(incoming.assistantAt, old?.assistantAt ?? 0) : incoming.assistantAt };
       if (JSON.stringify(old) !== JSON.stringify(entry)) changed.add(entry.workspaceId);
       entries[entry.sessionId] = entry;
-      if (state.openSessionId === entry.sessionId || state.openWorkspaceId === entry.workspaceId) readAt[entry.sessionId] = activityAt(entry);
+      if ((entry.status === undefined || entry.status === "idle") && (state.openSessionId === entry.sessionId || state.openWorkspaceId === entry.workspaceId)) readAt[entry.sessionId] = activityAt(entry);
       const pinRunId = entry.automation?.pinRunId;
       if (pinRunId && pinnedRunIds[entry.sessionId] !== pinRunId) {
         useSessionManagementStore.getState().pinSession(entry.sessionId);
@@ -55,9 +61,10 @@ export const useSessionInboxStore = create<InboxState & {
   open: (sessionId, workspaceId = null) => set(state => {
     const readAt = { ...state.readAt };
     if (sessionId) {
-      readAt[sessionId] = activityAt(state.entries[sessionId]);
+      const entry = state.entries[sessionId];
+      if (!entry?.status || entry.status === "idle") readAt[sessionId] = activityAt(entry);
       if (workspaceId) for (const entry of Object.values(state.entries)) {
-        if (entry.workspaceId === workspaceId) readAt[entry.sessionId] = activityAt(entry);
+        if (entry.workspaceId === workspaceId && (!entry.status || entry.status === "idle")) readAt[entry.sessionId] = activityAt(entry);
       }
     }
     return { openSessionId: sessionId, openWorkspaceId: sessionId ? workspaceId : null, readAt };

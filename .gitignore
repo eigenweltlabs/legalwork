@@ -67,3 +67,7 @@ apps/app/dist-docx-performance/
 
 # Checksum-pinned runtime downloaded during desktop builds.
 apps/desktop/resources/node/
+
+# APNs provider credentials stay in private server configuration.
+*.p8
+apns.json
