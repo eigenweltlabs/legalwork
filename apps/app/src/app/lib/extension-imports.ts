@@ -37,6 +37,7 @@ export type ImportedPluginFile = {
 };
 
 export type ImportedPlugin = {
+  scope?: "global";
   pluginId: string;
   marketplaceId: string | null;
   name: string;

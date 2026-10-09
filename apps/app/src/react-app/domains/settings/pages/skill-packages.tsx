@@ -88,6 +88,7 @@ export function ImportedPackages(props: {
                   <Package size={14} strokeWidth={1.75} />
                 </span>
                 <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{plugin.name}</h4>
+                {plugin.scope === "global" ? <span className="text-xs text-dls-secondary">{t("extensions.import_all_projects")}</span> : null}
               </div>
               <button
                 type="button"
@@ -108,7 +109,7 @@ export function ImportedPackages(props: {
       <ConfirmModal
         open={removing !== null}
         title={t("skills.package_remove_title", { name: removing?.name ?? "" })}
-        message={t("skills.package_remove_message")}
+        message={t(removing?.scope === "global" ? "extensions.import_remove_global" : "skills.package_remove_message")}
         confirmLabel={t("skills.package_remove")}
         cancelLabel={t("common.cancel")}
         confirmButtonVariant="destructive"

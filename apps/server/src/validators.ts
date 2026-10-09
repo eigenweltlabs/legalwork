@@ -49,7 +49,8 @@ export function validateMcpConfig(config: Record<string, unknown>): void {
     if (
       !Array.isArray(command) ||
       command.length === 0 ||
-      command.some((part) => typeof part !== "string" || part.trim().length === 0)
+      command.some((part) => typeof part !== "string") ||
+      typeof command[0] !== "string" || command[0].trim().length === 0
     ) {
       throw new ApiError(400, "invalid_mcp_config", "Local MCP requires command array");
     }

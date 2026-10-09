@@ -1,3 +1,5 @@
+import type { PluginImportProvider } from "@legalwork/types/plugin-import";
+import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useEffect, useState, type ReactNode } from "react";
 import { Blocks, Cpu, HardDrive, Plug, type LucideIcon } from "lucide-react";
@@ -42,6 +44,7 @@ export type ExtensionsViewProps = {
   accessHint?: string | null;
   suggestedPlugins: SuggestedPlugin[];
   extensions: PluginsExtensionsStore;
+  pluginImports?: PluginImportStore;
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
@@ -82,6 +85,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       : props.initialSection === "skills"
         ? "skills"
         : "connectors";
+  const [importProvider, setImportProvider] = useState<PluginImportProvider | null>(null);
+  const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   useEffect(() => setTab(initialTab), [initialTab]);
   // Local | Team is the OUTER toggle for the whole Integrations page; the
@@ -117,6 +122,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       ) : null}
 
+      {hubScope === "local" && props.pluginImports ? <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("chatgpt")}>{t("extensions.import_chatgpt")}</Button>
+        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("claude")}>{t("extensions.import_claude")}</Button>
+      </div> : null}
+      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} canUseGlobalScope={props.canUseGlobalScope} onClose={() => setImportProvider(null)} onImported={() => { setImportVersion(value => value + 1); props.onRefresh(); }} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <HubTabs items={TABS} value={tab} onChange={selectTab} />
         <div className="flex items-center gap-2">
@@ -134,7 +144,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       </div>
 
-      <HubScopeContext.Provider value={hubScope}>
+      <HubScopeContext.Provider key={importVersion} value={hubScope}>
       {tab === "connectors" ? (
         <div className="space-y-8">
           {hubScope === "local" ? props.firmConnectorsView : null}

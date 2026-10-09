@@ -68,6 +68,8 @@ import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
+import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
+import { installPluginImport } from "./plugin-import-install.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
 import {
@@ -1915,10 +1917,48 @@ function createRoutes(
     return jsonResponse({ opencode, legalwork, updatedAt: lastAudit?.timestamp ?? null });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/plugin-imports/discover", "host", async ctx => {
+    const provider = ctx.url.searchParams.get("provider");
+    if (provider !== "chatgpt" && provider !== "claude") throw new ApiError(400, "invalid_provider", "Choose ChatGPT or Claude.");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ items: await discoverPluginImports(provider, workspace.path) });
+  });
+  for (const action of ["preview", "install"]) addRoute(routes, "POST", `/workspace/:id/plugin-imports/${action}`, "client", async ctx => {
+    const request = parsePluginImportRequest(await readJsonBodyLimited(ctx.request, 91 * 1024 * 1024));
+    if ("path" in request.source || request.scope === "global") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    else requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const plans = await resolvePluginImports(request, workspace.path);
+    if (action === "preview") {
+      const installed = await readInstalledCloudPlugins(config, request.scope === "global" ? GLOBAL_MCP_ID : workspace.id);
+      return jsonResponse({ items: plans.map(plan => ({ ...plan.preview, warnings: [...plan.preview.warnings, ...(installed.plugins[plan.preview.id] ? ["This replaces the installed package with the same name in the selected scope, including its existing files and connector configuration."] : [])] })) });
+    }
+    ensureWritable(config);
+    if (plans.length !== 1 || !request.digest || request.digest !== plans[0].preview.digest) throw new ApiError(409, "plugin_preview_changed", "The plugin changed or has not been reviewed. Preview it again before importing.");
+    const plan = plans[0];
+    if (plan.preview.components.some(entry => entry.type === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
+    if (plan.preview.components.some(entry => entry.type === "mcp")) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+    const global = request.scope === "global";
+    await requireApproval(ctx, {
+      workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Import ${plan.preview.name} from ${request.source.provider}`,
+      paths: global ? [globalOpencodeConfigDir(), globalSkillsDir()] : [join(workspace.path, ".opencode")],
+    });
+    const imported = await withPluginImportLock(() => installPluginImport(config, workspace.id, workspace.path, plan, global));
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: global ? globalOpencodeConfigDir() : join(workspace.path, ".opencode"), summary: `Imported ${plan.preview.name} (${request.source.provider}, ${request.scope})`, timestamp: Date.now() });
+    const affected = global ? config.workspaces : [workspace];
+    for (const target of affected) {
+      for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
+      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
+    }
+    return jsonResponse({ item: imported, preview: plan.preview });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
-    return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: cloudImports.plugins });
+    const globalImports = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
+    return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: { ...globalImports.plugins, ...cloudImports.plugins } });
   });
 
   addRoute(routes, "POST", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
@@ -2042,20 +2082,25 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const pluginId = ctx.params.pluginId ?? "";
+    const localImports = await readInstalledCloudPlugins(config, workspace.id);
+    const globalImports = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
+    const globalRemoval = !localImports.plugins[pluginId] && !!globalImports.plugins[pluginId];
+    if (globalRemoval) ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
 
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "cloud_plugins.remove",
       summary: `Remove cloud plugin ${pluginId}`,
-      paths: [legalworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
+      paths: globalRemoval ? [globalOpencodeConfigDir(), globalSkillsDir()] : [legalworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
     });
 
-    const removed = await removeCloudPlugin({
+    const removed = await withPluginImportLock(() => removeCloudPlugin({
       serverConfig: config,
       workspaceId: workspace.id,
       workspaceRoot: workspace.path,
       pluginId,
-    });
+      scope: globalRemoval ? "global" : "workspace",
+    }));
 
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -2075,6 +2120,10 @@ function createRoutes(
       });
     }
 
+    for (const target of globalRemoval ? config.workspaces : [workspace]) {
+      for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
+      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
+    }
     return jsonResponse({ item: removed });
   });
 

@@ -1,4 +1,5 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { eq } from "drizzle-orm";
@@ -8,6 +9,8 @@ import { ApiError } from "./errors.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { addMcp, removeMcp } from "./mcp.js";
 import { ensureDir } from "./utils.js";
+import { globalOpencodeConfigDir, globalSkillsDir } from "./workspace-files.js";
+import { GLOBAL_MCP_ID } from "./runtime-opencode-config-store.js";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -57,6 +60,7 @@ export type CloudImportedPluginFile = {
 };
 
 export type CloudImportedPlugin = {
+  scope?: "global";
   pluginId: string;
   marketplaceId: string | null;
   name: string;
@@ -93,18 +97,14 @@ function readString(value: unknown): string | null {
 }
 
 function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.flatMap((entry) => {
-    const text = readString(entry);
-    return text ? [text] : [];
-  }) : [];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 function readStringRecord(value: unknown): Record<string, string> | null {
   if (!isRecord(value)) return null;
   const output: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
-    const text = readString(entry);
-    if (text) output[key] = text;
+    if (typeof entry === "string") output[key] = entry;
   }
   return Object.keys(output).length ? output : null;
 }
@@ -207,8 +207,9 @@ function slugifyConfigObjectName(title: string, fallback: string): string {
   return base;
 }
 
-function pluginNamespace(pluginName: string, pluginId: string): string {
+export function pluginNamespace(pluginName: string, pluginId: string): string {
   const base = slugifyConfigObjectName(pluginName, pluginId);
+  if (pluginId.startsWith("import:")) return `${base}-${createHash("sha256").update(pluginId).digest("hex").slice(0, 8)}-plugin`;
   return `${base.replace(/-plugin$/, "")}-plugin`;
 }
 
@@ -376,6 +377,7 @@ function normalizePluginMcpConfig(input: unknown): Record<string, unknown> | nul
     const headers = readStringRecord(input.headers);
     if (headers) config.headers = headers;
     if (isRecord(input.oauth)) config.oauth = input.oauth;
+    if (input.oauth === false) config.oauth = false;
     if (input.oauth === true) config.oauth = {};
     return config;
   }
@@ -455,7 +457,8 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
         updatedAt: readString(file.updatedAt),
       }];
     }) : [];
-    return [[pluginId, {
+    const plugin: CloudImportedPlugin = {
+      ...(value.scope === "global" ? { scope: "global" } : {}),
       pluginId,
       marketplaceId: readString(value.marketplaceId),
       name,
@@ -463,7 +466,8 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
       updatedAt: readString(value.updatedAt),
       files,
       importedAt: typeof value.importedAt === "number" && Number.isFinite(value.importedAt) ? value.importedAt : null,
-    }]];
+    };
+    return [[pluginId, plugin]];
   })) : {};
   return {
     skills: isRecord(root.skills) ? root.skills : {},
@@ -546,7 +550,7 @@ export async function readInstalledCloudPlugins(config: ServerConfig, workspaceI
   }
 }
 
-async function writeInstalledCloudPlugins(
+export async function writeInstalledCloudPlugins(
   config: ServerConfig,
   workspaceId: string,
   updater: (current: WorkspaceCloudImports) => WorkspaceCloudImports,
@@ -557,29 +561,50 @@ async function writeInstalledCloudPlugins(
   return next;
 }
 
-function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath: string): string {
+export function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath: string, global = false): string {
   const normalized = relativePath.trim().replace(/^\/+/, "");
   const parts = normalized.split("/").filter(Boolean);
   if (!normalized.startsWith(".opencode/") || parts.some((part) => part === "." || part === "..")) {
     throw new ApiError(400, "invalid_cloud_plugin_path", `Invalid cloud plugin path: ${relativePath}`);
   }
-  const root = resolve(workspaceRoot);
-  const candidate = resolve(root, normalized);
-  if (candidate !== root && !candidate.startsWith(`${root}/`)) {
+  const root = global ? globalOpencodeConfigDir() : resolve(workspaceRoot);
+  const candidate = global && normalized.startsWith(".opencode/skills/")
+    ? resolve(globalSkillsDir(), normalized.slice(".opencode/skills/".length))
+    : resolve(root, global ? normalized.slice(".opencode/".length) : normalized);
+  const allowedRoot = global && normalized.startsWith(".opencode/skills/") ? resolve(globalSkillsDir()) : root;
+  if (candidate !== allowedRoot && !candidate.startsWith(`${allowedRoot}${process.platform === "win32" ? "\\" : "/"}`)) {
     throw new ApiError(400, "invalid_cloud_plugin_path", `Invalid cloud plugin path: ${relativePath}`);
   }
   return candidate;
 }
 
-async function writePluginWorkspaceFile(workspaceRoot: string, path: string, content: string): Promise<void> {
-  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path);
+export async function assertPluginDestination(workspaceRoot: string, path: string, global = false): Promise<void> {
+  const absolute = resolveWorkspaceInstallPath(workspaceRoot, path, global);
+  const boundary = global
+    ? resolve(path.startsWith(".opencode/skills/") ? globalSkillsDir() : globalOpencodeConfigDir())
+    : resolve(workspaceRoot, ".opencode");
+  let current = absolute;
+  while (true) {
+    const info = await lstat(current).catch(() => null);
+    if (info?.isSymbolicLink()) throw new ApiError(400, "plugin_linked_destination", "A plugin destination must not be a linked file or directory.");
+    if (current === boundary || current === dirname(current)) break;
+    current = dirname(current);
+  }
+}
+
+async function writePluginWorkspaceFile(workspaceRoot: string, path: string, content: string, global = false): Promise<void> {
+  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path, global);
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, content.endsWith("\n") ? content : `${content}\n`, "utf8");
 }
 
-async function removePluginWorkspaceFile(workspaceRoot: string, path: string): Promise<void> {
+async function removePluginWorkspaceFile(workspaceRoot: string, path: string, global = false): Promise<void> {
   if (!path.startsWith(".opencode/")) return;
-  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path);
+  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path, global);
+  if (/^\.opencode\/imported-plugins\/[^/]+$/.test(path)) {
+    await rm(absolutePath, { recursive: true, force: true });
+    return;
+  }
   if (/^\.opencode\/skills\/[^/]+\/[^/]+\/SKILL\.md$/.test(path)) {
     await rm(dirname(absolutePath), { recursive: true, force: true });
     return;
@@ -616,8 +641,17 @@ export async function installCloudPlugin(input: {
   marketplaceId: string | null;
   marketplace?: { id: string; name: string; updatedAt: string | null } | null;
   resolved: CloudPluginResolved;
+  global?: boolean;
+  /** Complete source bundle and skill resources; never interpreted as engine plugins. */
+  resourceFiles?: Array<{ path: string; bytes: Uint8Array; mode?: number }>;
+  preserveSkillMetadata?: boolean;
 }): Promise<CloudImportedPlugin> {
   const namespace = pluginNamespace(input.resolved.plugin.name, input.resolved.plugin.id);
+  for (const membership of input.resolved.memberships) {
+    const object = membership.configObject;
+    if (object && object.objectType !== "mcp") await assertPluginDestination(input.workspaceRoot, getPluginObjectInstallPath(object, namespace), input.global);
+  }
+  for (const file of input.resourceFiles ?? []) await assertPluginDestination(input.workspaceRoot, file.path, input.global);
   const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
   const existing = cloudImports.plugins[input.resolved.plugin.id];
   const files: CloudImportedPluginFile[] = [];
@@ -631,7 +665,7 @@ export async function installCloudPlugin(input: {
       const configs = pluginMcpConfigsFromPayload(object, namespace);
       for (const config of configs) {
         // Plugins are installed per workspace, so the MCPs they bring stay with it.
-        await addMcp(input.serverConfig, input.workspaceId, config.name, config.config, "workspace");
+        await addMcp(input.serverConfig, input.workspaceId, config.name, config.config, input.global ? "global" : "workspace");
         files.push({
           configObjectId: object.id,
           versionId: version?.id ?? null,
@@ -651,14 +685,16 @@ export async function installCloudPlugin(input: {
     if (object.objectType === "skill") {
       const description = cloudConfigObjectDescription(object) || "Skill";
       const installName = path.match(/^\.opencode\/skills\/[^/]+\/([^/]+)\/SKILL\.md$/)?.[1] ?? slugifyConfigObjectName(object.title, object.id);
-      content = buildCloudSkillContent(installName, description, extractSkillBodyMarkdown(content));
+      content = input.preserveSkillMetadata
+        ? buildFrontmatter({ ...parseFrontmatter(content).data, name: installName, description }) + "\n" + parseFrontmatter(content).body
+        : buildCloudSkillContent(installName, description, extractSkillBodyMarkdown(content));
     } else if (object.objectType === "agent") {
       content = buildCloudAgentContent(cloudConfigObjectDescription(object), content);
     } else if (object.objectType === "command") {
       const fileName = path.match(/\/([^/]+)\.md$/)?.[1] ?? object.title;
       content = buildCloudCommandContent(slugifyConfigObjectName(fileName, object.id), cloudConfigObjectDescription(object), content);
     }
-    await writePluginWorkspaceFile(input.workspaceRoot, path, content);
+    await writePluginWorkspaceFile(input.workspaceRoot, path, content, input.global);
     files.push({
       configObjectId: object.id,
       versionId: version.id,
@@ -669,6 +705,16 @@ export async function installCloudPlugin(input: {
     });
   }
 
+  for (const file of input.resourceFiles ?? []) {
+    const absolutePath = resolveWorkspaceInstallPath(input.workspaceRoot, file.path, input.global);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    const info = await lstat(absolutePath).catch(() => null);
+    if (info?.isSymbolicLink()) throw new ApiError(400, "plugin_linked_destination", "A plugin file must not be a link.");
+    await writeFile(absolutePath, file.bytes, { mode: file.mode ?? 0o600 });
+  }
+  const bundlePath = input.resourceFiles?.find(file => file.path.startsWith(".opencode/imported-plugins/"))?.path.split("/").slice(0, 3).join("/");
+  if (bundlePath) files.push({ configObjectId: `${input.resolved.plugin.id}/bundle`, versionId: null, objectType: "bundle", title: "Complete source package", path: bundlePath, updatedAt: null });
+
   const nextPaths = new Set(files.map((file) => file.path));
   const removedMcpNames = (existing?.files ?? []).flatMap((file) => {
     const name = file.objectType === "mcp" && !nextPaths.has(file.path) ? cloudPluginMcpNameFromPath(file.path) : null;
@@ -677,6 +723,7 @@ export async function installCloudPlugin(input: {
   await Promise.all(removedMcpNames.map((name) => removeMcp(input.serverConfig, input.workspaceId, name)));
 
   const imported: CloudImportedPlugin = {
+    ...(input.global ? { scope: "global" } : {}),
     pluginId: input.resolved.plugin.id,
     marketplaceId: input.marketplaceId,
     name: input.resolved.plugin.name,
@@ -684,11 +731,6 @@ export async function installCloudPlugin(input: {
     updatedAt: input.resolved.plugin.updatedAt,
     files,
     importedAt: existing?.importedAt ?? Date.now(),
-  };
-
-  const nextPlugins = {
-    ...cloudImports.plugins,
-    [input.resolved.plugin.id]: imported,
   };
 
   let nextMarketplaces = cloudImports.marketplaces;
@@ -710,8 +752,8 @@ export async function installCloudPlugin(input: {
 
   await writeInstalledCloudPlugins(input.serverConfig, input.workspaceId, (current) => ({
     ...current,
-    marketplaces: nextMarketplaces,
-    plugins: nextPlugins,
+    marketplaces: { ...current.marketplaces, ...nextMarketplaces },
+    plugins: { ...current.plugins, [input.resolved.plugin.id]: imported },
   }));
 
   return imported;
@@ -722,33 +764,36 @@ export async function removeCloudPlugin(input: {
   workspaceId: string;
   workspaceRoot: string;
   pluginId: string;
+  scope?: "workspace" | "global";
 }): Promise<CloudImportedPlugin> {
-  const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
+  let cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
+  let registryId = input.workspaceId;
+  if (input.scope === "global" || (!cloudImports.plugins[input.pluginId] && input.scope !== "workspace")) {
+    const globalImports = await readInstalledCloudPlugins(input.serverConfig, GLOBAL_MCP_ID);
+    if (input.scope === "global" || globalImports.plugins[input.pluginId]) { cloudImports = globalImports; registryId = GLOBAL_MCP_ID; }
+  }
   const imported = cloudImports.plugins[input.pluginId];
   if (!imported) throw new ApiError(404, "cloud_plugin_not_installed", "Marketplace package is not installed in this workspace.");
 
+  for (const file of imported.files) if (file.path.startsWith(".opencode/")) await assertPluginDestination(input.workspaceRoot, file.path, imported.scope === "global");
   await Promise.all(imported.files.map(async (file) => {
     const mcpName = file.objectType === "mcp" ? cloudPluginMcpNameFromPath(file.path) : null;
     if (mcpName) {
-      await removeMcp(input.serverConfig, input.workspaceId, mcpName);
+      await removeMcp(input.serverConfig, registryId, mcpName);
       return;
     }
-    await removePluginWorkspaceFile(input.workspaceRoot, file.path);
+    await removePluginWorkspaceFile(input.workspaceRoot, file.path, imported.scope === "global");
   }));
 
-  const nextPlugins = { ...cloudImports.plugins };
-  delete nextPlugins[input.pluginId];
-  const nextMarketplaces = Object.fromEntries(Object.entries(cloudImports.marketplaces).flatMap(([marketplaceId, marketplace]) => {
-    const pluginIds = marketplace.pluginIds.filter((id) => id !== input.pluginId);
-    if (pluginIds.length === 0) return [];
-    return [[marketplaceId, { ...marketplace, pluginIds }]];
-  }));
-
-  await writeInstalledCloudPlugins(input.serverConfig, input.workspaceId, (current) => ({
-    ...current,
-    marketplaces: nextMarketplaces,
-    plugins: nextPlugins,
-  }));
+  await writeInstalledCloudPlugins(input.serverConfig, registryId, current => {
+    const plugins = { ...current.plugins };
+    delete plugins[input.pluginId];
+    const marketplaces = Object.fromEntries(Object.entries(current.marketplaces).flatMap(([marketplaceId, marketplace]) => {
+      const pluginIds = marketplace.pluginIds.filter(id => id !== input.pluginId);
+      return pluginIds.length ? [[marketplaceId, { ...marketplace, pluginIds }]] : [];
+    }));
+    return { ...current, marketplaces, plugins };
+  });
 
   return imported;
 }
