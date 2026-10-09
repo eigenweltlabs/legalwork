@@ -80,6 +80,8 @@ import {
   storageComposerDisplayText,
   reviewComposerDisplayText,
   reviewComposerInstruction,
+  calendarComposerDisplayText,
+  calendarComposerInstruction,
   taskComposerDisplayText,
   taskComposerInstruction,
   type ComposerMentionKind,
@@ -96,6 +98,7 @@ import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
 import { createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
+import { PendingStatus } from "@/components/chat/pending-status";
 import { SessionScrollOverlay } from "./scroll-overlay";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "@/react-app/domains/session/status/session-activity-store";
 import { PermissionApprovalPanel } from "@/react-app/domains/session/chat/permission-approval-modal";
@@ -293,13 +296,7 @@ function messageHasVisibleAssistantOutput(message: UIMessage) {
 }
 
 function AssistantWaitingCard({ label = t("session.assistant_thinking") }: { label?: string }) {
-  return (
-    <div className="flex justify-start" role="status" aria-live="polite">
-      <div className="inline-flex items-center gap-1.5 px-1 py-1 text-[12px] text-dls-secondary">
-        <span className="lw-tool-shimmer">{label}</span>
-      </div>
-    </div>
-  );
+  return <PendingStatus label={label} />;
 }
 
 /**
@@ -1046,6 +1043,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(reviewComposerInstruction(value));
           return [{ type: "text", text: reviewComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "calendar") {
+          modelContexts.push(calendarComposerInstruction(value));
+          return [{ type: "text", text: calendarComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "task") {
           modelContexts.push(taskComposerInstruction(value));
           return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
@@ -1070,6 +1071,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
             ? storageComposerDisplayText(value)
             : kind === "review"
               ? reviewComposerDisplayText(value)
+            : kind === "calendar"
+              ? calendarComposerDisplayText(value)
             : kind === "task"
               ? taskComposerDisplayText(value)
               : kind === "upload"
@@ -1237,6 +1240,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
     setSending(false);
     setAwaitingAssistantBaseline(null);
+    useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, IDLE_STATUS);
     queryClient.setQueryData(statusQueryKey, IDLE_STATUS);
     // Take the run-start marker here so this stop is the run's single
@@ -1986,13 +1990,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
           )}
         >
           <div ref={contentRef} className="lw-session-column">
-            {showDelayedLoading && pendingSessionLoad ? (
+            {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
                   <div className="text-sm text-dls-secondary">{t("session.opening")}</div>
                 </div>
               </div>
-            ) : (snapshotQuery.isError || error) && !snapshot && renderedMessages.length === 0 ? (
+            ) : null) : (snapshotQuery.isError || error) && !snapshot && renderedMessages.length === 0 ? (
               <div className="px-6 py-8">
                 {error ? (
                   <SessionErrorCard

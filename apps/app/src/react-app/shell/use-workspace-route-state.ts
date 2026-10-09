@@ -40,6 +40,7 @@ import {
   mapDesktopWorkspace,
   mergeRouteWorkspaces,
   orderRouteWorkspaces,
+  resolveRouteWorkspaceId,
   type RouteSession,
   type RouteWorkspace,
 } from "./route-workspaces";
@@ -83,13 +84,16 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [token, setToken] = useState("");
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
   const [hasLoadedServerWorkspaces, setHasLoadedServerWorkspaces] = useState(false);
+  const hasLoadedServerWorkspacesRef = useRef(false);
   const [workspaceOrderIds, setWorkspaceOrderIds] = useState<string[]>(() => readWorkspaceOrderIds());
   const [sessionsByWorkspaceId, setSessionsByWorkspaceId] = useState<Record<string, RouteSession[]>>({});
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState<string>(() => readActiveWorkspaceId() ?? "");
-  const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
+  const selectedWorkspaceId = hasLoadedServerWorkspaces
+    ? resolveRouteWorkspaceId(workspaces, [routeWorkspaceId, legacySelectedWorkspaceId])
+    : routeWorkspaceId || legacySelectedWorkspaceId;
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces[0] ?? null),
     [selectedWorkspaceId, workspaces],
@@ -369,6 +373,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await resolveLegalworkConnection();
       onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
+        hasLoadedServerWorkspacesRef.current = false;
         setHasLoadedServerWorkspaces(false);
         // Keep `localServerRef` in lockstep with the disconnected state.
         // Otherwise a previously-cached baseUrl/token would still resolve a
@@ -402,6 +407,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         hostToken: resolvedHostToken || undefined,
       });
       const list = await legalworkClient.listWorkspaces();
+      hasLoadedServerWorkspacesRef.current = true;
       setHasLoadedServerWorkspaces(true);
       const nextWorkspaces = orderRouteWorkspaces(
         mergeRouteWorkspaces(list.items, desktopWorkspaces),
@@ -419,17 +425,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       // the user's last-active workspace from localStorage, the desktop's
       // activeId, the server's activeId, then the first known workspace.
       const persistedActiveId = readActiveWorkspaceId();
-      let nextWorkspaceId =
-        (routeWorkspaceId && nextWorkspaces.some((w) => w.id === routeWorkspaceId)
-          ? routeWorkspaceId
-          : "") ||
-        (persistedActiveId && nextWorkspaces.some((w) => w.id === persistedActiveId)
-          ? persistedActiveId
-          : "") ||
-        resolveWorkspaceListSelectedId(desktopList) ||
-        list.activeId?.trim() ||
-        nextWorkspaces[0]?.id ||
-        "";
+      let nextWorkspaceId = resolveRouteWorkspaceId(nextWorkspaces, [
+        routeWorkspaceId,
+        persistedActiveId,
+        resolveWorkspaceListSelectedId(desktopList),
+        list.activeId,
+      ], desktopWorkspaces);
       if (selectedSessionId) {
         const match = cachedEntries.find((entry) =>
           entry.sessions.some((session) => session?.id === selectedSessionId),
@@ -494,7 +495,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         void loadWorkspaceSessionsInBackground(orderedWorkspaces);
       }
     } catch (error) {
-      setHasLoadedServerWorkspaces(false);
       const message = describeRouteError(error);
       console.error("[session-route] refreshRouteState failed", error);
       recordInspectorEvent("route.refresh.error", {
@@ -503,7 +503,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         preservedWorkspaceCount: desktopWorkspaces.length,
       });
       setRouteError(message);
-      if (desktopWorkspaces.length > 0) {
+      if (!hasLoadedServerWorkspacesRef.current && desktopWorkspaces.length > 0) {
         const orderedDesktopWorkspaces = orderRouteWorkspaces(desktopWorkspaces, workspaceOrderIdsRef.current);
         setWorkspaces(orderedDesktopWorkspaces);
         setLegacySelectedWorkspaceId((current) =>
@@ -693,7 +693,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       }
       return;
     }
-    if (["/home", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
+    if (["/home", "/scheduled", "/calendar", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
     if (!routeWorkspaceId && selectedWorkspaceId) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
       return;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, FileText, Folder, Loader2, Paperclip, Plus, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Folder, Paperclip, Plus } from "lucide-react";
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ModelRef } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,10 @@ import { ModelSelect } from "@/components/model-select";
 import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { TaskSuggestionCards } from "@/components/chat/task-suggestions";
 import { WelcomeSurface } from "@/components/chat/session-welcome";
+import { MessageContent } from "@/components/ui/message";
+import { PendingStatus } from "@/components/chat/pending-status";
+import { LexicalPromptEditor } from "../surface/composer/editor";
+import { activeHomeAttachments, hasHomeFileDrop, homeAttachmentToken, readHomeFileReference, replaceHomeAttachmentTokens, stageHomeAttachment, type HomeDraftAttachment, type HomeFileReference } from "./home-attachments";
 import { t } from "@/i18n";
 import "./app-home.css";
 
@@ -15,7 +19,8 @@ export type AppHomeProps = {
   workspaces: WorkspaceInfo[];
   projectId: string | null;
   onProjectChange: (id: string | null) => void;
-  onSend: (text: string, files: File[]) => Promise<void>;
+  onCreateProject: () => void;
+  onSend: (text: string, attachments: HomeDraftAttachment[]) => Promise<void>;
   disabled: boolean;
   providerConnectedCount: number;
   onConnect: () => void;
@@ -30,80 +35,106 @@ export type AppHomeProps = {
 
 export function AppHome(props: AppHomeProps) {
   const [text, setText] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<HomeDraftAttachment[]>([]);
   const [sending, setSending] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const promptInput = useRef<HTMLTextAreaElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
   const busy = props.disabled || sending;
-  const canSend = !busy && Boolean(text.trim() || files.length);
+  const canSend = !busy && Boolean(text.trim());
+  const mentions = Object.fromEntries(attachments.map(({ value, kind }) => [value, kind]));
+  const focusPrompt = () => root.current?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus();
   useEffect(() => {
-    if (!props.disabled) promptInput.current?.focus();
-  }, [props.disabled]);
-  const addFiles = (incoming: File[]) => {
-    if (busy) return;
-    setFiles((current) => [...current, ...incoming.filter((file) => !current.includes(file))]);
+    if (!props.disabled && !sending) focusPrompt();
+  }, [props.disabled, sending]);
+
+  const addAttachments = (incoming: (File | HomeFileReference)[]) => {
+    if (busy || sendingRef.current) return;
+    const staged = incoming.map(stageHomeAttachment);
+    setAttachments((current) => [...current, ...staged.filter((item) => !current.some((existing) => existing.value === item.value))]);
+    setText((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}${staged.map(homeAttachmentToken).join(" ")} `);
+    requestAnimationFrame(focusPrompt);
   };
   const send = async () => {
     if (!canSend || sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
+    setDragging(false);
     setError(null);
     try {
-      await props.onSend(text, files);
-      setText("");
-      setFiles([]);
+      // Keep the submitted view until navigation has a populated conversation.
+      await props.onSend(text, activeHomeAttachments(text, attachments));
     } catch (error) {
       setError(error instanceof Error ? error.message : t("home.send_failed"));
-    } finally {
       sendingRef.current = false;
       setSending(false);
     }
   };
 
+  const editor = <LexicalPromptEditor
+    value={sending ? "" : text} mentions={mentions} disabled={busy}
+    placeholder={t("home.placeholder")} ariaLabel={t("home.prompt_label")} onChange={setText} onSubmit={send}
+    onPaste={(event) => {
+      if (!event.clipboardData.files.length) return;
+      event.preventDefault();
+      addAttachments(Array.from(event.clipboardData.files));
+    }}
+  />;
+  const controls = <div className="lw-home-composer-controls">
+    <Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t("home.add_files")} onClick={() => fileInput.current?.click()}><Plus size={23} /></Button>
+    <div className="lw-home-model-controls">
+      {props.selectedModel ? <>
+        <ModelSelect open={modelOpen} value={props.selectedModel} onOpenChange={setModelOpen} onChange={props.onModelChange} locked={props.modelLocked} disabled={busy} />
+        <ModelBehaviorSelect value={props.modelVariant} label={props.modelVariantLabel} options={props.modelBehaviorOptions} onChange={props.onModelVariantChange} disabled={busy} />
+      </> : <Button type="button" variant="ghost" disabled={busy} onClick={props.onConnect}>{t("task_suggestions.connect_provider")}</Button>}
+      <Button type="button" size="icon" className="lw-home-send" disabled={!canSend} onClick={() => void send()} aria-label={t("home.send")}><ArrowUp size={20} /></Button>
+    </div>
+  </div>;
+
+  if (sending) {
+    const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);
+    return (
+      <div ref={root} className="lw-home-sending lw-session-typography" data-testid="home-sending" aria-busy="true">
+        <div className="lw-home-pending-transcript px-4 py-4 md:px-8">
+          <div className="lw-session-column">
+            <div className="flex w-full flex-col items-end gap-2" data-message-role="user">
+              <MessageContent className="bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]">{displayText.trim()}</MessageContent>
+            </div>
+            <div className="mt-6"><PendingStatus preparing label={t("session.preparing_workspace")} /></div>
+          </div>
+        </div>
+        <div className="lw-home-pending-composer px-4 md:px-8"><div className="lw-session-column lw-home-composer">{editor}{controls}</div></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="lw-app-home" data-testid="app-home">
+    <div ref={root} className="lw-app-home" data-testid="app-home">
       <div className="lw-app-home-content">
         <WelcomeSurface replayKey="app-home">
-          <form aria-label={t("home.start_chat")} aria-busy={sending} onSubmit={(event) => { event.preventDefault(); void send(); }}>
-            <div className="lw-home-composer" onDragOver={(event) => {
-              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
-            }} onDrop={(event) => {
-              if (!event.dataTransfer.files.length) return;
+          <form aria-label={t("home.start_chat")} onSubmit={(event) => { event.preventDefault(); void send(); }}>
+            <div className="lw-home-composer" data-dragging={dragging || undefined} onDragOver={(event) => {
+              if (!hasHomeFileDrop(event.dataTransfer)) return;
               event.preventDefault();
-              addFiles(Array.from(event.dataTransfer.files));
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = busy ? "none" : "copy";
+              setDragging(!busy);
+            }} onDragLeave={(event) => {
+              if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragging(false);
+            }} onDrop={(event) => {
+              if (!hasHomeFileDrop(event.dataTransfer)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setDragging(false);
+              const reference = readHomeFileReference(event.dataTransfer);
+              addAttachments(reference ? [reference] : Array.from(event.dataTransfer.files));
             }}>
-              <textarea ref={promptInput} autoFocus aria-label={t("home.prompt_label")} placeholder={t("home.placeholder")} value={text} disabled={busy} rows={2} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  void send();
-                }
-              }} onPaste={(event) => {
-                if (!event.clipboardData.files.length) return;
-                event.preventDefault();
-                addFiles(Array.from(event.clipboardData.files));
-              }} />
-              {files.length ? <ul className="lw-home-attachments" aria-label={t("home.attached_files")}>
-                {files.map((file, index) => <li key={`${index}-${file.name}`}>
-                  <FileText size={15} aria-hidden="true" /><span title={file.name}>{file.name}</span>
-                  <Button type="button" variant="ghost" size="icon-xs" disabled={busy} aria-label={t("home.remove_file", { name: file.name })} onClick={() => setFiles((current) => current.filter((_, item) => item !== index))}><X size={13} /></Button>
-                </li>)}
-              </ul> : null}
-              <div className="lw-home-composer-controls">
-                <Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t("home.add_files")} onClick={() => fileInput.current?.click()}><Plus size={23} /></Button>
-                <div className="lw-home-model-controls">
-                  {props.selectedModel ? <>
-                    <ModelSelect open={modelOpen} value={props.selectedModel} onOpenChange={setModelOpen} onChange={props.onModelChange} locked={props.modelLocked} disabled={busy} />
-                    <ModelBehaviorSelect value={props.modelVariant} label={props.modelVariantLabel} options={props.modelBehaviorOptions} onChange={props.onModelVariantChange} disabled={busy} />
-                  </> : <Button type="button" variant="ghost" disabled={busy} onClick={props.onConnect}>{t("task_suggestions.connect_provider")}</Button>}
-                  <Button type="submit" size="icon" className="lw-home-send" disabled={!canSend} aria-label={t("home.send")}>
-                    {sending ? <Loader2 className="animate-spin" size={19} /> : <ArrowUp size={20} />}
-                  </Button>
-                </div>
-              </div>
+              {editor}
+              {controls}
             </div>
             <div className="lw-home-project-bar">
               <DropdownMenu>
@@ -111,7 +142,7 @@ export function AppHome(props: AppHomeProps) {
                   <Folder size={18} /><span>{project ? project.displayName || project.name : t("home.choose_project")}</span><ChevronDown size={14} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-80 min-w-64 overflow-y-auto">
-                  <DropdownMenuItem onClick={() => props.onProjectChange(null)}><Plus size={16} />{t("home.new_project")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={props.onCreateProject}><Plus size={16} />{t("home.new_project")}</DropdownMenuItem>
                   {props.workspaces.length ? <DropdownMenuSeparator /> : null}
                   {props.workspaces.map((workspace) => <DropdownMenuItem key={workspace.id} onClick={() => props.onProjectChange(workspace.id)}><Folder size={16} /><span className="truncate">{workspace.displayName || workspace.name}</span></DropdownMenuItem>)}
                 </DropdownMenuContent>
@@ -119,10 +150,10 @@ export function AppHome(props: AppHomeProps) {
               <Button type="button" variant="ghost" disabled={busy} onClick={() => fileInput.current?.click()}><Paperclip size={17} />{t("home.files")}</Button>
               <span className="lw-home-project-hint">{project ? t("home.existing_project_hint") : t("home.new_project_hint")}</span>
             </div>
-            <input ref={fileInput} className="sr-only" type="file" multiple tabIndex={-1} aria-label={t("home.add_files")} disabled={busy} onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+            <input ref={fileInput} className="sr-only" type="file" multiple tabIndex={-1} aria-label={t("home.add_files")} disabled={busy} onChange={(event) => { addAttachments(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
             {error ? <p role="alert" className="lw-home-error">{error}</p> : null}
           </form>
-          <TaskSuggestionCards className="lw-home-suggestions" providerConnectedCount={props.providerConnectedCount} onConnect={props.onConnect} onSelect={(prompt) => { if (!busy) { setText(prompt); promptInput.current?.focus(); } }} />
+          <TaskSuggestionCards className="lw-home-suggestions" providerConnectedCount={props.providerConnectedCount} onConnect={props.onConnect} onSelect={(prompt) => { if (!busy) { setText(prompt); requestAnimationFrame(focusPrompt); } }} />
         </WelcomeSurface>
       </div>
     </div>

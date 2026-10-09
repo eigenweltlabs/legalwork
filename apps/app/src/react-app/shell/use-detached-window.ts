@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 
 const STORAGE_KEY = "legalwork.detached-window";
 
-/** Window identity must survive navigation, route remounts, and reloads. */
+/** Secondary-window identity only coordinates background notifications; all windows render the full app. */
 export function useDetachedWindow() {
   const { search } = useLocation();
   const [detached] = useState(() => {

@@ -1,4 +1,5 @@
-export type ThemeMode = "light" | "dark" | "system";
+export type AppearanceMode = "light" | "dark" | "blackout";
+export type ThemeMode = AppearanceMode | "system";
 export type ResolvedThemeMode = "light" | "dark";
 
 const THEME_PREF_KEY = "legalwork.react.settings.theme-mode";
@@ -8,6 +9,7 @@ const mediaQuery = "(prefers-color-scheme: dark)";
 const listeners = new Set<() => void>();
 let currentMode: ThemeMode | null = null;
 let systemThemeCleanup: (() => void) | null = null;
+let storageSubscribed = false;
 
 const getMediaQueryList = () =>
   typeof window === "undefined" || typeof window.matchMedia !== "function"
@@ -15,11 +17,10 @@ const getMediaQueryList = () =>
     : window.matchMedia(mediaQuery);
 
 const isThemeMode = (value: string | null): value is ThemeMode =>
-  value === "light" || value === "dark" || value === "system";
+  value === "light" || value === "dark" || value === "blackout" || value === "system";
 
 const readStoredMode = (): ThemeMode => {
-  // Light is the product default. The Appearance tab is hidden, so the theme is
-  // effectively fixed to Light unless a value was previously stored.
+  // Light remains the default until the user chooses a theme in Customization.
   if (typeof window === "undefined") return "light";
   try {
     const stored = window.localStorage.getItem(THEME_PREF_KEY);
@@ -41,6 +42,7 @@ const readStoredMode = (): ThemeMode => {
 };
 
 const resolveMode = (mode: ThemeMode): ResolvedThemeMode => {
+  if (mode === "blackout") return "dark";
   if (mode !== "system") return mode;
   return getMediaQueryList()?.matches ? "dark" : "light";
 };
@@ -49,6 +51,8 @@ const applyTheme = (mode: ThemeMode) => {
   if (typeof document === "undefined") return;
   const resolved = resolveMode(mode);
   document.documentElement.dataset.theme = resolved;
+  // Blackout is a dark palette, so existing editor and component dark styles still apply.
+  document.documentElement.dataset.appearance = mode === "blackout" ? "blackout" : resolved;
   document.documentElement.style.colorScheme = resolved;
 };
 
@@ -60,7 +64,7 @@ const emitThemeChange = () => {
 
 const syncNativeTheme = (mode: ThemeMode) => {
   if (typeof window === "undefined") return;
-  void window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("__setNativeTheme", mode);
+  void window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("__setNativeTheme", mode === "blackout" ? "dark" : mode, mode);
 };
 
 const getCurrentMode = () => {
@@ -87,16 +91,35 @@ const ensureSystemThemeSubscription = () => {
   systemThemeCleanup = () => list.removeEventListener("change", handleSystemThemeChange);
 };
 
+const ensureStorageSubscription = () => {
+  if (storageSubscribed || typeof window === "undefined") return;
+  window.addEventListener("storage", (event) => {
+    if (event.storageArea !== window.localStorage) return;
+    if (event.key !== null && event.key !== THEME_PREF_KEY && !LEGACY_THEME_PREF_KEYS.includes(event.key)) return;
+    const mode = readStoredMode();
+    if (mode === getCurrentMode()) return;
+    currentMode = mode;
+    applyTheme(mode);
+    syncNativeTheme(mode);
+    emitThemeChange();
+  });
+  storageSubscribed = true;
+};
+
 export const bootstrapTheme = () => {
   const mode = getCurrentMode();
   applyTheme(mode);
   syncNativeTheme(mode);
   ensureSystemThemeSubscription();
+  ensureStorageSubscription();
 };
 
 export const getInitialThemeMode = () => getCurrentMode();
 
 export const getResolvedThemeMode = () => resolveMode(getCurrentMode());
+
+export const getResolvedAppearance = (): AppearanceMode =>
+  getCurrentMode() === "blackout" ? "blackout" : getResolvedThemeMode();
 
 const persistThemeMode = (mode: ThemeMode) => {
   if (typeof window === "undefined") return;
@@ -109,6 +132,7 @@ const persistThemeMode = (mode: ThemeMode) => {
 
 export const subscribeToTheme = (onChange: () => void) => {
   ensureSystemThemeSubscription();
+  ensureStorageSubscription();
   listeners.add(onChange);
   return () => {
     listeners.delete(onChange);

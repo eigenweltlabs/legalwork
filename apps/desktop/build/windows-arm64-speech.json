@@ -1,0 +1,8 @@
+{
+  "version": "1.13.3",
+  "sourceSha256": "01db47e87078d5f8fd0e163f9168436ad1e2ad783d61af51da44f117cae3e554",
+  "nativeSha256": "4c171671bb0ad53c7c1973b830ae417f2a7101333f1a8d39b4e5fa116b533fa1",
+  "onnxruntimeVersion": "1.24.4",
+  "onnxruntimeLicenseSha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+  "onnxruntimeNoticesSha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+}

@@ -65,7 +65,7 @@ export function registerOfficeToolRoutes(options: RegisterOfficeToolRoutesOption
     const waitMs = Number.isFinite(waitRaw) ? waitRaw * 1000 : 25_000;
     const documentUrl = ctx.url.searchParams.get("document") ?? undefined;
     const host = ctx.url.searchParams.get("host") ?? undefined;
-    const requests = await officeTools.poll(workspace.id, waitMs, documentUrl, host);
+    const requests = await officeTools.poll(workspace.id, waitMs, documentUrl, host, ctx.request.signal);
     return jsonResponse({ requests });
   });
 

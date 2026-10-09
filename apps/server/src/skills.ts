@@ -1,3 +1,4 @@
+import { composedSkill, SkillLessonInputSchema } from "./skill-composition.js";
 import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -81,8 +82,9 @@ async function parseSkillEntry(
   const { data, body } = parsed;
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
-  // Legacy tabular workflows remain callable under their original names and paths.
-  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-") ? "workflow" : undefined;
+  // Workflows are user-facing skills. Recognize older corrections without rewriting pinned packages.
+  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-")
+    || await exists(join(dirname(skillPath), "legalwork-extension.json")) ? "workflow" : undefined;
   const workflowType = kind === "workflow" ? "assistant" : undefined;
   const trigger =
     typeof data.trigger === "string"
@@ -203,6 +205,7 @@ export type UpsertSkillPayload = {
   description?: string;
   /** Defaults to "project" so existing callers keep writing into the workspace. */
   scope?: SkillScope;
+  lesson?: unknown;
 };
 
 export function buildSkillContent(payload: UpsertSkillPayload): { name: string; content: string } {
@@ -244,6 +247,9 @@ export async function upsertSkill(
   workspaceRoot: string,
   payload: UpsertSkillPayload,
 ): Promise<{ path: string; action: "added" | "updated"; scope: SkillScope }> {
+  const lesson = payload.lesson === undefined ? null : SkillLessonInputSchema.parse(payload.lesson);
+  const dependency = lesson ? await composedSkill(workspaceRoot, lesson.base, false) : null;
+  if (dependency?.chain.some(item => item.name === payload.name)) throw new ApiError(422, "skill_cycle", "A skill cannot extend itself or its descendants.");
   const skill = buildSkillContent(payload);
   const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
@@ -252,6 +258,13 @@ export async function upsertSkill(
   await mkdir(skillDir, { recursive: true });
   const skillPath = join(skillDir, "SKILL.md");
   const existed = await exists(skillPath);
+  if (lesson && existed) throw new ApiError(409, "skill_exists", "Choose a new name for this correction to preserve the existing skill.");
+  if (lesson && dependency) {
+    const base = dependency.chain.find(item => item.name === lesson.base)!;
+    const pinned = { ...lesson, baseHash: base.hash, createdAt: new Date().toISOString() };
+    skill.content += `\n## Extends ${lesson.base}\n\nBefore using this skill, call legalwork_skill_load with name=${lesson.base}. It resolves the base and applicable extensions and checks pinned versions. If the dependency changed, stop and review the correction.\n\n### Applies when\n${lesson.appliesWhen}\n\n### Expert correction\n${lesson.correction}\n\n### Regression examples\n${lesson.examples.map(example => `- Input: ${example.input}\n  Expected: ${example.expected}`).join("\n")}\n`;
+    await writeFile(join(skillDir, "legalwork-extension.json"), JSON.stringify(pinned, null, 2) + "\n", { flag: "wx" });
+  }
   await writeFile(skillPath, skill.content, "utf8");
   return { path: skillPath, action: existed ? "updated" : "added", scope };
 }

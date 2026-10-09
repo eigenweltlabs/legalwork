@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 // Dev-only fixture, deliberately absent from production Vite inputs.
 // Uses the real onboarding steps without creating projects or changing device settings.
-import { useRef, useState } from "react";
+import { StrictMode, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -110,10 +110,10 @@ function SyncFlowPreview() {
   return <>
     {plan ? <div className="p-12"><h1 className="text-2xl">Sync plan active · Preview</h1></div> : <AiPlansOverlay
       mode="onboarding"
-      variant={params.get("sync-flow") === "sign-in" ? "signed-out" : "new"}
+      variant={params.get("variant") === "ended" ? "ended" : params.get("sync-flow") === "sign-in" ? "signed-out" : "new"}
       account={null}
       serverReady
-      onStartSignIn={async () => { setWaiting(true); return { authorizeUrl: "about:blank", sessionId: "preview" }; }}
+      onStartSignIn={async options => { sessionStorage.setItem("preview-checkout", JSON.stringify(options)); setWaiting(true); return { authorizeUrl: "about:blank", sessionId: "preview" }; }}
       onWaitSignIn={async (_sessionId, options) => new Promise<{ connected: boolean }>(resolve => {
         finish.current = () => resolve({ connected: !options.cancelled() });
       })}
@@ -170,4 +170,4 @@ function SyncFlowPreview() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Preview root element not found");
-createRoot(root).render(<QueryClientProvider client={queryClient}><TooltipProvider><OnboardingPreview /></TooltipProvider></QueryClientProvider>);
+createRoot(root).render(<StrictMode><QueryClientProvider client={queryClient}><TooltipProvider><OnboardingPreview /></TooltipProvider></QueryClientProvider></StrictMode>);

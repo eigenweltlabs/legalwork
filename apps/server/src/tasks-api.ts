@@ -49,7 +49,7 @@ function parseStatus(value: unknown): TaskStatus {
 
 /**
  * A due date as the app sends it: a calendar day (`YYYY-MM-DD`, read as local
- * midnight on this machine — the firm's own clock) or a full ISO timestamp.
+ * a date without a time zone) or a full ISO timestamp.
  */
 export function parseDueDate(value: unknown): string | null {
   if (value === null) return null;
@@ -62,7 +62,7 @@ export function parseDueDate(value: unknown): string | null {
     if (local.getMonth() !== Number(day[2]) - 1 || local.getDate() !== Number(day[3])) {
       throw new ApiError(400, "invalid_task_due_date", "dueDate names a day that does not exist.");
     }
-    return local.toISOString();
+    return value.trim();
   }
   const ms = Date.parse(value);
   if (!Number.isFinite(ms)) {

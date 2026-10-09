@@ -236,7 +236,7 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
-  // Appearance/Language and Recovery are hidden (theme is fixed to Light).
+  // Appearance/Language live in Customization. Recovery is hidden.
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
@@ -390,7 +390,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 export function SettingsPage(props: SettingsPageProps) {
   return (
     <SettingsContent>
-      <SettingsPanel key={props.activeTab} className="lw-enter">
+      <SettingsPanel key={props.activeTab} className={props.activeTab === "extensions" ? "lw-enter lg:max-w-5xl" : "lw-enter"}>
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

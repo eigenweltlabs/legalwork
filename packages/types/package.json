@@ -33,6 +33,7 @@
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
     "./usage-control": "./src/usage-control.ts",
+    "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
     "./systemone": "./src/systemone.ts",
     "./ocr": "./src/ocr.ts",
     "./document-structure": "./src/document-structure.ts",
@@ -40,6 +41,9 @@
     "./corpus": "./src/corpus.ts",
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",
+    "./calendar": "./src/calendar.ts",
+    "./calculation": "./src/calculation.ts",
+    "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./org-policy": "./src/org-policy.ts",
     "./org-policy-view": "./src/org-policy-view.ts",
     "./firm-hub": "./src/firm-hub.ts"

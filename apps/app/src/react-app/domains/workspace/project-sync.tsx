@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Building2,
+  CalendarDays,
   ChevronDown,
   CloudOff,
   Folder,
@@ -97,6 +98,7 @@ const SCOPE_ROWS: { key: keyof ProjectSyncScope; icon: ReactNode; label: () => s
   { key: "documents", icon: <Folder />, label: () => t("project_sync.scope_documents") },
   { key: "reviews", icon: <Table2 />, label: () => t("project_sync.scope_reviews") },
   { key: "notes", icon: <StickyNote />, label: () => t("project_sync.scope_notes") },
+  { key: "calendar", icon: <CalendarDays />, label: () => t("calendar.sharing") },
   { key: "tasks", icon: <SquareCheck />, label: () => t("project_sync.scope_tasks") },
   { key: "recordings", icon: <Mic />, label: () => t("project_sync.scope_recordings") },
   { key: "metadata", icon: <SlidersHorizontal />, label: () => t("project_sync.scope_metadata") },
@@ -646,7 +648,7 @@ function ProjectShareDialog(props: {
                           <span className="flex-1">{row.label()}</span>
                           {isOwner ? (
                             <Switch
-                              checked={settings.scope[row.key]}
+                              checked={settings.scope[row.key] !== false}
                               disabled={!data.connected}
                               onCheckedChange={(checked) => update({ scope: { ...settings.scope, [row.key]: checked } })}
                             />

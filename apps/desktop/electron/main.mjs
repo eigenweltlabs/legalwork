@@ -36,6 +36,7 @@ import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
+import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resolveSystemArch as nativeSystemArch } from "./architecture.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
@@ -52,7 +53,10 @@ import {
 } from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
+import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
+import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
+import { resolveBrowserProject } from "./browser-project.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
@@ -492,13 +496,6 @@ function resolveAppIconPath({ dark = false } = {}) {
   return null;
 }
 
-function normalizeRuntimeArch(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (["arm64", "aarch64", "arm64e"].includes(normalized)) return "arm64";
-  if (["x64", "x86_64", "amd64"].includes(normalized)) return "x64";
-  return normalized || "unknown";
-}
-
 function isMacRunningUnderRosetta() {
   if (process.platform !== "darwin" || process.arch !== "x64") return false;
   try {
@@ -512,127 +509,23 @@ function isMacRunningUnderRosetta() {
 }
 
 function resolveSystemArch() {
-  if (process.platform === "darwin" && isMacRunningUnderRosetta()) return "arm64";
-  if (process.platform === "win32") {
-    return normalizeRuntimeArch(
-      process.env.PROCESSOR_ARCHITEW6432 || process.env.PROCESSOR_ARCHITECTURE || os.arch(),
-    );
-  }
-  if (typeof os.machine === "function") return normalizeRuntimeArch(os.machine());
-  return normalizeRuntimeArch(os.arch());
+  return nativeSystemArch({
+    platform: process.platform,
+    appArch: process.arch,
+    machine: typeof os.machine === "function" ? os.machine() : os.arch(),
+    env: process.env,
+    translated: app.runningUnderARM64Translation || isMacRunningUnderRosetta(),
+  });
 }
 
-function platformDownloadSlug() {
-  if (process.platform === "darwin") return "mac";
-  if (process.platform === "win32") return "win";
-  return "linux";
-}
-
-function downloadAssetArch(arch) {
-  if (process.platform === "linux" && arch === "x64") return "x86_64";
-  return arch;
-}
-
-function downloadAssetExtension() {
-  if (process.platform === "darwin") return "dmg";
-  if (process.platform === "win32") return "exe";
-  return "AppImage";
-}
-
-function updaterManifestName(arch) {
-  if (process.platform === "darwin") return "latest-mac.yml";
-  if (process.platform === "win32") return "latest.yml";
-  return arch === "arm64" ? "latest-linux-arm64.yml" : "latest-linux.yml";
-}
-
-function archLabel(arch) {
-  if (arch === "arm64") return "ARM";
-  if (arch === "x64") return "Intel";
-  return arch;
-}
-
-function parseUpdaterManifestFiles(raw) {
-  const files = [];
-  let current = null;
-  for (const line of String(raw || "").split(/\r?\n/)) {
-    const start = line.match(/^\s*-\s+url:\s*(.+?)\s*$/);
-    if (start) {
-      current = { url: start[1].trim().replace(/^['"]|['"]$/g, "") };
-      files.push(current);
-      continue;
-    }
-    const prop = line.match(/^\s{4}([A-Za-z][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
-    if (prop && current) {
-      current[prop[1]] = prop[2].trim().replace(/^['"]|['"]$/g, "");
-    }
-  }
-  return files.filter((file) => file.url);
-}
-
-function selectDownloadFile(files, arch) {
-  const assetArch = downloadAssetArch(arch);
-  const expected = `-${assetArch}-`;
-  const extension = downloadAssetExtension();
-  const matchingArch = files.filter((file) => file.url.includes(expected));
-  return (
-    matchingArch.find((file) => file.url.endsWith(`.${extension}`)) ||
-    matchingArch.find((file) => file.url.endsWith(".zip")) ||
-    matchingArch[0] ||
-    null
-  );
-}
-
-async function resolveCorrectArchitectureDownloadUrl(arch) {
-  for (const baseUrl of [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL]) {
-    try {
-      const response = await fetch(`${baseUrl}/${updaterManifestName(arch)}`, {
-        headers: { Accept: "text/yaml, text/plain, */*" },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
-      // No match is treated like an unreachable feed: a 200 with a
-      // non-manifest body (maintenance page, bot challenge) parses to nothing
-      // and must not short-circuit past the GitHub fallback.
-      if (!selected?.url) {
-        console.warn(`[architecture] no matching download in manifest via ${baseUrl}`);
-        continue;
-      }
-      return /^https?:\/\//i.test(selected.url)
-        ? selected.url
-        : new URL(selected.url, `${baseUrl}/`).toString();
-    } catch (error) {
-      console.warn(`[architecture] failed to resolve download URL via ${baseUrl}`, error);
-    }
-  }
-  return null;
-}
-
-async function resolveArchitectureInfo() {
-  const appArch = normalizeRuntimeArch(process.arch);
-  const systemArch = resolveSystemArch();
-  const version = app.getVersion();
-  const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
-  const assetName = `legalwork-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
-  // Only the mismatch gate consumes this, and resolving it hits the release
-  // feed. Skip the request outright when the arches already agree, so a
-  // correctly-installed app never touches the update feed on launch — that
-  // ping is not covered by the "check for updates automatically" setting.
-  const latestDownloadUrl =
-    appArch === systemArch ? null : await resolveCorrectArchitectureDownloadUrl(targetArch);
-  const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
-  return {
-    appArch,
-    appArchLabel: archLabel(appArch),
-    systemArch,
-    systemArchLabel: archLabel(systemArch),
-    mismatch: appArch !== systemArch && hasCorrectArchitectureDownload,
-    platform: process.platform === "win32" ? "windows" : process.platform,
-    version,
-    // Static fallback uses GitHub directly: if we reach this branch the
-    // tracked route did not answer, so handing out its URL would be dead too.
-    downloadUrl: latestDownloadUrl || `${RELEASE_DOWNLOAD_FALLBACK_BASE_URL}/${assetName}`,
+function resolveArchitectureInfo() {
+  return architectureInfo({
+    platform: process.platform,
+    appArch: normalizeRuntimeArch(process.arch),
+    systemArch: resolveSystemArch(),
+    version: app.getVersion(),
     releaseUrl: RELEASE_PAGE_URL,
-  };
+  });
 }
 
 const APP_ICON_PATH = resolveAppIconPath();
@@ -757,7 +650,8 @@ const IDLE_ROUTER_INFO = Object.freeze({
 });
 
 let mainWindow = null;
-const detachedSessionWindows = new Map();
+const secondaryWindows = new Set();
+const eventStreams = createEventStreams();
 const pendingDeepLinks = [];
 
 // Relay a content-free error signal to the renderer, which turns it into an
@@ -794,6 +688,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const browserPanel = createBrowserPanel({
+  resolveDownloadDirectory: async (context) => resolveBrowserProject(
+    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(),
+  ),
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
   isAllowedAppNavigation: (url) => isAppUrl(url) || url === SHUTDOWN_SCREEN_URL,
@@ -1579,7 +1476,8 @@ async function listLocalSkills(projectDir) {
         path: skillDir,
         description,
         trigger: extractTrigger(raw) ?? undefined,
-        kind: extractFrontmatterValue(raw, ["kind"]) ?? undefined,
+        // Saved corrections belong in Workflows, including older unprefixed packages.
+        kind: await pathExists(path.join(skillDir, "legalwork-extension.json")) ? "workflow" : extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,
       });
     }
@@ -1640,23 +1538,28 @@ function macosVibrancyForCurrentTheme() {
   return nativeTheme.shouldUseDarkColors ? "under-window" : "sidebar";
 }
 
-function applyNativeTheme(mode) {
+let nativeAppearanceMode = "system";
+
+function applyNativeTheme(mode, appearance) {
+  nativeAppearanceMode = appearance ?? mode;
   nativeTheme.themeSource = mode;
-
-  if (process.platform !== "darwin") {
-    return true;
-  }
-
-  mainWindow?.setVibrancy(macosVibrancyForCurrentTheme());
-  mainWindow?.setBackgroundColor("#00000001");
-  for (const window of detachedSessionWindows.values()) {
-    if (window.isDestroyed()) continue;
-    window.setVibrancy(macosVibrancyForCurrentTheme());
-    window.setBackgroundColor("#00000001");
-  }
-
+  updateWindowChrome();
   return true;
 }
+
+function updateWindowChrome() {
+  for (const window of [mainWindow, ...secondaryWindows]) {
+    if (!window || window.isDestroyed()) continue;
+    if (process.platform === "darwin") {
+      window.setVibrancy(macosVibrancyForCurrentTheme());
+      window.setBackgroundColor("#00000001");
+    } else if (process.platform === "win32") {
+      window.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"));
+    }
+  }
+}
+
+nativeTheme.on("updated", updateWindowChrome);
 
 function sessionWindowRoute(workspaceId, sessionId) {
   return `/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(sessionId)}?detached=1`;
@@ -1674,48 +1577,31 @@ async function openDetachedSessionWindow(event, input = {}) {
     throw new Error("A workspace and chat session are required to open a new window.");
   }
 
-  return openDetachedWindow(event, `${workspaceId}:${sessionId}`, sessionWindowRoute(workspaceId, sessionId), input.title);
+  return openAppWindow(event, sessionWindowRoute(workspaceId, sessionId), input.title);
 }
 
 async function openDetachedProjectWindow(event, input) {
   const workspaceId = String(input?.workspaceId ?? "").trim();
   const page = input?.page;
-  if (!workspaceId || !["home", "reviews", "tasks", "files"].includes(page)) {
+  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files"].includes(page)) {
     throw new Error("A workspace and valid project page are required to open a new window.");
   }
   const path = page === "home" || page === "files" ? "project" : page;
   const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
-  return openDetachedWindow(event, `project:${workspaceId}:${page}`, route, input.title);
+  return openAppWindow(event, route, input.title);
 }
 
-async function openDetachedWindow(event, key, route, title) {
-  const existing = detachedSessionWindows.get(key);
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.show();
-    existing.focus();
-    return true;
-  }
-
+async function openAppWindow(event, route, title = "") {
   const preloadPath = path.join(__dirname, "preload.cjs");
-  const windowAppearanceOptions = {};
-  if (process.platform === "darwin") {
-    Object.assign(windowAppearanceOptions, {
-      backgroundColor: "#00000001",
-      titleBarStyle: "hiddenInset",
-      vibrancy: macosVibrancyForCurrentTheme(),
-      visualEffectState: "active",
-    });
-  }
 
   const sessionWindow = new BrowserWindow({
-    width: 980,
-    height: 760,
+    width: 1180,
+    height: 820,
     minWidth: 640,
     minHeight: 480,
     title: detachedWindowTitle(title),
     show: false,
-    ...windowAppearanceOptions,
+    ...windowAppearanceOptions(process.platform, nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"),
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
     webPreferences: {
       backgroundThrottling: false,
@@ -1726,7 +1612,7 @@ async function openDetachedWindow(event, key, route, title) {
       plugins: true,
     },
   });
-  detachedSessionWindows.set(key, sessionWindow);
+  secondaryWindows.add(sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
   logWindowErrors(sessionWindow.webContents);
@@ -1740,9 +1626,7 @@ async function openDetachedWindow(event, key, route, title) {
     sessionWindow.focus();
   });
   sessionWindow.on("closed", () => {
-    if (detachedSessionWindows.get(key) === sessionWindow) {
-      detachedSessionWindows.delete(key);
-    }
+    secondaryWindows.delete(sessionWindow);
   });
 
   guardPreviewNavigation(sessionWindow.webContents);
@@ -1777,6 +1661,15 @@ async function openDetachedWindow(event, key, route, title) {
 // typecheck:electron`.
 /** @type {import("@legalwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
+  "__streamOpen": (event, id, url, headers) => eventStreams.open(event.sender, id, url, headers),
+  "__streamRead": (event, id) => eventStreams.read(event.sender, id),
+  "__streamCancel": async (event, id) => eventStreams.cancel(event.sender, id),
+  "openAppWindow": async (event, input) => {
+    if (!["home", "scheduled", "calendar", "projects", "workflows", "tasks", "recorder", "evals"].includes(input?.page)) {
+      throw new Error("A valid app page is required to open a new window.");
+    }
+    return openAppWindow(event, `/${input.page}?detached=1`);
+  },
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
@@ -2776,10 +2669,13 @@ const desktopCommandHandlers = {
       return true;
   },
   "__setNativeTheme": async (event, ...args) => {
-      return applyNativeTheme(String(args[0]));
+      return applyNativeTheme(String(args[0]), args[1]);
   },
   "__setApplicationMenuVisible": async (event, ...args) => {
       return applicationMenu.setVisible(args[0]);
+  },
+  "__showApplicationMenu": async (event, ...args) => {
+      return applicationMenu.popup(activeWindowFromEvent(event), args[0], args[1]);
   },
 };
 
@@ -2801,22 +2697,13 @@ async function createMainWindow() {
   if (mainWindow) return mainWindow;
 
   const preloadPath = path.join(__dirname, "preload.cjs");
-  const windowAppearanceOptions = {};
-  if (process.platform === "darwin") {
-    Object.assign(windowAppearanceOptions, {
-      backgroundColor: "#00000001",
-      titleBarStyle: "hiddenInset",
-      vibrancy: macosVibrancyForCurrentTheme(),
-      visualEffectState: "active",
-    });
-  }
 
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 820,
     title: APP_NAME,
     show: false,
-    ...windowAppearanceOptions,
+    ...windowAppearanceOptions(process.platform, nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"),
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
     webPreferences: {
       // The renderer owns session dispatch + event streams; keep it running
@@ -2956,6 +2843,11 @@ ipcMain.handle("legalwork:shell:relaunch", async () => {
   app.exit(0);
 });
 ipcMain.handle("legalwork:system:architecture", async () => resolveArchitectureInfo());
+ipcMain.handle("legalwork:system:architecture-download", async () => findArchitectureDownload({
+  platform: process.platform,
+  arch: resolveSystemArch(),
+  feeds: [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL],
+}));
 ipcMain.handle("legalwork:system:microphoneStatus", async () => {
   if (process.platform !== "darwin") return { platform: process.platform, status: "not-mac" };
   return { platform: process.platform, status: systemPreferences.getMediaAccessStatus("microphone") };

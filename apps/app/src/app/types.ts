@@ -426,6 +426,7 @@ export type ModelRef = {
 export type ModelBehaviorOption = {
   value: string | null;
   label: string;
+  isDefault?: boolean;
   description: string;
 };
 

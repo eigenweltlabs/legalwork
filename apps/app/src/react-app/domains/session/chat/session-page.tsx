@@ -1,3 +1,4 @@
+import { WindowMenubar } from "@/react-app/shell/window-menubar";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
@@ -61,8 +62,8 @@ import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
-import { useShellConfig } from "../../../shell/shell-config";
-import { workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute } from "../../../shell/workspace-routes";
+import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
+import { workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
@@ -123,6 +124,7 @@ export type SessionPageHistoryControls = {
 export type SessionPageSidebarProps = {
   onOpenSearch?: () => void;
   onShowChats?: () => void;
+  onNewChat?: () => void;
   onShowProjects?: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
@@ -131,7 +133,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -161,8 +163,6 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
-  /** Native secondary chat window: omit the primary navigation sidebar. */
-  detached?: boolean;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
   selectedWorkspaceDisplay: {
@@ -225,9 +225,10 @@ export type SessionPageProps = {
   mainView?: React.ReactNode;
   projectsPage?: boolean;
   homePage?: boolean;
-  projectPage?: "home" | "tasks" | "reviews";
+  projectPage?: "calendar" | "home" | "tasks" | "reviews";
   onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
+  projectCalendarView?: React.ReactNode;
   onStartProjectRecording: () => void;
   onCreateProjectSession?: (shareRecording: boolean) => void | Promise<void>;
   terminalOpen?: boolean;
@@ -354,10 +355,13 @@ export function SessionPage(props: SessionPageProps) {
   const fileSidebar = useUiStateStore((state) => state.fileSidebarState[panelStateSessionId] ?? null);
   const setFileSidebarState = useUiStateStore((state) => state.setFileSidebarState);
   useEffect(() => {
-    if (props.detached && props.projectPage && new URLSearchParams(location.search).get("panel") === "files") {
+    const search = new URLSearchParams(location.search);
+    if (props.projectPage && search.get("panel") === "files") {
       setFileSidebarState(panelStateSessionId, "files");
+      search.delete("panel");
+      navigate({ pathname: location.pathname, search: search.toString() }, { replace: true });
     }
-  }, [props.detached, props.projectPage, location.search, panelStateSessionId, setFileSidebarState]);
+  }, [props.projectPage, location.pathname, location.search, navigate, panelStateSessionId, setFileSidebarState]);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const transcriptTargets = usePanelTabStore((state) => (
@@ -594,6 +598,7 @@ export function SessionPage(props: SessionPageProps) {
     args: [
       { name: "url", type: "string", required: true, description: "The website URL to open." },
       { name: "provider", type: "string", description: "Browser provider. Use builtin or auto. External is reserved for future support." },
+      { name: "directory", type: "string", description: "Originating agent project directory. Downloads remain bound to this project." },
     ],
     previewArgs: { url: "https://example.com", provider: "builtin" },
     disabled: !isElectronRuntime(),
@@ -605,9 +610,11 @@ export function SessionPage(props: SessionPageProps) {
         return { ok: false, error: `Browser provider is not available yet: ${provider}` };
       }
       setCurrentSidePanel("panel");
-      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider);
+      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider, {
+        directory: controlStringArg(args, "directory") || props.selectedWorkspaceRoot,
+      });
     },
-  }), [setCurrentSidePanel]);
+  }), [props.selectedWorkspaceRoot, setCurrentSidePanel]);
   useControlAction(openBrowserUrlControlAction);
   const setBrowserProxyControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "browser.set_proxy",
@@ -867,8 +874,6 @@ export function SessionPage(props: SessionPageProps) {
     props.startupPhase !== "sessionIndexReady" &&
     props.startupPhase !== "firstSessionReady" &&
     props.startupPhase !== "ready";
-  const showSessionLoadingState =
-    Boolean(props.selectedSessionId) && props.sessionLoadingById(props.selectedSessionId) && !showWorkspaceSetupEmptyState;
   const sidebarInitialLoading = useMemo(() => getSidebarInitialLoading(props.sidebar), [props.sidebar]);
   // Derive the main-pane error from the same data the sidebar uses so the two
   // panes can never disagree. We check (in priority order):
@@ -910,6 +915,10 @@ export function SessionPage(props: SessionPageProps) {
       reactSessionToken &&
       props.surface,
   );
+  // The chat owns snapshot loading once its endpoint is ready. Background
+  // workspace refreshes must not unmount an already-visible conversation.
+  const showSessionLoadingState = !canRenderReactSurface &&
+    Boolean(props.selectedSessionId) && props.sessionLoadingById(props.selectedSessionId) && !showWorkspaceSetupEmptyState;
   const canRenderSplitSurface = Boolean(canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
 
   const openSessionTab = useCallback((workspaceId: string, sessionId: string) => {
@@ -929,23 +938,33 @@ export function SessionPage(props: SessionPageProps) {
     });
   }, [props.sidebar.workspaceSessionGroups]);
 
-  const openProjectWindow = useCallback((workspaceId: string, page: "home" | "reviews" | "tasks" | "files") => {
+  const openNavWindow = useCallback((key: ShellNavKey) => {
+    const pages = {
+      navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
+      navTasks: "tasks", navRecorder: "recorder", navEvaluations: "evals",
+    } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
+    void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
+      toast.error(t("projects.open_in_new_window_failed"));
+    });
+  }, []);
+
+  const openProjectWindow = useCallback((workspaceId: string, page: "home" | "calendar" | "reviews" | "tasks" | "files") => {
     if (!isElectronRuntime()) return;
-    const title = t(page === "reviews" ? "projects.tab_review" : page === "tasks" ? "projects.tasks" : page === "files" ? "projects.files" : "projects.home");
+    const title = t(page === "calendar" ? "calendar.title" : page === "reviews" ? "projects.tab_review" : page === "tasks" ? "projects.tasks" : page === "files" ? "projects.files" : "projects.home");
     void desktopBridge.openProjectWindow({ workspaceId, page, title }).catch(() => {
       toast.error(t("projects.open_in_new_window_failed"));
     });
   }, []);
 
   useEffect(() => {
-    if (props.detached || !props.selectedSessionId || !isElectronRuntime()) return;
+    if (!props.selectedSessionId || !isElectronRuntime()) return;
     const selectedSessionId = props.selectedSessionId;
     const handleNativeOpenSessionWindow = () => {
       openSessionWindow(props.selectedWorkspaceId, selectedSessionId);
     };
     window.addEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
     return () => window.removeEventListener(NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT, handleNativeOpenSessionWindow);
-  }, [openSessionWindow, props.detached, props.selectedSessionId, props.selectedWorkspaceId]);
+  }, [openSessionWindow, props.selectedSessionId, props.selectedWorkspaceId]);
 
   const closeSessionTab = useCallback((sessionId: string) => {
     setSessionTabs((current) => current.filter((tab) => tab.sessionId !== sessionId));
@@ -1032,7 +1051,7 @@ export function SessionPage(props: SessionPageProps) {
     onOpenProject={async (id, page) => {
       if (await props.sidebar.onSelectWorkspace(id) === false) return;
       if (page === "projectFiles") setFileSidebarState(`project:${id}`, "files");
-      navigate(page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
+      navigate(page === "projectCalendar" ? workspaceCalendarRoute(id) : page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
     }}
     onOpenSession={openSessionTab}
     onNewChat={props.sidebar.onCreateChatInWorkspace}
@@ -1043,7 +1062,7 @@ export function SessionPage(props: SessionPageProps) {
     newChatDisabled={props.sidebar.newChatDisabled}
   /> : props.projectPage === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews onOpenSession={sessionId => props.sidebar.onOpenSession(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
-  ) : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
+  ) : props.projectPage === "calendar" ? props.projectCalendarView : props.projectPage === "tasks" ? props.projectTasksView : props.projectPage === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
@@ -1112,6 +1131,8 @@ export function SessionPage(props: SessionPageProps) {
     : props.projectPage === "home" ? workspaceName
     : props.projectPage === "reviews" ? t("projects.tab_review")
     : props.projectPage === "tasks" ? t("projects.tasks")
+    : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
+    : props.projectPage === "calendar" || props.sidebar.activeNav === "calendar" ? t("calendar.title")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")
@@ -1119,10 +1140,10 @@ export function SessionPage(props: SessionPageProps) {
     : props.sidebar.activeNav === "extensions" ? t("extensions.title")
     : showWorkspaceSetupEmptyState ? t("session.create_or_connect_workspace")
     : selectedSessionTitle || t("session.default_title");
-  const sidebarVisible = !props.detached && shellConfig.sidebar && chatSidebarOpen && !mobile;
+  const sidebarVisible = shellConfig.sidebar && chatSidebarOpen && !mobile;
   useEffect(() => {
-    if (props.detached) document.title = windowTitle;
-  }, [props.detached, windowTitle]);
+    document.title = windowTitle;
+  }, [windowTitle]);
 
   return (
     <ProjectPersonalisationProvider groups={props.sidebar.workspaceSessionGroups} client={props.environmentClient ?? null}>
@@ -1142,11 +1163,10 @@ export function SessionPage(props: SessionPageProps) {
         <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center electron:titlebar-drag">
           <div className="flex h-full min-w-0 flex-1 items-center gap-2 pr-2">
             <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
-              {!props.detached && <>
-                <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
-                <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
-                {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
-              </>}
+              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
+              <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
+              {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+              <WindowMenubar />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
@@ -1155,7 +1175,7 @@ export function SessionPage(props: SessionPageProps) {
             </div>
             <div className="flex items-center gap-1.5 text-gray-10 titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
-              {!hasMainView && !props.detached && props.selectedSessionId && isElectronRuntime() ? (
+              {!hasMainView && props.selectedSessionId && isElectronRuntime() ? (
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -1188,15 +1208,17 @@ export function SessionPage(props: SessionPageProps) {
           {!mobile && fileSidebar && <div ref={setFilesHeaderTarget} data-panel-header="files" className="lw-window-panel-header" style={{ width: filesHeaderWidth }} />}
           {!mobile && (sidePanelOpen || fileSidebar) && <div aria-hidden className="shrink-0" style={{ width: shellConfig.panelRail ? "calc(var(--lw-window-right-rail-width) + 1px)" : 1 }} />}
         </header>
-        {!props.detached ? <AppSidebar
+        <AppSidebar
           accountClient={props.environmentClient ?? props.legalworkServerClient ?? null}
           workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
+          projectFilesOpen={fileSidebar === "files"}
+          onOpenNavWindow={isElectronRuntime() ? openNavWindow : undefined}
           onOpenProjectFiles={(workspaceId) => {
             if (workspaceId === props.selectedWorkspaceId && !props.mainView) {
-              setFileSidebarState(panelStateSessionId, "files");
+              openFilesRailPane();
             } else {
               setFileSidebarState(`project:${workspaceId}`, "files");
               void props.sidebar.onSelectWorkspace(workspaceId);
@@ -1239,11 +1261,12 @@ export function SessionPage(props: SessionPageProps) {
           onShowTasks={props.sidebar.onShowTasks}
           onOpenSearch={props.sidebar.onOpenSearch}
           onShowChats={props.sidebar.onShowChats}
+          onNewChat={props.sidebar.onNewChat}
           onShowProjects={props.sidebar.onShowProjects}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
-        /> : null}
+        />
         {hasMainView ? (
           // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
@@ -1369,7 +1392,7 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {showDelayedSessionLoadingState ? (
+              {showDelayedSessionLoadingState && !canRenderReactSurface ? (
                 <div className="px-6 py-16">
                   <div
                     className="mx-auto flex max-w-[320px] flex-col items-center gap-3 text-center"
@@ -1384,7 +1407,7 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {!showDelayedSessionLoadingState && canRenderReactSurface ? (
+              {canRenderReactSurface ? (
                 <div className="flex h-full min-h-0 flex-col">
                   {/* Session tab bar removed per design. */}
                   {false ? (

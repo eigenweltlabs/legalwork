@@ -40,15 +40,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
 import { ListPagination } from "@/components/list-pagination";
-import { SectionHeading } from "@/react-app/design-system/surface";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SectionHeading, Surface } from "@/react-app/design-system/surface";
+import { FilterSelect as SortFilterChip } from "@/components/filter-select";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -398,20 +391,19 @@ export function TasksPane(props: TasksPaneProps) {
     // panels can take the rest) — list beside detail — and below that the
     // detail takes over. task-detail.tsx uses the same breakpoint to swap its
     // back arrow for a close cross.
-    <div className={cn("@container/tasks flex min-h-0", !props.embedded && "h-full flex-1")}>
+    <div className={cn("@container/tasks flex min-h-0 min-w-0 h-full", !props.embedded && "flex-1")}>
       <ContextMenu disabled={!props.embedded}>
-      <ContextMenuTrigger render={<section />}
+      <ContextMenuTrigger render={props.embedded ? <Surface role="region" /> : <section />}
         aria-label={t(inTrash ? "tasks.trash" : "tasks.title")}
         className={cn(
           "min-h-0 w-full flex-col",
           showingDetail
             ? "hidden @min-[880px]/tasks:flex @min-[880px]/tasks:w-[340px] @min-[880px]/tasks:shrink-0 @min-[880px]/tasks:border-e @min-[880px]/tasks:border-border @min-[1200px]/tasks:w-[380px]"
-            : props.embedded ? "flex" : "lw-page-content flex pb-8",
+            : props.embedded ? "flex overflow-hidden rounded-xl border-border/60 shadow-none" : "lw-page-content flex pb-8",
         )}
       >
         {props.embedded ? (
-          <SectionHeading className="mb-3" title={t("projects.tasks")} action={<>
-            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={props.onViewAll}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
+          <SectionHeading className="items-center border-b border-border/50 px-4 py-3" title={t("projects.tasks")} action={<>
             {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 className="size-4" /></Button> : null}
             <Button variant="ghost" size="icon-sm" aria-label={t("tasks.new_task")} title={t("tasks.new_task")} onClick={() => setCreating(true)}><Plus className="size-4" /></Button>
           </>} />
@@ -540,7 +532,7 @@ export function TasksPane(props: TasksPaneProps) {
           ) : null}
         </header>}
 
-        <div className={cn(props.embedded ? "overflow-hidden rounded-xl border border-border bg-background" : "min-h-0 flex-1 overflow-y-auto")}>
+        <div className={cn(props.embedded ? "flex min-h-36 flex-1 flex-col" : "min-h-0 flex-1 overflow-y-auto")}>
           <TaskList
             tasks={visibleTasks}
             groups={groups}
@@ -579,8 +571,11 @@ export function TasksPane(props: TasksPaneProps) {
             onCreate={(pageLayout || props.embedded) && props.client ? () => setCreating(true) : undefined}
             compactEmpty={props.embedded}
           />
-          {props.embedded ? <ListPagination label={t("tasks.pagination")} page={currentPage} pageSize={HOME_PAGE_SIZE} total={tasks.length} hasMore={tasksQuery.hasNextPage} busy={tasksQuery.isFetchingNextPage} onPageChange={(next) => void changePage(next)} className="border-t border-border/60" /> : null}
         </div>
+        {props.embedded ? <footer className="mt-auto border-t border-border/50">
+          <ListPagination label={t("tasks.pagination")} page={currentPage} pageSize={HOME_PAGE_SIZE} total={tasks.length} hasMore={tasksQuery.hasNextPage} busy={tasksQuery.isFetchingNextPage} onPageChange={(next) => void changePage(next)} />
+          <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={props.onViewAll}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
+        </footer> : null}
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem disabled={!props.client} onClick={() => setCreating(true)}><Plus />{t("tasks.new_task")}</ContextMenuItem>
@@ -653,42 +648,6 @@ export function TasksPane(props: TasksPaneProps) {
         />
       ) : null}
     </div>
-  );
-}
-
-/** A filter as a chip: its icon says which, its value says what. */
-function SortFilterChip(props: {
-  icon: LucideIcon;
-  compact?: boolean;
-  label: string;
-  value: string;
-  options: FilterOption[];
-  onChange: (value: string) => void;
-}) {
-  const Icon = props.icon;
-  return (
-    <Select value={props.value} items={props.options} onValueChange={(value) => props.onChange(value ?? "")}>
-      <SelectTrigger
-        size="sm"
-        aria-label={props.label}
-        title={props.options.find((option) => option.value === props.value)?.label}
-        className="h-7 min-w-0 max-w-full gap-1.5 rounded-lg border-transparent bg-transparent px-2 text-xs text-foreground hover:bg-muted/60 data-[size=sm]:h-7"
-      >
-        <Icon aria-hidden className="size-3.5 text-muted-foreground" />
-        <SelectValue className={props.compact ? "sr-only" : "min-w-0 truncate"} />
-      </SelectTrigger>
-      {/* As wide as the entries need rather than as the chip, which may only
-          say "All". */}
-      <SelectContent align="start" className="w-auto min-w-(--anchor-width) max-w-80">
-        <SelectGroup>
-          {props.options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              <OptionText primary={option.primary ?? option.label} detail={option.detail} />
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
   );
 }
 

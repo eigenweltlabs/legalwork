@@ -15,8 +15,13 @@ const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
 export function createApplicationMenu({ appName, getWindow, collectSupportLogs }) {
   let applicationMenuVisible = process.platform === "darwin";
 
+  async function activeMenuWindow() {
+    const focused = BrowserWindow.getFocusedWindow();
+    return focused && !focused.isDestroyed() ? focused : await getWindow();
+  }
+
   async function openSettingsFromNativeMenu() {
-    const win = await getWindow();
+    const win = await activeMenuWindow();
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -37,7 +42,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   }
 
   async function checkForUpdatesFromNativeMenu() {
-    const win = await getWindow();
+    const win = await activeMenuWindow();
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -45,7 +50,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   }
 
   async function toggleSidebarFromNativeMenu() {
-    const win = await getWindow();
+    const win = await activeMenuWindow();
     win.webContents.send(NATIVE_MENU_TOGGLE_SIDEBAR_EVENT);
   }
 
@@ -54,7 +59,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   // built-in resetZoom/zoomIn/zoomOut roles bypass that pathway (and zoom
   // whichever webContents is focused, including the embedded browser view).
   async function zoomFromNativeMenu(action) {
-    const win = await getWindow();
+    const win = await activeMenuWindow();
     win.webContents.send(NATIVE_MENU_ZOOM_EVENT, action);
   }
 
@@ -246,7 +251,21 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   function applyVisibility(window) {
     if (process.platform === "darwin") return;
     window.setAutoHideMenuBar(false);
-    window.setMenuBarVisibility(applicationMenuVisible);
+    // Windows menus live in the renderer title bar. Alt must not add a second row.
+    window.setMenuBarVisibility(process.platform === "win32" ? false : applicationMenuVisible);
+  }
+
+  function popup(window, label, point) {
+    if (process.platform !== "win32" || !window || window.isDestroyed()) return false;
+    if (!["File", "Edit", "View", "Help"].includes(label)) return false;
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return false;
+    const menu = Menu.getApplicationMenu()?.items.find((item) =>
+      item.label.replace(/&/g, "") === label || (label === "Help" && item.role === "help"),
+    )?.submenu;
+    if (!menu) return false;
+    const zoom = window.webContents.getZoomFactor();
+    menu.popup({ window, x: Math.round(point.x * zoom), y: Math.round(point.y * zoom) });
+    return true;
   }
 
   function setVisible(visible) {
@@ -257,5 +276,5 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
     return applicationMenuVisible;
   }
 
-  return { install, applyVisibility, setVisible };
+  return { install, applyVisibility, setVisible, popup };
 }

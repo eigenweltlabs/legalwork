@@ -1,0 +1,40 @@
+{
+  "benchmark_version": "0.8.0",
+  "files": {
+    "koeln/Quellenabschrift.txt": {
+      "benchmark_task": "germany/service-evidence--docket-koeln-served-a",
+      "source": "tasks/germany/service-evidence--docket-koeln-served-a/documents/Quellenabschrift.txt",
+      "sha256": "9cab93281f52e390253b9832662bf159d5439b15f8dfadc9d65c120cd06471d9"
+    },
+    "koeln/Zustellungsnachweis.txt": {
+      "benchmark_task": "germany/service-evidence--docket-koeln-served-a",
+      "source": "tasks/germany/service-evidence--docket-koeln-served-a/documents/Zustellungsnachweis.txt",
+      "sha256": "4f3464b983d273152130fa77f2d8f43f0d7dd43fa14f609f5a4de5d7373683b8"
+    },
+    "koeln/provenance.txt": {
+      "benchmark_task": "germany/service-evidence--docket-koeln-served-a",
+      "source": "tasks/germany/service-evidence--docket-koeln-served-a/documents/provenance.txt",
+      "sha256": "8ca2a61f3932e0c2f90dd98ab2d184e5e3255e5ace7a1face831f7f7ae98a739"
+    },
+    "koeln/gerichtliche-verfuegung.pdf": {
+      "benchmark_task": "germany/service-evidence--docket-koeln-served-a",
+      "source": "tasks/germany/service-evidence--docket-koeln-served-a/documents/gerichtliche-verfuegung.pdf",
+      "sha256": "095c1570fb02523ba67ccd302b47a5e7e3f95401c26b4270d0546d7637d2b6e9"
+    },
+    "koeln/Mandatsnotiz.txt": {
+      "benchmark_task": "germany/service-evidence--docket-koeln-served-a",
+      "source": "tasks/germany/service-evidence--docket-koeln-served-a/documents/Mandatsnotiz.txt",
+      "sha256": "b7974481291a336e3d67f3c4c54b33a5251b2f83b80d103f567a0a511d621a90"
+    },
+    "mahnbescheid/Mahnbescheid.txt": {
+      "benchmark_task": "germany/missing-facts--docket-payment-order-longstop",
+      "source": "tasks/germany/missing-facts--docket-payment-order-longstop/documents/Mahnbescheid.txt",
+      "sha256": "2e70213494c9af6e4924cf22ad6995175057b55075feb9a647db92bcc901da6d"
+    },
+    "mahnbescheid/Mandatsnotiz.txt": {
+      "benchmark_task": "germany/missing-facts--docket-payment-order-longstop",
+      "source": "tasks/germany/missing-facts--docket-payment-order-longstop/documents/Mandatsnotiz.txt",
+      "sha256": "d274e0fbee08dad802eb4160874c89108a105be8ed65244223867ec74cce1389"
+    }
+  }
+}

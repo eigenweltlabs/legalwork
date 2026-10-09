@@ -1,0 +1,4 @@
+Herkunft der veröffentlichten Dokumente.
+gerichtliche-verfuegung.pdf: Landgericht Köln, 33 O 219/24, prozessleitende Verfügung vom 10.07.2024
+https://www.ufkb.de/content/download/1611/file/Landgericht.pdf
+Extracted PDF pages 4–5 only, preserving their scanned pixels; private pleadings and covering letter omitted. Source PDF SHA-256 85098c2ec630847b4a1aabc6873bd13aff5edec7788db525e62b4facbc59a34f

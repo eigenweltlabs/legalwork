@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,13 +9,18 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey, type ChatSectionKey, type ProjectNavKey } from "../../../shell/shell-config";
 import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
+import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
 
 export const SIDEBAR_ITEMS = {
   navHome: { label: "home.nav_label", icon: House },
+  navScheduled: { label: "scheduled.title", icon: Clock },
+  navCalendar: { label: "calendar.title", icon: CalendarDays },
   navProjects: { label: "projects.plural", icon: LayoutGrid },
   sectionPinned: { label: "sidebar.pinned_sessions", icon: Pin },
+  sectionPinnedProjects: { label: "sidebar.pinned_projects", icon: FolderOpen },
   sectionProjects: { label: "projects.plural", icon: FolderOpen },
   sectionRecent: { label: "sidebar.recent_sessions", icon: Clock },
+  projectCalendar: { label: "calendar.title", icon: CalendarDays },
   projectHome: { label: "projects.home", icon: House },
   projectReviews: { label: "projects.tab_review", icon: Table2 },
   projectTasks: { label: "projects.tasks", icon: ListTodo },
@@ -75,6 +80,10 @@ function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
   const { config, update } = useShellConfig();
   const logoInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  // The firm's branding: locked while it enforces it; otherwise a change takes it back first.
+  const locked = useOrgPolicy("branding")?.locked === true;
+  const lockedText = locked ? t("org_policy.set_branding") : undefined;
+  const updateBranding = (patch: Parameters<typeof update>[0]) => changeOrgPolicySetting("branding", () => update(patch));
 
   const uploadLogo = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -82,7 +91,8 @@ function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
     if (!file) return;
     setUploading(true);
     try {
-      update({ sidebarBrandLogoDataUrl: await readSidebarBrandLogo(file) });
+      const logo = await readSidebarBrandLogo(file);
+      await updateBranding({ sidebarBrandLogoDataUrl: logo });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("settings.customization.logo_error_load"));
     } finally {
@@ -93,16 +103,16 @@ function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
   return (
     <>
       <div className="group/brand-logo relative size-8 shrink-0">
-        <Button variant="ghost" size="icon" className="size-8 overflow-hidden rounded-md p-0" disabled={uploading} aria-label={t("settings.customization.upload_logo")} title={t("settings.customization.upload_logo")} onClick={() => logoInput.current?.click()}>
+        <Button variant="ghost" size="icon" className="size-8 overflow-hidden rounded-md p-0" disabled={uploading || locked} aria-label={t("settings.customization.upload_logo")} title={lockedText ?? t("settings.customization.upload_logo")} onClick={() => logoInput.current?.click()}>
           <img src={config.sidebarBrandLogoDataUrl || legalworkMarkDark} alt="" className="size-8 object-contain" />
-          <span className={cn("absolute inset-0 flex items-center justify-center bg-background/85 transition-opacity group-hover/brand-logo:opacity-100 group-focus-within/brand-logo:opacity-100", !uploading && "opacity-0")}>
+          <span className={cn("absolute inset-0 flex items-center justify-center bg-background/85 transition-opacity group-hover/brand-logo:opacity-100 group-focus-within/brand-logo:opacity-100", !uploading && "opacity-0", locked && "hidden")}>
             {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
           </span>
         </Button>
-        {config.sidebarBrandLogoDataUrl ? <Button variant="outline" size="icon-xs" className="absolute -right-1 -top-1 size-3.5 rounded-full opacity-0 group-hover/brand-logo:opacity-100 group-focus-within/brand-logo:opacity-100" disabled={uploading} aria-label={t("settings.customization.use_default")} title={t("settings.customization.use_default")} onClick={() => update({ sidebarBrandLogoDataUrl: "" })}><X className="size-2.5" /></Button> : null}
+        {config.sidebarBrandLogoDataUrl && !locked ? <Button variant="outline" size="icon-xs" className="absolute -right-1 -top-1 size-3.5 rounded-full opacity-0 group-hover/brand-logo:opacity-100 group-focus-within/brand-logo:opacity-100" disabled={uploading} aria-label={t("settings.customization.use_default")} title={t("settings.customization.use_default")} onClick={() => void updateBranding({ sidebarBrandLogoDataUrl: "" })}><X className="size-2.5" /></Button> : null}
         <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={uploadLogo} />
       </div>
-      <Input aria-label={t("settings.customization.sidebar_name_label")} className="h-8 min-w-0 flex-1 rounded-md px-1.5 text-[15px] font-semibold tracking-[-0.02em] md:text-[15px]" value={config.sidebarBrandName} placeholder={DEFAULT_SHELL_CONFIG.sidebarBrandName} onChange={(event) => update({ sidebarBrandName: event.currentTarget.value })} onKeyDown={(event) => {
+      <Input aria-label={t("settings.customization.sidebar_name_label")} title={lockedText} disabled={locked} className="h-8 min-w-0 flex-1 rounded-md px-1.5 text-[15px] font-semibold tracking-[-0.02em] md:text-[15px]" value={config.sidebarBrandName} placeholder={DEFAULT_SHELL_CONFIG.sidebarBrandName} onChange={(event) => void updateBranding({ sidebarBrandName: event.currentTarget.value })} onKeyDown={(event) => {
         if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
         event.preventDefault();
         event.stopPropagation();

@@ -21,11 +21,18 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
+            arch: x64
             executable: linux-unpacked/legalwork
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             platform: win
+            arch: x64
             executable: win-unpacked/LegalWork.exe
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            platform: win
+            arch: arm64
+            executable: win-arm64-unpacked/LegalWork.exe
     defaults:
       run:
         shell: bash
@@ -56,7 +63,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Package desktop app
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --x64 --dir --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --${{ matrix.arch }} --dir --publish never
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
@@ -74,6 +81,17 @@ jobs:
         if: runner.os == 'Windows'
         timeout-minutes: 3
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      - name: Verify Windows installer packaging
+        if: runner.os == 'Windows'
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --publish never
+      - name: Upload Windows test installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-${{ matrix.arch }}
+          path: apps/desktop/dist-electron/legalwork-win-${{ matrix.arch }}-*.exe
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify Linux native modules
         if: runner.os == 'Linux'
         timeout-minutes: 2

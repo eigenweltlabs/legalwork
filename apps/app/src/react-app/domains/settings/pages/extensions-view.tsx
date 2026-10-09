@@ -100,7 +100,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const activeTab = TABS.find((entry) => entry.id === tab) ?? TABS[0];
 
   return (
-    <section className="w-full min-w-0 space-y-6">
+    <section className="w-full min-w-0 max-w-5xl space-y-6">
       {props.showHeader !== false ? <SectionHeading size="page" title={t("extensions.eyebrow_integrations")} description={tab !== "storage" ? activeTab.subtitle : undefined} action={teamHub || tab === "storage" ? <>
         <HubScopeToggle scope={hubScope} onChange={setHubScope} />
         {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? <Button variant="outline" onClick={props.onOpenTeamShare}>{t("extensions.share_with_firm")}</Button> : null}

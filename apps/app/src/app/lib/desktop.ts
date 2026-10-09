@@ -1,5 +1,6 @@
 import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
+import { fetchDesktopStream } from "./desktop-stream-fetch";
 
 export type * from "./desktop-types";
 export type {
@@ -70,8 +71,12 @@ declare global {
           mismatch: boolean;
           platform: "darwin" | "linux" | "windows";
           version: string;
-          downloadUrl: string;
+          downloadUrl: string | null;
           releaseUrl: string;
+        }>;
+        getArchitectureDownload?: () => Promise<{
+          status: "available" | "unavailable" | "error";
+          downloadUrl: string | null;
         }>;
         getMicrophoneStatus?: () => Promise<{
           platform: string;
@@ -116,12 +121,15 @@ declare global {
       browser?: {
         show?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
         hide?: () => Promise<void>;
-        openUrl?: (url: string, provider?: "auto" | "builtin" | "external") => Promise<{
+        openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string }) => Promise<{
           provider: "builtin";
           browser_url: string;
           target_id: string;
           tab_id: string;
           url: string;
+          download_directory: string | null;
+          downloads: unknown[];
+          snapshot: unknown;
         }>;
         navigate?: (url: string) => Promise<void>;
         back?: () => Promise<void>;
@@ -300,6 +308,11 @@ export const desktopFetch: typeof globalThis.fetch = async (input, init) => {
     statusText: result.statusText,
     headers: result.headers,
   });
+};
+
+export const desktopStreamFetch: typeof globalThis.fetch = (input, init) => {
+  if (!window.__LEGALWORK_ELECTRON__?.invokeDesktop) return globalThis.fetch(input, init);
+  return fetchDesktopStream(desktopBridge, input, init);
 };
 
 export async function desktopFetchViaMain(input: RequestInfo | URL, init?: RequestInit, timeoutMs?: number): Promise<Response> {

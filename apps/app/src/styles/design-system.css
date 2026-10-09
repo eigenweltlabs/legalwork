@@ -184,7 +184,7 @@
 
 /* One continuous window frame. Both icon rails stay outside the rounded workspace. */
 .lw-window-frame {
-  --lw-window-chrome: var(--lw-surface-hover);
+  --lw-window-chrome: var(--lw-chrome);
   --lw-window-bar-height: 44px;
   --lw-window-left-rail-width: 48px;
   --lw-window-right-rail-width: 44px;
@@ -199,6 +199,31 @@
 .lw-window-topbar {
   height: var(--lw-window-bar-height);
   background: var(--lw-window-chrome);
+}
+html.legalwork-electron.legalwork-platform-windows .lw-window-frame {
+  --lw-window-bar-height: env(titlebar-area-height, 44px);
+}
+html.legalwork-electron.legalwork-platform-windows:not([data-theme="dark"]) .lw-window-frame {
+  --lw-window-chrome: #edf4fa;
+}
+/* Electron supplies the available title-bar rectangle, including zoom and DPI.
+   Leave the native minimize, maximize and close controls outside this area. */
+html.legalwork-electron.legalwork-platform-windows .lw-window-topbar {
+  left: env(titlebar-area-x, 0px);
+  right: auto;
+  width: env(titlebar-area-width, calc(100% - 138px));
+}
+html.legalwork-electron.legalwork-platform-windows .lw-window-navigation {
+  width: auto !important;
+  border-right: none;
+}
+/* Fullscreen hides the native caption controls and clears the overlay rectangle. */
+html.legalwork-electron.legalwork-platform-windows.legalwork-window-controls-hidden .lw-window-frame {
+  --lw-window-bar-height: 44px;
+}
+html.legalwork-electron.legalwork-platform-windows.legalwork-window-controls-hidden .lw-window-topbar {
+  left: 0;
+  width: 100%;
 }
 /* Header widths follow their resizable panes. The short separators stay above
    the continuous workspace arch; panel controls add no surface or border over it. */
@@ -276,4 +301,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .lw-window-navigation { transition: none; }
+}
+
+[data-theme="dark"] .lw-workspace-shell .lw-chat-sidebar {
+  background: var(--lw-sidebar);
 }

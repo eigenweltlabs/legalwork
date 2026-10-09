@@ -9,15 +9,16 @@ import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/ut
 import "@eigenpal/docx-editor-react/styles.css";
 import "./office-fonts.css";
 
-import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
+import { getResolvedThemeMode, subscribeToTheme, type ResolvedThemeMode } from "@/app/theme";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { loadFontsFromGoogle, rememberFontDecision, unresolvedDocumentFonts } from "./docx-font-consent";
-import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
+import { draftDecisionPendingApi, keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
 import { useDocxPageFit } from "./use-docx-page-fit";
 import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
+import "./docx-editor-theme.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 import { t } from "@/i18n";
 
@@ -123,8 +124,8 @@ function decideTrackedChanges(
   return { success: true, data: `${verb} ${applied} tracked-change revision${applied === 1 ? "" : "s"}.` };
 }
 
-function useThemeColorMode(): ThemeMode {
-  return useSyncExternalStore(subscribeToTheme, getInitialThemeMode, getInitialThemeMode);
+function useThemeColorMode(): ResolvedThemeMode {
+  return useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
 }
 
 export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
@@ -141,6 +142,13 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
     });
     return () => { active = false; };
   }, [props.recoveryKey, props.readOnly]);
+  const { apiRef, name } = props;
+  useEffect(() => {
+    if (!recovery || !apiRef) return;
+    const pending = draftDecisionPendingApi(name);
+    apiRef.current = pending;
+    return () => { if (apiRef.current === pending) apiRef.current = null; };
+  }, [recovery, apiRef, name]);
   if (!checked) return <div className="p-6 text-sm" role="status">{t("docx.checking_draft")}</div>;
   if (recovery) return <div className="space-y-4 p-6">
     <h3 className="font-medium">{t("docx.recover_prompt")}</h3>

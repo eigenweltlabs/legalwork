@@ -113,7 +113,7 @@ const DAY_MS = 86_400_000;
 
 function parseIsoDate(iso: string | null | undefined): Date | null {
   if (!iso) return null;
-  const parsed = new Date(iso);
+  const parsed = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 

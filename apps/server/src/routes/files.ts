@@ -20,6 +20,8 @@ const FILE_SESSION_MAX_FILE_BYTES = 5_000_000;
 const FILE_SESSION_CATALOG_DEFAULT_LIMIT = 2000;
 const FILE_SESSION_CATALOG_MAX_LIMIT = 10000;
 const FILE_LIST_MAX_ENTRIES = 2000;
+// Reuse ICU collation instead of constructing it for every sort comparison.
+const fileNameCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
 function fileContentDisposition(type: "inline" | "attachment", filename: string): string {
   // Headers are byte strings. Keep an ASCII fallback and the exact UTF-8 name
@@ -1158,7 +1160,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     entries.sort((left, right) => (
       left.kind === right.kind
-        ? left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true })
+        ? fileNameCollator.compare(left.name, right.name)
         : left.kind === "dir" ? -1 : 1
     ));
 

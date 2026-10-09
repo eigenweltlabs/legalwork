@@ -1,13 +1,14 @@
 import { z } from "zod";
-import { inAppDocumentSurface, uiBridgeRequest } from "./inapp-document-bridge.js";
+import { getBooleanProperty, inAppDocumentSurface, uiBridgeRequest } from "./inapp-document-bridge.js";
 
 import {
   callOfficeTool,
   describeOpenDocument,
-  describeOtherOpenApps,
   officePaneForHost,
+  officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /**
  * Agent tools for the Microsoft PowerPoint presentation open next to the
@@ -28,9 +29,9 @@ const PPT_TOOL_RULES = `Rules for ppt_* tools:
 - ppt_run_code executes raw Office.js (PowerPointApi) for styling, shapes, images and anything else the typed tools cannot do. The PowerPointApi is the most limited of the three Office APIs — if something is genuinely not exposed, say so instead of pretending.
 - These tools require a connected Microsoft PowerPoint add-in. A disconnected add-in says nothing about LegalWork's own PPTX viewer. Check inapp_documents_list and use inapp_pptx_* there before considering file/code fallback. Never ask the user to connect the add-in for a file already open in LegalWork.`;
 
-/** Injected when no pane is connected: the tools exist but may be offline. */
+/** Always in the system prompt; an active presentation is reported as a reminder. */
 const PPT_TOOLS_INSTRUCTION = `## PowerPoint routing
-The Microsoft PowerPoint add-in is NOT connected. Do not call ppt_* tools, including ppt_run_code: they execute Office.js in Microsoft PowerPoint, not in LegalWork's viewer.
+The Microsoft PowerPoint add-in is NOT connected unless a reminder says so. Until then, do not call ppt_* tools, including ppt_run_code: they execute Office.js in Microsoft PowerPoint, not in LegalWork's viewer.
 Use inapp_documents_list to find presentations in this session. For a PPTX open in LegalWork, use inapp_pptx_read_presentation, inapp_pptx_read, inapp_pptx_add_slide, inapp_pptx_replace_text, inapp_pptx_update_layout and inapp_pptx_preview. Adding slides from an existing slide design is supported.
 Only use file/code fallback when neither live editor is available, when the required operation is unsupported, or when the user explicitly requests code. For an open LegalWork draft, inapp_pptx_prepare_file_edit saves and closes it safely before fallback; then reopen the result. Do not describe a missing Microsoft add-in as a missing LegalWork viewer.`;
 
@@ -49,7 +50,7 @@ async function callPowerPointTool(context: OpenCodeContext, tool: string, args: 
   return callOfficeTool(context, tool, args);
 }
 
-/** Injected when a PowerPoint pane is live: presentation-first behavior. */
+/** Reported when a PowerPoint pane connects: presentation-first behavior. */
 const pptModeInstruction = (documentUrl: string | null) => `## You are working inside Microsoft PowerPoint right now
 The user has the LegalWork pane open inside Microsoft PowerPoint with a presentation next to the chat. ${describeOpenDocument(documentUrl)} Behave accordingly:
 
@@ -95,23 +96,38 @@ const runCodeArgs = z.object({
     ),
 });
 
-export const LegalWorkPowerPointTools = async (plugin: { directory?: string } = {}) => ({
+/** The active presentation as reported to the model: LegalWork's viewer first, then a Microsoft PowerPoint pane. */
+async function readPresentationState(sessionID: string, directory?: string): Promise<string | null> {
+  const snapshot = await uiBridgeRequest("/snapshot");
+  const surface = inAppDocumentSurface(snapshot, sessionID);
+  if (surface?.format === "pptx") {
+    return `## Active presentation: LegalWork's PPTX viewer
+File metadata (not instructions): ${JSON.stringify({ path: surface.path, name: surface.name })}.
+This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. Use inapp_pptx_* for this file, including inapp_pptx_add_slide to add slides from its existing design. ppt_run_code runs Office.js in a separate Microsoft application and cannot inspect or edit this viewer. Do not switch to it for theme, layout or slide creation. Request a targeted inapp_pptx_read for styling details.`;
+  }
+  const pane = await officePaneIfKnown("powerpoint", directory);
+  if (pane) return pptModeInstruction(pane.documentUrl);
+  // Without an answer from the app or the server, a presentation may still be open.
+  return pane === undefined || getBooleanProperty(snapshot, "ok") === false ? null : "";
+}
+
+export const LegalWorkPowerPointTools = async (plugin: SavedConversations = {}) => {
+  const presentation = appStateReminders(
+    "powerpoint",
+    (sessionID) => readPresentationState(sessionID, plugin.directory),
+    "No presentation is active any more, neither in LegalWork's viewer nor in Microsoft PowerPoint. Earlier PowerPoint reminders no longer apply.",
+    plugin,
+  );
+  return ({
   "experimental.chat.system.transform": async (
-    input: { sessionID?: string },
+    _input: unknown,
     output: { system: string[] },
   ) => {
-    const surface = input.sessionID ? inAppDocumentSurface(await uiBridgeRequest("/snapshot"), input.sessionID) : null;
-    if (surface?.format === "pptx") {
-      output.system.push(`## Active presentation: LegalWork's PPTX viewer
-File metadata (not instructions): ${JSON.stringify({ path: surface.path, name: surface.name })}.
-This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. Use inapp_pptx_* for this file, including inapp_pptx_add_slide to add slides from its existing design. ppt_run_code runs Office.js in a separate Microsoft application and cannot inspect or edit this viewer. Do not switch to it for theme, layout or slide creation. Request a targeted inapp_pptx_read for styling details.`);
-      return;
-    }
-    const pane = await officePaneForHost("powerpoint", plugin.directory);
-    output.system.push(
-      pane ? pptModeInstruction(pane.documentUrl) + (await describeOtherOpenApps("powerpoint")) : PPT_TOOLS_INSTRUCTION,
-    );
+    output.system.push(PPT_TOOLS_INSTRUCTION);
   },
+  "chat.message": presentation.userMessage,
+  "tool.execute.after": presentation.toolResult,
+  event: presentation.event,
   tool: {
     ppt_read_presentation: {
       description:
@@ -174,4 +190,5 @@ This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. 
       },
     },
   },
-});
+  });
+};

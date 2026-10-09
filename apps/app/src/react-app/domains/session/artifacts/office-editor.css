@@ -3,7 +3,7 @@
 .office-saving { position: absolute; right: 16px; bottom: 40px; z-index: 50; padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); box-shadow: 0 4px 24px #0001; font-size: 12px; }
 .office-slides { --pptx-font-sans: var(--font-sans, Inter, sans-serif); }
 .office-slides [title="Save"], .office-slides [aria-label="Save"] { display: none; }
-.office-sheets { color-scheme: light; }
+.office-sheets { color-scheme: inherit; }
 
 .office-slides [data-pptx-title-bar] { display: none; }
 

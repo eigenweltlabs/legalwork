@@ -135,6 +135,7 @@ describe("interrupted and delayed refresh recovery", () => {
   test("recovers a lost response using the persisted request ID after a runtime restart", async () => {
     const config = await signedInFirm();
     const requestIds: string[] = [];
+    let recovering = false;
     process.env.EIGENWELT_PLATFORM_URL = await serve((req, res) => {
       let raw = "";
       req.on("data", chunk => { raw += chunk; });
@@ -144,7 +145,13 @@ describe("interrupted and delayed refresh recovery", () => {
           res.writeHead(400).end(); return;
         }
         requestIds.push(body.requestId);
-        if (requestIds.length === 1) req.socket.destroy();
+        if (!recovering) {
+          // A socket closed before any response can be retried transparently by fetch.
+          // Deliver a partial response to model a lost rotation result deterministically.
+          res.writeHead(200, { "Content-Type": "application/json", "Content-Length": "4096" });
+          res.write('{"platformToken":');
+          setTimeout(() => res.destroy(), 10);
+        }
         else if (body.requestId === requestIds[0]) res.writeHead(200).end(JSON.stringify(rotated()));
         else res.writeHead(401).end();
       });
@@ -159,15 +166,17 @@ describe("interrupted and delayed refresh recovery", () => {
     expect(pending.refreshRequestId).toBe(requestIds[0]);
     expect("refreshRequestId" in first).toBe(false);
     const module = pathToFileURL(join(import.meta.dir, "eigenwelt-refresh.ts")).href;
+    recovering = true;
     const child = Bun.spawn([process.execPath, "-e", `import { readFreshEntitlementsView } from ${JSON.stringify(module)};
       console.log(JSON.stringify(await readFreshEntitlementsView(${JSON.stringify(config)})));`],
       { stdout: "pipe", stderr: "pipe", env: { ...process.env } });
     const output = await new Response(child.stdout).text();
     expect(await child.exited).toBe(0);
     const errors = await new Response(child.stderr).text();
-    expect({ output: JSON.parse(output), errors, requestCount: requestIds.length }).toMatchObject({ output: { connected: true }, errors: "", requestCount: 2 });
+    expect({ output: JSON.parse(output), errors }).toMatchObject({ output: { connected: true }, errors: "" });
     if (!pending.refreshRequestId) throw new Error("request ID not persisted");
-    expect(requestIds).toEqual([pending.refreshRequestId, pending.refreshRequestId]);
+    expect(requestIds.length).toBeGreaterThanOrEqual(2);
+    expect([...new Set(requestIds)]).toEqual([pending.refreshRequestId]);
     const recovered = await readEigenweltConnection(config);
     expect(recovered.refreshToken).toBe("rotated-refresh");
     expect(recovered.refreshRequestId).toBeNull();

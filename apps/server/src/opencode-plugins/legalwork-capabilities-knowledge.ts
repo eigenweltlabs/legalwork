@@ -5,6 +5,7 @@
  * help users operate the local desktop app without depending on packaged docs.
  */
 
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { projectPersonalizationPrompt } from "./project-personalization.js";
 
 const LEGALWORK_CAPABILITIES_KNOWLEDGE = `You are running inside LegalWork, a local-first desktop app for agentic legal work.
@@ -78,10 +79,21 @@ Here is what you can help users with:
 
 When users ask "what can I do?" or "what can LegalWork do?", summarize these capabilities. When they ask how to do something specific, give direct app steps and use the UI action tools when helpful. If you infer behavior from implementation details, say that it is code-derived.`;
 
-export const LegalWorkCapabilitiesKnowledge = async (input?: { directory?: string }) => ({
-  "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    output.system.push(LEGALWORK_CAPABILITIES_KNOWLEDGE);
-    const projectPrompt = await projectPersonalizationPrompt(input?.directory);
-    if (projectPrompt) output.system.push(projectPrompt);
-  },
-});
+export const LegalWorkCapabilitiesKnowledge = async (input: SavedConversations = {}) => {
+  // The user can edit the project prompt at any time, so it is reported as a
+  // reminder instead of in the system prompt (see app-state-reminders.ts).
+  const projectPrompt = appStateReminders(
+    "project-prompt",
+    () => projectPersonalizationPrompt(input.directory),
+    "The project personalisation was removed. Earlier project personalisation reminders no longer apply; use the global writing preferences again.",
+    input,
+  );
+  return {
+    "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
+      output.system.push(LEGALWORK_CAPABILITIES_KNOWLEDGE);
+    },
+    "chat.message": projectPrompt.userMessage,
+    "tool.execute.after": projectPrompt.toolResult,
+    event: projectPrompt.event,
+  };
+};

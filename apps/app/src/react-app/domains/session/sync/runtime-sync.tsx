@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { useSessionInboxStore } from "../sidebar/session-inbox-store";
 import { useEffect } from "react";
 import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
 
@@ -33,6 +34,22 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       releaseWorkspace();
     };
   }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.legalworkToken, props.onSessionUpdated, props.onSessionStatus]);
+
+  // Only a loaded chat in the foreground is read. Sidebar expansion/prefetch is not reading.
+  useEffect(() => {
+    const sessionId = props.sessionId;
+    if (!sessionId) return;
+    const cache = getReactQueryClient();
+    const key = snapshotKey(props.workspaceId, sessionId);
+    const update = () => {
+      const loaded = cache.getQueryData<LegalworkSessionSnapshot>(key)?.session.id === sessionId;
+      useSessionInboxStore.getState().open(loaded && document.visibilityState === "visible" && document.hasFocus() ? sessionId : null);
+    };
+    const unsubscribe = cache.getQueryCache().subscribe(event => { if (event.type === "updated" && key.every((part, index) => event.query.queryKey[index] === part)) update(); });
+    window.addEventListener("focus", update); window.addEventListener("blur", update); document.addEventListener("visibilitychange", update);
+    update();
+    return () => { unsubscribe(); window.removeEventListener("focus", update); window.removeEventListener("blur", update); document.removeEventListener("visibilitychange", update); useSessionInboxStore.getState().open(null); };
+  }, [props.workspaceId, props.sessionId]);
 
   // The open chat's snapshot is authoritative even when the sidebar's
   // paginated session list is stale or does not contain this conversation.

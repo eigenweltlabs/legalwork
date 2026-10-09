@@ -5,7 +5,7 @@ import { useState } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { MotionConfig } from "motion/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Settings2 } from "lucide-react";
 
 import type { SettingsTab } from "@/app/types";
@@ -118,6 +118,7 @@ function SettingsPreview() {
   const [compact, setCompact] = useState(params.has("compact"));
   const [selectedWorkspace, setSelectedWorkspace] = useState(workspaces[0]);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false);
+  const [modelCatalogUpdatesEnabled, setModelCatalogUpdatesEnabled] = useState(true);
   const [hideAppMode, setHideAppMode] = useState<HideAppMode>("recording");
   const [providers, setProviders] = useState<AiSettingsViewProps["connectedProviders"]>(
     params.has("empty-providers") ? [] : [
@@ -190,6 +191,10 @@ function SettingsPreview() {
               autoCompactContextBusy={false}
               onToggleAutoCompactContext={() => {}}
               analyticsEnabled={analyticsEnabled}
+              modelCatalogUpdatesEnabled={modelCatalogUpdatesEnabled}
+              modelCatalogUpdatesBusy={false}
+              modelCatalogUpdatesError={null}
+              onToggleModelCatalogUpdates={() => setModelCatalogUpdatesEnabled((value) => !value)}
               onToggleAnalytics={() => setAnalyticsEnabled((value) => !value)}
               hideAppMode={hideAppMode}
               onChangeHideAppMode={setHideAppMode}
@@ -207,18 +212,19 @@ function SettingsPreview() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Preview root element not found");
+const queryClient = new QueryClient();
 createRoot(root).render(
-  <MotionConfig reducedMotion="user">
-    <QueryClientProvider client={getReactQueryClient()}>
-    <TooltipProvider>
-      <ShellConfigProvider>
-        <ReloadCoordinatorProvider>
-          <BrowserRouter><SettingsPreview /></BrowserRouter>
-          <OrgPolicyConfirmDialog />
-          <Toaster />
-        </ReloadCoordinatorProvider>
-      </ShellConfigProvider>
-    </TooltipProvider>
-    </QueryClientProvider>
-  </MotionConfig>,
+  <QueryClientProvider client={queryClient}>
+    <MotionConfig reducedMotion="user">
+      <TooltipProvider>
+        <ShellConfigProvider>
+          <ReloadCoordinatorProvider>
+            <BrowserRouter><SettingsPreview /></BrowserRouter>
+            <OrgPolicyConfirmDialog />
+            <Toaster />
+          </ReloadCoordinatorProvider>
+        </ShellConfigProvider>
+      </TooltipProvider>
+    </MotionConfig>
+  </QueryClientProvider>,
 );

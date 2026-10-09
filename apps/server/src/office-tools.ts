@@ -180,6 +180,7 @@ export class OfficeToolRelay {
     waitMs: number,
     documentUrl?: string,
     host?: string,
+    signal?: AbortSignal,
   ): Promise<OfficeToolRequest[]> {
     const normalizedHost = normalizeHost(host);
     const key = this.clientKey(workspaceId, normalizedHost);
@@ -221,6 +222,14 @@ export class OfficeToolRelay {
       const list = this.waiters.get(key) ?? [];
       list.push(waiter);
       this.waiters.set(key, list);
+      // A closed Word/Excel/PowerPoint drops its open poll. Count the pane as
+      // gone right away, not only after the wait and liveness window (~1 min).
+      signal?.addEventListener("abort", () => {
+        clearTimeout(waiter.timer);
+        this.waiters.set(key, (this.waiters.get(key) ?? []).filter((entry) => entry !== waiter));
+        this.lastPollAt.delete(key);
+        resolve([]);
+      }, { once: true });
     });
   }
 

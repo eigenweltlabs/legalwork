@@ -12,7 +12,7 @@ import { useComposerStateStore } from "../surface/composer-state-store";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
 import { consumeProviderUsageLimitStop, markEigenweltBudgetStop, updateProviderUsageLimitStop } from "@/app/lib/eigenwelt-budget";
-import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
+import { createSessionErrorUIMessage, describeOpencodeSessionError, isSessionAbortError, snapshotToUIMessages } from "./usechat-adapter";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
@@ -812,9 +812,11 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(snapshotKey(workspaceId, sessionId));
       const info = snapshot?.messages.at(-1)?.info;
       const provider = info?.role === "assistant" ? info.providerID : info?.model.providerID;
-      const errorText = consumeProviderUsageLimitStop(sessionId) ?? describeOpencodeSessionError(sessionError, "Session failed", provider);
+      const usageLimitStop = consumeProviderUsageLimitStop(sessionId);
+      const aborted = isSessionAbortError(sessionError) && !usageLimitStop;
+      const errorText = usageLimitStop ?? describeOpencodeSessionError(sessionError, "Session failed", provider);
       if (isAnthropicUsageLimitError(sessionError)) useComposerStateStore.getState().setQueuePaused(sessionId, true);
-      const runStartedAt = takeTaskRunStart(sessionId);
+      const runStartedAt = aborted ? null : takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureRunOutcome(workspaceId, sessionId, "task_run_errored", {
           duration_ms: Date.now() - runStartedAt,
@@ -827,7 +829,18 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           status_code: analyticsErrorStatus(sessionError),
         });
       }
-      useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText);
+      if (aborted) {
+        // A user stop is terminal, not a sticky failure. The abort event can
+        // arrive after the Stop handler has already marked this chat idle.
+        const activity = useSessionActivityStore.getState();
+        activity.clearError(workspaceId, sessionId);
+        activity.setRunStatus(workspaceId, sessionId, idleStatus);
+        useComposerStateStore.getState().setQueuePaused(sessionId, true);
+        if (isTrackedSession(entry, sessionId)) queryClient.setQueryData(statusKey(workspaceId, sessionId), idleStatus);
+        for (const listener of entry.sessionStatusListeners) listener({ sessionId, status: idleStatus });
+      } else {
+        useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText);
+      }
       if (isTrackedSession(entry, sessionId)) {
         queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId), (current = []) => {
           // Key the error to the latest assistant turn so it lands beside the
@@ -1378,6 +1391,16 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
     queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
   }
   seedTodoState(workspaceId, snapshot.session.id, snapshot.todos);
+}
+
+/** Keep an accepted prompt visible while the first snapshot/SSE catches up. */
+export function seedSubmittedMessage(workspaceId: string, sessionId: string, message: UIMessage) {
+  const queryClient = getReactQueryClient();
+  queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId), (current = []) =>
+    reconcileTranscriptMessages({ currentMessages: current, snapshotMessages: [message] }),
+  );
+  useSessionActivityStore.getState().setRunStatus(workspaceId, sessionId, { type: "busy" });
+  queryClient.setQueryData(statusKey(workspaceId, sessionId), { type: "busy" });
 }
 
 /**

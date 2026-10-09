@@ -54,7 +54,7 @@ const json = (body: unknown, status = 200) =>
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
 test("project API transfers instructions, clearing, and nullable or missing rollout values without stripping them", async () => {
-  const scope = { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false };
+  const scope = { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false, calendar: true };
   const project = { id: PROJECT, name: "Writing preferences", ownerUserId: "user_1", role: "owner", access: "members", memberIds: [], scope, fields: [], createdAt: "2026-10-04T10:00:00.000Z", updatedAt: "2026-10-04T10:00:00.000Z" };
   stubFetch((call) => {
     if (call.method === "POST") return json({ project: { ...project, personalizationPrompt: "Formal English" } });

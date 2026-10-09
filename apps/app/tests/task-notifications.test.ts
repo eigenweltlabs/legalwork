@@ -32,7 +32,6 @@ const {
   useTaskNotificationPreferences,
 } = await import("../src/react-app/domains/tasks/task-notification-preferences");
 const { requestTasksPane, takePendingTasksPaneRequest, TASKS_PANE_OPEN_EVENT } = await import("../src/react-app/domains/tasks/tasks-pane-request");
-const { isSessionViewPath } = await import("../src/react-app/shell/show-tasks-pane");
 const { appBadgeLabel } = await import("../src/react-app/shell/app-badge");
 
 import type { LegalworkTaskNotification } from "../src/app/lib/legalwork-server";
@@ -299,15 +298,5 @@ describe("opening a task from anywhere", () => {
       if (original) Object.defineProperty(globalThis, "window", original);
       else Reflect.deleteProperty(globalThis, "window");
     }
-  });
-
-  test("knows which screens can show the Tasks pane", () => {
-    expect(isSessionViewPath("/session")).toBe(true);
-    expect(isSessionViewPath("/tasks")).toBe(true);
-    expect(isSessionViewPath("/workspace/ws_1/session/ses_1")).toBe(true);
-    expect(isSessionViewPath("/workspace/ws_1/evals")).toBe(true);
-    expect(isSessionViewPath("/workspace/ws_1/settings/notifications")).toBe(false);
-    expect(isSessionViewPath("/settings/general")).toBe(false);
-    expect(isSessionViewPath("/welcome")).toBe(false);
   });
 });

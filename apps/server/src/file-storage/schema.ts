@@ -5,6 +5,7 @@ export {
   storageRequestHeadersSchema,
   storageSearchSchema,
   storageFilenameSearchSchema,
+  storageTransferSchema,
   storageSecretKeys,
   STORAGE_MAX_FILE_BYTES,
   STORAGE_PAGE_SIZE,

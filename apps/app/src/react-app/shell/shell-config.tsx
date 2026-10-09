@@ -7,23 +7,27 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navTasks", "navWorkflows", "navRecorder", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navEvaluations"];
 
-export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionProjects" | "sectionRecent";
-export type ProjectNavKey = "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
-const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionProjects", "sectionRecent"];
-const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
+export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionProjects" | "sectionRecent";
+export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
+const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionProjects", "sectionRecent"];
+const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
   navHome: boolean;
+  navCalendar: boolean;
+  navScheduled: boolean;
   navProjects: boolean;
   chatSectionOrder: ChatSectionKey[];
   sectionPinned: boolean;
+  sectionPinnedProjects: boolean;
   sectionProjects: boolean;
   sectionRecent: boolean;
   projectNavOrder: ProjectNavKey[];
+  projectCalendar: boolean;
   projectHome: boolean;
   projectReviews: boolean;
   projectTasks: boolean;
@@ -72,12 +76,16 @@ export type ShellConfig = {
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navOrder: DEFAULT_NAV_ORDER,
   navHome: true,
+  navCalendar: true,
+  navScheduled: true,
   navProjects: true,
   chatSectionOrder: DEFAULT_CHAT_ORDER,
   sectionPinned: true,
+  sectionPinnedProjects: true,
   sectionProjects: true,
   sectionRecent: true,
   projectNavOrder: DEFAULT_PROJECT_ORDER,
+  projectCalendar: true,
   projectHome: true,
   projectReviews: true,
   projectTasks: true,
@@ -125,10 +133,26 @@ function readShellConfig(): ShellConfig {
     if (!raw) return DEFAULT_SHELL_CONFIG;
     const parsed = JSON.parse(raw);
     const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
+    const savedNavOrder = Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder;
+    const navOrder = readOrder(savedNavOrder, DEFAULT_NAV_ORDER);
+    // Place newly available items beside their default neighbors, preserving saved ordering.
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
+      navOrder.splice(navOrder.indexOf("navCalendar"), 1);
+      navOrder.splice(navOrder.indexOf("navProjects") + 1, 0, "navCalendar");
+    }
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navScheduled")) {
+      navOrder.splice(navOrder.indexOf("navScheduled"), 1);
+      navOrder.splice(navOrder.indexOf("navTasks") + 1, 0, "navScheduled");
+    }
+    const chatSectionOrder = readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER);
+    if (Array.isArray(next.chatSectionOrder) && !next.chatSectionOrder.includes("sectionPinnedProjects")) {
+      chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinnedProjects"), 1);
+      chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinned") + 1, 0, "sectionPinnedProjects");
+    }
     return {
       ...next,
-      navOrder: readOrder(Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder, DEFAULT_NAV_ORDER),
-      chatSectionOrder: readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER),
+      navOrder,
+      chatSectionOrder,
       projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
       projectSessions: true,
       // The notifications bell has no UI toggle anymore, so force it off even if

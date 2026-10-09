@@ -8,13 +8,16 @@ import { Readable } from "node:stream";
 import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { StorageTransferEvent, StorageTransferProgress } from "@legalwork/types/file-storage";
 import {
   storageInputSchema,
   storageSearchSchema,
   storageFilenameSearchSchema,
+  storageTransferSchema,
   STORAGE_MAX_FILE_BYTES,
 } from "../file-storage/schema.js";
 import { searchFilenames } from "../file-storage/filename-search.js";
+import { transferDestination, transferEntry } from "../file-storage/transfer.js";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import {
@@ -104,12 +107,12 @@ export function registerStorageRoutes({
     return item;
   };
   const projectFolders = registerProjectFolderRoutes({ routes, config, storagePath: store.path, oauth, lookup, resolveWorkspace, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, onChanged: onProjectFoldersChanged, onRenamed: onProjectRenamed });
-  const selected = async (ctx: RequestContext, writing = false) => {
-    if (ctx.params.storageId.startsWith("project:")) {
+  const selected = async (ctx: RequestContext, writing = false, storageId = ctx.params.storageId) => {
+    if (storageId.startsWith("project:")) {
       if (writing) throw new ApiError(403, "storage_read_only", "Linked project folders are read-only references.");
-      return projectFolders.selected(await workspace(ctx), ctx.params.storageId);
+      return projectFolders.selected(await workspace(ctx), storageId);
     }
-    const item = await lookup(await workspace(ctx), ctx.params.storageId);
+    const item = await lookup(await workspace(ctx), storageId);
     if (item.team?.installed === false)
       throw new ApiError(409, "storage_not_installed", "Add this connection from the Team tab in File storage first.");
     if (!item.enabled)
@@ -583,6 +586,69 @@ export function registerStorageRoutes({
       action: "storage.rename", target: connection.id, summary: `Renamed ${path} to ${destination}`,
     });
     return jsonResponse({ ok: true, path: destination, kind });
+  });
+  addRoute(routes, "POST", `${base}/:storageId/transfer`, "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    ensureWritable(config);
+    const parsed = storageTransferSchema.safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_transfer", "Choose a file or folder, destination connection and folder, and move or copy mode.");
+    const input = parsed.data;
+    const sameRoot = ctx.params.storageId === input.destinationId;
+    transferDestination(input, sameRoot);
+    // Acquire both connection locks in a stable order, including transfers in opposite directions.
+    const ids = [...new Set([ctx.params.storageId, input.destinationId])].sort();
+    const run = async (onProgress?: (progress: StorageTransferProgress) => void) => {
+      const locked = (index: number): Promise<string> => index < ids.length
+        ? serializeWrite(ids[index], () => locked(index + 1))
+        : (async () => {
+          const source = await selected(ctx, input.mode === "move");
+          const destination = await selected(ctx, true, input.destinationId);
+          return withStorage(source, (adapter) => sameRoot
+            ? transferEntry(adapter, adapter, input, true, onProgress)
+            : withStorage(destination, (target) => transferEntry(adapter, target, input, false, onProgress)));
+        })();
+      const path = await locked(0);
+      const current = await resolveWorkspace(config, ctx.params.id);
+      await recordAudit(current.path, {
+        id: randomUUID(), timestamp: Date.now(), workspaceId: current.id, actor: ctx.actor!,
+        action: input.mode === "move" ? "storage.move" : "storage.copy", target: input.destinationId,
+        summary: `${input.mode === "move" ? "Moved" : "Copied"} ${ctx.params.storageId}/${input.path} to ${input.destinationId}/${path}`,
+      });
+      return path;
+    };
+    if (!ctx.request.headers.get("accept")?.includes("text/event-stream"))
+      return jsonResponse({ ok: true, path: await run(), kind: input.kind });
+    // Reject access errors before starting the stream. Recheck under both locks when the operation starts.
+    await selected(ctx, input.mode === "move");
+    await selected(ctx, true, input.destinationId);
+    const encoder = new TextEncoder();
+    let closed = false;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (text: string) => {
+          if (closed) return;
+          try { controller.enqueue(encoder.encode(text)); }
+          catch { closed = true; clearInterval(heartbeat); }
+        };
+        const publish = (event: StorageTransferEvent) => {
+          send(`data: ${JSON.stringify(event)}\n\n`);
+        };
+        heartbeat = setInterval(() => send(": keepalive\n\n"), 15_000);
+        void run((progress) => publish({ type: "progress", progress })).then(
+          (path) => publish({ type: "result", path }),
+          (error: unknown) => {
+            const failure = providerError(error);
+            publish({ type: "error", status: failure.status, code: failure.code, message: failure.message });
+          },
+        ).finally(() => {
+          clearInterval(heartbeat);
+          if (!closed) { closed = true; controller.close(); }
+        });
+      },
+      cancel() { closed = true; clearInterval(heartbeat); },
+    });
+    return new Response(body, { headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
   });
   addRoute(routes, "DELETE", `${base}/:storageId/file`, "client", async (ctx) => {
     const connection = await selected(ctx, true);

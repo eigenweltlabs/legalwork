@@ -1,3 +1,7 @@
+import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
+import type { CalculationPresentation } from "@legalwork/types/calculation";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { OrgPolicyKey } from "@legalwork/types/org-policy";
 import type { OrgPolicyView } from "@legalwork/types/org-policy-view";
@@ -20,9 +24,9 @@ import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, 
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
-import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
+import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
-import { desktopFetch } from "./desktop";
+import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
@@ -1542,6 +1546,40 @@ async function requestStorageUpload(baseUrl: string, path: string, body: Blob | 
   return { ok: true, version: payload.version };
 }
 
+async function requestStorageTransfer(baseUrl: string, path: string, input: StorageTransfer, onProgress: (progress: StorageTransferProgress) => void, token?: string, hostToken?: string): Promise<{ ok: true; path: string }> {
+  // Like binary uploads, a POST stream must bypass the desktop text bridge so updates arrive immediately.
+  const response = await fetchWithTimeout(globalThis.fetch.bind(globalThis), `${baseUrl}${path}`, {
+    method: "POST", headers: { ...buildHeaders(token, hostToken), Accept: "text/event-stream" }, body: JSON.stringify(input),
+  }, 30_000);
+  if (!response.ok) {
+    const payload: unknown = await response.json();
+    throw new LegalworkServerError(response.status,
+      payload && typeof payload === "object" && "code" in payload && typeof payload.code === "string" ? payload.code : "request_failed",
+      payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string" ? payload.message : response.statusText);
+  }
+  if (!response.body) throw new Error(t("storage.transfer_interrupted"));
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let destination: string | null = null;
+  const feed = serverSentEvents((data) => {
+    const event = storageTransferEventSchema.safeParse(JSON.parse(data));
+    if (!event.success) throw new Error(t("storage.transfer_interrupted"));
+    const value = event.data;
+    if (value.type === "progress") onProgress(value.progress);
+    else if (value.type === "result") destination = value.path;
+    else throw new LegalworkServerError(value.status, value.code, value.message);
+  });
+  try {
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read())
+      feed(decoder.decode(chunk.value, { stream: true }));
+    if (destination === null) throw new Error(t("storage.transfer_interrupted"));
+    return { ok: true, path: destination };
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 async function requestMultipartRaw(
   baseUrl: string,
   path: string,
@@ -1621,6 +1659,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     deleteWorkspace: 10_000,
     deleteSession: 12_000,
     sessionRead: 12_000,
+    // Listing sessions can bootstrap the engine and install plugin dependencies.
+    sessionList: 90_000,
     status: 6_000,
     config: 10_000,
     workspaceExport: 30_000,
@@ -1671,6 +1711,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "PUT",
         body: payload,
         timeoutMs: timeouts.status,
+      }),
+    getModelCatalogSettings: () =>
+      requestJson<{ onlineUpdatesEnabled: boolean }>(baseUrl, "/model-catalog/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setModelCatalogSettings: (onlineUpdatesEnabled: boolean) =>
+      requestJson<{ onlineUpdatesEnabled: boolean }>(baseUrl, "/model-catalog/settings", {
+        token, hostToken, method: "PUT", body: { onlineUpdatesEnabled }, timeoutMs: timeouts.config,
       }),
     getPersonalization: () =>
       requestJson<{ settings: LegalworkPersonalizationSettings }>(baseUrl, "/personalization", {
@@ -1857,7 +1903,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       return requestJson<{ items: Session[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
+        { token, hostToken, timeoutMs: timeouts.sessionList },
       );
     },
     benchmarkGetCatalog: (
@@ -2252,7 +2298,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // exchange; the app opens the authorize URL and long-polls for the payload.
     // `plan` (from the plan screen) sends a firm without a subscription to that
     // plan's checkout; `intent` lands a signed-out browser on sign-in.
-    eigenweltOauthStart: (opts?: { intent?: "sign-in"; plan?: EigenweltPlanId }) =>
+    eigenweltOauthStart: (opts?: { intent?: "sign-in"; plan?: EigenweltPlanId; checkout?: EigenweltCheckoutSelection }) =>
       requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
         token,
         hostToken,
@@ -2262,6 +2308,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
               body: {
                 ...(opts.intent ? { intent: opts.intent } : {}),
                 ...(opts.plan ? { plan: opts.plan } : {}),
+                ...(opts.checkout ? { checkout: opts.checkout } : {}),
               },
             }
           : {}),
@@ -2443,6 +2490,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/folders?${new URLSearchParams({ path, recursive: "true" })}`, { token, hostToken, method: "DELETE", timeoutMs: 900_000 }),
     renameStorageEntry: (workspaceId: string, id: string, path: string, name: string, kind: "file" | "folder") =>
       requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/rename`, { token, hostToken, method: "POST", body: { path, name, kind }, timeoutMs: 900_000 }),
+    transferStorageEntry: (workspaceId: string, id: string, input: StorageTransfer, onProgress?: (progress: StorageTransferProgress) => void) => {
+      const path = `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/transfer`;
+      return onProgress ? requestStorageTransfer(baseUrl, path, input, onProgress, token, hostToken)
+        : requestJson<{ ok: true; path: string }>(baseUrl, path, { token, hostToken, method: "POST", body: input, timeoutMs: 900_000 });
+    },
 
     legalMemoryTreeRoots: (workspaceId: string) =>
       requestJson<{ roots: LegalMemoryTreeRoot[] }>(
@@ -2659,7 +2711,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
      */
     syncEvents: async (onPoke: (poke: SyncPoke) => void, signal: AbortSignal) => {
       const url = `${baseUrl}/sync/events`;
-      const response = await resolveFetch(url)(url, {
+      const response = await (isDesktopRuntime() ? desktopStreamFetch : globalThis.fetch)(url, {
         headers: buildAuthHeaders(token, hostToken, { Accept: "text/event-stream" }),
         signal,
       });
@@ -2676,6 +2728,28 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     },
     runProjectSync: () =>
       requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
+    calculationPresentation: (workspaceId: string, id: string) => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}`, { token, hostToken }),
+    decideCalculation: (workspaceId: string, id: string, action: "save" | "reject" | "acknowledge") => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}/decision`, { token, hostToken, method: "POST", body: { action } }),
+    calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
+      requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
+    sessionInbox: () => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken }),
+    scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
+    scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
+    scheduledTaskChats: (workspaceId: string, search = "") => requestJson<{ sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/chats?search=${encodeURIComponent(search)}`, { token, hostToken }),
+    previewTaskSchedule: (workspaceId: string, schedule: TaskSchedule) => requestJson<{ occurrences: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/preview`, { token, hostToken, method: "POST", body: { schedule } }),
+    createScheduledTask: (workspaceId: string, input: ScheduledTaskInput) => requestJson<{ task: ScheduledTask }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks`, { token, hostToken, method: "POST", body: input }),
+    updateScheduledTask: (workspaceId: string, id: string, revision: number, input: Partial<ScheduledTaskInput> & { status?: "active" | "paused" }) => requestJson<{ task: ScheduledTask }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: { ...input, revision } }),
+    deleteScheduledTask: (workspaceId: string, id: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", body: { revision } }),
+    calendarLinks: (workspaceId: string, search = "") => requestJson<{ projectName: string; sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/links?search=${encodeURIComponent(search)}`, { token, hostToken }),
+    calendarItems: (workspaceId: string, includeDeleted = false) => requestJson<{ items: CalendarItem[]; conflicts: CalendarItem[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${includeDeleted ? "?deleted=include" : ""}`, { token, hostToken }),
+    calendarSubscription: (workspaceId: string | null, method = "GET") => requestJson<{ available: boolean; url: string | null; lastSyncedAt: string | null }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/subscription`, { token, hostToken, method }),
+    calendarItem: (workspaceId: string, itemId: string) => requestJson<{ item: CalendarItem }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/${encodeURIComponent(itemId)}`, { token, hostToken }),
+    calendarWrite: (workspaceId: string, path: string, body: unknown, method = "POST") => requestJson<{ item?: CalendarItem; items?: CalendarItem[]; calculation?: DeadlineCalculation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar${path}`, { token, hostToken, method, body }),
+    calendarExport: async (workspaceId: string) => {
+      const file = await requestBinary(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/export`, { token, hostToken });
+      return new TextDecoder().decode(file.data);
+    },
+    claimCalendarReminders: () => requestJson<{ reminders: { id: string; itemId: string; projectId: string; title: string; deadline: string }[] }>(baseUrl, "/calendar/reminders/claim", { token, hostToken, method: "POST" }),
     projectSyncStatus: (workspaceId: string) =>
       requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
         token,
@@ -2794,6 +2868,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         token,
         hostToken,
         method: "POST",
+        // The server waits for instance initialization and MCP restoration.
+        // Its readiness phase alone can outlast the normal 10-second request.
+        timeoutMs: 90_000,
       }),
     listPlugins: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
       const query = options?.includeGlobal ? "?includeGlobal=true" : "";

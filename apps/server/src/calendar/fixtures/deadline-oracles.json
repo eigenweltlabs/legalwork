@@ -1,0 +1,118 @@
+{
+  "capturedAt": "2026-09-30T10:57:22.886Z",
+  "widgetUrl": "https://load.smart-rechner.de/widget/fristen.js",
+  "widgetHash": "562fec3956279990ee12bb364988a71d041be6b094c4c5e4ef29c11d9330f06f",
+  "endpoint": "https://gebuehren-portal.de/api/backend/fristen/calculate_fristen",
+  "cases": [
+    {
+      "input": {
+        "triggerDate": "2026-01-31",
+        "duration": 1,
+        "unit": "months",
+        "region": "NW"
+      },
+      "calculated": "2026-03-02",
+      "ltoDate": "2026-03-02",
+      "portalDate": "2026-03-02"
+    },
+    {
+      "input": {
+        "triggerDate": "2024-01-31",
+        "duration": 1,
+        "unit": "months",
+        "region": "NW"
+      },
+      "calculated": "2024-02-29",
+      "ltoDate": "2024-02-29",
+      "portalDate": "2024-02-29"
+    },
+    {
+      "input": {
+        "triggerDate": "2025-01-31",
+        "duration": 1,
+        "unit": "months",
+        "region": "NW"
+      },
+      "calculated": "2025-02-28",
+      "ltoDate": "2025-02-28",
+      "portalDate": "2025-02-28"
+    },
+    {
+      "input": {
+        "triggerDate": "2026-03-31",
+        "duration": 1,
+        "unit": "months",
+        "region": "NW"
+      },
+      "calculated": "2026-04-30",
+      "ltoDate": "2026-04-30",
+      "portalDate": "2026-04-30"
+    },
+    {
+      "input": {
+        "triggerDate": "2026-04-02",
+        "duration": 1,
+        "unit": "days",
+        "region": "NW"
+      },
+      "calculated": "2026-04-07",
+      "ltoDate": "2026-04-07",
+      "portalDate": "2026-04-07"
+    },
+    {
+      "input": {
+        "triggerDate": "2025-06-18",
+        "duration": 1,
+        "unit": "days",
+        "region": "NW"
+      },
+      "calculated": "2025-06-20",
+      "ltoDate": "2025-06-20",
+      "portalDate": "2025-06-20"
+    },
+    {
+      "input": {
+        "triggerDate": "2025-11-18",
+        "duration": 1,
+        "unit": "days",
+        "region": "SN"
+      },
+      "calculated": "2025-11-20",
+      "ltoDate": "2025-11-20",
+      "portalDate": "2025-11-20"
+    },
+    {
+      "input": {
+        "triggerDate": "2025-05-07",
+        "duration": 1,
+        "unit": "days",
+        "region": "BE"
+      },
+      "calculated": "2025-05-09",
+      "ltoDate": "2025-05-09",
+      "portalDate": "2025-05-09"
+    },
+    {
+      "input": {
+        "triggerDate": "2026-12-24",
+        "duration": 1,
+        "unit": "days",
+        "region": "NW"
+      },
+      "calculated": "2026-12-28",
+      "ltoDate": "2026-12-28",
+      "portalDate": "2026-12-28"
+    },
+    {
+      "input": {
+        "triggerDate": "2026-09-30",
+        "duration": 1,
+        "unit": "weeks",
+        "region": "NW"
+      },
+      "calculated": "2026-10-07",
+      "ltoDate": "2026-10-07",
+      "portalDate": "2026-10-07"
+    }
+  ]
+}

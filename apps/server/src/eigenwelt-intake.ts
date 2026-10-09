@@ -406,7 +406,7 @@ export function parseIntakeTask(value: unknown): IntakeTask | null {
     status: toStatus(value.status),
     priority: toPriority(value.priority),
     tags: toTags(value.tags),
-    dueDate: toNullableText(value.dueDate),
+    dueDate: toNullableText(value.dueDateDay) ?? toNullableText(value.dueDate),
     assigneeUserId: toNullableText(value.assigneeUserId),
     assigneeName: toNullableText(value.assigneeName),
     createdByUserId: toNullableText(value.createdByUserId),

@@ -1,3 +1,12 @@
+import { runtimeDbPath } from "./runtime-db.js";
+import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
+import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
+import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
+import { registerScheduledTaskRoutes } from "./routes/scheduled-tasks.js";
+import type { ScheduledTask } from "@legalwork/types/scheduled-tasks";
+import { composedSkill } from "./skill-composition.js";
+import { parseEigenweltCheckoutSelection } from "./eigenwelt-checkout.js";
+import { projectSyncStore } from "./project-sync-store.js";
 import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
@@ -97,6 +106,7 @@ import { DocumentPreparation } from "./document-preparation/service.js";
 import { ReviewService } from "./reviews/service.js";
 import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
+import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 import { ReviewLibrary } from "./reviews/library.js";
@@ -142,7 +152,7 @@ import {
 import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
-import { fetchProviderModelCatalog } from "./provider-model-catalog.js";
+import { modelCatalogFor, modelCatalogResponse, modelCatalogSettingsSchema } from "./model-catalog.js";
 import {
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
@@ -830,7 +840,42 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus);
+  const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
+  const scheduledWorkspace = async (task: ScheduledTask) => {
+    const workspace = await resolveWorkspace(config, task.workspaceId);
+    if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
+    return workspace;
+  };
+  const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
+    available: async task => {
+      if (config.readOnly) return false;
+      const workspace = await scheduledWorkspace(task);
+      const status = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
+      return !target || !status[target] || status[target].type === "idle";
+    },
+    createSession: async task => {
+      const client = createWorkspaceOpencodeClient(config, await scheduledWorkspace(task));
+      return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
+    },
+    send: async (task, sessionId) => {
+      const workspace = await scheduledWorkspace(task);
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
+      if (resolve(session.directory) !== resolve(workspace.path) || session.time.archived) throw new ApiError(400, "schedule_session", "The destination chat is no longer available in this project.");
+      const agent = task.projectAccess === "all" ? ALL_PROJECTS_TASK_AGENT : PROJECT_TASK_AGENT;
+      const agents = unwrapOpencodeResult(await client.app.agents({}, { signal: AbortSignal.timeout(10000) }), "/agent");
+      const selectedAgent = agents.find(item => item.name === agent);
+      if (!selectedAgent || (task.projectAccess === "project" && !hasProjectTaskBoundary(selectedAgent)))
+        throw new ApiError(409, "schedule_scope_unavailable", "The local engine needs to reload scheduled task permissions. Restart LegalWork before resuming this task.");
+      if (task.projectAccess === "project" && !hasProjectTaskBoundary({ name: agent, permission: [...selectedAgent.permission, ...(session.permission ?? [])] }))
+        throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
+      const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
+        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
+      if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
+    },
+  });
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks);
 
   const serverOptions: {
     hostname: string;
@@ -1038,6 +1083,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     }
   }
 
+  const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
   return {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
@@ -1053,6 +1099,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopOrgPolicy();
       stopFirmHub();
       stopTaskReminders();
+      stopScheduledTasks();
       benchmarkRunner.dispose();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
@@ -1565,6 +1612,7 @@ function createRoutes(
   preparation: DocumentPreparation,
   reviews: ReviewService,
   corpus: CorpusService,
+  scheduledTasks: ScheduledTaskStore,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -1596,6 +1644,20 @@ function createRoutes(
     };
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
+    listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
+    getSession: async (workspace, id) => {
+      const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
+      return result.response?.status === 404 ? null : unwrapOpencodeResult(result, "/session");
+    },
+  });
+  registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace,
+    listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
+    getSession: async (workspace, id) => {
+      const result = await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id });
+      return result.response?.status === 404 ? null : unwrapOpencodeResult(result, "/session");
+    },
+  });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
@@ -1622,7 +1684,7 @@ function createRoutes(
     config,
     readProviders: readCustomProviders,
     readCatalogModels: async (workspace, providerId) => {
-      const catalogModels = await fetchProviderModelCatalog(providerId);
+      const catalogModels = await modelCatalogFor(config).providerModels(providerId);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const providers = unwrapOpencodeResult(await client.provider.list(), "/provider");
       const knownModels = new Set(Object.keys(providers.all.find(provider => provider.id === providerId)?.models ?? {}));
@@ -1748,6 +1810,20 @@ function createRoutes(
     setAnalyticsConsent({ analyticsEnabled: body.analyticsEnabled });
     const offered = typeof body.distinctId === "string" ? body.distinctId : "";
     return jsonResponse({ ok: true, distinctId: adoptLaunchAnalyticsId(offered) });
+  });
+
+  // Public metadata only, for server-managed engines that cannot attach a token
+  // to a catalog fetch. The preference itself still requires client auth.
+  addRoute(routes, "GET", "/model-catalog/api.json", "none", async () => modelCatalogResponse(modelCatalogFor(config)));
+  addRoute(routes, "GET", "/model-catalog/settings", "client", async () => {
+    return jsonResponse(await modelCatalogFor(config).settings());
+  });
+  addRoute(routes, "PUT", "/model-catalog/settings", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const settings = modelCatalogSettingsSchema.safeParse(await readJsonBody(ctx.request));
+    if (!settings.success) throw new ApiError(400, "invalid_model_catalog_settings", "Online model updates must be enabled or disabled.");
+    return jsonResponse(await modelCatalogFor(config).saveSettings(settings.data));
   });
 
   addRoute(routes, "GET", "/personalization", "client", async () => {
@@ -2252,8 +2328,10 @@ function createRoutes(
     const body = await readOptionalJsonBody(ctx.request);
     const intent = body.intent === "sign-in" ? ("sign-in" as const) : undefined;
     const plan = isEigenweltSignInPlan(body.plan) ? body.plan : undefined;
+    const checkout = body.checkout === undefined ? undefined : parseEigenweltCheckoutSelection(body.checkout);
+    if (body.checkout !== undefined && (!checkout || !plan)) return jsonResponse({ error: "Invalid checkout selection" }, 400);
     try {
-      return jsonResponse(await startEigenweltSignIn({ intent, plan }));
+      return jsonResponse(await startEigenweltSignIn({ intent, plan, ...(checkout ? { checkout } : {}) }));
     } catch (error) {
       throw new ApiError(
         409,
@@ -3297,6 +3375,11 @@ function createRoutes(
         const result = await createWorkspaceOpencodeClient(config, workspace).session.list({ limit });
         return unwrapOpencodeResult(result, "/session");
       },
+      session: async (id) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID: id }), "/session"),
+      sessionMessages: async (id, limit, before) => {
+        const result = await createWorkspaceOpencodeClient(config, workspace).session.messages({ sessionID: id, limit, before });
+        return { messages: unwrapOpencodeResult(result, "/session/message"), nextBefore: result.response.headers.get("x-next-cursor") };
+      },
     };
   };
   addRoute(routes, "GET", "/workspace/:id/project/contents", "client", async (ctx) => {
@@ -3639,8 +3722,13 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const parsed = projectSyncSettingsSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024));
+    const rawSettings = await readJsonBodyLimited(ctx.request, 64 * 1024);
+    const parsed = projectSyncSettingsSchema.safeParse(rawSettings);
     if (!parsed.success) throw new ApiError(400, "invalid_project_sync_settings", "Choose who sees the project and what it syncs.");
+    const originalScope = rawSettings.scope;
+    if (typeof originalScope === "object" && originalScope !== null && !("calendar" in originalScope)) {
+      parsed.data.scope.calendar = (await projectSyncStore(config)).linkByWorkspace(workspace.id)?.settings.scope.calendar !== false;
+    }
     return jsonResponse(await saveProjectSyncSettings(config, workspace, parsed.data));
   });
 
@@ -4051,6 +4139,12 @@ function createRoutes(
     return jsonResponse({ item, content });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await composedSkill(workspace.path, ctx.params.name));
+  });
+
   addRoute(routes, "POST", "/workspace/:id/skills", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -4072,7 +4166,7 @@ function createRoutes(
       summary: `Upsert skill ${name}`,
       paths: [join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")],
     });
-    const result = await upsertSkill(workspace.path, { name, content, description, scope });
+    const result = await upsertSkill(workspace.path, { name, content, description, scope, lesson: body.lesson });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,

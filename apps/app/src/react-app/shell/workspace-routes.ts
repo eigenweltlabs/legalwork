@@ -49,3 +49,19 @@ export function workspaceTasksRoute(workspaceId: string) {
 export function workspaceReviewsRoute(workspaceId: string, reviewId?: string) {
   return `/workspace/${encodeURIComponent(workspaceId.trim())}/reviews${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ""}`;
 }
+
+export function workspaceCalendarRoute(workspaceId: string) { return `/workspace/${encodeURIComponent(workspaceId.trim())}/calendar`; }
+
+/** Routed main panes are derived synchronously so content and sidebar cannot disagree. */
+export function sessionMainPage(pathname: string) {
+  switch (pathname) {
+    case "/projects": return "projects";
+    case "/tasks": return "tasks";
+    case "/scheduled": return "scheduled";
+    case "/calendar": return "calendar";
+    case "/workflows": return "workflows";
+    case "/recorder": return "recorder";
+    case "/evals": return "evals";
+    default: return /^\/workspace\/[^/]+\/evals$/.test(pathname) ? "evals" : null;
+  }
+}

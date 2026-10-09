@@ -12,6 +12,7 @@ import "@univerjs/preset-sheets-core/lib/index.css";
 import "./office-fonts.css";
 import "./office-editor.css";
 import { t } from "@/i18n";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 
 // Structural edits require rewriting references in charts, names, tables and
 // other retained parts. Block them at command execution, including shortcuts.
@@ -30,7 +31,7 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
     let cleanup: (() => void) | undefined;
     void openWorkbook(initial, props.name).then((adapter) => {
       if (disposed || !container.current) return;
-      const univer = new Univer({ locale: LocaleType.EN_US, logLevel: LogLevel.WARN, locales: { [LocaleType.EN_US]: enUS }, theme: { ...defaultTheme, primary: { 50: "#f0f5f4", 100: "#dde9e6", 200: "#bdd4cd", 300: "#93b8ad", 400: "#66968a", 500: "#3c7668", 600: "#285e51", 700: "#204c42", 800: "#1c3d35", 900: "#17342d" } } });
+      const univer = new Univer({ darkMode: getResolvedThemeMode() === "dark", locale: LocaleType.EN_US, logLevel: LogLevel.WARN, locales: { [LocaleType.EN_US]: enUS }, theme: { ...defaultTheme, primary: { 50: "#f0f5f4", 100: "#dde9e6", 200: "#bdd4cd", 300: "#93b8ad", 400: "#66968a", 500: "#3c7668", 600: "#285e51", 700: "#204c42", 800: "#1c3d35", 900: "#17342d" } } });
       const preset = UniverSheetsCorePreset({ container: container.current, header: true, toolbar: !props.readOnly, formulaBar: true, contextMenu: false, footer: { sheetBar: true, statisticBar: true, addSheetButtonConfig: { show: false } }, menu: Object.fromEntries(hidden.map((id) => [`sheet.command.${id}`, { hidden: true }])) });
       for (const plugin of preset.plugins) {
         if (Array.isArray(plugin)) univer.registerPlugin(plugin[0], plugin[1]);
@@ -97,7 +98,8 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
       };
       const lifecycle = univerAPI.addEvent(univerAPI.Event.LifeCycleChanged, finishOpening);
       finishOpening();
-      cleanup = () => { lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; queueMicrotask(() => univer.dispose()); };
+      const unsubscribeTheme = subscribeToTheme(() => univerAPI.toggleDarkMode(getResolvedThemeMode() === "dark"));
+      cleanup = () => { unsubscribeTheme(); lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; queueMicrotask(() => univer.dispose()); };
     }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : t("xlsx.open_failed")); });
     return () => { disposed = true; cleanup?.(); };
   }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool]);

@@ -19,6 +19,7 @@ import { ProjectName } from "./project-name";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
+import { UpcomingDeadlines } from "../calendar/upcoming-deadlines";
 import { ProjectRecordings } from "./project-recordings";
 import { ProjectFilesDropzone } from "./project-files-dropzone";
 import { useRecorderStore } from "../recorder/recorder-store";
@@ -192,6 +193,11 @@ export function ProjectHome(props: {
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
 
+        <div className="grid grid-cols-1 items-stretch gap-4 @min-[640px]/project-page:grid-cols-2">
+          <div className="min-w-0">{props.tasksView}</div>
+          <UpcomingDeadlines client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />
+        </div>
+
         <ContextMenu>
         <ContextMenuTrigger render={<section aria-label={t("projects.notes")} />}>
           <SectionHeading title={t("projects.notes")} action={<Button variant="ghost" size="icon-sm" aria-label={t("projects.add_note")} title={t("projects.add_note")} onClick={() => setNoteOpen(true)}><Plus className="size-4" /></Button>} />
@@ -220,8 +226,6 @@ export function ProjectHome(props: {
           <ContextMenuItem disabled={rootFiles.isFetching || notes.isFetching} onClick={refreshNotes}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
         </ContextMenu>
-
-        <div>{props.tasksView}</div>
 
         <ProjectRecordings projectId={props.projectId} onStartRecording={props.onStartRecording} />
       </div>

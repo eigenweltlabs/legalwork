@@ -62,6 +62,7 @@
   --lw-danger-soft: #fdeaeb;
 
   /* ---- Surfaces ---------------------------------------------------------- */
+  --lw-chrome: #f7f7f8;
   --lw-canvas: #ffffff;         /* main content background */
   --lw-surface: #ffffff;        /* cards, popovers, inputs */
   --lw-surface-hover: #f7f7f8;
@@ -181,8 +182,8 @@
 .dark,
 [data-theme="dark"] {
   color-scheme: dark;
-  --lw-glass: rgba(27, 27, 31, 0.78);
-  --lw-glass-strong: rgba(27, 27, 31, 0.96);
+  --lw-glass: rgba(29, 29, 29, 0.78);
+  --lw-glass-strong: rgba(29, 29, 29, 0.96);
   --lw-glass-highlight: rgba(255, 255, 255, 0.06);
   --lw-asset-back: #35353b;
   --lw-asset-front: #52525a;
@@ -195,29 +196,33 @@
   --lw-file-image: #b79bd9;
   --lw-file-media: #a9a6e1;
   --lw-file-code: #7fbbc7;
-  --lw-accent-fg: #0d0d0f;
+  --lw-accent-fg: #141414;
+  --lw-success-soft: #10241a;
+  --lw-warning-soft: #29200e;
+  --lw-danger-soft: #200c10;
 
-  --lw-canvas: #131316;
-  --lw-surface: #1b1b1f;
-  --lw-surface-hover: #242429;
-  --lw-sunken: #202024;
-  --lw-sidebar: #161619;
+  --lw-chrome: #242424;
+  --lw-canvas: #181818;
+  --lw-surface: #1d1d1d;
+  --lw-surface-hover: #242424;
+  --lw-sunken: #222222;
+  --lw-sidebar: #151515;
   --lw-overlay: rgba(0, 0, 0, 0.55);
 
-  --lw-text-primary: #f4f4f5;
-  --lw-text-content: #ededed;
-  --lw-text-secondary: #a7a7b0;
-  --lw-text-tertiary: #7c7c85;
-  --lw-text-placeholder: #9898a1;
-  --lw-text-inverse: #0d0d0f;
+  --lw-text-primary: #eeeeee;
+  --lw-text-content: #e5e5e5;
+  --lw-text-secondary: #adadad;
+  --lw-text-tertiary: #949494;
+  --lw-text-placeholder: #a1a1a1;
+  --lw-text-inverse: #141414;
 
-  --lw-primary: #f4f4f5;
+  --lw-primary: #eeeeee;
   --lw-primary-hover: #ffffff;
-  --lw-primary-active: #e4e4e7;
-  --lw-primary-fg: #0d0d0f;
+  --lw-primary-active: #dddddd;
+  --lw-primary-fg: #141414;
 
-  --lw-accent: #d6d6da;
-  --lw-accent-hover: #f4f4f5;
+  --lw-accent: #d4d4d4;
+  --lw-accent-hover: #eeeeee;
   --lw-accent-active: #ffffff;
   --lw-accent-soft: rgba(255, 255, 255, 0.08);
   --lw-accent-soft-hover: rgba(255, 255, 255, 0.12);
@@ -232,9 +237,49 @@
   --lw-selected: rgba(255, 255, 255, 0.08);
   --lw-focus-ring: rgba(255, 255, 255, 0.32);
 
+  --lw-search-glass: linear-gradient(180deg, rgba(36, 36, 36, 0.96), rgba(29, 29, 29, 0.94));
+  --lw-search-glass-input: linear-gradient(180deg, rgba(42, 42, 42, 0.97), rgba(36, 36, 36, 0.95));
+  --lw-search-glass-solid: #242424;
+  --lw-search-glass-text: var(--lw-text-primary);
+  --lw-search-glass-muted: var(--lw-text-secondary);
+  --lw-search-glass-shadow: 0 20px 64px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--lw-border);
+  --lw-search-overlay: rgba(0, 0, 0, 0.42);
+
   --lw-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --lw-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
   --lw-shadow-md: 0 6px 16px rgba(0, 0, 0, 0.5);
   --lw-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
   --lw-shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+/* Nested vendor .dark roots also declare the dark palette locally. Reapply
+   Blackout there so they do not shadow the application's inherited colors. */
+[data-theme="dark"][data-appearance="blackout"],
+[data-theme="dark"][data-appearance="blackout"] .dark {
+  --lw-chrome: #111111;
+  --lw-canvas: #080808;
+  --lw-surface: #101010;
+  --lw-surface-hover: #191919;
+  --lw-sunken: #141414;
+  --lw-sidebar: #000000;
+  --lw-text-primary: #e2e2e2;
+  --lw-text-content: #d6d6d6;
+  --lw-text-secondary: #a3a3a3;
+  --lw-text-tertiary: #8d8d8d;
+  --lw-text-placeholder: #969696;
+  --lw-primary: #d6d6d6;
+  --lw-primary-hover: #eeeeee;
+  --lw-primary-active: #c5c5c5;
+  --lw-accent: #c8c8c8;
+  --lw-accent-hover: #e2e2e2;
+  --lw-accent-active: #eeeeee;
+  --lw-border-subtle: rgba(255, 255, 255, 0.06);
+  --lw-border: rgba(255, 255, 255, 0.12);
+  --lw-border-strong: rgba(255, 255, 255, 0.22);
+  --lw-glass: rgba(16, 16, 16, 0.92);
+  --lw-glass-strong: rgba(16, 16, 16, 0.98);
+  --lw-search-glass: linear-gradient(180deg, rgba(20, 20, 20, 0.98), rgba(12, 12, 12, 0.97));
+  --lw-search-glass-input: linear-gradient(180deg, rgba(25, 25, 25, 0.98), rgba(18, 18, 18, 0.98));
+  --lw-search-glass-solid: #141414;
+  --lw-search-overlay: rgba(0, 0, 0, 0.65);
 }

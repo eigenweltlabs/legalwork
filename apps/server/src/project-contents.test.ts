@@ -18,6 +18,8 @@ async function setup(): Promise<ProjectContentSources> {
     tasks: await TaskStore.open(join(root, "tasks.sqlite"), join(root, "attachments")),
     orgId: null,
     sessions: async () => [],
+    session: async () => { throw new Error("Chat not found"); },
+    sessionMessages: async () => ({ messages: [], nextBefore: null }),
   };
 }
 const actor = { userId: null, name: null, email: null };
@@ -41,6 +43,60 @@ test("overview scopes linked tasks and includes note previews, files, sessions a
   expect(result.sections.find((section) => section.kind === "files")?.items.map((item) => item.title)).toEqual(["Notes", "contract.pdf"]);
   expect(result.sections.find((section) => section.kind === "recordings")?.unavailable).toBe(true);
   expect(result.sections.find((section) => section.kind === "sessions")?.items.map((item) => item.id)).toEqual(["s1"]);
+});
+
+test("chat reads verify project ownership before fetching messages", async () => {
+  const sources = await setup();
+  let reads = 0;
+  sources.sessionMessages = async () => { reads++; return { messages: [], nextBefore: null }; };
+  for (const session of [
+    { id: "chat", directory: "/other-project", time: { updated: 1 } },
+    { id: "chat", directory: sources.workspace.path, time: { updated: 1, archived: 2 } },
+    { id: "wrong-chat", directory: sources.workspace.path, time: { updated: 1 } },
+  ]) {
+    sources.session = async () => ({ ...session, title: "Fixture" });
+    await expect(readProjectContent(sources, { kind: "sessions", id: "chat" })).rejects.toThrow("not attached");
+  }
+  expect(reads).toBe(0);
+});
+
+test("chat reads paginate text and older messages without reasoning or tool output", async () => {
+  const sources = await setup();
+  sources.session = async id => ({ id, title: "Fixture chat", directory: sources.workspace.path, time: { updated: 1 } });
+  const messages: Awaited<ReturnType<ProjectContentSources["sessionMessages"]>>["messages"] = Array.from({ length: 23 }, (_, index) => {
+    const id = `msg_${String(index).padStart(3, "0")}`;
+    const base = { id: `part_${index}`, sessionID: "chat", messageID: id };
+    return {
+      info: { id, sessionID: "chat", role: "user", time: { created: index }, agent: "legalwork", model: { providerID: "fixture", modelID: "fixture" } },
+      parts: [
+        { ...base, type: "text", text: index === 22 ? "x".repeat(14000) : `Visible message ${index}` },
+        { ...base, type: "text", text: "Hidden synthetic content", synthetic: true },
+        { ...base, type: "text", text: "Ignored content", ignored: true },
+        { ...base, type: "reasoning", text: "Private reasoning", time: { start: 0 } },
+        { ...base, type: "tool", tool: "bash", callID: "call", state: { status: "completed", input: {}, output: "Internal tool result", title: "Fixture", metadata: {}, time: { start: 0, end: 1 } } },
+      ],
+    };
+  });
+  sources.sessionMessages = async (id, limit, before) => {
+    expect(id).toBe("chat"); expect(limit).toBe(20);
+    const eligible = messages.filter(message => !before || message.info.id < before);
+    const page = eligible.slice(-limit);
+    return { messages: page, nextBefore: eligible.length > limit ? page[0].info.id : null };
+  };
+  const first = await readProjectContent(sources, { kind: "sessions", id: "chat" });
+  expect(first.nextOffset).toBe(12000);
+  expect(first.nextBefore).toBe("msg_003");
+  const second = await readProjectContent(sources, { kind: "sessions", id: "chat", offset: first.nextOffset });
+  expect(second.nextOffset).toBeNull();
+  const older = await readProjectContent(sources, { kind: "sessions", id: "chat", before: first.nextBefore });
+  expect(older.nextBefore).toBeNull();
+  const transcript = [older.content, first.content + second.content].join("\n");
+  const parsed = transcript.split("\n").map(line => JSON.parse(line));
+  expect(parsed).toHaveLength(23);
+  expect(parsed.at(-1).text).toHaveLength(14000);
+  expect(transcript).not.toMatch(/Hidden synthetic|Ignored content|Private reasoning|Internal tool result/);
+  sources.sessionMessages = async () => ({ messages: messages.map(message => ({ ...message, info: { ...message.info, sessionID: "other" } })), nextBefore: null });
+  await expect(readProjectContent(sources, { kind: "sessions", id: "chat" })).rejects.toThrow("not attached");
 });
 
 test("file and task pagination cover all entries without leaking another project's tasks", async () => {

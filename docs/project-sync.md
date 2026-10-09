@@ -7,7 +7,7 @@
 A project stays on its owner's computer until they choose **Share** next to the project name on Home. Sharing works like sharing a document in Google Drive or Notion: it is simply who has access.
 
 - **Add people** at the top of the dialog: colleagues one by one, or **Everyone in your firm** (including anyone who joins later). Each shows in the list with its own ✕, the firm too. Admins get no automatic access.
-- **What is shared**: a one-line summary (documents and folders, Tabular Reviews with their documents, notes, tasks, recordings, project details) that opens to switches. Anything left out stays on each computer. With Tabular Reviews on and documents off, exactly the documents the reviews review are shared.
+- **What is shared**: a one-line summary (documents and folders, Tabular Reviews with their documents, notes, tasks, calendars, recordings, project details) that opens to switches. Anything left out stays on each computer. With Tabular Reviews on and documents off, exactly the documents the reviews review are shared.
 
 There is no separate "stop sharing": when the owner removes the last person (and the firm) and saves, the dialog says the project will no longer be shared, and it goes back to being only on this computer.
 
@@ -98,3 +98,7 @@ End to end, two LegalWork servers (owner and member, each with the web UI) ran a
 - Recordings arrive on other computers as files in `recordings/`, not in the Recordings section.
 - In the browser-only web UI, a project removed by sync stays in the sidebar until reload; the desktop app reloads its list.
 - Nobody can take over a project whose owner left the firm yet.
+
+## Calendars
+
+Calendar sharing defaults to enabled. Calendars use the existing project access rules and subscription connection, with their own whole-record revision sync. Dated task projections additionally respect task sharing. See [Project calendars and deadline skills](project-calendars.md) for the APIs, calculation coverage, conflicts, reminders and rollout requirements.

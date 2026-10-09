@@ -139,13 +139,20 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
     async rename(path, destination) {
       await client.moveFile(remote(path), remote(destination), { ...options, overwrite: false });
     },
-    async deleteFile(path) {
+    async deleteFile(path, condition) {
+      const version = condition?.version;
+      if (version && (await download(path)).version !== version) conflict();
       const info = await fileStat(path);
       if (!info) throw new ApiError(404, "storage_not_found", "File not found.");
+      const expectedEtag = version?.startsWith("davhash:")
+        ? Buffer.from(version.slice(version.lastIndexOf(":") + 1), "base64url").toString("utf8")
+        : version && !version.startsWith("sha256:") ? version : undefined;
+      if (expectedEtag && info.version !== expectedEtag) conflict();
       await client.deleteFile(remote(path), { ...options, headers: info.version ? { "If-Match": quoteEtag(info.version) } : {} });
     },
-    async deleteFolder(path) {
+    async deleteFolder(path, recursive = true) {
       storagePath(path, false);
+      if (!recursive && (await client.getDirectoryContents(remote(path), options)).length) conflict();
       const result = await client.stat(remote(path), options);
       const info = "data" in result ? result.data : result;
       if (info.type !== "directory") throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
@@ -263,17 +270,21 @@ export async function sftpAdapter(input: StorageInput): Promise<StorageAdapter> 
         // Standard SFTP rename rejects existing destinations; posixRename replaces them.
         await client.rename(source, target);
       },
-      async deleteFile(path) {
+      async deleteFile(path, condition) {
+        const version = condition?.version;
+        if (version && (await download(path)).version !== version) conflict();
         const target = await remote(path);
         if (!(await client.stat(target)).isFile) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
         await client.delete(target);
       },
-      async deleteFolder(this: StorageAdapter, path) {
-        await deleteFolderTree(this, path, async (folder) => {
+      async deleteFolder(this: StorageAdapter, path, recursive = true) {
+        const removeEmpty = async (folder: string) => {
           const target = await remote(folder);
           if ((await client.exists(target)) !== "d") throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
           await client.rmdir(target, false);
-        });
+        };
+        if (recursive) await deleteFolderTree(this, path, removeEmpty);
+        else await removeEmpty(path);
       },
       async mkdir(path) {
         await client.mkdir(await remote(path, true));
@@ -379,22 +390,27 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
       async rename(path, destination) {
         const { existing } = await parent(path);
         if (!existing) throw new ApiError(404, "storage_not_found", "File or folder not found.");
+        const source = posix.join(await client.pwd(), posix.basename(path));
         const target = await parent(destination);
         if (target.existing) conflict();
         // FTP has no conditional RNTO. Renames are serialized with this app's other writes.
-        await client.rename(posix.basename(path), target.name);
+        await client.rename(source, target.name);
       },
-      async deleteFile(path) {
+      async deleteFile(path, condition) {
+        const version = condition?.version;
+        if (version && (await download(path)).version !== version) conflict();
         const { name, existing } = await parent(path);
         if (!existing?.isFile) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
         await client.remove(name);
       },
-      async deleteFolder(this: StorageAdapter, path) {
-        await deleteFolderTree(this, path, async (folder) => {
+      async deleteFolder(this: StorageAdapter, path, recursive = true) {
+        const removeEmpty = async (folder: string) => {
           const { name, existing } = await parent(folder);
           if (!existing?.isDirectory) throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
           await client.removeEmptyDir(name);
-        });
+        };
+        if (recursive) await deleteFolderTree(this, path, removeEmpty);
+        else await removeEmpty(path);
       },
       async mkdir(path) {
         const { name, existing } = await parent(path);

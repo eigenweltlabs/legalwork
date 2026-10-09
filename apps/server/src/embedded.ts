@@ -24,7 +24,7 @@ import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
-import { modelCatalogBaseURL } from "./provider-model-catalog.js";
+import { startModelCatalogRelay } from "./model-catalog.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
@@ -69,13 +69,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
-  // No trailing slash: the engine appends "/api.json" to this value, so a
-  // trailing slash produces the malformed "https://…com//api.json" seen in
-  // user-reported engine logs.
-  const opencodeModelsUrl = modelCatalogBaseURL();
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
+  let catalogRelay: Awaited<ReturnType<typeof startModelCatalogRelay>> | null = null;
 
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
@@ -132,6 +129,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       const managedDb = await prepareManagedOpencodeEngineDb(config);
       if (managedDb) process.env.OPENCODE_DB = managedDb.path;
 
+      catalogRelay = await startModelCatalogRelay(config);
       managedOpencode = await createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
         cwd,
@@ -144,9 +142,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           OPENCODE_CONFIG: runtimeConfigPath,
           // The firm's enforced settings: read after every project's own config.
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
-          OPENCODE_MODELS_URL: opencodeModelsUrl,
+          OPENCODE_MODELS_URL: catalogRelay.url,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
+      }).catch(async (error: unknown) => {
+        await catalogRelay?.stop();
+        throw error;
       });
 
       config.opencodeBaseUrl = managedOpencode.url;
@@ -168,7 +169,11 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     }
   }
 
-  const server = await startServer(config);
+  const server = await startServer(config).catch(async (error: unknown) => {
+    await managedOpencode?.close();
+    await catalogRelay?.stop();
+    throw error;
+  });
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
@@ -188,6 +193,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     async stop() {
       await managedOpencode?.close();
       await server.stop();
+      await catalogRelay?.stop();
     },
   };
 }

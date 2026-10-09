@@ -82,8 +82,8 @@ export function TaskTagInput(props: {
             value={draft}
             maxLength={MAX_TAG_LENGTH}
             aria-label={t("tasks.add_tag")}
-            placeholder={props.tags.length ? t("tasks.add_tag") : t("tasks.tags_placeholder")}
-            className="min-w-[9ch] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder={t("tasks.add_tag")}
+            className="min-w-[9ch] flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             onChange={(event) => {
               setDraft(event.target.value);
               setHighlight(0);

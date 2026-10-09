@@ -79,8 +79,6 @@ export type EigenweltAccountViewProps = {
   hasModels?: boolean;
   /** Current number of models the eigenwelt provider serves. */
   modelCount?: number;
-  /** Called after connect/disconnect so the host can reload the engine. */
-  onConfigApplied?: () => void;
 };
 
 /** The reset day of the included usage in the app's language, or null when unknown. */
@@ -111,7 +109,6 @@ export function EigenweltAccountView({
   disconnecting,
   hasModels = true,
   modelCount = 0,
-  onConfigApplied,
 }: EigenweltAccountViewProps) {
   const queryClient = useQueryClient();
   const entitlementsQuery = useEigenweltEntitlements({
@@ -162,7 +159,6 @@ export function EigenweltAccountView({
       if (result.connected) {
         toast.success(result.message ?? t("providers.connected_named", { name: "Eigenwelt" }));
         await entitlementsQuery.refetch();
-        onConfigApplied?.();
       }
     } catch (error) {
       if (waitTokenRef.current === token) {
@@ -183,8 +179,6 @@ export function EigenweltAccountView({
       await onDisconnect(options);
       setPendingSignOut(null);
       toast.success(t("account.disconnected"));
-      await entitlementsQuery.refetch();
-      onConfigApplied?.();
     } catch (error) {
       if (error instanceof LegalworkServerError && error.code === "tasks_pending") {
         const details = error.details;

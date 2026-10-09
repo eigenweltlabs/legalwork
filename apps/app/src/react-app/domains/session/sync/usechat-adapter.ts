@@ -53,6 +53,10 @@ function defaultErrorMessage(name: string | null, fallback: string) {
   return fallback;
 }
 
+export function isSessionAbortError(error: unknown) {
+  return recordValue(error, "name") === "MessageAbortedError";
+}
+
 /**
  * Unsupported file parts live in server-side session history, so the same
  * provider error replays on every later prompt. Tell the user how to escape.

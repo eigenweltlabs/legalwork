@@ -190,21 +190,25 @@ export async function boxAdapter(config: OAuthConfig, token: AccessToken): Promi
       const file = await resolve(path);
       if (file.type !== kind) throw missing();
       if (await existing(destination)) throw new ApiError(409, "storage_conflict", "This name is already in use.");
+      const parent = await resolve(destination.split("/").slice(0, -1).join("/"));
+      if (parent.type !== "folder") throw missing();
       await (await authorizedFetch(token, new URL(`${kind === "folder" ? "folders" : "files"}/${file.id}`, api), {
         method: "PUT", headers: { "Content-Type": "application/json", ...(file.etag ? { "If-Match": file.etag } : {}) },
-        body: JSON.stringify({ name: destination.split("/").at(-1) }),
+        body: JSON.stringify({ name: destination.split("/").at(-1), parent: { id: parent.id } }),
       })).body?.cancel();
     },
-    async deleteFile(path) {
+    async deleteFile(path, condition) {
+      const version = condition?.version;
       const file = await resolve(path);
       if (file.type !== "file") throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+      if (version && fileInfo(file).version !== version) throw new ApiError(409, "storage_conflict", "The original changed while being transferred.");
       await (await authorizedFetch(token, new URL(`files/${file.id}`, api), { method: "DELETE", headers: file.etag ? { "If-Match": file.etag } : {} })).body?.cancel();
     },
-    async deleteFolder(path) {
+    async deleteFolder(path, recursive = true) {
       storagePath(path, false);
       const folder = await resolve(path);
       if (folder.type !== "folder") throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
-      await (await authorizedFetch(token, new URL(`folders/${folder.id}?recursive=true`, api), { method: "DELETE", headers: folder.etag ? { "If-Match": folder.etag } : {} })).body?.cancel();
+      await (await authorizedFetch(token, new URL(`folders/${folder.id}?recursive=${recursive}`, api), { method: "DELETE", headers: folder.etag ? { "If-Match": folder.etag } : {} })).body?.cancel();
     },
     async mkdir(path) {
       const parts = storagePath(path, false).split("/"); const name = parts.pop()!;

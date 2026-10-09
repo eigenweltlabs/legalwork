@@ -1,5 +1,8 @@
 /* The editor and its portaled menus share this class; keep vendor styles local. */
 .lw-markdown-editor {
+  --lw-code-keyword: light-dark(#6f42c1, #d2a8ff);
+  --lw-code-string: light-dark(#0a3069, #a5d6ff);
+  --lw-code-value: light-dark(#0550ae, #79c0ff);
   --baseBase: var(--background);
   --baseBgSubtle: var(--muted);
   --baseBg: var(--muted);

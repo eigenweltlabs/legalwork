@@ -40,6 +40,7 @@ import {
   parseLegalMemoryFolderComposerMention,
   parseStorageComposerMention,
   parseReviewComposerMention,
+  parseCalendarComposerMention,
   parseTaskComposerMention,
   type ComposerMentionKind,
 } from "./mention-encoding";
@@ -55,6 +56,7 @@ type EditorProps = {
   pastedText?: Array<{ label: string; lines: number }>;
   disabled: boolean;
   placeholder: string;
+  ariaLabel?: string;
   onChange: (value: string) => void;
   onSubmit: (options: { queue: boolean }) => void | Promise<void>;
   onExpandPastedText?: (label: string) => void;
@@ -108,6 +110,7 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
   app: "inline-flex items-center rounded-full border border-cyan-6/35 bg-cyan-3/20 px-2.5 py-1 text-xs font-medium text-cyan-11",
   review: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   task: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
+  calendar: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
@@ -123,6 +126,10 @@ function mentionPillText(value: string, kind: ComposerMentionKind) {
     if (storage) return `@${storage.label}`;
   }
   if (kind === "review") return `@${parseReviewComposerMention(value)?.label ?? value}`;
+  if (kind === "calendar") {
+    const label = parseCalendarComposerMention(value)?.label ?? value;
+    return `@${label.length > TASK_PILL_MAX_CHARS ? `${label.slice(0, TASK_PILL_MAX_CHARS).trimEnd()}…` : label}`;
+  }
   if (kind === "task") {
     const task = parseTaskComposerMention(value);
     if (task) {
@@ -944,6 +951,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
             <ContentEditable
               className="min-h-[72px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
               aria-placeholder={props.placeholder}
+              aria-label={props.ariaLabel}
               placeholder={<span />}
               onPaste={props.onPaste}
               onDrop={props.onDrop}

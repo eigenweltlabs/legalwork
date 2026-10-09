@@ -32,6 +32,8 @@ import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator"
 import { WorkspaceProvider } from "@/react-app/shell/workspace-provider";
 import "./app/index.css";
 import { WorkflowsPreview } from "./workflows-preview";
+import { AppHome } from "@/react-app/domains/session/home/app-home";
+import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
 import { usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
 
@@ -203,6 +205,7 @@ function PlansPreview() {
       {providersOpen ? (
         <ProviderAuthModal
           open
+          allowChatGptSubscription={limitPlan !== null}
           loading={false}
           submitting={false}
           error={null}
@@ -348,6 +351,10 @@ const fixtureClient: LegalworkServerClient = {
     return { data: await new Blob([`# Review notes\n\n${reply}`]).arrayBuffer(), contentType: "text/markdown", filename: "review-notes.md", updatedAt: now };
   },
   statWorkspaceFile: async (_workspaceId, path) => ({ ok: true, path, exists: true, kind: "file", size: 4820, updatedAt: now }),
+  writeWorkspaceBinaryFile: async (_workspaceId, payload) => ({ ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: now }),
+  storageRoots: async () => ({ roots: [{ id: "visual-cloud", name: "Northstar cloud files", kind: "s3", writable: true }] }),
+  storageChildren: async () => ({ entries: [{ name: "Cloud review.md", path: "Cloud review.md", kind: "file", size: 4820, modifiedAt: null }], nextCursor: null }),
+  checkoutStorageFile: async () => ({ localPath: ".legalwork/storage/Cloud review.md", contentType: "text/markdown", version: "1", size: 4820, updatedAt: now, writable: true, localWritable: true }),
   legalMemoryTreeRoots: async () => ({ roots: [{ source_id: "visual-drive", display_name: "Northstar shared drive", kind: "gdrive", project_id: null, status: "ready", files: memoryFiles.length }] }),
   legalMemoryTreeChildren: async (_workspaceId, payload) => ({
     source_id: payload.source_id, path: payload.path ?? "", folders: [], files: memoryFiles,
@@ -366,6 +373,10 @@ function SessionPreview() {
   const [selectedSessionId, setSelectedSessionId] = useState(limitParam ? "visual-limit" : welcomeId);
   const [revision, setRevision] = useState(0);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
+  const [showHome, setShowHome] = useState(previewParams.has("home"));
+  const [homeProject, setHomeProject] = useState<string | null>(workspace.id);
+  const pendingHome = useRef<PendingHomeMessage>({ sessionId: null, uploads: new Map() });
+  const failHome = useRef(previewParams.has("home-fail"));
   const groups: WorkspaceSessionGroup[] = [
     { workspace, status: "ready", sessions: Array.from(snapshots.values()).map((item) => item.session) },
     { workspace: otherWorkspace, status: "ready", sessions: [] },
@@ -390,7 +401,30 @@ function SessionPreview() {
       </div>
       <div className="min-h-0 flex-1">
         <SessionPage
-          mainView={showWorkflows ? <WorkflowsPreview /> : undefined}
+          mainView={showHome ? <AppHome
+            workspaces={[workspace, otherWorkspace]} projectId={homeProject}
+            onProjectChange={(id) => { setHomeProject(id); pendingHome.current = { sessionId: null, uploads: new Map() }; }} onCreateProject={previewNotice}
+            disabled={false} providerConnectedCount={1} onConnect={previewNotice}
+            selectedModel={model} modelLocked onModelChange={() => {}}
+            modelVariant={null} modelVariantLabel="Standard" modelBehaviorOptions={[]} onModelVariantChange={() => {}}
+            onSend={async (text, attachments) => {
+              const files = attachments.flatMap(({ source }) => source instanceof File ? [source] : []);
+              const references = attachments.flatMap(({ source }) => source instanceof File ? [] : [source]);
+              const delay = () => new Promise<void>((resolve) => window.setTimeout(resolve, Number(previewParams.get("home-delay") ?? 1_500)));
+              const id = await submitHomeMessage({
+                workspaceId: homeProject || workspace.id, text, files, references, attachments, pending: pendingHome.current,
+                client: fixtureClient, referenceClient: fixtureClient,
+                createSession: async () => { await delay(); return { id: "visual-home-chat" }; },
+                sendPrompt: async (id, prompt) => {
+                  await delay();
+                  if (failHome.current) { failHome.current = false; throw new Error("Simulated connection failure. Please try again."); }
+                  saveSnapshot(snapshot(id, text.slice(0, 44) || "File review", prompt));
+                },
+              });
+              setSelectedSessionId(id);
+              setShowHome(false);
+            }}
+          /> : showWorkflows ? <WorkflowsPreview /> : undefined}
           selectedSessionId={selectedSessionId} selectedWorkspaceId={workspace.id} selectedWorkspaceDisplay={{ ...workspace, displayName: "Northstar Legal" }}
           selectedWorkspaceRoot={workspace.path} runtimeWorkspaceId={workspace.id} workspaces={[workspace, otherWorkspace]}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient}

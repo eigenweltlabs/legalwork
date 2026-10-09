@@ -129,9 +129,9 @@ describe("tasks-api: create and patch bodies", () => {
     expect(() => parseTaskPatch({ note: "ok", noteSource: "system" })).toThrow(ApiError);
   });
 
-  test("a due date is a calendar day at local midnight, a timestamp, or null", () => {
+  test("a due date preserves a calendar day, a timestamp, or null", () => {
     const day = parseDueDate("2026-09-18");
-    expect(day).toBe(new Date(2026, 8, 18).toISOString());
+    expect(day).toBe("2026-09-18");
     expect(parseDueDate("2026-09-18T09:30:00Z")).toBe("2026-09-18T09:30:00.000Z");
     expect(parseDueDate(null)).toBeNull();
     expect(() => parseDueDate("2026-02-30")).toThrow(ApiError);
