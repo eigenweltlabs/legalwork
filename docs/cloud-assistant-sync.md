@@ -24,7 +24,7 @@ A VM resume keeps its disk and memory; it does not restore all project files aga
 
 ## Configuration and handoff
 
-Deploy the companion [Model API integration](https://github.com/eigenweltlabs/model-api/pull/87) and its project routes first. Its current forward migration is `0045_personal_sync_purpose`; follow the database-history checks in [assistant-integration.md](https://github.com/eigenweltlabs/model-api/blob/codex/assistant-channel-integration/docs/assistant-integration.md) before applying it to an existing database. The legacy VM branch's `0031_personal_sync_purpose` must not be substituted into the current migration journal. LegalWork refuses to upload state if the platform does not confirm the protected personal-state type. This implementation uses an already configured Eigenwelt connection; VM credential provisioning is deliberately a later step.
+Deploy the companion [Model API integration](https://github.com/eigenweltlabs/model-api/pull/87) and its project routes first. Its current forward migrations include `0045_personal_sync_purpose` and `0046_assistant_runtime`; follow the database-history checks in [assistant-integration.md](https://github.com/eigenweltlabs/model-api/blob/codex/assistant-channel-integration/docs/assistant-integration.md) before applying them to an existing database. The legacy VM branch's `0031_personal_sync_purpose` must not be substituted into the current migration journal. LegalWork refuses to upload state if the platform does not confirm the protected personal-state type. This implementation uses an already configured Eigenwelt connection; VM credential provisioning remains an explicit controller step.
 
 Create a sync profile on the desktop:
 
@@ -104,8 +104,11 @@ runtime database and execution must hold the existing cloud executor lease.
 
 Each transport job journals a deterministic engine message ID before dispatch.
 Retries recover that exact message or its cached final result; an uncertain
-acceptance is never permission to send another prompt. Conversation mappings,
-receipts, exact approval revisions and command outcomes persist in runtime.sqlite.
+acceptance is never permission to send another prompt. Asynchronous engine
+acknowledgement can arrive before the message is stored; receipt checks wait up
+to 30 seconds for that exact message ID without resending. Conversation mappings,
+receipts, exact approval revisions and command outcomes persist in runtime.sqlite
+and are included in the private assistant-state checkpoint.
 The controller holds its lifecycle lease while the agent runs or waits for input.
 Lease cancellation stops only the still-active job and its delegated children;
 cancelling an already completed receipt cannot stop a newer turn.
@@ -125,7 +128,7 @@ The VM template installs a local, authenticated Browser Use worker and configure
 
 When a website needs login, the status response contains a user-bound credential-entry link. The user signs in through the browser and saves the website login into their 1Password vault. The browser agent then resumes the waiting task. Passwords, the host's 1Password service-account token and private browser authentication profiles stay outside project sync and chat responses. The controller, credential page, vault integration and browser implementation live in Model API. A failed browser task may already have performed website actions and must not be replayed automatically.
 
-Live GCP validation covered a dummy website login, same-agent continuation, a downloaded report, credential reuse and browser state after VM pause/resume. This validates browser infrastructure independently of connector transport. Mobile/WhatsApp/email messages still need the durable channel-to-VM runtime adapter described in the companion integration document.
+Live GCP validation covered a dummy website login, same-agent continuation, a downloaded report, credential reuse and browser state after VM pause/resume. Subsequent native iOS transport validation passed through the durable queue, real LegalWork VM and back to the same conversation in 14.55 seconds, with a VM-only proof file whose contents were absent from the prompt. Idempotent retry and stable replay passed. The companion iOS PR includes metadata and a 19.9-second recording. This uses the actual Swift ChannelAPI in a native iOS 27 simulator harness; the full app UI suite still requires a matching Xcode 27 SDK. A separate macOS transport repeat passed in 37.32 seconds. No live WhatsApp, mail or APNs delivery is claimed.
 
 ## Validation and current limits
 
