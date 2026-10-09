@@ -13,6 +13,8 @@ import { OpenTargetProvider, type OpenTargetOptions } from "@/lib/target-provide
 import { deriveOpenTargets, type OpenTarget } from "../artifacts/open-target";
 import { snapshotToUIMessages } from "../sync/usechat-adapter";
 import { getSessionScrollState, useSessionScrollStore } from "./scroll-store";
+import { mergeAssistantChannelHistory } from "./assistant-channel-transcript";
+import { useEigenweltEntitlements } from "../../connections/eigenwelt-entitlements";
 
 export function AssistantDateDivider({ date }: { date: string }) {
   const locale = useLocale();
@@ -27,14 +29,15 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
   onboarding?: AssistantOnboardingState;
 }) {
   const anchor = useRef<{ top: number; height: number } | null>(null);
+  const account = useEigenweltEntitlements({ client, workspaceId }).data?.account;
   const history = useInfiniteQuery({
-    queryKey: ["assistant-history", client.baseUrl, workspaceId, date],
+    queryKey: ["assistant-history", client.baseUrl, workspaceId, date, account?.orgId, account?.userId],
     initialPageParam: date,
     queryFn: async ({ pageParam }) => {
-      const page = await client.mainAssistantHistory(pageParam, 1);
+      const page = await client.assistantChannelDays(pageParam, 1);
       const days = await Promise.all(page.days.map(async day => {
-        const snapshot = (await client.getSessionSnapshot(workspaceId, day.sessionId)).item;
-        const messages = snapshotToUIMessages(snapshot);
+        const snapshot = day.sessionId ? (await client.getSessionSnapshot(workspaceId, day.sessionId)).item : null;
+        const messages = mergeAssistantChannelHistory(snapshot ? snapshotToUIMessages(snapshot) : [], await client.assistantChannelHistory(day.date));
         const targets = deriveOpenTargets(messages);
         const openTargets: OpenTarget[] = targets.length ? await client.resolveArtifacts(workspaceId, targets)
           .then(result => result.items).catch(() => targets.map(target => ({ ...target, exists: target.kind === "url" }))) : [];
@@ -45,7 +48,7 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
     getNextPageParam: page => page.nextBefore ?? undefined,
     staleTime: 30_000,
     // A turn started yesterday can finish after midnight.
-    refetchInterval: query => query.state.data?.pages.some(page => page.days.some(day => day.snapshot.status.type !== "idle")) ? 5000 : false,
+    refetchInterval: query => query.state.data?.pages.some(page => page.days.some(day => day.snapshot?.status.type !== "idle")) ? 5000 : 30000,
   });
   const loadOlder = useCallback(() => {
     if (!history.hasNextPage || history.isFetching || history.isError) return;
@@ -75,11 +78,11 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
     {history.isFetching && <p role="status" className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("assistant.loading_history")}</p>}
     {history.isError && <div role="alert" className="py-3 text-center text-xs text-muted-foreground">{t("assistant.history_failed")}<Button variant="ghost" size="sm" onClick={() => void (history.isFetchNextPageError ? history.fetchNextPage() : history.refetch())}>{t("scheduled.retry")}</Button></div>}
     {history.hasNextPage && !history.isFetching && <Button variant="ghost" size="sm" className="mx-auto block text-xs text-muted-foreground" onClick={loadOlder}>{t("assistant.older")}</Button>}
-    {days.map((day, index) => <section key={day.sessionId} aria-label={day.date}>
+    {days.map((day, index) => <section key={day.date} aria-label={day.date}>
       {(index > 0 || history.hasNextPage) && <AssistantDateDivider date={day.date} />}
       {onboarding?.step === "complete" && onboarding.sessionId === day.sessionId && <AssistantOnboardingConversation workspaceId={workspaceId} state={onboarding} />}
       <OpenTargetProvider openTargets={day.openTargets} onOpenTarget={onOpenTarget}>
-      <MessageListProvider assistantChat legalworkClient={client} workspaceId={workspaceId} sessionId={day.sessionId} readOnly showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0}
+      <MessageListProvider assistantChat legalworkClient={client} workspaceId={workspaceId} sessionId={day.sessionId ?? `channel-day:${day.date}`} readOnly showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0}
         dispatchAction={() => {}} setPrompt={() => {}} onRevertToUserMessage={() => {}} onForkAtMessage={() => {}} onEditUserMessage={() => {}}>
         <MessageList messages={day.messages} status="ready" showWelcome={false} />
       </MessageListProvider>
