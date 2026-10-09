@@ -2,11 +2,11 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { z } from "zod";
-import type { FirmHubAccess, FirmHubItem, FirmHubKind, FirmHubView } from "@legalwork/types/firm-hub";
+import type { FirmHubAccess, FirmHubItem, FirmHubKind, FirmHubSkillFile, FirmHubView } from "@legalwork/types/firm-hub";
 
 import { announceSyncChange } from "./app-sync-events.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { hubGet, hubGetSecret, hubListAll, installSkillFiles, requireHubClient, type EigenweltHubItem } from "./eigenwelt-hub.js";
+import { hubGet, hubGetSecret, hubListAll, installSkillFiles, requireHubClient, validateHubFilePath, type EigenweltHubItem } from "./eigenwelt-hub.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { ApiError } from "./errors.js";
 import { OcrVault } from "./ocr/vault.js";
@@ -433,6 +433,37 @@ export async function firmHubSkills(config: ServerConfig): Promise<SkillItem[]> 
     });
   }
   return skills;
+}
+
+const MAX_READ_BYTES = 1024 * 1024;
+
+/** The files in a folder, by their path in it (no links followed). */
+async function filesIn(dir: string, prefix = ""): Promise<string[]> {
+  const files: string[] = [];
+  for (const entry of await readdir(join(dir, prefix), { withFileTypes: true })) {
+    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) files.push(...(await filesIn(dir, path)));
+    else if (entry.isFile() && path !== MARKER) files.push(path);
+  }
+  return files.sort((a, b) => (a === "SKILL.md" ? -1 : b === "SKILL.md" ? 1 : a.localeCompare(b)));
+}
+
+/** Read a file of one of the firm's skills or workflows on this computer (members cannot change them). */
+export async function readFirmHubSkill(config: ServerConfig, name: string, path = "SKILL.md"): Promise<FirmHubSkillFile> {
+  const item = (await wanted(config)).find((each) => (each.kind === "skill" || each.kind === "workflow") && each.name === name);
+  const dir = item ? join(skillsDir(config), item.name) : null;
+  const files = dir ? await filesIn(dir).catch(() => []) : [];
+  const relative = validateHubFilePath(path);
+  if (!item || !dir || !files.includes(relative)) throw new ApiError(404, "firm_hub_item_not_found", "Your firm no longer offers this.");
+  const data = await readFile(join(dir, relative));
+  return {
+    name: item.name,
+    kind: item.kind === "workflow" ? "workflow" : "skill",
+    description: item.description,
+    path: relative,
+    content: data.length > MAX_READ_BYTES || data.includes(0) ? null : data.toString("utf8"),
+    files,
+  };
 }
 
 /** The firm's prompt sets for the review library: its payload `{ set }`. */

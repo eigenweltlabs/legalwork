@@ -3128,6 +3128,8 @@ const de = {
   "firm_hub.empty_workflows": "Noch keine Workflows mit Ihrer Kanzlei geteilt.",
   "firm_hub.empty_integrations": "Noch keine Integrationen mit Ihrer Kanzlei geteilt.",
   "firm_hub.empty_presets": "Noch keine Einstellungsvorlagen mit Ihrer Kanzlei geteilt.",
+  "firm_hub.file_not_shown": "Diese Datei kann hier nicht angezeigt werden.",
+  "firm_hub.files": "Dateien",
   "firm_hub.from_firm_title": "Von Ihrer Kanzlei",
   "firm_hub.connector_connected": "Verbunden",
   "firm_hub.connector_needs_sign_in": "Melden Sie sich an, um ihn zu nutzen",

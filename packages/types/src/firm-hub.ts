@@ -26,6 +26,17 @@ export type FirmHubItem = {
   connector?: { serverName: string; url: string | null; access: FirmHubAccess; keyName: string | null; hasOwnKey: boolean };
 };
 
+/** A file of a firm skill or workflow, to read: its text, or null for one that is no text or too large to show. */
+export type FirmHubSkillFile = {
+  name: string;
+  kind: "skill" | "workflow";
+  description: string;
+  path: string;
+  content: string | null;
+  /** Every file of it, by its path in the folder; SKILL.md first. */
+  files: string[];
+};
+
 export type FirmHubView = {
   /** Signed in to a firm with a hub: otherwise there is nothing. */
   connected: boolean;

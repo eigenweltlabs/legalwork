@@ -194,7 +194,7 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
-import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
+import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
@@ -2497,6 +2497,8 @@ function createRoutes(
   // The firm's Knowledge Hub as this computer follows it (firm-hub.ts).
   addRoute(routes, "GET", "/firm-hub", "client", async () => jsonResponse(await readFirmHubView(config)));
   addRoute(routes, "GET", "/firm-hub/skills", "client", async () => jsonResponse({ items: await firmHubSkills(config) }));
+  addRoute(routes, "GET", "/firm-hub/skills/:name", "client", async (ctx) =>
+    jsonResponse(await readFirmHubSkill(config, ctx.params.name ?? "", ctx.url.searchParams.get("path") ?? "SKILL.md")));
   addRoute(routes, "POST", "/firm-hub/:itemId/added", "client", async (ctx) => {
     requireClientScope(ctx, "owner");
     ensureWritable(config);

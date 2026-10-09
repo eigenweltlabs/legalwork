@@ -1,7 +1,7 @@
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
 import type { OrgPolicyKey } from "@legalwork/types/org-policy";
 import type { OrgPolicyView } from "@legalwork/types/org-policy-view";
-import type { FirmHubView } from "@legalwork/types/firm-hub";
+import type { FirmHubSkillFile, FirmHubView } from "@legalwork/types/firm-hub";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
@@ -2748,6 +2748,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // The firm's Knowledge Hub as this computer follows it (server firm-hub.ts).
     firmHub: () => requestJson<FirmHubView>(baseUrl, "/firm-hub", { token, hostToken, timeoutMs: timeouts.status }),
     firmHubSkills: () => requestJson<{ items: LegalworkSkillItem[] }>(baseUrl, "/firm-hub/skills", { token, hostToken, timeoutMs: timeouts.status }),
+    firmHubSkill: (name: string, path = "SKILL.md") =>
+      requestJson<FirmHubSkillFile>(baseUrl, `/firm-hub/skills/${encodeURIComponent(name)}?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.status }),
     setFirmHubAdded: (itemId: string, added: boolean) =>
       requestJson<FirmHubView>(baseUrl, `/firm-hub/${encodeURIComponent(itemId)}/added`, {
         token,

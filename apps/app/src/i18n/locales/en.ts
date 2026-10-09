@@ -2896,6 +2896,8 @@ export default {
   "firm_hub.empty_workflows": "No workflows shared with your firm yet.",
   "firm_hub.empty_integrations": "No integrations shared with your firm yet.",
   "firm_hub.empty_presets": "No settings presets shared with your firm yet.",
+  "firm_hub.file_not_shown": "This file can't be shown here.",
+  "firm_hub.files": "Files",
   "firm_hub.from_firm_title": "From your firm",
   "firm_hub.connector_connected": "Connected",
   "firm_hub.connector_needs_sign_in": "Sign in to use it",

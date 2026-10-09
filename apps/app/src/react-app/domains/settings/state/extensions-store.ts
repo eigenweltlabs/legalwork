@@ -54,6 +54,7 @@ import type {
   LegalworkServerStatus,
 } from "../../../../app/lib/legalwork-server";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
+import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
 import type { LegalworkServerStore } from "../../connections/legalwork-server-store";
 import { orgPolicyAllows, orgPolicyOffText } from "../../connections/org-policy";
 
@@ -591,6 +592,13 @@ export function createExtensionsStore(options: {
     } finally {
       options.setBusy(false);
     }
+  }
+
+  /** A file of one of the firm's skills or workflows, to read. */
+  async function readFirmSkill(name: string, path?: string): Promise<FirmHubSkillFile> {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient) throw new Error(t("skills.skill_load_failed"));
+    return target.legalworkClient.firmHubSkill(name, path);
   }
 
   /** The packages imported into this workspace: from GitHub or a marketplace. */
@@ -2208,6 +2216,7 @@ export function createExtensionsStore(options: {
     installClaudePlugin,
     importedPackages,
     removeImportedPackage,
+    readFirmSkill,
     revealSkillsFolder,
     uninstallSkill,
     readSkill,

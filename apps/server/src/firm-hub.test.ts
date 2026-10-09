@@ -11,6 +11,7 @@ import {
   firmHubPromptSets,
   firmHubSkills,
   onFirmHubChange,
+  readFirmHubSkill,
   readFirmHubView,
   resetFirmHubRuntimeForTests,
   scheduleFirmHubSync,
@@ -96,6 +97,11 @@ describe("the firm's Knowledge Hub", () => {
 
     expect(await readFile(join(skillDir("citation-style"), "SKILL.md"), "utf8")).toContain("Cite like the firm does.");
     expect(await exists(skillDir("contract-review"))).toBe(false);
+    // Members read it, file by file, and nothing outside it.
+    expect(await readFirmHubSkill(config, "citation-style")).toMatchObject({ kind: "skill", path: "SKILL.md", files: ["SKILL.md"] });
+    expect((await readFirmHubSkill(config, "citation-style")).content).toContain("Cite like the firm does.");
+    await expect(readFirmHubSkill(config, "citation-style", "../catalog.json")).rejects.toMatchObject({ code: "invalid_hub_path" });
+    await expect(readFirmHubSkill(config, "contract-review")).rejects.toMatchObject({ code: "firm_hub_item_not_found" });
     expect((await firmHubSkills(config)).map((skill) => [skill.name, skill.firm])).toEqual([["citation-style", "automatic"]]);
     expect(await firmHubPromptSets(config)).toEqual([{ id: "set-1", version: 2, payload: { set: { name: "Lease review" } } }]);
     // Engine plugins are no firm's to hand out.

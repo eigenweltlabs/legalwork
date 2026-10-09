@@ -77,7 +77,9 @@ import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-poli
 import { FirmItemNote } from "../../connections/org-policy-ui";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
+import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
 import { BuiltInSkills, ImportedPackages, packageParts, type SkillPackagesStore } from "./skill-packages";
+import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -118,6 +120,8 @@ export type SkillsExtensionsStore = SkillResourcesStore & SkillPackagesStore & {
   /** A GitHub repo that is a package (skills, connectors and commands together): what it would bring, and importing it. */
   previewClaudePlugin: (url: string) => Promise<LegalworkClaudePluginPreview>;
   installClaudePlugin: (url: string) => Promise<{ ok: boolean; message: string }>;
+  /** A file of one of the firm's skills or workflows, to read (they cannot be changed here). */
+  readFirmSkill: (name: string, path?: string) => Promise<FirmHubSkillFile>;
   skills: () => SkillCard[];
   skillsStatus: () => string | null;
   hubSkills: () => HubSkillCard[];
@@ -427,6 +431,8 @@ export function SkillsView(props: SkillsViewProps) {
   const showInstalledSection = showLocal && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
   // Read the imported packages again once the import dialog brought one in.
   const [packagesRevision, setPackagesRevision] = useState(0);
+  // One of the firm's skills, open to read.
+  const [firmSkill, setFirmSkill] = useState<SkillCard | null>(null);
   const showHubSection = showLocal && SKILLS_HUB_UI_ENABLED && !isWorkflowsView && (effectiveActiveFilter === "all" || effectiveActiveFilter === "hub");
   const canCreateInChat = !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools);
 
@@ -836,10 +842,15 @@ export function SkillsView(props: SkillsViewProps) {
                   const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
                   const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
-                  // The firm's skill follows its hub: members cannot change or remove it here.
+                  // The firm's skill follows its hub: members read it, but cannot change or remove it here.
                   if (skill.firm) {
                     return (
-                      <div key={skill.path} className="flex flex-col rounded-[16px] border border-dls-border bg-dls-surface p-3.5">
+                      <button
+                        key={skill.path}
+                        type="button"
+                        onClick={() => setFirmSkill(skill)}
+                        className="flex flex-col rounded-[16px] border border-dls-border bg-dls-surface p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.3)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)]"
+                      >
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border border-dls-border bg-dls-hover text-dls-accent">
                             <TypeIcon size={14} strokeWidth={1.75} />
@@ -852,7 +863,7 @@ export function SkillsView(props: SkillsViewProps) {
                         <div className="mt-2.5">
                           <FirmItemNote added={skill.firm === "optional"} />
                         </div>
-                      </div>
+                      </button>
                     );
                   }
                   return (
@@ -1169,6 +1180,10 @@ export function SkillsView(props: SkillsViewProps) {
             </div>
         </DialogContent>
       </Dialog>
+
+      {firmSkill ? (
+        <FirmSkillDialog name={firmSkill.name} added={firmSkill.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmSkill(null)} />
+      ) : null}
 
       <ConfirmModal
         open={Boolean(uninstallTarget)}
