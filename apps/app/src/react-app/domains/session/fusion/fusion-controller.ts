@@ -143,7 +143,7 @@ Status: ${status}${sessionID ? `\nSession: ${sessionID}` : ""}
 ${output}`;
 }
 
-async function buildFusionTraceSystemPrompt(input: {
+export async function buildFusionTraceSystemPrompt(input: {
   client: Client;
   directory?: string;
   sessionId: string;

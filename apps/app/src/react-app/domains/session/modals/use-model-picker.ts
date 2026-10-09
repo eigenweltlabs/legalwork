@@ -16,6 +16,7 @@ export type UseModelPickerInput = {
   client: Client | null;
   baseUrl: string;
   workspaceRoot: string;
+  listenForDefaults?: boolean;
   /** Optional: surface option-load failures (settings shows a toast; the session route stays silent). */
   onLoadError?: (error: unknown) => void;
 };
@@ -35,6 +36,7 @@ export function useModelPicker(input: UseModelPickerInput) {
 
   // Open model picker when the global toast's "Pick a new default?" is clicked
   useEffect(() => {
+    if (input.listenForDefaults === false) return;
     const handler = (event: Event) => {
       try {
         window.localStorage.removeItem(pendingModelPickerProviderIdsKey);
@@ -48,9 +50,10 @@ export function useModelPicker(input: UseModelPickerInput) {
     };
     window.addEventListener(openModelPickerEvent, handler);
     return () => window.removeEventListener(openModelPickerEvent, handler);
-  }, []);
+  }, [input.listenForDefaults]);
 
   useEffect(() => {
+    if (input.listenForDefaults === false) return;
     try {
       const raw = window.localStorage.getItem(pendingModelPickerProviderIdsKey);
       if (!raw) return;
@@ -64,7 +67,7 @@ export function useModelPicker(input: UseModelPickerInput) {
     } catch {
       // Ignore malformed pending-picker state.
     }
-  }, []);
+  }, [input.listenForDefaults]);
 
   // Observe the cache so models discovered while the picker is open appear immediately.
   useEffect(() => {

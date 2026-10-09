@@ -38,6 +38,7 @@ type Props = {
   workspaceId: string;
   workspaceRoot: string;
   isRemoteWorkspace?: boolean;
+  localReadOnly?: boolean;
   root: StorageRoot;
   file: StorageEntry;
   onClose: () => void;
@@ -46,7 +47,7 @@ type Props = {
 export function StorageFilePanel(props: Props) {
   const { client, workspaceId, root, file, tabId } = props;
   const copy = useQuery({
-    queryKey: ["storage-working-copy", workspaceId, tabId],
+    queryKey: ["storage-working-copy", workspaceId, tabId, client.baseUrl],
     queryFn: () => client.checkoutStorageFile(workspaceId, root.id, file.path),
     staleTime: Infinity,
     gcTime: Infinity,
@@ -82,7 +83,7 @@ export function StorageFilePanel(props: Props) {
         size: working.size,
         updatedAt: working.updatedAt,
       }}
-      localReadOnly={!working.localWritable}
+      localReadOnly={props.localReadOnly || !working.localWritable}
       saveActions={(persist, busy) => (
         <StorageSaveActions {...props} copy={working} persist={persist} editorBusy={busy} />
       )}
@@ -121,7 +122,7 @@ function StorageSaveActions({
           copy.version,
           copy.contentType,
         );
-        queryClient.setQueryData<StorageWorkingCopy>(["storage-working-copy", workspaceId, tabId], (current) =>
+        queryClient.setQueryData<StorageWorkingCopy>(["storage-working-copy", workspaceId, tabId, client.baseUrl], (current) =>
           current ? { ...current, version: result.version } : current,
         );
         toast.success(t("storage.saved_remote").replace("{name}", root.name));
@@ -145,7 +146,7 @@ function StorageSaveActions({
       if (copy.localWritable && !(await persist())) return;
       const latest = await client.checkoutStorageFile(workspaceId, root.id, file.path);
       queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, tabId], exact: true });
-      queryClient.setQueryData(["storage-working-copy", workspaceId, tabId], latest);
+      queryClient.setQueryData(["storage-working-copy", workspaceId, tabId, client.baseUrl], latest);
       toast.success(t("storage.latest_opened"));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("artifact.load_failed"));

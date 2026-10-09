@@ -441,3 +441,30 @@ describe("PowerPoint visual feedback", () => {
     expect(typeof wrongSession === "string" && JSON.parse(wrongSession).ok).toBe(false);
   });
 });
+
+describe("project-scoped document controls", () => {
+  test("both open chats see and read the project document, while other chats and pane ids cannot", async () => {
+    const sessionIds = ["ses_left", "ses_right"];
+    const surface = { kind: "document", format: "md", sessionId: "workspace:project-a", sessionIds, workspaceId: "project-a", name: "Brief.md", path: "Brief.md", editable: true, agentEditsTracked: false };
+    const calls: unknown[] = [];
+    await withBridge({ activeSurface: surface, openFiles: [{ ...surface, active: true }] }, body => { calls.push(body); return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    for (const sessionID of sessionIds) {
+      const result = JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID }));
+      expect(result.files).toEqual([{ name: "Brief.md", path: "Brief.md", active: true }]);
+      expect(result.activeDocument?.path).toBe("Brief.md");
+      expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "Brief.md" }, { sessionID })).ok).toBe(true);
+    }
+    for (const sessionID of ["ses_other_project", "workspace:project-a"]) {
+      expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID }))).toEqual({ files: [], activeDocument: null });
+      expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "Brief.md" }, { sessionID })).ok).toBe(false);
+    }
+    expect(calls).toHaveLength(2);
+  });
+  test("an explicitly empty chat scope does not fall back to a stale legacy session", async () => {
+    const surface = { kind: "document", format: "docx", sessionId: "ses_old", sessionIds: [], name: "Brief.docx", path: "Brief.docx" };
+    await withBridge({ activeSurface: surface, openFiles: [{ ...surface, active: true }] });
+    const plugin = await LegalWorkExtensionsPreview();
+    expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "ses_old" }))).toEqual({ files: [], activeDocument: null });
+  });
+});

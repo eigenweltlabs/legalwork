@@ -1,3 +1,10 @@
+import { WorkspaceTabDropTarget } from "./workspace-tab-drop-target";
+import { ProjectFileDropTarget } from "../../workspace/project-file-transfer";
+import { startProjectViewDrag } from "./project-view-drag";
+import { projectViewFromPath, workspaceProjectRoute, workspaceViewRoute } from "@/react-app/shell/workspace-routes";
+import { PanelsTopLeft } from "lucide-react";
+import { projectViewTab, usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
+import { projectViewLabel } from "../panel/side-panel";
 /** @jsxImportSource react */
 import * as React from "react";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
@@ -10,7 +17,7 @@ import {
   ListTodo,
   Settings,
   WandSparkles,
-  Table2,
+  TableProperties,
   Archive,
   ArchiveRestore,
   FlaskConical,
@@ -99,7 +106,7 @@ import { useProjectPersonalisation } from "../../workspace/project-personalisati
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import { SidebarUpdateBadge } from "./sidebar-update-badge";
 import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-badge";
-import { workspaceProjectRoute, workspaceSessionRoute, workspaceTasksRoute, workspaceReviewsRoute, workspaceCalendarRoute } from "@/react-app/shell/workspace-routes";
+import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
   flattenSessionRows,
@@ -125,7 +132,7 @@ import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../st
 import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { allProjectSessions, SessionProjectHover } from "./session-project-hover";
 import { SidebarCustomization, SIDEBAR_ITEMS } from "./sidebar-customization";
-import { startSessionDrag, acceptsSessionDrag, readSessionDrag } from "./session-drag";
+import { startSessionDrag, acceptsSessionsDrag, readSessionsDrag } from "./session-drag";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
@@ -542,6 +549,7 @@ export type AppSidebarProps = {
   projectFilesOpen?: boolean;
   onOpenNavWindow?: (key: ShellNavKey) => void;
   onOpenProjectWindow?: SidebarContextValue["onOpenProjectWindow"];
+  activeProjectView?: SidebarContextValue["activeProjectFeature"];
   showSessionActions?: boolean;
   sessionStatusById?: Record<string, string>;
   connectingWorkspaceId: string | null;
@@ -760,7 +768,7 @@ export function AppSidebar(props: AppSidebarProps) {
         {t(SIDEBAR_ITEMS[key].label)}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && sessions.some(({ session }) => unreadSession(inbox, session.id))} />
       </button>
       {!closedSections.has(key) && <SidebarMenu className="gap-0.5">
-        {visible.map(({ session, workspace }) => <GlobalSessionRow key={session.id} session={session} workspace={workspace} />)}
+        {visible.map(({ session, workspace }) => <GlobalSessionRow key={session.id} session={session} workspace={workspace} showProject />)}
         {!visible.length && <li className="px-2 py-2 text-xs text-muted-foreground">{t("projects.no_sessions")}</li>}
         {key === "sectionRecent" && sessions.length > recentLimit && <li><Button variant="ghost" className="h-8 justify-start px-2 text-xs text-muted-foreground" onClick={() => setRecentLimit(count => count + 10)}>{t("sidebar.show_more")}</Button></li>}
       </SidebarMenu>}
@@ -770,12 +778,15 @@ export function AppSidebar(props: AppSidebarProps) {
   const contextValue: SidebarContextValue = {
     workspaceSessionGroups: props.workspaceSessionGroups,
     selectedWorkspaceId: props.selectedWorkspaceId,
-    selectedSessionId: props.activeNav || projectsPage || location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar") || location.pathname === "/home" ? null : props.selectedSessionId,
-    activeProjectFeature: props.activeNav || projectsPage || location.pathname === "/home" ? null : location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks"
-      : location.pathname.endsWith("/project") ? "home" : props.selectedSessionId ? "sessions" : null,
+    selectedSessionId: props.activeNav || projectsPage || projectViewFromPath(location.pathname) || location.pathname === "/home" ? null : props.selectedSessionId,
+    activeProjectFeature: props.activeProjectView !== undefined ? props.activeProjectView : props.activeNav || projectsPage || location.pathname === "/home" ? null : projectViewFromPath(location.pathname) ?? (props.selectedSessionId ? "sessions" : null),
+    onOpenWorkspace: async workspaceId => {
+      if (await props.onSelectWorkspace(workspaceId) === false) return;
+      navigate(workspaceSessionRoute(workspaceId) + "?view=workspace");
+    },
     onOpenProjectPage: async (workspaceId, page) => {
       if (await props.onSelectWorkspace(workspaceId) === false) return;
-      navigate(page === "calendar" ? workspaceCalendarRoute(workspaceId) : page === "reviews" ? workspaceReviewsRoute(workspaceId) : page === "tasks" ? workspaceTasksRoute(workspaceId) : workspaceProjectRoute(workspaceId));
+      navigate(workspaceViewRoute(workspaceId, page));
     },
     onOpenProjectFiles: props.onOpenProjectFiles,
     projectFilesOpen: props.projectFilesOpen,
@@ -845,7 +856,7 @@ export function AppSidebar(props: AppSidebarProps) {
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         {newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>
-        <div data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
+        <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
           {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
             if (key === "sectionPinnedProjects") return pinnedProjects.length ? <section key={key} className="px-2 pb-3">
               <button className="flex h-9 w-full items-center gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => toggleSection(key)} aria-expanded={!closedSections.has(key)}>
@@ -860,12 +871,12 @@ export function AppSidebar(props: AppSidebarProps) {
                 <Button variant="ghost" size="icon-xs" aria-label={t("sidebar.all_projects")} title={t("sidebar.all_projects")} onClick={() => props.onShowProjects?.()}><LayoutGrid className="size-3.5" /></Button>
                 <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>
               </div>
-              {!closedSections.has(key) && <LazyMotion features={domMax}><Reorder.Group as="div" axis="y" values={props.workspaceSessionGroups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(ids)} className="flex flex-col gap-px">
-                {props.workspaceSessionGroups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} />)}
-              </Reorder.Group></LazyMotion>}
+              {!closedSections.has(key) && <Reorder.Group as="div" axis="y" values={props.workspaceSessionGroups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(ids)} className="flex flex-col gap-px">
+                {props.workspaceSessionGroups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} canReorder={Boolean(props.onReorderWorkspaces)} />)}
+              </Reorder.Group>}
             </section>;
           })}
-        </div>
+        </m.div></LazyMotion>
         <div className="shrink-0">
           <SidebarUpdateBadge onOpenUpdatesSettings={() => navigate("/settings/updates")} />
         </div>
@@ -885,43 +896,30 @@ export function AppSidebar(props: AppSidebarProps) {
   );
 }
 
-type WorkspaceReorderItemProps = {
-  className?: string;
+function WorkspaceReorderItem({ group, showInitialLoading, canReorder }: {
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
-};
-
-function WorkspaceReorderItem({
-  className,
-  group,
-  showInitialLoading,
-}: WorkspaceReorderItemProps) {
+  canReorder: boolean;
+}) {
   const dragControls = useDragControls();
-
-  return (
-    <Reorder.Item
-      as="div"
-      value={group.workspace.id}
-      id={group.workspace.id}
-      layout="position"
-      dragElastic={0}
-      dragListener={false}
-      dragControls={dragControls}
-      transformTemplate={(_latest, generated) =>
-        // Keep Motion's translate-based reorder movement, but drop projection scale
-        // so expanded workspace contents don't stretch during collapse/expand.
-        generated.replace(/ ?scale[XY]?\([^)]*\)/g, "")
-      }
-      className="relative"
-    >
-      <WorkspaceSidebarGroup
-        className={className}
-        group={group}
-        showInitialLoading={showInitialLoading}
-        onWorkspaceTitlePointerDown={(event) => dragControls.start(event, { distanceThreshold: 10 })}
-      />
-    </Reorder.Item>
-  );
+  const completedDrag = React.useRef(false);
+  const [dragging, setDragging] = React.useState(false);
+  return <Reorder.Item as="div" value={group.workspace.id} data-sidebar-project={group.workspace.id} data-project-dragging={dragging || undefined}
+    onPointerDownCapture={() => { completedDrag.current = false; }}
+    onKeyDownCapture={() => { completedDrag.current = false; }}
+    onDragStart={() => { completedDrag.current = true; setDragging(true); }}
+    onDragEnd={() => setDragging(false)}
+    onClickCapture={event => {
+      // A pointer reorder must not activate the project on the trailing click.
+      if (completedDrag.current) { event.preventDefault(); event.stopPropagation(); }
+    }}
+    layout="position" dragListener={false} dragControls={dragControls} dragElastic={0} dragMomentum={false}
+    className="relative isolate rounded-xl bg-sidebar"
+    whileDrag={{ zIndex: 20, boxShadow: "0 12px 28px -8px rgb(0 0 0 / 0.2), 0 0 0 1px var(--border)" }}
+    transition={{ layout: { type: "spring", stiffness: 420, damping: 38 } }}>
+    <WorkspaceSidebarGroup group={group} showInitialLoading={showInitialLoading}
+      onWorkspaceTitlePointerDown={canReorder ? event => dragControls.start(event, { distanceThreshold: 10 }) : undefined} />
+  </Reorder.Item>;
 }
 
 type WorkspaceHeaderProps = React.ComponentProps<typeof SidebarMenuButton> & {
@@ -931,7 +929,7 @@ type WorkspaceHeaderProps = React.ComponentProps<typeof SidebarMenuButton> & {
   isLoading: boolean;
   isRunning: boolean;
   unread: boolean;
-  onTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
+  onTitlePointerDown?: React.PointerEventHandler<HTMLDivElement>;
 };
 
 function WorkspaceHeader({
@@ -946,23 +944,24 @@ function WorkspaceHeader({
   ...props
 }: WorkspaceHeaderProps) {
   const ctx = useSidebarContext();
+  const isExpanded = ctx.expandedWorkspaceIds.has(workspace.id);
 
   return (
     <SidebarMenuButton
       {...props}
-      aria-expanded={ctx.expandedWorkspaceIds.has(workspace.id)}
+      title={t("workspace.open_workspace")}
       className={cn(
         "pr-10 [&_.lw-folder-icon]:size-5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) ctx.toggleWorkspaceExpanded(workspace.id);
+        if (!event.defaultPrevented) void ctx.onOpenWorkspace(workspace.id);
       }}
       onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}
     >
       <span className="relative flex size-5 shrink-0">
-        <ProjectFolderIcon workspaceId={workspace.id} open={ctx.expandedWorkspaceIds.has(workspace.id)} />
+        <ProjectFolderIcon workspaceId={workspace.id} open={isExpanded} />
         {isRunning && (
           <SessionStatusIndicator
             className="absolute -right-1 -bottom-1 rounded-full bg-sidebar text-sidebar-foreground ring-2 ring-sidebar [&>svg]:size-3"
@@ -973,7 +972,10 @@ function WorkspaceHeader({
         )}
       </span>
       <div
-        className="min-w-0 flex-1 cursor-grab touch-none active:cursor-grabbing group-hover/workspace-header:pr-14 group-focus-within/workspace-header:pr-14 group-has-data-popup-open/workspace-header:pr-14 [@media(hover:none)]:pr-14"
+        className={cn("min-w-0 flex-1 cursor-grab touch-none active:cursor-grabbing", isExpanded
+          ? "group-hover/workspace-header:pr-14 group-focus-within/workspace-header:pr-14 group-has-data-popup-open/workspace-header:pr-14 [@media(hover:none)]:pr-14"
+          : "group-hover/workspace-header:pr-7 group-focus-within/workspace-header:pr-7 group-has-data-popup-open/workspace-header:pr-7 [@media(hover:none)]:pr-7")}
+        data-workspace-drag-handle
         onPointerDown={onTitlePointerDown}
       >
         <span className="block truncate">{workspaceLabel(workspace)}</span>
@@ -990,13 +992,13 @@ function WorkspaceHeader({
   );
 }
 
-const PROJECT_FEATURE_CLASS = "min-h-8 h-auto gap-2 rounded-md px-2.5 ps-2.5 py-1.5 text-[13px] data-active:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-border/50 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip";
+const PROJECT_FEATURE_CLASS = "min-h-8 h-auto gap-2 rounded-md px-2.5 ps-2.5 py-1.5 text-[13px] data-active:bg-background data-active:hover:bg-background data-active:active:bg-background data-active:group-hover/menu-sub-item:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-border/50 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip";
 
 type WorkspaceSidebarGroupProps = {
   className?: string;
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
-  onWorkspaceTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
+  onWorkspaceTitlePointerDown?: React.PointerEventHandler<HTMLDivElement>;
 };
 
 function WorkspaceSidebarGroup({
@@ -1020,11 +1022,8 @@ function WorkspaceSidebarGroup({
   const isSelected = ctx.selectedWorkspaceId === workspace.id;
   const [sessionsOpen, setSessionsOpen] = React.useState(false);
   const { config } = useShellConfig();
-  React.useEffect(() => {
-    if (isSelected && ctx.selectedSessionId) setSessionsOpen(true);
-  }, [isSelected, ctx.selectedSessionId]);
   const showSessions = !config.collapseProjectSessions || sessionsOpen;
-  const projectNavItems = config.projectNavOrder.filter(key => key === "projectSessions" ? config.collapseProjectSessions : config[key]);
+  const projectNavItems = config.projectNavOrder.filter(key => key === "projectSessions" || config[key]);
 
 
   const statusLabel = (() => {
@@ -1050,7 +1049,7 @@ function WorkspaceSidebarGroup({
             className="group/collapsible"
           >
             <div className="group/workspace-header relative">
-              <WorkspaceHeader
+              <ProjectFileDropTarget hint projectId={workspace.id}><WorkspaceHeader
                 workspace={workspace}
                 unread={unread}
                 isActive={isSelected}
@@ -1060,9 +1059,9 @@ function WorkspaceSidebarGroup({
                 isLoading={group.status === "loading" || isConnecting}
                 isRunning={group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
-              />
+              /></ProjectFileDropTarget>
               <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                <Button
+                {isExpanded && <Button
                   variant="ghost"
                   size="icon"
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100"
@@ -1075,7 +1074,7 @@ function WorkspaceSidebarGroup({
                   title={t("session.new_task")}
                 >
                   <MessageSquare className="size-3.5" strokeWidth={1.5} />
-                </Button>
+                </Button>}
                 <WorkspaceActionsMenu
                   workspace={workspace}
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100 data-popup-open:opacity-100"
@@ -1098,52 +1097,57 @@ function WorkspaceSidebarGroup({
 
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
-                {projectNavItems.length > 0 && <SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
-                  {projectNavItems.map(key => ({
-                  projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
+                {<SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
+                  {projectNavItems.map(key => <React.Fragment key={key}>
+                  {(key === "projectFiles" || (!projectNavItems.includes("projectFiles") && key === "projectSessions")) && <SidebarMenuSubItem className="mt-1 border-t border-sidebar-border/70 pt-2"><WorkspaceTabDropTarget projectId={workspace.id} projectName={workspaceLabel(workspace)} sessionTitle={id => getDisplaySessionTitle(group.sessions.find(session => session.id === id)?.title)} onOpen={() => ctx.onOpenWorkspace(workspace.id)}><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></WorkspaceTabDropTarget></SidebarMenuSubItem>}
+                  {({
+                  projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "calendar")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectHome: <SidebarMenuSubItem key="projectHome">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "home"); }}>
+                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "home")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "home"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "home"); }}>
                       <House className="size-4" strokeWidth={1.5} />
-                      <span>{t("projects.home")}</span>
+                      <span>{t("workspace.overview")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
-                      <Table2 className="size-4" strokeWidth={1.5} />
+                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "reviews")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
+                      <TableProperties className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.tab_review")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectTasks: <SidebarMenuSubItem key="projectTasks">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "tasks"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "tasks")} onClick={() => { setSessionsOpen(false); void ctx.onOpenProjectPage(workspace.id, "tasks"); }}>
+                    <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "tasks")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "tasks"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "tasks")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "tasks"); }}>
                       <ListTodo className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.tasks")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
                   projectFiles: <SidebarMenuSubItem key="projectFiles">
-                    <SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.projectFilesOpen} aria-pressed={isSelected && Boolean(ctx.projectFilesOpen)} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
+                    <ProjectFileDropTarget hint projectId={workspace.id}><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "files")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "files"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "files")} onClick={() => ctx.onOpenProjectFiles(workspace.id)}>
                       <Files className="size-4" strokeWidth={1.5} />
                       <span>{t("projects.files")}</span>
-                    </SidebarMenuSubButton>
+                    </SidebarMenuSubButton></ProjectFileDropTarget>
                   </SidebarMenuSubItem>,
                   projectSessions: <li key="projectSessions">
                     <div className="group/project-sessions-heading relative">
-                      <SidebarMenuSubButton className={cn(PROJECT_FEATURE_CLASS, "pe-10")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} aria-expanded={showSessions} onClick={() => {
-                        setSessionsOpen(!showSessions);
-                      }}>
+                      <ProjectFileDropTarget hint projectId={workspace.id} mode="chat"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "sessions")} className={cn(PROJECT_FEATURE_CLASS, "pe-14")} isActive={isSelected && ctx.activeProjectFeature === "sessions"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "sessions")}>
                         <MessageSquare className="size-4" strokeWidth={1.5} />
-                        <span className="min-w-0 flex-1 truncate group-hover/project-sessions-heading:pr-14 group-focus-within/project-sessions-heading:pr-14 [@media(hover:none)]:pr-14">{t("projects.sessions")}</span><span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread={!showSessions && unread} /></span>
-                        <ChevronRight className={cn("absolute right-2.5 size-3.5 text-muted-foreground transition-transform", showSessions && "rotate-90")} />
-                      </SidebarMenuSubButton>
-                      <Button variant="ghost" size="icon-xs" className="absolute right-23 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" disabled={ctx.newChatDisabled} aria-label={t("session.new_task")} title={t("session.new_task")} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare className="size-3.5" strokeWidth={1.5} /></Button>
-                      <Button variant="ghost" size="icon-xs" className="absolute right-16 top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 [@media(hover:none)]:opacity-100" aria-label={t("session_management.create_group")} title={t("session_management.create_group")} onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus className="size-3.5" /></Button>
+                        <span className="min-w-0 flex-1 truncate">{t("projects.sessions")}</span>{!showSessions && unread && <UnreadDot unread />}
+                      </SidebarMenuSubButton></ProjectFileDropTarget>
+                      {config.collapseProjectSessions && <Button variant="ghost" size="icon-xs" className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground" aria-label={t(showSessions ? "project_browser.collapse_sessions" : "project_browser.expand_sessions")} aria-expanded={showSessions} onClick={() => setSessionsOpen(!showSessions)}><ChevronRight className={cn("size-3.5 transition-transform", showSessions && "rotate-90")} /></Button>}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className={cn("absolute top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100", config.collapseProjectSessions ? "right-7" : "right-0.5")} aria-label={t("projects.session_actions")}><MoreHorizontal className="size-3.5" /></Button>} />
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare />{t("session.new_task")}</DropdownMenuItem>
+                          {ctx.onOpenCreateGroupModal && <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus />{t("session_management.create_group")}</DropdownMenuItem>}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                    <Collapsible open={showSessions}><CollapsibleContent>
+                    <Collapsible open={config.collapseProjectSessions && showSessions}><CollapsibleContent>
                       <div className="mb-1 ml-[18px] mt-1.5 border-l border-sidebar-border pl-1">
                         <WorkspaceSessions group={group} loading={showInitialLoading} />
                       </div>
                     </CollapsibleContent></Collapsible>
                   </li>,
-                  })[key])}
+                  })[key]}</React.Fragment>)}
                 </SidebarMenuSub>}
                 {!config.collapseProjectSessions && <RecentProjectSessions group={group} loading={showInitialLoading} />}
               </div>
@@ -1177,7 +1181,8 @@ function SessionGroupSeparator({ label, count, expanded, unread = false, onToggl
         <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none", expanded && "rotate-90")} />
         <span
           className="min-w-0 flex-1 cursor-grab touch-none truncate text-[11px] font-medium text-muted-foreground active:cursor-grabbing"
-          onPointerDown={onTitlePointerDown}
+          data-workspace-drag-handle
+        onPointerDown={onTitlePointerDown}
         >
           {label}
         </span>
@@ -1213,7 +1218,7 @@ function GroupDropZone({ groupId, workspaceId, children }: {
         dragOver && "bg-accent/40 ring-1 ring-accent/60",
       )}
       onDragOver={(e) => {
-        if (acceptsSessionDrag(e.dataTransfer, workspaceId)) {
+        if (acceptsSessionsDrag(e.dataTransfer, workspaceId)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
           setDragOver(true);
@@ -1227,11 +1232,11 @@ function GroupDropZone({ groupId, workspaceId, children }: {
       }}
       onDrop={(e) => {
         setDragOver(false);
-        const sessionId = readSessionDrag(e.dataTransfer, workspaceId);
-        if (sessionId) {
+        const sessionIds = readSessionsDrag(e.dataTransfer, workspaceId);
+        if (sessionIds.length) {
           e.preventDefault();
           e.stopPropagation();
-          store.getState().assignGroup(workspaceId, sessionId, groupId);
+          sessionIds.forEach(id => store.getState().assignGroup(workspaceId, id, groupId));
         }
       }}
     >
@@ -1552,12 +1557,12 @@ function SessionMenuItem({
     ctx.onPrefetchSession?.(workspaceId, session.id);
   };
 
-  const dragProps = depth === 0 && !compact ? {
+  const dragProps = {
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
       startSessionDrag(e.dataTransfer, workspaceId, session.id);
     },
-  } : {};
+  };
 
   const item = hasChildren ? (
     <Collapsible
@@ -1570,7 +1575,7 @@ function SessionMenuItem({
           <CollapsibleTrigger
             render={
               <SidebarMenuSubButton
-                className={cn("relative h-7 gap-1.5 rounded-md ps-2 pe-16 text-xs data-[size=md]:text-xs data-active:bg-background", depth > 0 && "ps-5")}
+                className={cn("relative h-7 gap-1.5 rounded-md ps-2 pe-16 text-xs data-[size=md]:text-xs data-active:bg-background data-active:hover:bg-background data-active:active:bg-background data-active:group-hover/menu-sub-item:bg-background", depth > 0 && "ps-5")}
                 isActive={isSelected}
                 aria-current={isSelected ? "page" : undefined}
                 onClick={openSession}
@@ -1614,7 +1619,7 @@ function SessionMenuItem({
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
           className={cn(
-            "h-7 gap-1.5 rounded-md ps-2 pe-10 text-xs data-[size=md]:text-xs data-active:bg-background",
+            "h-7 gap-1.5 rounded-md ps-2 pe-10 text-xs data-[size=md]:text-xs data-active:bg-background data-active:hover:bg-background data-active:active:bg-background data-active:group-hover/menu-sub-item:bg-background",
             compact && "text-xs",
             depth > 0 && "ps-5",
           )}
@@ -1762,21 +1767,21 @@ function PinnedProjectRow({ workspace }: { workspace: WorkspaceInfo }) {
   </SidebarMenuItem>;
 }
 
-function GlobalSessionRow({ session, workspace }: { session: SessionListItem; workspace: WorkspaceInfo }) {
+function GlobalSessionRow({ session, workspace, showProject = false }: { session: SessionListItem; workspace: WorkspaceInfo; showProject?: boolean }) {
   const ctx = useSidebarContext();
   const pinned = usePinnedSessionIds();
   const status = ctx.sessionStatusById?.[session.id];
   const unread = useSessionInboxStore(state => unreadSession(state, session.id));
-  return <SidebarMenuItem className="group/session-row">
+  return <SidebarMenuItem className="group/session-row" draggable onDragStart={event => startSessionDrag(event.dataTransfer, workspace.id, session.id)}>
     <SessionContextMenu sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false}>
-        <SidebarMenuButton className="h-8 gap-1.5 pr-10 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
+        <SidebarMenuButton className={cn("gap-1.5 pr-10 text-[13px]", showProject ? "h-11" : "h-8")} aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
           if (!ctx.onOpenSessionWindow) return;
           event.preventDefault();
           event.stopPropagation();
           ctx.onOpenSessionWindow(workspace.id, session.id);
         }} onPointerEnter={() => ctx.onPrefetchSession?.(workspace.id, session.id)}>
           <ScheduledSessionIcon sessionId={session.id} />
-          <span className="min-w-0 flex-1 truncate" title={getDisplaySessionTitle(session.title)}>{getDisplaySessionTitle(session.title)}</span>
+          <span className="min-w-0 flex-1" title={`${getDisplaySessionTitle(session.title)} · ${workspaceLabel(workspace)}`}><span className="block truncate">{getDisplaySessionTitle(session.title)}</span>{showProject && <span className="block truncate text-[11px] text-muted-foreground">{workspaceLabel(workspace)}</span>}</span>
           <SessionInboxIndicators unread={unread} status={isSessionActivityStatus(status) ? status : undefined} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />
         </SidebarMenuButton>
     </SessionContextMenu>

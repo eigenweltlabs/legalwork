@@ -13,7 +13,7 @@ import {
   SlidersHorizontal,
   SquareCheck,
   StickyNote,
-  Table2,
+  TableProperties,
   UserPlus,
   Users,
   X,
@@ -96,7 +96,7 @@ export function ProjectFolderIcon(props: { workspaceId: string; open: boolean })
 
 const SCOPE_ROWS: { key: keyof ProjectSyncScope; icon: ReactNode; label: () => string }[] = [
   { key: "documents", icon: <Folder />, label: () => t("project_sync.scope_documents") },
-  { key: "reviews", icon: <Table2 />, label: () => t("project_sync.scope_reviews") },
+  { key: "reviews", icon: <TableProperties />, label: () => t("project_sync.scope_reviews") },
   { key: "notes", icon: <StickyNote />, label: () => t("project_sync.scope_notes") },
   { key: "calendar", icon: <CalendarDays />, label: () => t("calendar.sharing") },
   { key: "tasks", icon: <SquareCheck />, label: () => t("project_sync.scope_tasks") },

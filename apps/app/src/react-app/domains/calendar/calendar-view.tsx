@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, MoveHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -128,7 +128,9 @@ export function CalendarView(props: CalendarViewProps) {
 
 function CalendarGrid(props: { view: "week" | "month"; anchor: Date; start: Date; items: CalendarOccurrence[]; projectId?: string; showProjects: boolean; onOpen: (item: CalendarOccurrence) => void; onCreate?: (day: string) => void }) {
   const week = props.view === "week", today = calendarDay(new Date());
-  return <div className="overflow-x-auto rounded-xl border border-border/70">
+  return <div className="@container/calendar-grid">
+    <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground @min-[700px]/calendar-grid:hidden"><MoveHorizontal className="size-3.5 shrink-0" />{t("calendar.scroll_days")}</p>
+    <div tabIndex={0} role="region" aria-label={t(week ? "calendar.week" : "calendar.month")} className="overflow-x-auto rounded-xl border border-border/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
     <div className="grid min-w-[700px] grid-cols-7">
       {Array.from({ length: 7 }, (_, index) => {
         const day = shiftDay(props.start, index), key = calendarDay(day);
@@ -151,6 +153,7 @@ function CalendarGrid(props: { view: "week" | "month"; anchor: Date; start: Date
           {week && props.onCreate && <div className="mt-3 flex justify-center"><DayAdd day={key} onCreate={props.onCreate} /></div>}
         </div>;
       })}
+    </div>
     </div>
   </div>;
 }

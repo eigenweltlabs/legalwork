@@ -25,7 +25,6 @@ import {
   RefreshCw,
   Search,
   Share2,
-  Table2,
   Trash2,
   Wand2,
   X,

@@ -772,14 +772,16 @@ export function DebugView(props: DebugViewProps) {
               <div className="text-[12px] text-dls-secondary">{t("settings.engine_source_debug")}</div>
               <div className={props.developerMode ? "grid grid-cols-3 gap-2" : "grid grid-cols-2 gap-2"}>
                 <Button
-                  variant={props.engineSource === "sidecar" ? "secondary" : "outline"}
+                  variant="choice"
+                  aria-pressed={props.engineSource === "sidecar"}
                   onClick={() => props.onSetEngineSource("sidecar")}
                   disabled={props.busy}
                 >
                   {t("settings.engine_bundled")}
                 </Button>
                 <Button
-                  variant={props.engineSource === "path" ? "secondary" : "outline"}
+                  variant="choice"
+                  aria-pressed={props.engineSource === "path"}
                   onClick={() => props.onSetEngineSource("path")}
                   disabled={props.busy}
                 >
@@ -787,7 +789,8 @@ export function DebugView(props: DebugViewProps) {
                 </Button>
                 {props.developerMode ? (
                   <Button
-                    variant={props.engineSource === "custom" ? "secondary" : "outline"}
+                    variant="choice"
+                    aria-pressed={props.engineSource === "custom"}
                     onClick={() => props.onSetEngineSource("custom")}
                     disabled={props.busy}
                   >
@@ -1049,7 +1052,8 @@ export function DebugView(props: DebugViewProps) {
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant={props.electronAlphaUpdaterChannel === "alpha" ? "secondary" : "outline"}
+              variant="choice"
+              aria-pressed={props.electronAlphaUpdaterChannel === "alpha"}
               size="sm"
               onClick={() => void props.onSetElectronAlphaUpdaterChannel("alpha")}
               disabled={props.electronAlphaUpdaterBusy}
@@ -1057,7 +1061,8 @@ export function DebugView(props: DebugViewProps) {
               {t("debug.use_alpha_feed")}
             </Button>
             <Button
-              variant={props.electronAlphaUpdaterChannel === "stable" ? "secondary" : "outline"}
+              variant="choice"
+              aria-pressed={props.electronAlphaUpdaterChannel === "stable"}
               size="sm"
               onClick={() => void props.onSetElectronAlphaUpdaterChannel("stable")}
               disabled={props.electronAlphaUpdaterBusy}

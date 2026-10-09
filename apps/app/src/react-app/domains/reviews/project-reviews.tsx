@@ -1,9 +1,11 @@
+import { useProjectItemDrag } from "../session/panel/panel-tab-destination";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { reviewActionLabel, reviewModeLabel, reviewStatusLabel } from "./review-labels";
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { workspaceSettingsRoute } from "../../shell/workspace-routes";
-import { ArrowLeft, ArrowUpRight, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Settings2, Square, Table2, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, PanelsTopLeft, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Settings2, Square, TableProperties, Trash2, X } from "lucide-react";
 import type { ReviewCell, ReviewColumn, RunReview, SavedReview } from "@legalwork/types/reviews";
 import { incompatibleJevQuestion, reviewRunAction, reviewRunningElsewhere } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -34,10 +36,22 @@ function exportReview(review: SavedReview) {
   const url = URL.createObjectURL(new Blob(["\uFEFF", rows.map(row => row.map(csv).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = `${review.name.replace(/[/\\:*?"<>|]/g, "-")}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function ProjectReviews({ client, workspaceId, projectName, onOpenSession }: { client: LegalworkServerClient; workspaceId: string; projectName: string; onOpenSession: (sessionId: string) => void }) {
+export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, overview, onClose, onTitleChange, onOpenInWorkspace, localNavigation = false }: {
+  client: LegalworkServerClient; workspaceId: string; projectName: string; onOpenSession: (sessionId: string) => void;
+  localNavigation?: boolean;
+  onOpenInWorkspace?: (review: { id: string; name: string } | null) => void;
+  reviewId?: string; overview?: boolean; onClose?: () => void; onTitleChange?: (title: string) => void;
+}) {
+  const requestPanelTab = useRequestPanelTab();
   const navigate = useNavigate();
+  const drag = useProjectItemDrag();
   const [searchParams, setSearchParams] = useSearchParams();
-  const reviewId = searchParams.get("review");
+  const linkedReviewId = searchParams.get("review");
+  const [localReviewId, setLocalReviewId] = useState<string | null>(linkedReviewId);
+  // Visiting another project overview must not unmount an in-progress review.
+  // New deep links still select their requested review when this view is retained.
+  useEffect(() => { if (localNavigation && linkedReviewId) setLocalReviewId(linkedReviewId); }, [localNavigation, linkedReviewId]);
+  const reviewId = tabReviewId ?? (overview ? null : localNavigation ? localReviewId : searchParams.get("review"));
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState(emptyReviewFilters);
   const deferredFilters = useDeferredValue(filters);
@@ -49,6 +63,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const listing = useQuery({ queryKey: reviewKey(workspaceId), queryFn: () => client.listReviews(workspaceId), refetchInterval: query => query.state.data?.reviews.some(review => review.status === "running") ? 3000 : false });
   const detail = useQuery({ queryKey: reviewKey(workspaceId, reviewId ?? "none"), queryFn: () => client.getReview(workspaceId, reviewId!, queryClient.getQueryData<SavedReview>(reviewKey(workspaceId, reviewId!))), enabled: !!reviewId, refetchInterval: query => query.state.data?.status === "running" ? 1000 : 5000 });
   const review = detail.data;
+  useEffect(() => { if (review) onTitleChange?.(review.name); }, [review?.name, onTitleChange]);
   const filterQuery = review ? reviewFilterQuery(review, deferredFilters) : { input: undefined, error: undefined };
   const rows = useQuery({ queryKey: ["review-rows", workspaceId, reviewId, review?.revision, filterQuery.input],
     queryFn: () => client.queryReviewRows(workspaceId, reviewId!, filterQuery.input!), enabled: !!review && !!filterQuery.input,
@@ -78,9 +93,18 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const elsewhere = review ? reviewRunningElsewhere(review) : false;
   const runnable = review?.columns.some(column => review.settings.mode !== "jev" || !incompatibleJevQuestion(column));
   const openReview = (id?: string) => {
+    if (id) {
+      const label = listing.data?.reviews.find(review => review.id === id)?.name ?? t("projects.tab_review");
+      if (overview || tabReviewId) { requestPanelTab({ id: `review:${id}`, type: "review", reviewId: id, label }); return; }
+    } else if (tabReviewId) { onClose?.(); return; }
     setSelected(null);
     setSelectedDocuments([]);
     setFilters(emptyReviewFilters);
+    if (localNavigation) {
+      setLocalReviewId(id ?? null);
+      if (linkedReviewId) setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("review"); return next; }, { replace: true });
+      return;
+    }
     setSearchParams(previous => {
       const next = new URLSearchParams(previous);
       if (id) next.set("review", id);
@@ -121,11 +145,12 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const error = intake.error || (reviewId ? detail.error : listing.error) || change.error || discussion.error || remove.error || rows.error;
   const pickedDocuments = selectedDocuments.filter(id => review?.documents.some(document => document.id === id));
   return <ReviewFileDropTarget disabled={busy || !!dialog || !!removeTarget || (!!reviewId && !review)} onFiles={sources => void intake.add(sources)} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-    <div className="lw-project-page-content flex h-full min-h-0 flex-col pb-8">
-    <header className="lw-project-page-top shrink-0 pb-4">
-      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">{reviewId ? <Button variant="ghost" size="sm" className="-ml-2 h-6 text-xs" disabled={intake.busy} onClick={() => openReview()}><ArrowLeft className="size-3.5" />{t("review.back")}</Button> : <span>{projectName}</span>}</div>
+    {onOpenInWorkspace && <div className="flex shrink-0 justify-end px-5 pt-2"><Button variant="ghost" size="sm" disabled={!!reviewId && !review} onClick={() => onOpenInWorkspace(reviewId && review ? review : null)}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab")}</Button></div>}
+    <div className={tabReviewId ? "flex h-full min-h-0 flex-col p-3" : "lw-project-page-content flex h-full min-h-0 flex-col pb-8"}>
+    <header className={tabReviewId ? "shrink-0 pb-3" : "lw-project-page-top shrink-0 pb-4"}>
+      {!tabReviewId && <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">{reviewId ? <Button variant="ghost" size="sm" className="-ml-2 h-6 text-xs" disabled={intake.busy} onClick={() => openReview()}><ArrowLeft className="size-3.5" />{t("review.back")}</Button> : <span>{projectName}</span>}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0"><h1 className="truncate text-2xl font-semibold leading-tight tracking-tight">{reviewId ? review?.name ?? t("review.loading") : t("review.title")}</h1>{!reviewId && <p className="mt-1.5 text-sm text-muted-foreground">{t("review.subtitle")}</p>}</div>
+        <div className="min-w-0"><h1 className={tabReviewId ? "truncate text-lg font-semibold" : "truncate text-2xl font-semibold leading-tight tracking-tight"}>{reviewId ? review?.name ?? t("review.loading") : t("review.title")}</h1>{!reviewId && <p className="mt-1.5 text-sm text-muted-foreground">{t("review.subtitle")}</p>}</div>
         <div className="flex flex-wrap items-center gap-2">{!reviewId ? <>
           <ReviewFilePicker disabled={busy} onFiles={sources => void intake.add(sources)} />
           <Button variant="outline" disabled={intake.busy} onClick={() => setDialog({ type: "library" })}><BookOpen className="size-4" />{t("review.library")}</Button><Button variant="ghost" size="icon" aria-label={t("review.settings")} disabled={intake.busy} onClick={() => navigate(workspaceSettingsRoute(workspaceId, "tabular-review"))}><Settings2 className="size-4" /></Button><Button disabled={intake.busy} onClick={() => setDialog({ type: "name" })}><Plus className="size-4" />{t("review.new")}</Button>
@@ -142,7 +167,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
       </div>
     </header>
     {(intake.progress || error) && <div className="space-y-3 pb-4">{intake.progress && <p role="status" className="text-sm text-muted-foreground">{intake.progress}</p>}<ReviewError error={error} /></div>}
-    {!reviewId ? <div className="min-h-0 flex-1 overflow-auto">{listing.isPending ? <p className="py-8 text-muted-foreground">{t("review.loading")}</p> : !listing.data?.reviews.length ? <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center"><div className="mb-5 rounded-2xl border bg-muted/20 p-4"><Table2 className="size-7 text-muted-foreground" strokeWidth={1.4} /></div><h2 className="text-lg font-medium tracking-tight">{t("review.empty")}</h2><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{t("review.empty_body")}</p><Button className="mt-6" disabled={intake.busy} onClick={() => setDialog({ type: "name" })}><Plus className="size-4" />{t("review.new")}</Button></div> : <div className="overflow-hidden rounded-2xl border"><Table><TableHeader><TableRow className="bg-muted/20 hover:bg-muted/20"><TableHead className="pl-5">{t("review.name")}</TableHead><TableHead>{t("review.documents")}</TableHead><TableHead>{t("review.results")}</TableHead><TableHead>{t("review.updated")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>{listing.data.reviews.map(item => <TableRow key={item.id} className="cursor-pointer" onClick={() => { if (!intake.busy) openReview(item.id); }}><TableCell className="py-4 pl-5"><button className="flex items-center gap-3 text-left font-medium" onClick={event => { event.stopPropagation(); if (!intake.busy) openReview(item.id); }}><Table2 className="size-4 text-muted-foreground" />{item.name}</button></TableCell><TableCell className="text-muted-foreground">{item.documents}</TableCell><TableCell><ReviewStatus status={item.status} /></TableCell><TableCell className="text-xs text-muted-foreground">{new Date(item.updatedAt).toLocaleDateString(currentLocale())}</TableCell><TableCell className="pr-5"><div className="flex items-center justify-end gap-2"><Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label={t("review.delete_named", { name: item.name })} title={t(item.status === "running" ? "review.stop_to_delete" : "review.delete")} disabled={busy || item.status === "running"} onClick={event => { event.stopPropagation(); remove.reset(); setRemoveTarget(item); }}><Trash2 className="size-4" /></Button><ArrowUpRight className="size-4 text-muted-foreground" /></div></TableCell></TableRow>)}</TableBody></Table></div>}</div> : review && <>
+    {!reviewId ? <div className="min-h-0 flex-1 overflow-auto">{listing.isPending ? <p className="py-8 text-muted-foreground">{t("review.loading")}</p> : !listing.data?.reviews.length ? <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center"><div className="mb-5 rounded-2xl border bg-muted/20 p-4"><TableProperties className="size-7 text-muted-foreground" strokeWidth={1.4} /></div><h2 className="text-lg font-medium tracking-tight">{t("review.empty")}</h2><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{t("review.empty_body")}</p><Button className="mt-6" disabled={intake.busy} onClick={() => setDialog({ type: "name" })}><Plus className="size-4" />{t("review.new")}</Button></div> : <div className="overflow-hidden rounded-2xl border"><Table><TableHeader><TableRow className="bg-muted/20 hover:bg-muted/20"><TableHead className="pl-5">{t("review.name")}</TableHead><TableHead>{t("review.documents")}</TableHead><TableHead>{t("review.results")}</TableHead><TableHead>{t("review.updated")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>{listing.data.reviews.map(item => <TableRow key={item.id} draggable={Boolean(drag) && !intake.busy} onDragStart={event => drag?.(event.dataTransfer, { type: "review", id: `review:${item.id}`, reviewId: item.id, label: item.name })} className="cursor-pointer" onClick={() => { if (!intake.busy) openReview(item.id); }}><TableCell className="py-4 pl-5"><button className="flex items-center gap-3 text-left font-medium" onClick={event => { event.stopPropagation(); if (!intake.busy) openReview(item.id); }}><TableProperties className="size-4 text-muted-foreground" />{item.name}</button></TableCell><TableCell className="text-muted-foreground">{item.documents}</TableCell><TableCell><ReviewStatus status={item.status} /></TableCell><TableCell className="text-xs text-muted-foreground">{new Date(item.updatedAt).toLocaleDateString(currentLocale())}</TableCell><TableCell className="pr-5"><div className="flex items-center justify-end gap-2"><Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label={t("review.delete_named", { name: item.name })} title={t(item.status === "running" ? "review.stop_to_delete" : "review.delete")} disabled={busy || item.status === "running"} onClick={event => { event.stopPropagation(); remove.reset(); setRemoveTarget(item); }}><Trash2 className="size-4" /></Button><ArrowUpRight className="size-4 text-muted-foreground" /></div></TableCell></TableRow>)}</TableBody></Table></div>}</div> : review && <>
       <div className="flex flex-wrap items-center gap-2 pb-3">
         <ReviewFilterControls review={review} value={filters} onChange={setFilters} />
         {pickedDocuments.length > 0 ? <div className="flex items-center gap-1"><span className="px-2 text-xs text-muted-foreground">{t("review.selected_count", { count: pickedDocuments.length })}</span><Button variant="ghost" size="sm" className="h-8 text-xs" disabled={busy || !runnable} onClick={() => change.mutate({ type: "run", options: { documentIds: pickedDocuments, rerun: true } })}><RotateCcw className="size-3.5" />{t("review.rerun_selected")}</Button><Button variant="ghost" size="sm" className="h-8 text-xs" disabled={busy} onClick={() => change.mutate({ type: "files", files: review.documents.filter(document => !pickedDocuments.includes(document.id)).map(document => document.path) })}><Trash2 className="size-3.5" />{t("review.remove")}</Button><Button variant="ghost" size="icon-sm" aria-label={t("review.clear_selection")} onClick={() => setSelectedDocuments([])}><X className="size-3.5" /></Button></div> : <div className="flex items-center gap-2 text-xs text-muted-foreground"><ReviewStatus status={review.status} /><span className="hidden xl:inline">{t("review.progress", { done, total: review.cells.length })}</span>{running && <span role="status">{t("review.processing_progress", { preparing: review.documents.filter(document => document.status === "preparing").length, running: review.cells.filter(cell => cell.status === "running").length, queued: review.cells.filter(cell => cell.status === "queued").length })}</span>}</div>}

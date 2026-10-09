@@ -1,3 +1,4 @@
+import { useProjectFiles } from "../../workspace/project-file-context";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -38,9 +39,10 @@ function ConnectionSearch({
   refreshKey,
   onOpenFile,
 }: Omit<Props, "roots"> & { root: StorageRoot }) {
+  const projectFiles = useProjectFiles();
   const [visibleLimit, setVisibleLimit] = useState(STORAGE_PAGE_SIZE);
   const search = useInfiniteQuery({
-    queryKey: ["storage-filename-search", workspaceId, root.id, query, refreshKey],
+    queryKey: ["storage-filename-search", workspaceId, root.id, query, refreshKey, client.baseUrl],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       client.storageFilenameSearch(workspaceId, root.id, { query, path: "", cursor: pageParam }, signal),
@@ -70,7 +72,7 @@ function ConnectionSearch({
           type="button"
           draggable
           title={`${root.name} / ${entry.path}`}
-          onDragStart={(event) => writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry)}
+          onDragStart={(event) => { writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry); projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: entry.name, connectionId: root.id }); }}
           onClick={() => onOpenFile(root, entry)}
           className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >

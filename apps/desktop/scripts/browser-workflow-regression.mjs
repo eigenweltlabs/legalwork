@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, session } from "electron";
 import WebSocket from "ws";
 import { createBrowserPanel } from "../electron/browser-panel.mjs";
 import { resolveBrowserProject } from "../electron/browser-project.mjs";
@@ -93,6 +93,7 @@ app.whenReady().then(async () => {
   const origin = `http://127.0.0.1:${fixture.address().port}`;
   const main = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
+    app, WebContentsView, clipboard, session,
     getWindow: () => main, getWindowForEvent: () => main,
     isAllowedAppNavigation: () => false,
     safeOpen: { openExternal: async () => false, openPath: async () => "", showItemInFolder: () => {} },
@@ -115,7 +116,7 @@ app.whenReady().then(async () => {
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
     assert.equal(first.snapshot.error, undefined);
     for (const name of ["Applicant", "Notes", "Region", "Save", "Download record"]) {
-      assert.ok(first.snapshot.controls.some((control) => control.name === name), `Missing control: ${name}`);
+      assert.ok(first.snapshot.controls.some((control) => control.name === name), `Missing control: ${name}; snapshot: ${JSON.stringify(first.snapshot)}`);
     }
     const selector = (name) => first.snapshot.controls.find((control) => control.name === name).selector;
     console.log("PASS: opening a project tab returns labeled controls and observed selectors");

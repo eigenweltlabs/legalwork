@@ -1,3 +1,5 @@
+import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
+import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
@@ -10,6 +12,7 @@ import "@/components/chat/session-surfaces.css";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LEGALWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "@/app/constants";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
 import {
@@ -72,6 +75,7 @@ type ComposerProps = {
   busy: boolean;
   queuedCount: number;
   disabled: boolean;
+  inputDisabled?: boolean;
   modelUnavailable?: boolean;
   /** The notice above the composer already explains the dead selection. */
   modelUnavailableLabelHidden?: boolean;
@@ -116,6 +120,7 @@ type ComposerProps = {
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
   onDropLegalMemoryFolder: (folder: LegalMemoryFolderDragItem) => void | Promise<void>;
   onDropStorageFile: (file: StorageFileDragItem) => void | Promise<void>;
+  onDropProjectFile?: (file: ProjectFileSource) => void;
   onDropWorkspaceFile: (file: WorkspaceFileDragItem) => void | Promise<void>;
   pastedText: PastedTextChip[];
   onExpandPastedText: (id: string) => void;
@@ -310,10 +315,9 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
   const [, setExtensionStateVersion] = useState(0);
-  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | "workspace" | null>(null);
+  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | "workspace" | "project" | null>(null);
   const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
   const [previewPastedLabel, setPreviewPastedLabel] = useState<string | null>(null);
-  const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<LexicalPromptEditorHandle | null>(null);
   // IME composition guard: while an IME composition is active, we must not
   // treat Enter as a submit. Three signals keep this reliable across WebKit,
@@ -550,20 +554,6 @@ export function ReactSessionComposer(props: ComposerProps) {
 
   useEffect(() => {
     if (!toolMenuOpen) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (toolMenuRef.current?.contains(target)) return;
-      setToolMenuOpen(false);
-    };
-    window.addEventListener("mousedown", handlePointerDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-    };
-  }, [toolMenuOpen]);
-
-  useEffect(() => {
-    if (!toolMenuOpen) return;
     const openId = toolMenuLoadRef.current.openId;
     const listImportedPlugins = listImportedPluginsRef.current;
     if (listImportedPlugins && !toolMenuLoadRef.current.plugins) {
@@ -791,7 +781,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   useEffect(() => {
     const handleFocus = () => {
       const root = rootRef.current;
-      if (!root) return;
+      if (!root || !root.isConnected || root.closest('[data-workspace-tab-active="false"]')) return;
       const editable = root.querySelector<HTMLElement>("[contenteditable='true']");
       editable?.focus();
     };
@@ -1051,6 +1041,7 @@ export function ReactSessionComposer(props: ComposerProps) {
         {props.queueAccessory}
         {/* Main composer panel */}
         <div
+          data-workspace-file-intake="composer"
           className={`lw-composer relative overflow-visible rounded-[22px] border ${
             props.fusionEnabled ? "fusion-rainbow-border border-transparent" : "border-dls-border"
           } ${panelRoundedClass}`}
@@ -1105,7 +1096,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">
-                  {dropzoneKind === "workspace"
+                  {dropzoneKind === "project" ? t("project_files.attach") : dropzoneKind === "workspace"
                     ? t("composer.reference_workspace_file")
                     : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder")
@@ -1114,7 +1105,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                       : t("composer.attach_files")}
                 </div>
                 <div className="mt-1 text-xs text-dls-secondary">
-                  {dropzoneKind === "workspace"
+                  {dropzoneKind === "project" ? t("project_files.snapshot_hint") : dropzoneKind === "workspace"
                     ? t("composer.reference_workspace_file_hint")
                     : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder_hint")
@@ -1133,7 +1124,8 @@ export function ReactSessionComposer(props: ComposerProps) {
               value={props.draft}
               mentions={props.mentions}
               pastedText={pastedTextTokens}
-              disabled={props.disabled}
+              disabled={Boolean(props.inputDisabled)}
+              submitDisabled={props.disabled}
               placeholder={t("composer.placeholder")}
               onChange={props.onDraftChange}
               onSubmit={handleEditorSubmit}
@@ -1194,10 +1186,11 @@ export function ReactSessionComposer(props: ComposerProps) {
                 }
               }}
               onDragOver={(event) => {
-                if (event.dataTransfer && hasWorkspaceFileDrag(event.dataTransfer)) {
+                if (event.dataTransfer && (hasProjectFileDrag(event.dataTransfer) || hasWorkspaceFileDrag(event.dataTransfer))) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "copy";
-                  if (dropzoneKind !== "workspace") setDropzoneKind("workspace");
+                  const kind = hasProjectFileDrag(event.dataTransfer) ? "project" : "workspace";
+                  if (dropzoneKind !== kind) setDropzoneKind(kind);
                   return;
                 }
                 if (event.dataTransfer && hasLegalMemoryFolderDrag(event.dataTransfer)) {
@@ -1226,6 +1219,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneKind(null);
               }}
               onDrop={(event) => {
+                const projectFiles = event.dataTransfer ? readProjectFilesDrag(event.dataTransfer) : [];
+                if (projectFiles.length && props.onDropProjectFile) { event.preventDefault(); event.stopPropagation(); setDropzoneKind(null); projectFiles.forEach(props.onDropProjectFile); return; }
                 const workspaceFile = event.dataTransfer ? readWorkspaceFileDrag(event.dataTransfer) : null;
                 const memoryFolder = event.dataTransfer ? readLegalMemoryFolderDrag(event.dataTransfer) : null;
                 const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;
@@ -1259,8 +1254,8 @@ export function ReactSessionComposer(props: ComposerProps) {
             />
 
             {/* Action row — attachments, quick actions, model controls, and send */}
-            <div className="mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-[var(--lw-border-subtle)] pt-2">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--lw-border-subtle)] pt-2">
+              <div className="contents">
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;
@@ -1289,34 +1284,36 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <Paperclip size={16} />
                 </button>
-                <div
-                  ref={toolMenuRef}
-                  className="relative"
-                  onMouseDown={(event) => {
-                    const target = event.target;
-                    if (target instanceof Element && target.closest("button")) event.preventDefault();
-                  }}
-                >
-                  <button
+                <Popover open={toolMenuOpen} onOpenChange={setToolMenuOpen}>
+                  <PopoverTrigger
                     type="button"
                     className={`lw-composer-control inline-flex h-9 max-h-9 w-9 items-center justify-center ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
                       setMentionOpen(false);
                       setMentionItems([]);
                       setSlashOpen(false);
-                      setToolMenuOpen((value) => !value);
                     }}
-                    aria-expanded={toolMenuOpen}
-                    aria-haspopup="dialog"
                     title={t("composer.tools_label")}
                     aria-label={t("composer.tools_label")}
                   >
                     <Plug size={16} />
-                  </button>
-                  {toolMenuOpen ? (
-                    <div className="absolute bottom-full left-0 z-40 mb-3 w-[min(calc(100vw-2.5rem),34rem)] overflow-hidden rounded-[22px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
-                      <div className="grid grid-cols-[152px_minmax(0,1fr)] sm:grid-cols-[176px_minmax(0,1fr)]">
-                        <div className="border-r border-dls-border bg-gray-2/30 p-2">
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="start"
+                    sideOffset={12}
+                    aria-label={t("composer.tools_label")}
+                    initialFocus={(interaction) => interaction === "keyboard"}
+                    finalFocus={(interaction) => interaction === "keyboard"}
+                    onMouseDown={(event) => {
+                      const target = event.target;
+                      if (target instanceof Element && target.closest("button")) event.preventDefault();
+                    }}
+                    className="max-h-[min(24rem,var(--available-height))] w-[min(calc(100vw-2.5rem),34rem)] gap-0 overflow-hidden rounded-[22px] border-dls-border bg-dls-surface p-0 shadow-[var(--dls-shell-shadow)]"
+                  >
+                      <div className="grid min-h-0 flex-1 grid-cols-[152px_minmax(0,1fr)] sm:grid-cols-[176px_minmax(0,1fr)]">
+                        <div className="min-h-0 overflow-y-auto border-r border-dls-border bg-gray-2/30 p-2">
                           {([
                             ["commands", t("dashboard.commands")],
                             ["skills", t("dashboard.skills")],
@@ -1346,7 +1343,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                             </button>
                           ))}
                         </div>
-                        <div className="max-h-72 overflow-y-auto p-2">
+                        <div className="min-h-0 max-h-72 overflow-y-auto p-2">
                           <div className="mb-2 flex justify-end border-b border-dls-border px-1 pb-2">
                             <button
                               type="button"
@@ -1493,9 +1490,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                           ) : null}
                         </div>
                       </div>
-                    </div>
-                  ) : null}
-                </div>
+                  </PopoverContent>
+                </Popover>
 
                 <ModelSelect
                   open={props.modelPickerOpen}
@@ -1584,7 +1580,7 @@ export function ReactSessionComposer(props: ComposerProps) {
               </div>
 
               {/* Busy-session sends enter the queue; Stop pauses pending messages. */}
-              <div className="ml-auto flex shrink-0 items-end gap-1.5">
+              <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-end justify-end gap-1.5">
                 {props.realtimeVoiceSupported && props.onToggleRealtimeVoice ? (
                   <button
                     type="button"

@@ -1,3 +1,4 @@
+import { retainSessionInLists } from "../sidebar/session-list-visibility";
 import { create } from "zustand";
 
 import type { ComposerAttachment, ComposerDraft } from "../../../../app/types";
@@ -21,6 +22,9 @@ export type ComposerSessionState = {
 
 export type QueuedComposerDraft = ComposerDraft & {
   id: string;
+  status?: "queued" | "sending" | "failed" | "uncertain";
+  error?: string;
+  locked?: boolean;
   editor: ComposerSessionState;
 };
 
@@ -42,6 +46,7 @@ export type ComposerStateStore = {
   appendHistory: (sessionId: string, text: string) => void;
   appendQueuedDraft: (sessionId: string, draft: ComposerDraft, editor?: ComposerSessionState) => void;
   editQueuedDraft: (sessionId: string, id: string) => void;
+  recoverQueuedEdit: (sessionId: string) => boolean;
   reorderQueuedDrafts: (sessionId: string, ids: string[]) => void;
   setQueuePaused: (sessionId: string, paused: boolean) => void;
   removeQueuedDraft: (sessionId: string, id: string) => void;
@@ -142,6 +147,16 @@ export const useComposerStateStore = create<ComposerStateStore>((set) => ({
       stashedDrafts: { ...state.stashedDrafts, [sessionId]: editor.draft.trim() || editor.attachments.length ? [...stash, editor] : stash },
     };
   }),
+  recoverQueuedEdit: (sessionId) => {
+    let recovered = false;
+    set(state => {
+      const editor = state.sessions[sessionId];
+      if (!editor?.queuedDraftId) return state;
+      recovered = true;
+      return { sessions: { ...state.sessions, [sessionId]: { ...editor, queuedDraftId: undefined } } };
+    });
+    return recovered;
+  },
   reorderQueuedDrafts: (sessionId, ids) => set((state) => {
     const current = state.queuedDrafts[sessionId];
     if (!current) return state;
@@ -215,3 +230,16 @@ export function isComposerQueuePaused(state: ComposerStateStore, sessionId: stri
   return Boolean(state.pausedQueues[sessionId]
     || (editingId && editingId === state.queuedDrafts[sessionId]?.[0]?.id));
 }
+
+// Share only the fact that a chat has been used, never another window's input.
+useComposerStateStore.subscribe((state, previous) => {
+  for (const [id, composer] of Object.entries(state.sessions)) {
+    if (composer !== previous.sessions[id] && (composer.draft.trim() || composer.attachments.length || composer.pasteParts.length)) retainSessionInLists(id);
+  }
+  for (const [id, queue] of Object.entries(state.queuedDrafts)) {
+    if (queue !== previous.queuedDrafts[id] && queue.length) retainSessionInLists(id);
+  }
+  for (const [id, history] of Object.entries(state.history)) {
+    if (history !== previous.history[id] && history.length) retainSessionInLists(id);
+  }
+});

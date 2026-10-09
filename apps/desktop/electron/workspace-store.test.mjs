@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -180,4 +180,42 @@ test("selecting a server-created project persists it across desktop restart with
     if (previous === undefined) delete process.env.LEGALWORK_SERVER_CONFIG;
     else process.env.LEGALWORK_SERVER_CONFIG = previous;
   }
+});
+
+async function isolatedStore(t) {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-registry-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const userData = path.join(root, "userData");
+  await mkdir(userData);
+  const options = { app: { getPath: name => name === "userData" ? userData : root }, defaultDenBaseUrl: "https://example.test", defaultRequireSignin: false, forceRequireSignin: false };
+  const store = createWorkspaceStore(options);
+  await store.writeWorkspaceState({ selectedId: "", workspaces: [] });
+  return { root, userData, options, store };
+}
+
+test("removing the last project survives reads and restart without token-store recovery", async t => {
+  const { root, userData, store, options } = await isolatedStore(t);
+  const folderPath = path.join(root, "project");
+  const created = await store.createWorkspace({ folderPath });
+  await writeFile(path.join(userData, "legalwork-server-tokens.json"), JSON.stringify({ version: 1, workspaces: { [folderPath]: { updatedAt: 1 } } }));
+  await store.forgetWorkspace(created.selectedId);
+  assert.deepEqual((await store.readWorkspaceState()).workspaces, []);
+  assert.deepEqual((await createWorkspaceStore(options).readWorkspaceState()).workspaces, []);
+  // Reopening the folder explicitly remains possible.
+  assert.equal((await store.createWorkspace({ folderPath })).workspaces.length, 1);
+});
+
+test("concurrent window mutations cannot resurrect a forgotten project or lose a rename", async t => {
+  const { root, store } = await isolatedStore(t);
+  const first = await store.createWorkspace({ folderPath: path.join(root, "one") });
+  const second = await store.createWorkspace({ folderPath: path.join(root, "two") });
+  await Promise.all([
+    store.setSelectedWorkspace(second.selectedId),
+    store.forgetWorkspace(first.selectedId),
+    store.updateWorkspaceDisplayName({ workspaceId: second.selectedId, displayName: "Renamed" }),
+    store.readWorkspaceState(),
+  ]);
+  const final = await store.readWorkspaceState();
+  assert.deepEqual(final.workspaces.map(item => item.id), [second.selectedId]);
+  assert.equal(final.workspaces[0].displayName, "Renamed");
 });

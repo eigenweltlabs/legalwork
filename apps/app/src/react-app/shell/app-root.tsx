@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 
 import { useEffect } from "react";
+import { DocumentDiscardDialog } from "../domains/session/artifacts/document-discard-dialog";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useLocale } from "../../i18n/use-locale";
@@ -52,6 +53,7 @@ export function AppRoot() {
   return (
     <AppErrorBoundary>
     <>
+      <DocumentDiscardDialog />
       <DevProfiler id="AppRoot">
         <ShellConfigProvider>
         <AppMenuProvider>
@@ -119,6 +121,8 @@ export function AppRoot() {
               <Route path="/workspace/:workspaceId/project" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workspace/:workspaceId/reviews" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workspace/:workspaceId/tasks" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/files" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/sessions" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/workspace/:workspaceId/session"
                 element={

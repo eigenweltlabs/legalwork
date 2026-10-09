@@ -133,7 +133,7 @@ export function SettingsShell(props: SettingsShellProps) {
     <div className="lw-window-frame flex h-dvh min-h-0 flex-col text-dls-text">
       <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} style={sidebarStyle} data-sidebar-visible={sidebarOpen && !mobile} className={cn("lw-workspace-shell relative min-h-0 flex-1", leftSidebarResizing && "**:data-[slot=sidebar-container]:transition-none **:data-[slot=sidebar-gap]:transition-none [&_.lw-window-navigation]:transition-none")}>
         <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center gap-2 pr-2 electron:titlebar-drag">
-          <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarOpen && !mobile ? "var(--sidebar-width)" : undefined }}>
+          <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3" style={{ width: sidebarOpen && !mobile ? "var(--sidebar-width)" : undefined }}>
             <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
             <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
             <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />

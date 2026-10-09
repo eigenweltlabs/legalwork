@@ -393,7 +393,7 @@ export type DesktopCommandMap = {
     result: boolean;
   };
   openProjectWindow: {
-    args: [input: { workspaceId: string; page: "home" | "calendar" | "reviews" | "tasks" | "files"; title?: string }];
+    args: [input: { workspaceId: string; page: "home" | "calendar" | "reviews" | "tasks" | "files" | "workspace"; seed?: string; title?: string }];
     result: boolean;
   };
 

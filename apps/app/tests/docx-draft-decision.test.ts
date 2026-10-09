@@ -12,6 +12,9 @@ describe("Word editor waiting for a draft decision", () => {
     expect(result.error).toContain("Ask the user to decide");
     // Nothing can be saved or exported until the user has decided.
     expect(await api.save()).toBe(false);
+    expect(await api.flushSave()).toBe(false);
+    expect(api.isDirty()).toBe(true);
+    await api.drain();
     expect(await api.getBuffer()).toBeNull();
   });
 });

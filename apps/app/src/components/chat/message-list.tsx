@@ -1,3 +1,4 @@
+import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
@@ -109,7 +110,7 @@ import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
-import { TASK_REFERENCE_SOURCE, parseTaskReference, requestOpenTask } from "@/react-app/domains/tasks/task-reference"
+import { TASK_REFERENCE_SOURCE, parseTaskReference } from "@/react-app/domains/tasks/task-reference"
 import { useTaskRunStore } from "@/react-app/domains/tasks/task-run-store"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
@@ -469,6 +470,7 @@ function UserSkillChip(props: { name: string }) {
  *  run record, not from the message: the message carries only the id. A click
  *  opens the task in the side panel. */
 function UserTaskChip(props: { taskId: string }) {
+  const requestOpenTask = useRequestOpenTask();
   const title = useTaskRunStore((state) => state.runsByTaskId[props.taskId]?.taskTitle)
   return (
     <button

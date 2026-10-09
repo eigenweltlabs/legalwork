@@ -22,6 +22,31 @@ function draft(text: string): ComposerDraft {
   };
 }
 
+test("reopening a queued edit retains text, attachments and the stashed composer as an independent draft", () => {
+  reset();
+  const store = useComposerStateStore.getState();
+  const file = new File(["original bytes"], "source.txt");
+  const attachment: ComposerAttachment = { id: "source", name: file.name, kind: "file", mimeType: file.type, size: file.size, file };
+  store.appendQueuedDraft("a", { ...draft("queued original"), attachments: [attachment] });
+  store.setDraft("a", "previous unsent composer");
+  const id = useComposerStateStore.getState().queuedDrafts.a[0].id;
+  store.editQueuedDraft("a", id);
+  store.setDraft("a", "edited after acquiring lease");
+  store.setMentions("a", { "source.txt": "file" });
+  store.setPasteParts("a", [{ id: "paste", label: "1", text: "retained paste", lines: 1 }]);
+  expect(store.recoverQueuedEdit("a")).toBe(true);
+  expect(store.recoverQueuedEdit("a")).toBe(false);
+  const recovered = useComposerStateStore.getState().sessions.a;
+  expect(recovered.queuedDraftId).toBeUndefined();
+  expect(recovered.draft).toBe("edited after acquiring lease");
+  expect(recovered.attachments).toEqual([attachment]);
+  expect(recovered.mentions).toEqual({ "source.txt": "file" });
+  expect(recovered.pasteParts[0].text).toBe("retained paste");
+  expect(useComposerStateStore.getState().queuedDrafts.a[0].text).toBe("queued original");
+  store.clearSession("a");
+  expect(useComposerStateStore.getState().sessions.a.draft).toBe("previous unsent composer");
+});
+
 describe("composer state store", () => {
   beforeEach(reset);
 

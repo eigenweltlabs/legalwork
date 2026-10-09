@@ -320,7 +320,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     onProjectRemoved,
   } = options;
 
-  const resolveWorkspaceForRegistry = async (id: string): Promise<WorkspaceInfo> => {
+  const registeredWorkspace = (id: string): WorkspaceInfo => {
     const workspaceId = id.trim();
     const aliasWorkspaceId = workspaceId.startsWith("rem_") ? workspaceId.slice("rem_".length) : "";
     const workspace =
@@ -329,9 +329,11 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     if (!workspace) {
       throw new ApiError(404, "workspace_not_found", "Workspace not found");
     }
-    if (workspace.workspaceType === "remote") {
-      return { ...workspace, path: workspace.path?.trim() ?? "" };
-    }
+    return workspace;
+  };
+  const resolveWorkspaceForRegistry = async (id: string): Promise<WorkspaceInfo> => {
+    const workspace = registeredWorkspace(id);
+    if (workspace.workspaceType === "remote") return { ...workspace, path: workspace.path?.trim() ?? "" };
     return resolveWorkspace(config, id);
   };
 
@@ -583,7 +585,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   addRoute(routes, "DELETE", "/workspaces/:id", "host", async (ctx) => {
     ensureWritable(config);
 
-    const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
+    // Removing a registration does not read or change its folder. It must
+    // remain possible when a drive is disconnected or the folder was moved.
+    const workspace = registeredWorkspace(ctx.params.id);
 
     const { deleted, persisted } = await unregisterWorkspace(config, workspace);
     onWorkspacesChanged();

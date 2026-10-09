@@ -10,7 +10,9 @@
  * attachments, sessions, history, the original message, details — is folded
  * when a task opens, so what is asked is the first and only thing in view.
  */
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { registerUnsavedDocument } from "../session/artifacts/docx-document-state";
+import { createTaskDraft, type TaskDraft } from "./task-draft";
 import DOMPurify from "dompurify";
 import {
   AlertTriangle,
@@ -145,6 +147,7 @@ function Section(props: {
         "group/section border-t border-border/60",
         props.dropZone?.active && "rounded-[var(--lw-radius-lg)] ring-2 ring-primary/35",
       )}
+      data-workspace-file-intake={props.dropZone ? "task" : undefined}
       onDragOver={props.dropZone?.onDragOver}
       onDragLeave={props.dropZone?.onDragLeave}
       onDrop={props.dropZone?.onDrop}
@@ -175,6 +178,9 @@ function Fact(props: { label: string; children: ReactNode }) {
 }
 
 export type TaskDetailProps = {
+  draftKey?: string;
+  draft?: TaskDraft;
+  onDirtyChange?: (dirty: boolean) => void;
   projects?: { id: string; name: string }[];
   task: LegalworkTask;
   /** Raw `submission` half of the detail; shape is not pinned by the contract. */
@@ -269,14 +275,19 @@ export function TaskDetail(props: TaskDetailProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [draggingAttachment, setDraggingAttachment] = useState(false);
-  const [draftTitle, setDraftTitle] = useState(task.title);
-  const [draftDescription, setDraftDescription] = useState(task.description);
+  const [localDraft] = useState(() => createTaskDraft(task));
+  const draft = props.draft ?? localDraft;
+  const { title: draftTitle, description: draftDescription, note: noteDraft, savingNote, pendingWrites, uploading } = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
+  const { setTitle: setDraftTitle, setDescription: setDraftDescription, setNote: setNoteDraft } = draft;
   const [draftTags, setDraftTags] = useState(task.tags);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
   const [preparingSession, setPreparingSession] = useState(false);
+  const dirtyRef = useRef(false);
+  const saving = Boolean(props.saving || pendingWrites);
+  const dirty = Boolean(saving || uploading || savingNote || draftTitle !== task.title || draftDescription !== task.description || noteDraft.trim());
+  dirtyRef.current = dirty;
+  useEffect(() => props.onDirtyChange?.(dirty), [dirty, props.onDirtyChange]);
+  useEffect(() => !props.draft && props.draftKey ? registerUnsavedDocument(props.draftKey, task.title, () => dirtyRef.current) : undefined, [props.draft, props.draftKey, task.title]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const email = useMemo(() => readTaskSubmission(props.submission), [props.submission]);
   const emailHtml = useMemo(() => (email?.html ? sanitizeEmailHtml(email.html) : null), [email]);
@@ -284,8 +295,7 @@ export function TaskDetail(props: TaskDetailProps) {
   const locked = props.busy || inTrash;
   const canRun = Boolean(props.onStartWorkflow && props.onStartSession && props.onOpenSession);
 
-  useEffect(() => setDraftTitle(task.title), [task.id, task.title]);
-  useEffect(() => setDraftDescription(task.description), [task.description, task.id]);
+  useEffect(() => draft.reconcile({ title: task.title, description: task.description }), [draft, task.title, task.description]);
   useEffect(() => setDraftTags(task.tags), [task.id, task.tags]);
 
   // Base UI's Select.Value renders the raw value unless the root is handed the
@@ -321,7 +331,7 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const patch = async (change: LegalworkTaskPatch, failure: string) => {
     try {
-      await props.onPatch(change);
+      await draft.write(() => props.onPatch(change));
       return true;
     } catch (error) {
       toast.error(failure, { description: error instanceof Error ? error.message : undefined });
@@ -335,6 +345,7 @@ export function TaskDetail(props: TaskDetailProps) {
       setDraftTitle(task.title);
       return;
     }
+    setDraftTitle(title);
     if (title !== task.title) await patch({ title }, t("tasks.update_failed"));
   };
 
@@ -345,7 +356,8 @@ export function TaskDetail(props: TaskDetailProps) {
   };
 
   const startSession = async () => {
-    if (preparingSession || props.busy || props.saving || !draftTitle.trim()) return;
+    if (preparingSession || props.busy || saving || !draftTitle.trim()) return;
+    setDraftTitle(draftTitle.trim());
     setPreparingSession(true);
     try {
       const changes = {
@@ -365,14 +377,7 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const addNote = async (event: FormEvent) => {
     event.preventDefault();
-    const body = noteDraft.trim();
-    if (!body) return;
-    setSavingNote(true);
-    try {
-      if (await patch({ note: body }, t("tasks.note_failed"))) setNoteDraft("");
-    } finally {
-      setSavingNote(false);
-    }
+    await draft.submitNote(body => patch({ note: body }, t("tasks.note_failed")));
   };
 
   const download = async (attachment: LegalworkTaskAttachment) => {
@@ -414,25 +419,20 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const upload = async (files: File[]) => {
     if (files.length === 0) return;
-    setUploading(true);
     try {
-      await props.onUploadAttachments(files);
+      await draft.upload(() => props.onUploadAttachments(files));
     } catch (error) {
       toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
     } finally {
-      setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const uploadStorageAttachment = async (file: StorageFileDragItem) => {
-    setUploading(true);
     try {
-      await props.onUploadStorageAttachment(file);
+      await draft.upload(() => props.onUploadStorageAttachment(file));
     } catch (error) {
       toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -495,7 +495,7 @@ export function TaskDetail(props: TaskDetailProps) {
                 {t("tasks.restore")}
               </Button>
             ) : !canRun && props.onStartSession ? (
-              <Button size="sm" variant="outline" disabled={props.busy || props.saving || uploading || preparingSession || !draftTitle.trim()} onPointerDown={event => event.preventDefault()} onClick={() => void startSession()}>
+              <Button size="sm" variant="outline" disabled={props.busy || saving || uploading || preparingSession || !draftTitle.trim()} onPointerDown={event => event.preventDefault()} onClick={() => void startSession()}>
                 {props.busy || preparingSession ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}
                 {t("tasks.start_session")}
               </Button>
@@ -980,8 +980,8 @@ export function TaskDetail(props: TaskDetailProps) {
         </div>
       </div>
       {props.inDialog && <footer className="flex shrink-0 items-center justify-end gap-1.5 border-t border-border/60 bg-muted/20 px-6 py-3 text-xs text-muted-foreground">
-        {props.saving ? <Loader2 className="size-3 animate-spin" /> : draftTitle === task.title && draftDescription === task.description ? <Check className="size-3" /> : null}
-        {t(props.saving ? "common.saving" : draftTitle !== task.title || draftDescription !== task.description ? "common.unsaved_changes" : "common.saved")}
+        {saving ? <Loader2 className="size-3 animate-spin" /> : draftTitle === task.title && draftDescription === task.description ? <Check className="size-3" /> : null}
+        {t(saving ? "common.saving" : draftTitle !== task.title || draftDescription !== task.description ? "common.unsaved_changes" : "common.saved")}
       </footer>}
     </div>
   );

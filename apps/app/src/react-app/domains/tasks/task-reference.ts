@@ -38,6 +38,6 @@ export function parseTaskLink(href: string): { taskId: string } | null {
   return match?.[1] ? { taskId: match[1] } : null;
 }
 
-export function requestOpenTask(taskId: string, label = "Task"): void {
-  requestPanelTab({ id: `task:${taskId}`, type: "task", taskId, label });
+export function requestOpenTask(taskId: string, label = "Task", workspaceId?: string): void {
+  requestPanelTab({ id: `task:${taskId}`, type: "task", taskId, label }, workspaceId ? { kind: "workspace", workspaceId } : undefined);
 }

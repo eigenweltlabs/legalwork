@@ -4,12 +4,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { FileEntryActions } from "./file-entry-actions";
+import { changePinnedPaths } from "./file-pins";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { StorageDeleteEntry } from "./storage-delete-entry";
+import { useProjectFiles } from "../../workspace/project-file-context";
 
 export function StorageEntryMenu({ client, workspaceId, root, file, children, onOpen, onRefresh, onUpload, onNewFolder, onDeleted, disabled }: {
   client: LegalworkServerClient; workspaceId: string; root: StorageRoot; file: StorageEntry; children: ReactNode;
@@ -17,27 +19,25 @@ export function StorageEntryMenu({ client, workspaceId, root, file, children, on
   onDeleted?: () => void;
 }) {
   const queryClient = useQueryClient();
+  const access = useProjectFiles();
+  const source = file.kind === "file" ? access?.identify(client, workspaceId, { name: file.name, path: file.path, connectionId: root.id }) : undefined;
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(file.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const writable = root.writable && !disabled && !busy;
   return <>
-    <StorageDeleteEntry client={client} workspaceId={workspaceId} root={root} file={file} disabled={disabled || busy} onDeleted={onDeleted} trigger={(remove) =>
-      <ContextMenu>
-        <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onClick={onOpen}><FolderOpen />{t("storage.open")}</ContextMenuItem>
-          {onRefresh && <ContextMenuItem onClick={onRefresh}><RefreshCw />{t("storage.refresh_folder", { name: file.name })}</ContextMenuItem>}
-          {root.writable && <>
-            <ContextMenuSeparator />
-            {onUpload && <ContextMenuItem disabled={!writable} onClick={onUpload}><Upload />{t("storage.upload")}</ContextMenuItem>}
-            {onNewFolder && <ContextMenuItem disabled={!writable} onClick={onNewFolder}><FolderPlus />{t("storage.new_folder")}</ContextMenuItem>}
-            {file.path && <ContextMenuItem disabled={!writable} onClick={() => { setName(file.name); setError(""); setRenaming(true); }}><Pencil />{t("storage.rename")}</ContextMenuItem>}
-            {remove && <ContextMenuItem disabled={!writable} variant="destructive" onClick={remove}><Trash2 />{t(file.kind === "folder" ? "storage.delete_folder" : "storage.delete_file")}</ContextMenuItem>}
-          </>}
-        </ContextMenuContent>
-      </ContextMenu>}
+    <StorageDeleteEntry client={client} workspaceId={workspaceId} root={root} file={file} disabled={disabled || busy} onDeleted={() => { changePinnedPaths(workspaceId, root.id, file.path); onDeleted?.(); }} trigger={(remove) =>
+      <FileEntryActions name={file.name} source={source ?? undefined} onOpen={!disabled && file.kind === "file" ? onOpen : undefined} pin={file.kind === "file" ? { workspaceId, source: root.id, path: file.path, name: file.name } : undefined} actions={[
+        { label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen, disabled },
+        ...(onRefresh ? [{ label: t("storage.refresh_folder", { name: file.name }), icon: <RefreshCw />, onClick: onRefresh }] : []),
+        ...(root.writable ? [
+          ...(onUpload ? [{ label: t("storage.upload"), icon: <Upload />, disabled: !writable, onClick: onUpload }] : []),
+          ...(onNewFolder ? [{ label: t("storage.new_folder"), icon: <FolderPlus />, disabled: !writable, onClick: onNewFolder }] : []),
+          ...(file.path ? [{ label: t("storage.rename"), icon: <Pencil />, disabled: !writable, onClick: () => { setName(file.name); setError(""); setRenaming(true); } }] : []),
+          ...(remove ? [{ label: t(file.kind === "folder" ? "storage.delete_folder" : "storage.delete_file"), icon: <Trash2 />, disabled: !writable, destructive: true, onClick: remove }] : []),
+        ] : []),
+      ]}>{children}</FileEntryActions>}
     />
     <Dialog open={renaming} onOpenChange={(open) => { if (!busy) setRenaming(open); }}>
       <DialogContent>
@@ -47,7 +47,8 @@ export function StorageEntryMenu({ client, workspaceId, root, file, children, on
           if (!name.trim() || /[/\\\x00-\x1f\x7f]/.test(name) || name === "." || name === "..") { setError(t("storage.invalid_name")); return; }
           setBusy(true); setError("");
           try {
-            await client.renameStorageEntry(workspaceId, root.id, file.path, name.trim(), file.kind);
+            const renamed = await client.renameStorageEntry(workspaceId, root.id, file.path, name.trim(), file.kind);
+            changePinnedPaths(workspaceId, root.id, file.path, renamed.path);
             setRenaming(false);
           } catch (cause) { setError(cause instanceof Error ? cause.message : t("storage.failed")); }
           finally {

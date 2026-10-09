@@ -1,3 +1,6 @@
+import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
+import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -6,6 +9,7 @@ import { recordAudit } from "../audit.js";
 import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
+import { canonicalFilePath, withFileWriteLock, withFileWriteLocks } from "../file-write-lock.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { mergeableText, mergeText } from "../text-merge.js";
@@ -926,46 +930,48 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     for (const entry of plan) {
       try {
-        const before = (await exists(entry.absPath)) ? await stat(entry.absPath) : null;
-        const currentRevision = before ? fileRevision(before) : null;
-        if (!entry.force && entry.ifMatchRevision && currentRevision !== entry.ifMatchRevision) {
-          items.push({
-            ok: false,
-            path: entry.path,
-            code: "conflict",
-            message: "File changed before write could be applied",
-            expectedRevision: entry.ifMatchRevision,
-            currentRevision,
+        await withFileWriteLock(entry.absPath, async () => {
+          const before = (await exists(entry.absPath)) ? await stat(entry.absPath) : null;
+          const currentRevision = before ? fileRevision(before) : null;
+          if (!entry.force && entry.ifMatchRevision && currentRevision !== entry.ifMatchRevision) {
+            items.push({
+              ok: false,
+              path: entry.path,
+              code: "conflict",
+              message: "File changed before write could be applied",
+              expectedRevision: entry.ifMatchRevision,
+              currentRevision,
+            });
+            return;
+          }
+
+          await ensureDir(dirname(entry.absPath));
+          const tmp = `${entry.absPath}.tmp-${shortId()}`;
+          await writeFile(tmp, entry.bytes);
+          await rename(tmp, entry.absPath);
+          const after = await stat(entry.absPath);
+          const revision = fileRevision(after);
+
+          recordWorkspaceFileEvent(workspace.id, { type: "write", path: entry.path, revision });
+
+          await recordAudit(workspace.path, {
+            id: shortId(),
+            workspaceId: workspace.id,
+            actor: ctx.actor ?? { type: "remote" },
+            action: "workspace.files.session.write",
+            target: entry.absPath,
+            summary: `Wrote ${entry.path} via file session`,
+            timestamp: Date.now(),
           });
-          continue;
-        }
 
-        await ensureDir(dirname(entry.absPath));
-        const tmp = `${entry.absPath}.tmp-${shortId()}`;
-        await writeFile(tmp, entry.bytes);
-        await rename(tmp, entry.absPath);
-        const after = await stat(entry.absPath);
-        const revision = fileRevision(after);
-
-        recordWorkspaceFileEvent(workspace.id, { type: "write", path: entry.path, revision });
-
-        await recordAudit(workspace.path, {
-          id: shortId(),
-          workspaceId: workspace.id,
-          actor: ctx.actor ?? { type: "remote" },
-          action: "workspace.files.session.write",
-          target: entry.absPath,
-          summary: `Wrote ${entry.path} via file session`,
-          timestamp: Date.now(),
-        });
-
-        items.push({
-          ok: true,
-          path: entry.path,
-          bytes: entry.bytes.byteLength,
-          updatedAt: after.mtimeMs,
-          revision,
-          previousRevision: entry.beforeRevision,
+          items.push({
+            ok: true,
+            path: entry.path,
+            bytes: entry.bytes.byteLength,
+            updatedAt: after.mtimeMs,
+            revision,
+            previousRevision: entry.beforeRevision,
+          });
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to write file";
@@ -1035,13 +1041,15 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         if (type === "delete") {
           const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
           const absPath = resolveSafeChildPath(workspace.path, path);
-          if (!(await exists(absPath))) {
-            items.push({ ok: false, type, path, code: "file_not_found", message: "Path not found" });
-            continue;
-          }
-          await rm(absPath, { recursive: op.recursive === true, force: false });
-          recordWorkspaceFileEvent(workspace.id, { type: "delete", path });
-          items.push({ ok: true, type, path });
+          await withFileWriteLock(absPath, async () => {
+            if (!(await exists(absPath))) {
+              items.push({ ok: false, type, path, code: "file_not_found", message: "Path not found" });
+              return;
+            }
+            await rm(absPath, { recursive: op.recursive === true, force: false });
+            recordWorkspaceFileEvent(workspace.id, { type: "delete", path });
+            items.push({ ok: true, type, path });
+          });
           continue;
         }
 
@@ -1050,18 +1058,20 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
           const to = normalizeWorkspaceRelativePath(String(op.to ?? ""), { allowSubdirs: true });
           const fromAbs = resolveSafeChildPath(workspace.path, from);
           const toAbs = resolveSafeChildPath(workspace.path, to);
-          if (!(await exists(fromAbs))) {
-            items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
-            continue;
-          }
-          if (op.overwrite === false && from !== to && await exists(toAbs)) {
-            items.push({ ok: false, type, from, to, code: "file_exists", message: "An item with this name already exists" });
-            continue;
-          }
-          await ensureDir(dirname(toAbs));
-          await rename(fromAbs, toAbs);
-          recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
-          items.push({ ok: true, type, from, to });
+          await withFileWriteLocks([fromAbs, toAbs], async () => {
+            if (!(await exists(fromAbs))) {
+              items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
+              return;
+            }
+            if (op.overwrite === false && from !== to && await exists(toAbs)) {
+              items.push({ ok: false, type, from, to, code: "file_exists", message: "An item with this name already exists" });
+              return;
+            }
+            await ensureDir(dirname(toAbs));
+            await renameProjectFileEntry(workspace.path, from, to);
+            recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
+            items.push({ ok: true, type, from, to });
+          });
           continue;
         }
 
@@ -1075,6 +1085,48 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const events = fileSessions.listWorkspaceEvents(workspace.id, Number.MAX_SAFE_INTEGER);
     return jsonResponse({ items, cursor: events.cursor });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/files/links", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ links: await readProjectFileLinks(workspace.path) });
+  });
+  addRoute(routes, "POST", "/workspace/:id/files/links", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: "Update linked project files", paths: [join(workspace.path, ".legalwork", "project-file-links.json")] });
+    if (body.remove === true && typeof body.id === "string") {
+      const links = await updateProjectFileLinks(workspace.path, links => links.filter(link => link.id !== body.id));
+      return jsonResponse({ links });
+    }
+    const parsed = projectFileLinkSchema.safeParse({ ...body, id: body.id ?? randomUUID(), createdAt: Date.now() });
+    if (!parsed.success) throw new ApiError(400, "invalid_payload", "Invalid project file link");
+    const links = await updateProjectFileLinks(workspace.path, async links => {
+      await projectFileParent(workspace.path, parsed.data.folder);
+      const duplicate = links.find(link => link.folder === parsed.data.folder && link.source.projectId === parsed.data.source.projectId && link.source.workspaceId === parsed.data.source.workspaceId && link.source.path === parsed.data.source.path && link.source.connectionId === parsed.data.source.connectionId);
+      const id = typeof body.id === "string" ? body.id : duplicate?.id ?? parsed.data.id;
+      if (typeof body.id === "string" && !links.some(link => link.id === id)) throw new ApiError(404, "not_found", "Link no longer exists");
+      return [...links.filter(link => link.id !== id), { ...parsed.data, id }];
+    });
+    return jsonResponse({ links });
+  });
+  addRoute(routes, "POST", "/workspace/:id/files/import", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const source = projectFileSourceSchema.safeParse(body.source);
+    if (!source.success || typeof body.path !== "string" || typeof body.dataBase64 !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.dataBase64)) throw new ApiError(400, "invalid_payload", "Invalid project file import");
+    const parsedPath = projectFilePath.safeParse(body.path);
+    if (!parsedPath.success) throw new ApiError(400, "invalid_path", "Invalid destination file");
+    const path = parsedPath.data;
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${source.data.name} into this project`, paths: [join(workspace.path, path)] });
+    const result = await importProjectFile(workspace.path, path, Buffer.from(body.dataBase64, "base64"));
+    recordWorkspaceFileEvent(workspace.id, { type: "write", path });
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: join(workspace.path, path), summary: `Copied saved file from project ${source.data.projectId}: ${source.data.path}`, timestamp: Date.now() });
+    return jsonResponse({ ok: true, ...result }, 201);
   });
 
   addRoute(routes, "GET", "/workspace/:id/files/content", "client", async (ctx) => {
@@ -1116,6 +1168,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       ok: true,
       path: relativePath,
       exists: true,
+      fileId: createHash("sha256").update(await canonicalFilePath(absPath)).digest("hex"),
       kind: info.isFile() ? "file" : info.isDirectory() ? "dir" : "other",
       size: info.size,
       updatedAt: info.mtimeMs,
@@ -1234,15 +1287,6 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
-    const before = (await exists(absPath)) ? await stat(absPath) : null;
-    if (before && !before.isFile()) {
-      throw new ApiError(400, "invalid_path", "Path must point to a file");
-    }
-    const beforeUpdatedAt = before ? before.mtimeMs : null;
-    if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      throw new ApiError(409, "conflict", "File changed since it was loaded", { baseUpdatedAt, currentUpdatedAt: beforeUpdatedAt });
-    }
-
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1250,23 +1294,34 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [absPath],
     });
 
-    await ensureDir(dirname(absPath));
-    const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, bytes);
-    await rename(tmp, absPath);
-    const after = await stat(absPath);
-    const revision = fileRevision(after);
-    recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "workspace.file.write",
-      target: absPath,
-      summary: `Wrote ${relativePath}`,
-      timestamp: Date.now(),
+    return withFileWriteLock(absPath, async () => {
+      const before = (await exists(absPath)) ? await stat(absPath) : null;
+      if (before && !before.isFile()) {
+        throw new ApiError(400, "invalid_path", "Path must point to a file");
+      }
+      const beforeUpdatedAt = before ? before.mtimeMs : null;
+      if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
+        throw new ApiError(409, "conflict", "File changed since it was loaded", { baseUpdatedAt, currentUpdatedAt: beforeUpdatedAt });
+      }
+
+      await ensureDir(dirname(absPath));
+      const tmp = `${absPath}.tmp-${shortId()}`;
+      await writeFile(tmp, bytes);
+      await rename(tmp, absPath);
+      const after = await stat(absPath);
+      const revision = fileRevision(after);
+      recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "remote" },
+        action: "workspace.file.write",
+        target: absPath,
+        summary: `Wrote ${relativePath}`,
+        timestamp: Date.now(),
+      });
+      return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
     });
-    return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
   });
 
   addRoute(routes, "POST", "/workspace/:id/files/content", "client", async (ctx) => {
@@ -1301,28 +1356,6 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
 
-    const before = (await exists(absPath)) ? await stat(absPath) : null;
-    if (before && !before.isFile()) {
-      throw new ApiError(400, "invalid_path", "Path must point to a file");
-    }
-    const beforeUpdatedAt = before ? before.mtimeMs : null;
-    let written = content;
-    let merged = false;
-    if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
-      const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
-      if (combined === null) {
-        throw new ApiError(409, "conflict", "File changed since it was loaded", {
-          baseUpdatedAt,
-          currentUpdatedAt: beforeUpdatedAt,
-          // Changed in the same place: the editor asks which version to keep.
-          ...(current === null ? {} : { reason: "overlap", current: { content: current, updatedAt: beforeUpdatedAt } }),
-        });
-      }
-      written = combined;
-      merged = combined !== content;
-    }
-
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1330,36 +1363,60 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [absPath],
     });
 
-    await ensureDir(dirname(absPath));
-    const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, written, "utf8");
-    await rename(tmp, absPath);
-    const after = await stat(absPath);
-    const revision = fileRevision(after);
+    return withFileWriteLock(absPath, async () => {
+      const before = (await exists(absPath)) ? await stat(absPath) : null;
+      if (before && !before.isFile()) {
+        throw new ApiError(400, "invalid_path", "Path must point to a file");
+      }
+      const beforeUpdatedAt = before ? before.mtimeMs : null;
+      let written = content;
+      let merged = false;
+      if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
+        const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
+        const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
+        if (combined === null) {
+          throw new ApiError(409, "conflict", "File changed since it was loaded", {
+            baseUpdatedAt,
+            currentUpdatedAt: beforeUpdatedAt,
+            // Changed in the same place: the editor asks which version to keep.
+            ...(current === null ? {} : { reason: "overlap", current: { content: current, updatedAt: beforeUpdatedAt } }),
+          });
+        }
+        written = combined;
+        merged = combined !== content;
+      }
 
-    recordWorkspaceFileEvent(workspace.id, {
-      type: "write",
-      path: relativePath,
-      revision,
-    });
+      await ensureDir(dirname(absPath));
+      const tmp = `${absPath}.tmp-${shortId()}`;
+      await writeFile(tmp, written, "utf8");
+      await rename(tmp, absPath);
+      const after = await stat(absPath);
+      const revision = fileRevision(after);
 
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "workspace.file.write",
-      target: absPath,
-      summary: `Wrote ${relativePath}`,
-      timestamp: Date.now(),
-    });
+      recordWorkspaceFileEvent(workspace.id, {
+        type: "write",
+        path: relativePath,
+        revision,
+      });
 
-    return jsonResponse({
-      ok: true,
-      path: relativePath,
-      bytes: Buffer.byteLength(written, "utf8"),
-      updatedAt: after.mtimeMs,
-      revision,
-      ...(merged ? { merged: true, content: written } : {}),
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "remote" },
+        action: "workspace.file.write",
+        target: absPath,
+        summary: `Wrote ${relativePath}`,
+        timestamp: Date.now(),
+      });
+
+      return jsonResponse({
+        ok: true,
+        path: relativePath,
+        bytes: Buffer.byteLength(written, "utf8"),
+        updatedAt: after.mtimeMs,
+        revision,
+        ...(merged ? { merged: true, content: written } : {}),
+      });
     });
   });
 }

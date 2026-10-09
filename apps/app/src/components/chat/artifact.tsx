@@ -1,3 +1,4 @@
+import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 /** @jsxImportSource react */
 
 import type { UIMessage } from "ai";
@@ -6,7 +7,6 @@ import { ArrowUpRightIcon, Inbox } from "lucide-react";
 import { ArtifactIcon } from "@/components/chat/artifact-icon";
 import type { FiledTask } from "@/components/chat/filed-tasks";
 import { t } from "@/i18n";
-import { requestOpenTask } from "@/react-app/domains/tasks/task-reference";
 import {
   DescriptiveButton,
   DescriptiveButtonContent,
@@ -66,6 +66,7 @@ function ArtifactButton({ artifact }: ArtifactButtonProps) {
 
 /** A task the turn filed, in the same strip and the same shape as a file it produced. */
 function TaskButton({ task }: { task: FiledTask }) {
+  const requestOpenTask = useRequestOpenTask();
   const name = task.title ?? t("message_list.task_badge_fallback");
   return (
     <DescriptiveButton

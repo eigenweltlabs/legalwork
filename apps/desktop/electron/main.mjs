@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -688,8 +688,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const browserPanel = createBrowserPanel({
-  resolveDownloadDirectory: async (context) => resolveBrowserProject(
-    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(),
+  app, WebContentsView, clipboard, session,
+  resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
+    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
   ),
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
@@ -1583,11 +1584,12 @@ async function openDetachedSessionWindow(event, input = {}) {
 async function openDetachedProjectWindow(event, input) {
   const workspaceId = String(input?.workspaceId ?? "").trim();
   const page = input?.page;
-  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files"].includes(page)) {
+  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files", "workspace"].includes(page)) {
     throw new Error("A workspace and valid project page are required to open a new window.");
   }
-  const path = page === "home" || page === "files" ? "project" : page;
-  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
+  const path = page === "workspace" ? "session" : page === "home" || page === "files" ? "project" : page;
+  const seed = typeof input.seed === "string" && /^[\w-]{1,80}$/.test(input.seed) ? `&seed=${encodeURIComponent(input.seed)}` : "";
+  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "workspace" ? "&view=workspace" : ""}${page === "files" ? "&panel=files" : ""}${seed}`;
   return openAppWindow(event, route, input.title);
 }
 
@@ -1634,7 +1636,7 @@ async function openAppWindow(event, route, title = "") {
   sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
     navigationEvent.preventDefault();
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
   sessionWindow.webContents.on("did-start-navigation", (_navigationEvent, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace || browserPanel.isMainWindowAllowedNavigation(url)) return;
@@ -1643,7 +1645,7 @@ async function openAppWindow(event, route, title = "") {
     } catch {
       // Best effort — routing below still preserves the detached chat.
     }
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
 
   const sourceUrl = event.sender.getURL();
@@ -2775,7 +2777,7 @@ async function createMainWindow() {
   });
 
   mainWindow.on("closed", () => {
-    browserPanel.destroy();
+    browserPanel.destroy(mainWindow);
     mainWindow = null;
   });
 

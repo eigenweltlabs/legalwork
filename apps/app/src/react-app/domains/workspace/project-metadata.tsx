@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { t } from "@/i18n";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import { defaultAkteFields, localizedProjectFields, useProjectDefaultsStore } from "./project-defaults-store";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { projectErrorMessage } from "./project-errors";

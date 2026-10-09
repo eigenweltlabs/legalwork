@@ -33,7 +33,7 @@ export function WorkflowEditorPanel({ id, onClose }: { id: string; onClose: () =
   const fieldClass = "mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-60";
 
   const reload = async () => {
-    if (!services || !confirmDiscardDocuments(id)) return;
+    if (!services || !confirmDiscardDocuments(id, undefined, false, () => { void reload(); })) return;
     // A clean draft has no discard callback invoked; remove it before re-reading.
     discardWorkflow(id);
     void openWorkflow(draft.workspaceId, { name: draft.name, path: "", description: draft.savedDescription });

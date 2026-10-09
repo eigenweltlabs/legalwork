@@ -1,3 +1,4 @@
+import { isProjectView, type ProjectView } from "../domains/session/panel/project-view";
 import type { SettingsTab } from "../../app/types";
 
 export function homeRoute(projectId?: string | null) {
@@ -51,6 +52,16 @@ export function workspaceReviewsRoute(workspaceId: string, reviewId?: string) {
 }
 
 export function workspaceCalendarRoute(workspaceId: string) { return `/workspace/${encodeURIComponent(workspaceId.trim())}/calendar`; }
+
+export function workspaceViewRoute(workspaceId: string, view: ProjectView) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/${view === "home" ? "project" : view}`;
+}
+
+export function projectViewFromPath(pathname: string): ProjectView | undefined {
+  const match = /^\/workspace\/[^/]+\/([^/]+)\/?$/.exec(pathname);
+  const view = match?.[1] === "project" ? "home" : match?.[1];
+  return isProjectView(view) ? view : undefined;
+}
 
 /** Routed main panes are derived synchronously so content and sidebar cannot disagree. */
 export function sessionMainPage(pathname: string) {

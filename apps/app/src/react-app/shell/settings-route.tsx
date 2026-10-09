@@ -1923,21 +1923,29 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       const message = t("workspace_list.remove_confirm") || t("workspace.remove_confirm");
       if (!window.confirm(message)) return;
     }
-    if (legalworkClient) {
-      await legalworkClient.deleteWorkspace(workspaceId).catch(() => undefined);
-    }
-    if (isDesktopRuntime()) {
-      await workspaceForget(workspaceId).catch(() => undefined);
-    }
-    if (selectedWorkspaceId === workspaceId) {
-      const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
-      const nextId = nextWorkspace?.id ?? "";
-      setLegacySelectedWorkspaceId(nextId);
-      if (nextId) {
-        await workspaceSetSelected(nextId).catch(() => undefined);
+    try {
+      const workspace = workspaces.find(item => item.id === workspaceId);
+      if (workspace?.workspaceType !== "remote") {
+        if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
+        await legalworkClient.deleteWorkspace(workspaceId).catch(error => {
+          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
+        });
       }
+      if (isDesktopRuntime()) {
+        await workspaceForget(workspaceId);
+      }
+      if (selectedWorkspaceId === workspaceId) {
+        const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
+        const nextId = nextWorkspace?.id ?? "";
+        setLegacySelectedWorkspaceId(nextId);
+        if (nextId) {
+          await workspaceSetSelected(nextId).catch(() => undefined);
+        }
+      }
+      await refreshRouteState();
+    } catch (error) {
+      toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
     }
-    await refreshRouteState();
   }, [legalworkClient, refreshRouteState, selectedWorkspaceId, workspaces]);
 
   const handleCreateWorkspace = async (preset: WorkspacePreset, folder: string | null) => {
@@ -2264,7 +2272,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
-            inlineEditor={props.singleView !== true}
+            inlineEditor
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}
             busy={busy}

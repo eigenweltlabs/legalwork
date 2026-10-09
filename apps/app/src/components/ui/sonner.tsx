@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 
+const APP_TOASTER_ID = "legalwork-app";
+
 function useTheme() {
   return React.useSyncExternalStore(
     subscribeToTheme,
@@ -51,6 +53,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         },
       }}
       {...props}
+      id={APP_TOASTER_ID}
     />
   )
 }
@@ -225,6 +228,9 @@ function showToast(type: ToastType, message: React.ReactNode, options?: ToastOpt
       // match nothing, and the toast becomes undismissable — invisible for
       // auto-closing toasts, permanent for `duration: Infinity` error toasts.
       ...(options?.id !== undefined ? { id: options.id } : {}),
+      // Embedded editors mount their own Sonner host. Keep app notifications
+      // in the app host so one file-operation failure renders exactly once.
+      toasterId: APP_TOASTER_ID,
       duration: options?.duration,
       description: undefined,
       action: undefined,

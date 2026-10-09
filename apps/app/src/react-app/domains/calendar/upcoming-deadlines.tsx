@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
+import { projectViewTab } from "../session/panel/panel-tab-store";
 import { ArrowUpRight, ChevronRight, Loader2, Plus, Timer } from "lucide-react";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -8,15 +9,14 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empt
 import { toast } from "@/components/ui/sonner";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { cn } from "@/lib/utils";
-import { workspaceCalendarRoute } from "../../shell/workspace-routes";
 import { t } from "@/i18n";
 import { deadlineReviewLabel, calendarDay, calendarError, formatCalendarDay, isActive, occurrenceDay, shiftDay } from "./calendar-format";
 import { useCalendarOccurrences, useCalendarRefresh } from "./calendar-queries";
 import { calendarProjectColor } from "./calendar-colors";
 import { DeadlineDialog } from "./deadline-dialog";
 
-export function UpcomingDeadlines(props: { client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string }) {
-  const navigate = useNavigate(), refresh = useCalendarRefresh();
+export function UpcomingDeadlines(props: { client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string; onViewAll?: () => void }) {
+  const openTab = useRequestPanelTab(), refresh = useCalendarRefresh();
   const color = calendarProjectColor(props.projectId);
   const today = new Date(), from = calendarDay(today), to = calendarDay(shiftDay(today, 90));
   const query = useCalendarOccurrences(props, from, to);
@@ -50,7 +50,7 @@ export function UpcomingDeadlines(props: { client: LegalworkServerClient; worksp
         </Empty>}
     </div>
     <footer className="mt-auto border-t border-border/50">
-      <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={() => navigate(workspaceCalendarRoute(props.projectId))}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
+      <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={props.onViewAll ?? (() => openTab(projectViewTab("calendar", t("calendar.title"))))}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
     </footer>
     </Surface>
     {editing && <DeadlineDialog key={typeof editing === "string" ? "new" : editing.id} client={props.client} workspaceId={props.workspaceId} projectId={props.projectId} projectName={props.projectName} item={editing === "new" ? null : editing} day={from} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}

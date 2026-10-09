@@ -29,6 +29,7 @@ import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
+import { NewWindowPreference } from "@/react-app/domains/settings/pages/shell-view";
 import { useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
 import { OrgPolicyConfirmDialog } from "@/react-app/domains/connections/org-policy-ui";
 import "./app/index.css";
@@ -179,6 +180,8 @@ function SettingsPreview() {
               ocrView={<OcrSettingsSection client={ocrPreview} />}
               systemOneView={<SystemOneSettingsSection client={systemOnePreview} onManageSubscription={() => toast("Preview subscription")} />}
             />
+          ) : activeTab === "shell" ? (
+            <><AppearanceView busy={false} /><NewWindowPreference /></>
           ) : activeTab === "appearance" ? (
             // The same language picker Settings -> Customization renders.
             <AppearanceView busy={false} />

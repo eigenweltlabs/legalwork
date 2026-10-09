@@ -7,8 +7,9 @@ import {
   usePanelTabStore,
 } from "./panel-tab-store";
 import { getElectronBrowser } from "./utils";
+import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 
-export function useSidePanelTabs(sessionId: string) {
+export function useSidePanelTabs(sessionId: string, active = true) {
   const syncBrowserTabs = usePanelTabStore((state) => state.syncBrowserTabs);
 
   const applyBrowserState = React.useCallback((browserState: BrowserStatePayload) => {
@@ -16,25 +17,31 @@ export function useSidePanelTabs(sessionId: string) {
     const activeTabId = browserState.activeTabId ?? tabs[0]?.id ?? null;
 
     syncBrowserTabs(sessionId, tabs, activeTabId);
+    if (browserState.focusedTabId) {
+      const store = usePanelTabStore.getState();
+      const id = browserState.focusedTabId;
+      if (store.sessions[sessionId]?.panes.some(pane => pane.activeTabId === id)) store.selectTab(sessionId, id);
+    }
   }, [sessionId, syncBrowserTabs]);
 
   React.useEffect(() => {
     const browser = getElectronBrowser();
 
-    if (!browser) {
+    if (!browser || !active) {
       return;
     }
 
     const unsub = browser.onStateChange?.(applyBrowserState);
 
-    void browser.getState?.().then((browserState) => {
+    const refresh = () => { void browser.getState?.().then((browserState) => {
       if (browserState) {
         applyBrowserState(browserState);
       }
-    });
-
-    return unsub;
-  }, [applyBrowserState]);
+    }); };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => { unsub?.(); window.removeEventListener("focus", refresh); };
+  }, [applyBrowserState, active]);
 
   const createTab = useCreateTab();
 
@@ -45,7 +52,12 @@ export function useSidePanelTabs(sessionId: string) {
   const reorderTabs = useReorderTabs();
 
   return {
-    createTab: (url?: string) => createTab(url),
+    createTab: async (url?: string, pane?: string) => {
+      const result = await createTab(url);
+      const state = await getElectronBrowser()?.getState?.();
+      if (state) applyBrowserState(state);
+      if (result && pane) usePanelTabStore.getState().moveTab(sessionId, result.tabId, pane);
+    },
     closeTab: (tab: PanelTab) => closeTab(sessionId, tab),
     selectTab: (tabId: string) => selectTab(sessionId, tabId),
     reorderTabs: (tabIds: string[]) => reorderTabs(sessionId, tabIds),
@@ -54,7 +66,7 @@ export function useSidePanelTabs(sessionId: string) {
 
 export function useCreateTab() {
   return React.useCallback((url?: string) => {
-    void getElectronBrowser()?.createTab?.(url);
+    return getElectronBrowser()?.createTab?.(url);
   }, []);
 }
 
@@ -86,7 +98,7 @@ export function useCloseTab() {
 export function useSelectTab() {
   const selectTab = usePanelTabStore((state) => state.selectTab);
 
-  return React.useCallback((sessionId: string, tabId: string) => {
+  return React.useCallback(function selectPanelTab(sessionId: string, tabId: string) {
     const tabs = usePanelTabStore.getState().sessions[sessionId]?.tabs ?? [];
     const tab = tabs.find((entry) => entry.id === tabId);
 
@@ -94,8 +106,14 @@ export function useSelectTab() {
       return;
     }
 
+    const previous = usePanelTabStore.getState().sessions[sessionId];
+    const pane = previous?.panes.find(pane => pane.tabIds.includes(tabId));
+    if (!sessionId.startsWith("workspace:") && pane && pane.activeTabId !== tabId &&
+      !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true, () => selectPanelTab(sessionId, tabId))) return;
+
     selectTab(sessionId, tabId);
-    if (usePanelTabStore.getState().sessions[sessionId]?.activeTabId !== tabId) return;
+    const session = usePanelTabStore.getState().sessions[sessionId];
+    if (!session?.panes.some(pane => pane.activeTabId === tabId)) return;
 
     if (tab.type === "browser") {
       void getElectronBrowser()?.selectTab?.(tabId);
@@ -117,6 +135,11 @@ export function useReorderTabs() {
 
     reorderTabs(sessionId, tabIds);
 
-    void getElectronBrowser()?.reorderTabs?.(browserTabIds);
+    // Native order covers the window; send only this strip's subset. The main process
+    // preserves all other panes/projects and validates the IDs atomically.
+    if (browserTabIds.length > 1) void getElectronBrowser()?.reorderTabs?.(browserTabIds).catch(() => {
+      // A native tab may have closed during the drag. Its state event removes
+      // it locally; the remaining strip already has the requested order.
+    });
   }, [reorderTabs]);
 }

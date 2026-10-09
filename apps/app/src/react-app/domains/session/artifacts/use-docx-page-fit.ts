@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, type RefObject } from "react";
 import type { DocxEditorRef } from "@eigenpal/docx-editor-react";
+import { SIDEBAR_DOCUMENT_SHIFT } from "@eigenpal/docx-editor-core/utils/sidebarConstants";
 
 const PAGE_GUTTERS = 48;
 const REVIEW_RAIL = 352;
@@ -25,15 +26,19 @@ export function useDocxPageFit(
   useLayoutEffect(() => {
     const host = containerRef.current;
     if (!host) return;
+    host.style.setProperty("--docx-sidebar-offset", `${commentsOpen ? SIDEBAR_DOCUMENT_SHIFT : 0}px`);
     let frame = 0;
     let page: HTMLElement | null = null;
+    let pages: HTMLElement | null = null;
     let viewport: HTMLElement | null = null;
     let zoomLayer: HTMLElement | null = null;
     let sidebar: Element | null = null;
     let lastHostWidth = 0;
     let lastViewportWidth = 0;
     let lastPageWidth = 0;
+    let lastPagesWidth = 0;
     let lastLayoutHeight = 0;
+    let lastZoomLayerWidth = 0;
     let transform = "";
     let needsFit = true;
 
@@ -47,7 +52,9 @@ export function useDocxPageFit(
         const zoom = editorRef.current?.getZoom() ?? 1;
         const rail = host.clientWidth >= 900 && sidebar ? REVIEW_RAIL : 0;
         const width = page?.offsetWidth ?? 0;
-        if (host.style.getPropertyValue("--docx-zoom") !== String(zoom)) host.style.setProperty("--docx-zoom", String(zoom));
+        // The stack includes wider sections in mixed-orientation documents.
+        const selectionOutset = `${Math.max(0, ((pages?.offsetWidth ?? width) - (zoomLayer?.clientWidth ?? 0)) / 2)}px`;
+        if (pages && host.style.getPropertyValue("--docx-selection-outset") !== selectionOutset) host.style.setProperty("--docx-selection-outset", selectionOutset);
         const minWidth = `${width * zoom + PAGE_GUTTERS + rail}px`;
         if (width && host.style.getPropertyValue("--docx-layout-width") !== minWidth) host.style.setProperty("--docx-layout-width", minWidth);
         // Transforms change painted size while retaining the full layout height.
@@ -58,14 +65,18 @@ export function useDocxPageFit(
     };
     const resize = new ResizeObserver(() => {
       const width = page?.offsetWidth ?? 0;
+      const pagesWidth = pages?.offsetWidth ?? 0;
       const viewportWidth = viewport?.clientWidth ?? 0;
       const layoutHeight = zoomLayer?.offsetHeight ?? 0;
-      const widthChanged = host.clientWidth !== lastHostWidth || width !== lastPageWidth || viewportWidth !== lastViewportWidth;
-      if (!widthChanged && layoutHeight === lastLayoutHeight) return;
+      const zoomLayerWidth = zoomLayer?.clientWidth ?? 0;
+      const widthChanged = host.clientWidth !== lastHostWidth || width !== lastPageWidth || pagesWidth !== lastPagesWidth || viewportWidth !== lastViewportWidth;
+      if (!widthChanged && layoutHeight === lastLayoutHeight && zoomLayerWidth === lastZoomLayerWidth) return;
       lastHostWidth = host.clientWidth;
       lastViewportWidth = viewportWidth;
       lastPageWidth = width;
+      lastPagesWidth = pagesWidth;
       lastLayoutHeight = layoutHeight;
+      lastZoomLayerWidth = zoomLayerWidth;
       schedule(widthChanged);
     });
     const structure = new MutationObserver(() => schedule());
@@ -77,19 +88,23 @@ export function useDocxPageFit(
     });
     const attachLayout = () => {
       const nextPage = host.querySelector<HTMLElement>(".layout-page");
+      const nextPages = host.querySelector<HTMLElement>(".paged-editor__pages");
       const nextViewport = host.querySelector<HTMLElement>(".docx-editor__scroll-container");
-      const nextZoomLayer = host.querySelector(".paged-editor__pages")?.parentElement ?? null;
+      const nextZoomLayer = nextPages?.parentElement ?? null;
       const nextSidebar = host.querySelector(".docx-unified-sidebar");
-      if (nextPage === page && nextViewport === viewport && nextZoomLayer === zoomLayer && nextSidebar === sidebar) return;
+      if (nextPage === page && nextPages === pages && nextViewport === viewport && nextZoomLayer === zoomLayer && nextSidebar === sidebar) return;
       if (nextSidebar !== sidebar) needsFit = true;
       if (page) resize.unobserve(page);
+      if (pages) resize.unobserve(pages);
       if (viewport) resize.unobserve(viewport);
       if (zoomLayer) resize.unobserve(zoomLayer);
       page = nextPage;
+      pages = nextPages;
       viewport = nextViewport;
       zoomLayer = nextZoomLayer;
       sidebar = nextSidebar;
       if (page) resize.observe(page);
+      if (pages) resize.observe(pages);
       if (viewport) resize.observe(viewport);
       if (zoomLayer) resize.observe(zoomLayer);
       // Observe only the layout ancestors. Paragraph/text mutations and caret
@@ -122,7 +137,7 @@ export function useDocxPageFit(
       zoomChanges.disconnect();
       host.removeEventListener("painter:painted", onPaint);
     };
-  }, [containerRef, editorRef, fitPage]);
+  }, [containerRef, editorRef, fitPage, commentsOpen]);
 
   return fitPage;
 }

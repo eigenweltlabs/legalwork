@@ -36,6 +36,7 @@ import type {
 import type { BrowserPanelTab } from "./desktop-types";
 
 export type BrowserStatePayload = {
+  focusedTabId?: string;
   activeTabId?: string | null;
   tabs?: BrowserPanelTab[];
 };
@@ -119,8 +120,8 @@ declare global {
         installAndRestart?: () => Promise<{ ok: boolean; reason?: string }>;
       };
       browser?: {
-        show?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-        hide?: () => Promise<void>;
+        show?: (bounds: { x: number; y: number; width: number; height: number }, tabId?: string) => Promise<void>;
+        hide?: (tabId?: string) => Promise<void>;
         openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string }) => Promise<{
           provider: "builtin";
           browser_url: string;
@@ -131,11 +132,11 @@ declare global {
           downloads: unknown[];
           snapshot: unknown;
         }>;
-        navigate?: (url: string) => Promise<void>;
-        back?: () => Promise<void>;
-        forward?: () => Promise<void>;
-        reload?: () => Promise<void>;
-        setBounds?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+        navigate?: (url: string, tabId?: string) => Promise<void>;
+        back?: (tabId?: string) => Promise<void>;
+        forward?: (tabId?: string) => Promise<void>;
+        reload?: (tabId?: string) => Promise<void>;
+        setBounds?: (bounds: { x: number; y: number; width: number; height: number }, tabId?: string) => Promise<void>;
         getState?: () => Promise<BrowserStatePayload | null>;
         createTab?: (url?: string) => Promise<{ tabId: string }>;
         closeTab?: (tabId: string) => Promise<string | null>;

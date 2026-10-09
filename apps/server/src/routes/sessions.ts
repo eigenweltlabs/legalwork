@@ -1,5 +1,9 @@
+import { queueActionSchema, queuedPromptPayload } from "../session-queue-schema.js";
+import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
+import { canonicalFilePath } from "../file-write-lock.js";
+import { posix, win32 } from "node:path";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
@@ -33,6 +37,7 @@ interface RegisterSessionRoutesOptions {
   parseOptionalPositiveInteger: ParseOptionalPositiveInteger;
   parseOptionalNonNegativeInteger: ParseOptionalNonNegativeInteger;
   readJsonBody: ReadJsonBody;
+  readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
@@ -53,6 +58,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     parseOptionalPositiveInteger,
     parseOptionalNonNegativeInteger,
     readJsonBody,
+    readJsonBodyLimited,
     ensureWritable,
     requireClientScope,
     resolveWorkspace,
@@ -60,6 +66,63 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     unwrapOpencodeResult,
   } = options;
   const sessionGroupEvents = new SessionGroupEventStore();
+  async function queueClient(workspace: WorkspaceInfo, sessionID: string) {
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "session");
+    const directory = workspace.directory?.trim() || (workspace.workspaceType === "local" ? workspace.path : unwrapOpencodeResult(await client.path.get(), "path").directory);
+    const normalize = async (path: string) => {
+      const clean = path.replace(/^\\\\\?\\/, "").replace(/^\/\/\?\//, "");
+      if (workspace.workspaceType === "local") return canonicalFilePath(clean);
+      return /^[a-z]:[\\/]|^\\\\/i.test(clean) ? win32.normalize(clean).replace(/[\\/]+$/, "").toLowerCase() : posix.normalize(clean).replace(/\/$/, "");
+    };
+    if (!directory || !session.directory || await normalize(directory) !== await normalize(session.directory)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+    return client;
+  }
+  const messageQueue = registerMessageQueue(config, {
+    idle: async (workspaceId, sessionId) => {
+      if (config.readOnly) return false;
+      const workspace = await resolveWorkspace(config, workspaceId);
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
+      return !statuses[sessionId] || statuses[sessionId].type === "idle";
+    },
+    send: async (workspaceId, sessionID, entry) => {
+      ensureWritable(config);
+      const client = await (async () => {
+        try {
+          const workspace = await resolveWorkspace(config, workspaceId);
+          const client = await queueClient(workspace, sessionID);
+          unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
+          return client;
+        } catch (error) {
+          throw new QueuePreparationError(error instanceof Error ? error.message : "Could not prepare message delivery.");
+        }
+      })();
+      const execution = entry.execution;
+      if (execution.kind === "prompt") {
+        const result = unwrapOpencodeResult(await client.session.prompt({ sessionID, messageID: `msg_${entry.id.replaceAll("-", "")}`, ...queuedPromptPayload(execution) }), "session/prompt");
+        // A terminal assistant result confirms delivery, including Stop/model errors.
+        // Pause follow-ups, but never offer to resend the already accepted prompt.
+        return { pause: Boolean(result.info.error), reason: result.info.error?.name === "MessageAbortedError" ? "stop" : "error" };
+      } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, ...execution }), "session/command");
+      else unwrapOpencodeResult(await client.session.shell({ sessionID, command: execution.command }), "session/shell");
+    },
+  });
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    await queueClient(workspace, ctx.params.sessionId);
+    return jsonResponse(await messageQueue.readIfChanged(workspace.id, ctx.params.sessionId, new URL(ctx.request.url).searchParams.get("revision")));
+  });
+  addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
+    ensureWritable(config); requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
+    // Reject stale/deleted or cross-workspace sessions before storing executable work.
+    await queueClient(workspace, ctx.params.sessionId);
+    return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
+  });
+
 
   function remapSessionReadError(error: unknown): never {
     if (error instanceof ApiError && error.code === "opencode_request_failed") {
@@ -392,10 +455,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
 
     const opencode = createWorkspaceOpencodeClient(config, workspace);
+    // Stop pending sends before deleting the underlying chat.
+    await messageQueue.act(workspace.id, sessionId, { type: "pause", paused: true });
     unwrapOpencodeResult(
       await opencode.session.delete({ sessionID: sessionId }),
       `/session/${encodeURIComponent(sessionId)}`,
     );
+    await messageQueue.removeSession(workspace.id, sessionId);
     await deleteSessionUsageLimits(config, workspace.id, sessionId);
 
     return jsonResponse({ ok: true });

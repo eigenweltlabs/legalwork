@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, Table2, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, TableProperties, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
@@ -22,7 +22,7 @@ export const SIDEBAR_ITEMS = {
   sectionRecent: { label: "sidebar.recent_sessions", icon: Clock },
   projectCalendar: { label: "calendar.title", icon: CalendarDays },
   projectHome: { label: "projects.home", icon: House },
-  projectReviews: { label: "projects.tab_review", icon: Table2 },
+  projectReviews: { label: "projects.tab_review", icon: TableProperties },
   projectTasks: { label: "projects.tasks", icon: ListTodo },
   projectFiles: { label: "projects.files", icon: Files },
   projectSessions: { label: "sidebar.collapse_sessions", icon: MessageSquare },

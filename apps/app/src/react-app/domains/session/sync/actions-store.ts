@@ -1,3 +1,5 @@
+import { usePanelTabStore } from "../panel/panel-tab-store";
+import { registerEmptySession } from "../sidebar/session-list-visibility";
 import type {
   Agent,
   AgentPartInput,
@@ -437,6 +439,7 @@ export function createSessionActionsStore(options: {
       }
 
       const session = unwrap(rawResult);
+      registerEmptySession(session.id);
       if (initialPrompt) {
         saveSessionDraft(id, session.id, {
           text: initialPrompt,
@@ -821,6 +824,7 @@ export function createSessionActionsStore(options: {
     const directory = toSessionTransportDirectory(root);
     const params = directory ? { sessionID: trimmed, directory } : { sessionID: trimmed };
     unwrap(await c.session.delete(params));
+    usePanelTabStore.getState().clearSession(trimmed);
     clearSessionDraft(options.selectedWorkspaceId().trim(), trimmed);
 
     options.setSessions(options.sessions().filter((s) => s.id !== trimmed));

@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { useDocumentControlSessions } from "./document-control-sessions";
 import {
   createContext,
   useCallback,
@@ -46,13 +47,14 @@ export type LegalworkControlSnapshot = {
   actions: LegalworkControlActionMetadata[];
 };
 
-export type LegalworkOpenFile = { id: string; sessionId: string; name: string; path: string; active: boolean };
+export type LegalworkOpenFile = { id: string; sessionId: string; sessionIds?: readonly string[]; name: string; path: string; active: boolean; workspaceId?: string; projectId?: string };
 
 export type LegalworkControlSurface = {
   id: string;
   kind: "document";
   format: "docx" | "xlsx" | "pptx" | "md";
   sessionId: string;
+  sessionIds?: readonly string[];
   workspaceId: string;
   name: string;
   path: string;
@@ -436,9 +438,17 @@ export function useLegalworkControl() {
   return use(LegalworkControlContext);
 }
 
+const ControlActionScopeContext = createContext(true);
+/** With multiple visible editors, route unqualified agent commands only to
+ * the selected document instead of whichever editor registered last. */
+export function ControlActionScope({ active, children }: { active: boolean; children: ReactNode }) {
+  return <ControlActionScopeContext value={active}>{children}</ControlActionScopeContext>;
+}
+
 export function useControlAction(action: LegalworkControlAction | null | false | undefined) {
   const control = useLegalworkControl();
-  const registerAction = control?.registerAction;
+  const active = use(ControlActionScopeContext);
+  const registerAction = active ? control?.registerAction : undefined;
   const latestActionRef = useRef<LegalworkControlAction | null>(action || null);
   latestActionRef.current = action || null;
   const actionId = action ? action.id : null;
@@ -451,12 +461,14 @@ export function useControlAction(action: LegalworkControlAction | null | false |
 
 export function useControlSurface(surface: LegalworkControlSurface | null | false | undefined) {
   const control = useLegalworkControl();
-  const registerSurface = control?.registerSurface;
+  const active = use(ControlActionScopeContext);
+  const registerSurface = active ? control?.registerSurface : undefined;
+  const sessionIds = useDocumentControlSessions(surface ? surface.sessionId : "");
 
   useEffect(() => {
     if (!registerSurface || !surface) return undefined;
-    return registerSurface(surface);
-  }, [registerSurface, surface]);
+    return registerSurface({ ...surface, sessionIds });
+  }, [registerSurface, surface, sessionIds]);
 }
 
 /**
@@ -467,7 +479,8 @@ export function useControlSurface(surface: LegalworkControlSurface | null | fals
  */
 export function useControlActions(actions: readonly LegalworkControlAction[]) {
   const control = useLegalworkControl();
-  const registerAction = control?.registerAction;
+  const active = use(ControlActionScopeContext);
+  const registerAction = active ? control?.registerAction : undefined;
 
   // One ref per action id, so executeAction always sees the freshest closure.
   const refsById = useRef<Map<string, { current: LegalworkControlAction | null }>>(new Map());
@@ -631,5 +644,6 @@ export function LegalworkRouteControlActions() {
 export function useControlOpenFiles(files: LegalworkOpenFile[]) {
   const control = use(LegalworkControlContext);
   const register = control?.registerOpenFiles;
-  useEffect(() => register?.(files), [register, files]);
+  const sessionIds = useDocumentControlSessions(files[0]?.sessionId ?? "");
+  useEffect(() => register?.(files.map(file => ({ ...file, sessionIds }))), [register, files, sessionIds]);
 }

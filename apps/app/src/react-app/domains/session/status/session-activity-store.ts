@@ -1,3 +1,4 @@
+import { retainSessionInLists } from "../sidebar/session-list-visibility";
 /** @jsxImportSource react */
 import { create } from "zustand";
 
@@ -341,3 +342,12 @@ export function getSessionActivityStatusLabel(status: SessionActivityStatus) {
   if (status === "error") return t("session.assistant_error");
   return t("session.assistant_idle");
 }
+
+useSessionActivityStore.subscribe((state, previous) => {
+  for (const [workspace, sessions] of Object.entries(state.recordsByWorkspaceId)) {
+    if (sessions === previous.recordsByWorkspaceId[workspace]) continue;
+    for (const [id, record] of Object.entries(sessions)) {
+      if (record !== previous.recordsByWorkspaceId[workspace]?.[id] && (record.runActive || Object.keys(record.messageRoles).length)) retainSessionInLists(id);
+    }
+  }
+});

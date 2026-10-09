@@ -2,7 +2,7 @@ import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Star, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Pin, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -43,6 +43,7 @@ export function ProjectHome(props: {
   onBeforeDeleteNote: (entry: LegalworkWorkspaceDirectoryEntry) => boolean;
   onNewSession: (shareRecording: boolean) => void | Promise<void>;
   tasksView: ReactNode;
+  onViewAllDeadlines?: () => void;
   onRename?: (name: string) => Promise<boolean>;
 }) {
   const { client, workspaceId } = props;
@@ -53,7 +54,7 @@ export function ProjectHome(props: {
   const recordLabel = t(recordingFinalizing ? "recorder.finishing" : recordingActive ? "recorder.stop_recording" : "recorder.record");
   const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
   const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
-  const favoriteLabel = t(isFavorite ? "projects.remove_favorite" : "projects.add_favorite");
+  const favoriteLabel = t(isFavorite ? "sidebar.unpin_project" : "sidebar.pin_project");
   const savedDefaults = useProjectDefaultsStore((state) => state.fields);
   const queryClient = useQueryClient();
   const [noteOpen, setNoteOpen] = useState(false);
@@ -75,12 +76,12 @@ export function ProjectHome(props: {
     select: (data) => withInitialProjectFields(data, savedDefaults ?? defaultAkteFields()),
   });
   const rootFiles = useQuery({
-    queryKey: ["project-files", workspaceId, ""],
+    queryKey: ["project-files", workspaceId, "", client.baseUrl],
     queryFn: () => client.listWorkspaceDirectory(workspaceId, ""),
   });
   const hasNotes = Boolean(rootFiles.data?.entries.some((entry) => entry.kind === "dir" && entry.name === "Notes"));
   const notes = useQuery({
-    queryKey: ["project-notes", workspaceId],
+    queryKey: ["project-notes", workspaceId, client.baseUrl],
     queryFn: () => client.listWorkspaceDirectory(workspaceId, "Notes"),
     enabled: hasNotes,
   });
@@ -111,11 +112,13 @@ export function ProjectHome(props: {
         <div className="lw-project-home-header overflow-hidden rounded-2xl border border-border/60">
         <ContextMenu>
         <ContextMenuTrigger render={<header className="p-5 @min-[720px]/project-page:p-6" />}>
-          <div className="flex items-start gap-1">
+          <div className="flex flex-col items-stretch gap-3 @min-[680px]/project-page:flex-row @min-[680px]/project-page:items-start">
             <ProjectName name={props.name} onRename={props.onRename} />
-            <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Star className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
+            <div className="flex min-w-0 flex-wrap items-center gap-1 @min-[680px]/project-page:shrink-0">
+            <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={favoriteLabel} aria-pressed={isFavorite} onClick={() => toggleFavorite(workspaceId)}><Pin className={cn("size-4", isFavorite && "fill-current text-foreground")} /></Button>} /><TooltipContent>{favoriteLabel}</TooltipContent></Tooltip>
             {props.isRemoteWorkspace ? null : <ProjectShareButton client={client} workspaceId={workspaceId} projectName={props.name} />}
             <Button variant="ghost" size="sm" className="shrink-0" aria-haspopup="dialog" onClick={() => openPersonalisation(props.projectId)}><WandSparkles />{t("personalisation.project_prompt_menu")}</Button>
+            </div>
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-xl shadow-xs">
@@ -141,7 +144,7 @@ export function ProjectHome(props: {
           <ContextMenuItem onClick={() => setTaskOpen(true)}><SquareCheck />{t("tasks.new_task")}</ContextMenuItem>
           <ContextMenuItem disabled={recordingStarting || recordingFinalizing} onClick={props.onStartRecording}><Mic />{recordLabel}</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => toggleFavorite(workspaceId)}><Star />{favoriteLabel}</ContextMenuItem>
+          <ContextMenuItem onClick={() => toggleFavorite(workspaceId)}><Pin />{favoriteLabel}</ContextMenuItem>
         </ContextMenuContent>
         </ContextMenu>
 
@@ -195,7 +198,7 @@ export function ProjectHome(props: {
 
         <div className="grid grid-cols-1 items-stretch gap-4 @min-[640px]/project-page:grid-cols-2">
           <div className="min-w-0">{props.tasksView}</div>
-          <UpcomingDeadlines client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />
+          <UpcomingDeadlines onViewAll={props.onViewAllDeadlines} client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />
         </div>
 
         <ContextMenu>

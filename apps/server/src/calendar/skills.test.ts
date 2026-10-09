@@ -8,6 +8,10 @@ test("only an installed standard skill with the tested executable can calculate"
   const source = new URL("./skills.ts", import.meta.url).href;
   const script = join(root, "check.mjs");
   await writeFile(script, `
+    // Keep personal skill directories outside this isolated test process.
+    import * as os from 'node:os';
+    import { mock } from 'bun:test';
+    mock.module('node:os', () => ({ ...os, homedir: () => process.env.XDG_CONFIG_HOME }));
     import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
     import { join } from "node:path";
     import assert from "node:assert/strict";

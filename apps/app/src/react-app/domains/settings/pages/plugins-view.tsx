@@ -73,7 +73,8 @@ export function PluginsView(props: PluginsViewProps) {
           </div>
           <div className="flex items-center gap-2">
             <Button
-              variant={scope === "project" ? "secondary" : "outline"}
+              variant="choice"
+              aria-pressed={scope === "project"}
               size="xs"
               onClick={() => {
                 extensions.setPluginScope("project");
@@ -83,7 +84,8 @@ export function PluginsView(props: PluginsViewProps) {
               {t("plugins.scope_project")}
             </Button>
             <Button
-              variant={scope === "global" ? "secondary" : "outline"}
+              variant="choice"
+              aria-pressed={scope === "global"}
               size="xs"
               disabled={!props.canUseGlobalScope}
               onClick={() => {

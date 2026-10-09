@@ -12,8 +12,8 @@ const roots: StorageRoot[] = [
   { id: "s3", name: "Secure Cloud", kind: "s3", writable: true },
   { id: "smb", name: "Office Share", kind: "smb", writable: false },
 ];
-function seed(cache: QueryClient, id: string, page: StorageFilenameSearchPage) {
-  cache.setQueryData(["storage-filename-search", "workspace", id, "contract", 0], {
+function seed(cache: QueryClient, id: string, page: StorageFilenameSearchPage, baseUrl = client.baseUrl) {
+  cache.setQueryData(["storage-filename-search", "workspace", id, "contract", 0, baseUrl], {
     pages: [page],
     pageParams: [undefined],
   });
@@ -49,6 +49,12 @@ describe("Memory Drive filename search", () => {
     expect(html).toContain('title="Office Share / nested/contract.docx"');
     cache.clear();
   });
+  test("a different server with the same workspace ID cannot supply cached search results", () => {
+    const cache = new QueryClient();
+    seed(cache, "s3", { scanned: 1, complete: true, entries: [{ name: "other-project.docx", path: "other-project.docx", kind: "file", size: 20, modifiedAt: null }] }, "https://another-server.example.test");
+    expect(renderSearch(cache)).not.toContain("other-project.docx");
+    cache.clear();
+  });
   test("does not call an unfinished empty page no matches", () => {
     const cache = new QueryClient();
     for (const root of roots)
@@ -61,9 +67,9 @@ describe("Memory Drive filename search", () => {
   });
   test("keeps the search field available without a LegalMemory connection", async () => {
     const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    cache.setQueryData(["storage-roots", "workspace"], { roots });
+    cache.setQueryData(["storage-roots", "workspace", client.baseUrl], { roots });
     await cache.prefetchQuery({
-      queryKey: ["legalmemory-tree-roots", "workspace"],
+      queryKey: ["legalmemory-tree-roots", "workspace", client.baseUrl],
       queryFn: () => {
         throw new LegalworkServerError(409, "legalmemory_not_configured", "Connect LegalMemory");
       },

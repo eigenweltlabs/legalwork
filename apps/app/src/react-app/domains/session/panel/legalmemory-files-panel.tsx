@@ -1,3 +1,5 @@
+import { useProjectFiles } from "../../workspace/project-file-context";
+import { useFileSelectionCollection, type FileSelectionItem } from "../../workspace/file-selection";
 /** @jsxImportSource react */
 import { StorageDriveTree } from "./storage-drive-tree";
 import { StorageDriveSearch } from "./storage-drive-search";
@@ -7,7 +9,7 @@ import { MemoryDriveIcon } from "./memory-drive-icon";
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { AlertCircle, ChevronRight, HardDrive, Loader2, RotateCw, Search, X } from "lucide-react";
+import { AlertCircle, Pin, ChevronRight, HardDrive, Loader2, RotateCw, Search, X } from "lucide-react";
 
 import { writeLegalMemoryFileDrag, writeLegalMemoryFolderDrag } from "@/app/lib/legalmemory-file";
 import { LEGALMEMORY_CONNECTION_CHANGED_EVENT } from "@/app/lib/legalmemory-connection";
@@ -19,7 +21,10 @@ import {
   type LegalMemoryTreeRoot,
   type LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { FileEntryActions } from "./file-entry-actions";
+import { StorageEntryMenu } from "./storage-entry-menu";
+import { filePinKey, toggleFilePin, useFilePins, type FilePin } from "./file-pins";
+import { writeStorageEntryDrag } from "@/app/lib/storage-entry-drag";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -56,12 +61,17 @@ type LegalMemoryFilesPanelProps = {
   onOpenFile: (file: LegalMemoryTreeFile) => Promise<void> | void;
   onOpenStorageFile: (root: StorageRoot, file: StorageEntry) => void;
   onConnectStorage?: () => void;
-  onClose: () => void;
+  onClose?: () => void;
+  title?: string;
 };
 
 const folderKey = (sourceId: string, path: string) => `${sourceId}:${path}`;
 
-export function LegalMemoryFilesPanel({
+export function LegalMemoryFilesPanel(props: LegalMemoryFilesPanelProps) {
+  return <LegalMemoryFilesPanelContent key={`${props.client?.baseUrl}:${props.workspaceId}`} {...props} />;
+}
+
+function LegalMemoryFilesPanelContent({
   client,
   workspaceId,
   headerTarget,
@@ -69,6 +79,7 @@ export function LegalMemoryFilesPanel({
   onOpenStorageFile,
   onConnectStorage,
   onClose,
+  title,
 }: LegalMemoryFilesPanelProps) {
   const storageQueryClient = useQueryClient();
   const [storageRevision, setStorageRevision] = React.useState(0);
@@ -98,8 +109,10 @@ export function LegalMemoryFilesPanel({
     return () => window.removeEventListener(LEGALMEMORY_CONNECTION_CHANGED_EVENT, resetDisconnectedTree);
   }, []);
 
+  const projectFiles = useProjectFiles();
+  const pins = useFilePins().filter(pin => pin.workspaceId === workspaceId && pin.source !== "local" && pin.source !== "project-link");
   const storageRoots = useQuery({
-    queryKey: ["storage-roots", workspaceId],
+    queryKey: ["storage-roots", workspaceId, client?.baseUrl],
     queryFn: () => client!.storageRoots(workspaceId!),
     enabled: Boolean(client && workspaceId),
     refetchInterval: 30_000,
@@ -124,7 +137,7 @@ export function LegalMemoryFilesPanel({
   const hasStorage = browserRoots.length > 0;
 
   const rootsQuery = useQuery({
-    queryKey: ["legalmemory-tree-roots", workspaceId] as const,
+    queryKey: ["legalmemory-tree-roots", workspaceId, client?.baseUrl] as const,
     queryFn: async () => {
       if (!client || !workspaceId) throw new Error(t("legalmemory.workspace_not_connected"));
       return client.legalMemoryTreeRoots(workspaceId);
@@ -141,7 +154,7 @@ export function LegalMemoryFilesPanel({
   }, [query]);
 
   const search = useQuery({
-    queryKey: ["legalmemory-tree-search", workspaceId, searchQuery] as const,
+    queryKey: ["legalmemory-tree-search", workspaceId, searchQuery, client?.baseUrl] as const,
     queryFn: async () => {
       if (!client || !workspaceId) throw new Error(t("legalmemory.workspace_not_connected"));
       return client.legalMemoryTreeSearch(workspaceId, { query: searchQuery, limit: 100 });
@@ -302,6 +315,13 @@ export function LegalMemoryFilesPanel({
       .finally(() => setOpeningId(null));
   }, [onOpenFile, openingId]);
 
+  const selectableFiles = React.useMemo(() => rows.flatMap((row): FileSelectionItem[] => {
+    if (row.kind !== "file" || !workspaceId) return [];
+    const pin: FilePin = { workspaceId, source: `memory:${row.file.source_id}`, path: row.file.source_object_id, name: row.file.name, memory: row.file };
+    return [{ key: filePinKey(pin), name: row.file.name, pin, open: () => openFile(row.file) }];
+  }), [rows, workspaceId, openFile]);
+  useFileSelectionCollection(selectableFiles);
+
   const refresh = React.useCallback(() => {
     for (const row of rows) {
       if (row.kind === "root" && row.open) void loadPage(row.root.source_id, "", 0);
@@ -324,20 +344,20 @@ export function LegalMemoryFilesPanel({
 
   return (
     <TooltipProvider delay={800}>
-      <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
-        <PanelHeader headerTarget={headerTarget} title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
+      <aside aria-label={title ?? t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
+        <PanelHeader headerTarget={headerTarget} title={title ?? t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
           <Tooltip>
-            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t("legalmemory.refresh_drive")} />}>
+            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t(title ? "project_browser.refresh_connected" : "legalmemory.refresh_drive")} />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />
             </TooltipTrigger>
             <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
-          <Tooltip>
+          {onClose && <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("legalmemory.close_drive")} />}>
               <X className="size-4" />
             </TooltipTrigger>
             <TooltipContent>Close</TooltipContent>
-          </Tooltip>
+          </Tooltip>}
         </PanelHeader>
 
         {!notConfigured || hasStorage ? <div className="flex h-(--lw-panel-toolbar-height) shrink-0 items-center border-b border-border/70 bg-background/80 px-3 backdrop-blur-xl">
@@ -348,7 +368,7 @@ export function LegalMemoryFilesPanel({
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={t("legalmemory.search_placeholder")}
-              aria-label={t("legalmemory.search_aria")}
+              aria-label={t(title ? "project_browser.search_connected" : "legalmemory.search_aria")}
               className="h-8 w-full rounded-lg border border-input/80 bg-background/90 pl-8 pr-8 text-[13px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring/50 focus:ring-2 focus:ring-ring/15"
             />
             {query ? (
@@ -363,6 +383,19 @@ export function LegalMemoryFilesPanel({
             ) : null}
           </div>
         </div> : null}
+
+        {!query.trim() && pins.length > 0 && <section className="max-h-[35%] shrink-0 overflow-y-auto border-b border-border/60 px-2 pb-2" aria-label={t("project_browser.pinned")}>
+          <h3 className="flex items-center gap-2 px-2 py-2 text-xs font-medium text-muted-foreground"><Pin className="size-3.5" />{t("project_browser.pinned")}</h3>
+          {pins.map(pin => {
+            if (pin.memory) return <LegalMemoryTreeRow key={filePinKey(pin)} workspaceId={workspaceId} row={{ kind: "file", key: filePinKey(pin), depth: 0, file: pin.memory, searchResult: true }} selectedId={selectedId} openingId={openingId} onToggle={toggleFolder} onOpen={openFile} onLoadMore={loadPage} />;
+            const root = allStorageRoots.find(root => root.id === pin.source);
+            if (!root || !client || !workspaceId) return <div key={filePinKey(pin)} className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"><span className="min-w-0 flex-1 truncate">{pin.name} · {t("project_browser.file_unavailable")}</span><Button size="icon-sm" variant="ghost" aria-label={t("project_browser.unpin", { name: pin.name })} onClick={() => toggleFilePin(pin)}><Pin className="size-3.5 fill-current" /></Button></div>;
+            const file: StorageEntry = { name: pin.name, path: pin.path, kind: "file", size: null, modifiedAt: null };
+            return <StorageEntryMenu key={filePinKey(pin)} client={client} workspaceId={workspaceId} root={root} file={file} onOpen={() => onOpenStorageFile(root, file)}>
+              <button className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { writeStorageEntryDrag(event.dataTransfer, workspaceId, root, file); projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: file.path, name: file.name, connectionId: root.id }); }} onClick={() => onOpenStorageFile(root, file)} title={`${root.name} / ${file.path}`}><ArtifactIcon type={classifyOpenTarget(file.name, "file")} className="size-5 shrink-0" /><span className="min-w-0 flex-1"><span className="block truncate">{file.name}</span><span className="block truncate text-[10px] text-muted-foreground">{root.name} / {file.path}</span></span></button>
+            </StorageEntryMenu>;
+          })}
+        </section>}
 
         {client && workspaceId && hasStorage ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
@@ -413,6 +446,7 @@ export function LegalMemoryFilesPanel({
                     style={{ transform: `translateY(${item.start}px)` }}
                   >
                     <LegalMemoryTreeRow
+                      workspaceId={workspaceId}
                       row={row}
                       selectedId={selectedId}
                       openingId={openingId}
@@ -432,6 +466,7 @@ export function LegalMemoryFilesPanel({
 }
 
 function LegalMemoryTreeRow({
+  workspaceId,
   row,
   selectedId,
   openingId,
@@ -439,6 +474,7 @@ function LegalMemoryTreeRow({
   onOpen,
   onLoadMore,
 }: {
+  workspaceId: string | null;
   row: TreeRow;
   selectedId: string | null;
   openingId: string | null;
@@ -512,7 +548,7 @@ function LegalMemoryTreeRow({
   const selected = selectedId === row.file.source_object_id;
   const opening = openingId === row.file.source_object_id;
   return (
-    <MemoryEntryMenu onOpen={() => onOpen(row.file)} name={row.file.name}>
+    <MemoryEntryMenu onOpen={() => onOpen(row.file)} name={row.file.name} pin={workspaceId ? { workspaceId, source: `memory:${row.file.source_id}`, path: row.file.source_object_id, name: row.file.name, memory: row.file } : undefined}>
     <button
       type="button"
       draggable
@@ -543,12 +579,9 @@ function LegalMemoryTreeRow({
   );
 }
 
-function MemoryEntryMenu({ children, name, onOpen, onRefresh }: { children: React.ReactNode; name: string; onOpen: () => void; onRefresh?: () => void }) {
-  return <ContextMenu>
-    <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
-    <ContextMenuContent>
-      <ContextMenuItem onClick={onOpen}>{t("storage.open")}</ContextMenuItem>
-      {onRefresh && <ContextMenuItem onClick={onRefresh}>{t("storage.refresh_folder", { name })}</ContextMenuItem>}
-    </ContextMenuContent>
-  </ContextMenu>;
+function MemoryEntryMenu({ children, name, onOpen, onRefresh, pin }: { children: React.ReactNode; name: string; onOpen: () => void; onRefresh?: () => void; pin?: FilePin }) {
+  return <FileEntryActions name={name} pin={pin} onOpen={pin ? onOpen : undefined} actions={[
+    { label: t("storage.open"), onClick: onOpen },
+    ...(onRefresh ? [{ label: t("storage.refresh_folder", { name }), onClick: onRefresh }] : []),
+  ]}>{children}</FileEntryActions>;
 }

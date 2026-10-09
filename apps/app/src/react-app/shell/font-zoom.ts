@@ -26,12 +26,16 @@ export function useDesktopFontZoomBehavior() {
       void setDesktopZoomFactor(next)
         .then((applied) => {
           if (applied) {
+            // Native window controls do not scale with the web contents.
+            document.documentElement.style.setProperty("--legalwork-window-zoom", String(next));
             document.documentElement.style.removeProperty("--legalwork-font-size");
             return;
           }
+          document.documentElement.style.removeProperty("--legalwork-window-zoom");
           applyFontZoom(document.documentElement.style, next);
         })
         .catch(() => {
+          document.documentElement.style.removeProperty("--legalwork-window-zoom");
           applyFontZoom(document.documentElement.style, next);
         });
 

@@ -196,7 +196,7 @@ export function ModelSelect({
 
   if (locked) {
     return (
-      <span className="flex items-center px-2.5 py-1.5 text-sm text-gray-10">
+      <span className="flex min-w-0 max-w-full items-center px-2.5 py-1.5 text-sm text-gray-10">
         <span className="max-w-48 truncate">
           {selectedOption?.title ?? value.modelID ?? t("model_select.no_model")}
         </span>

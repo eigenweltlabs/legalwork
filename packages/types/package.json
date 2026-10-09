@@ -14,6 +14,7 @@
       "development": "./src/den/inference.ts",
       "default": "./src/den/inference.ts"
     },
+    "./project-files": "./src/project-files.ts",
     "./workspace": {
       "types": "./src/workspace.ts",
       "development": "./src/workspace.ts",
@@ -43,6 +44,7 @@
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
     "./calculation": "./src/calculation.ts",
+    "./session-queue": "./src/session-queue.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./org-policy": "./src/org-policy.ts",
     "./org-policy-view": "./src/org-policy-view.ts",

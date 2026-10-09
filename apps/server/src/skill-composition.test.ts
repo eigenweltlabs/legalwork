@@ -7,6 +7,10 @@ test("expert correction composes in a fresh load, preserves base, respects scope
   const root = await mkdtemp(join(tmpdir(), "skill-composition-"));
   const script = join(root, "check.mjs");
   await writeFile(script, `
+    // Keep personal skill directories outside this isolated test process.
+    import * as os from 'node:os';
+    import { mock } from 'bun:test';
+    mock.module('node:os', () => ({ ...os, homedir: () => process.env.XDG_CONFIG_HOME }));
     import { mkdir, readFile, writeFile } from 'node:fs/promises';
     import { join } from 'node:path';
     import assert from 'node:assert/strict';
@@ -52,6 +56,10 @@ test("workflow bases and descendants compose automatically and support installed
   const root = await mkdtemp(join(tmpdir(), "workflow-composition-"));
   const script = join(root, "check.mjs");
   await writeFile(script, `
+    // Keep personal skill directories outside this isolated test process.
+    import * as os from 'node:os';
+    import { mock } from 'bun:test';
+    mock.module('node:os', () => ({ ...os, homedir: () => process.env.XDG_CONFIG_HOME }));
     import { mkdir, writeFile } from 'node:fs/promises';
     import { dirname, join } from 'node:path';
     import assert from 'node:assert/strict';
@@ -96,6 +104,10 @@ test("older shipped skills and their corrections receive the current tool contra
   const root = await mkdtemp(join(tmpdir(), "deadline-tool-guide-"));
   const script = join(root, "check.mjs");
   await writeFile(script, `
+    // Keep personal skill directories outside this isolated test process.
+    import * as os from 'node:os';
+    import { mock } from 'bun:test';
+    mock.module('node:os', () => ({ ...os, homedir: () => process.env.XDG_CONFIG_HOME }));
     import { mkdir, readFile } from 'node:fs/promises';
     import { join } from 'node:path';
     import assert from 'node:assert/strict';

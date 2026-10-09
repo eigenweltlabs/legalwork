@@ -1,9 +1,16 @@
-import { useRef, useState } from "react";
+import { createContext, use, useRef, useState } from "react";
+import type { WorkspaceCopyFilesResult } from "@legalwork/types/desktop-ipc";
 import { useQueryClient } from "@tanstack/react-query";
 import "@/app/lib/desktop";
 import { isElectronRuntime } from "@/app/lib/runtime-env";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
+import { startFileCopy } from "./file-copy-job";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
+
+type FileImporter = (projectId: string, files: File[], folder: string) => Promise<WorkspaceCopyFilesResult>;
+/** The visual fixture supplies an in-memory importer; production uses the native bridge. */
+export const ProjectFileImportContext = createContext<FileImporter | null>(null);
 
 export function useProjectFileImport({ projectId, workspaceId, isRemoteWorkspace }: {
   projectId: string;
@@ -13,34 +20,26 @@ export function useProjectFileImport({ projectId, workspaceId, isRemoteWorkspace
   const queryClient = useQueryClient();
   const copyingRef = useRef(false);
   const [copying, setCopying] = useState(false);
+  const importer = use(ProjectFileImportContext);
+  const open = useRequestPanelTab({ kind: "workspace", workspaceId: projectId });
 
-  const canImport = !isRemoteWorkspace && isElectronRuntime();
+  const canImport = !isRemoteWorkspace && (Boolean(importer) || isElectronRuntime());
 
   const copyFiles = async (files: File[], destinationPath = "") => {
     if (!canImport || !files.length || copyingRef.current) return;
-    const copy = window.__LEGALWORK_ELECTRON__?.files?.copyIntoProject;
+    const copy = importer ?? window.__LEGALWORK_ELECTRON__?.files?.copyIntoProject;
     if (!copy) { toast.info(t("projects.files_restart")); return; }
     copyingRef.current = true;
     setCopying(true);
     try {
-      const result = await copy(projectId, files, destinationPath);
-      const copied = result.files.filter((file) => file.status === "copied").length;
-      const existing = result.files.filter((file) => file.status === "already_here").length;
-      if (copied) toast.success(t(copied === 1 ? "projects.files_copied_one" : "projects.files_copied_other", { count: copied }));
-      if (existing && !copied) toast.info(t("projects.files_already_here"));
-      for (const file of result.files.filter((entry) => entry.status === "failed")) {
-        toast.error(t("projects.file_copy_failed", { name: file.name }), {
-          description: t(file.error === "file_only" ? "projects.files_only"
-            : file.error === "recursive" ? "projects.folder_recursive"
-            : file.error === "changed" ? "projects.file_changed"
-              : file.error === "unavailable" ? "projects.file_unavailable" : "projects.files_copy_error"),
-        });
-      }
-      if (copied) {
-        void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
-        void queryClient.invalidateQueries({ queryKey: ["project-files", workspaceId] });
-        void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
-      }
+      await Promise.all(files.map(file => startFileCopy(file.name, open, async () => {
+        const result = await copy(projectId, [file], destinationPath);
+        const entry = result.files[0];
+        if (!entry || entry.status === "failed" || !entry.path) throw new Error(t(entry?.error === "file_only" ? "projects.files_only" : entry?.error === "recursive" ? "projects.folder_recursive" : entry?.error === "changed" ? "projects.file_changed" : entry?.error === "unavailable" ? "projects.file_unavailable" : "projects.files_copy_error"));
+        for (const key of ["workspace-files", "project-files", "project-notes"]) void queryClient.invalidateQueries({ queryKey: [key, workspaceId] });
+        return { path: entry.path };
+      })));
+
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("workspaceCopyFiles") && /not implemented|unknown|not registered|unsupported/i.test(message)) {

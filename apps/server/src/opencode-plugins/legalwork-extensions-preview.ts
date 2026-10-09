@@ -1,5 +1,5 @@
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
-import { uiBridgeRequest, inAppDocumentSurface, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
+import { uiBridgeRequest, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
@@ -157,7 +157,7 @@ function openSidebarFiles(payload: unknown, sessionId?: string) {
   const files: unknown = typeof payload === "object" && payload ? Reflect.get(payload, "openFiles") : null;
   if (!sessionId || !Array.isArray(files)) return [];
   return files.flatMap((file: unknown) => {
-    if (getStringProperty(file, "sessionId") !== sessionId) return [];
+    if (!documentMatchesSession(file, sessionId)) return [];
     const name = getStringProperty(file, "name"), path = getStringProperty(file, "path");
     return name && path ? [{ name, path, active: getBooleanProperty(file, "active") === true }] : [];
   });

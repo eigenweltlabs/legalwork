@@ -87,7 +87,7 @@ export async function openWorkflowResource(workflowId: string, resource: SkillRe
   const id = `workflow-resource:${JSON.stringify([workflow.workspaceId, services.contextKey, workflow.name, resource.name])}`;
   const existing = useWorkflowResourceStore.getState().drafts[id];
   if (existing && (existing.loading || existing.saving || resourceDirty(existing))) {
-    requestPanelTab({ id, type: "workflow-resource", label: resource.name });
+    requestPanelTab({ id, type: "workflow-resource", label: resource.name }, { kind: "workflows" });
     return id;
   }
   const draft: WorkflowResourceDraft = {
@@ -104,7 +104,7 @@ export async function openWorkflowResource(workflowId: string, resource: SkillRe
     const current = useWorkflowResourceStore.getState().drafts[id];
     if (current) editWorkflowResource(id, { content: current.baseline, documentDirty: false, revision: current.revision + 1 });
   }, !isDocumentWorkflowResource(resource.name)));
-  requestPanelTab({ id, type: "workflow-resource", label: resource.name });
+  requestPanelTab({ id, type: "workflow-resource", label: resource.name }, { kind: "workflows" });
   await reloadWorkflowResource(id);
   return id;
 }

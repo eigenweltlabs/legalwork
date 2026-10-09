@@ -20,7 +20,7 @@ import {
   ShieldCheck,
   Sparkles,
   Store,
-  Table2,
+  TableProperties,
   UserCircle,
   Wrench,
   Zap,
@@ -65,7 +65,7 @@ export function getSettingsTabIcon(tab: SettingsTab) {
     case "ai":
       return Zap;
     case "tabular-review":
-      return Table2;
+      return TableProperties;
     case "account":
       return UserCircle;
     case "personalisation":

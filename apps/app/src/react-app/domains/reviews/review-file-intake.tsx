@@ -40,7 +40,7 @@ export function ReviewFileDropTarget({ children, disabled, onFiles, className }:
   children: ReactNode; disabled?: boolean; onFiles: (sources: ReviewFileSource[]) => void; className?: string;
 }) {
   const [over, setOver] = useState(false);
-  return <div className={cn("relative", className)} onDragOver={event => {
+  return <div data-workspace-file-intake="review" className={cn("relative", className)} onDragOver={event => {
     if (!acceptsReviewFiles(event.dataTransfer)) return;
     event.preventDefault(); event.stopPropagation();
     event.dataTransfer.dropEffect = disabled ? "none" : "copy";
@@ -67,6 +67,6 @@ export function ReviewFilePicker({ onFiles, disabled, label = t("review.add_file
       const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = "";
       if (files.length) onFiles(files.map(file => ({ kind: "upload", file })));
     }} />
-    <Button variant="outline" size="sm" disabled={disabled} onClick={() => input.current?.click()}><FilePlus2 className="size-4" />{label}</Button>
+    <Button data-workspace-file-intake="review" variant="outline" size="sm" disabled={disabled} onClick={() => input.current?.click()}><FilePlus2 className="size-4" />{label}</Button>
   </>;
 }

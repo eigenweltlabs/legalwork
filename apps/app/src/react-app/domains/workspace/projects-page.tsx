@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, MessageSquare, MoreHorizontal, Pencil, PenLine, Pin, PinOff, Plus, Search, Trash2, WandSparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, MessageSquare, MoreHorizontal, PanelsTopLeft, Pencil, PenLine, Pin, PinOff, Plus, Search, Trash2, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { WorkspaceSessionGroup } from "@/app/types";
@@ -29,7 +29,7 @@ type ProjectPage = Exclude<ProjectNavKey, "projectSessions">;
 type Props = {
   client: LegalworkServerClient | null;
   groups: WorkspaceSessionGroup[];
-  onOpenProject: (id: string, page: ProjectPage) => void;
+  onOpenProject: (id: string, page: ProjectPage | "workspace") => void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onNewChat: (workspaceId: string) => void;
   onCreate: () => void;
@@ -153,6 +153,8 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t("projects.open_project")}><span>{t("projects.open")}</span><ChevronDown className="size-3" /></Button>} />
           <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuItem onClick={() => props.onOpenProject(id, "workspace")}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</DropdownMenuItem>
+            <DropdownMenuSeparator />
             {projectPages.map(key => {
               const { icon: Icon, label } = SIDEBAR_ITEMS[key];
               return <DropdownMenuItem key={key} onClick={() => props.onOpenProject(id, key)}><Icon className="size-4" />{t(label)}</DropdownMenuItem>;
@@ -174,12 +176,13 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
     <div id={contentId} hidden={!expanded} className="relative pb-1 pt-0.5">
       {expanded && <>
         <span aria-hidden className="pointer-events-none absolute bottom-2 left-[2.625rem] top-1 w-px bg-border/75" />
-        {projectPages.length > 0 && <nav aria-label={name} className="mb-2 ml-12 mr-2 flex flex-wrap items-center gap-1 pt-1">
+        <nav aria-label={name} className="mb-2 ml-12 mr-2 flex flex-wrap items-center gap-1 pt-1">
+          <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-xs font-normal" onClick={() => props.onOpenProject(id, "workspace")}><PanelsTopLeft className="size-3.5" />{t("workspace.workbench")}</Button>
           {projectPages.map(key => {
             const { icon: Icon, label } = SIDEBAR_ITEMS[key];
             return <Button key={key} variant="ghost" size="sm" className="gap-1.5 px-2 text-xs font-normal" onClick={() => props.onOpenProject(id, key)}><Icon className="size-3.5" />{t(label)}</Button>;
           })}
-        </nav>}
+        </nav>
         <div className="space-y-0.5">
           {sessions.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map(({ session }) => <SessionProjectHover key={session.id} session={session} projectName={name}>
             <button type="button" className={cn(rowGrid, "group min-h-9 w-full cursor-pointer rounded-lg px-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} onClick={() => props.onOpenSession(id, session.id)}>

@@ -57,7 +57,7 @@ export function sameBounds(
 }
 
 export function hasNativeBrowserOccluder() {
-  const overlays = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [data-viewer-drop-overlay], [data-slot="dropdown-menu-content"]');
+  const overlays = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [data-viewer-drop-overlay], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"]');
   for (const overlay of overlays) {
     if (!(overlay instanceof HTMLElement)) {
       continue;
