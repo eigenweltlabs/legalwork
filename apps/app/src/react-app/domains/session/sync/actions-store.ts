@@ -8,12 +8,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { t } from "../../../../i18n";
-import {
-  eigenweltModelDisabledMessage,
-  eigenweltSignInExpiredMessage,
-  isEigenweltModelDisabledError,
-  isEigenweltSignInExpiredError,
-} from "./eigenwelt-provider-error";
+import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import { unwrap } from "../../../../app/lib/opencode";
 import { systemReminderPart } from "../../../../app/lib/system-reminder";
 import {
@@ -254,7 +249,7 @@ export function createSessionActionsStore(options: {
     return parts;
   };
 
-  const describeProviderError = (error: unknown, fallback: string) => {
+  const describeProviderError = (error: unknown, fallback: string, providerId: string) => {
     const readString = (value: unknown, max = 700) => {
       if (typeof value !== "string") return null;
       const trimmed = value.trim();
@@ -296,7 +291,7 @@ export function createSessionActionsStore(options: {
     };
 
     const status = firstNumber(["statusCode", "status"]);
-    const provider = firstString(["providerID", "providerId", "provider"]);
+    const provider = firstString(["providerID", "providerId", "provider"]) ?? providerId;
     const code = firstString(["code", "errorCode"]);
     const response = firstString(["responseBody", "body", "response"]);
     const raw =
@@ -305,17 +300,9 @@ export function createSessionActionsStore(options: {
       (typeof error === "string" ? readString(error) : null);
 
     const generic = raw && /^unknown\s+error$/i.test(raw);
-    // A model the firm's admin turned off on the platform (403 from the
-    // gateway): checked first, since a 403 from the eigenwelt provider would
-    // otherwise read as an expired sign-in.
-    const modelOff = isEigenweltModelDisabledError({ texts: [raw, response] });
-    // A dead Eigenwelt key (the sign-in on this device was replaced or
-    // revoked): the raw 401 body is noise, the fix is signing in again.
-    const signInExpired =
-      !modelOff && isEigenweltSignInExpiredError({ status, provider, texts: [raw, response] });
+    const recovery = eigenweltProviderRecoveryMessage({ status, provider, texts: [raw, response, code] });
+    if (recovery) return recovery;
     const heading = (() => {
-      if (modelOff) return eigenweltModelDisabledMessage();
-      if (signInExpired) return eigenweltSignInExpiredMessage();
       if (status === 401 || status === 403) return t("app.error_auth_failed");
       if (status === 429) return t("app.error_rate_limit");
       if (provider) return `Provider error (${provider})`;
@@ -323,11 +310,11 @@ export function createSessionActionsStore(options: {
     })();
 
     const lines = [heading];
-    if (raw && !generic && !signInExpired && !modelOff && raw !== heading) lines.push(raw);
+    if (raw && !generic && raw !== heading) lines.push(raw);
     if (status && !heading.includes(String(status))) lines.push(`Status: ${status}`);
     if (provider && !heading.includes(provider)) lines.push(`Provider: ${provider}`);
     if (code) lines.push(`Code: ${code}`);
-    if (response && !signInExpired) lines.push(`Response: ${response}`);
+    if (response) lines.push(`Response: ${response}`);
     if (lines.length > 1) return lines.join("\n");
 
     if (raw && !generic) return raw;
@@ -338,10 +325,10 @@ export function createSessionActionsStore(options: {
     return fallback;
   };
 
-  const assertNoClientError = (result: unknown) => {
+  const assertNoClientError = (result: unknown, providerId: string) => {
     const maybe = result as { error?: unknown } | null | undefined;
     if (!maybe || maybe.error === undefined) return;
-    throw new Error(describeProviderError(maybe.error, t("app.error_request_failed")));
+    throw new Error(describeProviderError(maybe.error, t("app.error_request_failed"), providerId));
   };
 
   const lastPromptSent = () => snapshot.lastPromptSent;
@@ -624,7 +611,7 @@ export function createSessionActionsStore(options: {
           ...(promptOverrides ?? {}),
           parts: resolvedDraft.modelContext?.trim() ? [...parts, systemReminderPart(resolvedDraft.modelContext.trim())] : parts,
         });
-        assertNoClientError(result);
+        assertNoClientError(result, model.providerID);
 
         options.modelConfig.setSessionModelById((current) => ({
           ...current,

@@ -340,6 +340,13 @@ describe("parseEigenweltEntitlements", () => {
 });
 
 describe("parseEigenweltAccountIdentity", () => {
+  test("preserves the current membership role for subscription renewal", () => {
+    const identity = { userId: "user_123", orgId: "org_123", orgName: "Firm" };
+    expect(parseEigenweltAccountIdentity({ ...identity, orgRole: " org:admin " })?.orgRole).toBe("org:admin");
+    expect(parseEigenweltAccountIdentity({ ...identity, orgRole: "org:member" })?.orgRole).toBe("org:member");
+    expect(parseEigenweltAccountIdentity({ ...identity, orgRole: { admin: true } })?.orgRole).toBeUndefined();
+    expect(parseEigenweltAccountIdentity(identity)?.orgRole).toBeUndefined();
+  });
   test("normalizes safe account fields", () => {
     expect(
       parseEigenweltAccountIdentity({

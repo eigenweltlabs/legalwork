@@ -224,6 +224,7 @@ export type EigenweltAccountIdentity = {
   userEmail: string | null;
   orgId: string;
   orgName: string;
+  orgRole?: string | null;
 };
 
 /** Feature flags the platform may grant (subset the app gates surfaces on). */

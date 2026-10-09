@@ -4122,6 +4122,11 @@ const de = {
   "ai_plans.subtitle_returning":
     "Nutzen Sie Ihre eigene KI kostenlos, wählen Sie Sync für Zusammenarbeit oder Plus oder Pro mit inkludierter KI-Nutzung.",
   "ai_plans.title_ended": "Ihr Eigenwelt-Abo ist beendet.",
+  "subscription_ended.admin_body": "Starten Sie einen KI-Tarif für {firm} neu, um LegalWork-KI weiter zu nutzen. Ihre Chats und Dateien bleiben erhalten.",
+  "subscription_ended.member_body": "Bitten Sie den Admin Ihrer Organisation, das Abonnement für {firm} neu zu starten. Ihre Chats und Dateien bleiben erhalten.",
+  "subscription_ended.restart": "Abonnement neu starten",
+  "subscription_ended.restored": "LegalWork-KI ist wieder verfügbar",
+  "subscription_ended.view_plans": "Tarife ansehen",
   "ai_plans.subtitle_ended":
     "LegalWork benötigt ein KI-Modell, um zu arbeiten. Starten Sie einen Tarif für {firm} neu, oder verbinden Sie einen Modellanbieter, den Sie bereits nutzen.",
   "ai_plans.title_no_models": "Ihr Tarif enthält keine KI-Modelle.",

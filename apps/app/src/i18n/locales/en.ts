@@ -3836,6 +3836,11 @@ export default {
   "ai_plans.subtitle_returning":
     "Use your own AI for free, add Sync for collaboration, or choose Plus or Pro with included AI usage.",
   "ai_plans.title_ended": "Your Eigenwelt subscription has ended.",
+  "subscription_ended.admin_body": "Restart an AI plan for {firm} to continue using LegalWork AI. Your chats and files are kept.",
+  "subscription_ended.member_body": "Ask your organization’s admin to restart the subscription for {firm}. Your chats and files are kept.",
+  "subscription_ended.restart": "Restart subscription",
+  "subscription_ended.restored": "LegalWork AI is available again",
+  "subscription_ended.view_plans": "View plans",
   "ai_plans.subtitle_ended":
     "LegalWork needs an AI model to work. Restart a plan for {firm}, or connect a model provider you already use.",
   "ai_plans.title_no_models": "Your plan does not include AI models.",
