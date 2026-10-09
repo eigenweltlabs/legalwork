@@ -2,6 +2,8 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
+import { onOrgPolicyChange } from "../org-policy.js";
+import { orgPolicyPermissions } from "../org-policy-engine.js";
 import type { Actor, ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import {
@@ -12,7 +14,7 @@ import { VmSandbox, validateMounts, type SandboxMount, type SandboxResult } from
 import { permissionAction, permissionPatternMatches, type PermissionAction } from "./permissions.js";
 import { readSandboxNetworkMode, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
 
-export type SandboxCommand = { command: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
+export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
@@ -94,8 +96,11 @@ export class AgentSandboxService {
         controller.abort(new Error("Permissions changed. Run the command again with the current permissions."));
       }
     });
+    const unsubscribePolicy = onOrgPolicyChange(this.config, (scopes) => {
+      if (scopes.has("engine")) controller.abort(new Error("Organization policy changed. Run the command again with the current permissions."));
+    });
     try {
-      const permissions = await readGlobalToolPermissions(this.config);
+      const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));
       const networkMode = await readSandboxNetworkMode(this.config);
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
       signal.throwIfAborted();
@@ -106,7 +111,8 @@ export class AgentSandboxService {
         if (action === "ask") {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
-            action: `sandbox.${permission}`, summary, paths, ...(network ? { network } : {}) }, signal, true);
+            action: `sandbox.${permission}`, summary, paths, sessionID: command.sessionID, description: command.description,
+            ...(network ? { network } : {}) }, signal, true);
           if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
         }
         signal.throwIfAborted();
@@ -164,6 +170,7 @@ export class AgentSandboxService {
       });
     } finally {
       unsubscribe();
+      unsubscribePolicy();
       controller.abort();
       this.active.delete(controller);
       stopped();

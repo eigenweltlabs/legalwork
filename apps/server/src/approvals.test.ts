@@ -11,6 +11,20 @@ const input: Omit<ApprovalRequest, "id" | "createdAt"> = {
 };
 
 describe("host approval handler", () => {
+  test("ten chat approvals stay independent and never open the host dialog", async () => {
+    let dialogs = 0, changes = 0;
+    const service = new ApprovalService({ mode: "auto", timeoutMs: 1000 }, async () => { dialogs++; return "allow"; }, () => changes++);
+    const commands = Array.from({ length: 10 }, (_, index) => service.requestApproval({ ...input, sessionID: `chat-${index}` }, undefined, true));
+    await Promise.resolve();
+    expect(dialogs).toBe(0);
+    expect(service.list()).toHaveLength(10);
+    const pending = service.list();
+    for (const request of pending.slice().reverse()) service.respond(request.id, request.sessionID === "chat-3" ? "allow" : "deny");
+    expect((await Promise.all(commands)).map((result) => result.allowed)).toEqual(Array.from({ length: 10 }, (_, index) => index === 3));
+    expect(service.list()).toEqual([]);
+    expect(changes).toBe(20);
+    expect(service.respond(pending[3].id, "allow")).toBeNull();
+  });
   test("a sandbox ask cannot be bypassed by automatic server approvals", async () => {
     let called = false;
     const service = new ApprovalService({ mode: "auto", timeoutMs: 1000 }, async () => {

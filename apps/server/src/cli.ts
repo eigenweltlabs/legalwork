@@ -22,6 +22,7 @@ import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import pkg from "../package.json" with { type: "json" };
+import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
 const args = parseCliArgs(process.argv.slice(2));
 
@@ -94,7 +95,7 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
         OPENCODE_DISABLE_PROJECT_CONFIG: "true",
         OPENCODE_TEST_HOME: engineHome,
         XDG_CONFIG_HOME: join(engineHome, "config"),
-        OPENCODE_CONFIG_DIR: "",
+        OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
         OPENCODE_CONFIG_CONTENT: "",
         ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
       },

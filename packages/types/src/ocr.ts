@@ -26,6 +26,8 @@ export type OcrSettingsView = {
     endpoint?: string;
     languages: string[] | null;
     keyConfigured: boolean;
+    /** One of the firm's engines: whose key it uses. Older servers omit it. */
+    firmKey?: "firm" | "member";
     status: "ready" | "not-installed" | "unsupported" | "missing-key";
   }>;
 };

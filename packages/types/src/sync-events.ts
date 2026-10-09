@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * A sync event says only that projects or tasks changed; whoever hears it
+ * A sync event says only that projects, tasks, the firm's policy or its hub changed; whoever hears it
  * pulls, or re-reads, what changed. `resync` comes first on every
  * connection: what happened before it may have been missed. The platform
  * sends them to a LegalWork server (GET /api/sync/events), and a LegalWork
@@ -10,7 +10,10 @@ import { z } from "zod";
 const SyncPokeSchema = z.object({
   projects: z.boolean().optional(),
   tasks: z.boolean().optional(),
+  policy: z.boolean().optional(),
+  hub: z.boolean().optional(),
   sessions: z.boolean().optional(),
+  approvals: z.boolean().optional(),
   resync: z.boolean().optional(),
 });
 export type SyncPoke = z.infer<typeof SyncPokeSchema>;

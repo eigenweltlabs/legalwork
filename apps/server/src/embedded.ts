@@ -29,6 +29,7 @@ import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { startModelCatalogRelay } from "./model-catalog.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
+import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
@@ -144,6 +145,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
           OPENCODE_CONFIG: runtimeConfigPath,
+          // The firm's enforced settings: read after every project's own config.
+          OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
           OPENCODE_MODELS_URL: catalogRelay.url,
           OPENCODE_MODELS_PATH: catalogRelay.catalogPath,
           ...(config.agentSandboxEnabled ? {
@@ -151,7 +154,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             // In the pinned engine this controls home config/plugin discovery.
             OPENCODE_TEST_HOME: engineHome,
             XDG_CONFIG_HOME: join(engineHome, "config"),
-            OPENCODE_CONFIG_DIR: "",
             OPENCODE_CONFIG_CONTENT: "",
           } : {}),
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),

@@ -26,6 +26,23 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 }
 
 describe("permission approval modal helpers", () => {
+  test("network approval uses the inline chat panel with task, destination and one-time choices", () => {
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: pendingPermission({ permission: "webfetch", protocol: "host", host: {
+        id: "request-1", workspaceId: "matter", sessionID: "session-1", action: "sandbox.webfetch", summary: "POST example.com",
+        description: "Submit the sample document", paths: [], createdAt: 1, actor: { type: "host" },
+        network: { method: "POST", url: "https://example.com/upload", headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: "document=Sample+document", bodyBytes: 24, bodyFormat: "text" },
+      } }), respondPermission: () => {},
+    }));
+    expect(html).toContain("Send information?");
+    expect(html).toContain("Submit the sample document");
+    expect(html).toContain("example.com");
+    expect(html).toContain("document: Sample document");
+    expect(html).not.toContain('role="dialog"');
+    const buttons = Array.from(html.matchAll(/<button\b[\s\S]*?<\/button>/g)).map((match) => match[0].replace(/<[^>]*>/g, "").trim());
+    expect(buttons).toEqual(["Deny", "Allow once"]);
+  });
   test("surfaces risk-bearing metadata as review rows", () => {
     expect(
       permissionDetailRows({

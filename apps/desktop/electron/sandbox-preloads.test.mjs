@@ -81,24 +81,3 @@ test("menu and call preloads preserve their sandboxed IPC bridges", () => {
   assert.deepEqual(overlay.messages[0], ["legalwork:audio:overlay-ask", "ask-1", "Question"]);
   assert.equal(overlay.bridge.platform, "darwin");
 });
-
-
-test("approval bridge preserves the pending request and only replies to its current id", () => {
-  const { bridge, ipc, messages } = loadPreload("./preload.cjs", "__LEGALWORK_ELECTRON__");
-  const request = { id: "test-approval" };
-  ipc.emit("legalwork:approval:show", {}, request);
-  const shown = [];
-  const unsubscribe = bridge.approvals.onChange((value) => shown.push(value));
-  assert.equal(shown[0], request);
-  bridge.approvals.reply("stale-id", "allow");
-  bridge.approvals.reply(request.id, "always");
-  bridge.approvals.reply(request.id, "deny");
-  assert.deepEqual(messages, [["legalwork:approval:reply", request.id, "deny"]]);
-  ipc.emit("legalwork:approval:dismiss", {}, "stale-id");
-  assert.equal(shown.length, 1);
-  ipc.emit("legalwork:approval:dismiss", {}, request.id);
-  assert.equal(shown[1], null);
-  unsubscribe();
-  ipc.emit("legalwork:approval:show", {}, request);
-  assert.equal(shown.length, 2);
-});

@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { FirmHubItem } from "@legalwork/types/firm-hub";
 import {
   Blocks,
   BookOpen,
@@ -28,6 +29,7 @@ import {
   hasEigenweltFeature,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
+import { FIRM_HUB_QUERY_KEY, useFirmHub } from "@/react-app/domains/connections/firm-hub";
 import { usePremiumUpsell } from "@/react-app/domains/recorder/premium-upsell-context";
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
 
@@ -136,6 +138,13 @@ export function HubDownloadSection({
     queryFn: async () => (await legalworkClient!.hubInstalls(workspaceId!)).installs,
   });
   const installs = installsQuery.data ?? {};
+  // Connectors, skills, workflows and prompt sets follow the firm's hub
+  // (server firm-hub.ts): what the admin installed for everyone is in, the
+  // member adds what the firm offers, and nothing is copied.
+  const followsHub = kind === "mcp" || kind === "skill" || kind === "workflow" || kind === "review_set";
+  const queryClient = useQueryClient();
+  const firmHub = useFirmHub(active && followsHub ? legalworkClient : null);
+  const firmItems = new Map((firmHub.data?.items ?? []).map((item) => [item.id, item]));
   const rawItems = listQuery.data ?? [];
   // "Filter by team member" — distinct sharers present in the shared list.
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
@@ -205,6 +214,20 @@ export function HubDownloadSection({
       onConfigApplied?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("firm_hub.preset_apply_failed"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const setAdded = async (item: EigenweltHubItem, added: boolean) => {
+    if (!legalworkClient) return;
+    setBusyId(item.id);
+    try {
+      queryClient.setQueryData(FIRM_HUB_QUERY_KEY, await legalworkClient.setFirmHubAdded(item.id, added));
+      toast.success(t(added ? "firm_hub.added" : "firm_hub.removed", { name: prettifyName(item.name, item.kind) }));
+      onConfigApplied?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("firm_hub.add_failed"));
     } finally {
       setBusyId(null);
     }
@@ -291,6 +314,11 @@ export function HubDownloadSection({
                 <HubItemRow
                   key={item.id}
                   item={item}
+                  hub={followsHub ? { item: firmItems.get(item.id) ?? null, onAdd: () => {
+                    // A prompt set is text, not code: it is added without the warning.
+                    if (isReviewSet) void setAdded(item, true);
+                    else setPendingInstall({ item, wasInstalled: false });
+                  }, onRemove: () => void setAdded(item, false) } : undefined}
                   busy={busyId === item.id}
                   installed={Boolean(record)}
                   updateAvailable={updateAvailable}
@@ -315,21 +343,22 @@ export function HubDownloadSection({
       {kind === "workflow" ? <WorkflowPagination page={currentPage} total={items.length} onPageChange={setPage} /> : null}
       <ConfirmModal
         open={pendingInstall !== null}
-        title={pendingInstall?.wasInstalled ? t("hub_download.review_update") : t("hub_download.review_install")}
-        message={pendingInstall ? (
+        title={followsHub ? t("firm_hub.add_review_title", { name: pendingInstall ? prettifyName(pendingInstall.item.name) : "" }) : pendingInstall?.wasInstalled ? t("hub_download.review_update") : t("hub_download.review_install")}
+        message={pendingInstall && followsHub ? t("firm_hub.add_review_body", { sharer: sharedBy(pendingInstall.item) }) : pendingInstall ? (
           <span>
             <strong>{prettifyName(pendingInstall.item.name)}</strong> was shared by {sharedBy(pendingInstall.item)}. Skills can change agent behavior and plugins execute code. Installing may replace a local item with the same name.
             {pendingInstall.item.hasSecret && pendingInstall.item.canAccessSecret ? " This MCP also includes a copyable shared credential." : ""}
           </span>
         ) : ""}
-        confirmLabel={pendingInstall?.wasInstalled ? t("hub_download.trust_update") : t("hub_download.trust_install")}
+        confirmLabel={followsHub ? t("firm_hub.add") : pendingInstall?.wasInstalled ? t("hub_download.trust_update") : t("hub_download.trust_install")}
         cancelLabel={t("common.cancel")}
         variant="warning"
         onCancel={() => setPendingInstall(null)}
         onConfirm={() => {
           const pending = pendingInstall;
           setPendingInstall(null);
-          if (pending) void runInstall(pending.item, pending.wasInstalled);
+          if (pending && followsHub) void setAdded(pending.item, true);
+          else if (pending) void runInstall(pending.item, pending.wasInstalled);
         }}
       />
     </div>
@@ -338,6 +367,8 @@ export function HubDownloadSection({
 
 function HubItemRow(props: {
   item: EigenweltHubItem;
+  /** An item the firm's hub keeps: who gets it decides what the member can do with it. */
+  hub?: { item: FirmHubItem | null; onAdd: () => void; onRemove: () => void };
   busy: boolean;
   installed: boolean;
   updateAvailable: boolean;
@@ -355,7 +386,34 @@ function HubItemRow(props: {
   const spinner = <Loader2 className="size-4 animate-spin" />;
 
   let mainButton: React.ReactNode;
-  if (updateAvailable) {
+  let badge: React.ReactNode = null;
+  if (props.hub) {
+    const firm = props.hub.item;
+    if (firm?.installation === "automatic") {
+      badge = (
+        <Badge tone="success" size="sm">
+          <Check className="size-3" /> {t("firm_hub.installed_for_everyone")}
+        </Badge>
+      );
+    } else if (firm?.added) {
+      badge = (
+        <Badge tone="success" size="sm">
+          <Check className="size-3" /> {t("firm_hub.added_badge")}
+        </Badge>
+      );
+      mainButton = (
+        <Button variant="ghost" size="sm" disabled={busy} onClick={props.hub.onRemove}>
+          {busy ? spinner : null} {t("firm_hub.remove")}
+        </Button>
+      );
+    } else {
+      mainButton = (
+        <Button variant="secondary" size="sm" disabled={busy} onClick={props.hub.onAdd}>
+          {busy ? spinner : <Download className="size-4" />} {t("firm_hub.add")}
+        </Button>
+      );
+    }
+  } else if (updateAvailable) {
     mainButton = (
       <Button variant="primary" size="sm" disabled={busy || props.actionDisabled} onClick={props.onAction}>
         {busy ? spinner : <RefreshCw className="size-4" />} {t("firm_hub.update")}
@@ -391,7 +449,7 @@ function HubItemRow(props: {
       description={item.description || undefined}
       trailing={
         <div className="flex items-center gap-1.5">
-          {updateAvailable ? (
+          {props.hub ? badge : updateAvailable ? (
             <Badge tone="warning" size="sm">
               {t("firm_hub.update_available")}
             </Badge>

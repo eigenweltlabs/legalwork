@@ -25,9 +25,16 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   };
   await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow", edit: "ask", webfetch: "deny" } }));
   const approvals: string[] = [];
-  const service = new AgentSandboxService(serverConfig, new ApprovalService(serverConfig.approval, async (request) => {
-    approvals.push(request.action); return "allow";
-  }), sandbox);
+  const chatApprovals = new ApprovalService(serverConfig.approval, async () => {
+    throw new Error("Chat approvals must not open a host dialog.");
+  }, () => queueMicrotask(() => {
+    for (const request of chatApprovals.list()) {
+      expect(request.sessionID).toBeTruthy();
+      approvals.push(request.action);
+      chatApprovals.respond(request.id, "allow");
+    }
+  }));
+  const service = new AgentSandboxService(serverConfig, chatApprovals, sandbox);
   const offered: string[][] = [];
   const calls: { agent: string; sessionID: string }[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {

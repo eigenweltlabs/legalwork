@@ -4,6 +4,8 @@ import { CalendarView } from "../domains/calendar/calendar-view";
 import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
+import { useOrgPolicyForbids } from "@/react-app/domains/connections/org-policy";
+import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 import {
   useCallback,
   useEffect,
@@ -128,6 +130,7 @@ import {
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
+import { useHostApprovalSync } from "./use-host-approval-sync";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
@@ -367,6 +370,7 @@ export function SessionRoute() {
   const showWorkflows = mainPage === "workflows";
   const showRecorder = mainPage === "recorder";
   const showTasks = mainPage === "tasks";
+  const recorderOff = useOrgPolicyForbids("recorder.allow");
   const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
   const recordingSessionStarting = useRef(false);
   // A task a notification asked to show: a null id opens the task list.
@@ -485,6 +489,7 @@ export function SessionRoute() {
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
+  useHostApprovalSync(client, workspaces, selectedSessionId);
   useSessionInbox(client, workspaces, sessionsByWorkspaceId, loadWorkspaceSessionsInBackground);
   useEffect(() => {
     if (!client || detached) return;
@@ -506,6 +511,8 @@ export function SessionRoute() {
   useEffect(() => onSyncPoke((poke) => {
     if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
     if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
+    // The firm's policy may have changed the engine's providers.
+    if (poke.policy) void refreshProviderListQueries(getReactQueryClient());
   }), []);
   useEffect(() => {
     if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
@@ -1183,6 +1190,7 @@ export function SessionRoute() {
     todos,
   } = useSessionInteractions({
     client: opencodeClient,
+    serverClient: client,
     workspaceId: selectedWorkspaceId,
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,
@@ -2575,6 +2583,10 @@ export function SessionRoute() {
               navigateToWorkspaceSession(workspaceId, sessionId);
             }}
           />
+        ) : showRecorder && recorderOff ? (
+          <div className="mx-auto w-full max-w-2xl p-6">
+            <OrgPolicyFeatureOff policyKey="recorder.allow" />
+          </div>
         ) : showRecorder ? (
           <RecorderPane
             project={recorderProject}

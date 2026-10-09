@@ -844,6 +844,8 @@ export interface HostApprovalRequest {
   workspaceId: string;
   action: string;
   summary: string;
+  sessionID?: string;
+  description?: string;
   paths: string[];
   createdAt: number;
   actor: { type: "remote" | "host"; clientId?: string; scope?: string };

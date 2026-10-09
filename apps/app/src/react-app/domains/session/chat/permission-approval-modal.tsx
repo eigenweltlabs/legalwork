@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { Check, ChevronRight, Clock3, HardDrive, RefreshCcw, ShieldCheck, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
 
 import {
   AlertDialog,
@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
+import { networkApprovalContent } from "./network-approval-content";
 
 type PermissionPresentation = {
   title: string;
@@ -36,8 +37,6 @@ type PermissionApprovalModalProps = {
   busy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify?: (value: unknown) => string;
-  allowForSession?: boolean;
-  review?: { title: string; message: string; content: ReactNode; hint: string };
 };
 
 const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boolean }> = [
@@ -277,7 +276,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
         ref={dialogRef}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto sm:max-w-xl"
+        className="w-full max-w-xl overflow-hidden sm:max-w-xl"
       >
         <AlertDialogHeader>
           <div className="flex items-start gap-4 text-left">
@@ -286,17 +285,16 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
             </div>
             <div className="min-w-0 flex-1">
               <AlertDialogTitle>
-                {props.review?.title ?? presentation.title}
+                {presentation.title}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {props.review?.message ?? presentation.message}
+                {presentation.message}
               </AlertDialogDescription>
             </div>
           </div>
         </AlertDialogHeader>
 
         <div className="space-y-3 px-6 py-5">
-          {props.review ? props.review.content : <>
           <div className="rounded-[20px] border border-dls-border bg-dls-hover/45 p-4">
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
               {t("session.permission_label")}
@@ -355,14 +353,13 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               </pre>
             </details>
           ) : null}
-          </>}
         </div>
 
         <AlertDialogFooter className="flex-col gap-4">
           {!projectInstructions ? <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
-            {props.review?.hint ?? t("session.permission_decision_hint")}
+            {t("session.permission_decision_hint")}
           </p> : null}
-          <div className={`grid grid-cols-1 gap-2.5 ${(projectInstructions || props.allowForSession === false) ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
+          <div className={`grid grid-cols-1 gap-2.5 ${projectInstructions ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
             <AlertDialogAction
               variant="destructive"
               className="justify-center sm:justify-self-start"
@@ -379,7 +376,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </AlertDialogAction>
-            {!projectInstructions && props.allowForSession !== false ? <AlertDialogAction
+            {!projectInstructions ? <AlertDialogAction
               variant="outline"
               onClick={() => props.respondPermission?.(props.permission.id, "always")}
               disabled={props.busy || !props.respondPermission}
@@ -397,6 +394,8 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
+  const host = props.permission.host;
+  const network = host?.network ? networkApprovalContent(host.network) : null;
   const metadata =
     props.permission.metadata && typeof props.permission.metadata === "object"
       ? props.permission.metadata
@@ -412,8 +411,9 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <Icon size={16} strokeWidth={1.9} />
             </div>
             <div className="min-w-0">
-              <div className="text-[13px] font-medium leading-5 text-dls-text">{presentation.title}</div>
-              <div className="mt-0.5 text-[12px] leading-5 text-dls-secondary">{presentation.message}</div>
+              <div className="text-[13px] font-medium leading-5 text-dls-text">{network?.action ?? presentation.title}</div>
+              <div className="mt-0.5 text-[12px] leading-5 text-dls-secondary">{network?.description ?? presentation.message}</div>
+              {host?.description ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
               {presentation.note ? (
                 <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{presentation.note}</div>
               ) : null}
@@ -441,7 +441,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </Button>
-            {!projectInstructions ? <Button
+            {!projectInstructions && !host ? <Button
               type="button"
               variant="outline"
               size="sm"
@@ -455,7 +455,16 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
         </div>
 
         <div className="border-t border-dls-border px-4 py-3">
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          {network ? <div className="space-y-3 text-[12px] leading-5">
+            <div><span className="font-medium text-dls-secondary">{t("sandbox.approval_destination")}</span>
+              <div className="break-words text-dls-text">{network.destination}</div>
+              {network.resource !== "/" ? <div className="break-all text-dls-secondary">{network.resource}</div> : null}
+            </div>
+            {network.sent ? <div><span className="font-medium text-dls-secondary">{t("sandbox.approval_sent")}</span>
+              <div className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words text-dls-text">{network.sent}</div>
+            </div> : null}
+            <p className="text-dls-secondary">{network.context} {t("sandbox.approval_once")}</p>
+          </div> : <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
                 {t("session.permission_label")}
@@ -472,7 +481,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
                 {presentation.scopeValue}
               </div>
             </div>
-          </div>
+          </div>}
 
           {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /></div> : null}
           {hasMetadata && !projectInstructions ? (

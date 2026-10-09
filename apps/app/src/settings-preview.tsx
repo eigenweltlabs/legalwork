@@ -27,13 +27,32 @@ import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
+import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
+import { useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { OrgPolicyConfirmDialog } from "@/react-app/domains/connections/org-policy-ui";
 import "./app/index.css";
 
 if (!import.meta.env.DEV) throw new Error("The settings fixture is available only in development.");
 initLocale();
 
 const params = new URLSearchParams(window.location.search);
+
+// `?policy=active|lapsed`: a firm's policy, signed in or signed out.
+const policyState = params.get("policy");
+if (policyState === "active" || policyState === "lapsed") {
+  const locked = policyState === "active";
+  useOrgPolicyStore.setState({ view: {
+    state: policyState, orgId: "org_preview", orgName: "Kanzlei Becker", role: "admin", revision: 4,
+    platformURL: "https://platform.eigenweltlabs.com", restored: null,
+    entries: {
+      "privacy.shareAnonymousUsage": { mode: "enforced", value: false, locked, released: false },
+      "ai.chat.allowCustom": { mode: "enforced", value: false, locked, released: false },
+      "ai.ocr.allowCustom": { mode: "enforced", value: false, locked, released: false },
+      language: { mode: "default", value: "de", locked: false, released: false },
+    },
+  } });
+}
 const workspaces = [
   { id: "visual-workspace", name: "Northstar Legal", color: "#6c6c76" },
   { id: "visual-personal", name: "Personal", color: "#6c6c76" },
@@ -201,6 +220,7 @@ createRoot(root).render(
         <ShellConfigProvider>
           <ReloadCoordinatorProvider>
             <BrowserRouter><SettingsPreview /></BrowserRouter>
+            <OrgPolicyConfirmDialog />
             <Toaster />
           </ReloadCoordinatorProvider>
         </ShellConfigProvider>

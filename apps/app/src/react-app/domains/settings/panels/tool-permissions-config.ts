@@ -127,6 +127,36 @@ export function applyPermissionPatch(
   return next;
 }
 
+/** The tool each quick safety toggle changes. */
+export const QUICK_TOGGLE_TOOLS: Record<QuickPermissionToggle, ManagedPermissionTool> = {
+  ask_before_edit: "edit",
+  ask_before_shell: "bash",
+  block_internet: "webfetch",
+};
+
+const STRICTNESS: Record<PermissionAction, number> = { allow: 0, ask: 1, deny: 2 };
+
+/**
+ * The member's permission record with the firm's rules applied, as the
+ * server applies them (org-policy-engine.ts): a default replaces the
+ * member's rule; an enforced rule is the minimum, so a stricter plain action
+ * of the member's stays.
+ */
+export function withFirmPermissions(
+  own: Record<string, unknown>,
+  firm: { mode: "enforced" | "default"; value: Partial<Record<string, PermissionAction | Record<string, PermissionAction>>> },
+): Record<string, unknown> {
+  const next = { ...own };
+  for (const [tool, rule] of Object.entries(firm.value)) {
+    if (rule === undefined) continue;
+    const mine = own[tool];
+    next[tool] = firm.mode === "enforced" && typeof rule === "string" && isPermissionAction(mine) && STRICTNESS[mine] > STRICTNESS[rule]
+      ? mine
+      : rule;
+  }
+  return next;
+}
+
 /** Whether a quick safety toggle should render as switched on for the model. */
 export function quickToggleChecked(model: ToolPermissionsModel, toggle: QuickPermissionToggle): boolean {
   switch (toggle) {

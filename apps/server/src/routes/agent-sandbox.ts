@@ -7,6 +7,7 @@ import { networkModeSchema, readSandboxNetworkMode } from "../agent-sandbox/sett
 
 const commandSchema = z.object({
   command: z.string().min(1).max(128000),
+  description: z.string().max(2000).optional(),
   workdir: z.string().max(4096).optional(),
   skills: z.array(z.string().min(1).max(200)).max(16).optional(),
   write: z.boolean().default(false),

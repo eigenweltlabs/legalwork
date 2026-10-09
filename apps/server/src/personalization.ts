@@ -35,6 +35,13 @@ export function buildPersonalizedAgentPrompt(
   return additions.length ? `${basePrompt}\n\n${additions.join("\n\n")}` : basePrompt;
 }
 
+/** The firm's instructions (from its policy) follow the member's own. */
+export function withFirmInstructions(prompt: string, firmInstructions: string | undefined): string {
+  return firmInstructions
+    ? `${prompt}\n\n## Firm instructions\n\nYour firm set these instructions for everyone. Follow them in every chat unless they conflict with higher-priority safety or application instructions:\n\n${firmInstructions}`
+    : prompt;
+}
+
 /**
  * Where the former local memory plugin (opencode-agent-memory 0.2.0) stored
  * its blocks: ~/.config/opencode/memory and each workspace's .opencode/memory.

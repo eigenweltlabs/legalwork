@@ -57,6 +57,7 @@ function fixture(changed: () => void) {
     refreshHubSkills: async () => {}, setHubRepo: async () => {}, addHubRepo: async () => {}, removeHubRepo: async () => {},
     installSkillCreator: unavailable, installHubSkill: unavailable, importLocalSkill: unavailable, importLocalSkillZip: unavailable,
     scanGithubSkills: unavailable, importGithubSkills: unavailable, revealSkillsFolder: unavailable, exportSkillZip: unavailable,
+    previewClaudePlugin: unavailable, installClaudePlugin: unavailable, importedPackages: async () => [], removeImportedPackage: unavailable, readFirmSkill: unavailable,
   };
   return store;
 }

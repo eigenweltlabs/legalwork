@@ -62,6 +62,8 @@ import {
   type McpViewLocalState,
 } from "./mcp-view-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
+import { orgPolicyAllows, orgPolicyOffText, useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 export type ReactMcpStatus =
   | "connected"
@@ -121,8 +123,8 @@ export type McpViewProps = {
   isExtensionConnected?: (entry: McpDirectoryInfo) => boolean;
   /** Enablement context for evaluating extension active state. */
   enablementContext?: import("../../../../app/enablement").EnablementContext;
-  /** Organization policy restriction for LegalWork-provided built-in extensions. */
-  builtInExtensionsDisabled?: boolean;
+  /** Whether the firm's policy switched off a LegalWork-provided built-in extension. */
+  builtInExtensionDisabled?: (entry: McpDirectoryInfo) => boolean;
   /** Firm Hub: share an MCP server entry org-wide (gated on admin_hub). */
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string) => void | Promise<void>;
@@ -288,6 +290,8 @@ type ExtensionFilter = "all" | "mcp" | "skill" | "plugin";
 
 export function McpView(props: McpViewProps) {
   const showHeader = props.showHeader !== false;
+  const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
+  const policyDisabled = (entry: McpDirectoryInfo) => isBuiltInLegalWorkExtension(entry) && props.builtInExtensionDisabled?.(entry) === true;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
   const [setupEntry, setSetupEntry] = useState<McpDirectoryInfo | null>(null);
   useEffect(() => setSetupEntry(null), [props.workspaceKey, props.selectedWorkspaceRoot]);
@@ -496,9 +500,7 @@ export function McpView(props: McpViewProps) {
   const hiddenCount = quickConnectList.filter((entry) => isLegalWorkExtensionHidden(entry)).length +
     (props.installedSkills ?? []).filter((skill) => isLegalWorkExtensionHidden(getSkillHiddenId(skill))).length +
     (props.installedPlugins ?? []).filter((plugin) => isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)).length;
-  const policyHiddenBuiltInCount = props.builtInExtensionsDisabled
-    ? quickConnectList.filter((entry) => isBuiltInLegalWorkExtension(entry) && !isLegalWorkExtensionHidden(entry)).length
-    : 0;
+  const policyHiddenBuiltInCount = quickConnectList.filter((entry) => policyDisabled(entry) && !isLegalWorkExtensionHidden(entry)).length;
   const hiddenOrPolicyCount = hiddenCount + policyHiddenBuiltInCount;
 
   const requestLogout = (name: string) => {
@@ -561,11 +563,15 @@ export function McpView(props: McpViewProps) {
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
+            <OrgPolicyNote policyKey="connectors.allowCustom" />
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setAddMcpModalOpen(true)}
+              onClick={async () => {
+                if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true);
+              }}
+              disabled={connectorsForbidden}
               className={addAppButtonClass}
             >
               <Plus size={14} />
@@ -642,7 +648,7 @@ export function McpView(props: McpViewProps) {
         </div>
       ) : null}
 
-      {props.builtInExtensionsDisabled ? (
+      {quickConnectList.some(policyDisabled) ? (
         <div className="rounded-[20px] border border-amber-6 bg-amber-2 px-5 py-4 text-[13px] text-amber-11">
           {t("mcp.builtins_blocked")}
         </div>
@@ -651,7 +657,7 @@ export function McpView(props: McpViewProps) {
       <McpQuickConnectSection
         entries={
           quickConnectList.filter((entry) => {
-            if (!showHidden && (isLegalWorkExtensionHidden(entry) || (props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(entry)))) return false;
+            if (!showHidden && (isLegalWorkExtensionHidden(entry) || (policyDisabled(entry)))) return false;
             if (filter === "skill") return false;
             if (filter === "mcp" && (entry.kind ?? "mcp") !== "mcp" && entry.kind !== "ui-control") return false;
             if (!search.trim()) return true;
@@ -686,12 +692,14 @@ export function McpView(props: McpViewProps) {
         isSkillHidden={(skill) => isLegalWorkExtensionHidden(getSkillHiddenId(skill))}
         isPluginHidden={(plugin) => isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
         disabledReasonForEntry={(entry) =>
-          props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(entry)
+          policyDisabled(entry)
             ? builtInExtensionDisabledReason
-            : null
+            : connectorsForbidden && !isBuiltInLegalWorkExtension(entry) && entry.kind !== "ui-control"
+              ? orgPolicyOffText("connectors.allowCustom")
+              : null
         }
         isConfigured={(entry) => {
-          if (props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(entry)) return false;
+          if (policyDisabled(entry)) return false;
           const result = enablementForEntry(entry);
           if (result) return result.active;
           // Fallback for entries without enablement context.
@@ -807,7 +815,7 @@ export function McpView(props: McpViewProps) {
         const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
         const hasConfigSlot = extensionConfigSlot !== null;
         const hidden = isLegalWorkExtensionHidden(detailEntry);
-        const disabledReason = props.builtInExtensionsDisabled && isBuiltInLegalWorkExtension(detailEntry)
+        const disabledReason = policyDisabled(detailEntry)
           ? builtInExtensionDisabledReason
           : null;
         const isConnected = disabledReason

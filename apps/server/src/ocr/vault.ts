@@ -14,7 +14,8 @@ export async function vaultLock<T>(key: string, operation: () => Promise<T>): Pr
 }
 const absent = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 export class OcrVault {
-  constructor(readonly path: string) {}
+  /** `label` names the keys in the message when the file cannot be opened. */
+  constructor(readonly path: string, private readonly label = "OCR") {}
   private async key() {
     if (process.env.LEGALWORK_ENCRYPTION_KEY)
       return createHash("sha256").update(process.env.LEGALWORK_ENCRYPTION_KEY).digest();
@@ -34,7 +35,7 @@ export class OcrVault {
       decipher.setAuthTag(data.subarray(12, 28));
       return records.parse(JSON.parse(Buffer.concat([decipher.update(data.subarray(28)), decipher.final()]).toString()));
     } catch {
-      throw new ApiError(500, "ocr_keys_unreadable", "Saved OCR keys could not be opened. Restore the app encryption key before reconnecting.");
+      throw new ApiError(500, "ocr_keys_unreadable", `Saved ${this.label} keys could not be opened. Restore the app encryption key before reconnecting.`);
     }
   }
   async get(id: string) { return (await this.all())[id]; }

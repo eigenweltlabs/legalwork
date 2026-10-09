@@ -27,7 +27,7 @@ export const LegalWorkSandbox = async () => ({
         const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
         const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sandbox/execute`, {
           method: "POST", headers: { Authorization: `Bearer ${serverToken()}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ command: input.command, workdir: input.workdir, skills: input.skills, write: input.write ?? false,
+          body: JSON.stringify({ command: input.command, description: input.description, workdir: input.workdir, skills: input.skills, write: input.write ?? false,
             timeoutMs: input.timeout ?? 120000, agent: context.agent, sessionID: context.sessionID }),
           signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),
         });

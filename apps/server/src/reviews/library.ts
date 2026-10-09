@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
+import { firmHubPromptSets } from "../firm-hub.js";
 import type { ServerConfig } from "../types.js";
 import { ReviewLibraryEntrySchema, SaveReviewLibrarySchema, reviewLibraryKind, type ReviewLibraryEntry } from "./schema.js";
 
@@ -25,7 +26,19 @@ export class ReviewLibrary {
     try { return await readJson(await this.path(), z.array(ReviewLibraryEntrySchema)); }
     catch (error) { if (missing(error)) return []; throw error; }
   }
-  async list(language: "en" | "de") { return [...builtinReviewLibrary(language), ...await this.personal()]; }
+  async list(language: "en" | "de") { return [...builtinReviewLibrary(language), ...await this.firm(), ...await this.personal()]; }
+  /** The firm's prompt sets (firm-hub.ts): its own, like the built-in ones, customized only as a copy. */
+  private async firm(): Promise<ReviewLibraryEntry[]> {
+    return (await firmHubPromptSets(this.config)).flatMap(({ id, version, payload }) => {
+      const shared = z.object({ set: SharedReviewSetSchema }).safeParse(payload);
+      if (!shared.success) return [];
+      const entryId = `firm:${id}`;
+      return [{
+        ...shared.data.set, kind: "set" as const, id: entryId, version, source: "firm" as const, updatedAt: 0, hubItemId: id,
+        columns: shared.data.set.columns.map(column => ({ ...column, libraryId: entryId, libraryVersion: version, libraryColumnKey: column.key })),
+      }];
+    });
+  }
   async save(raw: unknown) {
     const input = SaveReviewLibrarySchema.parse(raw);
     return serialized(await this.path(), async () => {

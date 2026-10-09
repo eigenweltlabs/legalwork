@@ -1771,11 +1771,24 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const listMcp = async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
-    const response = await props.client.listMcp(props.workspaceId);
-    const servers = (response.items ?? []).map((entry) => ({
+    const [response, firmHub] = await Promise.all([
+      props.client.listMcp(props.workspaceId),
+      // The firm's connectors run from the firm's own config, not the project's.
+      props.client.firmHub().catch(() => null),
+    ]);
+    const own = (response.items ?? []).map((entry) => ({
       name: entry.name,
       config: entry.config as McpServerEntry["config"],
     } satisfies McpServerEntry));
+    const firm = (firmHub?.items ?? []).flatMap((item): McpServerEntry[] => {
+      const connector = item.connector;
+      if (!connector || !(item.installation === "automatic" || item.added)) return [];
+      // Without the member's own key the engine doesn't run it yet.
+      if (connector.access === "member" && !connector.hasOwnKey) return [];
+      if (own.some((entry) => entry.name === connector.serverName)) return [];
+      return [{ name: connector.serverName, config: connector.url ? { type: "remote", url: connector.url } : { type: "local" } }];
+    });
+    const servers = [...own, ...firm];
 
     let statuses: McpStatusMap = {};
     try {

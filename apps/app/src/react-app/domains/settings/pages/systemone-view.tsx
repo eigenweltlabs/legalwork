@@ -32,6 +32,8 @@ import {
   LayoutSectionDescription,
   LayoutSectionItem,
 } from "../settings-layout";
+import { changeOrgPolicySetting, orgPolicyAllows, useOrgPolicy, useOrgPolicyForbids } from "../../connections/org-policy";
+import { FirmItemNote, MemberKeyDialog, OrgPolicyNote } from "../../connections/org-policy-ui";
 
 const newProvider = (): SystemOneProviderInput => ({
   id: `systemone-${crypto.randomUUID()}`,
@@ -55,6 +57,7 @@ export function SystemOneSettingsSection({
     | "systemOneDeleteProvider"
     | "systemOneSelect"
     | "systemOneTest"
+    | "systemOneSetMemberKey"
   > | null;
   onManageSubscription: () => void;
 }) {
@@ -62,6 +65,9 @@ export function SystemOneSettingsSection({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const providersForbidden = useOrgPolicyForbids("ai.systemOne.allowCustom");
+  const selectionLocked = useOrgPolicy("ai.systemOne.model")?.locked === true;
+  const [keyFor, setKeyFor] = useState<SystemOneSettings["providers"][number] | null>(null);
   const [draft, setDraft] = useState<SystemOneProviderInput | null>(null);
   const [modelIds, setModelIds] = useState("");
   const [preset, setPreset] = useState("typesafe");
@@ -148,8 +154,9 @@ export function SystemOneSettingsSection({
             <Button
               variant="default"
               size="sm"
-              disabled={busy}
-              onClick={() => {
+              disabled={busy || providersForbidden}
+              onClick={async () => {
+                if (!(await orgPolicyAllows("ai.systemOne.allowCustom"))) return;
                 setError(null);
                 setPreset("typesafe");
                 setDraft(newProvider());
@@ -163,6 +170,8 @@ export function SystemOneSettingsSection({
         <LayoutSectionDescription>
           {t("systemone.intro")}
         </LayoutSectionDescription>
+        <OrgPolicyNote policyKey="ai.systemOne.allowCustom" />
+        <OrgPolicyNote policyKey="ai.systemOne.model" />
       </LayoutSectionHeader>
       {!client ? (
         <SettingsNotice>{t("systemone.offline")}</SettingsNotice>
@@ -177,13 +186,23 @@ export function SystemOneSettingsSection({
               <LayoutSectionItem key={provider.id} className="gap-0">
                 <div className="flex w-full items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <ProviderIcon providerId={provider.managed ? "eigenwelt" : undefined} size={20} className="text-dls-text" />
+                    <ProviderIcon providerId={provider.managed && !provider.firmKey ? "eigenwelt" : undefined} size={20} className="text-dls-text" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{provider.name}</p>
-                      <p className="text-xs text-dls-secondary">{t(provider.status === "ready" ? "systemone.ready" : provider.status === "disabled" ? "systemone.disabled" : provider.status === "disconnected" ? "systemone.disconnected" : "systemone.unavailable")}</p>
+                      <p className="text-xs text-dls-secondary">{
+                        provider.firmKey && provider.status === "disconnected"
+                          ? t(provider.firmKey === "member" ? "systemone.own_key_missing" : "org_policy.firm_key_signed_out")
+                          : t(provider.status === "ready" ? "systemone.ready" : provider.status === "disabled" ? "systemone.disabled" : provider.status === "disconnected" ? "systemone.disconnected" : "systemone.unavailable")
+                      }</p>
+                      {provider.firmKey ? <FirmItemNote /> : null}
                     </div>
                   </div>
-                  <ProviderActionsMenu name={provider.name} disabled={busy}>
+                  {/* The firm's providers are not the member's to edit; only their own key, where the firm asks for it. */}
+                  {provider.firmKey === "member" ? (
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => setKeyFor(provider)}>
+                      {t(provider.status === "disconnected" ? "org_policy.add_own_key" : "org_policy.change_own_key")}
+                    </Button>
+                  ) : provider.firmKey ? null : <ProviderActionsMenu name={provider.name} disabled={busy}>
                     {provider.managed ? (
                       <DropdownMenuItem onClick={onManageSubscription}>
                         {t(provider.status === "disconnected" ? "account.sign_in" : "systemone.manage")}
@@ -197,7 +216,7 @@ export function SystemOneSettingsSection({
                         </DropdownMenuItem>
                       </>
                     )}
-                  </ProviderActionsMenu>
+                  </ProviderActionsMenu>}
                 </div>
                 {provider.models.length ? (
                   <div className="mt-3 w-full divide-y divide-dls-border border-t border-dls-border">
@@ -215,8 +234,8 @@ export function SystemOneSettingsSection({
                             {model.description ? <p className="text-xs text-dls-secondary">{model.description}</p> : null}
                           </div>
                           <ProviderActionsMenu name={model.name} disabled={busy || status !== "ready"}>
-                            {!selected ? (
-                              <DropdownMenuItem onClick={() => void run(() => client.systemOneSelect({ providerId: provider.id, model: model.id }))}>
+                            {!selected && !selectionLocked ? (
+                              <DropdownMenuItem onClick={() => void changeOrgPolicySetting("ai.systemOne.model", () => run(() => client.systemOneSelect({ providerId: provider.id, model: model.id })))}>
                                 {t("systemone.select")}
                               </DropdownMenuItem>
                             ) : null}
@@ -240,6 +259,16 @@ export function SystemOneSettingsSection({
         </>
       )}
       {error && !draft ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
+      {keyFor && client ? (
+        <MemberKeyDialog
+          name={keyFor.name}
+          onClose={() => setKeyFor(null)}
+          onSave={async (key) => {
+            await client.systemOneSetMemberKey(keyFor.id, key);
+            await refresh();
+          }}
+        />
+      ) : null}
       {notice ? <SettingsNotice>{notice}</SettingsNotice> : null}
       <Dialog
         open={draft !== null}

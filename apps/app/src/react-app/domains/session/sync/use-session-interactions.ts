@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { unwrap } from "@/app/lib/opencode";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { useSessionActivityStore } from "../status/session-activity-store";
 import type { Client, PendingPermission, PendingQuestion, TodoItem } from "@/app/types";
 import { t } from "@/i18n";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -26,13 +28,14 @@ const emptyTodos: TodoItem[] = [];
 
 export type UseSessionInteractionsInput = {
   client: Client | null;
+  serverClient?: LegalworkServerClient | null;
   workspaceId: string;
   sessionId: string | null;
   workspaceRoot: string;
 };
 
 export function useSessionInteractions(input: UseSessionInteractionsInput) {
-  const { client, workspaceId, sessionId, workspaceRoot } = input;
+  const { client, serverClient, workspaceId, sessionId, workspaceRoot } = input;
 
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
   const permissionReplyBusyRef = useRef(false);
@@ -136,7 +139,11 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
       setPermissionReplyBusy(true);
       try {
         const pendingPermission = pendingPermissions.find((permission) => permission.id === requestID);
-        if (pendingPermission?.protocol === "v2") {
+        if (pendingPermission?.protocol === "host") {
+          if (!serverClient?.canApprove || !pendingPermission.host || reply === "always") throw new Error(t("app.error_request_failed"));
+          await serverClient.replyHostApproval(pendingPermission.host, reply === "once" ? "allow" : "deny");
+          useSessionActivityStore.getState().setWaitingRequest(workspaceId, sessionId, "permission", requestID, false);
+        } else if (pendingPermission?.protocol === "v2") {
           const result = await client.v2.session.permission.reply({
             sessionID: pendingPermission.sessionID,
             requestID,
@@ -165,7 +172,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
         setPermissionReplyBusy(false);
       }
     },
-    [client, pendingPermissions, sessionId, workspaceId, workspaceRoot],
+    [client, serverClient, pendingPermissions, sessionId, workspaceId, workspaceRoot],
   );
 
   const activeQuestion = pendingQuestions[0] ?? null;

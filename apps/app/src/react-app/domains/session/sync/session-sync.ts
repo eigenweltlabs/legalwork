@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
@@ -416,13 +417,14 @@ export function seedPermissionState(
   permissions: PermissionSeed[],
   options: { snapshotStartedAt?: number } = {},
 ) {
+  const queryClient = getReactQueryClient();
+  const host = (queryClient.getQueryData<PendingPermission[]>(permissionKey(workspaceId, sessionId)) ?? []).filter((item) => item.protocol === "host");
   useSessionActivityStore.getState().replaceWaitingRequests(
     workspaceId,
     sessionId,
     "permission",
-    permissions.flatMap((permission) => permission.sessionID === sessionId ? [permission.id] : []),
+    [...host.map((item) => item.id), ...permissions.flatMap((permission) => permission.sessionID === sessionId ? [permission.id] : [])],
   );
-  const queryClient = getReactQueryClient();
   const now = Date.now();
   queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, sessionId), (current = []) => {
     const receivedAtById = new Map(current.map((permission) => [permission.id, permission.receivedAt]));
@@ -440,8 +442,30 @@ export function seedPermissionState(
               !seededIds.has(permission.id),
           )
         : [];
-    return [...seeded, ...liveAfterSnapshot].sort(sortPermissions);
+    return [...seeded, ...liveAfterSnapshot.filter((item) => item.protocol !== "host"), ...host].sort(sortPermissions);
   });
+}
+
+/** Host approvals share the chat's permission queue and waiting indicator. */
+export function seedHostApprovalState(workspaceId: string, requests: HostApprovalRequest[]) {
+  const queryClient = getReactQueryClient();
+  const sessions = new Set(requests.flatMap((request) => request.sessionID ? [request.sessionID] : []));
+  for (const [key] of queryClient.getQueriesData({ queryKey: ["react-session-permissions", workspaceId] })) {
+    if (typeof key[2] === "string") sessions.add(key[2]);
+  }
+  for (const sessionID of sessions) {
+    const key = permissionKey(workspaceId, sessionID);
+    const current = queryClient.getQueryData<PendingPermission[]>(key) ?? [];
+    const next: PendingPermission[] = requests.flatMap((request) => request.sessionID === sessionID ? [{
+      id: `host:${request.id}`, sessionID, permission: request.action.replace(/^sandbox\./, ""),
+      patterns: request.paths, metadata: { description: request.description, summary: request.summary }, always: [],
+      receivedAt: request.createdAt, protocol: "host", host: request,
+    }] : []);
+    const activity = useSessionActivityStore.getState();
+    for (const item of current.filter((item) => item.protocol === "host")) activity.setWaitingRequest(workspaceId, sessionID, "permission", item.id, false);
+    for (const item of next) activity.setWaitingRequest(workspaceId, sessionID, "permission", item.id, true);
+    queryClient.setQueryData(key, [...current.filter((item) => item.protocol !== "host"), ...next].sort(sortPermissions));
+  }
 }
 
 export function seedQuestionState(

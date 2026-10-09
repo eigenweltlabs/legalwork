@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { networkApprovalContent } from "../src/react-app/shell/network-approval-content";
+import { networkApprovalContent } from "../src/react-app/domains/session/chat/network-approval-content";
 
 test("network review explains the action and shows query data, form fields and credentials", async () => {
   const content = networkApprovalContent({ method: "POST", url: "https://example.com/upload?matter=Test+matter",

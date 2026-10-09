@@ -19,7 +19,7 @@ export class ApprovalService {
   private hostHandler?: HostApprovalHandler;
   private disposed = false;
 
-  constructor(config: ApprovalConfig, hostHandler?: HostApprovalHandler) {
+  constructor(config: ApprovalConfig, hostHandler?: HostApprovalHandler, private readonly onChange?: () => void) {
     this.config = config;
     this.hostHandler = hostHandler;
   }
@@ -63,9 +63,12 @@ export class ApprovalService {
       });
       signal?.addEventListener("abort", cancel, { once: true });
     });
+    this.onChange?.();
 
     const hostHandler = this.hostHandler;
-    if (hostHandler) {
+    // Chat requests are answered in that chat's existing permission panel.
+    // The host-only HTTP endpoint remains the authority for the decision.
+    if (hostHandler && !request.sessionID) {
       // Keep the pending request available to the host API while the native
       // confirmation is open. Either response closes the other presentation.
       void Promise.resolve().then(async () => {
@@ -90,6 +93,7 @@ export class ApprovalService {
     const pending = this.pending.get(id);
     if (!pending) return null;
     this.pending.delete(id);
+    this.onChange?.();
     pending.cleanup();
     const result: ApprovalResult = {
       id,

@@ -1,5 +1,6 @@
 import { SystemOneSettingsSection } from "../domains/settings/pages/systemone-view";
 import { TabularReviewSettingsView } from "../domains/settings/pages/tabular-review-view";
+import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -88,6 +89,7 @@ import { captureAnalyticsEvent, discardPendingAnalytics } from "@/app/lib/analyt
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
+import { FirmConnectors } from "@/react-app/domains/settings/pages/firm-connectors";
 import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
@@ -102,6 +104,9 @@ import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { UPDATE_AUTO_CHECK_STORAGE_KEY } from "@/react-app/domains/settings/state/update-status-store";
+import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { orgChatEngineId } from "@legalwork/types/org-policy";
+import { useSyncEvents } from "@/react-app/kernel/sync-events";
 import { useBootState } from "./boot-state";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
 import { createExtensionsStore, useExtensionsStoreSnapshot } from "@/react-app/domains/settings/state/extensions-store";
@@ -411,6 +416,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [legalworkClient, setLegalworkClient] = useState<LegalworkServerClient | null>(null);
+  // On its own route, Settings keeps the window's line to the server (inside a session, that has it).
+  useSyncEvents(props.embedded ? null : legalworkClient);
   const [activeClient, setActiveClient] = useState<Client | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -821,6 +828,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       }
     },
   });
+  // The firm's update settings apply over the member's own while it manages them.
+  const firmChatProviders = useOrgPolicy("ai.chat.providers")?.value;
+  const firmAutoCheck = useOrgPolicy("updates.autoCheck");
+  const firmAutoDownload = useOrgPolicy("updates.autoDownload");
+  const firmReleaseChannel = useOrgPolicy("updates.channel");
+  const effectiveUpdateAutoCheck = firmAutoCheck ? firmAutoCheck.value : updateAutoCheck;
+  const effectiveUpdateAutoDownload = firmAutoDownload ? firmAutoDownload.value : updateAutoDownload;
+  const releaseChannel = firmReleaseChannel ? firmReleaseChannel.value : local.prefs.releaseChannel ?? "stable";
+  // The firm can only switch anonymous usage sharing off.
+  const firmAnalytics = useOrgPolicy("privacy.shareAnonymousUsage");
+  const recorderOff = useOrgPolicyForbids("recorder.allow");
+  const evaluationsOff = useOrgPolicyForbids("evaluations.allow");
+  const analyticsEnabled = local.prefs.analyticsEnabled === true && firmAnalytics?.value !== false;
   const onReleaseChannelChange = useCallback(
     (next: "stable" | "alpha") => {
       local.setPrefs((previous) => ({ ...previous, releaseChannel: next }));
@@ -828,10 +848,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     [local],
   );
   const electronUpdaterState = useElectronUpdaterState({
-    releaseChannel: local.prefs.releaseChannel ?? "stable",
+    releaseChannel,
     onReleaseChannelChange,
-    updateAutoCheck,
-    updateAutoDownload,
+    updateAutoCheck: effectiveUpdateAutoCheck,
+    updateAutoDownload: effectiveUpdateAutoDownload,
     setError: (message) => {
       if (message) {
         // Auto-checks can fail without any user action; alert + log to the
@@ -863,11 +883,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     client: legalworkClient,
     workspaceId: hubWorkspaceId,
   });
-  const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
+  // The firm's policy may leave sharing to its admins.
+  const firmShareAdminsOnly = useOrgPolicy("hub.whoCanShare")?.value === "admins";
+  const firmRole = useOrgPolicyStore((state) => state.view?.role);
+  const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub") && (!firmShareAdminsOnly || firmRole === "admin");
   // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
   const [teamShareOpen, setTeamShareOpen] = useState(false);
   const [teamShareInitial, setTeamShareInitial] = useState<{
-    kind: "skill" | "workflow" | "mcp" | "plugin" | "review_set";
+    kind: "skill" | "workflow" | "mcp" | "review_set";
     ref: string;
   } | null>(null);
   // The prompt library shares prompt sets only; every other entry point offers all kinds.
@@ -913,17 +936,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     [legalworkClient, hubWorkspaceId],
   );
 
-  const sharePluginWithFirm = useCallback(
-    async (pluginRef: string) => {
-      if (!legalworkClient || !hubWorkspaceId) {
-        toast.error(t("app.error_connect_first"));
-        return;
-      }
-      setTeamShareInitial({ kind: "plugin", ref: pluginRef });
-      setTeamShareOpen(true);
-    },
-    [legalworkClient, hubWorkspaceId],
-  );
 
   // "Refresh models": the server re-pulls the gateway manifest into the GLOBAL
   // eigenwelt manifest and rebuilds the engine config; reload so the new models
@@ -1729,7 +1741,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       },
     };
   }, [computerUsePermissions, connectionsSnapshot, extensionStateVersion, providerConnectedIds, userEnvKeys]);
-  const builtInExtensionsDisabled = false;
+  // Built-in extensions the firm's policy switched off.
+  const firmBuiltIn = useOrgPolicy("extensions.builtIn")?.value;
+  const builtInExtensionDisabled = useCallback(
+    (entry: { id?: string }) => Object.entries(firmBuiltIn ?? {}).some(([id, enabled]) => enabled === false && id === entry.id),
+    [firmBuiltIn],
+  );
   const restartExtensionLocalServer = useCallback(async () => {
     if (!isDesktopRuntime()) return false;
     try {
@@ -2076,6 +2093,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onEditProvider={handleEditCustomProvider}
             onRefreshProvider={handleRefreshProvider}
             canDisconnectProvider={(source) => source !== "env"}
+            firmProviders={(firmChatProviders ?? []).map((provider) => ({
+              id: orgChatEngineId(provider),
+              name: provider.name,
+              key: provider.key.by,
+              connected: providerConnectedIdSet.has(orgChatEngineId(provider)),
+            }))}
+            onSignInFirmProvider={(providerId) => {
+              setCustomProviderEdit(null);
+              void providerAuthStore.openProviderAuthModal({ preferredProviderId: providerId, startOAuth: true, firm: true });
+            }}
+            onSaveFirmProviderKey={(providerId, key) => providerAuthStore.submitProviderApiKey(providerId, key)}
             eigenweltConnected={eigenweltConnected}
             onManageEigenweltAccount={() => navigateSettingsPath("account")}
             systemOneView={<SystemOneSettingsSection client={legalworkClient} onManageSubscription={() => navigateSettingsPath("account")} />}
@@ -2153,6 +2181,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
         );
       case "benchmark":
+        if (evaluationsOff) return <SettingsStack><OrgPolicyFeatureOff policyKey="evaluations.allow" /></SettingsStack>;
         return (
           <BenchmarkView
             legalworkClient={legalworkClient}
@@ -2194,16 +2223,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             autoCompactContext={autoCompactContext}
             autoCompactContextBusy={autoCompactContextBusy}
             onToggleAutoCompactContext={toggleAutoCompactContext}
-            analyticsEnabled={local.prefs.analyticsEnabled === true}
+            analyticsEnabled={analyticsEnabled}
             modelCatalogUpdatesEnabled={modelCatalogUpdatesEnabled}
             modelCatalogUpdatesBusy={modelCatalogUpdatesBusy}
             modelCatalogUpdatesError={modelCatalogUpdatesError}
             onToggleModelCatalogUpdates={toggleModelCatalogUpdates}
-            onToggleAnalytics={() => {
-              const turningOff = local.prefs.analyticsEnabled === true;
-              if (turningOff) discardPendingAnalytics();
-              local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
-            }}
+            onToggleAnalytics={() => void changeOrgPolicySetting("privacy.shareAnonymousUsage", () => {
+              if (analyticsEnabled) discardPendingAnalytics();
+              local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !analyticsEnabled }));
+            })}
             hideAppMode={local.prefs.hideAppMode}
             onChangeHideAppMode={(mode) => {
               local.setPrefs((previous) => ({ ...previous, hideAppMode: mode }));
@@ -2303,6 +2331,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             showHeader={props.singleView === true}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
+            developerMode={developerMode}
             canEditPlugins={canWriteWorkspacePlugins}
             canUseGlobalScope={!isRemoteWorkspace}
             accessHint={pluginsAccessHint}
@@ -2319,9 +2348,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
             }}
-            previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
-            installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
             storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
+            firmConnectorsView={
+              <FirmConnectors
+                client={legalworkClient}
+                statuses={connectionsSnapshot.mcpStatuses}
+                onSignIn={(name, url) => connectionsStore.authorizeMcp({ name, config: { type: "remote", url } })}
+              />
+            }
             mcpView={
               <McpView
                 busy={busy}
@@ -2337,7 +2371,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
                 quickConnect={extensionItems.quickConnectEntries}
                 enablementContext={enablementContext}
-                builtInExtensionsDisabled={builtInExtensionsDisabled}
+                builtInExtensionDisabled={builtInExtensionDisabled}
                 connectMcp={connectionsStore.connectMcp}
                 probeMcp={connectionsStore.probeMcp}
                 registerMcpClient={connectionsStore.registerMcpClient}
@@ -2413,23 +2447,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             hasTeamHub={Boolean(hubWorkspaceId)}
-            canShareWithFirm={canShareWithFirm}
-            onSharePluginWithFirm={sharePluginWithFirm}
             onOpenTeamShare={canShareWithFirm ? () => {
               setTeamShareInitial(null);
               setTeamShareOpen(true);
             } : undefined}
-            pluginsFirmView={
-              <HubDownloadSection
-                legalworkClient={legalworkClient}
-                workspaceId={hubWorkspaceId}
-                kind="plugin"
-                onConfigApplied={() => {
-                  void extensionsStore.refreshPlugins();
-                  void reloadWorkspaceEngineFromUi();
-                }}
-              />
-            }
           />
         );
       case "advanced":
@@ -2476,17 +2497,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             webDeployment={platform.platform === "web"}
             appVersion={electronUpdaterState.appVersion}
             updateEnv={electronUpdaterState.updateEnv}
-            updateAutoCheck={updateAutoCheck}
-            toggleUpdateAutoCheck={() => setUpdateAutoCheck((current) => !current)}
-            updateAutoDownload={updateAutoDownload}
-            toggleUpdateAutoDownload={() => setUpdateAutoDownload((current) => !current)}
+            updateAutoCheck={effectiveUpdateAutoCheck}
+            toggleUpdateAutoCheck={() => void changeOrgPolicySetting("updates.autoCheck", () => setUpdateAutoCheck(!effectiveUpdateAutoCheck))}
+            updateAutoDownload={effectiveUpdateAutoDownload}
+            toggleUpdateAutoDownload={() => void changeOrgPolicySetting("updates.autoDownload", () => setUpdateAutoDownload(!effectiveUpdateAutoDownload))}
             updateStatus={electronUpdaterState.updateStatus}
             anyActiveRuns={activeReloadBlockingSessions.length > 0}
             checkForUpdates={electronUpdaterState.checkForUpdates}
             downloadUpdate={electronUpdaterState.downloadUpdate}
             installUpdateAndRestart={electronUpdaterState.installUpdateAndRestart}
-            releaseChannel={local.prefs.releaseChannel ?? "stable"}
-            onReleaseChannelChange={electronUpdaterState.setReleaseChannel}
+            releaseChannel={releaseChannel}
+            onReleaseChannelChange={(next) => void changeOrgPolicySetting("updates.channel", () => electronUpdaterState.setReleaseChannel(next))}
             alphaChannelSupported={isElectronRuntime() && (isMacPlatform() || isWindowsPlatform())}
           />
         );
@@ -2524,7 +2545,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "office-addins":
         return <OfficeAddinsView />;
       case "recorder":
-        return <RecorderSettingsView />;
+        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff policyKey="recorder.allow" /></SettingsStack> : <RecorderSettingsView />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:

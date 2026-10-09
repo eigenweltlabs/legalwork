@@ -68,7 +68,7 @@ import { startReloadWatchers } from "./reload-watcher.js";
 import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
-import { sanitizeCommandName, validateMcpConfig, validateMcpName } from "./validators.js";
+import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
@@ -148,6 +148,7 @@ import {
 } from "./legalwork-workspace-config-store.js";
 import {
   buildLegalworkRuntimeConfigObject,
+  buildOrgPolicyEngineLayerFor,
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
@@ -195,6 +196,7 @@ import {
   installWorkflowFiles,
   parseIntegrationPayload,
   parsePluginPayload,
+  parseSharedMcpSecret,
   requireHubClient,
   serializeLocalFolder,
   serializeWorkflowSkill,
@@ -205,6 +207,12 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
+import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
+import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
+import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
+import { orgOcr } from "./org-policy-ai.js";
+import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
   EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
@@ -772,7 +780,7 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
-  const approvals = new ApprovalService(config.approval, config.requestHostApproval);
+  const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
@@ -796,6 +804,18 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   const stopProjectSyncTimer = startProjectSyncTimer(config);
   // The firm pokes this computer when something changed, so rounds start at once.
   const stopSyncEvents = startSyncEvents(config);
+  // The firm's policy: pulled now and whenever the firm pokes; what changes
+  // the engine's settings reloads the engines once they are idle.
+  const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
+    if (scopes.has("engine")) applyOrgPolicyToEngines(config);
+  });
+  void scheduleOrgPolicySync(config, { force: true });
+  // The firm's Knowledge Hub likewise: what it installs for everyone, and what
+  // the member added, follows the platform; connectors and skills reload the engines.
+  const stopFirmHub = onFirmHubChange(config, (changes) => {
+    if (changes.has("engine")) applyOrgPolicyToEngines(config);
+  });
+  void scheduleFirmHubSync(config, { force: true });
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
@@ -806,7 +826,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const corpus = new CorpusService({
     selection: async () => {
@@ -820,7 +840,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
-  const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
+  const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config), {
+    settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
+    requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
+  }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -1096,6 +1119,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopTaskSync();
       stopProjectSyncTimer();
       stopSyncEvents();
+      stopOrgPolicy();
+      stopFirmHub();
       stopTaskReminders();
       stopScheduledTasks();
       benchmarkRunner.dispose();
@@ -1933,6 +1958,7 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const resolved = readCloudPluginResolved(body.resolved);
@@ -1991,6 +2017,7 @@ function createRoutes(
   // preview without writing anything; install reuses the cloud-plugin
   // machinery, so uninstall goes through DELETE /cloud-plugins/:pluginId.
   addRoute(routes, "POST", "/workspace/:id/claude-plugins", "client", async (ctx) => {
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const url = typeof body.url === "string" ? body.url.trim() : "";
@@ -2098,6 +2125,7 @@ function createRoutes(
   addRoute(routes, "PUT", "/workspace/:id/authorized-folders", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyToolsUnmanaged(config, ["external_directory"]);
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const folders = parseAuthorizedFoldersPayload(body.folders, workspace.path);
@@ -2402,21 +2430,6 @@ function createRoutes(
     return entry;
   };
 
-  const parseSharedMcpSecret = (secretJson: string): Record<string, unknown> => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(secretJson);
-    } catch {
-      throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not valid JSON.");
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not a valid configuration.");
-    }
-    const config = parsed as Record<string, unknown>;
-    validateMcpConfig(config);
-    return config;
-  };
-
   // Derive a valid hub item name ([a-z0-9][a-z0-9-_]*) from a plugin spec/path.
   const deriveHubName = (ref: string): string => {
     const base = basename(ref.replace(/^file:\/\//, "")).replace(/\.(js|ts|mjs|cjs)$/i, "");
@@ -2524,6 +2537,9 @@ function createRoutes(
       }
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
+      // The firm's settings stay, and enforced settings unlock; what its hub installed goes.
+      await scheduleOrgPolicySync(config, { force: true });
+      await scheduleFirmHubSync(config, { force: true });
       await rebuildEngineConfigFile(workspace);
       return jsonResponse(await readEigenweltEntitlementsView(config));
     }
@@ -2564,6 +2580,10 @@ function createRoutes(
       }
       return view;
     });
+    if (view.connected) {
+      void scheduleOrgPolicySync(config, { force: true });
+      void scheduleFirmHubSync(config, { force: true });
+    }
     return jsonResponse(view);
   });
 
@@ -2582,6 +2602,70 @@ function createRoutes(
     return jsonResponse(await eigenweltUsageRequest(config, body));
   });
 
+  // The firm's policy as it applies on this computer. Taking a setting back
+  // is the device owner's choice, made in the app: never an agent's or a
+  // remote collaborator's.
+  addRoute(routes, "GET", "/org-policy", "client", async () => jsonResponse(await readOrgPolicyView(config)));
+  // The firm's Knowledge Hub as this computer follows it (firm-hub.ts).
+  addRoute(routes, "GET", "/firm-hub", "client", async () => jsonResponse(await readFirmHubView(config)));
+  addRoute(routes, "GET", "/firm-hub/skills", "client", async () => jsonResponse({ items: await firmHubSkills(config) }));
+  addRoute(routes, "GET", "/firm-hub/skills/:name", "client", async (ctx) =>
+    jsonResponse(await readFirmHubSkill(config, ctx.params.name ?? "", ctx.url.searchParams.get("path") ?? "SKILL.md")));
+  addRoute(routes, "POST", "/firm-hub/:itemId/added", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const body = await readJsonBodyLimited(ctx.request, 1024);
+    if (typeof body.added !== "boolean") throw new ApiError(400, "invalid_payload", "added must be true or false");
+    return jsonResponse(await setFirmHubAdded(config, ctx.params.itemId ?? "", body.added));
+  });
+  addRoute(routes, "PUT", "/firm-hub/:itemId/key", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    const key = typeof body.key === "string" ? body.key.trim() : null;
+    if (body.key !== null && !key) throw new ApiError(400, "invalid_payload", "key must be a non-empty string, or null to remove it");
+    return jsonResponse(await setFirmHubMemberKey(config, ctx.params.itemId ?? "", key));
+  });
+  // For the engine's guard plugin: what the firm enforces now. The folder it
+  // enforces through is checked on the way: a changed one is restored, and the
+  // engines reload once idle.
+  addRoute(routes, "GET", "/org-policy/guard", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const { enforced } = await orgPolicyPermissions(config, await readGlobalToolPermissions(config));
+    const primary = config.workspaces?.[0]?.id;
+    if (primary) {
+      const layer = await buildOrgPolicyEngineLayerFor(config, primary);
+      if (!(await orgPolicyEngineLayerIntact(config, layer))) {
+        await writeOrgPolicyEngineLayer(config, layer);
+        if (Object.keys(layer).length > 0) applyOrgPolicyToEngines(config);
+      }
+    }
+    const view = await readOrgPolicyView(config);
+    // The member's connectors the firm does not allow, as the engine prefixes their tools.
+    // (Each workspace's map holds the shared connectors too.)
+    const memberConnectors = new Set<string>();
+    for (const workspace of config.workspaces) {
+      for (const name of Object.keys(await runtimeMcpMapForWorkspace(config, workspace.id))) memberConnectors.add(name);
+    }
+    const allowed = new Set(Object.keys(await allowedMemberConnectors(config, Object.fromEntries([...memberConnectors].map((name) => [name, true])))));
+    // The firm's own connectors run under their names too, whatever members may add.
+    const firmConnectors = await firmHubConnectorNames(config);
+    const blockedMcpServers = [...memberConnectors]
+      .filter((name) => !allowed.has(name) && !firmConnectors.has(name))
+      .map((name) => name.replace(/[^a-zA-Z0-9_-]/g, "_"));
+    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers });
+  });
+  addRoute(routes, "POST", "/org-policy/release", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const body = await readJsonBodyLimited(ctx.request, 1024);
+    if (typeof body.key !== "string" || !isOrgPolicyKey(body.key)) {
+      throw new ApiError(400, "invalid_org_policy_key", "Unknown setting.");
+    }
+    await releaseOrgPolicyKey(config, body.key);
+    return jsonResponse(await readOrgPolicyView(config));
+  });
+
   addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     // Opportunistically refresh (rotate the token + pull current entitlements)
@@ -2592,8 +2676,10 @@ function createRoutes(
     if (view.connected) {
       await syncEigenweltModels(force);
       // The app reads this right after a sign-in and every few minutes after:
-      // a good moment to bring the tasks up to date too.
+      // a good moment to bring the tasks, and the firm's policy, up to date too.
       scheduleTaskSync(config);
+      void scheduleOrgPolicySync(config);
+      void scheduleFirmHubSync(config);
     }
     const cachedManifest = await readCachedEigenweltPaidManifest(config);
     const modelsRevision = eigenweltPaidManifestRevision(cachedManifest);
@@ -2935,6 +3021,7 @@ function createRoutes(
     }
     const allowOverwrite = body.allowOverwrite === true;
     const item = await hubGet(client, ctx.params.itemId);
+    await requireHubInstallAllowed(config, item.kind);
     if (item.kind === "review_set") {
       const entry = await installReviewSet(workspace.id, item);
       return jsonResponse({ ok: true, kind: item.kind, name: entry.name, version: item.version });
@@ -3188,6 +3275,7 @@ function createRoutes(
     for (const itemId of itemIds) {
       try {
         const item = await hubGet(client, itemId);
+        await requireHubInstallAllowed(config, item.kind);
         if (item.kind === "review_set") {
           const entry = await installReviewSet(workspace.id, item);
           results.push({ id: item.id, kind: item.kind, name: entry.name, ok: true });
@@ -3727,6 +3815,10 @@ function createRoutes(
       const logicalUpdates: Record<string, unknown> = { ...topLevelUpdates };
 
       const providerUpdate = ensurePlainObject(provider);
+      // Removing a provider is always possible; adding one the firm may not allow.
+      if (Object.values(providerUpdate).some((entry) => entry !== null)) {
+        await requireOrgPolicyAllows(config, "ai.chat.allowCustom");
+      }
       if (Object.keys(providerUpdate).length) {
         // Mark disconnections before deleting config: the engine may still
         // return its old provider until the client finishes reloading it.
@@ -3757,6 +3849,7 @@ function createRoutes(
       }
 
       const permissionUpdate = ensurePlainObject(permission);
+      await requireOrgPolicyToolsUnmanaged(config, Object.keys(permissionUpdate));
       if (Object.keys(permissionUpdate).length) {
         const { external_directory: externalDirectoryUpdate, ...toolPermissionUpdate } = permissionUpdate;
 
@@ -3835,7 +3928,11 @@ function createRoutes(
     readJsonBody,
     requireClientScope,
     resolveWorkspace,
-    reloadOpencodeEngine,
+    // The app reloads after a key or sign-in changed: the firm's providers that use it come in with the rebuilt config.
+    reloadOpencodeEngine: async (target, workspace) => {
+      await writeLegalworkRuntimeConfigFile(target, target.workspaces?.[0]?.id ?? workspace.id).catch(() => undefined);
+      await reloadOpencodeEngine(target, workspace);
+    },
   });
 
   registerOfficeToolRoutes({
@@ -3873,6 +3970,7 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/plugins", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const spec = String(body.spec ?? "");
@@ -3957,12 +4055,14 @@ function createRoutes(
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
     const items = await listSkills(workspace.path, includeGlobal, skipped);
-    return jsonResponse({ items, skipped });
+    // The firm's skills apply in every workspace, like the member's global ones.
+    return jsonResponse({ items: includeGlobal ? [...items, ...(await firmHubSkills(config))] : items, skipped });
   });
 
   addRoute(routes, "POST", "/workspace/:id/skills/hub/:name", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    await requireOrgPolicyAllows(config, "skills.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = String(ctx.params.name ?? "").trim();
     if (!name) {
@@ -4021,6 +4121,7 @@ function createRoutes(
   // dir on desktop, project for remote workspaces), so this is a read-only fetch.
   addRoute(routes, "POST", "/workspace/:id/github-skills/install", "client", async (ctx) => {
     await resolveWorkspace(config, ctx.params.id);
+    await requireOrgPolicyAllows(config, "skills.allowCustom");
     const body = await readJsonBody(ctx.request);
     const url = String(body?.url ?? "").trim();
     if (!url) throw new ApiError(400, "invalid_github_url", "A GitHub repo URL is required");
@@ -4089,6 +4190,10 @@ function createRoutes(
     // "global" writes into the shared library the desktop Skills/Workflows
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
+    // The firm may allow no new skills of the member's own; existing ones stay editable.
+    if (!(await exists(join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")))) {
+      await requireOrgPolicyAllows(config, "skills.allowCustom");
+    }
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
@@ -4287,6 +4392,7 @@ function createRoutes(
     if (!configPayload) {
       throw new ApiError(400, "invalid_payload", "MCP config is required");
     }
+    await requireConnectorAllowed(config, name);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "mcp.add",
@@ -5014,6 +5120,49 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
   });
 }
 
+// The firm's policy changed the engine's settings: the config file is
+// rebuilt, and every local workspace's engine reloads once no task runs in
+// it. A busy one is tried again every half minute, for up to half an hour;
+// an engine instance built later reads the new file anyway.
+const ORG_POLICY_RELOAD_RETRY_MS = 30_000;
+const ORG_POLICY_RELOAD_ATTEMPTS = 60;
+const orgPolicyReloads = new WeakMap<ServerConfig, { pending: Set<string>; attempts: number; timer: ReturnType<typeof setTimeout> | null }>();
+
+function applyOrgPolicyToEngines(config: ServerConfig): void {
+  const primary = config.workspaces?.[0]?.id;
+  const state = orgPolicyReloads.get(config) ?? { pending: new Set<string>(), attempts: 0, timer: null };
+  orgPolicyReloads.set(config, state);
+  for (const workspace of config.workspaces) if (workspace.workspaceType !== "remote") state.pending.add(workspace.id);
+  state.attempts = 0;
+  const run = () => {
+    state.timer = null;
+    idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+      if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
+      let reloaded = false;
+      for (const id of [...state.pending]) {
+        const workspace = config.workspaces.find((candidate) => candidate.id === id);
+        try {
+          if (workspace && await workspaceEngineBusy(config, workspace)) continue;
+          if (workspace) await reloadOpencodeEngine(config, workspace);
+          state.pending.delete(id);
+          reloaded = true;
+        } catch {
+          // Unreachable now: tried again with the busy ones.
+        }
+      }
+      // The windows re-read what the engine offers (the firm's providers, its rules).
+      if (reloaded) announceSyncChange(config, "policy");
+      state.attempts += 1;
+      if (state.pending.size > 0 && state.attempts < ORG_POLICY_RELOAD_ATTEMPTS) {
+        state.timer = setTimeout(run, ORG_POLICY_RELOAD_RETRY_MS);
+        state.timer.unref?.();
+      }
+    });
+  };
+  if (state.timer) clearTimeout(state.timer);
+  run();
+}
+
 // Whether a session in the workspace's engine instance is running (busy or
 // retrying). No answer counts as busy: never abort a task on a guess.
 async function workspaceEngineBusy(config: ServerConfig, workspace: WorkspaceInfo): Promise<boolean> {
@@ -5084,7 +5233,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
 
-  const entries = Object.entries(await runtimeMcpMapForWorkspace(config, workspace.id)).filter(
+  const entries = Object.entries(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(
     ([name]) => !onlyNames || onlyNames.includes(name),
   );
   if (entries.length === 0) return;
