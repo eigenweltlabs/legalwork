@@ -1,3 +1,5 @@
+import { AssistantCalls } from "./calls/service.js";
+import { registerCallRoutes } from "./calls/routes.js";
 import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
@@ -571,7 +573,7 @@ async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
   const sessionContext = readStringField(input, "sessionContext").slice(-LEGALWORK_VOICE_SESSION_CONTEXT_MAX_CHARS);
   let response: Response;
   try {
-    const openai = new OpenAI({ apiKey, fetch: globalThis.fetch });
+    const openai = new OpenAI({ apiKey, fetch: globalThis.fetch, timeout: 20000, maxRetries: 0 });
     response = await openai.realtime.calls.create({
       sdp: offerSdp,
       session: {
@@ -580,6 +582,7 @@ async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
         output_modalities: ["audio"],
         audio: {
           input: {
+            ...(isRecord(input) && input.nativeCall === true ? { transcription: { model: "gpt-4o-mini-transcribe" } } : {}),
             turn_detection: {
               type: "semantic_vad",
               eagerness: "auto",
@@ -597,6 +600,10 @@ async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
   } catch (error) {
     const status = error instanceof OpenAI.APIError && typeof error.status === "number" ? error.status : 502;
     const message = error instanceof Error ? error.message : "OpenAI Realtime could not create the WebRTC call.";
+    if (isRecord(input) && input.nativeCall === true) {
+      console.warn("[assistant-call] Voice connection failed:", message);
+      throw new ApiError(status, "call_voice_unavailable", "Calls are temporarily unavailable. You can still message your assistant.");
+    }
     throw new ApiError(status, "openai_realtime_failed", message);
   }
   const text = await response.text();
@@ -604,6 +611,7 @@ async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
   return {
     ok: true,
     sdp: text,
+    callId: response.headers.get("Location")?.split("/").at(-1),
     model: LEGALWORK_VOICE_REALTIME_MODEL,
     providerId: "openai",
     tools: LEGALWORK_VOICE_REALTIME_TOOLS.map((tool) => tool.name),
@@ -882,8 +890,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     if (resolve(session.directory) !== resolve(workspace.path)) throw new Error("The delegated chat is outside this project.");
     return { client, session };
   };
+  let assistantCalls: AssistantCalls | undefined;
   const delegations = await AssistantDelegations.open(runtimeDbPath(config), {
     result: async delegation => {
+      if (assistantCalls?.isActiveSession(delegation.sessionId)) return null;
       const { client, session } = await delegationSession(delegation.workspaceId, delegation.sessionId);
       if (session.time.archived) return null;
       const children = await client.session.children({ sessionID: session.id }, { signal: AbortSignal.timeout(10000) });
@@ -894,7 +904,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     },
     destination: async delegation => {
       const source = await resolveWorkspace(config, delegation.sourceWorkspaceId);
-      if (isMainAssistant(source)) {
+      if (isMainAssistant(source) && !assistantCalls?.isActiveSession(delegation.sourceSessionId)) {
         const { workspace, day } = await mainAssistant.current();
         return { workspaceId: workspace.id, sessionId: day.sessionId };
       }
@@ -929,6 +939,23 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     () => readPushEvents(config, mainAssistant, delegations, workspace => createWorkspaceOpencodeClient(config, workspace)),
     owner => tokens.isActiveHash(owner));
   registerPushRoutes(routes, push, readJsonBodyLimited);
+  assistantCalls = new AssistantCalls({ assistant: mainAssistant, delegations, queue: sessionQueue,
+    client: workspace => createWorkspaceOpencodeClient(config, workspace),
+    realtime: async input => {
+      const result = await createOpenAiRealtimeVoiceCall(env, { ...input, nativeCall: true });
+      return { sdp: result.sdp, close: async () => {
+        if (!result.callId) return;
+        const apiKey = await resolveOpenAiProviderApiKey(env);
+        if (!apiKey) return;
+        const openai = new OpenAI({ apiKey, fetch: globalThis.fetch, timeout: 10000, maxRetries: 1 });
+        try { await openai.realtime.calls.hangup(result.callId); }
+        catch (error) { if (!(error instanceof OpenAI.APIError && [404, 409, 410].includes(error.status ?? 0))) throw error; }
+      } };
+    },
+    available: () => getOpenAiRealtimeVoiceCapability(env),
+    changed: () => announceSyncChange(config, "sessions"),
+  });
+  registerCallRoutes(routes, assistantCalls, readJsonBodyLimited, ctx => { ensureWritable(config); requireClientScope(ctx, "collaborator"); });
 
   const serverOptions: {
     hostname: string;
@@ -1137,6 +1164,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   }
 
   const stopPush = push.start();
+  const stopCalls = assistantCalls.start();
   const stopMainAssistant = config.readOnly ? () => {} : mainAssistant.start(() => ensureMorningBriefing(config, scheduledTasks, mainAssistant,
     () => hasBriefingSessionThreshold(config, id => resolveWorkspace(config, id))));
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
@@ -1146,6 +1174,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      await stopCalls();
       await stopPush();
       approvals.dispose();
       await corpus.stop();

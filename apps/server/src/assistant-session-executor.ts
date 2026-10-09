@@ -14,9 +14,10 @@ export async function createAssistantSessionQueue(path: string, options: {
   const requestOptions = () => ({ throwOnError: true, signal: AbortSignal.timeout(10000) });
   const read = async (target: AssistantSessionTarget) => {
     const workspace = await options.workspace(target.workspaceId);
-    if (workspace.workspaceType === "remote" || isMainAssistant(workspace)) throw new Error("Choose an accessible local project chat.");
+    if (workspace.workspaceType === "remote") throw new Error("Choose an accessible local project chat.");
     const client = options.client(workspace);
     const { data: session } = await client.session.get({ sessionID: target.sessionId }, requestOptions());
+    if (isMainAssistant(workspace) && !session?.title.startsWith("Call · ")) throw new Error("Choose a project or dedicated call chat.");
     if (!session || session.time.archived || resolve(session.directory) !== resolve(workspace.path)) throw new Error("The project chat is no longer available.");
     return { workspace, client, session };
   };

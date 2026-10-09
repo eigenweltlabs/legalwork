@@ -76,6 +76,12 @@ export class AssistantDelegations {
       .map(row => delegationSchema.parse(JSON.parse(String(row.data))))
       .filter(item => item.sourceWorkspaceId === sourceWorkspaceId);
   }
+  hasPendingSessionWork(sourceSessionId: string) {
+    return this.db.all("SELECT data FROM assistant_delegations").some(row => {
+      const item = delegationSchema.parse(JSON.parse(String(row.data)));
+      return item.sourceSessionId === sourceSessionId && item.sessionId !== sourceSessionId && !item.inputOnly && this.pendingWork.get(item.sessionId) !== false;
+    });
+  }
   hasPendingWork(sourceWorkspaceId: string) {
     // Internal children return decisions only; their parent owns completion.
     return this.list(sourceWorkspaceId).some(item => !item.inputOnly && this.pendingWork.get(item.sessionId) !== false);
