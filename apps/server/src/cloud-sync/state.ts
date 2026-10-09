@@ -21,6 +21,7 @@ export const RUNTIME_TABLES = new Set([
   "runtime_opencode_configs", "session_group_states", "session_usage_limits", "project_links",
   "assistant_days", "assistant_profiles", "assistant_onboarding", "assistant_greeting_views", "assistant_project_defaults",
   "assistant_session_queue", "assistant_delegations", "assistant_delegation_receipts", "assistant_attention_cards", "assistant_attention_widgets",
+  "channel_runtime_owner", "channel_runtime_jobs", "channel_runtime_conversations", "channel_runtime_commands", "channel_runtime_approvals", "channel_runtime_settings",
   "scheduled_tasks", "scheduled_task_runs", "scheduled_task_defaults", "scheduled_sessions",
   "tasks", "task_projects", "task_sessions", "task_notes", "task_attachments", "task_flags", "task_text_conflicts", "task_notifications",
   "calendar_items", "calendar_history", "deadline_calculations", "calculation_runs", "calculation_presentations", "calendar_conflicts", "calendar_reminders",

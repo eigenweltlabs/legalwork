@@ -92,7 +92,32 @@ The following host APIs work independently of E2B, Firecracker, GCE or another V
 | `POST /cloud-sync/checkpoint` | Host-authenticated quiesce and checkpoint. Rejects active engine sessions. Success keeps execution quiesced. |
 | `POST /cloud-sync/resume` | Host-authenticated ownership renewal, file/preferences catch-up and execution resume. Rejects a VM whose ownership was replaced. |
 
-Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must block a resumed VM that reports ownership loss; restoring a replacement requires a deliberate new handoff from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. The [Model API VM controller](https://github.com/eigenweltlabs/model-api/tree/codex/assistant-channel-integration/apps/cloud-vm) reads `nextRunAt`, renews provider timeouts and wakes paused workers; external entry points and real-user connection provisioning remain separate work.
+Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must block a resumed VM that reports ownership loss; restoring a replacement requires a deliberate new handoff from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. The [Model API VM controller](https://github.com/eigenweltlabs/model-api/tree/codex/assistant-channel-integration/apps/cloud-vm) reads `nextRunAt`, renews provider timeouts and wakes paused workers. Its durable channel adapter connects native iOS, WhatsApp and email ingress to the Main Assistant. Real-user desktop handoff remains an explicit provisioning step.
+
+## Channel execution
+
+`LEGALWORK_CHANNEL_IDENTITY` points to a private controller-written `{userId,orgId}` file.
+Host-only `/channel-runtime/jobs`, `/jobs/:id`, `/jobs/:id/cancel`, `/state`,
+`/commands` and `/jobs/:id/files/:index` use the existing host authentication.
+The ordinary worker proxy cannot expose them. Ownership is immutable in the
+runtime database and execution must hold the existing cloud executor lease.
+
+Each transport job journals a deterministic engine message ID before dispatch.
+Retries recover that exact message or its cached final result; an uncertain
+acceptance is never permission to send another prompt. Conversation mappings,
+receipts, exact approval revisions and command outcomes persist in runtime.sqlite.
+The controller holds its lifecycle lease while the agent runs or waits for input.
+Lease cancellation stops only the still-active job and its delegated children;
+cancelling an already completed receipt cannot stop a newer turn.
+
+Prompts run through the existing Main Assistant with ordinary permissions.
+Only final text and explicit verified share-file tool results leave through the
+channel. Incoming media is confined to `LEGALWORK_CHANNEL_INBOX/<jobId>`;
+deliverables refer to their original project files. Approvals/questions validate
+the pending request revision, schedule updates validate the current task revision,
+and stop commands include assistant delegations and real child sessions. The
+Model API owns queue claims, membership checks, outbound channel delivery and
+mobile runtime revisions; no machine/platform bearer is copied into the guest.
 
 ## Cloud browser tools
 

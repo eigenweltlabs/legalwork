@@ -2,6 +2,7 @@ import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
+import { registerChannelRuntimeRoutes } from "./channel-runtime-routes.js";
 import { cloudExecutionFetch, prepareCloudExecution } from "./cloud-sync/lifecycle.js";
 import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
 import { AssistantDelegations } from "./assistant-delegations.js";
@@ -929,6 +930,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     available: () => !config.cloudSync || config.cloudSync.canExecute(),
     client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions") });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, mainAssistant, delegations, sessionQueue);
+  const channelRuntime = await registerChannelRuntimeRoutes({ config, routes, assistant: mainAssistant, delegations, schedules: scheduledTasks,
+    client: workspace => createWorkspaceOpencodeClient(config, workspace), workspace: id => resolveWorkspace(config, id),
+    json: jsonResponse, body: readJsonBodyLimited });
 
   const push = await AssistantPush.open(runtimeDbPath(config),
     () => readPushEvents(config, mainAssistant, delegations, workspace => createWorkspaceOpencodeClient(config, workspace)),
@@ -1174,6 +1178,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       reloadBaselineRefreshers.delete(config);
       await wordAddinServer?.stop();
       await server.stop();
+      channelRuntime.close();
     },
   };
 }

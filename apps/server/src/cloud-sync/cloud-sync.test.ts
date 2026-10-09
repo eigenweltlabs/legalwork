@@ -16,6 +16,8 @@ import { readProjectDetails, updateProjectDetails, updateProjectPersonalization 
 import { ReplicaResources } from "./files.js";
 import { projectSyncStore } from "../project-sync-store.js";
 import { entry, type StorageAdapter } from "../file-storage/common.js";
+import { ChannelRuntime, type ChannelEngine } from "../channel-runtime.js";
+import { randomUUID } from "node:crypto";
 
 let root: string;
 const environments = ["LEGALWORK_RUNTIME_DB", "OPENCODE_DB", "LEGALWORK_DEV_MODE", "XDG_CONFIG_HOME", "TZ"];
@@ -47,6 +49,29 @@ async function store() { const result = await DirectoryObjects.open(join(root, "
 const settings = (deviceId: string, role: "files" | "executor" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
 
 describe("private replica checkpoints", () => {
+  test("channel receipts and control outcomes survive a checkpoint without replaying agent work", async () => {
+    const source = await config("computer"), remote = await store();
+    let sends = 0, commands = 0;
+    const engine: ChannelEngine = { current: async () => ({ workspaceId: "ws_portable", sessionId: "ses_existing" }),
+      validate: async () => {}, hasMessage: async () => true, busy: async () => false,
+      send: async () => { sends++; }, result: async () => ({ state: "completed", text: "Cached result" }) };
+    const input = { id: randomUUID(), userId: "user-a", orgId: "org-a", conversationId: randomUUID(), channel: "ios", text: "Diagnostic", attachments: [] };
+    const command = { id: randomUUID(), userId: "user-a", orgId: "org-a", command: { kind: "assistant.stop", revision: 1 } };
+    const inbox = await ChannelRuntime.open(runtimeDbPath(source), engine, () => true);
+    await inbox.accept(input); await inbox.inspect(input.id);
+    await inbox.command(command, async () => { commands++; return { stopped: true }; });
+    expect(inbox.approvalRevision("pending", "content")).toBe(1); inbox.close();
+    const checkpoint = await exportCheckpoint(source, remote), target = await config("vm");
+    await restoreCheckpoint(target, remote, checkpoint, join(root, "vm-projects"), false);
+    const restored = await ChannelRuntime.open(runtimeDbPath(target), engine, () => true);
+    try {
+      expect((await restored.accept(input)).textResult).toBe("Cached result");
+      expect(await restored.command(command, async () => { commands++; return {}; })).toEqual({ state: "completed", result: { stopped: true } });
+      expect(restored.approvalRevision("pending", "content")).toBe(1);
+      await expect(restored.accept({ ...input, orgId: "different" })).rejects.toThrow("another account");
+      expect(sends).toBe(1); expect(commands).toBe(1);
+    } finally { restored.close(); }
+  });
   test("resources reuse project file bases, retain unchanged files and restore a missing directory safely", async () => {
     const target = await config("vm"), projectStore = await projectSyncStore(target);
     const files = new ReplicaResources(projectStore, "worker"), bytes = Buffer.from("Private skill");
