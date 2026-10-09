@@ -55,7 +55,37 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     expect(writes.at(-1)).toEqual({ path: "/assistant/share-file", method: "POST", body: { workspaceId: "assistant", sessionId: "today", path: "briefings/today.md", title: "Morning briefing" } });
     await plugin.tool.legalwork_assistant_share_file.execute({ projectId: "matter/id", path: "reports/review.md", title: "Provider-side review" }, context);
     expect(writes.at(-1)).toEqual({ path: "/assistant/share-file", method: "POST", body: { workspaceId: "assistant", sessionId: "today", projectId: "matter/id", path: "reports/review.md", title: "Provider-side review" } });
-    expect(before.system.join(" ")).toContain("BOTH the project-chat link and a file card");
+    expect(before.system.join(" ")).toContain("Do not include a project-chat link");
+  } finally {
+    server.stop(true);
+    if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
+    if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+  }
+});
+
+test("project creation returns the schema used to save known client metadata before asynchronous dispatch", async () => {
+  const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const calls: { path: string; body: unknown }[] = [];
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (request.method === "POST" || request.method === "PATCH") calls.push({ path, body: await request.json() });
+    if (path === "/assistant/projects") return Response.json({ project: { id: "new-matter" }, details: { revision: 1, fields: [{ id: "our_client", label: "Client", type: "text", value: null }] } });
+    return Response.json({ ok: true });
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
+  try {
+    const plugin = await LegalWorkAssistantTools();
+    const created = JSON.parse(await plugin.tool.legalwork_assistant_project_create.execute({ name: "Northbridge acquisition" }));
+    const data = created;
+    await plugin.tool.legalwork_assistant_project_set_metadata.execute({ projectId: data.project.id, revision: data.details.revision, values: { [data.details.fields[0].id]: "Northbridge" } });
+    expect(calls).toEqual([
+      { path: "/assistant/projects", body: { name: "Northbridge acquisition" } },
+      { path: "/workspace/new-matter/project/metadata", body: { revision: 1, values: { our_client: "Northbridge" } } },
+    ]);
+    const output: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, output);
+    expect(output.system.join(" ")).toContain("SAME turn");
+    expect(output.system.join(" ")).toContain("before delegation so the project is searchable by client right away");
   } finally {
     server.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;

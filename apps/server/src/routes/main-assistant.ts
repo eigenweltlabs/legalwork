@@ -61,6 +61,12 @@ export function registerMainAssistantRoutes(options: {
     const workspace = config.workspaces.find(isMainAssistant);
     return jsonResponse({ workspace: workspace ? summary(workspace) : null, profile: assistant.profile(), onboarding: await assistant.onboarding() });
   });
+  addRoute(routes, "GET", "/assistant/activity", "client", async ctx => {
+    options.requireClientScope(ctx, "viewer");
+    const workspace = config.workspaces.find(isMainAssistant);
+    if (workspace) await accessible(workspace.id);
+    return jsonResponse({ pending: workspace ? options.delegations.hasPendingWork(workspace.id) : false });
+  });
   addRoute(routes, "POST", "/assistant/current", "client", async ctx => {
     write(ctx);
     if (ctx.request.body) {
@@ -203,7 +209,8 @@ export function registerMainAssistantRoutes(options: {
       id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write",
       target: join(workspace.path, file.path), summary: `Copied from ${source.id}: ${file.sourcePath}`, timestamp: Date.now(),
     });
-    const setupContext = input.initializeProject ? "\n\nThis is a newly created project. First use legalwork_project_get_details to discover its configured metadata fields. Read the provided source files and fill supported fields with legalwork_project_set_metadata using exact field IDs, types and options. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below." : "";
+    // Metadata capture must not depend on the coordinator remembering a setup flag.
+    const setupContext = `\n\n${input.initializeProject ? "This is a newly created project. " : ""}First use legalwork_project_get_details to discover its configured metadata fields and existing values. Read the provided source files and established client/perspective in the task. Fill missing source-supported client and matter metadata with legalwork_project_set_metadata using exact field IDs, types, options and the latest revision. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below.`;
     const client = options.client(workspace);
     const created = await client.session.create({ title: input.title }, { signal: AbortSignal.timeout(10000) });
     if (!created.data) throw new ApiError(502, "delegation_create", "Could not create the project chat.");

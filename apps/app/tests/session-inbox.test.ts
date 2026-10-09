@@ -9,7 +9,7 @@ Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
 } });
 const { useSessionInboxStore: inbox, unreadSession, unreadWorkspace } = await import("../src/react-app/domains/session/sidebar/session-inbox-store");
 const { useSessionManagementStore: pins } = await import("../src/react-app/domains/session/sidebar/session-management-store");
-const { inboxNeedsRefresh } = await import("../src/react-app/shell/use-session-inbox");
+const { inboxNeedsRefresh, reconcileInboxActivity } = await import("../src/react-app/shell/use-session-inbox");
 const entry = (assistantAt = 10): SessionInboxEntry => ({ workspaceId: "project", sessionId: "chat", updatedAt: assistantAt, assistantAt });
 beforeEach(() => {
   inbox.setState({ entries: {}, readAt: {}, pinnedRunIds: {}, openSessionId: null, openWorkspaceId: null, trackingStartedAt: 0 });
@@ -158,4 +158,34 @@ test("Assistant aggregates returned replies and scheduled deliveries across midn
   inbox.getState().open(null);
   inbox.getState().receive([{ ...today, assistantAt: 40, automation: { runId: "later", at: 50, pinRunId: null } }]);
   expect(unreadWorkspace(inbox.getState(), "assistant")).toBe(true);
+});
+
+
+test("project runs show activity before opening; only an idle terminal reply becomes unread", async () => {
+  const { useSessionActivityStore: activity } = await import("../src/react-app/domains/session/status/session-activity-store");
+  const running: SessionInboxEntry = { ...entry(0), status: "busy", automation: { runId: "run", at: 15, pinRunId: null } };
+  inbox.getState().receive([running]);
+  reconcileInboxActivity([running]);
+  expect(activity.getState().getStatus("project", "chat")).toBe("thinking");
+  expect(unreadSession(inbox.getState(), "chat")).toBe(false);
+  // A completed text/step must stay pending while more work runs.
+  inbox.getState().receive([{ ...running, assistantAt: 20 }]);
+  expect(unreadWorkspace(inbox.getState(), "project")).toBe(false);
+  reconcileInboxActivity([{ ...running, status: "unknown" }]);
+  expect(activity.getState().getStatus("project", "chat")).toBe("thinking");
+  const finished: SessionInboxEntry = { ...entry(30), status: "idle" };
+  inbox.getState().receive([finished]);
+  reconcileInboxActivity([finished]);
+  expect(activity.getState().getStatus("project", "chat")).toBe("idle");
+  expect(unreadSession(inbox.getState(), "chat")).toBe(true);
+  inbox.getState().open("chat");
+  expect(unreadSession(inbox.getState(), "chat")).toBe(false);
+});
+
+test("an interrupted status read and tool-only scheduled delivery never count as a finished reply", () => {
+  inbox.getState().receive([{ ...entry(50), status: "unknown" }]);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(false);
+  inbox.setState({ entries: {} });
+  inbox.getState().receive([{ ...entry(0), status: "idle", automation: { runId: "run", at: 80, pinRunId: null } }]);
+  expect(unreadSession(inbox.getState(), "chat")).toBe(false);
 });

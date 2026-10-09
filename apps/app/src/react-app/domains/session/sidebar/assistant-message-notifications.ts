@@ -22,6 +22,7 @@ export class AssistantMessageNotifications {
   receive(messages: LegalworkSessionMessage[], enabled: boolean, foreground: boolean) {
     const fresh = messages.flatMap(({ info, parts }) => {
       if (info.role !== "assistant" || info.summary || info.error || !info.time.completed || info.time.completed <= this.startedAt || this.seen.has(info.id)) return [];
+      if (info.finish && !["stop", "length", "content-filter"].includes(info.finish)) return [];
       const text = parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text.trim()] : []).filter(Boolean).join("\n");
       if (!text) return [];
       this.seen.add(info.id);

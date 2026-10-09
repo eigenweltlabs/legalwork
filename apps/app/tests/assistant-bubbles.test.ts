@@ -26,3 +26,15 @@ test("starting a new turn keeps every historical reply even when the snapshot is
     expect(assistantBubbleMessages([previous, user, completed], snapshot, true)).toEqual([previous, user, completed]);
   }
 });
+
+test("a finished acknowledgement is visible while tools and a later text part are still running", () => {
+  const reply: UIMessage = { id: "reply", role: "assistant", parts: [
+    { type: "text", text: "I’m taking care of that.", providerMetadata: { opencode: { partId: "ack", textComplete: true } } },
+    { type: "dynamic-tool", toolName: "legalwork_assistant_projects", toolCallId: "search", state: "input-available", input: { query: "Aster" } },
+    { type: "text", text: "Unfinished result", providerMetadata: { opencode: { partId: "result" } } },
+  ] };
+  const visible = assistantBubbleMessages([reply], null, true);
+  expect(visible[0].parts).toEqual(reply.parts.slice(0, 2));
+  expect(reply.parts).toHaveLength(3);
+  expect(assistantBubbleMessages([reply], null, false)[0].parts).toHaveLength(3);
+});

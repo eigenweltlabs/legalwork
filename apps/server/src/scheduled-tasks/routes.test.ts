@@ -22,11 +22,12 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("summary", "existing", 200, JSON.stringify({ role: "assistant", summary: true }));
     const deliveries = [];
     let restrictiveAgent = true;
+    let busy = false, failStatuses = false;
     const agents = () => [{ name: "legalwork-scheduled-project", permission: restrictiveAgent ? [{ permission: "*", pattern: "*", action: "deny" }, { permission: "legalwork_project_read", pattern: "*", action: "allow" }] : [] }, { name: "legalwork-scheduled-all", permission: [] }];
     const engine = Bun.serve({ port: 0, fetch: async request => {
       const path = new URL(request.url).pathname;
       if (path === "/agent") return Response.json(agents());
-      if (path === "/session/status") return Response.json({});
+      if (path === "/session/status") return failStatuses ? new Response(null, { status: 503 }) : Response.json(busy ? { existing: { type: "busy" } } : {});
       if (path === "/session" && request.method === "GET") return Response.json([...sessions.values()]);
       if (path === "/session" && request.method === "POST") {
         const id = "new-" + sessions.size;
@@ -37,7 +38,7 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       }
       if (path.endsWith("/prompt_async")) {
         deliveries.push(await request.json());
-        inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("reply-" + deliveries.length, path.split("/")[2], 300, JSON.stringify({ role: "assistant", time: { completed: 400 } }));
+        inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("reply-" + deliveries.length, path.split("/")[2], 300, JSON.stringify({ role: "assistant", finish: "stop", time: { completed: 400 } }));
         return new Response(null, { status: 204 });
       }
       if (path.startsWith("/session/")) { const session = sessions.get(path.split("/")[2]); return session ? Response.json(session) : new Response(null, { status: 404 }); }
@@ -64,6 +65,21 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal(inbox.sessions.find(entry => entry.sessionId === "existing").assistantAt, 0);
       assert.deepEqual(inbox.sessions.find(entry => entry.sessionId === store.runs(seed.id)[0].sessionId).automation, { runId: store.runs(seed.id)[0].id, at: Date.parse(store.runs(seed.id)[0].startedAt), pinRunId: store.runs(seed.id)[0].id });
       assert.equal(inbox.sessions.find(entry => entry.sessionId === store.runs(seed.id)[0].sessionId).assistantAt, 400);
+      // Acknowledgements and intermediate tool calls are completed messages,
+      // but only the terminal result counts as a new reply.
+      const addMessage = (id, data) => inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run(id, "existing", 500, JSON.stringify(data));
+      addMessage("ack", { role: "assistant", finish: "tool-calls", time: { completed: 600 } });
+      addMessage("streaming", { role: "assistant", time: { created: 700 } });
+      busy = true;
+      let activity = (await (await call("/session-inbox")).json()).sessions.find(entry => entry.sessionId === "existing");
+      assert.equal(activity.assistantAt, 0); assert.equal(activity.status, "busy");
+      failStatuses = true;
+      activity = (await (await call("/session-inbox")).json()).sessions.find(entry => entry.sessionId === "existing");
+      assert.equal(activity.status, "unknown");
+      failStatuses = false; busy = false;
+      addMessage("final", { role: "assistant", finish: "stop", time: { completed: 800 } });
+      activity = (await (await call("/session-inbox")).json()).sessions.find(entry => entry.sessionId === "existing");
+      assert.equal(activity.assistantAt, 800); assert.equal(activity.status, "idle");
       assert.equal(store.runs(seed.id)[0].status, "sent");
       assert.equal(store.runs(seed.id)[0].dueAt, new Date(missedDueAt).toISOString());
       assert.ok(Date.parse(store.runs(seed.id)[0].startedAt) >= missedDueAt + 5 * 60000);

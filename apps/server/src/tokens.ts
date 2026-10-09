@@ -138,6 +138,12 @@ export class TokenService {
     return true;
   }
 
+  async isActiveHash(hash: string): Promise<boolean> {
+    if (hash === hashToken(this.config.token)) return true;
+    await this.ensureLoaded();
+    return this.byHash.has(hash);
+  }
+
   async scopeForToken(token: string): Promise<TokenScope | null> {
     const trimmed = token.trim();
     if (!trimmed) return null;

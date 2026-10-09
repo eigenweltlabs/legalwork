@@ -201,7 +201,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal((await call("/assistant/react", "POST", { workspaceId: assistant.workspace.id, sessionId: assistant.day.sessionId, assistantMessageId: "last-reply", emoji: "👍" })).status, 409);
 
       await writeFile(join(root, "outside.txt"), "Out of scope");
-      const input = { files: ["request.txt"], initializeProject: true, workspaceId: project.project.id, sourceWorkspaceId: assistant.workspace.id, sourceSessionId: assistant.day.sessionId, title: "Review terms", conversationLanguage: "en", prompt: "Compare liability clauses and write the memorandum in German", scope: "Save a draft for partner review. Do not contact the counterparty." };
+      const input = { files: ["request.txt"], workspaceId: project.project.id, sourceWorkspaceId: assistant.workspace.id, sourceSessionId: assistant.day.sessionId, title: "Review terms", conversationLanguage: "en", prompt: "Compare liability clauses and write the memorandum in German", scope: "Save a draft for partner review. Do not contact the counterparty." };
       assert.equal((await call("/assistant/delegate", "POST", { ...input, sourceWorkspaceId: "matter" })).status, 400);
       assert.equal((await call("/assistant/delegate", "POST", { ...input, workspaceId: assistant.workspace.id })).status, 400);
       const beforeBadFile = sessions.size;
@@ -211,7 +211,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(result.files.length, 1);
       assert.equal(await readFile(join(project.project.path, result.files[0].path), "utf8"), "Nordstern GmbH agreement for review");
       assert.ok(deliveries[0].parts[1].text.includes(result.files[0].path));
-      assert.ok(deliveries[0].parts[1].text.includes("legalwork_project_set_metadata"));
+      assert.ok(deliveries[0].parts[1].text.includes("legalwork_project_set_metadata"), "Metadata discovery is required even without initializeProject");
+      assert.ok(deliveries[0].parts[1].text.includes("Fill missing source-supported client and matter metadata"));
       assert.equal(result.ok, true); assert.equal(result.delegation.workspaceId, project.project.id);
       assert.equal(result.delegation.scope, input.scope); assert.equal(result.delegation.status, "started");
       assert.equal(deliveries.length, 1); assert.equal(deliveries[0].directory, project.project.path);

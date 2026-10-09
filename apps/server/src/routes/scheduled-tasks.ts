@@ -20,6 +20,7 @@ export function registerScheduledTaskRoutes(options: {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   listSessions: (workspace: WorkspaceInfo, search?: string) => Promise<{ id: string; title: string; directory: string; time: { archived?: number } }[]>;
   getSession: (workspace: WorkspaceInfo, id: string) => Promise<{ directory: string; time: { archived?: number } } | null>;
+  getStatuses: (workspace: WorkspaceInfo) => Promise<Record<string, { type: "idle" | "busy" | "retry" }>>;
 }) {
   const { config, store } = options;
   const body = (ctx: RequestContext) => options.readJsonBodyLimited(ctx.request, 50000);
@@ -79,7 +80,20 @@ export function registerScheduledTaskRoutes(options: {
     for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
       try { workspaces.push(await options.resolveWorkspace(config, item.id)); } catch { /* Not accessible. */ }
     }
-    return options.jsonResponse({ sessions: await readSessionInbox(config, workspaces, store.sessionActivity()) });
+    // Reconcile unopened projects too. A failed status read is never proof that
+    // work finished, and must not turn an intermediate reply into an unread dot.
+    const entries = await readSessionInbox(config, workspaces, store.sessionActivity());
+    const snapshots = new Map(await Promise.all(workspaces
+      .filter(workspace => entries.some(entry => entry.workspaceId === workspace.id))
+      .map(async workspace => {
+        const statuses = await options.getStatuses(workspace).catch(() => null);
+        return [workspace.id, statuses] as const;
+      })));
+    const sessions = entries.map(entry => {
+      const statuses = snapshots.get(entry.workspaceId);
+      return { ...entry, status: statuses ? (statuses[entry.sessionId]?.type ?? "idle") : "unknown" };
+    });
+    return options.jsonResponse({ sessions });
   });
   route("GET", "", async (_ctx, workspace) => ({ tasks: store.list(workspace.id) }));
   route("GET", "/chats", async (ctx, workspace) => ({ sessions: (await options.listSessions(await options.resolveWorkspace(config, workspace.id), ctx.url.searchParams.get("search")?.slice(0, 200)))
