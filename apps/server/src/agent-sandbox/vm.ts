@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,7 +73,11 @@ export class VmSandbox {
     }
     for (const [name, expected] of Object.entries(manifest.files)) {
       if (!/^[a-zA-Z0-9_.+-]+$/.test(name)) throw new Error("Invalid runtime file name.");
-      const actual = createHash("sha256").update(await readFile(join(this.resources, name))).digest("hex");
+      // Hash the large guest image in bounded chunks so verification neither
+      // duplicates it in RAM nor blocks the server for one whole-file digest.
+      const hash = createHash("sha256");
+      for await (const chunk of createReadStream(join(this.resources, name))) hash.update(chunk);
+      const actual = hash.digest("hex");
       if (actual !== expected) throw new Error(`Protected runtime integrity check failed: ${name}`);
     }
     await exec(this.executable(manifest.architecture), ["--version"], { timeout: 60000, windowsHide: true });
