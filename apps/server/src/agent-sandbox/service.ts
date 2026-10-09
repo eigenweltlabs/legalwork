@@ -151,7 +151,7 @@ export class AgentSandboxService {
           if (networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "All sandbox network traffic is blocked in Settings.");
           const bytes = Buffer.from(request.bodyBase64, "base64");
           const text = bytes.toString("utf8");
-          const bodyFormat = Buffer.from(text).equals(bytes) ? "text" : "base64";
+          const bodyFormat = Buffer.from(text).equals(bytes) && !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text) ? "text" : "base64";
           const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
           // The approval is bound to the in-memory immutable request. A changed
           // body, URL or header necessarily produces a separate request.

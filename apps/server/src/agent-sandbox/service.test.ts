@@ -77,6 +77,15 @@ test("approve is the persistent default and prompts even when webfetch and serve
   expect(await readSandboxNetworkMode(f.config)).toBe("block");
 });
 
+test("approval identifies non-printable payloads instead of showing invisible text", async () => {
+  const f = await fixture({ webfetch: "allow" }, true, async (input) => {
+    await input.authorizeNetwork(prepareOutboundRequest({ url: "https://example.com/", method: "POST", headers: {}, bodyBase64: "AAEC" }));
+  });
+  await f.run();
+  expect(f.prompts[0].network).toMatchObject({ body: "AAEC", bodyFormat: "base64", bodyBytes: 3 });
+  expect(f.prompts[0].summary).toContain("Base64: AAEC");
+});
+
 test("block denies without an approval and allow sends without an approval", async () => {
   for (const mode of ["block", "allow"] satisfies Array<"block" | "allow">) {
     const f = await fixture({ webfetch: "allow" }, true, async (input) => {

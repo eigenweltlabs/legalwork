@@ -94,12 +94,13 @@ PY`, "allow");
     const deadline = setTimeout(() => controller.abort(), 120000);
     const started = performance.now();
     try {
-      const restricted = execute("cat /proc/sys/kernel/random/boot_id", "block");
-      const results = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
-        const folder = join(root, String(index)); await mkdir(folder); await writeFile(join(folder, "identity"), String(index));
-        return sandbox.run({ networkMode: "allow", cwd: "/workspace", mounts: [{ source: folder, target: "/workspace", writable: index % 2 === 0 }],
-          timeoutMs: 120000, signal: controller.signal, authorizeNetwork: async () => { throw new Error("Unexpected broker"); },
-          command: `python3 - <<'PY'
+      const [restricted, results] = await Promise.all([
+        execute("cat /proc/sys/kernel/random/boot_id", "block"),
+        Promise.all(Array.from({ length: 10 }, async (_, index) => {
+          const folder = join(root, String(index)); await mkdir(folder); await writeFile(join(folder, "identity"), String(index));
+          return sandbox.run({ networkMode: "allow", cwd: "/workspace", mounts: [{ source: folder, target: "/workspace", writable: index % 2 === 0 }],
+            timeoutMs: 120000, signal: controller.signal, authorizeNetwork: async () => { throw new Error("Unexpected broker"); },
+            command: `python3 - <<'PY'
 import json, os, socket, subprocess
 from pathlib import Path
 assert Path('/workspace/identity').read_text() == '${index}'
@@ -123,13 +124,14 @@ except PermissionError:
     assert ${index % 2 !== 0 ? "True" : "False"}
 print(json.dumps({'uid': os.getuid(), 'boot': Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'net': os.readlink('/proc/self/ns/net')}))
 PY` });
-      }));
+        })),
+      ]);
       const identities = results.map((result) => { expect(result.exitCode).toBe(0); return JSON.parse(result.output); });
       expect(connections).toHaveLength(10);
       expect(new Set(identities.map((value) => value.boot)).size).toBe(1);
       expect(new Set(identities.map((value) => value.net)).size).toBe(10);
       expect(new Set(identities.map((value) => value.uid)).size).toBe(10);
-      expect((await restricted).output.trim()).not.toBe(identities[0].boot);
+      expect(restricted.output.trim()).not.toBe(identities[0].boot);
       for (let index = 0; index < 10; index++) expect(await readFile(join(root, String(index), "result"), "utf8").catch(() => null)).toBe(index % 2 === 0 ? String(index) : null);
       console.log(`Ten unrestricted commands: ${((performance.now() - started) / 1000).toFixed(2)}s (${process.platform}/${process.arch})`);
     } finally { clearTimeout(deadline); controller.abort(); for (const socket of sockets) socket.destroy(); tcp.close(); }

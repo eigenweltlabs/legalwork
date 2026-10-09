@@ -8,7 +8,23 @@ import type { ServerConfig } from "../types.js";
 import { networkModeSchema, readSandboxNetworkMode } from "./settings.js";
 
 test("network settings API authenticates, validates, persists and respects read-only mode", async () => {
-  const root = await mkdtemp(join(tmpdir(), "sandbox-network-api-"));
+  const childRoot = process.env.LEGALWORK_NETWORK_API_TEST_ROOT;
+  if (!childRoot) {
+    const root = await mkdtemp(join(tmpdir(), "sandbox-network-api-"));
+    // The full server owns process-lifetime database caches. Exit the fixture
+    // process before deleting its profile so Windows releases every handle.
+    try {
+      const child = Bun.spawn([process.execPath, "test", import.meta.filename], {
+        env: { ...process.env, LEGALWORK_NETWORK_API_TEST_ROOT: root }, stdout: "pipe", stderr: "pipe",
+      });
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect({ code, output: code === 0 ? "passed" : stdout + stderr }).toEqual({ code: 0, output: "passed" });
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+    return;
+  }
+  const root = childRoot;
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host",
     configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [],
     readOnly: false, agentSandboxEnabled: true, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false };
@@ -40,7 +56,5 @@ test("network settings API authenticates, validates, persists and respects read-
   } finally {
     await server.stop();
     await closeRuntimeOpencodeConfig(config);
-    Bun.gc(true);
-    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
-});
+}, 30000);

@@ -102,7 +102,8 @@ export class VmSandbox {
     const args = ["-no-user-config", "-nodefaults", "-L", this.resources, "-machine", arm ? "virt" : "q35",
       "-accel", nativeMac ? "hvf" : "tcg", "-cpu", nativeMac ? "host" : arm ? "cortex-a72" : "max",
       "-m", String(Math.max(2048, Math.min(8192, Math.floor(totalmem() / 1024 ** 2 / 4)))), "-smp", "2", "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-no-reboot",
-      ...(directNetwork ? ["-netdev", "user,id=outbound", "-device", `${arm ? "virtio-net-device" : "virtio-net-pci"},netdev=outbound`] : ["-nic", "none"]),
+      // Direct kernel boot needs no PCI network boot ROM.
+      ...(directNetwork ? ["-netdev", "user,id=outbound", "-device", `${arm ? "virtio-net-device" : "virtio-net-pci,romfile="},netdev=outbound`] : ["-nic", "none"]),
       "-kernel", join(this.resources, "kernel"), "-initrd", join(this.resources, "initrd.gz"),
       "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}${directNetwork ? " legalwork.network=allow" : ""}`,
       "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
