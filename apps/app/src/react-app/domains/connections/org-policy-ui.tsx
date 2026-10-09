@@ -185,7 +185,7 @@ export function FirmInstructions() {
 }
 
 /** Atop Settings while the member is signed out of the firm. */
-export function OrgPolicyBanner() {
+export function OrgPolicyBanner({ showSignIn = true }: { showSignIn?: boolean }) {
   const lapsed = useOrgPolicyStore((state) => state.view?.state === "lapsed");
   const navigate = useNavigate();
   const org = useOrgName();
@@ -195,11 +195,11 @@ export function OrgPolicyBanner() {
     <Alert className="w-full lg:max-w-3xl has-data-[slot=alert-action]:pe-4">
       <Building2 aria-hidden />
       <AlertDescription>{t("org_policy.banner_lapsed", { org })}</AlertDescription>
-      <AlertAction className="static col-start-2 mt-2">
+      {showSignIn && <AlertAction className="static col-start-2 mt-2">
         <Button size="sm" variant="outline" onClick={() => navigate(globalSettingsRoute("account"))}>
           {t("org_policy.sign_in")}
         </Button>
-      </AlertAction>
+      </AlertAction>}
     </Alert>
   );
 }

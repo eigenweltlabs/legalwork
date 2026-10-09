@@ -9,6 +9,7 @@ import {
   ListTodo,
   Loader2,
   Plus,
+  PanelRightClose,
   PanelsTopLeft,
   RotateCw,
   X,
@@ -698,7 +699,7 @@ export function SidePanel({
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button variant="ghost" size="icon-sm" className="ml-auto shrink-0" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}>
-                <X />
+                <PanelRightClose />
               </Button>
             </div>
           </div>

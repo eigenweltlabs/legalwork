@@ -423,7 +423,7 @@ export function SettingsPage(props: SettingsPageProps) {
         ) : null}
       </SettingsPanel>
 
-      <OrgPolicyBanner />
+      <OrgPolicyBanner showSignIn={props.activeTab !== "account"} />
 
       {props.children}
     </SettingsContent>
