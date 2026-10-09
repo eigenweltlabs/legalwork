@@ -33,10 +33,8 @@ export function SubscriptionEndedMessage({ client, workspaceId, onChoosePlan, re
   const member = Boolean(role) && !admin;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   const firm = account.data?.account?.orgName ?? t("ai_plans.your_firm");
-  const request = t("subscription_ended.request_text", { firm });
   return <div role="status" className="not-prose my-2 space-y-4 rounded-xl border border-border bg-card p-4 text-sm text-foreground">
     <div className="flex items-start gap-3">
       {restored ? <Check className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
@@ -45,24 +43,18 @@ export function SubscriptionEndedMessage({ client, workspaceId, onChoosePlan, re
         {!restored && <p className="text-muted-foreground">{t(admin ? "subscription_ended.admin_body" : "subscription_ended.member_body", { firm })}</p>}
       </div>
     </div>
-    {!restored && <Button size="sm" disabled={account.isPending || busy} onClick={() => {
+    {!restored && !member && <Button size="sm" disabled={account.isPending || busy} onClick={() => {
       setError("");
-      if (role) setOpen(true);
+      if (admin) setOpen(true);
       else void openDesktopUrl(eigenweltBillingUrl(account.data?.platformURL));
-    }}>{t(admin ? "subscription_ended.restart" : member ? "provider_limit.request" : "subscription_ended.view_plans")}</Button>}
-    <Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
+    }}>{t(admin ? "subscription_ended.restart" : "subscription_ended.view_plans")}</Button>}
+    <Dialog open={open && admin} onOpenChange={value => { if (!busy) setOpen(value); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{t(member ? "provider_limit.request" : "provider_limit.plans_title")}</DialogTitle>
-          <DialogDescription>{t(member ? "subscription_ended.member_help" : "subscription_ended.admin_body", { firm })}</DialogDescription>
+          <DialogTitle>{t("provider_limit.plans_title")}</DialogTitle>
+          <DialogDescription>{t("subscription_ended.admin_body", { firm })}</DialogDescription>
         </DialogHeader>
-        {member ? <div className="space-y-4">
-          <p className="rounded-xl border bg-muted/30 p-4 text-sm">{request}</p>
-          <Button onClick={() => {
-            void navigator.clipboard.writeText(request).then(() => { setCopied(true); setError(""); })
-              .catch(() => setError(t("subscription_ended.copy_error")));
-          }}>{copied ? <Check className="size-4" /> : null}{t(copied ? "subscription_ended.copied" : "subscription_ended.copy_request")}</Button>
-        </div> : <div className="space-y-3">
+        <div className="space-y-3">
           {EIGENWELT_PLANS.filter(item => item.id !== "sync").map(item => <div key={item.id} className="flex items-center justify-between gap-4 rounded-xl border p-4">
             <div>
               <p className="font-medium">{item.name}</p>
@@ -79,7 +71,7 @@ export function SubscriptionEndedMessage({ client, workspaceId, onChoosePlan, re
             }}>{busy ? <Loader2 className="size-4 animate-spin" /> : null}{t("ai_plans.restart", { plan: item.name })}</Button>
           </div>)}
           {busy && <p className="text-sm text-muted-foreground">{t("provider_limit.waiting")}</p>}
-        </div>}
+        </div>
         {error && <p role="alert" className="text-sm text-muted-foreground">{error}</p>}
       </DialogContent>
     </Dialog>

@@ -37,10 +37,10 @@ describe("inline subscription renewal", () => {
     expect(html).not.toContain("text-destructive");
     expect(html).not.toContain("border-red");
   });
-  test("members get admin support rather than a checkout action", () => {
+  test("members get plain admin guidance without a button", () => {
     const html = render("org:member");
-    expect(html).toContain("Ask your admin");
-    expect(html).toContain("admin needs to restart");
+    expect(html).toContain("Ask your organization’s admin to restart");
+    expect(html).not.toContain("<button");
     expect(html).not.toContain("Restart subscription");
   });
   test("older platforms with no role keep a route to billing", () => {
