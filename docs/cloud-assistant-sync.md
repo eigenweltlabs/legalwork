@@ -24,7 +24,7 @@ A VM resume keeps its disk and memory; it does not restore all project files aga
 
 ## Configuration and handoff
 
-Deploy the companion `model-api` migration `0031_personal_sync_purpose` and project routes first. LegalWork refuses to upload state if the platform does not confirm the protected personal-state type. This implementation uses an already configured Eigenwelt connection; VM credential provisioning is deliberately a later step.
+Deploy the companion [Model API integration](https://github.com/eigenweltlabs/model-api/pull/87) and its project routes first. Its current forward migration is `0045_personal_sync_purpose`; follow the database-history checks in [assistant-integration.md](https://github.com/eigenweltlabs/model-api/blob/codex/assistant-channel-integration/docs/assistant-integration.md) before applying it to an existing database. The legacy VM branch's `0031_personal_sync_purpose` must not be substituted into the current migration journal. LegalWork refuses to upload state if the platform does not confirm the protected personal-state type. This implementation uses an already configured Eigenwelt connection; VM credential provisioning is deliberately a later step.
 
 Create a sync profile on the desktop:
 
@@ -92,7 +92,15 @@ The following host APIs work independently of E2B, Firecracker, GCE or another V
 | `POST /cloud-sync/checkpoint` | Host-authenticated quiesce and checkpoint. Rejects active engine sessions. Success keeps execution quiesced. |
 | `POST /cloud-sync/resume` | Host-authenticated ownership renewal, file/preferences catch-up and execution resume. Rejects a VM whose ownership was replaced. |
 
-Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must block a resumed VM that reports ownership loss; restoring a replacement requires a deliberate new handoff from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. The [Model API VM controller](https://github.com/eigenweltlabs/model-api/tree/codex/legalwork-cloud-sync/apps/cloud-vm) reads `nextRunAt`, renews provider timeouts and wakes paused workers; external entry points and real-user connection provisioning remain separate work.
+Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must block a resumed VM that reports ownership loss; restoring a replacement requires a deliberate new handoff from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. The [Model API VM controller](https://github.com/eigenweltlabs/model-api/tree/codex/assistant-channel-integration/apps/cloud-vm) reads `nextRunAt`, renews provider timeouts and wakes paused workers; external entry points and real-user connection provisioning remain separate work.
+
+## Cloud browser tools
+
+The VM template installs a local, authenticated Browser Use worker and configures `LEGALWORK_CLOUD_BROWSER_AUTH` with its token-file path. LegalWork's managed engine loads `legalwork_cloud_browser_task` and `legalwork_cloud_browser_status` when that configuration exists. A task supplies a starting URL, approved HTTPS origins and the current project path. It returns a durable task ID; completed downloads land in that project's `Downloads` directory and use the existing project sync.
+
+When a website needs login, the status response contains a user-bound credential-entry link. The user signs in through the browser and saves the website login into their 1Password vault. The browser agent then resumes the waiting task. Passwords, the host's 1Password service-account token and private browser authentication profiles stay outside project sync and chat responses. The controller, credential page, vault integration and browser implementation live in Model API. A failed browser task may already have performed website actions and must not be replayed automatically.
+
+Live GCP validation covered a dummy website login, same-agent continuation, a downloaded report, credential reuse and browser state after VM pause/resume. This validates browser infrastructure independently of connector transport. Mobile/WhatsApp/email messages still need the durable channel-to-VM runtime adapter described in the companion integration document.
 
 ## Validation and current limits
 
