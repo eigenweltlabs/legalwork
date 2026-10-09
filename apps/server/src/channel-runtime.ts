@@ -37,8 +37,8 @@ const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(va
 /** Host-only inbox. Journal before dispatch; an uncertain dispatch is never blindly replayed. */
 export class ChannelRuntime {
   private locks = new Map<string, Promise<unknown>>();
-  private constructor(private db: SqliteHandle, private engine: ChannelEngine, private available: () => boolean) {}
-  static async open(path: string, engine: ChannelEngine, available: () => boolean) {
+  private constructor(private db: SqliteHandle, private engine: ChannelEngine, private available: () => boolean, private now: () => number) {}
+  static async open(path: string, engine: ChannelEngine, available: () => boolean, now: () => number = Date.now) {
     await mkdir(dirname(path), { recursive: true });
     const db = await openSqlite(path);
     db.exec("CREATE TABLE IF NOT EXISTS channel_runtime_owner (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL)");
@@ -47,7 +47,7 @@ export class ChannelRuntime {
     db.exec("CREATE TABLE IF NOT EXISTS channel_runtime_commands (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, data TEXT NOT NULL)");
     db.exec("CREATE TABLE IF NOT EXISTS channel_runtime_approvals (id TEXT PRIMARY KEY, hash TEXT NOT NULL, revision INTEGER NOT NULL)");
     db.exec("CREATE TABLE IF NOT EXISTS channel_runtime_settings (id TEXT PRIMARY KEY, value TEXT NOT NULL)");
-    return new ChannelRuntime(db, engine, available);
+    return new ChannelRuntime(db, engine, available, now);
   }
   close() { this.db.close?.(); }
   bind(owner: z.infer<typeof ChannelOwner>) {
@@ -66,7 +66,7 @@ export class ChannelRuntime {
     try { return await next; } finally { if (this.locks.get(id) === next) this.locks.delete(id); }
   }
   private save(receipt: ChannelReceipt) {
-    receipt.updatedAt = Date.now();
+    receipt.updatedAt = this.now();
     this.db.run("INSERT INTO channel_runtime_jobs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", [receipt.id, JSON.stringify(receipt)]);
   }
   private get(id: string) {
@@ -91,7 +91,7 @@ export class ChannelRuntime {
       const mapping = this.db.get("SELECT data FROM channel_runtime_conversations WHERE id=?", [mappingKey]);
       const target = mapping ? z.strictObject({ workspaceId: z.string(), sessionId: z.string() }).parse(JSON.parse(String(mapping.data))) : await this.engine.current();
       const receipt = Receipt.parse({ ...input, ...target, messageId: `msg_${digest([input.orgId, input.userId, input.id]).slice(0, 26)}`,
-        fingerprint, state: "accepted", textResult: null, files: [], code: null, createdAt: Date.now(), updatedAt: Date.now() });
+        fingerprint, state: "accepted", textResult: null, files: [], code: null, createdAt: this.now(), updatedAt: this.now() });
       await this.engine.validate(receipt);
       if (await this.engine.busy(receipt)) throw new ApiError(409, "channel_busy", "The Assistant is already handling a turn.");
       this.db.run("INSERT OR IGNORE INTO channel_runtime_conversations VALUES (?,?)", [mappingKey, JSON.stringify(target)]);
@@ -132,6 +132,10 @@ export class ChannelRuntime {
     if (["completed", "failed"].includes(receipt.state)) return receipt;
     await this.engine.validate(receipt);
     if (!await this.engine.hasMessage(receipt)) {
+      // prompt_async acknowledges before the engine persists the user message.
+      // A lost HTTP response can have the same window. Wait for that exact ID,
+      // retaining the journal across restart, without issuing another prompt.
+      if (this.now() - receipt.createdAt < 30000) return receipt;
       receipt.state = "failed"; receipt.code = "dispatch_uncertain"; this.save(receipt); return receipt;
     }
     const result = await this.engine.result(receipt);

@@ -8,17 +8,19 @@ import { ChannelRuntime, type ChannelEngine } from "./channel-runtime.js";
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "legalwork-channel-runtime-"));
   let sends = 0, hasMessage = false, busy = false, complete = false, available = true, uncertain = false;
+  let now = Date.now();
   const engine: ChannelEngine = {
     current: async () => ({ workspaceId: "owned-assistant", sessionId: "daily-session" }), validate: async () => {},
     hasMessage: async () => hasMessage, busy: async () => busy,
     send: async () => { sends++; hasMessage = true; busy = true; if (uncertain) throw new Error("lost response"); },
     result: async () => complete ? { state: "completed", text: "Real final reply" } : { state: "running" },
   };
-  let runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available);
+  let runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available, () => now);
   const input = { id: randomUUID(), userId: "user-a", orgId: "org-a", conversationId: randomUUID(), channel: "ios", text: "Please help", attachments: [] };
   return { input, get runtime() { return runtime; }, get sends() { return sends; },
     finish: () => { complete = true; busy = false; }, revoke: () => { available = false; }, uncertain: () => { uncertain = true; },
-    missing: () => { hasMessage = false; }, reopen: async () => { runtime.close(); runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available); },
+    missing: () => { hasMessage = false; }, persisted: () => { hasMessage = true; }, expireAcceptance: () => { now += 30001; },
+    reopen: async () => { runtime.close(); runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available, () => now); },
     close: async () => { runtime.close(); await rm(root, { recursive: true, force: true }); },
   };
 }
@@ -33,7 +35,16 @@ test("a lost dispatch response and process restart recover the same engine messa
 test("unknown outcome without an engine message fails rather than replaying a consequential prompt", async () => {
   const f = await fixture(); try {
     await f.runtime.accept(f.input); f.missing(); await f.reopen();
+    expect((await f.runtime.inspect(f.input.id)).state).toBe("running"); f.expireAcceptance();
     const result = await f.runtime.accept(f.input); expect(result.state).toBe("failed"); expect(result.code).toBe("dispatch_uncertain"); expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+test("an asynchronous acknowledgement can precede persistence across restart without a second prompt", async () => {
+  const f = await fixture(); try {
+    await f.runtime.accept(f.input); f.missing(); await f.reopen();
+    expect((await f.runtime.accept(f.input)).state).toBe("running"); expect(f.sends).toBe(1);
+    f.persisted(); f.finish(); expect((await f.runtime.inspect(f.input.id)).textResult).toBe("Real final reply");
+    expect(f.sends).toBe(1);
   } finally { await f.close(); }
 });
 test("owner binding survives restart and rejects other organizations and changed replay content", async () => {
