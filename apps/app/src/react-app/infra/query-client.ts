@@ -20,12 +20,13 @@ export function getReactQueryClient(): QueryClient {
   // observers and TanStack GC removes it ~15s after creation. That made the
   // permission dialog auto-dismiss with no resolution while the tool call
   // stayed "running" forever (#1916). They are cleared explicitly by
-  // permission.replied / question.answered events and clearTrackedSession,
+  // reply events, authoritative snapshots, and session deletion,
   // never by GC.
   for (const queryKey of [
     ["react-session-todos"],
     ["react-session-permissions"],
     ["react-session-questions"],
+    ["react-interaction-sessions"],
   ] as const) {
     queryClient.setQueryDefaults(queryKey, { gcTime: Infinity });
   }

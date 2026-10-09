@@ -41,6 +41,7 @@ import {
   mergeRouteWorkspaces,
   orderRouteWorkspaces,
   resolveRouteWorkspaceId,
+  upsertRuntimeSession,
   type RouteSession,
   type RouteWorkspace,
 } from "./route-workspaces";
@@ -525,12 +526,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     if (!selectedWorkspaceId) return;
     setSessionsByWorkspaceId((current) => {
       const list = current[selectedWorkspaceId] ?? [];
-      const index = list.findIndex((session) => session?.id === update.sessionId);
-      if (index < 0) return current;
-      const nextSession = { ...list[index], ...update.info, id: update.sessionId };
-      if (JSON.stringify(nextSession) === JSON.stringify(list[index])) return current;
-      const nextList = [...list];
-      nextList[index] = nextSession;
+      const nextList = upsertRuntimeSession(list, update);
+      if (nextList === list) return current;
       const next = { ...current, [selectedWorkspaceId]: nextList };
       sessionsByWorkspaceIdRef.current = next;
       return next;

@@ -406,10 +406,13 @@ export type PendingPermission = Omit<ApiPermissionRequest, "always"> & {
   protocol: "legacy" | "v2" | "host";
   host?: import("@legalwork/types/desktop-ipc").HostApprovalRequest;
   v2?: Pick<PermissionV2Request, "action" | "resources" | "save">;
+  sourceSession?: { id: string; title: string };
 };
 
 export type PendingQuestion = QuestionRequest & {
   receivedAt: number;
+  protocol?: "legacy" | "v2";
+  sourceSession?: { id: string; title: string };
 };
 
 export type TodoItem = {

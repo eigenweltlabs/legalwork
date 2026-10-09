@@ -146,6 +146,9 @@ jobs:
           printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
             "**Verify downloads:** [SHA256SUMS](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/SHA256SUMS) · [Verification instructions](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs/verify-downloads.md)"
 
+          printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
+            "[Code signing policy](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/CODE_SIGNING_POLICY.md)"
+
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
@@ -322,6 +325,13 @@ jobs:
         shell: pwsh
         run: git config --global core.longpaths true
 
+      - name: Validate SignPath configuration (Windows)
+        if: matrix.os_type == 'windows' && (env.SIGNPATH_PROJECT_SLUG != '' || env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != '')
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: node scripts/release/validate-signpath-config.mjs
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -474,31 +484,8 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
-      - name: Validate SignPath configuration (Windows)
-        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
-        shell: bash
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          missing=()
-          for name in \
-            SIGNPATH_API_TOKEN \
-            SIGNPATH_ORGANIZATION_ID \
-            SIGNPATH_PROJECT_SLUG \
-            SIGNPATH_SIGNING_POLICY_SLUG; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing Windows SignPath configuration: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
-
       - name: Stage unsigned Windows installer for SignPath
+        id: stage-unsigned-windows-installer
         if: matrix.os_type == 'windows'
         shell: bash
         run: |
@@ -512,6 +499,14 @@ jobs:
             printf '%s\n' "${installers[@]}" >&2
             exit 1
           fi
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          filename="$(basename "${installers[0]}")"
+          case "$filename" in
+            "legalwork-win-x64-${version}.exe") arch=x64 ;;
+            "legalwork-win-arm64-${version}.exe") arch=arm64 ;;
+            *) echo "Installer filename does not match stamped version: $filename" >&2; exit 1 ;;
+          esac
+          printf 'version=%s\narch=%s\n' "$version" "$arch" >> "$GITHUB_OUTPUT"
           cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
 
       - name: Upload unsigned Windows installer for SignPath
@@ -525,29 +520,27 @@ jobs:
           retention-days: 1
 
       - name: Submit Windows signing request to SignPath
-        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG == ''
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ runner.temp }}/signpath-signed
-
-      - name: Submit Windows signing request to SignPath (artifact configuration)
-        if: matrix.os_type == 'windows' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
-        uses: signpath/github-action-submit-signing-request@v2
+        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          parameters: |
+            version: "${{ steps.stage-unsigned-windows-installer.outputs.version }}"
+            arch: "${{ steps.stage-unsigned-windows-installer.outputs.arch }}"
           github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
           wait-for-completion: true
+          # Allow time for the required manual production approval.
+          wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: ${{ runner.temp }}/signpath-signed
+
+      - name: Verify signed Windows installer
+        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
+        shell: pwsh
+        run: ./scripts/release/verify-windows-signature.ps1 -ArtifactDirectory "$env:RUNNER_TEMP/signpath-signed"
 
       - name: Apply signed Windows installer
         if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''

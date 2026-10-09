@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const [signedArtifactDirArg, distDirArg] = process.argv.slice(2);
 
@@ -15,9 +13,12 @@ if (!signedArtifactDirArg || !distDirArg) {
 
 const signedArtifactDir = resolve(signedArtifactDirArg);
 const distDir = resolve(distDirArg);
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const desktopRequire = createRequire(new URL("../../apps/desktop/package.json", import.meta.url));
 const YAML = desktopRequire("yaml");
+const builderRequire = createRequire(desktopRequire.resolve("electron-builder/package.json"));
+// Use the same generator as the installed electron-builder version. Recent
+// electron-builder releases implement this in JS and no longer ship app-builder-bin.
+const { buildBlockMap } = builderRequire("app-builder-lib/out/targets/blockmap/blockmap.js");
 
 function walk(dir) {
   const entries = [];
@@ -43,39 +44,12 @@ function sha512(file) {
   return createHash("sha512").update(readFileSync(file)).digest("base64");
 }
 
-function findAppBuilderPath() {
-  const pnpmDir = join(repoRoot, "node_modules", ".pnpm");
-  if (!existsSync(pnpmDir)) {
-    throw new Error(`Cannot find pnpm store directory: ${pnpmDir}`);
-  }
-
-  for (const entry of readdirSync(pnpmDir)) {
-    if (!entry.startsWith("app-builder-bin@")) continue;
-    const appBuilderPackage = join(pnpmDir, entry, "node_modules", "app-builder-bin", "index.js");
-    if (!existsSync(appBuilderPackage)) continue;
-    const appBuilderRequire = createRequire(appBuilderPackage);
-    const { appBuilderPath } = appBuilderRequire(appBuilderPackage);
-    return appBuilderPath;
-  }
-
-  throw new Error("Cannot find app-builder-bin. Run pnpm install before applying the signed Windows artifact.");
-}
-
-function regenerateBlockmap(installerPath) {
+async function regenerateBlockmap(installerPath) {
   const blockmapPath = `${installerPath}.blockmap`;
   mkdirSync(dirname(blockmapPath), { recursive: true });
-
-  const result = spawnSync(findAppBuilderPath(), ["blockmap", "--input", installerPath, "--output", blockmapPath], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`app-builder blockmap failed with status ${result.status}`);
-  }
+  await buildBlockMap(installerPath, "gzip", blockmapPath);
   if (!existsSync(blockmapPath)) {
-    throw new Error(`app-builder did not create ${blockmapPath}`);
+    throw new Error(`electron-builder did not create ${blockmapPath}`);
   }
 }
 
@@ -133,7 +107,7 @@ const distInstaller = findOne(
 );
 
 copyFileSync(signedInstaller, distInstaller);
-regenerateBlockmap(distInstaller);
+await regenerateBlockmap(distInstaller);
 updateLatestYml(distInstaller);
 
 console.log(`Applied signed Windows installer: ${distInstaller}`);

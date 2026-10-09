@@ -132,4 +132,17 @@ describe("permission approval modal helpers", () => {
     expect(html).not.toContain("Approval applies to this change only.");
     expect(render("")).toContain("Use global defaults");
   });
+
+  test("identifies the subagent and escapes its title without changing approval choices", () => {
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: pendingPermission({ sourceSession: { id: "child", title: "Research <contract>" } }),
+      onOpenSession: () => {},
+      respondPermission: () => {},
+    }));
+    expect(html).toContain("Request from subagent: Research &lt;contract&gt;");
+    expect(html).toContain("Open subagent chat");
+    expect(html).toContain("Allow once");
+    expect(html).toContain("Deny");
+    expect(html).not.toContain("Research <contract>");
+  });
 });

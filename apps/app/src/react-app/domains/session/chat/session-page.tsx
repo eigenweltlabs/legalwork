@@ -214,6 +214,7 @@ export type SessionPageProps = {
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
   respondQuestion?: (requestID: string, answers: string[][]) => void;
+  onOpenInteractionSession?: (sessionId: string) => void;
   statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   onOpenProviderAuth?: () => void;
@@ -1482,6 +1483,7 @@ export function SessionPage(props: SessionPageProps) {
                         activeQuestion={props.activeQuestion}
                         questionReplyBusy={props.questionReplyBusy}
                         respondQuestion={props.respondQuestion}
+                        onOpenInteractionSession={props.onOpenInteractionSession}
                         safeStringify={props.safeStringify}
                         onOpenTarget={openTarget}
                         realtimeVoiceSupported={realtimeVoiceSupported}

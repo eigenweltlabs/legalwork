@@ -5,11 +5,14 @@ import { Check, ChevronRight, HelpCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { InteractionSource } from "../chat/interaction-source";
 
 export type QuestionPanelProps = {
   questions: QuestionInfo[];
   busy: boolean;
   onReply: (answers: string[][]) => void;
+  sourceSession?: { id: string; title: string };
+  onOpenSession?: (sessionId: string) => void;
 };
 
 type QuestionState = {
@@ -148,6 +151,7 @@ export function QuestionPanel(props: QuestionPanelProps) {
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
+      <InteractionSource session={props.sourceSession} onOpenSession={props.onOpenSession} />
       <div className="border-b border-dls-border px-4 py-3">
         <div className="flex items-start gap-2.5">
           <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-blue-7/30 bg-blue-3/20 text-blue-11">

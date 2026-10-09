@@ -1190,8 +1190,8 @@ export function SessionRoute() {
     todos,
   } = useSessionInteractions({
     client: opencodeClient,
-    serverClient: client,
-    workspaceId: selectedWorkspaceId,
+    serverClient: selectedWorkspaceEndpoint?.client,
+    workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? "",
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,
   });
@@ -2740,6 +2740,7 @@ export function SessionRoute() {
       activeQuestion={activeQuestion}
       questionReplyBusy={questionReplyBusy}
       respondQuestion={respondQuestion}
+      onOpenInteractionSession={navigateToSessionForControl}
       safeStringify={safeStringify}
       onRenameSession={
         opencodeClient
