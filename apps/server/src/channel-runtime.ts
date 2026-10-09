@@ -18,9 +18,13 @@ export const ChannelCommand = ChannelOwner.extend({ id: z.uuid(), command: z.dis
     patch: z.strictObject({ title: z.string().min(1).max(500).optional(), prompt: z.string().max(20000).optional(), status: z.enum(["active", "paused"]).optional() }) }),
 ]) }).strict();
 export const ChannelFileResult = z.strictObject({ path: z.string(), workspaceId: z.string(), filename: z.string(), contentType: z.string(), size: z.number().int().nonnegative() });
+export const ChannelLiveEvent = z.strictObject({ key: z.string().regex(/^[a-f0-9]{64}$/), event: z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("message.created"), text: z.string().min(1).max(65536) }),
+  z.strictObject({ type: z.literal("reaction.changed"), messageId: z.string().min(1).max(512), emoji: z.enum(["👍", "❤️", "😊", "🎉", "👀", "✅"]) }),
+]) });
 const Receipt = ChannelInput.extend({ fingerprint: z.string(), workspaceId: z.string(), sessionId: z.string(), messageId: z.string(),
   state: z.enum(["accepted", "sending", "running", "completed", "failed"]), textResult: z.string().nullable(),
-  files: z.array(ChannelFileResult), code: z.string().nullable(), createdAt: z.number(), updatedAt: z.number(),
+  files: z.array(ChannelFileResult), events: z.array(ChannelLiveEvent).max(256).default([]), code: z.string().nullable(), createdAt: z.number(), updatedAt: z.number(),
 });
 export type ChannelReceipt = z.infer<typeof Receipt>;
 type Target = Pick<ChannelReceipt, "workspaceId" | "sessionId" | "messageId">;
@@ -30,7 +34,7 @@ export type ChannelEngine = {
   hasMessage: (target: Target) => Promise<boolean>;
   busy: (target: Target) => Promise<boolean>;
   send: (receipt: ChannelReceipt) => Promise<void>;
-  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; code?: string }>;
+  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; code?: string }>;
 };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
@@ -139,6 +143,15 @@ export class ChannelRuntime {
       receipt.state = "failed"; receipt.code = "dispatch_uncertain"; this.save(receipt); return receipt;
     }
     const result = await this.engine.result(receipt);
+    for (const event of result.events ?? []) {
+      const parsed = ChannelLiveEvent.parse(event);
+      const previous = receipt.events.find(item => item.key === parsed.key);
+      if (previous && digest(previous) !== digest(parsed)) throw new ApiError(409, "channel_event_changed", "A completed channel event changed.");
+      if (!previous) receipt.events.push(parsed);
+    }
+    // Complete bubbles are retained with the receipt, including across engine
+    // compaction or a controller restart. Partial model text is never journaled.
+    z.array(ChannelLiveEvent).max(256).parse(receipt.events);
     receipt.state = result.state;
     receipt.textResult = result.text ?? null; receipt.files = result.files ?? [];
     receipt.code = result.code ?? null; this.save(receipt); return receipt;

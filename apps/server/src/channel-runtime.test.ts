@@ -3,23 +3,26 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { ChannelRuntime, type ChannelEngine } from "./channel-runtime.js";
+import { ChannelRuntime, type ChannelEngine, type ChannelLiveEvent } from "./channel-runtime.js";
+import type { z } from "zod";
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "legalwork-channel-runtime-"));
   let sends = 0, hasMessage = false, busy = false, complete = false, available = true, uncertain = false;
   let now = Date.now();
+  let events: z.infer<typeof ChannelLiveEvent>[] = [];
   const engine: ChannelEngine = {
     current: async () => ({ workspaceId: "owned-assistant", sessionId: "daily-session" }), validate: async () => {},
     hasMessage: async () => hasMessage, busy: async () => busy,
     send: async () => { sends++; hasMessage = true; busy = true; if (uncertain) throw new Error("lost response"); },
-    result: async () => complete ? { state: "completed", text: "Real final reply" } : { state: "running" },
+    result: async () => complete ? { state: "completed", text: "Real final reply", events } : { state: "running", events },
   };
   let runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available, () => now);
   const input = { id: randomUUID(), userId: "user-a", orgId: "org-a", conversationId: randomUUID(), channel: "ios", text: "Please help", attachments: [] };
   return { input, get runtime() { return runtime; }, get sends() { return sends; },
     finish: () => { complete = true; busy = false; }, revoke: () => { available = false; }, uncertain: () => { uncertain = true; },
     missing: () => { hasMessage = false; }, persisted: () => { hasMessage = true; }, expireAcceptance: () => { now += 30001; },
+    progress: (text="Acknowledged before work completes") => { events=[{key:"a".repeat(64),event:{type:"message.created",text}}]; }, compact: () => { events=[]; },
     reopen: async () => { runtime.close(); runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available, () => now); },
     close: async () => { runtime.close(); await rm(root, { recursive: true, force: true }); },
   };
@@ -31,6 +34,21 @@ test("a lost dispatch response and process restart recover the same engine messa
     f.finish(); const result = await f.runtime.inspect(f.input.id); expect(result.textResult).toBe("Real final reply");
     await f.reopen(); expect((await f.runtime.accept(f.input)).textResult).toBe(result.textResult); expect(f.sends).toBe(1);
   } finally { await f.close(); }
+});
+test("live completed bubbles survive receipt replay, engine compaction and process restart exactly once", async () => {
+  const f=await fixture();try {
+    await f.runtime.accept(f.input);f.progress();const early=await f.runtime.inspect(f.input.id);
+    expect(early.state).toBe("running");expect(early.events).toHaveLength(1);
+    await f.reopen();expect((await f.runtime.accept(f.input)).events).toEqual(early.events);expect(f.sends).toBe(1);
+    f.compact();f.finish();expect((await f.runtime.inspect(f.input.id)).events).toEqual(early.events);
+    await f.reopen();expect((await f.runtime.inspect(f.input.id)).events).toEqual(early.events);
+  }finally { await f.close(); }
+});
+test("a completed bubble cannot change under the same replay identity", async () => {
+  const f=await fixture();try {
+    await f.runtime.accept(f.input);f.progress();await f.runtime.inspect(f.input.id);f.progress("Changed body");
+    await expect(f.runtime.inspect(f.input.id)).rejects.toThrow("completed channel event changed");
+  }finally { await f.close(); }
 });
 test("unknown outcome without an engine message fails rather than replaying a consequential prompt", async () => {
   const f = await fixture(); try {

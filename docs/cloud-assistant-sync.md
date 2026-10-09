@@ -114,13 +114,25 @@ Lease cancellation stops only the still-active job and its delegated children;
 cancelling an already completed receipt cannot stop a newer turn.
 
 Prompts run through the existing Main Assistant with ordinary permissions.
-Only final text and explicit verified share-file tool results leave through the
-channel. Incoming media is confined to `LEGALWORK_CHANNEL_INBOX/<jobId>`;
+Completed public prose and validated reaction-tool results are journaled with
+stable IDs in the receipt while the turn is still active, so acknowledgements
+can reach mobile before later tools finish. The controller maps the guest human
+message ID to the originating channel event and publishes under its current
+backend lease. Final prose is not duplicated at completion. Synthetic/ignored
+text, reasoning, arbitrary tool output and partial model tokens stay private;
+model-only app-state reminder footers are excluded from reaction/file payloads.
+Only explicit verified share-file tool results become downloadable files.
+Incoming media is confined to `LEGALWORK_CHANNEL_INBOX/<jobId>`;
 deliverables refer to their original project files. Approvals/questions validate
 the pending request revision, schedule updates validate the current task revision,
 and stop commands include assistant delegations and real child sessions. The
 Model API owns queue claims, membership checks, outbound channel delivery and
 mobile runtime revisions; no machine/platform bearer is copied into the guest.
+Typing is refreshed during active work and stopped on completion/failure; expiry
+clears it if ownership or access is lost. Later automatic delegated-result turns
+that begin after this channel job completed still need their own durable channel
+correlation and delivery path. This change does not implement desktop/cloud
+onboarding or change execution ownership rules.
 
 ## Cloud browser tools
 
