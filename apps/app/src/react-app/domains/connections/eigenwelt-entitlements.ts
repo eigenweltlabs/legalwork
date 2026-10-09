@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import type {
   EigenweltEntitlements,
@@ -18,6 +18,7 @@ import { getReactQueryClient } from "../../infra/query-client";
  */
 
 const EIGENWELT_ENTITLEMENTS_ROOT = ["eigenwelt-entitlements"] as const;
+let lastAccessErrorRefreshAt = 0;
 
 export function eigenweltEntitlementsQueryKey() {
   return EIGENWELT_ENTITLEMENTS_ROOT;
@@ -27,6 +28,18 @@ export function eigenweltEntitlementsQueryKey() {
 export function invalidateEigenweltEntitlements() {
   const queryClient = getReactQueryClient();
   void queryClient.invalidateQueries({ queryKey: EIGENWELT_ENTITLEMENTS_ROOT });
+}
+
+/** Live and saved errors can describe the same failure repeatedly. Refresh
+ * once per short interval so transcript renders cannot cause a request loop. */
+export function refreshEigenweltEntitlementsAfterAccessError() {
+  const now = Date.now();
+  if (now - lastAccessErrorRefreshAt < 20_000) return;
+  lastAccessErrorRefreshAt = now;
+  void getReactQueryClient().invalidateQueries(
+    { queryKey: EIGENWELT_ENTITLEMENTS_ROOT },
+    { cancelRefetch: false },
+  );
 }
 
 /** True when the firm's plan grants a specific gated feature. */
@@ -43,27 +56,28 @@ export function eigenweltBillingUrl(platformURL: string | null | undefined): str
   return `${base}/billing`;
 }
 
-export function useEigenweltEntitlements(input: {
+export function eigenweltEntitlementsQueryOptions(input: {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   enabled?: boolean;
 }) {
-  return useQuery({
+  return queryOptions({
     queryKey: eigenweltEntitlementsQueryKey(),
     enabled: Boolean(input.enabled !== false && input.client && input.workspaceId),
     staleTime: 20_000,
-    // Keep entitlements live: each read makes the server opportunistically
-    // refresh its access token (rotating) and pull the current plan/usage AND
-    // the firm's model list, so a plan change or a model an admin turned on or
-    // off on the platform propagates without re-signing-in. Short staleness so
-    // switching back to the app after a change on the platform picks it up.
+    // Force a platform refresh: a valid 15-minute access token must not keep
+    // serving the previous subscription after the gateway revokes access.
     refetchOnWindowFocus: true,
     refetchInterval: (query) => query.state.data?.reconnecting ? 15_000 : 5 * 60_000,
     queryFn: async (): Promise<EigenweltEntitlementsView> => {
       if (!input.client || !input.workspaceId) {
         return { entitlements: null, account: null, platformURL: null, connected: false };
       }
-      return input.client.eigenweltEntitlements(input.workspaceId);
+      return input.client.eigenweltEntitlements(input.workspaceId, { refresh: true });
     },
   });
+}
+
+export function useEigenweltEntitlements(input: Parameters<typeof eigenweltEntitlementsQueryOptions>[0]) {
+  return useQuery(eigenweltEntitlementsQueryOptions(input));
 }

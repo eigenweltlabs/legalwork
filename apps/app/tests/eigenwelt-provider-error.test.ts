@@ -3,7 +3,15 @@
  * device was replaced or revoked) must surface as "sign in again", not as the
  * raw 401 body, on both chat error paths (request errors and session errors).
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { QueryObserver } from "@tanstack/react-query";
+import { getReactQueryClient } from "../src/react-app/infra/query-client";
+import { eigenweltEntitlementsQueryKey, eigenweltEntitlementsQueryOptions } from "../src/react-app/domains/connections/eigenwelt-entitlements";
+import { createLegalworkServerClient, type EigenweltEntitlementsView } from "../src/app/lib/legalwork-server";
+import { aiAccessState } from "../src/app/lib/eigenwelt-access";
+import { t } from "../src/i18n";
+
+afterEach(() => getReactQueryClient().clear());
 
 import {
   eigenweltModelDisabledMessage,
@@ -23,18 +31,18 @@ describe("isEigenweltModelDisabledError", () => {
     expect(isEigenweltModelDisabledError({ texts: [LITELLM_DEAD_KEY_BODY, undefined] })).toBe(false);
   });
 
-  test("a 403 for a model the firm turned off reads as such, not as an expired sign-in", () => {
+  test("an access denial does not blame sign-in or an administrator without current account state", () => {
     const text = describeOpencodeSessionError({
       name: "APIError",
       message: LITELLM_MODEL_OFF_BODY,
       statusCode: 403,
       providerID: "eigenwelt",
     });
-    expect(text.startsWith(eigenweltModelDisabledMessage())).toBe(true);
+    expect(text).toBe(t("session_route.model_unavailable"));
     expect(text).not.toContain(eigenweltSignInExpiredMessage());
     expect(text).not.toContain("team_model_access_denied");
     expect(describeOpencodeSessionError(new Error(LITELLM_MODEL_OFF_BODY))).toBe(
-      eigenweltModelDisabledMessage(),
+      t("session_route.model_unavailable"),
     );
   });
 });
@@ -56,9 +64,9 @@ describe("isEigenweltSignInExpiredError", () => {
     ).toBe(true);
   });
 
-  test("treats any 401/403 from the eigenwelt provider as an expired sign-in", () => {
+  test("only a 401 from the eigenwelt provider means the sign-in expired", () => {
     expect(isEigenweltSignInExpiredError({ status: 401, provider: "eigenwelt", texts: [] })).toBe(true);
-    expect(isEigenweltSignInExpiredError({ status: 403, provider: "eigenwelt", texts: [] })).toBe(true);
+    expect(isEigenweltSignInExpiredError({ status: 403, provider: "eigenwelt", texts: [] })).toBe(false);
   });
 
   test("leaves other providers and other failures alone", () => {
@@ -90,7 +98,7 @@ describe("describeOpencodeSessionError", () => {
     expect(text.startsWith(eigenweltSignInExpiredMessage())).toBe(true);
     expect(text).not.toContain("token_not_found_in_db");
     expect(text).not.toContain("LiteLLM_VerificationTokenTable");
-    expect(text).toContain("Status: 401");
+    expect(text).not.toContain("Status: 401");
   });
 
   test("handles the body arriving as a plain Error message", () => {
@@ -105,5 +113,113 @@ describe("describeOpencodeSessionError", () => {
     });
     expect(text).toContain("Rate limit exceeded");
     expect(text).not.toContain(eigenweltSignInExpiredMessage());
+  });
+});
+
+
+describe("subscription expiry recovery", () => {
+  function expiredAccount() {
+    getReactQueryClient().setQueryData(eigenweltEntitlementsQueryKey(), {
+      connected: true,
+      platformURL: "https://platform.example.test",
+      account: { orgName: "Example Firm" },
+      entitlements: { plan: null, subscriptionStatus: "canceled", features: [], seats: 3 },
+    });
+  }
+
+  test("a lapsed subscription is not blamed on sign-in or an administrator", () => {
+    expiredAccount();
+    const text = describeOpencodeSessionError({ name: "APIError", data: {
+      message: "Forbidden", statusCode: 403, responseBody: LITELLM_MODEL_OFF_BODY,
+    } }, "Session failed", "eigenwelt");
+    expect(text).toContain(t("ai_plans.title_ended"));
+    expect(text).toContain("Example Firm");
+    expect(text).toContain("Restart a plan");
+    expect(text).not.toContain(eigenweltSignInExpiredMessage());
+    expect(text).not.toContain(eigenweltModelDisabledMessage());
+    expect(text).not.toContain("403");
+    expect(text).not.toContain("team_model_access_denied");
+  });
+
+  test("the same expiry is explained when OpenCode only sends a string", () => {
+    expiredAccount();
+    expect(describeOpencodeSessionError(new Error(LITELLM_MODEL_OFF_BODY))).toContain(t("ai_plans.title_ended"));
+  });
+
+  test("an unclassified Eigenwelt 403 does not tell the user to sign in again", () => {
+    const text = describeOpencodeSessionError({ data: {
+      message: "Forbidden", statusCode: 403, responseBody: "<html>403 Forbidden</html>",
+    } }, "Session failed", "eigenwelt");
+    expect(text).toBe(t("session_route.model_unavailable"));
+  });
+
+  test("a subscription-required response has renewal guidance", () => {
+    const text = describeOpencodeSessionError({ data: {
+      statusCode: 403, providerID: "eigenwelt", responseBody: '{"code":"subscription_required"}',
+    } });
+    expect(text).toContain(t("ai_plans.title_ended"));
+    expect(text).not.toContain("subscription_required");
+  });
+
+  test("an unrelated provider keeps its own access error despite the expired Eigenwelt plan", () => {
+    expiredAccount();
+    const text = describeOpencodeSessionError({ data: {
+      statusCode: 403, providerID: "openai", message: "Forbidden", responseBody: "OpenAI access denied",
+    } });
+    expect(text).toContain("OpenAI access denied");
+    expect(text).not.toContain(t("ai_plans.title_ended"));
+  });
+
+  test("a denial refreshes a recently cached active plan and opens the ended-plan screen", async () => {
+    const queryClient = getReactQueryClient();
+    const account = { userId: "user_1", userName: null, userEmail: null, orgId: "org_1", orgName: "Example Firm" };
+    const initial: EigenweltEntitlementsView = {
+      connected: true, account, platformURL: "https://platform.example.test",
+      entitlements: { plan: "pro", subscriptionStatus: "active", trialEndsAt: null, seats: 3,
+        features: ["premium_models"],
+        usage: { window: "week", allowanceCents: 100, remainingCents: 100, usedPercent: 0, resetsAt: null,
+          dailyAllowanceCents: 100, dailyRemainingCents: 100, extraUsageEnabled: false, prepaidBalanceCents: 0 },
+      },
+    };
+    const expired: EigenweltEntitlementsView = {
+      ...initial,
+      entitlements: initial.entitlements ? { ...initial.entitlements, plan: null, subscriptionStatus: "canceled", features: [] } : null,
+    };
+    const requests: string[] = [];
+    const server = Bun.serve({ port: 0, fetch(request) {
+      const url = new URL(request.url);
+      requests.push(`${url.pathname}${url.search}`);
+      return Response.json(url.searchParams.get("refresh") === "1" ? expired : initial);
+    } });
+    const options = eigenweltEntitlementsQueryOptions({
+      client: createLegalworkServerClient({ baseUrl: server.url.href }), workspaceId: "workspace_1",
+    });
+    const now = Date.now();
+    const clock = spyOn(Date, "now").mockReturnValue(now + 60_000);
+    queryClient.setQueryData(options.queryKey, initial);
+    const observer = new QueryObserver(queryClient, options);
+    let unsubscribe = () => {};
+    try {
+      const refreshed = new Promise<void>((resolve) => {
+        unsubscribe = observer.subscribe((result) => {
+          if (result.data?.entitlements?.subscriptionStatus === "canceled") resolve();
+        });
+      });
+      const error = { statusCode: 403, providerID: "eigenwelt", responseBody: LITELLM_MODEL_OFF_BODY };
+      describeOpencodeSessionError(error);
+      describeOpencodeSessionError(error);
+      await refreshed;
+      expect(requests).toEqual(["/workspace/workspace_1/eigenwelt/entitlements?refresh=1"]);
+      const view = queryClient.getQueryData<EigenweltEntitlementsView>(options.queryKey);
+      expect(aiAccessState({ connectedProviders: [{ id: "eigenwelt", models: { claude: {} } }],
+        eigenwelt: view, signedInBefore: true })).toBe("ended");
+      expect(describeOpencodeSessionError(error)).toContain(t("ai_plans.title_ended"));
+      expect(aiAccessState({ connectedProviders: [{ id: "openai", models: { gpt: {} } }],
+        eigenwelt: view, signedInBefore: true })).toBe("ready");
+    } finally {
+      unsubscribe();
+      clock.mockRestore();
+      server.stop(true);
+    }
   });
 });

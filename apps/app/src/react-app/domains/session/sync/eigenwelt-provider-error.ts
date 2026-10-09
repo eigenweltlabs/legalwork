@@ -1,5 +1,18 @@
 import { EIGENWELT_PROVIDER_ID } from "../../../../app/lib/eigenwelt-budget";
 import { t } from "../../../../i18n";
+import { isEigenweltEntitledStatus } from "../../../../app/lib/eigenwelt-trial";
+import type { EigenweltEntitlementsView } from "../../../../app/lib/legalwork-server";
+import { getReactQueryClient } from "../../../infra/query-client";
+import {
+  eigenweltEntitlementsQueryKey,
+  refreshEigenweltEntitlementsAfterAccessError,
+} from "../../connections/eigenwelt-entitlements";
+
+type EigenweltProviderError = {
+  status: number | null;
+  provider: string | null;
+  texts: Array<string | null | undefined>;
+};
 
 /**
  * The gateway's answer when the key behind a request no longer exists
@@ -9,16 +22,12 @@ import { t } from "../../../../i18n";
  */
 const SIGN_IN_EXPIRED_MARKERS = ["token_not_found_in_db", "Invalid proxy server token"];
 
-export function isEigenweltSignInExpiredError(input: {
-  status: number | null;
-  provider: string | null;
-  texts: Array<string | null | undefined>;
-}): boolean {
+export function isEigenweltSignInExpiredError(input: EigenweltProviderError): boolean {
   const mentionsDeadKey = input.texts.some(
     (text) => Boolean(text) && SIGN_IN_EXPIRED_MARKERS.some((marker) => text!.includes(marker)),
   );
   if (mentionsDeadKey) return true;
-  return (input.status === 401 || input.status === 403) && input.provider === EIGENWELT_PROVIDER_ID;
+  return input.status === 401 && input.provider === EIGENWELT_PROVIDER_ID;
 }
 
 export function eigenweltSignInExpiredMessage(): string {
@@ -26,10 +35,8 @@ export function eigenweltSignInExpiredMessage(): string {
 }
 
 /**
- * The gateway's answer when the firm's admin turned the requested model off
- * on the Eigenwelt platform (LiteLLM's `team_model_access_denied`, a 403).
- * Checked BEFORE the sign-in check: a 403 from the eigenwelt provider would
- * otherwise read as an expired sign-in.
+ * LiteLLM's model-access denial. A subscription lapse and an administrator
+ * disabling the requested model produce the same markers.
  */
 const MODEL_OFF_MARKERS = [
   "team_model_access_denied",
@@ -47,4 +54,30 @@ export function isEigenweltModelDisabledError(input: {
 
 export function eigenweltModelDisabledMessage(): string {
   return t("app.error_eigenwelt_model_off");
+}
+
+/** A gateway allowlist denial cannot distinguish a disabled model from a
+ * lapsed subscription. Use the account state and refresh it, rather than
+ * blaming an administrator or asking a subscribed user to sign in again. */
+export function eigenweltProviderRecoveryMessage(input: EigenweltProviderError): string | null {
+  if (input.provider && input.provider !== EIGENWELT_PROVIDER_ID) return null;
+  if (isEigenweltSignInExpiredError(input)) return eigenweltSignInExpiredMessage();
+
+  const subscriptionRequired = input.texts.some((text) =>
+    text?.includes("subscription_required") || text?.includes("subscription required"),
+  );
+  const accessDenied = subscriptionRequired || isEigenweltModelDisabledError(input) ||
+    (input.status === 403 && input.provider === EIGENWELT_PROVIDER_ID);
+  if (!accessDenied) return null;
+
+  const view = getReactQueryClient().getQueryData<EigenweltEntitlementsView>(eigenweltEntitlementsQueryKey());
+  const ended = view?.connected && view.entitlements &&
+    !isEigenweltEntitledStatus(view.entitlements.subscriptionStatus);
+  refreshEigenweltEntitlementsAfterAccessError();
+  if (subscriptionRequired || ended) {
+    return `${t("ai_plans.title_ended")} ${t("ai_plans.subtitle_ended", {
+      firm: view?.account?.orgName ?? t("ai_plans.your_firm"),
+    })}`;
+  }
+  return t("session_route.model_unavailable");
 }
