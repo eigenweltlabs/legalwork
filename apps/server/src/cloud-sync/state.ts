@@ -26,7 +26,11 @@ export const RUNTIME_TABLES = new Set([
   "tasks", "task_projects", "task_sessions", "task_notes", "task_attachments", "task_flags", "task_text_conflicts", "task_notifications",
   "calendar_items", "calendar_history", "deadline_calculations", "calculation_runs", "calculation_presentations", "calendar_conflicts", "calendar_reminders",
 ]);
-export const ENGINE_TABLES = new Set(["project", "workspace", "session", "message", "part", "todo", "permission", "migration", "__drizzle_migrations"]);
+export const ENGINE_TABLES = new Set(["project", "project_directory", "workspace", "session", "message", "part", "todo", "permission",
+  "session_context_epoch", "session_input", "session_message", "event", "event_sequence", "data_migration", "migration", "__drizzle_migrations"]);
+// Migrations have already run in a snapshot. Dropping these tables while
+// retaining migration receipts breaks the engine; keep their empty schemas.
+const ENGINE_EMPTY_TABLES = new Set(["account", "account_state", "control_account", "credential", "session_share"]);
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 export const PORTABLE_CONFIG_FIELDS = new Set(["default_agent", "disabled_providers", "permission", "personalization", "agent"]);
 
@@ -85,7 +89,7 @@ async function copyDatabase(source: string, destination: string) {
 
 async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projects: SyncProject[], roots?: Map<string, string>) {
   const db = await openSqlite(path);
-  const allowed = kind === "runtime" ? RUNTIME_TABLES : ENGINE_TABLES;
+  const allowed = kind === "runtime" ? RUNTIME_TABLES : new Set([...ENGINE_TABLES, ...ENGINE_EMPTY_TABLES]);
   try {
     if (db.get("PRAGMA integrity_check")?.integrity_check !== "ok") throw new Error("Invalid checkpoint database");
     db.exec("PRAGMA foreign_keys = OFF; PRAGMA secure_delete = ON");
@@ -94,6 +98,9 @@ async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projec
       if (row.type !== "table" || !allowed.has(String(row.name))) db.exec(`DROP ${String(row.type).toUpperCase()} IF EXISTS ${quote(String(row.name))}`);
     }
     const tables = db.all("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").map(row => String(row.name));
+    if (kind === "engine") for (const table of ENGINE_EMPTY_TABLES) {
+      if (tables.includes(table)) db.exec(`DELETE FROM ${quote(table)}`);
+    }
     if (kind === "runtime" && tables.includes("runtime_opencode_configs")) {
       for (const row of db.all("SELECT workspace_id, config_json FROM runtime_opencode_configs")) {
         const parsed = portableConfig(JSON.parse(String(row.config_json)));
@@ -112,12 +119,23 @@ async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projec
       // A private LegalWork checkpoint must not adopt unrelated standalone chats.
       db.exec("CREATE TEMP TABLE kept_sessions (id TEXT PRIMARY KEY)");
       for (const id of ids) db.run("INSERT INTO kept_sessions VALUES (?)", [id]);
-      for (const table of ["part", "message", "todo"]) {
+      for (const table of ["part", "message", "todo", "session_context_epoch", "session_input", "session_message"]) {
         if (tables.includes(table) && db.all(`PRAGMA table_info(${quote(table)})`).some(column => column.name === "session_id")) {
           db.run(`DELETE FROM ${quote(table)} WHERE session_id NOT IN (SELECT id FROM kept_sessions)`);
         }
       }
       db.run("DELETE FROM session WHERE id NOT IN (SELECT id FROM kept_sessions)");
+      for (const table of ["event", "event_sequence"]) {
+        if (tables.includes(table)) db.run(`DELETE FROM ${quote(table)} WHERE aggregate_id NOT IN (SELECT id FROM kept_sessions)`);
+      }
+      if (tables.includes("event_sequence") && db.all("PRAGMA table_info(event_sequence)").some(column => column.name === "owner_id"))
+        db.exec("UPDATE event_sequence SET owner_id = NULL");
+      if (tables.includes("project_directory")) {
+        for (const row of db.all("SELECT project_id, directory FROM project_directory")) {
+          if (!projects.some(project => String(row.directory) === project.sourcePath || String(row.directory).startsWith(`${project.sourcePath}${sep}`)))
+            db.run("DELETE FROM project_directory WHERE project_id = ? AND directory = ?", [String(row.project_id), String(row.directory)]);
+        }
+      }
       if (columns.some(column => column.name === "parent_id")) db.run("UPDATE session SET parent_id = NULL WHERE parent_id NOT IN (SELECT id FROM kept_sessions)");
       if (columns.some(column => column.name === "project_id")) {
         for (const table of ["project", "permission"]) {
@@ -143,7 +161,7 @@ async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projec
             if (typeof value !== "string") continue;
             let mapped: unknown = value;
             if (["directory", "worktree", "path"].includes(name)) mapped = remapPaths(value, projects, roots);
-            else if (name === "data" || name.endsWith("_json")) {
+            else if (["data", "baseline", "snapshot"].includes(name) || name.endsWith("_json")) {
               try { mapped = JSON.stringify(remapPaths(JSON.parse(value), projects, roots)); } catch { continue; }
             }
             if (typeof mapped === "string" && mapped !== value) {
@@ -239,6 +257,12 @@ export async function exportCheckpoint(config: ServerConfig, store: SyncObjects,
       await copyDatabase(source, destination);
       await sanitizeDatabase(destination, kind, projects);
       if (kind === "runtime" && options.companionSeed) await prepareCompanionSeed(destination);
+      if (kind === "engine" && options.companionSeed) {
+        const db = await openSqlite(destination);
+        try {
+          if (db.get("SELECT name FROM sqlite_master WHERE name = 'session_input'")) db.exec("PRAGMA secure_delete = ON; DELETE FROM session_input; VACUUM");
+        } finally { db.close?.(); }
+      }
       return putBlob(store, destination);
     };
     return CheckpointSchema.parse({ version: 1, engineVersion: constants.opencodeVersion,

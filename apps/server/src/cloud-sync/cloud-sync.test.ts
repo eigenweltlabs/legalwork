@@ -49,6 +49,28 @@ async function store() { const result = await DirectoryObjects.open(join(root, "
 const settings = (deviceId: string, role: "files" | "executor" | "companion" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
 
 describe("private replica checkpoints", () => {
+  test("engine snapshots retain required empty credential schemas and scoped event history", async () => {
+    const source = await config("desktop"), remote = await store();
+    const db = await database(join(dirname(runtimeDbPath(source)), MANAGED_ENGINE_DB_FILENAME));
+    db.exec("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT); CREATE TABLE event (id TEXT PRIMARY KEY, aggregate_id TEXT, data TEXT); CREATE TABLE event_sequence (aggregate_id TEXT PRIMARY KEY, seq INTEGER, owner_id TEXT); CREATE TABLE account (id TEXT PRIMARY KEY, access_token TEXT); CREATE TABLE account_state (id INTEGER PRIMARY KEY, active_account_id TEXT); CREATE TABLE credential (id TEXT PRIMARY KEY, value TEXT); CREATE TABLE session_input (id TEXT PRIMARY KEY, session_id TEXT, prompt TEXT)");
+    db.run("INSERT INTO session VALUES (?, ?)", ["kept", source.workspaces[0].path]);
+    db.run("INSERT INTO session VALUES (?, ?)", ["outside", "/unrelated"]);
+    db.exec("INSERT INTO event VALUES ('e1', 'kept', '{}'), ('e2', 'outside', '{}'); INSERT INTO event_sequence VALUES ('kept', 2, 'old-host'), ('outside', 3, 'old-host'); INSERT INTO account VALUES ('a', 'PRIVATE_ACCOUNT_SECRET'); INSERT INTO account_state VALUES (1, 'a'); INSERT INTO credential VALUES ('c', 'PRIVATE_CREDENTIAL_SECRET'); INSERT INTO session_input VALUES ('queued', 'kept', 'Pending desktop prompt')");
+    const checkpoint = await exportCheckpoint(source, remote, { companionSeed: true });
+    const copy = join(root, "engine-seed.sqlite"); await getBlob(remote, checkpoint.engine!, copy);
+    const restored = new Database(copy, { readonly: true });
+    try {
+      expect(restored.query("SELECT * FROM account").all()).toEqual([]);
+      expect(restored.query("SELECT * FROM account_state").all()).toEqual([]);
+      expect(restored.query("SELECT * FROM credential").all()).toEqual([]);
+      expect(restored.query("SELECT * FROM session_input").all()).toEqual([]);
+      expect(restored.query("SELECT id FROM event").all()).toEqual([{ id: "e1" }]);
+      expect(restored.query("SELECT * FROM event_sequence").all()).toEqual([{ aggregate_id: "kept", seq: 2, owner_id: null }]);
+      const bytes = (await readFile(copy)).toString();
+      expect(bytes).not.toContain("PRIVATE_ACCOUNT_SECRET"); expect(bytes).not.toContain("PRIVATE_CREDENTIAL_SECRET");
+      expect(db.query("SELECT id FROM account").all()).toEqual([{ id: "a" }]);
+    } finally { restored.close(); }
+  });
   test("companion seeds preserve history without replaying local queues or schedules", async () => {
     const source = await config("desktop"), remote = await store();
     const db = await database(runtimeDbPath(source));
