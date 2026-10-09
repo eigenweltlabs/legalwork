@@ -384,6 +384,11 @@ export function scheduleOrgPolicySync(config: ServerConfig, options: { force?: b
 }
 
 /** Tests: forget the in-memory state for a runtime DB. */
-export function resetOrgPolicyRuntimeForTests(config: ServerConfig): void {
-  runtimes.delete(runtimeDbPath(config));
+export async function resetOrgPolicyRuntimeForTests(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const runtime = runtimes.get(path);
+  if (!runtime) return;
+  await runtime.running;
+  (await runtime.db).close();
+  runtimes.delete(path);
 }

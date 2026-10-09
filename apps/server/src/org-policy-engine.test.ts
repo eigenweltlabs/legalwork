@@ -42,7 +42,7 @@ async function setup(entries: Record<string, unknown>, secrets: Record<string, s
     workspaces: [{ id: "ws_1", name: "Workspace", path: root, preset: "starter", workspaceType: "local" }],
   } as unknown as ServerConfig;
   cleanups.push(async () => {
-    resetOrgPolicyRuntimeForTests(config);
+    await resetOrgPolicyRuntimeForTests(config);
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
     else process.env.LEGALWORK_RUNTIME_DB = previousDb;
     if (previousData === undefined) delete process.env.XDG_DATA_HOME;

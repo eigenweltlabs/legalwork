@@ -1,8 +1,10 @@
 """Boot regressions, run while building each guest architecture."""
 import errno
+import io
 import importlib.util
 from pathlib import Path
 import unittest
+import protocol
 from tempfile import TemporaryDirectory
 from unittest.mock import call, patch
 
@@ -57,6 +59,29 @@ class HostChannelTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 relay.connect_host_channel()
             sleep.assert_not_called()
+
+
+class ProtocolTests(unittest.TestCase):
+    def test_binary_and_empty_file_chunks_survive_short_reads_and_writes(self):
+        class ShortIO(io.BytesIO):
+            def read(self, size=-1):
+                return super().read(min(size, 7))
+            def write(self, data):
+                return super().write(data[:13])
+        for data in [b'', bytes(range(256)) * 512]:
+            message = {'run': 'a' * 32, 'payload': {'event': 'filesystem', 'request': {'op': 'write', 'data': data}}}
+            wire = ShortIO()
+            protocol.write_frame(message, wire)
+            self.assertEqual(message['payload']['request']['data'], data)
+            wire.seek(0)
+            self.assertEqual(protocol.read_frame(wire), message)
+
+    def test_truncated_and_oversized_frames_fail_closed(self):
+        wire = protocol.encode_frame({'id': 'test', 'response': {'result': b'data'}})
+        with self.assertRaises(EOFError):
+            protocol.read_frame(io.BytesIO(wire[:-1]))
+        with self.assertRaises(ValueError):
+            protocol.read_frame(io.BytesIO(b'\xff' * 8))
 
 
 if __name__ == "__main__":

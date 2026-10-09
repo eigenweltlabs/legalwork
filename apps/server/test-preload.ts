@@ -12,7 +12,10 @@ import { join } from "node:path";
  */
 const home = mkdtempSync(join(os.tmpdir(), "legalwork-server-test-home-"));
 const homedir = () => home;
-mock.module("node:os", () => ({ ...os, homedir, default: { ...os, homedir } }));
+// Bun's module mock loses the native availableParallelism binding.
+const hostParallelism = os.availableParallelism();
+const availableParallelism = () => hostParallelism;
+mock.module("node:os", () => ({ ...os, homedir, availableParallelism, default: { ...os, homedir, availableParallelism } }));
 
 // Paths from the shell running the tests could point at the real profile too.
 for (const name of [

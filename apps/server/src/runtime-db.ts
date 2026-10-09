@@ -13,6 +13,7 @@ export type SqlValue = string | number | null;
 export type Row = Record<string, unknown>;
 
 export type SqliteHandle = {
+  close: () => void;
   run: (sql: string, params?: SqlValue[]) => void;
   all: (sql: string, params?: SqlValue[]) => Row[];
   get: (sql: string, params?: SqlValue[]) => Row | undefined;
@@ -24,6 +25,7 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
     const { Database } = await import("bun:sqlite");
     const db = new Database(path, { create: true });
     return {
+      close: () => db.close(),
       run: (sql, params = []) => {
         db.query(sql).run(...params);
       },
@@ -37,6 +39,7 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(path);
   return {
+    close: () => db.close(),
     run: (sql, params = []) => {
       db.prepare(sql).run(...params);
     },

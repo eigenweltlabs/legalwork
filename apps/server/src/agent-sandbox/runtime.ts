@@ -5,10 +5,11 @@ import { readFile, rm } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
+import { encodeFrame, FrameDecoder } from "./protocol.js";
+import { hostNeedsMemory, WARM_IDLE_MS } from "./resources.js";
 
 const envelope = z.object({ run: z.string().regex(/^[a-f0-9]{32}$/), payload: z.unknown() });
-const boot = z.object({ protocol: z.literal(4) });
-const FRAME_LIMIT = 24 * 1024 * 1024;
+const boot = z.object({ protocol: z.literal(5) });
 type Run = { receive: (event: unknown) => void; fail: (error: Error) => void };
 
 async function connectPipe(name: string, signal: AbortSignal): Promise<Socket> {
@@ -35,35 +36,32 @@ export class SharedVmRuntime {
   private writer: NodeJS.WritableStream;
   private pipe?: Socket;
   private idle?: ReturnType<typeof setTimeout>;
+  private pressure?: ReturnType<typeof setInterval>;
   private failure?: Error;
   private stderr = "";
   private writes = Promise.resolve();
   private users = 0;
 
   constructor(executable: string, args: string[], diagnostics: string,
-    consolePath: string, private readonly onClose: () => void, pipeName?: string) {
+    consolePath: string, private readonly onClose: () => void, pipeName?: string,
+    private readonly lifecycle = { idleMs: WARM_IDLE_MS, pressurePollMs: 10_000, needsMemory: hostNeedsMemory }, startupMs = 180000) {
     this.child = spawn(executable, args, { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true,
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP } });
     this.writer = this.child.stdin;
-    const timeout = setTimeout(() => this.stop(new Error("Protected runtime startup timed out.")), 180000);
-    let pending = "", started = false;
+    const timeout = setTimeout(() => this.stop(new Error("Protected runtime startup timed out.")), startupMs);
+    const decoder = new FrameDecoder();
+    let started = false;
     this.ready = new Promise<void>((resolve, reject) => {
       this.controller.signal.addEventListener("abort", () => reject(this.failure), { once: true });
       const receive = (chunk: Buffer) => {
-        pending += chunk.toString();
         try {
-          let newline: number;
-          while ((newline = pending.indexOf("\n")) >= 0) {
-            if (newline > FRAME_LIMIT) throw new Error("Sandbox protocol frame exceeded its limit.");
-            const raw: unknown = JSON.parse(pending.slice(0, newline));
-            pending = pending.slice(newline + 1);
+          decoder.push(chunk, (raw) => {
             if (!started) { boot.parse(raw); started = true; clearTimeout(timeout); resolve(); }
             else {
               const event = envelope.parse(raw);
               this.runs.get(event.run)?.receive(event.payload);
             }
-          }
-          if (pending.length > FRAME_LIMIT) throw new Error("Sandbox protocol frame exceeded its limit.");
+          });
         } catch (error) { this.stop(error instanceof Error ? error : new Error(String(error))); }
       };
       if (pipeName) {
@@ -103,7 +101,9 @@ export class SharedVmRuntime {
   stop(error = new Error("Protected runtime stopped.")): void {
     if (this.failure) return;
     this.failure = error;
+    this.setReferenced(true);
     clearTimeout(this.idle);
+    clearInterval(this.pressure);
     this.onClose();
     this.controller.abort(error);
     this.pipe?.destroy();
@@ -112,10 +112,45 @@ export class SharedVmRuntime {
 
   async close(): Promise<void> { this.stop(); await this.closed; }
 
+  async waitUntilReady(): Promise<void> {
+    await this.ready;
+    this.controller.signal.throwIfAborted();
+    this.scheduleIdle();
+  }
+
+  private scheduleIdle(): void {
+    if (this.users || this.failure) return;
+    // Warm VMs must not keep a short-lived CLI or a quitting app alive.
+    // The exit handler still kills the VM when its owner exits.
+    this.setReferenced(false);
+    clearTimeout(this.idle);
+    clearInterval(this.pressure);
+    this.idle = setTimeout(() => this.stop(new Error("Protected runtime was idle.")), this.lifecycle.idleMs);
+    this.idle.unref();
+    this.pressure = setInterval(() => {
+      void this.lifecycle.needsMemory().then((pressure) => {
+        // Recheck after the async sample: a new command may have arrived.
+        if (pressure && !this.users) this.stop(new Error("Idle protected runtime released memory for the host."));
+      }).catch(() => {});
+    }, this.lifecycle.pressurePollMs);
+    this.pressure.unref();
+  }
+
+  private setReferenced(active: boolean): void {
+    if (active) this.child.ref(); else this.child.unref();
+    for (const stream of [this.child.stdin, this.child.stdout, this.child.stderr, this.pipe]) {
+      if (!stream) continue;
+      // Node exposes Socket.ref; Bun's child streams expose the same operation
+      // on Readable. Some write streams have no independent event-loop handle.
+      if (active && "ref" in stream && typeof stream.ref === "function") stream.ref();
+      if (!active && "unref" in stream && typeof stream.unref === "function") stream.unref();
+    }
+  }
+
   private send(message: unknown): Promise<void> {
     this.writes = this.writes.then(async () => {
       this.controller.signal.throwIfAborted();
-      if (!this.writer.write(JSON.stringify(message) + "\n"))
+      if (!this.writer.write(encodeFrame(message)))
         await once(this.writer, "drain", { signal: this.controller.signal });
     });
     return this.writes;
@@ -124,6 +159,8 @@ export class SharedVmRuntime {
   async execute(config: unknown, signal: AbortSignal,
     handle: (event: unknown, reply: (message: unknown) => Promise<void>, finish: (error?: Error) => void) => void): Promise<void> {
     clearTimeout(this.idle);
+    clearInterval(this.pressure);
+    this.setReferenced(true);
     this.users++;
     const ident = randomUUID().replaceAll("-", "");
     try {
@@ -163,11 +200,7 @@ export class SharedVmRuntime {
       });
     } finally {
       this.users--;
-      if (!this.users && !this.failure) {
-        clearTimeout(this.idle);
-        this.idle = setTimeout(() => this.stop(new Error("Protected runtime was idle.")), 30000);
-        this.idle.unref();
-      }
+      this.scheduleIdle();
     }
   }
 }

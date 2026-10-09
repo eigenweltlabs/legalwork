@@ -3,6 +3,7 @@
 !relay.py
 !supervisor.py
 !network.py
+!protocol.py
 !filesystem.py
 !test_relay.py
 !init

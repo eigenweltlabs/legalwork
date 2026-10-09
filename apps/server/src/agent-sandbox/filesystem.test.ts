@@ -25,9 +25,9 @@ async function fixture() {
 }
 const openFile = async (fs: SandboxFilesystem, path: string, write = false, create = false, truncate = false) =>
   z.number().parse(await fs.request({ op: "open", path, write, create, truncate, exclusive: false }));
-const write = (fs: SandboxFilesystem, handle: number, data: string, offset = 0) => fs.request({ op: "write", handle, data: Buffer.from(data).toString("base64"), offset });
+const write = (fs: SandboxFilesystem, handle: number, data: string, offset = 0) => fs.request({ op: "write", handle, data: Buffer.from(data), offset });
 const read = async (fs: SandboxFilesystem, handle: number, offset = 0, size = 128) =>
-  Buffer.from(z.string().parse(await fs.request({ op: "read", handle, offset, size })), "base64").toString();
+  z.instanceof(Buffer).parse(await fs.request({ op: "read", handle, offset, size })).toString();
 
 test("multi-gigabyte folders and files are read in chunks without a snapshot", async () => {
   const f = await fixture();

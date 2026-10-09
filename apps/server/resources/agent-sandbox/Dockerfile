@@ -9,7 +9,7 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY requirements.txt /opt/legalwork/requirements.txt
 RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
     && pip freeze > /opt/legalwork/python-packages.txt
-COPY relay.py supervisor.py network.py /opt/legalwork/
+COPY relay.py supervisor.py network.py protocol.py /opt/legalwork/
 COPY filesystem.py /opt/legalwork/filesystem.py
 COPY test_relay.py /opt/legalwork/test_relay.py
 RUN python3 -B /opt/legalwork/test_relay.py && rm /opt/legalwork/test_relay.py

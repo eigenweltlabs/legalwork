@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir, totalmem } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -10,7 +10,8 @@ import { brokerRequest, prepareOutboundRequest, type OutboundRequest, networkMod
 import { validateMounts, type SandboxMount } from "./files.js";
 import { SandboxFilesystem, filesystemError, filesystemRequestSchema } from "./filesystem.js";
 import { SharedVmRuntime } from "./runtime.js";
-import { canUseMacHypervisor } from "./acceleration.js";
+import { bootWithFallback, canUseMacHypervisor, type Accelerator } from "./acceleration.js";
+import { vmResources } from "./resources.js";
 export { validateMounts, within, type SandboxMount } from "./files.js";
 
 const exec = promisify(execFile);
@@ -96,21 +97,34 @@ export class VmSandbox {
     const nativeMac = this.acceleration === "auto" && process.platform === "darwin" && (arm ? process.arch === "arm64" : process.arch === "x64") &&
       await exec("/usr/sbin/sysctl", ["-i", "kern.hv_support", "kern.hv_vmm_present", "hw.optional.arm64"], { timeout: 5000 })
         .then(({ stdout }) => canUseMacHypervisor(manifest.architecture, stdout), () => false);
-    const diagnostics = await mkdtemp(join(tmpdir(), "legalwork-vm-"));
-    const consolePath = join(diagnostics, "console.log");
-    // QEMU's Windows stdio drops input when the guest cannot accept a byte.
-    // Its named-pipe backend preserves backpressure for binary file transfers.
-    const pipeName = process.platform === "win32" ? `legalwork-${randomUUID()}` : undefined;
-    const args = ["-no-user-config", "-nodefaults", "-L", this.resources, "-machine", arm ? "virt" : "q35",
-      "-accel", nativeMac ? "hvf" : "tcg", "-cpu", nativeMac ? "host" : arm ? "cortex-a72" : "max",
-      "-m", String(Math.max(2048, Math.min(8192, Math.floor(totalmem() / 1024 ** 2 / 4)))), "-smp", "2", "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-no-reboot",
-      // Direct kernel boot needs no PCI network boot ROM.
-      ...(directNetwork ? ["-netdev", "user,id=outbound", "-device", `${arm ? "virtio-net-device" : "virtio-net-pci,romfile="},netdev=outbound`] : ["-nic", "none"]),
-      "-kernel", join(this.resources, "kernel"), "-initrd", join(this.resources, "initrd.gz"),
-      "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}${directNetwork ? " legalwork.network=allow" : ""}`,
-      "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
-      "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
-    return new SharedVmRuntime(executable, args, diagnostics, consolePath, onClose, pipeName);
+    const windowsHardware = this.acceleration === "auto" && process.platform === "win32" &&
+      await exec(executable, ["-accel", "help"], { timeout: 5000, windowsHide: true })
+        .then(({ stdout }) => /^whpx\s*$/m.test(stdout), () => false);
+    const preferred = nativeMac ? "hvf" : windowsHardware ? "whpx" : "tcg";
+    const resources = vmResources();
+    let published = false;
+    const { runtime, accelerator } = await bootWithFallback(preferred, async (accelerator: Accelerator) => {
+      const diagnostics = await mkdtemp(join(tmpdir(), "legalwork-vm-"));
+      const consolePath = join(diagnostics, "console.log");
+      // QEMU's Windows stdio drops input when the guest cannot accept a byte.
+      // Its named-pipe backend preserves backpressure for binary file transfers.
+      const pipeName = process.platform === "win32" ? `legalwork-${randomUUID()}` : undefined;
+      const args = ["-no-user-config", "-nodefaults", "-L", this.resources, "-machine", arm ? "virt" : "q35",
+        "-accel", accelerator, "-cpu", accelerator !== "tcg" ? "host" : arm ? "cortex-a72" : "max",
+        "-m", String(resources.memoryMiB), "-smp", String(resources.cpus), "-display", "none", "-monitor", "none", "-serial", `file:${consolePath}`, "-no-reboot",
+        "-device", `${arm ? "virtio-balloon-device" : "virtio-balloon-pci"},free-page-reporting=on`,
+        // Direct kernel boot needs no PCI network boot ROM.
+        ...(directNetwork ? ["-netdev", "user,id=outbound", "-device", `${arm ? "virtio-net-device" : "virtio-net-pci,romfile="},netdev=outbound`] : ["-nic", "none"]),
+        "-kernel", join(this.resources, "kernel"), "-initrd", join(this.resources, "initrd.gz"),
+        "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}${directNetwork ? " legalwork.network=allow" : ""}`,
+        "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
+        "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
+      return new SharedVmRuntime(executable, args, diagnostics, consolePath, () => { if (published) onClose(); }, pipeName,
+        undefined, accelerator === "tcg" ? 180000 : 30000);
+    });
+    console.info(`[sandbox] ${accelerator}, ${resources.cpus} CPUs, ${resources.memoryMiB} MiB ceiling, ${directNetwork ? "unrestricted" : "restricted"} network`);
+    published = true;
+    return runtime;
   }
 
   async run(input: SandboxRun): Promise<SandboxResult> {
@@ -127,7 +141,13 @@ export class VmSandbox {
     const active = new Set<string>(), activeFilesystem = new Set<string>();
     let filesystemWork = Promise.resolve();
     try {
-      const runtime = await this.sharedRuntime(networkMode === "allow");
+      const runtime = await new Promise<SharedVmRuntime>((resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        signal.addEventListener("abort", abort, { once: true });
+        void this.sharedRuntime(networkMode === "allow").then(resolve, reject)
+          .finally(() => signal.removeEventListener("abort", abort));
+        if (signal.aborted) abort();
+      });
       await runtime.execute({ command: input.command, cwd: input.cwd, timeoutMs: input.timeoutMs, networkMode,
         mounts: filesystem.mounts.map(({ target, writable }) => ({ target, writable })) }, signal, (raw, send, finish) => {
         try {

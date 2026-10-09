@@ -24,8 +24,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 MAX_BODY = 4 * 1024 * 1024
-MAX_FRAME = 24 * 1024 * 1024
-OUT = threading.Lock()
+sys.path.insert(0, '/opt/legalwork')
+from protocol import emit, read_frame
 PENDING = {}
 PENDING_LOCK = threading.Lock()
 CERT_LOCK = threading.Lock()
@@ -57,25 +57,6 @@ def connect_host_channel():
     os.dup2(descriptor, 1)
     if descriptor > 2:
         os.close(descriptor)
-
-
-def emit(message):
-    with OUT:
-        # virtio-serial is a character device: even a blocking write can be
-        # short. Python's unbuffered TextIOWrapper does not retry that tail.
-        remaining = memoryview((json.dumps(message, separators=(",", ":")) + "\n").encode())
-        while remaining:
-            written = os.write(sys.stdout.fileno(), remaining)
-            if written <= 0:
-                raise OSError("Host channel closed during write")
-            remaining = remaining[written:]
-
-
-def read_frame():
-    line = sys.stdin.buffer.readline(MAX_FRAME + 1)
-    if not line or len(line) > MAX_FRAME or not line.endswith(b"\n"):
-        raise ValueError("Host channel closed or invalid frame")
-    return json.loads(line)
 
 
 def replies():

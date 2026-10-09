@@ -9,7 +9,8 @@ import threading
 import time
 
 sys.path.insert(0, '/opt/legalwork')
-from relay import connect_host_channel, emit, read_frame, MAX_FRAME
+from relay import connect_host_channel
+from protocol import emit, read_frame, write_frame
 import network
 
 WORKERS = {}
@@ -60,8 +61,7 @@ class Worker:
 
     def send(self, message):
         with self.write_lock:
-            self.process.stdin.write((json.dumps(message) + '\n').encode())
-            self.process.stdin.flush()
+            write_frame(message, self.process.stdin)
 
     def stop(self):
         # cgroup.kill includes detached descendants, not just the shell group.
@@ -84,12 +84,9 @@ class Worker:
         final = {'event': 'error', 'message': 'Protected command stopped before completion (possibly its memory or process budget).'}
         try:
             while True:
-                line = self.process.stdout.readline(MAX_FRAME + 1)
-                if not line:
+                event = read_frame(self.process.stdout, allow_eof=True)
+                if event is None:
                     break
-                if len(line) > MAX_FRAME or not line.endswith(b'\n'):
-                    raise ValueError('Invalid worker frame')
-                event = json.loads(line)
                 if event['event'] == 'ready':
                     if event['protocol'] != 2:
                         raise ValueError('Worker protocol mismatch')
@@ -121,7 +118,7 @@ def main():
     connect_host_channel()
     configure_resources()
     network.configure()
-    emit({'protocol': 4})
+    emit({'protocol': 5})
     uid = 1000
     while True:
         message = read_frame()

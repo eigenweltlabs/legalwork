@@ -35,7 +35,7 @@ async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-org-policy-"));
   const config = { configPath: join(dir, "server.json"), workspaces: [] } as unknown as ServerConfig;
   cleanups.push(async () => {
-    resetOrgPolicyRuntimeForTests(config);
+    await resetOrgPolicyRuntimeForTests(config);
     await rm(dir, { recursive: true, force: true });
   });
   const platform: Platform = { revision: 0, entries: {} };

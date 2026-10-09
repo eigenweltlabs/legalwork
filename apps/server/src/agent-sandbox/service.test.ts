@@ -7,13 +7,17 @@ import { prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
 import { readSandboxNetworkMode, writeSandboxNetworkMode } from "./settings.js";
 import { ApprovalService } from "../approvals.js";
+import { resetOrgPolicyRuntimeForTests } from "../org-policy.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 
 const roots: string[] = [];
 const configs: ServerConfig[] = [];
 afterEach(async () => {
-  for (const config of configs.splice(0)) await closeRuntimeOpencodeConfig(config);
+  for (const config of configs.splice(0)) {
+    await closeRuntimeOpencodeConfig(config);
+    await resetOrgPolicyRuntimeForTests(config);
+  }
   // Bun's uncached Drizzle statements retain Windows file handles until GC,
   // even after sqlite3_close_v2 has marked the connection closed.
   for (const root of roots.splice(0)) {

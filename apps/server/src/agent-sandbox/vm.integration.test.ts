@@ -139,7 +139,7 @@ else:
       // outputs impractical on software-emulated Windows machines.
       expect(requests.mock.calls.some(([raw]) => {
         const request = filesystemRequestSchema.parse(raw);
-        return request.op === "write" && Buffer.byteLength(request.data, "base64") >= 64 * 1024;
+        return request.op === "write" && request.data.length >= 64 * 1024;
       })).toBe(true);
     } finally {
       requests.mockRestore();

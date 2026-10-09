@@ -6,6 +6,7 @@
 /sbin/modprobe virtio_mmio || true
 /sbin/modprobe virtio_pci || true
 /sbin/modprobe virtio_console
+/sbin/modprobe virtio_balloon
 /sbin/modprobe fuse
 /bin/busybox ip link set lo up
 # The host enables a NIC only for the explicitly unrestricted runtime.

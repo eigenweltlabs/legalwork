@@ -19,6 +19,9 @@ function run(command, args) {
 }
 const version = run(source, ['--version']).split('\n')[0];
 if (!version.includes('11.1.2')) throw new Error(`Expected reviewed QEMU 11.1.2, got ${version}`);
+if (process.platform === 'win32' && !/^whpx\s*$/m.test(run(source, ['-accel', 'help']))) {
+  throw new Error('Windows QEMU must include Windows Hypervisor Platform acceleration');
+}
 mkdirSync(destination, { recursive: true });
 for (const name of ['kernel', 'initrd.gz']) if (!existsSync(join(destination, name))) throw new Error(`Build the guest first: missing ${name}`);
 const copied = new Map();

@@ -19,7 +19,7 @@ export const filesystemRequestSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("list"), path: pathSchema, offset: numberSchema }).strict(),
   z.object({ op: z.literal("open"), path: pathSchema, write: z.boolean(), create: z.boolean(), exclusive: z.boolean(), truncate: z.boolean() }).strict(),
   z.object({ op: z.literal("read"), handle: handleSchema, offset: numberSchema, size: numberSchema.max(CHUNK) }).strict(),
-  z.object({ op: z.literal("write"), handle: handleSchema, offset: numberSchema, data: z.string().max(Math.ceil(CHUNK / 3) * 4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).strict(),
+  z.object({ op: z.literal("write"), handle: handleSchema, offset: numberSchema, data: z.instanceof(Buffer).refine((data) => data.length <= CHUNK) }).strict(),
   z.object({ op: z.literal("close"), handle: handleSchema }).strict(),
   z.object({ op: z.literal("truncate"), path: pathSchema, length: numberSchema, handle: handleSchema.optional() }).strict(),
   z.object({ op: z.literal("mkdir"), path: pathSchema, mode: numberSchema }).strict(),
@@ -300,11 +300,11 @@ export class SandboxFilesystem {
       const buffer = Buffer.alloc(request.size);
       const { bytesRead } = await descriptor.read(buffer, 0, buffer.length, request.offset);
       if (!entry.stage && version(await descriptor.stat({ bigint: true })) !== entry.baseline) error("ESTALE");
-      return buffer.subarray(0, bytesRead).toString("base64");
+      return buffer.subarray(0, bytesRead);
     }
     if (request.op === "write") {
       const entry = this.handle(request.handle, true);
-      const bytes = Buffer.from(request.data, "base64");
+      const bytes = request.data;
       const size = Math.max(entry.size, request.offset + bytes.length);
       if (!Number.isSafeInteger(size)) error("EFBIG");
       await this.capacity(size - entry.size);

@@ -3,7 +3,6 @@
 No host filesystem is attached to QEMU. These callbacks use the same bounded
 virtio-serial channel as the network broker, with a separate operation schema.
 """
-import base64
 import errno
 import os
 import stat
@@ -72,7 +71,7 @@ class ApprovedFolders(Operations):
         chunks = []
         while size:
             length = min(size, CHUNK)
-            data = base64.b64decode(self.call("read", handle=fh, offset=offset, size=length), validate=True)
+            data = self.call("read", handle=fh, offset=offset, size=length)
             chunks.append(data)
             if len(data) < length:
                 break
@@ -83,7 +82,7 @@ class ApprovedFolders(Operations):
     def write(self, path, data, offset, fh):
         for start in range(0, len(data), CHUNK):
             chunk = data[start:start + CHUNK]
-            count = self.call("write", handle=fh, offset=offset + start, data=base64.b64encode(chunk).decode())
+            count = self.call("write", handle=fh, offset=offset + start, data=chunk)
             if count != len(chunk):
                 raise FuseOSError(errno.EIO)
         return len(data)
