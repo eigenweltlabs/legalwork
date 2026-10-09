@@ -9,11 +9,12 @@ export function CloudAssistantSettings({ client }: { client: LegalworkServerClie
   const [status, setStatus] = useState<CloudAssistantStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   useEffect(() => {
     let closed = false;
     const refresh = async () => {
-      try { const next = await client.cloudAssistantStatus(); if (!closed) setStatus(next); }
-      catch { if (!closed) setError(t("assistant.cloud_unavailable")); }
+      try { const next = await client.cloudAssistantStatus(); if (!closed) { setStatus(next); setRefreshError(null); } }
+      catch { if (!closed) setRefreshError(t("assistant.cloud_unavailable")); }
     };
     void refresh();
     const timer = setInterval(() => { void refresh(); }, 2000);
@@ -38,7 +39,7 @@ export function CloudAssistantSettings({ client }: { client: LegalworkServerClie
     {status?.connected && <p className="text-xs text-muted-foreground">{t("assistant.cloud_schedules")}</p>}
     {settingUp && <p role="status" className="text-xs text-muted-foreground">{t(status.state === "syncing" ? "assistant.cloud_syncing" : status.state === "starting" ? "assistant.cloud_starting" : "assistant.cloud_preparing")}</p>}
     {status?.enabled && <p role="status" className="text-xs text-muted-foreground">{t("assistant.cloud_ready", { account: status.accountName ?? "Eigenwelt" })}</p>}
-    {(error || status?.error) && <p role="alert" className="text-xs text-destructive">{error ?? status?.error}</p>}
+    {(error || status?.error || refreshError) && <p role="alert" className="text-xs text-destructive">{error ?? status?.error ?? refreshError}</p>}
     {status?.state === "error" && <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { void change(true); }}>{t("assistant.cloud_retry")}</Button>}
   </div>;
 }

@@ -92,7 +92,7 @@ The following host APIs work independently of E2B, Firecracker, GCE or another V
 | `POST /cloud-sync/checkpoint` | Host-authenticated quiesce and checkpoint. Rejects active engine sessions. Success keeps execution quiesced. |
 | `POST /cloud-sync/resume` | Host-authenticated ownership renewal, file/preferences catch-up and execution resume. Rejects a VM whose ownership was replaced. |
 
-Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must block a resumed VM that reports ownership loss; restoring a replacement requires a deliberate new handoff from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. The [Model API VM controller](https://github.com/eigenweltlabs/model-api/tree/codex/assistant-channel-integration/apps/cloud-vm) reads `nextRunAt`, renews provider timeouts and wakes paused workers. Its durable channel adapter connects native iOS, WhatsApp and email ingress to the Main Assistant. Real-user desktop handoff remains an explicit provisioning step.
+Before pausing a VM, call checkpoint and wait for success, then pause through the provider. After resuming its snapshot, call resume before accepting messages. If pause fails, call resume to release the quiesce. A controller must block a resumed VM that reports ownership loss; restoring a replacement requires a deliberate new handoff from the latest checkpoint. Regular shutdown checkpoints after stopping execution and releases ownership. The [Model API VM controller](https://github.com/eigenweltlabs/model-api/tree/codex/assistant-channel-integration/apps/cloud-vm) reads `nextRunAt`, renews provider timeouts and wakes paused workers. Its durable channel adapter connects native iOS, WhatsApp and email ingress to the Main Assistant. The desktop activation flow below provisions a scoped worker after preparing its initial checkpoint.
 
 ## Channel execution
 
@@ -131,8 +131,7 @@ mobile runtime revisions; no machine/platform bearer is copied into the guest.
 Typing is refreshed during active work and stopped on completion/failure; expiry
 clears it if ownership or access is lost. Later automatic delegated-result turns
 that begin after this channel job completed still need their own durable channel
-correlation and delivery path. This change does not implement desktop/cloud
-onboarding or change execution ownership rules.
+correlation and delivery path. The desktop activation flow below keeps manual desktop execution local and routes mobile work to the cloud executor.
 
 ## Cloud browser tools
 
@@ -157,3 +156,14 @@ Existing desktop schedules remain active locally; their initial cloud copies are
 A paused VM wakes when a mobile message arrives. Desktop execution remains local throughout. Turning the switch off stops channel claims, pauses the VM and stops the companion file loop, retaining cloud data. Account changes detach the previous account's file/history sync. Retries cannot overwrite an existing checkpoint or provision a second known worker. An interrupted provider creation with an uncertain outcome fails closed and requires operator recovery.
 
 Live engine SQLite databases remain separate after the initial copy. Shared history uses the durable channel journal, stable message identities and an account-scoped desktop projection. Closed desktop text bubbles publish into the mobile conversation without enqueueing another cloud request; cloud messages, typing and reactions are projected into the desktop. Safe per-turn reminders label completed remote history as untrusted already-handled context.
+
+
+## Desktop activation validation (2026-10-09)
+
+A disposable desktop profile used the actual activation switch against the HTTPS GCP preview and provisioned a fresh Frankfurt Firecracker VM from the final template. The VM restored the source workspace and session/message IDs, readable chat history and project proof file. The restored engine was checked in addition to server/sync health. Credential table schemas remain present for engine compatibility, with their sensitive rows removed; the guest receives independent scoped account credentials.
+
+Using a real development Clerk session and the native channel API, a mobile request read the synced proof file and returned its exact contents to mobile and the desktop history projection in 24.29 seconds. The contents were absent from the prompt. The local desktop engine received no prompt from that request. A subsequent direct desktop turn executed locally and appeared in mobile history without a new cloud job. A VM-created file synced back to the desktop. A validated reaction reached its original mobile message and the desktop projection, with the cloud turn completing in 20.0 seconds. Typing events were observed during execution.
+
+Disabling paused the VM; re-enabling retained the same sandbox and left it paused until the next mobile request. That request woke the VM, read the previously created file and completed in 23.33 seconds. The currently installed full iOS app and its separate manual testing profile were left untouched; this activation test used the native API rather than another SwiftUI run. The earlier full-application validation above remains separate evidence.
+
+Focused sync, onboarding/history, transcript, controller and PostgreSQL history tests and relevant typechecks passed. Model API CI passed all four jobs. Preview execution used a disposable owner-scoped, EU-model-only key with a $3 budget and four-hour expiry. Its preview-only organization does not exist in production billing, so production usage authorization remains a rollout check. The isolated activation profile was disabled and its model key and refresh families were revoked after testing. This is available on the companion branches and GCP preview; it has not been merged or shipped in a desktop release.
