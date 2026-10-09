@@ -1161,7 +1161,7 @@ export function SessionPage(props: SessionPageProps) {
         style={sidebarProviderStyle}
         data-sidebar-visible={sidebarVisible}
       >
-        <header className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center electron:titlebar-drag">
+        <header data-panel-rail={shellConfig.panelRail} className="lw-window-topbar absolute inset-x-0 top-0 z-30 flex items-center electron:titlebar-drag">
           <div className="flex h-full min-w-0 flex-1 items-center gap-2 pr-2">
             <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3 mac:pl-20" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>

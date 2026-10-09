@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, ChevronRight, Eye, EyeOff, RotateCw, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Eye, EyeOff, PanelRightClose, RotateCw } from "lucide-react";
 
 import type {
   LegalworkServerClient,
@@ -157,7 +157,7 @@ export function WorkspaceFilesPanel({
             <TooltipTrigger
               render={(
                 <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("workspace_files.close_panel")}>
-                  <X />
+                  <PanelRightClose />
                 </Button>
               )}
             />

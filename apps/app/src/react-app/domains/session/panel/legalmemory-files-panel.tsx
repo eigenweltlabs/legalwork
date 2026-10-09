@@ -7,7 +7,7 @@ import { MemoryDriveIcon } from "./memory-drive-icon";
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { AlertCircle, ChevronRight, HardDrive, Loader2, RotateCw, Search, X } from "lucide-react";
+import { AlertCircle, ChevronRight, HardDrive, Loader2, PanelRightClose, RotateCw, Search, X } from "lucide-react";
 
 import { writeLegalMemoryFileDrag, writeLegalMemoryFolderDrag } from "@/app/lib/legalmemory-file";
 import { LEGALMEMORY_CONNECTION_CHANGED_EVENT } from "@/app/lib/legalmemory-connection";
@@ -334,7 +334,7 @@ export function LegalMemoryFilesPanel({
           </Tooltip>
           <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("legalmemory.close_drive")} />}>
-              <X className="size-4" />
+              <PanelRightClose className="size-4" />
             </TooltipTrigger>
             <TooltipContent>Close</TooltipContent>
           </Tooltip>

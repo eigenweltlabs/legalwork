@@ -197,8 +197,12 @@
   background: var(--lw-window-chrome);
 }
 .lw-window-topbar {
+  --lw-window-panel-rail-width: 1px;
   height: var(--lw-window-bar-height);
   background: var(--lw-window-chrome);
+}
+.lw-window-topbar[data-panel-rail="true"] {
+  --lw-window-panel-rail-width: calc(var(--lw-window-right-rail-width) + 1px);
 }
 html.legalwork-electron.legalwork-platform-windows .lw-window-frame {
   --lw-window-bar-height: env(titlebar-area-height, 44px);
@@ -209,9 +213,30 @@ html.legalwork-electron.legalwork-platform-windows:not([data-theme="dark"]) .lw-
 /* Electron supplies the available title-bar rectangle, including zoom and DPI.
    Leave the native minimize, maximize and close controls outside this area. */
 html.legalwork-electron.legalwork-platform-windows .lw-window-topbar {
+  --lw-window-caption-width: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px)));
   left: env(titlebar-area-x, 0px);
   right: auto;
   width: env(titlebar-area-width, calc(100% - 138px));
+}
+/* Keep pane boundaries aligned with the full-width workspace. Only the last
+   pane's controls give up the space occupied by native caption buttons. */
+html.legalwork-electron.legalwork-platform-windows .lw-window-topbar:has(.lw-window-panel-header) {
+  left: 0;
+  width: 100%;
+}
+html.legalwork-electron.legalwork-platform-windows .lw-window-panel-header:not(:has(+ .lw-window-panel-header)) > * {
+  width: max(0px, calc(100% - max(0px, calc(var(--lw-window-caption-width) - var(--lw-window-panel-rail-width)))));
+  overflow: hidden;
+}
+/* A narrow Files/Drive heading keeps its collapse action reachable. */
+@container panel-header (width < 120px) {
+  html.legalwork-electron.legalwork-platform-windows .lw-window-panel-header > * > div {
+    gap: 4px;
+    padding-inline: 4px;
+  }
+  html.legalwork-electron.legalwork-platform-windows .lw-window-panel-header button:not(:last-of-type) {
+    display: none;
+  }
 }
 html.legalwork-electron.legalwork-platform-windows .lw-window-navigation {
   width: auto !important;
@@ -222,6 +247,7 @@ html.legalwork-electron.legalwork-platform-windows.legalwork-window-controls-hid
   --lw-window-bar-height: 44px;
 }
 html.legalwork-electron.legalwork-platform-windows.legalwork-window-controls-hidden .lw-window-topbar {
+  --lw-window-caption-width: 0px;
   left: 0;
   width: 100%;
 }
