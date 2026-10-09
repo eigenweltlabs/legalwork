@@ -33,7 +33,11 @@ and review of the GitHub integration before they issue it.
    Actions secret `SIGNPATH_API_TOKEN` in `eigenweltlabs/legalwork`. Do not put
    it in a repository variable, source file, PR, or chat message.
 3. Set repository variable `SIGNPATH_ORGANIZATION_ID` to the organization ID above.
-4. Dispatch **Alpha Channel (Windows x64 + ARM64)** with `signing_test=true`:
+4. Install the official [SignPath GitHub App](https://github.com/apps/signpath)
+   on `eigenweltlabs`, selecting only `legalwork`. The connector requires this
+   installation. Review its requested Actions/code read access and repository/
+   organization administration permissions before installing it.
+5. Dispatch **Alpha Channel (Windows x64 + ARM64)** with `signing_test=true`:
 
    ```sh
    gh workflow run alpha-windows-x64.yml --ref <integration-branch> -f signing_test=true
@@ -44,10 +48,8 @@ and review of the GitHub integration before they issue it.
    and stores the resulting installers as `signpath-test-windows-x64` and
    `signpath-test-windows-arm64` workflow artifacts for seven days. It does not
    create a GitHub release or change the alpha updater pointer.
-5. Give SignPath support the successful GitHub run and signing-request links
+6. Give SignPath support the successful GitHub run and signing-request links
    so they can verify origin metadata and issue the production certificate.
-   Check their requested GitHub App permissions if installation is required
-   for audit-policy evaluation; restrict any installation to this repository.
 
 Do not distribute test-signed installers as trusted releases. They do not
 remove Windows certificate trust warnings.
