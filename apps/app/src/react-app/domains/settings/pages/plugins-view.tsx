@@ -1,9 +1,10 @@
 /** @jsxImportSource react */
-import { Cpu, Share2 } from "lucide-react";
+import { Cpu } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 // Explicit, prop-driven shape of the extensions store. The Solid
 // PluginsView pulled this from useExtensions(); in React we pass it
@@ -55,8 +56,6 @@ export type PluginsViewProps = {
   canUseGlobalScope: boolean;
   accessHint?: string | null;
   suggestedPlugins: SuggestedPlugin[];
-  canShareWithFirm?: boolean;
-  onShareWithFirm?: (pluginRef: string) => void | Promise<void>;
 };
 
 export function PluginsView(props: PluginsViewProps) {
@@ -118,127 +117,129 @@ export function PluginsView(props: PluginsViewProps) {
           ) : null}
         </div>
 
-        <div className="space-y-3">
-          <div className="text-xs font-medium text-gray-11 uppercase tracking-wider">
-            {t("plugins.suggested_heading")}
-          </div>
-          <div className="grid gap-3">
-            {props.suggestedPlugins.map((plugin) => {
-              const isGuided = plugin.installMode === "guided";
-              const isInstalled = extensions.isPluginInstalledByName(
-                plugin.packageName,
-                plugin.aliases ?? [],
-              );
-              const isGuideOpen =
-                extensions.activePluginGuide() === plugin.packageName;
+        {props.suggestedPlugins.length > 0 ? (
+          <div className="space-y-3">
+            <div className="text-xs font-medium text-gray-11 uppercase tracking-wider">
+              {t("plugins.suggested_heading")}
+            </div>
+            <div className="grid gap-3">
+              {props.suggestedPlugins.map((plugin) => {
+                const isGuided = plugin.installMode === "guided";
+                const isInstalled = extensions.isPluginInstalledByName(
+                  plugin.packageName,
+                  plugin.aliases ?? [],
+                );
+                const isGuideOpen =
+                  extensions.activePluginGuide() === plugin.packageName;
 
-              return (
-                <div
-                  key={plugin.packageName}
-                  className="rounded-2xl border border-gray-6/60 bg-gray-1/40 p-4 space-y-3"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-medium text-gray-12 font-mono">
-                        {plugin.name}
-                      </div>
-                      <div className="text-xs text-gray-10 mt-1">
-                        {plugin.description}
-                      </div>
-                      {plugin.packageName !== plugin.name ? (
-                        <div className="text-xs text-gray-7 font-mono mt-1">
-                          {plugin.packageName}
+                return (
+                  <div
+                    key={plugin.packageName}
+                    className="rounded-2xl border border-gray-6/60 bg-gray-1/40 p-4 space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-gray-12 font-mono">
+                          {plugin.name}
                         </div>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isGuided ? (
+                        <div className="text-xs text-gray-10 mt-1">
+                          {plugin.description}
+                        </div>
+                        {plugin.packageName !== plugin.name ? (
+                          <div className="text-xs text-gray-7 font-mono mt-1">
+                            {plugin.packageName}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isGuided ? (
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              extensions.setActivePluginGuide(
+                                isGuideOpen ? null : plugin.packageName,
+                              )
+                            }
+                          >
+                            {isGuideOpen
+                              ? t("plugins.hide_setup")
+                              : t("plugins.setup")}
+                          </Button>
+                        ) : null}
                         <Button
-                          variant="outline"
-                          onClick={() =>
-                            extensions.setActivePluginGuide(
-                              isGuideOpen ? null : plugin.packageName,
-                            )
+                          variant={isInstalled ? "outline" : "default"}
+                          onClick={() => extensions.addPlugin(plugin.packageName)}
+                          disabled={
+                            props.busy ||
+                            isInstalled ||
+                            !props.canEditPlugins ||
+                            (scope === "project" &&
+                              !props.selectedWorkspaceRoot.trim())
                           }
                         >
-                          {isGuideOpen
-                            ? t("plugins.hide_setup")
-                            : t("plugins.setup")}
+                          {isInstalled ? t("plugins.added") : t("plugins.add")}
                         </Button>
-                      ) : null}
-                      <Button
-                        variant={isInstalled ? "outline" : "default"}
-                        onClick={() => extensions.addPlugin(plugin.packageName)}
-                        disabled={
-                          props.busy ||
-                          isInstalled ||
-                          !props.canEditPlugins ||
-                          (scope === "project" &&
-                            !props.selectedWorkspaceRoot.trim())
-                        }
-                      >
-                        {isInstalled ? t("plugins.added") : t("plugins.add")}
-                      </Button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {plugin.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[10px] uppercase tracking-wide bg-gray-4/70 text-gray-11 px-2 py-0.5 rounded-full"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  {isGuided && isGuideOpen ? (
-                    <div className="rounded-xl border border-gray-6/70 bg-gray-1/60 p-4 space-y-3">
-                      {(plugin.steps ?? []).map((step, idx) => (
-                        <div
-                          key={`${plugin.packageName}:step:${step.title}:${step.command ?? step.url ?? step.path ?? step.description}`}
-                          className="space-y-1"
+                    <div className="flex flex-wrap gap-2">
+                      {plugin.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="text-[10px] uppercase tracking-wide bg-gray-4/70 text-gray-11 px-2 py-0.5 rounded-full"
                         >
-                          <div className="text-xs font-medium text-gray-11">
-                            {idx + 1}. {step.title}
-                          </div>
-                          <div className="text-xs text-gray-10">
-                            {step.description}
-                          </div>
-                          {step.command ? (
-                            <div className="text-xs font-mono text-gray-12 bg-gray-2/60 border border-gray-6/70 rounded-lg px-3 py-2">
-                              {step.command}
-                            </div>
-                          ) : null}
-                          {step.note ? (
-                            <div className="text-xs text-gray-10">
-                              {step.note}
-                            </div>
-                          ) : null}
-                          {step.url ? (
-                            <div className="text-xs text-gray-10">
-                              Open:{" "}
-                              <span className="font-mono text-gray-11">
-                                {step.url}
-                              </span>
-                            </div>
-                          ) : null}
-                          {step.path ? (
-                            <div className="text-xs text-gray-10">
-                              Path:{" "}
-                              <span className="font-mono text-gray-11">
-                                {step.path}
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
+                          {tag}
+                        </span>
                       ))}
                     </div>
-                  ) : null}
-                </div>
-              );
-            })}
+                    {isGuided && isGuideOpen ? (
+                      <div className="rounded-xl border border-gray-6/70 bg-gray-1/60 p-4 space-y-3">
+                        {(plugin.steps ?? []).map((step, idx) => (
+                          <div
+                            key={`${plugin.packageName}:step:${step.title}:${step.command ?? step.url ?? step.path ?? step.description}`}
+                            className="space-y-1"
+                          >
+                            <div className="text-xs font-medium text-gray-11">
+                              {idx + 1}. {step.title}
+                            </div>
+                            <div className="text-xs text-gray-10">
+                              {step.description}
+                            </div>
+                            {step.command ? (
+                              <div className="text-xs font-mono text-gray-12 bg-gray-2/60 border border-gray-6/70 rounded-lg px-3 py-2">
+                                {step.command}
+                              </div>
+                            ) : null}
+                            {step.note ? (
+                              <div className="text-xs text-gray-10">
+                                {step.note}
+                              </div>
+                            ) : null}
+                            {step.url ? (
+                              <div className="text-xs text-gray-10">
+                                Open:{" "}
+                                <span className="font-mono text-gray-11">
+                                  {step.url}
+                                </span>
+                              </div>
+                            ) : null}
+                            {step.path ? (
+                              <div className="text-xs text-gray-10">
+                                Path:{" "}
+                                <span className="font-mono text-gray-11">
+                                  {step.path}
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {extensions.pluginList().length === 0 ? (
           <div className="rounded-xl border border-gray-6/60 bg-gray-1/40 p-4 text-sm text-gray-10">
@@ -268,17 +269,6 @@ export function PluginsView(props: PluginsViewProps) {
                   <div className="text-[10px] uppercase tracking-wide text-gray-10">
                     {plugin.removable ? t("plugins.enabled") : t("settings.cap_read_only")}
                   </div>
-                  {props.canShareWithFirm && props.onShareWithFirm ? (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      onClick={() => void props.onShareWithFirm?.(plugin.name)}
-                      title={t("firm_hub.share_with_firm")}
-                    >
-                      <Share2 size={13} />
-                      Share
-                    </Button>
-                  ) : null}
                   {plugin.removable ? (
                     <Button
                       variant="destructive"
@@ -296,6 +286,7 @@ export function PluginsView(props: PluginsViewProps) {
         )}
 
         <div className="flex flex-col gap-3">
+          <OrgPolicyNote policyKey="plugins.allowCustom" />
           <div className="flex flex-col md:flex-row gap-3">
             <div className="flex-1">
               <TextInput

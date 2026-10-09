@@ -12,7 +12,6 @@ import {
   Plus,
   RefreshCw,
   Trash2,
-  Users,
 } from "lucide-react";
 import {
   storageInputSchema,
@@ -51,6 +50,8 @@ import {
 import { StorageOAuthSignIn } from "./storage-oauth-signin";
 import { useHubScope } from "./hub-scope-context";
 import { storageConnectionsForScope } from "./storage-scope";
+import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 export function FileStorageView({
   client,
@@ -63,7 +64,6 @@ export function FileStorageView({
   const scope = useHubScope() ?? "local";
   const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider } | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
-  const [sharing, setSharing] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const addSection = useRef<HTMLElement>(null);
@@ -80,7 +80,14 @@ export function FileStorageView({
     enabled: Boolean(client && workspaceId),
   });
   const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope);
-  const canAdd = scope === "local" || connections.data?.team?.canManage === true;
+  // The firm may allow no connections of the member's own.
+  const personalForbidden = useOrgPolicyForbids("storage.allowPersonal");
+  // The firm's connections are set up on the platform, and who gets them decided there.
+  const canAdd = scope === "local" && !personalForbidden;
+  const openNewEditor = async (next: NonNullable<typeof editor>) => {
+    if (scope === "local" && !(await orgPolicyAllows("storage.allowPersonal"))) return;
+    setEditor(next);
+  };
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["storage-connections"] });
     void queryClient.invalidateQueries({ queryKey: ["storage-roots"] });
@@ -90,7 +97,6 @@ export function FileStorageView({
   useEffect(() => {
     setEditor(null);
     setRemoving(null);
-    setSharing(null);
     setError("");
   }, [client, workspaceId, scope]);
   useEffect(() => {
@@ -114,6 +120,7 @@ export function FileStorageView({
           <p className="text-sm leading-6 text-muted-foreground">
             {t(scope === "team" ? "storage.team_intro" : "storage.local_intro")}
           </p>
+          {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
         </div>
         {canAdd && (
           <Button onClick={() => addSection.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
@@ -174,17 +181,6 @@ export function FileStorageView({
                   {connection.config.kind === "oauth" && connection.enabled && connection.team?.installed !== false && (
                     <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} revision={connection.updatedAt} onChanged={refresh} />
                   )}
-                  {!connection.team && connections.data?.team?.canManage ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => setSharing(connection)}
-                    >
-                      <Users className="size-3.5" />
-                      {t("storage.make_team")}
-                    </Button>
-                  ) : null}
                   {connection.team && connection.teamInstallation === "optional" && (
                     <Button
                       variant={connection.team.installed ? "outline" : "default"}
@@ -221,7 +217,7 @@ export function FileStorageView({
                           : "storage.enabled",
                     )}
                   </span>
-                  {(!connection.team || (scope === "team" && connections.data?.team?.canManage)) && (
+                  {!connection.team && (
                     <>
                       <Button
                         variant="ghost"
@@ -248,7 +244,7 @@ export function FileStorageView({
         </section>
       ) : !connections.isLoading && !connections.error ? (
         <div className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-          {t(scope === "team" ? "storage.team_empty" : "storage.local_empty")}
+          {t(scope === "team" ? "storage.team_empty" : personalForbidden ? "storage.local_empty_team_only" : "storage.local_empty")}
         </div>
       ) : null}
       {canAdd && (
@@ -259,7 +255,7 @@ export function FileStorageView({
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {providers.data?.providers.map((provider) => (
-              <button key={provider.id} type="button" onClick={() => setEditor({ kind: "oauth", provider })}
+              <button key={provider.id} type="button" onClick={() => void openNewEditor({ kind: "oauth", provider })}
                 className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <ArrowUpRight className="mb-4 size-5 text-muted-foreground" />
                 <span className="text-sm font-medium">{provider.name}</span>
@@ -272,7 +268,7 @@ export function FileStorageView({
                 <button
                   key={kind}
                   type="button"
-                  onClick={() => setEditor({ kind })}
+                  onClick={() => void openNewEditor({ kind })}
                   className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <div className="mb-4 flex w-full items-center justify-between">
@@ -294,17 +290,7 @@ export function FileStorageView({
           kind={editor.kind}
           provider={editor.provider ?? providers.data?.providers.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id)}
           connection={editor.connection}
-          forTeam={Boolean(editor.connection?.team) || scope === "team"}
           onClose={() => setEditor(null)}
-          onSaved={refresh}
-        />
-      )}
-      {sharing && (
-        <StorageSharingDialog
-          client={client}
-          workspaceId={workspaceId}
-          connection={sharing}
-          onClose={() => setSharing(null)}
           onSaved={refresh}
         />
       )}
@@ -316,10 +302,8 @@ export function FileStorageView({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t(removing?.team ? "storage.remove_team_title" : "storage.remove_title")}</DialogTitle>
-            <DialogDescription>
-              {t(removing?.team ? "storage.remove_team_body" : "storage.remove_body", { name: removing?.name ?? "" })}
-            </DialogDescription>
+            <DialogTitle>{t("storage.remove_title")}</DialogTitle>
+            <DialogDescription>{t("storage.remove_body", { name: removing?.name ?? "" })}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={() => setRemoving(null)}>
@@ -333,7 +317,7 @@ export function FileStorageView({
                 setBusy(true);
                 setError("");
                 try {
-                  await client.removeStorageConnection(workspaceId, removing.id, removing.team?.version);
+                  await client.removeStorageConnection(workspaceId, removing.id);
                   setRemoving(null);
                   refresh();
                 } catch (cause) {
@@ -354,62 +338,12 @@ export function FileStorageView({
   );
 }
 
-function StorageSharingDialog({ client, workspaceId, connection, onClose, onSaved }: {
-  client: LegalworkServerClient;
-  workspaceId: string;
-  connection: StorageConnection;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [automatic, setAutomatic] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("storage.make_team")}</DialogTitle>
-          <DialogDescription>{connection.name}</DialogDescription>
-        </DialogHeader>
-        <label className="flex items-center justify-between gap-4">
-          <span>
-            <span className="block text-sm font-medium">{t("storage.automatic_label")}</span>
-            <span className="mt-1 block text-xs text-muted-foreground">{t("storage.automatic_help")}</span>
-          </span>
-          <Switch checked={automatic} onCheckedChange={setAutomatic} disabled={busy} />
-        </label>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
-          <Button disabled={busy} onClick={async () => {
-            setBusy(true);
-            setError("");
-            try {
-              await client.saveTeamStorageConnection(workspaceId, {
-                localId: connection.id,
-                teamInstallation: automatic ? "automatic" : "optional",
-              });
-              onSaved();
-              onClose();
-            } catch (cause) {
-              setError(cause instanceof Error ? cause.message : t("storage.failed"));
-            } finally {
-              setBusy(false);
-            }
-          }}>{busy ? t("common.saving") : t("storage.make_team")}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function StorageConnectionDialog({
   client,
   workspaceId,
   kind,
   provider,
   connection,
-  forTeam,
   onClose,
   onSaved,
 }: {
@@ -418,11 +352,9 @@ function StorageConnectionDialog({
   kind: StorageKind;
   provider?: StorageOAuthProvider;
   connection?: StorageConnection;
-  forTeam: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [automatic, setAutomatic] = useState(connection ? connection.teamInstallation !== "optional" : false);
   const [name, setName] = useState(connection?.name ?? provider?.name ?? "");
   const [values, setValues] = useState<Record<string, string>>(() =>
     connection
@@ -455,7 +387,6 @@ function StorageConnectionDialog({
       secrets,
       readOnly,
       enabled,
-      ...(forTeam ? { teamInstallation: automatic ? "automatic" : "optional" } : {}),
     });
     if (!input.success) {
       setError(
@@ -471,8 +402,7 @@ function StorageConnectionDialog({
         await client.testStorageConnection(workspaceId, input.data, connection?.id);
         setTested(true);
       } else {
-        if (forTeam && !connection) await client.saveTeamStorageConnection(workspaceId, input.data);
-        else await client.saveStorageConnection(workspaceId, input.data, connection?.id, connection?.team?.version);
+        await client.saveStorageConnection(workspaceId, input.data, connection?.id);
         onSaved();
         onClose();
       }
@@ -494,7 +424,7 @@ function StorageConnectionDialog({
           <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
             <span>{t("storage.tab")}</span>
             <ChevronRight className="size-3" />
-            <span>{t(forTeam ? "firm_hub.scope_team" : "firm_hub.scope_local")}</span>
+            <span>{t("firm_hub.scope_local")}</span>
             <ChevronRight className="size-3" />
             <span>{providerName}</span>
           </div>
@@ -686,16 +616,6 @@ function StorageConnectionDialog({
               ))}
             </section>
           )}
-          {forTeam ? (
-            <label className="flex items-center justify-between gap-4 rounded-xl border border-border p-4">
-              <span>
-                <span className="block text-sm font-medium">{t("storage.automatic_label")}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{t("storage.automatic_help")}</span>
-              </span>
-              <Switch checked={automatic} onCheckedChange={setAutomatic} disabled={Boolean(busy)} />
-            </label>
-          ) : null}
-          {forTeam ? <p className="text-xs text-muted-foreground">{t("storage.team_save_description")}</p> : null}
           <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
             <label className="flex items-center justify-between gap-4">
               <span>
@@ -706,9 +626,7 @@ function StorageConnectionDialog({
             </label>
             <label className="flex items-center justify-between gap-4 border-t border-border pt-4">
               <span>
-                <span className="block text-sm font-medium">
-                  {t(forTeam ? "storage.available_team" : "storage.show_drive")}
-                </span>
+                <span className="block text-sm font-medium">{t("storage.show_drive")}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">{t("storage.show_drive_help")}</span>
               </span>
               <Switch checked={enabled} onCheckedChange={setEnabled} disabled={Boolean(busy)} />
@@ -737,7 +655,7 @@ function StorageConnectionDialog({
           </Button>
           <Button type="submit" form="storage-connection-form" disabled={Boolean(busy)}>
             {busy === "save" && <Loader2 className="size-4 animate-spin" />}
-            {forTeam ? t("storage.save_team") : connection ? t("storage.save_connection") : t("storage.add")}
+            {connection ? t("storage.save_connection") : t("storage.add")}
           </Button>
         </DialogFooter>
       </DialogContent>

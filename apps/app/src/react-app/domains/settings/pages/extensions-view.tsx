@@ -1,15 +1,12 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Blocks, Cpu, Download, HardDrive, Package, Plug, type LucideIcon } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Blocks, Cpu, HardDrive, Plug, type LucideIcon } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { SectionHeading } from "@/react-app/design-system/surface";
 
-import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
-import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
-import { BUNDLED_PLUGINS } from "../bundled-plugins";
 import { HubTabs } from "../segmented-tabs";
 import { HubScopeContext, HubScopeToggle, type HubScope } from "./hub-scope-context";
 
@@ -36,6 +33,8 @@ type SuggestedPlugin = {
 
 export type ExtensionsViewProps = {
   busy: boolean;
+  /** Engine plugins are code for developers: their tab shows only in developer mode. */
+  developerMode: boolean;
   selectedWorkspaceRoot: string;
   isRemoteWorkspace: boolean;
   canEditPlugins: boolean;
@@ -46,65 +45,58 @@ export type ExtensionsViewProps = {
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
+  /** Connectors tab, Local: the firm's connectors on this computer, with sign-in and own keys. */
+  firmConnectorsView?: ReactNode;
   storageView?: ReactNode;
-  /** Skills tab — bundled + installed skills, with add/import. */
+  /** Skills tab — built-in, installed and imported skills, with add/import. */
   skillsView: ReactNode;
-  /** Team ("shared with your firm") view for the Plugins tab. */
-  pluginsFirmView?: ReactNode;
   /** Whether the firm is connected + entitled (shows the Local/Team toggle). */
   hasTeamHub?: boolean;
   /** Opens the multi-select "Share with your firm" dialog. */
   onOpenTeamShare?: () => void;
-  /** Shares one installed OpenCode plugin with the firm. */
-  canShareWithFirm?: boolean;
-  onSharePluginWithFirm?: (pluginRef: string) => void | Promise<void>;
-  /** Preview a Claude Code plugin bundle from a GitHub URL. */
-  previewClaudePlugin?: (url: string) => Promise<LegalworkClaudePluginPreview>;
-  /** Install a Claude Code plugin bundle from a GitHub URL. */
-  installClaudePlugin?: (url: string) => Promise<{ ok: boolean; message: string }>;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: "mcp" | "skills" | "plugins" | "storage") => void;
   showHeader?: boolean;
 };
 
-// The Integrations page covers connectors (MCP), file storage, skills, and plugins.
+// The Integrations page covers connectors (MCP), file storage and skills; in
+// developer mode also the engine's plugins (code it loads).
 // Built per render, not once at import: `t()` reads the current language, so a
 // module-level constant would freeze the tabs in whatever language loaded first.
-const tabs = (): Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> => [
+const tabs = (developerMode: boolean): Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> => [
   { id: "connectors", label: t("extensions.connectors_label"), icon: Plug, subtitle: t("extensions.apps_subtitle_short") },
   { id: "storage", label: t("storage.tab"), icon: HardDrive, subtitle: t("storage.intro") },
   { id: "skills", label: "Skills", icon: Blocks, subtitle: t("extensions.skills_subtitle") },
-  { id: "plugins", label: "Plugins", icon: Package, subtitle: t("extensions.plugins_subtitle") },
+  ...(developerMode ? [{ id: "plugins" as const, label: t("extensions.engine_plugins"), icon: Cpu, subtitle: t("extensions.engine_plugins_subtitle") }] : []),
 ];
 
 // Neutral segmented control matching the reference: a soft gray track with a
 // white active pill (no accent fill). Shared by the tab switcher.
 
 export function ExtensionsView(props: ExtensionsViewProps) {
+  // An old link to the Plugins tab opens Skills, where the built-in ones are now.
   const initialTab: ExtensionsTab =
     props.initialSection === "storage" ? "storage" : props.initialSection === "plugins"
-      ? "plugins"
+      ? props.developerMode ? "plugins" : "skills"
       : props.initialSection === "skills"
         ? "skills"
         : "connectors";
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   useEffect(() => setTab(initialTab), [initialTab]);
-  const [importOpen, setImportOpen] = useState(false);
   // Local | Team is the OUTER toggle for the whole Integrations page; the
-  // Connectors/Skills/Plugins tabs sit inside it. The sub-views follow this
-  // scope via HubScopeContext.
+  // Connectors/Skills tabs sit inside it. The sub-views follow this scope via
+  // HubScopeContext. The firm hands out no engine plugins: that tab is local.
   const [selectedScope, setHubScope] = useState<HubScope>("local");
-  const teamHub = props.hasTeamHub === true;
+  const teamHub = props.hasTeamHub === true && tab !== "plugins";
   const hubScope = teamHub || tab === "storage" ? selectedScope : "local";
-  const pluginCount = useMemo(() => props.extensions.pluginList().length, [props.extensions]);
 
   const selectTab = (next: ExtensionsTab) => {
     setTab(next);
     props.setSectionRoute?.(next === "connectors" ? "mcp" : next);
   };
 
-  const TABS = tabs();
+  const TABS = tabs(props.developerMode);
   const activeTab = TABS.find((entry) => entry.id === tab) ?? TABS[0];
 
   return (
@@ -113,7 +105,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         <HubScopeToggle scope={hubScope} onChange={setHubScope} />
         {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? <Button variant="outline" onClick={props.onOpenTeamShare}>{t("extensions.share_with_firm")}</Button> : null}
       </> : undefined} /> : null}
-      {/* Local | Team is the page-level toggle; Connectors/Skills/Plugins sit inside it. */}
+      {/* Local | Team is the page-level toggle; Connectors/Skills sit inside it. */}
       {(teamHub || tab === "storage") && props.showHeader === false ? (
         <div className="flex items-center justify-between gap-3">
           <HubScopeToggle scope={hubScope} onChange={setHubScope} />
@@ -143,99 +135,29 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       </div>
 
       <HubScopeContext.Provider value={hubScope}>
-      {tab === "connectors" ? props.mcpView : null}
+      {tab === "connectors" ? (
+        <div className="space-y-8">
+          {hubScope === "local" ? props.firmConnectorsView : null}
+          {props.mcpView}
+        </div>
+      ) : null}
 
       {tab === "storage" ? props.storageView : null}
 
       {tab === "skills" ? props.skillsView : null}
 
       {tab === "plugins" ? (
-        hubScope === "team" ? (
-          props.pluginsFirmView ?? null
-        ) : (
-        <div className="space-y-6">
-          <div className={`flex flex-wrap items-start gap-3 ${props.showHeader !== false ? "justify-end" : "justify-between"}`}>
-            {props.showHeader === false ? (
-              <p className="max-w-prose text-sm text-dls-secondary">
-                {t("extensions.plugins_bundle_note")}
-              </p>
-            ) : null}
-            {props.previewClaudePlugin && props.installClaudePlugin ? (
-              <Button variant="outline" onClick={() => setImportOpen(true)}>
-                <Download size={14} />
-                {t("extensions.import_from_github")}
-              </Button>
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
-            {BUNDLED_PLUGINS.map((plugin) => (
-              <div
-                key={plugin.id}
-                className="group rounded-[18px] border border-dls-border bg-dls-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.25)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.28)]"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="text-sm font-semibold text-dls-text">{plugin.name}</h4>
-                  <span className="shrink-0 rounded-full bg-teal-3 px-2 py-0.5 text-[10px] font-medium text-teal-11">
-                    Bundled
-                  </span>
-                </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-dls-secondary">{plugin.description}</p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {plugin.components.map((component) => (
-                    <span
-                      key={component}
-                      className="rounded-full border border-dls-border bg-dls-hover px-2 py-0.5 text-[11px] text-dls-secondary"
-                    >
-                      {component}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-3 inline-flex items-center rounded-lg bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">
-                  {plugin.command}
-                </div>
-                <p className="mt-3 text-[11px] text-dls-secondary/70">
-                  {t("extensions.built_in_note")}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* OpenCode plugins -- advanced */}
-          <details className="group" open={pluginCount > 0}>
-            <summary className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-2 text-sm font-medium text-dls-secondary transition-colors hover:text-dls-text">
-              <Cpu size={14} />
-              <span>OpenCode Plugins</span>
-              <span className="text-[11px] text-dls-secondary">({pluginCount})</span>
-            </summary>
-            <div className="mt-3">
-              <PluginsView
-                extensions={props.extensions}
-                busy={props.busy}
-                selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-                canEditPlugins={props.canEditPlugins}
-                canUseGlobalScope={props.canUseGlobalScope}
-                accessHint={props.accessHint}
-                suggestedPlugins={props.suggestedPlugins}
-                canShareWithFirm={props.canShareWithFirm}
-                onShareWithFirm={props.onSharePluginWithFirm}
-              />
-            </div>
-          </details>
-        </div>
-        )
-      ) : null}
-      </HubScopeContext.Provider>
-
-      {props.previewClaudePlugin && props.installClaudePlugin ? (
-        <ClaudePluginImportModal
-          open={importOpen}
-          onClose={() => setImportOpen(false)}
-          onPreview={props.previewClaudePlugin}
-          onInstall={props.installClaudePlugin}
-          onInstalled={props.onRefresh}
+        <PluginsView
+          extensions={props.extensions}
+          busy={props.busy}
+          selectedWorkspaceRoot={props.selectedWorkspaceRoot}
+          canEditPlugins={props.canEditPlugins}
+          canUseGlobalScope={props.canUseGlobalScope}
+          accessHint={props.accessHint}
+          suggestedPlugins={props.suggestedPlugins}
         />
       ) : null}
+      </HubScopeContext.Provider>
     </section>
   );
 }

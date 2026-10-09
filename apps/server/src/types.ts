@@ -242,6 +242,8 @@ export interface SkillItem {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
+  /** From the firm's hub (firm-hub.ts): installed for everyone, or added by the member. Members cannot change it. */
+  firm?: "automatic" | "optional";
 }
 
 export interface HubSkillItem {

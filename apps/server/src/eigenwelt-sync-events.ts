@@ -3,6 +3,8 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "./sync-events.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { requireIntakeClient } from "./eigenwelt-intake.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { scheduleFirmHubSync } from "./firm-hub.js";
+import { scheduleOrgPolicySync } from "./org-policy.js";
 import { scheduleProjectSync, setProjectSyncPoked } from "./project-sync.js";
 import { scheduleTaskSync } from "./task-sync.js";
 import { connectedTaskOrgId } from "./tasks-api.js";
@@ -11,7 +13,7 @@ import type { ServerConfig } from "./types.js";
 /**
  * Pokes from the firm: while this computer is signed in to a firm, it keeps
  * one server-sent event stream open to the platform (GET /api/sync/events).
- * A poke says only that projects or tasks of the firm changed; the rounds it
+ * A poke says only that projects, tasks or the policy of the firm changed; the rounds it
  * starts pull what changed, through the routes that check what this member
  * may see. The first poke on every connection is a resync (the platform
  * listens by then), so nothing from before, or from a dropped connection, is
@@ -49,6 +51,8 @@ export function startSyncEvents(
     ((poke: SyncPoke) => {
       if (poke.projects || poke.resync) scheduleProjectSync(config, POKE_DELAY_MS);
       if (poke.tasks || poke.resync) scheduleTaskSync(config, POKE_DELAY_MS);
+      if (poke.policy || poke.resync) void scheduleOrgPolicySync(config, { force: true });
+      if (poke.hub || poke.resync) void scheduleFirmHubSync(config, { force: true });
     });
   void (async () => {
     let backoff = 1_000;

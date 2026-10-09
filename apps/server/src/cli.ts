@@ -20,6 +20,7 @@ import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import pkg from "../package.json" with { type: "json" };
+import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
 const args = parseCliArgs(process.argv.slice(2));
 
@@ -86,6 +87,8 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
         LEGALWORK_SERVER_URL: serverUrl,
         LEGALWORK_SERVER_TOKEN: config.token,
         OPENCODE_CONFIG: runtimeConfigPath,
+        // The firm's enforced settings: read after every project's own config.
+        OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
         ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
       },
     });

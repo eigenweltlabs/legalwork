@@ -39,6 +39,8 @@ import {
   LayoutSectionItemHeaderActions,
   LayoutSectionItemTitle,
 } from "../settings-layout";
+import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
+import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 export type AuthorizedFoldersPanelProps = {
   legalworkServerClient: LegalworkServerClient | null;
@@ -198,7 +200,12 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
     };
   }, [canReadConfig, props.legalworkServerClient, props.runtimeWorkspaceId]);
 
-  const persistAuthorizedFolders = useCallback(async (nextFolders: string[]) => {
+  // Folders outside the project are a tool permission (`external_directory`) the firm may manage.
+  const firm = useOrgPolicy("tools.permissions");
+  const firmManagesFolders = firm?.value.external_directory !== undefined;
+  const foldersLocked = firm?.locked === true && firmManagesFolders;
+
+  const saveAuthorizedFolders = useCallback(async (nextFolders: string[]) => {
     const legalworkClient = props.legalworkServerClient;
     const legalworkWorkspaceId = props.runtimeWorkspaceId;
     if (!legalworkClient || !legalworkWorkspaceId || !canWriteConfig) {
@@ -230,6 +237,17 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
       setAuthorizedFoldersSaving(false);
     }
   }, [canWriteConfig, props.onConfigUpdated, props.legalworkServerClient, props.runtimeWorkspaceId]);
+
+  const persistAuthorizedFolders = useCallback(async (nextFolders: string[]) => {
+    if (firmManagesFolders) {
+      let saved = false;
+      await changeOrgPolicySetting("tools.permissions", async () => {
+        saved = await saveAuthorizedFolders(nextFolders);
+      });
+      return saved;
+    }
+    return saveAuthorizedFolders(nextFolders);
+  }, [firmManagesFolders, saveAuthorizedFolders]);
 
   const removeAuthorizedFolder = useCallback(async (folder: string) => {
     const nextFolders = authorizedFolders.filter((entry) => entry !== folder);
@@ -277,10 +295,11 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
         <LayoutSectionItemDescription>
           {t("context_panel.authorized_folders_desc")}
         </LayoutSectionItemDescription>
+        {firmManagesFolders ? <OrgPolicyNote policyKey="tools.permissions" locked="org_policy.set_folders" /> : null}
         <LayoutSectionItemHeaderActions>
           <Button
             onClick={() => void pickAuthorizedFolder()}
-            disabled={authorizedFoldersLoading || authorizedFoldersSaving || !canPickAuthorizedFolder}
+            disabled={authorizedFoldersLoading || authorizedFoldersSaving || !canPickAuthorizedFolder || foldersLocked}
           >
             <Plus className="size-4" />
             {t("context_panel.add_folder")}
@@ -304,7 +323,7 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
                   workspaceRootFolder={workspaceRootFolder}
                   authorizedFoldersLoading={authorizedFoldersLoading}
                   authorizedFoldersSaving={authorizedFoldersSaving}
-                  canWriteConfig={canWriteConfig}
+                  canWriteConfig={canWriteConfig && !foldersLocked}
                   onRemove={removeAuthorizedFolder}
                 />
               ))}
@@ -325,7 +344,7 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
             <EmptyContent>
               <Button
                 onClick={() => void pickAuthorizedFolder()}
-                disabled={authorizedFoldersLoading || authorizedFoldersSaving || !canPickAuthorizedFolder}
+                disabled={authorizedFoldersLoading || authorizedFoldersSaving || !canPickAuthorizedFolder || foldersLocked}
               >
                 <Plus className="size-4" />
                 {t("context_panel.add_folder")}

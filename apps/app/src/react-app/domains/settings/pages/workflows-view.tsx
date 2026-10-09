@@ -28,6 +28,9 @@ import { NewWorkflowDialog } from "./new-workflow-dialog";
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
 import { useWorkflowResourceStore } from "../state/workflow-resource-store";
 import { WorkflowResourceEditorPanel } from "./workflow-resource-editor-panel";
+import { FirmItemNote } from "../../connections/org-policy-ui";
+import { FirmSkillDialog } from "./firm-skill-dialog";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
 
 export type WorkflowsViewProps = SkillsViewProps & {
   workspaceId: string;
@@ -86,6 +89,10 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const visibleEntries = entries.slice(currentPage * WORKFLOWS_PER_PAGE, (currentPage + 1) * WORKFLOWS_PER_PAGE);
 
   useEffect(() => { setPage(0); }, [workspaceId]);
+  // One of the firm's workflows, open to read.
+  const [firmWorkflow, setFirmWorkflow] = useState<SkillCard | null>(null);
+  // The firm's workflows change with its hub.
+  useEffect(() => onSyncPoke((poke) => { if (poke.hub) void extensions.refreshSkills({ force: true }); }), [extensions]);
   useEffect(() => { setPage((value) => Math.min(value, lastPage)); }, [lastPage]);
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0; }, [currentPage, scope, query]);
 
@@ -142,6 +149,16 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     const name = draft?.title || (skill ? workflowDisplayName(skill.name) : t("skills.new_workflow"));
     const description = draft?.description ?? skill?.description ?? "";
     const Icon = Workflow;
+    // The firm's workflow follows its hub: members read it, but cannot change or remove it here.
+    if (skill?.firm) {
+      return <button key={skill.name} type="button" onClick={() => setFirmWorkflow(skill)} className="flex w-full gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring">
+        <Workflow className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium">{name}</span>
+          {description ? <span className="mt-1 line-clamp-2 block text-xs leading-5 text-muted-foreground">{description}</span> : null}
+          <span className="mt-1.5 block"><FirmItemNote added={skill.firm === "optional"} /></span>
+        </span>
+      </button>;
+    }
     const selected = props.inlineEditor ? inlineId === draft?.id : panelOpen && activeTab?.type === "workflow" && activeTab.id === draft?.id;
     const open = () => skill ? void openWorkflow(workspaceId, skill) : draft && showWorkflow(draft);
     const menuItems = (context: boolean) => {
@@ -214,6 +231,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
       showWorkflow(draft);
     }} /> : null}
     <ImportSkillsButton open={importOpen} onOpenChange={setImportOpen} asWorkflow busy={props.busy} canUseDesktopTools={props.canUseDesktopTools} existingNames={installedNames} extensions={extensions} />
+    {firmWorkflow ? <FirmSkillDialog name={firmWorkflow.name} added={firmWorkflow.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmWorkflow(null)} /> : null}
     <LegalQuantsImportButton open={legalQuantsOpen} onOpenChange={setLegalQuantsOpen} busy={props.busy} existingNames={installedNames} extensions={extensions} className="hidden" />
     <ConfirmModal open={Boolean(removeTarget)} title={t("skills.uninstall_title")} message={t("skills.uninstall_warning").replace("{name}", removeTarget?.name ?? "")} confirmLabel={t("skills.uninstall")} cancelLabel={t("common.cancel")} confirmButtonVariant="destructive" onCancel={() => setRemoveTarget(null)} onConfirm={() => {
       const target = removeTarget; setRemoveTarget(null); if (!target) return;

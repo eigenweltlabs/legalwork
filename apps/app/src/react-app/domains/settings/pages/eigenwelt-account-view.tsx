@@ -157,7 +157,7 @@ export function EigenweltAccountView({
         cancelled: () => waitTokenRef.current !== token,
       });
       if (result.connected) {
-        toast.success(result.message ?? `${t("status.connected")} Eigenwelt`);
+        toast.success(result.message ?? t("providers.connected_named", { name: "Eigenwelt" }));
         await entitlementsQuery.refetch();
       }
     } catch (error) {

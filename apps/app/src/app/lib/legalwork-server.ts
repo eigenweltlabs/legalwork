@@ -5,6 +5,9 @@ import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import type { CalendarItem, CalendarOccurrence, DeadlineCalculation } from "@legalwork/types/calendar";
 import type { UsageControlAction, UsageControlView } from "@legalwork/types/usage-control";
+import type { OrgPolicyKey } from "@legalwork/types/org-policy";
+import type { OrgPolicyView } from "@legalwork/types/org-policy-view";
+import type { FirmHubSkillFile, FirmHubView } from "@legalwork/types/firm-hub";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
@@ -581,6 +584,8 @@ export type LegalworkSkillItem = {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
+  /** From the firm's hub: installed for everyone, or added by the member. Members cannot change it. */
+  firm?: "automatic" | "optional";
 };
 
 export type LegalworkSkillContent = {
@@ -1726,6 +1731,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
     setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
     saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
+    setOcrMemberKey: (id: string, apiKey: string | null) => requestJson<OcrSettingsView>(baseUrl, `/ocr/firm-engines/${encodeURIComponent(id)}/key`, { token, hostToken, method: "PUT", body: { apiKey }, timeoutMs: timeouts.config }),
     removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
@@ -2330,6 +2336,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     systemOneSettings: () => requestJson<SystemOneSettings>(baseUrl, "/systemone/settings", { token, hostToken, timeoutMs: 30_000 }),
     systemOneSaveProvider: (provider: SystemOneProviderInput) => requestJson<{ ok: true }>(baseUrl, "/systemone/providers", { token, hostToken, method: "PUT", body: provider }),
     systemOneDeleteProvider: (providerId: string) => requestJson<{ ok: true }>(baseUrl, `/systemone/providers/${encodeURIComponent(providerId)}`, { token, hostToken, method: "DELETE" }),
+    systemOneSetMemberKey: (providerId: string, apiKey: string | null) => requestJson<{ ok: true }>(baseUrl, `/systemone/firm-providers/${encodeURIComponent(providerId)}/key`, { token, hostToken, method: "PUT", body: { apiKey } }),
     systemOneSelect: (selection: SystemOneSelection) => requestJson<{ ok: true }>(baseUrl, "/systemone/selection", { token, hostToken, method: "PUT", body: selection, timeoutMs: 30_000 }),
     systemOneTest: (selection: SystemOneSelection, signal?: AbortSignal) => requestJson<{ ok: true }>(baseUrl, "/systemone/test", { token, hostToken, method: "POST", body: selection, signal, timeoutMs: 150_000 }),
     systemOne: <const Q extends SystemOneQuestions>(request: Omit<SystemOneRequest, "questions"> & { questions: Q }, options: SystemOneOptions = {}) =>
@@ -2464,8 +2471,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/test${id ? `?connectionId=${encodeURIComponent(id)}` : ""}`, { token, hostToken, method: "POST", body: input, timeoutMs: 90_000 }),
     removeStorageConnection: (workspaceId: string, id: string, version?: number) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
-    saveTeamStorageConnection: (workspaceId: string, input: StorageInput | { localId: string; teamInstallation?: "automatic" | "optional" }) =>
-      requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/team`, { token, hostToken, method: "POST", body: input, timeoutMs: 30_000 }),
     setTeamStorageInstalled: (workspaceId: string, id: string, installed: boolean) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/installation`, { token, hostToken, method: "POST", body: { installed }, timeoutMs: 30_000 }),
     projectFolderSources: () => requestJson<{ sources: (Omit<RemoteFolderSelection, "path"> & { name: string })[]; error?: string }>(baseUrl, "/storage/project-sources", { token, hostToken, timeoutMs: 60_000 }),
@@ -2822,6 +2827,38 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
      * Take the task notifications noted since the last call. Each is handed
      * out once: whoever claims it is the one to show it.
      */
+    // The firm's policy as it applies on this computer; taking a setting back
+    // needs the owner (host) token.
+    orgPolicy: () => requestJson<OrgPolicyView>(baseUrl, "/org-policy", { token, hostToken, timeoutMs: timeouts.status }),
+    // The firm's Knowledge Hub as this computer follows it (server firm-hub.ts).
+    firmHub: () => requestJson<FirmHubView>(baseUrl, "/firm-hub", { token, hostToken, timeoutMs: timeouts.status }),
+    firmHubSkills: () => requestJson<{ items: LegalworkSkillItem[] }>(baseUrl, "/firm-hub/skills", { token, hostToken, timeoutMs: timeouts.status }),
+    firmHubSkill: (name: string, path = "SKILL.md") =>
+      requestJson<FirmHubSkillFile>(baseUrl, `/firm-hub/skills/${encodeURIComponent(name)}?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.status }),
+    setFirmHubAdded: (itemId: string, added: boolean) =>
+      requestJson<FirmHubView>(baseUrl, `/firm-hub/${encodeURIComponent(itemId)}/added`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: { added },
+        timeoutMs: timeouts.config,
+      }),
+    setFirmHubKey: (itemId: string, key: string | null) =>
+      requestJson<FirmHubView>(baseUrl, `/firm-hub/${encodeURIComponent(itemId)}/key`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: { key },
+        timeoutMs: timeouts.config,
+      }),
+    releaseOrgPolicy: (key: OrgPolicyKey) =>
+      requestJson<OrgPolicyView>(baseUrl, "/org-policy/release", {
+        token,
+        hostToken,
+        method: "POST",
+        body: { key },
+        timeoutMs: timeouts.status,
+      }),
     claimTaskNotifications: () =>
       requestJson<{ notifications: LegalworkTaskNotification[] }>(baseUrl, "/task-notifications/claim", {
         token,

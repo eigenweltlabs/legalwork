@@ -53,7 +53,10 @@ import type {
   LegalworkServerClient,
   LegalworkServerStatus,
 } from "../../../../app/lib/legalwork-server";
+import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
+import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
 import type { LegalworkServerStore } from "../../connections/legalwork-server-store";
+import { orgPolicyAllows, orgPolicyOffText } from "../../connections/org-policy";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -591,7 +594,33 @@ export function createExtensionsStore(options: {
     }
   }
 
+  /** A file of one of the firm's skills or workflows, to read. */
+  async function readFirmSkill(name: string, path?: string): Promise<FirmHubSkillFile> {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient) throw new Error(t("skills.skill_load_failed"));
+    return target.legalworkClient.firmHubSkill(name, path);
+  }
+
+  /** The packages imported into this workspace: from GitHub or a marketplace. */
+  async function importedPackages(): Promise<ImportedPlugin[]> {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient || !target.legalworkWorkspaceId) return [];
+    const result = await target.legalworkClient.listCloudPlugins(target.legalworkWorkspaceId);
+    return Object.values(result.plugins);
+  }
+
+  /** Removes a package with everything it brought. */
+  async function removeImportedPackage(pluginId: string): Promise<void> {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient || !target.legalworkWorkspaceId) {
+      throw new Error(t("extensions.server_unavailable_github_plugins"));
+    }
+    await target.legalworkClient.removeCloudPlugin(target.legalworkWorkspaceId, pluginId);
+    await refreshSkills({ force: true });
+  }
+
   async function installHubSkill(name: string): Promise<{ ok: boolean; message: string }> {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: orgPolicyOffText("skills.allowCustom") };
     const trimmed = name.trim();
     if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const repo = snapshot.hubRepo;
@@ -646,6 +675,7 @@ export function createExtensionsStore(options: {
     paths: string[];
     asWorkflow?: boolean;
   }): Promise<{ ok: boolean; message: string }> {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: orgPolicyOffText("skills.allowCustom") };
     const { legalworkClient, legalworkWorkspaceId } = await resolveWorkspaceServerTarget();
     if (!legalworkClient || !legalworkWorkspaceId) {
       return { ok: false, message: t("extensions.server_unavailable_github_import") };
@@ -742,6 +772,18 @@ export function createExtensionsStore(options: {
     }));
   };
 
+  function skillCardOf(entry: { name: string; description?: string; path: string; trigger?: string; kind?: string; workflowType?: string; firm?: "automatic" | "optional" }): SkillCard {
+    return {
+      name: entry.name,
+      description: entry.description,
+      path: entry.path,
+      trigger: entry.trigger,
+      kind: entry.kind,
+      workflowType: entry.workflowType,
+      ...(entry.firm ? { firm: entry.firm } : {}),
+    };
+  }
+
   async function refreshSkills(optionsOverride?: { force?: boolean }) {
     const root = options.selectedWorkspaceRoot().trim();
     const isLocalWorkspace = options.workspaceType() === "local";
@@ -762,18 +804,11 @@ export function createExtensionsStore(options: {
       try {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills("");
+        // The firm's skills sit in a folder of its own, which the LegalWork server keeps (firm-hub.ts).
+        const firm = legalworkClient ? await legalworkClient.firmHubSkills().then((result) => result.items, () => []) : [];
         if (refreshSkillsAborted) return;
         notifySkippedSkills("desktop-global", local.skipped);
-        const next: SkillCard[] = Array.isArray(local.items)
-          ? local.items.map((entry) => ({
-              name: entry.name,
-              description: entry.description,
-              path: entry.path,
-              trigger: entry.trigger,
-              kind: (entry as { kind?: string }).kind,
-              workflowType: (entry as { workflowType?: string }).workflowType,
-            }))
-          : [];
+        const next: SkillCard[] = [...(Array.isArray(local.items) ? local.items : []), ...firm].map(skillCardOf);
         mutateState((current) => ({
           ...current,
           skills: next,
@@ -817,16 +852,7 @@ export function createExtensionsStore(options: {
         const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: isLocalWorkspace });
         if (refreshSkillsAborted) return;
         notifySkippedSkills(`server:${skillCacheKey}`, response.skipped ?? []);
-        let next: SkillCard[] = Array.isArray(response.items)
-          ? response.items.map((entry) => ({
-              name: entry.name,
-              description: entry.description,
-              path: entry.path,
-              trigger: entry.trigger,
-              kind: (entry as { kind?: string }).kind,
-              workflowType: (entry as { workflowType?: string }).workflowType,
-            }))
-          : [];
+        let next: SkillCard[] = Array.isArray(response.items) ? response.items.map(skillCardOf) : [];
         // The legalwork list doesn't surface SKILL.md frontmatter `kind`/`workflow_type`,
         // so on desktop we enrich from the local files (which do) — that's how workflows
         // stay distinguishable from skills without a name prefix.
@@ -1322,6 +1348,7 @@ export function createExtensionsStore(options: {
   }
 
   async function addPlugin(pluginNameOverride?: string) {
+    if (!(await orgPolicyAllows("plugins.allowCustom"))) return;
     const pluginName = (pluginNameOverride ?? snapshot.pluginInput).trim();
     const isManualInput = pluginNameOverride == null;
     const triggerName = stripPluginVersion(pluginName);
@@ -1496,6 +1523,7 @@ export function createExtensionsStore(options: {
   }
 
   async function importLocalSkill(opts?: { asWorkflow?: boolean }) {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return;
     if (!isDesktopRuntime()) {
       options.setError(t("skills.desktop_required"));
       return;
@@ -1548,6 +1576,7 @@ export function createExtensionsStore(options: {
   // exported workflows round-trip. The main process detects the folder name,
   // applies the workflow- prefix, and writes into the global skills dir.
   async function importLocalSkillZip(opts?: { asWorkflow?: boolean }) {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return;
     if (!isDesktopRuntime()) {
       options.setError(t("skills.desktop_required"));
       return;
@@ -1871,6 +1900,7 @@ export function createExtensionsStore(options: {
   // writeLocalSkill and only UPDATES an existing SKILL.md), this uses
   // installSkillTemplate which mkdir's + writes a fresh .opencode/skills/<name>/SKILL.md.
   async function createSkill(input: { name: string; content: string; description?: string }): Promise<{ ok: boolean; message: string }> {
+    if (!(await orgPolicyAllows("skills.allowCustom"))) return { ok: false, message: orgPolicyOffText("skills.allowCustom") };
     const trimmed = input.name.trim();
     if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const root = options.selectedWorkspaceRoot().trim();
@@ -2184,6 +2214,9 @@ export function createExtensionsStore(options: {
     installHubSkill,
     previewClaudePlugin,
     installClaudePlugin,
+    importedPackages,
+    removeImportedPackage,
+    readFirmSkill,
     revealSkillsFolder,
     uninstallSkill,
     readSkill,

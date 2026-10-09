@@ -9,6 +9,8 @@ import { CalendarView } from "../domains/calendar/calendar-view";
 import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
+import { useOrgPolicyForbids } from "@/react-app/domains/connections/org-policy";
+import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 import {
   useCallback,
   useEffect,
@@ -374,6 +376,7 @@ export function SessionRoute() {
   const showWorkflows = mainPage === "workflows";
   const showRecorder = mainPage === "recorder";
   const showTasks = mainPage === "tasks";
+  const recorderOff = useOrgPolicyForbids("recorder.allow");
   const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
   const recordingSessionStarting = useRef(false);
   // A task a notification asked to show: a null id opens the task list.
@@ -513,6 +516,8 @@ export function SessionRoute() {
   useEffect(() => onSyncPoke((poke) => {
     if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
     if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
+    // The firm's policy may have changed the engine's providers.
+    if (poke.policy) void refreshProviderListQueries(getReactQueryClient());
   }), []);
   useEffect(() => {
     if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
@@ -2615,6 +2620,10 @@ export function SessionRoute() {
               navigateToWorkspaceSession(workspaceId, sessionId);
             }}
           />
+        ) : showRecorder && recorderOff ? (
+          <div className="mx-auto w-full max-w-2xl p-6">
+            <OrgPolicyFeatureOff policyKey="recorder.allow" />
+          </div>
         ) : showRecorder ? (
           <RecorderPane
             project={recorderProject}

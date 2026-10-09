@@ -1,6 +1,8 @@
 /** @jsxImportSource react */
 import { createContext, useCallback, use, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { useOrgPolicy } from "../domains/connections/org-policy";
+
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
@@ -209,9 +211,22 @@ export function ShellConfigProvider({ children }: { children: ReactNode }) {
     writeShellConfig(DEFAULT_SHELL_CONFIG);
   }, []);
 
+  // The firm's branding shows over the member's own while it applies.
+  const branding = useOrgPolicy("branding")?.value;
   const value = useMemo<ShellConfigContextValue>(
-    () => ({ config, update, reset }),
-    [config, update, reset],
+    () => ({
+      config: branding
+        ? {
+            ...config,
+            ...(branding.appName ? { appName: branding.appName } : {}),
+            ...(branding.sidebarBrandName ? { sidebarBrandName: branding.sidebarBrandName } : {}),
+            ...(branding.logoDataUrl ? { sidebarBrandLogoDataUrl: branding.logoDataUrl } : {}),
+          }
+        : config,
+      update,
+      reset,
+    }),
+    [config, branding, update, reset],
   );
 
   return (

@@ -146,7 +146,7 @@ export const ReviewLibraryEntrySchema = z.object({
   kind: ReviewLibraryKindSchema.optional(),
   id: z.string(), version: z.number().int().positive(), name: z.string().trim().min(1).max(180),
   description: z.string().max(1500).default(""), tags: z.array(z.string().max(60)).max(12).default([]),
-  language: z.enum(["en", "de"]), source: z.enum(["builtin", "personal"]),
+  language: z.enum(["en", "de"]), source: z.enum(["builtin", "firm", "personal"]),
   columns: ReviewColumnsSchema.refine(columns => columns.length > 0, "Include at least one column."), updatedAt: z.number(),
   /** A set installed from the firm's Team library: installing it again updates this copy. */
   hubItemId: z.string().max(100).optional(),

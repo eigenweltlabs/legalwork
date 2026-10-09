@@ -5,7 +5,7 @@ import type { ServerConfig } from "./types.js";
 /**
  * What the app windows hear about sync on this computer: each keeps one
  * server-sent event stream open to this server (GET /sync/events). An event
- * says only that projects or tasks changed here (a sync round brought or
+ * says only that projects, tasks or the firm's policy changed here (a sync round brought or
  * sent something, a reminder came due, another window or an agent changed a
  * task); the window re-reads what it shows. The first event on every
  * connection is a resync, so what happened before, or while it was not
@@ -13,7 +13,7 @@ import type { ServerConfig } from "./types.js";
  * what it covers.
  */
 
-type Change = "projects" | "tasks" | "sessions";
+type Change = "projects" | "tasks" | "policy" | "hub" | "sessions";
 
 /** Changes close together go as one event: a round that brought ten notes reloads once. */
 const COALESCE_MS = 250;
@@ -26,7 +26,7 @@ function keyOf(config: ServerConfig): string {
   return process.env.LEGALWORK_RUNTIME_DB?.trim() || config.configPath?.trim() || "default";
 }
 
-/** Projects or tasks changed on this computer: every open window hears it. */
+/** Projects, tasks or the policy changed on this computer: every open window hears it. */
 export function announceSyncChange(config: ServerConfig, change: Change): void {
   for (const listener of listeners.get(keyOf(config)) ?? []) listener(change);
 }

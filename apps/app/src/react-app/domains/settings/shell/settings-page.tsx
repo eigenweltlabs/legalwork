@@ -58,6 +58,7 @@ import {
   SettingsPanelToolbarStatus,
 } from "./panel";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
+import { OrgPolicyBanner } from "../../connections/org-policy-ui";
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
@@ -421,6 +422,8 @@ export function SettingsPage(props: SettingsPageProps) {
           </SettingsPanelToolbar>
         ) : null}
       </SettingsPanel>
+
+      <OrgPolicyBanner />
 
       {props.children}
     </SettingsContent>
