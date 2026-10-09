@@ -1,3 +1,7 @@
+import { readFile } from "node:fs/promises";
+import { z } from "zod";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { parseEigenweltAccountIdentity, parseEigenweltEntitlements } from "../eigenwelt-auth.js";
 import { parseCliArgs, resolveServerConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 import { assertSyncOffline } from "./lifecycle.js";
@@ -8,6 +12,19 @@ export async function runCloudSyncCli(argv: string[]) {
   const [action, ...rest] = argv;
   if (!action || action === "--help") {
     console.log("legalwork-server sync <seed|restore|files|status> --sync-config <path> [--config <server.json>] [--replace] [--allow-deletions]");
+    return;
+  }
+  if (action === "connect") {
+    const offset = rest.indexOf("--connection-file"), connectionPath = rest[offset + 1];
+    if (offset < 0 || !connectionPath) throw new Error("Provide a private --connection-file");
+    const config = await resolveServerConfig(parseCliArgs(rest.filter((_, index) => index !== offset && index !== offset + 1)));
+    await assertSyncOffline(config);
+    const connection = z.object({ platformURL: z.string().url(), platformToken: z.string().min(20), refreshToken: z.string().min(20),
+      accessTokenExpiresAt: z.number().int().positive(), account: z.unknown(), entitlements: z.unknown() }).strict().parse(JSON.parse(await readFile(connectionPath, "utf8")));
+    const account = parseEigenweltAccountIdentity(connection.account), entitlements = parseEigenweltEntitlements(connection.entitlements);
+    if (!account || !entitlements) throw new Error("A complete account connection is required");
+    await writeEigenweltConnection(config, { ...connection, account, entitlements });
+    console.log("Cloud account connected.");
     return;
   }
   if (!["seed", "restore", "files", "status"].includes(action)) throw new Error(`Unknown sync action: ${action}`);

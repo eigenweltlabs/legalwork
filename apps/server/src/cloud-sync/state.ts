@@ -208,7 +208,24 @@ async function mergeRuntime(source: string, destination: string) {
   } finally { incoming.close(); target.close?.(); }
 }
 
-export async function exportCheckpoint(config: ServerConfig, store: SyncObjects): Promise<Checkpoint> {
+/** A companion creates an independent executor, so pending local work must
+ * not be replayed and existing schedules keep their desktop authority. */
+async function prepareCompanionSeed(path: string) {
+  const db = await openSqlite(path);
+  try {
+    db.exec("PRAGMA secure_delete = ON");
+    const tables = new Set(db.all("SELECT name FROM sqlite_master WHERE type = 'table'").map(row => String(row.name)));
+    for (const table of ["assistant_session_queue", "assistant_delegations", "assistant_delegation_receipts",
+      "channel_runtime_owner", "channel_runtime_jobs", "channel_runtime_conversations", "channel_runtime_commands", "channel_runtime_approvals"]) {
+      if (tables.has(table)) db.exec(`DELETE FROM ${quote(table)}`);
+    }
+    if (tables.has("scheduled_tasks")) db.exec("UPDATE scheduled_tasks SET data = json_set(data, '$.status', 'paused', '$.nextRunAt', NULL) WHERE json_extract(data, '$.status') = 'active'");
+    if (tables.has("scheduled_task_runs")) db.exec("DELETE FROM scheduled_task_runs WHERE json_extract(data, '$.status') = 'dispatching'");
+    db.exec("VACUUM");
+  } finally { db.close?.(); }
+}
+
+export async function exportCheckpoint(config: ServerConfig, store: SyncObjects, options: { companionSeed?: boolean } = {}): Promise<Checkpoint> {
   const links = await projectSyncStore(config);
   const projects: SyncProject[] = await Promise.all(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(async workspace => ({
     id: workspace.id, name: workspace.name, preset: workspace.preset, sourcePath: resolve(workspace.path), projectId: links.linkByWorkspace(workspace.id)?.projectId ?? null,
@@ -221,6 +238,7 @@ export async function exportCheckpoint(config: ServerConfig, store: SyncObjects)
       const destination = join(temporary, `${kind}.sqlite`);
       await copyDatabase(source, destination);
       await sanitizeDatabase(destination, kind, projects);
+      if (kind === "runtime" && options.companionSeed) await prepareCompanionSeed(destination);
       return putBlob(store, destination);
     };
     return CheckpointSchema.parse({ version: 1, engineVersion: constants.opencodeVersion,

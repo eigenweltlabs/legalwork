@@ -14,6 +14,16 @@
  */
 
 const de = {
+  "assistant.cloud_title": "Cloud-Assistent",
+  "assistant.cloud_hint": "Nachrichten vom Handy werden in der Cloud bearbeitet. Gespräche am Desktop laufen lokal. Projekte und Nachrichten werden synchronisiert.",
+  "assistant.cloud_schedules": "Bestehende geplante Aufgaben laufen weiter auf diesem Desktop. Ihre Cloud-Kopien sind zunächst pausiert.",
+  "assistant.cloud_sign_in": "Melden Sie sich in den Einstellungen bei Eigenwelt an und aktivieren Sie dann Ihren Cloud-Assistenten.",
+  "assistant.cloud_preparing": "Ihr Cloud-Assistent wird vorbereitet…",
+  "assistant.cloud_syncing": "Projekte und Assistentenverlauf werden synchronisiert…",
+  "assistant.cloud_starting": "Ihr Cloud-Assistent wird gestartet…",
+  "assistant.cloud_ready": "Bereit. Melden Sie sich auf dem Handy mit demselben Konto an und wählen Sie {account}.",
+  "assistant.cloud_retry": "Erneut versuchen",
+  "assistant.cloud_unavailable": "Der Cloud-Assistent ist gerade nicht verfügbar. Versuchen Sie es gleich erneut.",
 "assistant.typing": "Assistent schreibt",
 "assistant.message_placeholder": "Nachricht an {name}…",
 "assistant.talk_to": "Mit {name} sprechen",

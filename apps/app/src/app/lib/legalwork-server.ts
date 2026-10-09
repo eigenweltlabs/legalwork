@@ -1,4 +1,5 @@
-import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
+import type { CloudAssistantStatus } from "@legalwork/types/cloud-assistant";
+import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply, AssistantChannelHistory } from "@legalwork/types/main-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -2729,6 +2730,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
     sessionInbox: () => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken }),
+    cloudAssistantStatus: () => requestJson<CloudAssistantStatus>(baseUrl, "/assistant/cloud", { token, hostToken }),
+    enableCloudAssistant: () => requestJson<CloudAssistantStatus>(baseUrl, "/assistant/cloud", { token, hostToken, method: "POST" }),
+    disableCloudAssistant: () => requestJson<CloudAssistantStatus>(baseUrl, "/assistant/cloud", { token, hostToken, method: "DELETE" }),
+    assistantChannelHistory: (date?: string) => requestJson<AssistantChannelHistory>(baseUrl, `/assistant/channel-history${date ? `?date=${encodeURIComponent(date)}` : ""}`, { token, hostToken }),
+    assistantChannelDays: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string | null }[]; nextBefore: string | null }>(baseUrl, `/assistant/channel-days?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null }>(baseUrl, "/assistant", { token, hostToken }),
     assistantAttention: (cursor?: string) => requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention?presented=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { token, hostToken }),
     setAssistantAttentionVisibility: (item: Pick<AssistantAttentionItem, "id" | "revision" | "workspaceId" | "sessionId">, visible: boolean) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/visibility", { token, hostToken, method: "POST", body: { id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, visible } }),

@@ -70,7 +70,6 @@ export async function prepareCloudExecution(config: ServerConfig, workspaceId: s
 }
 
 export function cloudExecutionFetch(config: ServerConfig, workspace: WorkspaceInfo, upstream: typeof fetch): typeof fetch {
-  if (!config.cloudSync) return upstream;
   return Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const request = new Request(input, init);
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && /^\/(session|permission)(\/|$)/.test(new URL(request.url).pathname)) {

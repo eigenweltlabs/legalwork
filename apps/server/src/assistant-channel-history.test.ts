@@ -172,3 +172,13 @@ test("live bubbles remain visible but become supplemental context only after a d
   expect(restarted.projection("a").messages.every(message => message.settled)).toBe(true);
   restarted.close();
 });
+
+test("revoked channel bindings remove cached bubbles without touching another account", async () => {
+  const f = await fixture(); const conversationId = randomUUID();
+  const row = { ...event("1", "user", "Private linked history"), conversationId };
+  f.store.importPage("a", { events: [row], nextCursor: "1", hasMore: false, activeConversationIds: [conversationId] });
+  f.store.importPage("b", { events: [row], nextCursor: "1", hasMore: false, activeConversationIds: [conversationId] });
+  f.store.importPage("a", { events: [], nextCursor: "1", hasMore: false, activeConversationIds: [] });
+  expect(f.store.projection("a").messages).toEqual([]); expect(f.store.projection("b").messages).toHaveLength(1);
+  f.store.close();
+});

@@ -54,13 +54,13 @@ export class CloudReplica {
     await mkdir(root, { recursive: true });
     const files = new ReplicaResources(await projectSyncStore(config), settings.deviceId);
     const replica = new CloudReplica(config, settings, store, files, now);
-    if (existsSync(replica.devicePath)) {
+    if (settings.role === "executor" && existsSync(replica.devicePath)) {
       const device = DeviceSchema.parse(JSON.parse(await readFile(replica.devicePath, "utf8")));
       replica.checkpointHash = device.checkpoint;
       if (device.timeZone) process.env.TZ = device.timeZone;
     }
     config.cloudSync = { role: settings.role, canExecute: replica.canExecute, prepareWorkspace: id => replica.prepareWorkspace(id),
-      shouldSyncFiles: id => settings.role === "files" || replica.requestedProjects.has(id) || files.isHydrated(`project:${id}`, config.workspaces.find(workspace => workspace.id === id)?.path ?? ""),
+      shouldSyncFiles: id => settings.role !== "executor" || replica.requestedProjects.has(id) || files.isHydrated(`project:${id}`, config.workspaces.find(workspace => workspace.id === id)?.path ?? ""),
       deviceName: settings.deviceName };
     config.cloudSync.maintainsProject = id => !settings.projectIds.length || settings.projectIds.includes(id);
     config.cloudSync.checkpoint = async () => { await replica.tick(); return { checkpointAt: (await replica.control()).value.checkpointAt }; };
@@ -104,7 +104,7 @@ export class CloudReplica {
     return { value: object ? ControlSchema.parse(JSON.parse(object.data.toString())) : emptyControl, revision: object?.revision ?? null };
   }
   private hasLease = () => !this.stopped && this.epoch !== null && this.expiresAt > this.now();
-  canExecute = () => !this.quiescing && this.hasLease();
+  canExecute = () => !this.stopped && !this.quiescing && (this.settings.role === "companion" || this.hasLease());
   private armExpiry() {
     if (this.leaseTimer) clearTimeout(this.leaseTimer);
     this.leaseTimer = setTimeout(() => {
@@ -175,6 +175,18 @@ export class CloudReplica {
     }
     throw new Error("Could not publish assistant checkpoint");
   }
+  /** One-time seed: a desktop must never replace an existing cloud checkpoint. */
+  async seedCompanion() {
+    if (this.settings.role !== "companion") throw new ApiError(409, "sync_companion_required", "Use a companion desktop to create the cloud copy.");
+    const current = await this.control();
+    if (current.value.checkpoint) return false;
+    if (current.value.owner) throw new ApiError(409, "sync_executor_busy", "Cloud setup is already in progress.");
+    const checkpoint = await exportCheckpoint(this.config, this.objects, { companionSeed: true });
+    const reference = await putBlob(this.objects, Buffer.from(JSON.stringify(checkpoint)));
+    await this.objects.put("control.json", Buffer.from(JSON.stringify({ ...current.value, checkpoint: reference,
+      checkpointAt: this.now(), nextRunAt: null })), current.revision);
+    return true;
+  }
   private async rememberCheckpoint(sha256: string) {
     await writeFile(this.devicePath, JSON.stringify({ checkpoint: sha256, timeZone: process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone }), { mode: 0o600 });
     this.checkpointHash = sha256;
@@ -209,7 +221,8 @@ export class CloudReplica {
     return { value: object ? CatalogSchema.parse(JSON.parse(object.data.toString())) : [], revision: object?.revision ?? null };
   }
   async syncCatalog() {
-    if (this.settings.role === "files") {
+    if (this.settings.role !== "files") await this.importCatalog();
+    {
       const links = await projectSyncStore(this.config);
       for (const workspace of this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote" &&
         (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)))) {
@@ -230,6 +243,8 @@ export class CloudReplica {
       }
       throw new Error("Project catalog changed too often; retry sync");
     }
+  }
+  private async importCatalog() {
     const current = await this.catalog();
     for (const project of current.value) {
       if (this.config.workspaces.some(workspace => workspace.id === project.id)) continue;
@@ -286,7 +301,7 @@ export class CloudReplica {
           ["agents", ".opencode/agents"], ["inbox", ".opencode/legalwork/inbox"], ["outbox", ".opencode/legalwork/outbox"]];
         for (const [scope, subdirectory] of resources) {
           const root = join(workspace.path, subdirectory);
-          if (this.settings.role === "files" && !existsSync(root)) continue;
+          if (this.settings.role !== "executor" && !existsSync(root)) continue;
           const resources = await this.files.sync(resourceStorage(await this.objects.adapter(), `resources/${projectId}/${scope}`), `${projectId}:${scope}`, root, this.settings.deviceName, allowDeletions);
           if (resources.pending || resources.stale) throw new ApiError(409, "sync_resource_pending", "Project skills still have pending changes.");
         }
@@ -299,7 +314,7 @@ export class CloudReplica {
   }
   async syncFiles(allowDeletions = false) {
     await this.syncCatalog();
-    const selected = this.settings.projectIds.length ? this.settings.projectIds : this.settings.role === "files"
+    const selected = this.settings.projectIds.length ? this.settings.projectIds : this.settings.role !== "executor"
       ? this.config.workspaces.map(workspace => workspace.id)
       : this.config.workspaces.filter(workspace => workspace.preset === "main-assistant" || this.files.isHydrated(`project:${workspace.id}`, workspace.path)).map(workspace => workspace.id);
     const results = [];

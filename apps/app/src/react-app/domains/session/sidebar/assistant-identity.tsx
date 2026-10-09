@@ -1,3 +1,5 @@
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { CloudAssistantSettings } from "./cloud-assistant-settings";
 import { useEffect, useState } from "react";
 import { DEFAULT_ASSISTANT_PROFILE, type AssistantProfile } from "@legalwork/types/main-assistant";
 import { Button } from "@/components/ui/button";
@@ -15,12 +17,13 @@ import { useAssistantNotificationPreferences } from "./assistant-notification-pr
 
 type ModelSettings = Pick<SessionSurfaceProps, "selectedModel" | "modelSelectorLocked" | "modelPickerOpen" | "onModelPickerOpenChange" | "onModelChange" | "modelVariant" | "modelVariantLabel" | "modelBehaviorOptions" | "onModelVariantChange">;
 
-export function AssistantIdentity({ profile = DEFAULT_ASSISTANT_PROFILE, onSave, workspaceId, sessionId, modelSettings }: {
+export function AssistantIdentity({ profile = DEFAULT_ASSISTANT_PROFILE, onSave, workspaceId, sessionId, modelSettings, client }: {
   profile?: AssistantProfile;
   onSave?: (profile: AssistantProfile) => Promise<void>;
   workspaceId: string;
   sessionId: string;
   modelSettings?: ModelSettings;
+  client?: LegalworkServerClient;
 }) {
   const [editing, setEditing] = useState(false);
   useEffect(() => { if (modelSettings?.modelPickerOpen) setEditing(true); }, [modelSettings?.modelPickerOpen]);
@@ -36,16 +39,17 @@ export function AssistantIdentity({ profile = DEFAULT_ASSISTANT_PROFILE, onSave,
         <span className="relative max-w-64 truncate rounded-full border border-border/60 bg-background/70 px-2.5 py-0.5 text-xs font-medium leading-4 shadow-sm backdrop-blur-md transition-colors group-hover:bg-background/90">{name}</span>
       </button>
     </div>
-    {(editing || modelSettings?.modelPickerOpen) && onSave && <AssistantIdentityEditor profile={profile} onSave={onSave} onClose={close} modelSettings={modelSettings} busy={busy} />}
+    {(editing || modelSettings?.modelPickerOpen) && onSave && <AssistantIdentityEditor profile={profile} onSave={onSave} onClose={close} modelSettings={modelSettings} busy={busy} client={client} />}
   </>;
 }
 
-function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy }: {
+function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy, client }: {
   profile: AssistantProfile;
   onSave: (profile: AssistantProfile) => Promise<void>;
   onClose: () => void;
   modelSettings?: ModelSettings;
   busy: boolean;
+  client?: LegalworkServerClient;
 }) {
   const [draft, setDraft] = useState({ ...profile, name: profile.name ?? t("assistant.title") });
   const [saving, setSaving] = useState(false);
@@ -78,6 +82,7 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
           <fieldset disabled={saving} className="space-y-5 pb-5">
             <AssistantAppearanceFields compact profile={draft} onChange={value => setDraft({ ...value, name: value.name ?? "" })} />
           </fieldset>
+          {client && <CloudAssistantSettings client={client} />}
           <Collapsible defaultOpen={modelSettings?.modelPickerOpen} className="group/advanced border-t border-border">
             <CollapsibleTrigger type="button" className="flex w-full items-center justify-between rounded-sm py-4 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
               {t("settings.tab_advanced")}<ChevronDown className="size-4 -rotate-90 transition-transform group-data-[open]/advanced:rotate-0" />

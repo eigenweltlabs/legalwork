@@ -46,9 +46,32 @@ async function config(name: string): Promise<ServerConfig> {
 }
 async function database(path: string) { await mkdir(dirname(path), { recursive: true }); const db = new Database(path); databases.push(db); return db; }
 async function store() { const result = await DirectoryObjects.open(join(root, "remote")); closers.push(() => result.close()); return result; }
-const settings = (deviceId: string, role: "files" | "executor" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
+const settings = (deviceId: string, role: "files" | "executor" | "companion" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
 
 describe("private replica checkpoints", () => {
+  test("companion seeds preserve history without replaying local queues or schedules", async () => {
+    const source = await config("desktop"), remote = await store();
+    const db = await database(runtimeDbPath(source));
+    db.exec("CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, data TEXT); CREATE TABLE scheduled_task_runs (id TEXT PRIMARY KEY, data TEXT); CREATE TABLE assistant_session_queue (id TEXT PRIMARY KEY, data TEXT); CREATE TABLE assistant_delegations (id TEXT PRIMARY KEY, data TEXT)");
+    db.run("INSERT INTO scheduled_tasks VALUES (?, ?)", ["active", JSON.stringify({ status: "active", nextRunAt: "2026-10-09T12:00:00Z" })]);
+    db.run("INSERT INTO scheduled_tasks VALUES (?, ?)", ["completed", JSON.stringify({ status: "completed", nextRunAt: null })]);
+    db.run("INSERT INTO scheduled_task_runs VALUES (?, ?)", ["pending", JSON.stringify({ status: "dispatching" })]);
+    db.run("INSERT INTO scheduled_task_runs VALUES (?, ?)", ["history", JSON.stringify({ status: "sent" })]);
+    db.exec("INSERT INTO assistant_session_queue VALUES ('q', '{}'); INSERT INTO assistant_delegations VALUES ('d', '{}')");
+    const checkpoint = await exportCheckpoint(source, remote, { companionSeed: true });
+    const copy = join(root, "companion-seed.sqlite");
+    await getBlob(remote, checkpoint.runtime!, copy);
+    const restored = new Database(copy, { readonly: true });
+    try {
+      expect(restored.query("SELECT json_extract(data, '$.status') AS status, json_extract(data, '$.nextRunAt') AS due FROM scheduled_tasks WHERE id = 'active'").get()).toEqual({ status: "paused", due: null });
+      expect(restored.query("SELECT json_extract(data, '$.status') AS status FROM scheduled_tasks WHERE id = 'completed'").get()).toEqual({ status: "completed" });
+      expect(restored.query("SELECT id FROM scheduled_task_runs").all()).toEqual([{ id: "history" }]);
+      expect(restored.query("SELECT id FROM assistant_session_queue").all()).toEqual([]);
+      expect(restored.query("SELECT id FROM assistant_delegations").all()).toEqual([]);
+      expect(db.query("SELECT json_extract(data, '$.status') AS status FROM scheduled_tasks WHERE id = 'active'").get()).toEqual({ status: "active" });
+      expect(db.query("SELECT id FROM assistant_session_queue").all()).toEqual([{ id: "q" }]);
+    } finally { restored.close(); }
+  });
   test("channel receipts and control outcomes survive a checkpoint without replaying agent work", async () => {
     const source = await config("computer"), remote = await store();
     let sends = 0, commands = 0;
@@ -278,4 +301,29 @@ describe("private replica checkpoints", () => {
     await syncPreferences(two, remote);
     expect(await remote.stat("settings/ws_portable.json")).toBe(revision);
   });
+});
+
+test("companion desktops execute locally alongside a cloud lease and never replace its checkpoint", async () => {
+  const source = await config("desktop-companion"), target = await config("cloud-executor"), objects = await store();
+  source.workspaces = []; target.workspaces = [];
+  const desktop = await CloudReplica.open(source, settings("desktop", "companion"), objects);
+  closers.push(() => desktop.close());
+  expect(desktop.canExecute()).toBe(true);
+  expect(await desktop.seedCompanion()).toBe(true);
+  const initial = (await desktop.control()).value.checkpoint?.sha256;
+  const cloud = await CloudReplica.open(target, settings("cloud"), objects);
+  closers.push(() => cloud.close());
+  await cloud.acquire();
+  expect(desktop.canExecute()).toBe(true);
+  expect(cloud.canExecute()).toBe(true);
+  await expect(desktop.publishState()).rejects.toThrow("ownership");
+  await desktop.tick();
+  expect((await desktop.control()).value.checkpoint?.sha256).toBe(initial);
+  expect(await desktop.seedCompanion()).toBe(false);
+  const release = await source.cloudSync!.beginCheckpoint!();
+  expect(desktop.canExecute()).toBe(false);
+  expect(cloud.canExecute()).toBe(true);
+  release();
+  expect(desktop.canExecute()).toBe(true);
+  await cloud.release();
 });

@@ -15,12 +15,13 @@ import { ApiError } from "./errors.js";
 
 const cursor = z.string().regex(/^(0|[1-9][0-9]{0,18})$/);
 const WireEvent = z.object({ id: z.string().uuid(), cursor, channel: z.enum(["ios", "whatsapp", "email"]),
+  conversationId: z.string().uuid().optional(),
   actor: z.enum(["user", "assistant", "channel"]), event: z.record(z.string(), z.unknown()),
   attachments: AssistantChannelMessageSchema.shape.attachments, createdAt: z.string().datetime(), expiresAt: z.string().datetime().nullable(),
   desktop: AssistantChannelMessageSchema.shape.desktop,
   execution: z.object({ sourceId: z.string().uuid(), settled: z.boolean() }).optional(),
 });
-const Page = z.object({ events: z.array(WireEvent).max(100), nextCursor: cursor, hasMore: z.boolean() });
+const Page = z.object({ events: z.array(WireEvent).max(100), nextCursor: cursor, hasMore: z.boolean(), activeConversationIds: z.array(z.string().uuid()).optional() });
 type HistoryEvent = z.infer<typeof WireEvent>;
 type EngineMessage = { info: { id: string; role: string; parentID?: string; summary?: unknown; error?: unknown; finish?: string; time: { created: number; completed?: number } };
   parts: { type: string; text?: string; filename?: string; synthetic?: boolean; ignored?: boolean; metadata?: Record<string, unknown> }[] };
@@ -77,12 +78,22 @@ export class AssistantChannelHistory {
   static async open(path: string, options: HistoryOptions) {
     await mkdir(dirname(path), { recursive: true });
     const db = await openSqlite(path);
+    const legacyProjection = Boolean(db.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name='assistant_channel_events'"));
     db.exec("CREATE TABLE IF NOT EXISTS assistant_channel_device (id INTEGER PRIMARY KEY CHECK(id=1), device_id TEXT NOT NULL)");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_channel_cursors (account TEXT PRIMARY KEY, cursor TEXT NOT NULL)");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_channel_events (account TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(account,id))");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_channel_published (account TEXT NOT NULL, message_id TEXT NOT NULL, event_id TEXT NOT NULL, PRIMARY KEY(account,message_id))");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_channel_scans (account TEXT NOT NULL, session_id TEXT NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY(account,session_id))");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_channel_settled (account TEXT NOT NULL, source_id TEXT NOT NULL, PRIMARY KEY(account,source_id))");
+    db.exec("CREATE TABLE IF NOT EXISTS assistant_channel_projection_version (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL)");
+    if (!db.get("SELECT 1 FROM assistant_channel_projection_version WHERE id=1")) {
+      // Earlier development caches omitted conversation IDs. Reload only their
+      // projection, retaining publication keys and every native engine record.
+      if (legacyProjection) {
+        db.exec("DELETE FROM assistant_channel_events; DELETE FROM assistant_channel_cursors; DELETE FROM assistant_channel_settled");
+      }
+      db.run("INSERT INTO assistant_channel_projection_version VALUES(1,1)");
+    }
     db.run("INSERT OR IGNORE INTO assistant_channel_device VALUES(1,?)", [randomUUID()]);
     const row = db.get("SELECT device_id FROM assistant_channel_device WHERE id=1");
     return new AssistantChannelHistory(db, options, z.string().uuid().parse(row?.device_id));
@@ -128,6 +139,13 @@ export class AssistantChannelHistory {
         this.db.run("INSERT OR IGNORE INTO assistant_channel_events VALUES(?,?,?)", [account, event.id, JSON.stringify(event)]);
         if (event.execution) this.db.run("UPDATE assistant_channel_events SET data=? WHERE account=? AND id=?", [JSON.stringify(event), account, event.id]);
         if (event.execution?.settled) this.db.run("INSERT OR IGNORE INTO assistant_channel_settled VALUES(?,?)", [account, event.execution.sourceId]);
+      }
+      if (page.activeConversationIds) {
+        const active = new Set(page.activeConversationIds);
+        for (const row of this.db.all("SELECT id,data FROM assistant_channel_events WHERE account=?", [account])) {
+          const event = WireEvent.parse(JSON.parse(String(row.data)));
+          if (event.conversationId && !active.has(event.conversationId)) this.db.run("DELETE FROM assistant_channel_events WHERE account=? AND id=?", [account, String(row.id)]);
+        }
       }
       this.db.run("INSERT INTO assistant_channel_cursors VALUES(?,?) ON CONFLICT(account) DO UPDATE SET cursor=excluded.cursor", [account, page.nextCursor]);
       this.db.exec("COMMIT");

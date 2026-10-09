@@ -51,8 +51,8 @@ export const SyncConfigSchema = z.object({
   deviceId: SyncId,
   deviceName: z.string().min(1).max(128),
   store: z.object({ type: z.literal("platform") }).strict(),
-  // Files can sync from any device; only this device runs the copied assistant.
-  role: z.enum(["executor", "files"]),
+  // Companion desktops execute locally; only the executor publishes VM checkpoints.
+  role: z.enum(["executor", "files", "companion"]),
   projectIds: z.array(SyncId).default([]),
   projectsDirectory: z.string().optional(),
   intervalMs: z.number().int().min(5000).max(300000).default(30000),

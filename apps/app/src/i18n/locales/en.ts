@@ -4,6 +4,16 @@
  */
 
 export default {
+  "assistant.cloud_title": "Cloud assistant",
+  "assistant.cloud_hint": "Messages from your phone run in the cloud. Desktop conversations run locally. Projects and messages stay in sync.",
+  "assistant.cloud_schedules": "Existing scheduled tasks keep running on this desktop. Their cloud copies start paused.",
+  "assistant.cloud_sign_in": "Sign in with Eigenwelt in Settings, then enable your cloud assistant.",
+  "assistant.cloud_preparing": "Preparing your cloud assistant…",
+  "assistant.cloud_syncing": "Syncing your projects and assistant history…",
+  "assistant.cloud_starting": "Starting your cloud assistant…",
+  "assistant.cloud_ready": "Ready. Sign in on your phone with the same account and choose {account}.",
+  "assistant.cloud_retry": "Try again",
+  "assistant.cloud_unavailable": "Cloud assistant is unavailable. Try again shortly.",
   "assistant.typing": "Assistant is typing",
   "assistant.message_placeholder": "Message {name}…",
   "assistant.talk_to": "Talk to {name}",
