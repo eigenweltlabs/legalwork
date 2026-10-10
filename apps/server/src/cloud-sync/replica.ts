@@ -66,7 +66,7 @@ export class CloudReplica {
       shouldSyncFiles: id => settings.role !== "executor" || replica.requestedProjects.has(id) || files.isHydrated(`project:${id}`, config.workspaces.find(workspace => workspace.id === id)?.path ?? ""),
       deviceName: settings.deviceName };
     config.cloudSync.maintainsProject = id => !settings.projectIds.length || settings.projectIds.includes(id);
-    config.cloudSync.checkpoint = async () => { await replica.tick(); return { checkpointAt: (await replica.control()).value.checkpointAt }; };
+    config.cloudSync.checkpoint = async () => { await replica.tick(true); return { checkpointAt: (await replica.control()).value.checkpointAt }; };
     config.cloudSync.runEngineRequest = execute => {
       if (!replica.canExecute()) throw new ApiError(409, "sync_execution_owner", "The execution owner is paused or unavailable.");
       replica.engineWrites++;
@@ -89,6 +89,9 @@ export class CloudReplica {
       return () => { replica.quiescing = false; };
     };
     config.cloudSync.resume = async () => {
+      // A suspended VM can resume with a renewal still in flight. Let that
+      // stale operation settle before reacquiring the same checkpoint.
+      await replica.renewing?.catch(() => {});
       if (!replica.hasLease()) {
         const current = await replica.control();
         if (current.value.owner !== replica.owner || current.value.checkpoint?.sha256 !== replica.checkpointHash)
@@ -148,7 +151,11 @@ export class CloudReplica {
     for (let attempt = 0; attempt < 8; attempt++) {
       const current = await this.control();
       if (this.epoch === null || current.value.owner !== this.owner || current.value.epoch !== this.epoch || current.value.expiresAt <= this.now()) {
-        this.expiresAt = 0; this.config.cloudSync?.onLeaseLost?.();
+        this.expiresAt = 0;
+        // Lease expiry is expected during a checkpointed VM pause. Execution
+        // stays blocked until resume verifies the owner and checkpoint again.
+        if (!this.quiescing || current.value.owner !== this.owner || current.value.epoch !== this.epoch)
+          this.config.cloudSync?.onLeaseLost?.();
         throw new ApiError(409, "sync_lease_lost", "Assistant execution ownership changed; this device must stop.");
       }
       const expiresAt = this.now() + this.settings.leaseMs;
@@ -391,8 +398,8 @@ export class CloudReplica {
     return { running: this.round !== null, error: this.syncError, pendingProjects: this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote" &&
       (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)) && !this.files.isHydrated(`project:${workspace.id}`, workspace.path)).length };
   }
-  async tick() {
-    if (this.stopped) return;
+  async tick(checkpoint = false) {
+    if (this.stopped || this.quiescing && !checkpoint) return;
     if (this.round) return this.round;
     this.round = (async () => {
       if (this.settings.role === "executor") await this.renew();

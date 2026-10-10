@@ -9,17 +9,22 @@ import type { z } from "zod";
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "legalwork-channel-runtime-"));
   let sends = 0, hasMessage = false, busy = false, complete = false, available = true, uncertain = false;
-  let now = Date.now();
+  let now = Date.now(), retries = 0;
+  let failure: { code: string; retryable: boolean } | undefined;
+  let lostRetry = false;
   let events: z.infer<typeof ChannelLiveEvent>[] = [];
   const engine: ChannelEngine = {
     current: async () => ({ workspaceId: "owned-assistant", sessionId: "daily-session" }), validate: async () => {},
     hasMessage: async () => hasMessage, busy: async () => busy,
     send: async () => { sends++; hasMessage = true; busy = true; if (uncertain) throw new Error("lost response"); },
-    result: async () => complete ? { state: "completed", text: "Real final reply", events } : { state: "running", events },
+    retry: async () => { retries++; failure = undefined; busy = true; if (lostRetry) throw new Error("Lost recovery response"); return true; },
+    result: async () => failure ? { state: "failed", ...failure, events } : complete ? { state: "completed", text: "Real final reply", events } : { state: "running", events },
   };
   let runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available, () => now);
   const input = { id: randomUUID(), userId: "user-a", orgId: "org-a", conversationId: randomUUID(), channel: "ios", text: "Please help", attachments: [] };
-  return { input, get runtime() { return runtime; }, get sends() { return sends; },
+  return { input, get runtime() { return runtime; }, get sends() { return sends; }, get retries() { return retries; },
+    fail: (code = "empty_reply", retryable = true) => { failure = { code, retryable }; busy = false; },
+    advance: (ms: number) => { now += ms; }, loseRetry: () => { lostRetry = true; },
     finish: () => { complete = true; busy = false; }, revoke: () => { available = false; }, uncertain: () => { uncertain = true; },
     missing: () => { hasMessage = false; }, persisted: () => { hasMessage = true; }, expireAcceptance: () => { now += 30001; },
     progress: (text="Acknowledged before work completes") => { events=[{key:"a".repeat(64),event:{type:"message.created",text}}]; }, compact: () => { events=[]; },
@@ -125,4 +130,56 @@ test("model reload waits for active work and an unchanged model remains inert ac
     await f.reopen(); await f.runtime.configure("rotated-key", async () => { reloads++; });
     expect(reloads).toBe(2); expect(f.sends).toBe(1);
   } finally { await f.close(); }
+});
+
+test("empty replies retry automatically with the same receipt, delayed and durable across restart", async () => {
+  const f = await fixture(); try {
+    const original = await f.runtime.accept(f.input); f.fail();
+    expect((await f.runtime.inspect(f.input.id)).state).toBe("running");
+    expect(f.retries).toBe(0); await f.reopen(); f.advance(1999);
+    await f.runtime.inspect(f.input.id); expect(f.retries).toBe(0); f.advance(1);
+    await Promise.all([f.runtime.inspect(f.input.id), f.runtime.inspect(f.input.id)]);
+    expect(f.retries).toBe(1); expect(f.sends).toBe(1);
+    f.finish(); const result = await f.runtime.inspect(f.input.id);
+    expect(result.state).toBe("completed"); expect(result.messageId).toBe(original.messageId);
+    expect(result.textResult).toBe("Real final reply");
+  } finally { await f.close(); }
+});
+test("lost retry acknowledgement reconciles without another message or recovery wake", async () => {
+  const f = await fixture(); try {
+    await f.runtime.accept(f.input); f.progress(); f.fail(); await f.runtime.inspect(f.input.id);
+    f.loseRetry(); f.advance(2000); await f.runtime.inspect(f.input.id); await f.reopen();
+    const pending = await f.runtime.inspect(f.input.id); expect(pending.events).toHaveLength(1);
+    f.finish(); expect((await f.runtime.inspect(f.input.id)).state).toBe("completed");
+    expect(f.retries).toBe(1); expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+test("persistent failure has bounded exponential retries and never spins on stale engine state", async () => {
+  const f = await fixture(); try {
+    await f.runtime.accept(f.input); f.fail(); await f.runtime.inspect(f.input.id);
+    for (const [index, delay] of [2000, 8000, 30000].entries()) {
+      f.advance(delay); await f.runtime.inspect(f.input.id); expect(f.retries).toBe(index + 1);
+      f.fail("engine_error"); await f.runtime.inspect(f.input.id); expect(f.retries).toBe(index + 1);
+      f.advance(30000); await f.runtime.inspect(f.input.id); await f.reopen();
+    }
+    expect((await f.runtime.inspect(f.input.id)).state).toBe("failed");
+    expect(f.retries).toBe(3); expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+test("cancelling during retry delay never wakes the assistant and survives restart", async () => {
+  const f = await fixture(); try {
+    await f.runtime.accept(f.input); f.fail(); await f.runtime.inspect(f.input.id); f.advance(2000);
+    expect(await f.runtime.cancel(f.input.id, async () => {})).toEqual({ stopped: true });
+    await f.reopen(); expect((await f.runtime.inspect(f.input.id)).code).toBe("cancelled"); expect(f.retries).toBe(0);
+  } finally { await f.close(); }
+});
+test("permanent errors and revoked execution do not retry", async () => {
+  const f = await fixture(); try {
+    await f.runtime.accept(f.input); f.fail("cancelled", false);
+    expect((await f.runtime.inspect(f.input.id)).state).toBe("failed"); expect(f.retries).toBe(0);
+  } finally { await f.close(); }
+  const g = await fixture(); try {
+    await g.runtime.accept(g.input); g.fail(); await g.runtime.inspect(g.input.id); g.advance(2000); g.revoke();
+    await expect(g.runtime.inspect(g.input.id)).rejects.toThrow("does not own"); expect(g.retries).toBe(0);
+  } finally { await g.close(); }
 });

@@ -124,7 +124,7 @@ export class CloudAssistantSetup {
     this.stopReplica = replica.start(true);
     await this.stage("starting");
     let remote = await this.remote("POST");
-    const deadline = Date.now() + 300000;
+    const deadline = Date.now() + 360000;
     while (remote.state === "starting" && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       remote = await this.remote("GET");
