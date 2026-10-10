@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { ChannelRuntime, type ChannelEngine, type ChannelLiveEvent } from "./channel-runtime.js";
+import { ChannelRuntime, channelObservationVersion, type ChannelEngine, type ChannelLiveEvent } from "./channel-runtime.js";
 import type { z } from "zod";
 
 async function fixture() {
@@ -13,18 +13,24 @@ async function fixture() {
   let failure: { code: string; retryable: boolean } | undefined;
   let lostRetry = false;
   let events: z.infer<typeof ChannelLiveEvent>[] = [];
+  let notify = () => {}, watchSignal: AbortSignal | undefined, inspection: (() => void) | undefined;
   const engine: ChannelEngine = {
     current: async () => ({ workspaceId: "owned-assistant", sessionId: "daily-session" }), validate: async () => {},
     hasMessage: async () => hasMessage, busy: async () => busy,
     send: async () => { sends++; hasMessage = true; busy = true; if (uncertain) throw new Error("lost response"); },
     retry: async () => { retries++; failure = undefined; busy = true; if (lostRetry) throw new Error("Lost recovery response"); return true; },
-    result: async () => failure ? { state: "failed", ...failure, events } : complete ? { state: "completed", text: "Real final reply", events } : { state: "running", events },
+    watch: async (_, callback, signal) => { notify = callback; watchSignal = signal; },
+    result: async () => {
+      const result: Awaited<ReturnType<ChannelEngine["result"]>> = failure ? { state: "failed", ...failure, events } : complete ? { state: "completed", text: "Real final reply", events } : { state: "running", events };
+      const once = inspection; inspection = undefined; once?.(); return result;
+    },
   };
   let runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available, () => now);
   const input = { id: randomUUID(), userId: "user-a", orgId: "org-a", conversationId: randomUUID(), channel: "ios", text: "Please help", attachments: [] };
   return { input, get runtime() { return runtime; }, get sends() { return sends; }, get retries() { return retries; },
     fail: (code = "empty_reply", retryable = true) => { failure = { code, retryable }; busy = false; },
     advance: (ms: number) => { now += ms; }, loseRetry: () => { lostRetry = true; },
+    notify: () => notify(), get watchSignal() { return watchSignal; }, duringInspection: (run: () => void) => { inspection = run; },
     finish: () => { complete = true; busy = false; }, revoke: () => { available = false; }, uncertain: () => { uncertain = true; },
     missing: () => { hasMessage = false; }, persisted: () => { hasMessage = true; }, expireAcceptance: () => { now += 30001; },
     progress: (text="Acknowledged before work completes") => { events=[{key:"a".repeat(64),event:{type:"message.created",text}}]; }, compact: () => { events=[]; },
@@ -38,6 +44,71 @@ test("a lost dispatch response and process restart recover the same engine messa
     await f.reopen(); expect((await f.runtime.accept(f.input)).state).toBe("running"); expect(f.sends).toBe(1);
     f.finish(); const result = await f.runtime.inspect(f.input.id); expect(result.textResult).toBe("Real final reply");
     await f.reopen(); expect((await f.runtime.accept(f.input)).textResult).toBe(result.textResult); expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+
+test("long-poll wakes on a closed bubble, journals it and never sends a second prompt", async () => {
+  const f = await fixture(); try {
+    const receipt = await f.runtime.accept(f.input);
+    const waiting = f.runtime.inspect(f.input.id, { waitMs: 3000, after: channelObservationVersion(receipt) });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    f.progress(); f.notify();
+    const result = await waiting;
+    expect(result.state).toBe("running"); expect(result.events).toHaveLength(1);
+    expect(f.watchSignal?.aborted).toBe(true); expect(f.sends).toBe(1);
+    await f.reopen(); expect((await f.runtime.inspect(f.input.id)).events).toEqual(result.events);
+  } finally { await f.close(); }
+});
+test("completion hints during inspection survive the subscribe-inspect-wait window", async () => {
+  const f = await fixture(); try {
+    const receipt = await f.runtime.accept(f.input);
+    f.duringInspection(() => { f.finish(); f.notify(); });
+    const started = performance.now();
+    const result = await f.runtime.inspect(f.input.id, { waitMs: 3000, after: channelObservationVersion(receipt) });
+    expect(result.state).toBe("completed"); expect(result.textResult).toBe("Real final reply");
+    expect(performance.now() - started).toBeLessThan(1000); expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+test("missed engine hints use a bounded receipt refresh without changing its observation version", async () => {
+  const f = await fixture(); try {
+    const receipt = await f.runtime.accept(f.input);
+    f.advance(1000);
+    const waiting = f.runtime.inspect(f.input.id, { waitMs: 30, after: channelObservationVersion(receipt) });
+    await new Promise(resolve => setTimeout(resolve, 10)); f.finish();
+    const result = await waiting;
+    expect(result.state).toBe("completed"); expect(f.watchSignal?.aborted).toBe(true);
+    expect(channelObservationVersion({ ...receipt, updatedAt: receipt.updatedAt + 1000 })).toBe(channelObservationVersion(receipt));
+    expect(channelObservationVersion(result)).not.toBe(channelObservationVersion(receipt)); expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+test("long-polls fence a revoked executor on wake and abort their engine subscription", async () => {
+  const f = await fixture(); try {
+    const receipt = await f.runtime.accept(f.input);
+    const waiting = f.runtime.inspect(f.input.id, { waitMs: 3000, after: channelObservationVersion(receipt) });
+    await new Promise(resolve => setTimeout(resolve, 10)); f.revoke(); f.notify();
+    await expect(waiting).rejects.toThrow("does not own"); expect(f.watchSignal?.aborted).toBe(true);
+    expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+test("disconnected host requests abort long-polls without cancelling or replaying the durable turn", async () => {
+  const f = await fixture(); try {
+    const receipt = await f.runtime.accept(f.input), stop = new AbortController();
+    const waiting = f.runtime.inspect(f.input.id, { waitMs: 3000, after: channelObservationVersion(receipt), signal: stop.signal });
+    await new Promise(resolve => setTimeout(resolve, 10)); stop.abort();
+    await expect(waiting).rejects.toThrow(); expect(f.watchSignal?.aborted).toBe(true);
+    expect((await f.runtime.inspect(f.input.id)).state).toBe("running"); expect(f.sends).toBe(1);
+    f.finish(); expect((await f.runtime.inspect(f.input.id)).state).toBe("completed");
+  } finally { await f.close(); }
+});
+test("durable cancellation wakes a waiting controller even when the engine emits no idle hint", async () => {
+  const f = await fixture(); try {
+    const receipt = await f.runtime.accept(f.input);
+    const waiting = f.runtime.inspect(f.input.id, { waitMs: 3000, after: channelObservationVersion(receipt) });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(await f.runtime.cancel(f.input.id, async () => {})).toEqual({ stopped: true });
+    const result = await waiting;
+    expect(result.state).toBe("failed"); expect(result.code).toBe("cancelled"); expect(f.watchSignal?.aborted).toBe(true);
+    expect(f.sends).toBe(1); expect(f.retries).toBe(0);
   } finally { await f.close(); }
 });
 test("live completed bubbles survive receipt replay, engine compaction and process restart exactly once", async () => {

@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import { ApiError } from "./errors.js";
+import { channelEventWait } from "./channel-event-wait.js";
 
 export const ChannelOwner = z.strictObject({ userId: z.string().min(1).max(128), orgId: z.string().min(1).max(128) });
 export const ChannelInput = ChannelOwner.extend({ id: z.uuid(), conversationId: z.uuid(), channel: z.enum(["ios", "whatsapp", "email"]),
@@ -38,13 +39,18 @@ export type ChannelEngine = {
   busy: (target: Target) => Promise<boolean>;
   send: (receipt: ChannelReceipt) => Promise<void>;
   retry?: (receipt: ChannelReceipt) => Promise<boolean>;
+  watch?: (receipt: ChannelReceipt, notify: () => void, signal: AbortSignal) => Promise<void>;
   result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; code?: string; retryable?: boolean }>;
 };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+export const channelObservationVersion = (receipt: ChannelReceipt) => digest({ state: receipt.state, code: receipt.code,
+  retryAt: receipt.retryAt, retries: receipt.retries, text: receipt.textResult, files: receipt.files, events: receipt.events.map(item => item.key) });
 
 /** Host-only inbox. Journal before dispatch; an uncertain dispatch is never blindly replayed. */
 export class ChannelRuntime {
   private locks = new Map<string, Promise<unknown>>();
+  private waits = new Map<string, Set<() => void>>();
+  private stopped = new AbortController();
   private constructor(private db: SqliteHandle, private engine: ChannelEngine, private available: () => boolean, private now: () => number) {}
   static async open(path: string, engine: ChannelEngine, available: () => boolean, now: () => number = Date.now) {
     await mkdir(dirname(path), { recursive: true });
@@ -57,7 +63,7 @@ export class ChannelRuntime {
     db.exec("CREATE TABLE IF NOT EXISTS channel_runtime_settings (id TEXT PRIMARY KEY, value TEXT NOT NULL)");
     return new ChannelRuntime(db, engine, available, now);
   }
-  close() { this.db.close?.(); }
+  close() { this.stopped.abort(); this.db.close?.(); }
   bind(owner: z.infer<typeof ChannelOwner>) {
     owner = ChannelOwner.parse(owner);
     const row = this.db.get("SELECT data FROM channel_runtime_owner WHERE id=1");
@@ -114,14 +120,46 @@ export class ChannelRuntime {
       return receipt;
     });
   }
-  async inspect(id: string) { this.writable(); return this.locked("accept", () => this.inspectLocked(this.get(z.uuid().parse(id)))); }
+  async inspect(id: string, options?: { waitMs: number; after: string; signal?: AbortSignal }) {
+    id = z.uuid().parse(id); this.writable();
+    const inspect = async () => {
+      options?.signal?.throwIfAborted(); this.writable();
+      const receipt = await this.locked("accept", () => { this.writable(); return this.inspectLocked(this.get(id)); });
+      options?.signal?.throwIfAborted(); this.writable(); return receipt;
+    };
+    if (!options || options.waitMs === 0) return inspect();
+    const waitMs = z.number().int().min(0).max(3000).parse(options.waitMs);
+    z.string().regex(/^[a-f0-9]{64}$/).parse(options.after);
+    const target = this.get(id);
+    const stop = new AbortController();
+    const signal = AbortSignal.any([stop.signal, this.stopped.signal, ...(options.signal ? [options.signal] : [])]);
+    signal.throwIfAborted();
+    const wait = channelEventWait(waitMs, signal);
+    const waits = this.waits.get(id) ?? new Set<() => void>();
+    this.waits.set(id, waits); waits.add(wait.notify);
+    // Subscribe before inspecting so completed output in that window cannot
+    // become invisible until the next polling interval. SSE is only a hint.
+    void this.engine.watch?.(target, wait.notify, signal).catch(() => {});
+    try {
+      const receipt = await inspect();
+      if (channelObservationVersion(receipt) !== options.after || ["completed", "failed"].includes(receipt.state)) return receipt;
+      await wait.done; signal.throwIfAborted(); this.writable();
+      return await inspect();
+    } finally {
+      stop.abort(); wait.close(); waits.delete(wait.notify);
+      if (!waits.size) this.waits.delete(id);
+    }
+  }
   async cancel(id: string, stop: (receipt: ChannelReceipt) => Promise<void>) {
     this.writable();
     return this.locked("accept", async () => {
+      this.writable();
       const receipt = await this.inspectLocked(this.get(z.uuid().parse(id)), false);
       if (["completed", "failed"].includes(receipt.state)) return { stopped: false };
+      this.writable();
       await stop(receipt);
       receipt.state = "failed"; receipt.code = "cancelled"; receipt.retryAt = null; this.save(receipt);
+      for (const notify of this.waits.get(id) ?? []) notify();
       return { stopped: true };
     });
   }
@@ -164,6 +202,7 @@ export class ChannelRuntime {
       }
     }
     const result = await this.engine.result(receipt);
+    this.writable();
     for (const event of result.events ?? []) {
       const parsed = ChannelLiveEvent.parse(event);
       const previous = receipt.events.find(item => item.key === parsed.key);

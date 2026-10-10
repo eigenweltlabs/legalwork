@@ -3,7 +3,7 @@ import { basename, extname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
-import { ChannelRuntime, ChannelOwner, ChannelInput, ChannelCommand, ChannelFileResult } from "./channel-runtime.js";
+import { ChannelRuntime, ChannelOwner, ChannelInput, ChannelCommand, ChannelFileResult, channelObservationVersion } from "./channel-runtime.js";
 import { ApiError } from "./errors.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { channelLiveEvents, channelToolOutput } from "./channel-live-events.js";
 import { retryChannelTurn, retryableChannelError } from "./channel-recovery.js";
+import { watchChannelEvents } from "./channel-event-wait.js";
 
 const sharedFileTypes: Record<string, string> = { ".txt": "text/plain", ".md": "text/plain", ".pdf": "application/pdf",
   ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -88,6 +89,11 @@ export async function registerChannelRuntimeRoutes(options: {
       if (!response.response.ok) throw new Error("Channel dispatch could not be confirmed");
     },
     retry: async receipt => { const { client } = await target(receipt); return retryChannelTurn(client, receipt); },
+    watch: async (receipt, notify, signal) => {
+      const workspace = await options.workspace(receipt.workspaceId);
+      if (workspace.workspaceType === "remote" || !isMainAssistant(workspace)) return;
+      await watchChannelEvents(options.client(workspace), receipt.sessionId, receipt.messageId, notify, signal);
+    },
     result: async input => {
       const { workspace, client } = await target(input);
       const statuses = await client.session.status({}, requestOptions());
@@ -204,7 +210,15 @@ export async function registerChannelRuntimeRoutes(options: {
         throw new ApiError(503, "channel_model", "The engine has not loaded the channel model.");
     }));
   });
-  addRoute(options.routes, "GET", "/channel-runtime/jobs/:id", "host-token", async ctx => { await bind(); return options.json(await runtime.inspect(ctx.params.id)); });
+  addRoute(options.routes, "GET", "/channel-runtime/jobs/:id", "host-token", async ctx => {
+    await bind();
+    const waitMs = z.coerce.number().int().min(0).max(3000).parse(ctx.url.searchParams.get("waitMs") ?? 0);
+    const after = ctx.url.searchParams.get("after");
+    const receipt = await runtime.inspect(ctx.params.id, waitMs && after ? { waitMs, after, signal: ctx.request.signal } : undefined);
+    const response = options.json(receipt);
+    response.headers.set("X-Channel-Version", channelObservationVersion(receipt));
+    return response;
+  });
   addRoute(options.routes, "POST", "/channel-runtime/jobs/:id/cancel", "host-token", async ctx => {
     await bind();
     return options.json(await runtime.cancel(ctx.params.id, async receipt => {
