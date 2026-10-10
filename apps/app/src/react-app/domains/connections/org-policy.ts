@@ -3,7 +3,7 @@ import { create } from "zustand";
 import type { OrgPolicyKey } from "@legalwork/types/org-policy";
 import type { OrgPolicyView, OrgPolicyViewEntry } from "@legalwork/types/org-policy-view";
 
-import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
@@ -16,7 +16,7 @@ import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connecti
  * the member to confirm before they take back a setting their firm enforces.
  */
 
-type ConfirmRequest = { key: OrgPolicyKey; resolve: (confirmed: boolean) => void };
+type ConfirmRequest = { key: OrgPolicyKey; orgName?: string | null; resolve: (confirmed: boolean) => void };
 
 export const useOrgPolicyStore = create<{ view: OrgPolicyView | null; confirm: ConfirmRequest | null }>(() => ({
   view: null,
@@ -56,17 +56,21 @@ export async function refreshOrgPolicy(): Promise<void> {
  * default, or an enforced setting after sign-out once the member confirmed:
  * the setting is taken back first, so the firm's value stops applying.
  */
-export async function changeOrgPolicySetting(key: OrgPolicyKey, change: () => void | Promise<void>): Promise<boolean> {
-  const entry = appliedOrgPolicy(useOrgPolicyStore.getState().view, key);
+export async function changeOrgPolicySetting(key: OrgPolicyKey, change: () => void | Promise<void>, worker?: LegalworkServerClient): Promise<boolean> {
+  // A remote workspace must release its own worker's policy, not this computer's.
+  const view = worker ? await worker.orgPolicy() : useOrgPolicyStore.getState().view;
+  const entry = appliedOrgPolicy(view, key);
   if (entry?.locked) return false;
   if (entry) {
     if (entry.mode === "enforced") {
-      const confirmed = await new Promise<boolean>((resolve) => useOrgPolicyStore.setState({ confirm: { key, resolve } }));
+      const confirmed = await new Promise<boolean>((resolve) => useOrgPolicyStore.setState({ confirm: { key, orgName: view?.orgName, resolve } }));
       if (!confirmed) return false;
     }
-    const client = await serverClient();
+    const client = worker ?? await serverClient();
     if (!client) return false;
-    useOrgPolicyStore.setState({ view: await client.releaseOrgPolicy(key) });
+    const released = await client.releaseOrgPolicy(key);
+    if (!worker) useOrgPolicyStore.setState({ view: released });
+    else void refreshOrgPolicy();
   }
   await change();
   return true;

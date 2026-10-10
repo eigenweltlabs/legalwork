@@ -1,10 +1,7 @@
 name: Desktop Package Smoke Tests
 
 on:
-  pull_request:
-    branches: [dev, codex/projects-akte-workspace]
-  push:
-    branches: [dev]
+  workflow_call:
 
 permissions:
   contents: read
@@ -58,6 +55,18 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Test config migration, token-file migration and link policy
         run: node --test apps/desktop/electron/opencode-config-migration.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-${{ matrix.platform == 'win' && 'win32' || matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
+          if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
+
       - name: Build desktop app and native dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -69,6 +78,10 @@ jobs:
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.executable }}"
+      - name: Run isolation probe with the packaged Node and VM
+        run: |
+          bun build scripts/sandbox/probe.ts --target=node --outfile=scripts/sandbox/probe.mjs
+          node scripts/sandbox/probe-packaged.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
       - name: Verify Windows native modules
         if: runner.os == 'Windows'
         timeout-minutes: 2

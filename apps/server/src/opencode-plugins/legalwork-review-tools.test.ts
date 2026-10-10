@@ -73,7 +73,7 @@ test.each(["workflow-assistant-due-diligence", "workflow-assistant-saas-acquisit
   await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "author-review-prompts" } });
   await dd.tool.legalwork_review_report_prepare.execute({ reviewIds: [id], evidenceIndexes: ["source-index.json"] }, scoped);
   await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "docx-edit" } });
-  for (const [tool,args] of [["bash", { command: "cat << 'EOF' > scratch/build_report.py\nimport json\nEOF" }],
+  for (const [tool,args] of [["legalwork_shell", { command: "cat << 'EOF' > scratch/build_report.py\nimport json\nEOF" }],
     ["write", { filePath: "/project/scratch/build_report.py", content: "import json" }],
     ["bash", { command: "python3 -c 'import json; " + "print(1);".repeat(100) + "'" }]] satisfies Array<[string, Record<string, unknown>]>) {
     await expect(dd["tool.execute.before"]({ tool, sessionID: scoped.sessionID }, { args })).rejects.toThrow("Write legal prose");

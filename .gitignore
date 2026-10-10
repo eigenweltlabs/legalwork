@@ -67,3 +67,6 @@ apps/app/dist-docx-performance/
 
 # Checksum-pinned runtime downloaded during desktop builds.
 apps/desktop/resources/node/
+
+# Built, checksum-verified sandbox runtime
+apps/server/resources/agent-sandbox/runtime/

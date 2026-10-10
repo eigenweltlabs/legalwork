@@ -62,6 +62,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sandbox-runtime:
+    uses: ./.github/workflows/sandbox-runtime.yml
+    needs: resolve-release
+    with:
+      ref: ${{ needs.resolve-release.outputs.release_tag }}
   resolve-release:
     name: Resolve Release Metadata
     # SignPath trusted builds require every job leading to the Windows signing
@@ -257,7 +262,7 @@ jobs:
 
   publish-electron:
     name: Build + publish Electron (${{ matrix.artifact }})
-    needs: [resolve-release, verify-release]
+    needs: [resolve-release, verify-release, sandbox-runtime]
     if: needs.resolve-release.outputs.build_electron == 'true'
     runs-on: ${{ matrix.platform }}
     # Apple notarization routes first-time/new-account submissions to "in-depth
@@ -402,6 +407,18 @@ jobs:
           chmod 600 "$NOTARY_KEY_PATH"
 
           echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-${{ matrix.os_type == 'macos' && 'darwin' || matrix.os_type == 'windows' && 'win32' || 'linux' }}-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
+          if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Build Electron app
         shell: bash

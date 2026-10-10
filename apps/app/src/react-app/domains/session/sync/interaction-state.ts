@@ -1,5 +1,7 @@
 import type { PermissionRequest, PermissionV2Request, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client";
 import type { Client, PendingPermission, PendingQuestion } from "@/app/types";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { t } from "@/i18n";
 import { unwrap } from "@/app/lib/opencode";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionActivityStore } from "../status/session-activity-store";
@@ -142,6 +144,7 @@ export function seedPermissionState(
     const seededIds = new Set(seeded.map((permission) => permission.id));
     const snapshotStartedAt = options.snapshot?.startedAt ?? options.snapshotStartedAt;
     const retained = current.filter((permission) => {
+      if (permission.protocol === "host") return true;
       if (options.protocol && permission.protocol !== options.protocol) return true;
       const changed = options.snapshot?.permissions.get(interactionRequestKey(sessionId, permission.id));
       if (changed === false) return false;
@@ -245,8 +248,11 @@ export async function refreshWorkspaceInteractions(input: RecoveryInput) {
   ]);
 }
 
-export async function replyToPermission(client: Client, permission: PendingPermission, reply: "once" | "always" | "reject", directory: string) {
-  if (permission.protocol === "v2") {
+export async function replyToPermission(client: Client, permission: PendingPermission, reply: "once" | "always" | "reject", directory: string, serverClient?: LegalworkServerClient | null) {
+  if (permission.protocol === "host") {
+    if (!serverClient?.canApprove || !permission.host || reply === "always") throw new Error(t("app.error_request_failed"));
+    await serverClient.replyHostApproval(permission.host, reply === "once" ? "allow" : "deny");
+  } else if (permission.protocol === "v2") {
     const result = await client.v2.session.permission.reply({ sessionID: permission.sessionID, requestID: permission.id, reply });
     if (result.error !== undefined) unwrap(result);
   } else {

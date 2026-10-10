@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useQueries } from "@tanstack/react-query";
 
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { Client, PendingPermission, PendingQuestion, TodoItem } from "@/app/types";
 import { t } from "@/i18n";
 import { unwrap } from "@/app/lib/opencode";
@@ -30,13 +31,14 @@ function combineQuestions(results: Array<{ data: PendingQuestion[] | undefined }
 
 export type UseSessionInteractionsInput = {
   client: Client | null;
+  serverClient?: LegalworkServerClient | null;
   workspaceId: string;
   sessionId: string | null;
   workspaceRoot: string;
 };
 
 export function useSessionInteractions(input: UseSessionInteractionsInput) {
-  const { client, workspaceId, sessionId, workspaceRoot } = input;
+  const { client, serverClient, workspaceId, sessionId, workspaceRoot } = input;
 
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
   const permissionReplyBusyRef = useRef(false);
@@ -102,7 +104,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
       permissionReplyBusyRef.current = true;
       setPermissionReplyBusy(true);
       try {
-        await replyToPermission(client, pendingPermission, reply, workspaceRoot);
+        await replyToPermission(client, pendingPermission, reply, workspaceRoot, serverClient);
         acknowledgeInteraction(workspaceId, pendingPermission.sessionID, requestID, "permission");
       } catch (error) {
         toast.error(t("app.error_request_failed"), {
@@ -113,7 +115,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
         setPermissionReplyBusy(false);
       }
     },
-    [client, pendingPermissions, sessionId, workspaceId, workspaceRoot],
+    [client, serverClient, pendingPermissions, sessionId, workspaceId, workspaceRoot],
   );
 
   const activeQuestion = permissionFirst ? null : firstQuestion ?? null;

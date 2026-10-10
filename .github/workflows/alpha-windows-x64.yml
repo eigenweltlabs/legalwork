@@ -36,7 +36,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sandbox-runtime:
+    uses: ./.github/workflows/sandbox-runtime.yml
   publish-alpha-windows:
+    needs: sandbox-runtime
     name: Build + Publish alpha (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -168,6 +171,17 @@ jobs:
         run: |
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-win32-${{ matrix.arch }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          archive="$(cygpath -u "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz")"
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Build Electron alpha app
         shell: bash

@@ -105,7 +105,7 @@ describe("LegalWork Word tools", () => {
   test("blocks the DOCX file pipeline for the document open in Word", () => {
     expect(
       isOpenWordFilePipelineCall(
-        "bash",
+        "legalwork_shell",
         { command: 'node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "NDA Example.docx"' },
         OPEN_DOCUMENT,
       ),

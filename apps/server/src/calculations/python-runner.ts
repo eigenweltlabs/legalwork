@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +9,9 @@ import { ApiError } from "../errors.js";
 import { CalculationStepSchema } from "./schema.js";
 import type { CalendarStore } from "../calendar/store.js";
 import { zoneValid } from "../calendar/dates.js";
+import { VmSandbox } from "../agent-sandbox/vm.js";
+
+const calculationSandbox = new VmSandbox();
 
 // Single-file, standard-library contract. Labels are skill-authored; values and code come from execution.
 const runner = String.raw`
@@ -50,21 +52,18 @@ export async function executePython(code: string, input: Record<string, unknown>
   try {
     const path = join(directory, "calculation.py");
     await writeFile(path, code);
-    const output = await new Promise<string>((resolve, reject) => {
-      // No shell; isolated Python ignores user packages/PYTHONPATH. Installed skill execution follows server approval policy.
-      const child = spawn(process.env.LEGALWORK_CALCULATION_PYTHON || (process.platform === "win32" ? "python" : "python3"), ["-I", "-c", runner, path], {
-        cwd: directory, stdio: ["pipe", "pipe", "pipe"], signal,
-        env: { PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT, LANG: "en_US.UTF-8" },
-      });
-      let stdout = "", stderr = "", exceeded = false;
-      const timer = setTimeout(() => { exceeded = true; child.kill("SIGKILL"); }, 15_000);
-      child.stdout.on("data", chunk => { stdout += String(chunk); if (stdout.length > 1_000_000) { exceeded = true; child.kill("SIGKILL"); } });
-      child.stderr.on("data", chunk => { stderr += String(chunk); if (stderr.length > 32_000) { exceeded = true; child.kill("SIGKILL"); } });
-      child.stdin.on("error", () => {});
-      child.on("error", error => { clearTimeout(timer); reject(new ApiError(422, "calculation_runtime", `Python calculation could not start: ${error.message}`)); });
-      child.on("close", exit => { clearTimeout(timer); exit === 0 && !exceeded ? resolve(stdout) : reject(new ApiError(422, "calculation_failed", exceeded ? "Calculation exceeded its time/output limit." : `Calculation failed: ${stderr.slice(-2000)}`)); });
-      child.stdin.end(JSON.stringify(input));
+    await writeFile(join(directory, "runner.py"), runner);
+    await writeFile(join(directory, "input.json"), JSON.stringify(input));
+    const execution = await calculationSandbox.run({
+      command: "python3 -I /workspace/runner.py /workspace/calculation.py < /workspace/input.json",
+      cwd: "/workspace", mounts: [{ source: directory, target: "/workspace", writable: false }],
+      timeoutMs: 15000, signal: signal ?? new AbortController().signal, networkMode: "block",
+      authorizeNetwork: async () => false,
     });
+    if (execution.exitCode !== 0 || execution.truncated) {
+      throw new ApiError(422, "calculation_failed", `Protected calculation failed: ${execution.output.slice(-2000)}`);
+    }
+    const output = execution.output;
     const parsed = OutputSchema.parse(JSON.parse(output));
     if (parsed.result.status === "calculated" ? !parsed.result.results.length : parsed.result.results.length > 0 || !parsed.result.missingFacts.length) throw new ApiError(422, "calculation_result", "Missing-information results must have no date; calculated results need at least one date.");
     if (parsed.result.results.some(result => !zoneValid(result.timeZone))) throw new ApiError(422, "calculation_result", "Use a valid IANA time zone.");

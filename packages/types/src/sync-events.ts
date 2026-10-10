@@ -13,6 +13,7 @@ const SyncPokeSchema = z.object({
   policy: z.boolean().optional(),
   hub: z.boolean().optional(),
   sessions: z.boolean().optional(),
+  approvals: z.boolean().optional(),
   resync: z.boolean().optional(),
 });
 export type SyncPoke = z.infer<typeof SyncPokeSchema>;

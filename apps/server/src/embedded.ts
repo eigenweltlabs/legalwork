@@ -6,6 +6,8 @@
  * of owning the process lifecycle.
  */
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
@@ -64,6 +66,7 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
+  config.agentSandboxEnabled = options.manageOpencode === true && !config.opencodeBaseUrl;
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
@@ -130,6 +133,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       if (managedDb) process.env.OPENCODE_DB = managedDb.path;
 
       catalogRelay = await startModelCatalogRelay(config);
+      const engineHome = join(runtimeStorageDir(config), "engine-home");
+      if (config.agentSandboxEnabled) await mkdir(engineHome, { recursive: true });
       managedOpencode = await createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
         cwd,
@@ -144,6 +149,13 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
           OPENCODE_MODELS_URL: catalogRelay.url,
           OPENCODE_MODELS_PATH: catalogRelay.catalogPath,
+          ...(config.agentSandboxEnabled ? {
+            OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+            // In the pinned engine this controls home config/plugin discovery.
+            OPENCODE_TEST_HOME: engineHome,
+            XDG_CONFIG_HOME: join(engineHome, "config"),
+            OPENCODE_CONFIG_CONTENT: "",
+          } : {}),
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
       }).catch(async (error: unknown) => {

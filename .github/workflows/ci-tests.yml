@@ -13,7 +13,13 @@ permissions:
   contents: read
 
 jobs:
+  sandbox-runtime:
+    uses: ./.github/workflows/sandbox-runtime.yml
+  desktop-packaging:
+    needs: sandbox-runtime
+    uses: ./.github/workflows/ci-desktop-packaging.yml
   legalwork-tests:
+    needs: sandbox-runtime
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -128,6 +134,22 @@ jobs:
 
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+
+      - name: Verify the shipped engine uses protected execution
+        env:
+          LEGALWORK_SANDBOX_INTEGRATION: '1'
+        run: |
+          pnpm --filter legalwork-server build
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts
 
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test

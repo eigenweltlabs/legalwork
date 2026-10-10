@@ -90,7 +90,7 @@ test("workflow bases and descendants compose automatically and support installed
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(stdout).toContain("checks passed");
   } finally { await rm(root, { recursive: true, force: true }); }
-});
+}, 180000);
 
 test("older shipped skills and their corrections receive the current tool contract without changing pinned files", async () => {
   const root = await mkdtemp(join(tmpdir(), "deadline-tool-guide-"));

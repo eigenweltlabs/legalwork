@@ -78,6 +78,8 @@ describe("serializeToolPermissionsPatch", () => {
     expect(serializeToolPermissionsPatch(model, {})).toEqual({
       bash: { "git *": "allow", "*": "ask" },
     });
+    const serialized = serializeToolPermissionsPatch(model, {}).bash;
+    expect(Object.keys(Object(serialized))).toEqual(["*", "git *"]);
   });
 
   test("omits the wildcard entry when no default action is set", () => {

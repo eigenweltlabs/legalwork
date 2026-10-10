@@ -1,3 +1,4 @@
+import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -40,6 +41,10 @@ import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
+import { AgentSandboxService } from "./agent-sandbox/service.js";
+import { managedPermissionRules } from "./agent-sandbox/engine-policy.js";
+import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
+import { assertNoHostShellInterpolation, assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
@@ -777,7 +782,8 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
-  const approvals = new ApprovalService(config.approval, config.requestHostApproval);
+  const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
+  const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
@@ -800,6 +806,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   const stopProjectSyncTimer = startProjectSyncTimer(config);
   // The firm pokes this computer when something changed, so rounds start at once.
   const stopSyncEvents = startSyncEvents(config);
+  const stopSandboxSettingsSync = startSandboxSettingsSync(config);
   // The firm's policy: pulled now and whenever the firm pokes; what changes
   // the engine's settings reloads the engines once they are idle.
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
@@ -876,6 +883,37 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     },
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks);
+  registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
+    sessionLineage: async (workspace, sessionID) => {
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const lineage: string[] = [];
+      let id: string | undefined = sessionID;
+      while (id) {
+        if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
+        const currentId: string = id;
+        const session = unwrapOpencodeResult(await client.session.get({ sessionID: currentId }, { signal: AbortSignal.timeout(10000) }), "/session");
+        const directory = resolveOpencodeDirectory(workspace);
+        if (!directory || resolve(session.directory) !== resolve(directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
+        lineage.push(id);
+        id = session.parentID;
+      }
+      return lineage;
+    },
+    agentRules: async (workspace, sessionID, agentName) => {
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "/session");
+      const directory = resolveOpencodeDirectory(workspace);
+      if (!directory || resolve(session.directory) !== resolve(directory)) {
+        throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
+      }
+      const agents = unwrapOpencodeResult(await client.app.agents(), "/agent");
+      const agent = agents.find((item) => item.name === agentName);
+      if (!agent) throw new ApiError(403, "sandbox_agent", "The selected agent is unavailable.");
+      // Built-in host shell and web tools stay denied. Managed tools carry
+      // the original permissions under their separate identities.
+      return managedPermissionRules(agent.permission, session.permission ?? []);
+    },
+  });
 
   const serverOptions: {
     hostname: string;
@@ -1088,6 +1126,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      stopSandboxSettingsSync();
+      agentSandbox.stop();
       approvals.dispose();
       await corpus.stop();
       reviews.stop();
@@ -1219,13 +1259,24 @@ async function proxyOpencodeRequest(input: {
   }
 
   const method = input.request.method.toUpperCase();
+  if (input.config.agentSandboxEnabled) assertSandboxProxyAllowed(method, proxyPath);
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
-  const body = method === "GET" || method === "HEAD"
+  let body = method === "GET" || method === "HEAD"
     ? undefined
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
+  if (input.config.agentSandboxEnabled) body = sandboxSessionBody(proxyPath, body);
   if (isSessionCommandProxyRequest(method, proxyPath)) {
+    if (input.config.agentSandboxEnabled) {
+      if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");
+      const command = z.object({ command: z.string(), arguments: z.string().default("") }).parse(JSON.parse(Buffer.from(body).toString()));
+      assertNoHostShellInterpolation(command.arguments);
+      const commands = unwrapOpencodeResult(await createWorkspaceOpencodeClient(input.config, workspace).command.list(), "/command");
+      const definition = commands.find((item) => item.name === command.command);
+      if (!definition) throw new ApiError(404, "command_not_found", "Command not found.");
+      assertNoHostShellInterpolation(definition.template);
+    }
     void fetch(targetUrl, {
       method,
       headers,

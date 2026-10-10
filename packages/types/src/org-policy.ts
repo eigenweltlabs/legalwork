@@ -189,6 +189,7 @@ const both = ["enforced", "default"] as const;
  * key is ignored by apps that still know it.
  */
 export const orgPolicyDefinitions = {
+  "sandbox": { section: "permissions", scope: "engine", modes: both, schema: z.strictObject({ enabled: z.boolean(), networkMode: z.enum(["allow", "block", "approve"]) }) },
   /** The minimum: the member's own rule applies where it is stricter. */
   "tools.permissions": { section: "permissions", scope: "engine", modes: enforced, schema: ToolPermissionsSchema },
 

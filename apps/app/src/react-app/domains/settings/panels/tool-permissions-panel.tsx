@@ -42,6 +42,7 @@ import {
   toolPermissionsReducer,
 } from "./tool-permissions-panel-state";
 import { SettingsNotice } from "../settings-section";
+import { SandboxStatus } from "./sandbox-status";
 import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
 import {
@@ -367,6 +368,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
 
   return (
     <LayoutSectionItem className={cn("gap-6", props.className)}>
+      {!quick && props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} /> : null}
       {quick ? null : (
         <LayoutSectionItemHeader>
           <LayoutSectionItemTitle>

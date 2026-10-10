@@ -543,8 +543,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   );
 
   const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
-    [baseUrl, selectedWorkspace, token],
+    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token, localClient: legalworkClient }),
+    [baseUrl, selectedWorkspace, token, legalworkClient],
   );
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
 

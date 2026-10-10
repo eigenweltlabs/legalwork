@@ -25,22 +25,23 @@ app.whenReady().then(async () => {
   await new Promise((resolve, reject) => {
     const windows = process.platform === "win32";
     const terminal = pty.spawn(windows ? (process.env.ComSpec || "cmd.exe") : process.execPath,
-      windows ? ["/d", "/s", "/c", "echo native-pty-ok & pause >nul"] : ["-e", "process.stdout.write('native-pty-ok')"], {
+      windows ? ["/d", "/s", "/c", "echo native-pty-ok & set /p legalwork_test_input="] : ["-e", "process.stdout.write('native-pty-ok')"], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     });
     let output = "";
     const timeout = setTimeout(() => {
       terminal.kill();
-      reject(new Error("Native PTY did not exit within 10 seconds"));
+      reject(new Error(`Native PTY did not exit within 10 seconds; output: ${JSON.stringify(output)}`));
     }, 10_000);
     let released = false;
     terminal.onData((data) => {
       output += data;
       // Electron.exe is a GUI-subsystem executable on Windows, so test the
       // actual console shell there and wait for output before asking it to exit.
+      // Read a buffered line: PAUSE can discard input sent before it starts.
       if (windows && !released && output.includes("native-pty-ok")) {
         released = true;
-        terminal.write("\r");
+        terminal.write("done\r");
       }
     });
     terminal.onExit(({ exitCode }) => {

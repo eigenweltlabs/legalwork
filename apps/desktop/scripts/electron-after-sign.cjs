@@ -1,5 +1,6 @@
 const { spawnSync } = require("node:child_process");
-const { existsSync, mkdtempSync, rmSync } = require("node:fs");
+const { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const { createHash } = require("node:crypto");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 
@@ -44,6 +45,19 @@ function verifyComputerUseHelper(appPath, requireDistributionSignature) {
 }
 
 async function afterSign(context) {
+  if (context.electronPlatformName === "win32") {
+    // Authenticode changes the copied QEMU executable. Hash the final signed
+    // resources before the installer is built, never the pre-signing inputs.
+    const directory = path.join(context.appOutDir, "resources", "agent-sandbox");
+    const manifestPath = path.join(directory, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    for (const name of Object.keys(manifest.files)) {
+      if (!/^[a-zA-Z0-9_.+-]+$/.test(name)) throw new Error("Invalid sandbox resource name");
+      manifest.files[name] = createHash("sha256").update(readFileSync(path.join(directory, name))).digest("hex");
+    }
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    return;
+  }
   if (context.electronPlatformName !== "darwin") return;
 
   if (process.env.MACOS_NOTARIZE !== "true") {

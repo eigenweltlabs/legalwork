@@ -151,7 +151,8 @@ test("community code records actual function inputs/outputs; payment-order selec
   expect(absolute.result.status).toBe("needs_information");
   expect(absolute.result.results).toEqual([]);
   await expect(executePython(`def calculate(inputs, recorder):\n return {"status":"needs_information", "results":[{"title":"Wrong", "date":"2026-01-26", "cutoff":"2026-01-26T23:00:00Z", "timeZone":"Europe/Berlin"}]}`, {})).rejects.toThrow("Missing-information");
-});
+// Allow the shared VM cold boot and three isolated commands under software emulation.
+}, 600000);
 
 test("chat card envelopes cannot include executable bundles or grow past engine truncation limits", async () => {
   const { CalculationCardSchema } = await import("./schema.js");

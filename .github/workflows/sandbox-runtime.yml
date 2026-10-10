@@ -1,0 +1,166 @@
+name: Protected execution runtime
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ''
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guest:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: node scripts/sandbox/build-guest.mjs ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-guest-${{ matrix.arch }}
+          path: apps/server/resources/agent-sandbox/runtime/
+  runtime:
+    needs: guest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+            qemu: aarch64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+            qemu: x86_64
+          - os: windows-2022
+            platform: win32
+            arch: x64
+            qemu: x86_64
+            msystem: UCRT64
+            package: mingw-w64-ucrt-x86_64
+            prefix: ucrt64
+          - os: windows-11-arm
+            platform: win32
+            arch: arm64
+            qemu: aarch64
+            msystem: CLANGARM64
+            package: mingw-w64-clang-aarch64
+            prefix: clangarm64
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            qemu: x86_64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            qemu: aarch64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-guest-${{ matrix.arch }}
+          path: apps/server/resources/agent-sandbox/runtime/
+      - name: Build QEMU (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          MACOSX_DEPLOYMENT_TARGET: '14.0'
+        run: |
+          brew install glib ninja pkgconf libslirp
+          curl -fL --retry 3 https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
+          echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | shasum -a 256 -c -
+          tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
+          cp scripts/sandbox/qemu-aarch64.mak "$RUNNER_TEMP/qemu-11.1.2/configs/devices/aarch64-softmmu/legalwork.mak"
+          cd "$RUNNER_TEMP/qemu-11.1.2"
+          extra=()
+          if [ '${{ matrix.qemu }}' = aarch64 ]; then
+            extra+=(--without-default-devices --with-devices-aarch64=legalwork)
+          fi
+          ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-hvf --enable-slirp "${extra[@]}"
+          make -j3
+          make install
+      - name: Install QEMU build dependency (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          path-type: inherit
+          update: true
+      - name: Download QEMU packages with retries (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          for attempt in 1 2 3; do
+            pacman -S --noconfirm --needed ${{ matrix.package }}-qemu && exit 0
+            sleep 5
+          done
+          exit 1
+      - name: Bundle QEMU (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          node scripts/sandbox/package-runtime.mjs "$(cygpath -w /${{ matrix.prefix }}/bin/qemu-system-${{ matrix.qemu }}.exe)"
+      - name: Build QEMU (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y ninja-build libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
+          curl -fL https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
+          echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | sha256sum -c -
+          tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/qemu-11.1.2"
+          ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-slirp
+          make -j2
+          make install
+      - name: Bundle QEMU (macOS and Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
+          QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" node scripts/sandbox/package-runtime.mjs "$binary"
+      - name: Exercise real isolation and permission enforcement
+        timeout-minutes: 15
+        env:
+          LEGALWORK_SANDBOX_INTEGRATION: '1'
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = macOS ]; then
+            sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
+          fi
+          bun test --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
+      - name: Preserve executable modes in runtime artifact
+        shell: bash
+        run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
+          path: sandbox-runtime.tgz

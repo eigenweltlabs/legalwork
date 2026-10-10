@@ -40,13 +40,13 @@ def calculate(inputs, recorder):
     ]}
 ```
 
-`legalwork_calculation_run(skill, input)` executes a snapshot of this installed script under the server's execution approval policy. The child receives JSON via stdin and runs isolated Python with the standard library. Use `LEGALWORK_CALCULATION_PYTHON` to configure the Python binary when it is not on PATH. Python is required for community scripts; shipped calculators do not need it.
+`legalwork_calculation_run(skill, input)` executes a snapshot of this installed script under the server's execution approval policy. The child receives JSON via stdin and runs the bundled Python in an isolated command environment inside the shared VM, with read-only input files and network access denied. Users do not need to install Python. Missing sandbox resources block execution. Shipped calculators do not need the Python runtime.
 
 The recorder captures each called function's bound inputs, actual return value, source and line number. `reason` and `title` are authored by the skill. They are explanatory labels, not independent proof of legal correctness. Instrument every meaningful decision, including branches that stop calculation. Uninstrumented arbitrary scripts do not gain a trustworthy step-by-step explanation automatically. The complete executed script and its hash remain in the stored audit record. The chat card shows readable dates, concise recorded steps and the result; it does not render dependency bundles, hashes or raw intermediate arguments.
 
 Return `status: calculated` with `results: [{title, date, cutoff, timeZone}]`, or `needs_information` / `requires_specialist_review` with `missingFacts` and no dates. `date` is the local calendar day. `cutoff` is an ISO instant with timezone offset, and `timeZone` is an IANA zone. End-of-day deadlines use the exclusive next-day midnight instant. Do not assume every deadline ends at midnight. Multiple results are supported. Call `legalwork_calculation_present(runId)` to show them.
 
-Installed scripts are executable code, not a security sandbox or legally certified calculators. Execution has a 15-second limit and bounded output. This initial contract supports a single standard-library Python file, not arbitrary third-party packages or a general Python debugger.
+Installed scripts run inside the [protected execution sandbox](security/agent-sandbox.md). This isolation does not certify their legal correctness. Execution has a 15-second limit after VM startup and bounded output. The calculation contract supports a single standard-library Python file; it does not install arbitrary dependencies or provide a general Python debugger.
 
 ## Teaching through existing skills
 

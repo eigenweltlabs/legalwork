@@ -51,6 +51,8 @@ pnpm dev:ui     # web UI only
 
 Checks: `pnpm typecheck` · `pnpm build` · `pnpm test:e2e`.
 
+Desktop builds also require the bundled protected-execution resources. See [the sandbox build instructions](docs/security/agent-sandbox.md#build-and-verify) to build them locally or use the platform artifacts from the **Protected execution runtime** workflow. Released installers include these resources; users do not install Docker or Python.
+
 ## Contributing
 
 Read `AGENTS.md` first. Run `pnpm install`, then verify with `pnpm typecheck` and `pnpm test:e2e` before opening a PR.

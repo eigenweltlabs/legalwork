@@ -1763,6 +1763,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
+    canApprove: Boolean(hostToken),
+    pendingHostApprovals: () => requestJson<{ items: import("@legalwork/types/desktop-ipc").HostApprovalRequest[] }>(baseUrl, "/approvals", { token, hostToken, timeoutMs: timeouts.status }),
+    replyHostApproval: (request: import("@legalwork/types/desktop-ipc").HostApprovalRequest, reply: "allow" | "deny") =>
+      requestJson<{ ok: true; allowed: boolean }>(baseUrl, `/approvals/${encodeURIComponent(request.id)}`, {
+        token, hostToken, method: "POST", body: { reply, workspaceId: request.workspaceId, sessionID: request.sessionID }, timeoutMs: timeouts.config,
+      }),
+    sandboxStatus: () => requestJson<{ enabled: boolean; supported: boolean; backend: string; policy: { mode: "enforced" | "default"; locked: boolean; orgName: string | null } | null; available: boolean | null; reason?: string; networkMode: "allow" | "block" | "approve"; sync: "local" | "syncing" | "synced" | "pending" | "conflict" }>(baseUrl, "/sandbox/status", { token, hostToken, timeoutMs: 15_000 }),
+    setSandboxSettings: (settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" }) => requestJson<unknown>(baseUrl, "/sandbox/settings", { token, hostToken, method: "PATCH", body: settings, timeoutMs: timeouts.config }),
+    setSandboxNetworkMode: (mode: "allow" | "block" | "approve") => requestJson<{ networkMode: "allow" | "block" | "approve" }>(baseUrl, "/sandbox/network", { token, hostToken, method: "PATCH", body: { mode }, timeoutMs: timeouts.config }),
+    sessionSandbox: (workspace: string, session: string) => requestJson<{ enabled: boolean; supported: boolean; networkMode: "allow" | "block" | "approve"; source: "application" | "session" | "parent" | "organization"; policy: { mode: "enforced" | "default"; locked: boolean; orgName: string | null } | null; application: { enabled: boolean; networkMode: "allow" | "block" | "approve" } }>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, timeoutMs: timeouts.status }),
+    setSessionSandbox: (workspace: string, session: string, settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" } | null) => requestJson<unknown>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, method: "PATCH", body: { settings }, timeoutMs: timeouts.config }),
+    prepareSandbox: () => requestJson<{ ready: boolean }>(baseUrl, "/sandbox/prepare", { token, hostToken, method: "POST", timeoutMs: 660_000 }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),

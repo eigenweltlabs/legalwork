@@ -403,7 +403,8 @@ export type ReloadTrigger = {
 export type PendingPermission = Omit<ApiPermissionRequest, "always"> & {
   always: unknown;
   receivedAt: number;
-  protocol: "legacy" | "v2";
+  protocol: "legacy" | "v2" | "host";
+  host?: import("@legalwork/types/desktop-ipc").HostApprovalRequest;
   v2?: Pick<PermissionV2Request, "action" | "resources" | "save">;
   sourceSession?: { id: string; title: string };
 };

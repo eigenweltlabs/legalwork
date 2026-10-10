@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
@@ -357,6 +358,30 @@ function releaseRetainedSessionSoon(input: SyncOptions, entry: SyncEntry, sessio
   retainSession(input, entry, sessionId, idleRetainedSessionTtlMs);
 }
 
+/** Host approvals share the chat's permission queue and waiting indicator. */
+export function seedHostApprovalState(workspaceId: string, requests: HostApprovalRequest[]) {
+  const queryClient = getReactQueryClient();
+  const sessions = new Set(requests.flatMap((request) => request.sessionID ? [request.sessionID] : []));
+  for (const [key] of queryClient.getQueriesData({ queryKey: ["react-session-permissions", workspaceId] })) {
+    if (typeof key[2] === "string") sessions.add(key[2]);
+  }
+  for (const sessionID of sessions) {
+    const key = permissionKey(workspaceId, sessionID);
+    const current = queryClient.getQueryData<PendingPermission[]>(key) ?? [];
+    const next: PendingPermission[] = requests.flatMap((request) => request.sessionID === sessionID ? [{
+      id: `host:${request.id}`, sessionID, permission: request.action.replace(/^sandbox\./, ""),
+      patterns: request.paths, metadata: { description: request.description, summary: request.summary }, always: [],
+      receivedAt: request.createdAt, protocol: "host", host: request,
+    }] : []);
+    const activity = useSessionActivityStore.getState();
+    for (const item of current.filter((item) => item.protocol === "host")) activity.setWaitingRequest(workspaceId, sessionID, "permission", item.id, false);
+    for (const item of next) activity.setWaitingRequest(workspaceId, sessionID, "permission", item.id, true);
+    queryClient.setQueryData(key, [...current.filter((item) => item.protocol !== "host"), ...next].sort(sortInteractionRequests));
+    if (next.length) for (const entry of syncs.values()) {
+      if (entry.input.workspaceId === workspaceId && !entry.deletedSessionIds.has(sessionID)) resolveRequestLineage(entry, sessionID);
+    }
+  }
+}
 function fileProviderMetadata(part: FilePart) {
   if (part.source) {
     return { opencode: { partId: part.id, source: part.source } };

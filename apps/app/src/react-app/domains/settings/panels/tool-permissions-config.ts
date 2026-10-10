@@ -81,13 +81,13 @@ export function parseToolPermissions(permission: Record<string, unknown>): ToolP
 
 function serializeToolSetting(setting: ToolPermissionSetting): PermissionAction | Record<string, PermissionAction> | null {
   const entries: Record<string, PermissionAction> = {};
+  // OpenCode evaluates the LAST matching rule. Write the fallback first so
+  // specific allow/deny patterns retain the behavior shown by the editor.
+  if (setting.action) entries["*"] = setting.action;
   for (const rule of setting.rules) {
     if (rule.pattern && rule.pattern !== "*") entries[rule.pattern] = rule.action;
   }
-  if (Object.keys(entries).length) {
-    if (setting.action) entries["*"] = setting.action;
-    return entries;
-  }
+  if (Object.keys(entries).some((pattern) => pattern !== "*")) return entries;
   return setting.action;
 }
 

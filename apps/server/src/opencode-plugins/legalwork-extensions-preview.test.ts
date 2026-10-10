@@ -306,7 +306,7 @@ describe("in-app Office sidebar routing", () => {
   test("blocks file rewrites of the live Office draft but allows unrelated work", async () => {
     await withBridge(snapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).rejects.toThrow("inapp_xlsx_*");
+    await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).rejects.toThrow("inapp_xlsx_*");
     await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "2" }, { args: { command: "read other.xlsx" } });
   });
   test("routes presentation replacements to the live editor", async () => {

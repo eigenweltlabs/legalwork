@@ -233,7 +233,7 @@ async function callInAppDocxTool(
 }
 
 function inAppDocxCallTargetsSurface(tool: string, args: Record<string, unknown>, surface: InAppDocumentSurface) {
-  if (tool !== "bash" && tool !== "task") return false;
+  if (tool !== "bash" && tool !== "legalwork_shell" && tool !== "task") return false;
   const text = JSON.stringify(args).toLowerCase();
   const normalizedPath = surface.path.replace(/\\/g, "/").toLowerCase();
   const name = normalizedPath.split("/").pop() ?? surface.name.toLowerCase();
@@ -336,7 +336,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     input: { tool: string; sessionID: string; callID: string },
     output: { args: Record<string, unknown> },
   ) => {
-    if (input.tool !== "bash" && input.tool !== "task") return;
+    if (input.tool !== "bash" && input.tool !== "legalwork_shell" && input.tool !== "task") return;
     if (!/\.(docx|xlsx|pptx)/i.test(JSON.stringify(output.args))) return;
     const snapshot = await uiBridgeRequest("/snapshot");
     const surface = inAppDocumentSurface(snapshot, input.sessionID);

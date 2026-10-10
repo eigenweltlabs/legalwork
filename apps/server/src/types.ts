@@ -1,3 +1,4 @@
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
@@ -137,6 +138,8 @@ export interface ServerConfig {
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */
   requestHostApproval?: HostApprovalHandler;
+  /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
+  agentSandboxEnabled?: boolean;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;
@@ -275,13 +278,7 @@ export interface Actor {
   scope?: TokenScope;
 }
 
-export interface ApprovalRequest {
-  id: string;
-  workspaceId: string;
-  action: string;
-  summary: string;
-  paths: string[];
-  createdAt: number;
+export interface ApprovalRequest extends HostApprovalRequest {
   actor: Actor;
 }
 

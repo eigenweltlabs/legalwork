@@ -130,6 +130,7 @@ import {
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
+import { useHostApprovalSync } from "./use-host-approval-sync";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
@@ -488,6 +489,7 @@ export function SessionRoute() {
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
+  useHostApprovalSync(client, workspaces, selectedSessionId);
   useSessionInbox(client, workspaces, sessionsByWorkspaceId, loadWorkspaceSessionsInBackground);
   useEffect(() => {
     if (!client || detached) return;
@@ -1188,6 +1190,7 @@ export function SessionRoute() {
     todos,
   } = useSessionInteractions({
     client: opencodeClient,
+    serverClient: selectedWorkspaceEndpoint?.client,
     workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? "",
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,

@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
@@ -35,6 +37,7 @@ if (args.version) {
 }
 
 const config = await resolveServerConfig(args);
+config.agentSandboxEnabled = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
 const logger = createServerLogger(config);
 const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 let managedOpencode: ManagedOpencodeServer | null = null;
@@ -77,6 +80,8 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
     // can never migrate the engine's schema out from under it (issue #62).
     const managedDb = await prepareManagedOpencodeEngineDb(config);
     if (managedDb) process.env.OPENCODE_DB = managedDb.path;
+    const engineHome = join(runtimeStorageDir(config), "engine-home");
+    await mkdir(engineHome, { recursive: true });
     managedOpencode = await createManagedOpencodeServer({
       bin: process.env.LEGALWORK_OPENCODE_BIN,
       cwd: managedOpencodeCwd,
@@ -87,8 +92,11 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
         LEGALWORK_SERVER_URL: serverUrl,
         LEGALWORK_SERVER_TOKEN: config.token,
         OPENCODE_CONFIG: runtimeConfigPath,
-        // The firm's enforced settings: read after every project's own config.
+        OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+        OPENCODE_TEST_HOME: engineHome,
+        XDG_CONFIG_HOME: join(engineHome, "config"),
         OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
+        OPENCODE_CONFIG_CONTENT: "",
         ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
       },
     });

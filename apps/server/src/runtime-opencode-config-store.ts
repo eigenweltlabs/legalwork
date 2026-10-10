@@ -1,11 +1,14 @@
+import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { eq } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
 export type RuntimeOpencodeConfig = {
+  sandbox?: SandboxSettings;
+  sandboxEdit?: string;
+  sandboxSync?: { account: string; revision: number; dirty: boolean };
+  sandboxNetworkMode?: "allow" | "block" | "approve";
   default_agent?: string;
   plugin?: string[];
   disabled_providers?: string[];
@@ -41,13 +44,9 @@ export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
 
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 12_000;
 
-const runtimeOpencodeConfigs = sqliteTable("runtime_opencode_configs", {
-  workspaceId: text("workspace_id").primaryKey(),
-  configJson: text("config_json").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
 
 type RuntimeOpencodeDb = {
+  close: () => void;
   get: (workspaceId: string) => { configJson: string } | undefined;
   upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
@@ -98,6 +97,11 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ? normalizePersonalizationSettings(value.personalization)
     : undefined;
   return {
+    ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
+    ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
+    ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),
+    ...(value.sandboxNetworkMode !== undefined ? { sandboxNetworkMode:
+      value.sandboxNetworkMode === "allow" || value.sandboxNetworkMode === "approve" ? value.sandboxNetworkMode : "block" } : {}),
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
     ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),
@@ -140,34 +144,24 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
   await ensureDir(dirname(path));
   if (typeof process.versions.bun === "string") {
     const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
     const sqlite = new Database(path, { create: true });
     sqlite.run("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    const db = drizzle(sqlite);
+    const get = sqlite.query<{ configJson: string }, [string]>("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
+    const upsert = sqlite.query("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
     return {
-      get: (workspaceId) => db
-        .select()
-        .from(runtimeOpencodeConfigs)
-        .where(eq(runtimeOpencodeConfigs.workspaceId, workspaceId))
-        .get(),
-      upsert: ({ workspaceId, configJson, updatedAt }) => {
-        db
-          .insert(runtimeOpencodeConfigs)
-          .values({ workspaceId, configJson, updatedAt })
-          .onConflictDoUpdate({
-            target: runtimeOpencodeConfigs.workspaceId,
-            set: { configJson, updatedAt },
-          })
-          .run();
-      },
+      close: () => { get.finalize(); upsert.finalize(); sqlite.close(); },
+      get: workspaceId => get.get(workspaceId) ?? undefined,
+      upsert: ({ workspaceId, configJson, updatedAt }) => { upsert.run(workspaceId, configJson, updatedAt); },
     };
   }
+
   const { DatabaseSync } = await import("node:sqlite");
   const sqlite = new DatabaseSync(path);
   sqlite.exec("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
@@ -180,6 +174,15 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
 }
 
 const dbByPath = new Map<string, Promise<RuntimeOpencodeDb>>();
+
+/** Release a stopped server's config connection before removing its storage. */
+export async function closeRuntimeOpencodeConfig(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const db = dbByPath.get(path);
+  if (!db) return;
+  dbByPath.delete(path);
+  (await db).close();
+}
 
 async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
   const path = runtimeDbPath(config);

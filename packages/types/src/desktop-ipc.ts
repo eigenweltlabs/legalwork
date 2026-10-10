@@ -836,3 +836,25 @@ export type DesktopCommandHandlers<Event = unknown> = {
 export type DesktopCommandInvokers = {
   [C in DesktopCommandName]: (...args: DesktopCommandArgs<C>) => Promise<DesktopCommandResult<C>>;
 };
+
+
+/** Exact request shown for one-time approval on the worker's host. */
+export interface HostApprovalRequest {
+  id: string;
+  workspaceId: string;
+  action: string;
+  summary: string;
+  sessionID?: string;
+  description?: string;
+  paths: string[];
+  createdAt: number;
+  actor: { type: "remote" | "host"; clientId?: string; scope?: string };
+  network?: {
+    url: string;
+    method: string;
+    headers: Readonly<Record<string, string>>;
+    body: string;
+    bodyFormat: "text" | "base64";
+    bodyBytes: number;
+  };
+}

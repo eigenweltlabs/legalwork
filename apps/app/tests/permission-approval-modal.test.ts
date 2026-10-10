@@ -26,6 +26,44 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 }
 
 describe("permission approval modal helpers", () => {
+  test("network approval uses the inline chat panel with task, destination and one-time choices", () => {
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: pendingPermission({ permission: "webfetch", protocol: "host", host: {
+        id: "request-1", workspaceId: "matter", sessionID: "session-1", action: "sandbox.webfetch", summary: "POST example.com",
+        description: "Submit the sample document", paths: [], createdAt: 1, actor: { type: "host" },
+        network: { method: "POST", url: "https://example.com/upload", headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: "document=Sample+document", bodyBytes: 24, bodyFormat: "text" },
+      } }), respondPermission: () => {},
+    }));
+    expect(html).toContain("Send information?");
+    expect(html).toContain("Submit the sample document");
+    expect(html).toContain("example.com");
+    expect(html).toContain("Document</dt>");
+    expect(html).toContain("Sample document</dd>");
+    expect(html).not.toContain('role="dialog"');
+    const buttons = Array.from(html.matchAll(/<button\b[\s\S]*?<\/button>/g)).map((match) => match[0].replace(/<[^>]*>/g, "").trim());
+    expect(buttons).toEqual(["Deny", "Allow once"]);
+  });
+  test("search approval keeps the query prominent and raw JSON inside collapsed Details", () => {
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "web_search_exa", arguments: { query: "Miami weather <today>" } } });
+    const network = { method: "POST", url: "https://mcp.exa.ai/mcp", headers: {}, body, bodyBytes: body.length, bodyFormat: "text" };
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: pendingPermission({ permission: "webfetch", protocol: "host", metadata: { network }, host: {
+        id: "request-1", workspaceId: "matter", sessionID: "session-1", action: "sandbox.webfetch", summary: "POST mcp.exa.ai",
+        description: "Search the web for: Miami weather", paths: [], createdAt: 1, actor: { type: "host" }, network,
+      } }), respondPermission: () => {},
+    }));
+    const main = html.split("<details")[0];
+    expect(main).toContain("Search the web?");
+    expect(main).toContain("Miami weather &lt;today&gt;");
+    expect(main).toContain("Exa Search");
+    expect(main).not.toContain("jsonrpc");
+    expect(main).not.toContain("tools/call");
+    expect(main).not.toContain("start an action");
+    expect(main).not.toContain("Agent’s task");
+    expect(html).toContain("jsonrpc");
+    expect(html).not.toContain("<details open");
+  });
   test("surfaces risk-bearing metadata as review rows", () => {
     expect(
       permissionDetailRows({

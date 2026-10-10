@@ -8,6 +8,7 @@ import { appliedOrgPolicy } from "./org-policy.js";
 import { orgChatProviderBlocks, orgEnabledProviders } from "./org-policy-ai.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
 
 /**
  * What the firm's policy changes in the engine. Two layers:
@@ -71,9 +72,10 @@ export async function buildOrgPolicyEngineLayer(
   const { enforced } = await orgPolicyPermissions(config, own.permission);
   const layer: Record<string, unknown> = {};
   if (Object.keys(enforced).length > 0) {
-    layer.permission = enforced;
+    layer.permission = config.agentSandboxEnabled ? sandboxEnginePermissions(enforced) : enforced;
     // A project's own definition of the default agent could carry looser rules.
-    layer.agent = { legalwork: { permission: enforced } };
+    const agents = { legalwork: { permission: enforced } };
+    layer.agent = config.agentSandboxEnabled ? sandboxEngineAgents(agents) : agents;
   }
   const providers = await orgChatProviderBlocks(config);
   if (Object.keys(providers).length > 0) layer.provider = providers;

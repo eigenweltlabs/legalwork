@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { PermissionRequest, PermissionV2Request, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client";
 import { createClient } from "../src/app/lib/opencode";
+import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import type { PendingPermission, PendingQuestion } from "../src/app/types";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import {
@@ -10,7 +11,7 @@ import {
 } from "../src/react-app/domains/session/sync/interaction-state";
 import {
   __applySessionSyncEventForTest, __createWorkspaceSessionSyncForTest, __disposeWorkspaceSessionSyncForTest,
-  acknowledgeInteraction, ensureWorkspaceSessionSync, trackWorkspaceSessionSync,
+  acknowledgeInteraction, ensureWorkspaceSessionSync, trackWorkspaceSessionSync, seedHostApprovalState,
 } from "../src/react-app/domains/session/sync/session-sync";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import { upsertRuntimeSession } from "../src/react-app/shell/route-workspaces";
@@ -163,6 +164,42 @@ describe("subagent request scope", () => {
 });
 
 describe("recovery and reply routing", () => {
+  test("sandbox child requests survive engine recovery and reply with their host authority and owning chat", async () => {
+    const { client, calls, server } = testClient();
+    const hostClient = createLegalworkServerClient({ baseUrl: server.url.origin, token: "fixture", hostToken: "host-fixture" });
+    seedPermissionState(workspaceId, "parent", [permission("parent-request", "parent")]);
+    seedHostApprovalState(workspaceId, [{ id: "sandbox-request", workspaceId, sessionID: "child",
+      action: "sandbox.webfetch", paths: [], summary: "Read a public source", createdAt: 1, actor: { type: "host" } }]);
+    await refreshWorkspaceInteractions({ client, workspaceId, snapshot: createInteractionSnapshot(), isCurrent: () => true, onSessionUpdated: () => {} });
+    const request = pendingPermissions()[0]!;
+    expect(request.protocol).toBe("host");
+    await expect(replyToPermission(client, request, "once", "/fixture")).rejects.toThrow();
+    await expect(replyToPermission(client, request, "always", "/fixture", hostClient)).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+    await replyToPermission(client, request, "once", "/fixture", hostClient);
+    expect(calls).toEqual([{ path: "/approvals/sandbox-request", body: { reply: "allow", workspaceId, sessionID: "child" } }]);
+    acknowledgeInteraction(workspaceId, "child", request.id, "permission");
+    expect(pendingPermissions()).toEqual([]);
+    expect(useSessionActivityStore.getState().getStatus(workspaceId, "child")).toBe("idle");
+  });
+
+  test("a sandbox request resolves an unopened child's parent for the existing chat queue", async () => {
+    const { server } = testClient((request) => {
+      if (new URL(request.url).pathname !== "/event") return;
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'));
+      } }), { headers: { "Content-Type": "text/event-stream" } });
+    });
+    const input = { workspaceId, baseUrl: server.url.origin, legalworkToken: "fixture" };
+    cleanups.push(() => __disposeWorkspaceSessionSyncForTest(input));
+    ensureWorkspaceSessionSync(input);
+    seedHostApprovalState(workspaceId, [{ id: "sandbox-child", workspaceId, sessionID: "child", action: "sandbox.webfetch",
+      paths: [], summary: "Read a public source", createdAt: 1, actor: { type: "host" } }]);
+    await waitUntil(() => Boolean(queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.parent));
+    expect(interactionSessionIds("parent", queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))!)).toEqual(["parent", "child"]);
+    expect(pendingPermissions().map((item) => item.id)).toEqual(["host:sandbox-child"]);
+  });
+
   test("recovers unopened child approvals and questions and resolves missing ancestors", async () => {
     const { client } = testClient((request) => {
       const path = new URL(request.url).pathname;

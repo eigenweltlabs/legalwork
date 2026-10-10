@@ -241,7 +241,8 @@ export function OrgPolicyRoot() {
 /** Asks before the member takes back a setting their firm enforces (after sign-out). */
 export function OrgPolicyConfirmDialog() {
   const confirm = useOrgPolicyStore((state) => state.confirm);
-  const org = useOrgName();
+  const localOrg = useOrgName();
+  const org = confirm?.orgName || localOrg;
   return (
     <AlertDialog open={confirm !== null} onOpenChange={(open) => { if (!open) answerOrgPolicyConfirm(false); }}>
       <AlertDialogContent>

@@ -170,9 +170,9 @@ export const LegalWorkReviewTools = async (context: OpenCodeContext & { client?:
     const path = typeof output.args.filePath === "string" ? output.args.filePath : "";
     const writesProgram = ["write", "edit", "apply_patch"].includes(input.tool)
       && (/\.py$/i.test(path) || /(?:Add|Update) File: .*\.py(?:\s|$)/.test(String(output.args.patchText ?? output.args.patch ?? "")));
-    const generatesProgram = input.tool === "bash" && (/<<\s*['"]?\w+[\s\S]*\b(?:import|def)\s/.test(command)
+    const generatesProgram = ["bash", "legalwork_shell"].includes(input.tool) && (/<<\s*['"]?\w+[\s\S]*\b(?:import|def)\s/.test(command)
       || /(?:>|tee\s+)[^\n]*\.py\b/.test(command));
-    const inlineAssembly = input.tool === "bash" && /\bpython\w*\s+-c\b/.test(command)
+    const inlineAssembly = ["bash", "legalwork_shell"].includes(input.tool) && /\bpython\w*\s+-c\b/.test(command)
       && /\b(?:import\s+(?:csv|json|glob|docx|fitz|pypdf|pdfplumber)|from\s+docx|open\s*\(|DictReader\s*\(|Document\s*\()/.test(command);
     if (writesProgram || generatesProgram || inlineAssembly)
       throw new Error("DD report preparation is complete. Write legal prose and findings directly into its draft JSON with write/edit; use the supplied report_from_reviews.py helper for source checks and Word output. Read targeted original evidence for a material gap. Do not generate Python assembly/extraction programs or rebuild the native packet. Arithmetic calculations remain available.");
