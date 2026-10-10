@@ -7,6 +7,7 @@ import { ApiError } from "../errors.js";
 import { runtimeDbPath } from "../runtime-db.js";
 import { MANAGED_ENGINE_DB_FILENAME } from "../managed-opencode-db.js";
 import type { ServerConfig } from "../types.js";
+import type { StorageAdapter } from "../file-storage/common.js";
 import { globalSkillsDir } from "../workspace-files.js";
 import { ControlSchema, CheckpointSchema, SyncConfigSchema, ProjectSchema, emptyControl, type CloudSyncConfig } from "./schema.js";
 import { getBlob, isConflict, putBlob, type SyncObjects } from "./objects.js";
@@ -287,7 +288,7 @@ export class CloudReplica {
     if (link && allowDeletions) store.updateLink(projectId, { allowDeletions: true });
     return workspace;
   }
-  async prepareWorkspace(projectId: string, allowDeletions = false, refresh = false, batch?: Promise<ProjectSyncResult>) {
+  async prepareWorkspace(projectId: string, allowDeletions = false, refresh = false, batch?: Promise<ProjectSyncResult>, privateResources?: StorageAdapter) {
     const pending = this.materializing.get(projectId);
     if (pending) return pending;
     const workspace = this.config.workspaces.find(workspace => workspace.id === projectId && workspace.workspaceType !== "remote");
@@ -311,9 +312,13 @@ export class CloudReplica {
         throw new ApiError(409, "sync_project_pending", updated?.lastError ?? "This project still has pending file changes. Retry after sync finishes.");
       }
       if (this.objects instanceof PlatformObjects) {
+        // These directories occupy disjoint prefixes in the same private project.
+        // Share its listing for this project round; each write still uses the
+        // platform's version condition. A new round obtains a fresh listing.
+        const resources = privateResources ?? await this.objects.adapter();
         if (scope && !scope.reviews) {
           const reviews = await syncProjectReviews({ root: workspace.path,
-            remote: resourceStorage(await this.objects.adapter(), `resources/${projectId}/reviews`, REVIEW_SYNC_PREFIX),
+            remote: resourceStorage(resources, `resources/${projectId}/reviews`, REVIEW_SYNC_PREFIX),
             base: store.reviewBase(`private:${updated.projectId}`), reconcile: true,
             runner: { userId: updated.ownerUserId ?? this.settings.deviceId, name: this.settings.deviceName }, runningHere: id => reviewRunActive(workspace.path, id) });
           if (reviews.pending || reviews.stale) throw new ApiError(409, "sync_resource_pending", "Private reviews still have pending changes.");
@@ -321,16 +326,16 @@ export class CloudReplica {
         // Files excluded from team sharing still belong to the owner's VM.
         const reviewed = scope?.reviews && !scope.documents ? await reviewDocumentKeys(workspace.path) : undefined;
         const attached = new Set((await calendarStore(this.config)).list(projectId).flatMap(item => item.attachmentPaths.map(fileKey)));
-        const privateFiles = await this.files.sync(resourceStorage(await this.objects.adapter(), `resources/${projectId}/private-files`), `${projectId}:private-files`, workspace.path,
+        const privateFiles = await this.files.sync(resourceStorage(resources, `resources/${projectId}/private-files`), `${projectId}:private-files`, workspace.path,
           this.settings.deviceName, allowDeletions, path => !/^opencode\.jsonc?$/i.test(path) && !!scope && !scopeIncludes(scope, path, reviewed, attached));
         if (privateFiles.pending || privateFiles.stale) throw new ApiError(409, "sync_resource_pending", "Private project files still have pending changes.");
-        const resources = [["skills", ".opencode/skills"], ["claude-skills", ".claude/skills"], ["commands", ".opencode/commands"],
+        const directories = [["skills", ".opencode/skills"], ["claude-skills", ".claude/skills"], ["commands", ".opencode/commands"],
           ["agents", ".opencode/agents"], ["inbox", ".opencode/legalwork/inbox"], ["outbox", ".opencode/legalwork/outbox"]];
-        for (const [scope, subdirectory] of resources) {
+        for (const [scope, subdirectory] of directories) {
           const root = join(workspace.path, subdirectory);
           if (this.settings.role !== "executor" && !existsSync(root)) continue;
-          const resources = await this.files.sync(resourceStorage(await this.objects.adapter(), `resources/${projectId}/${scope}`), `${projectId}:${scope}`, root, this.settings.deviceName, allowDeletions);
-          if (resources.pending || resources.stale) throw new ApiError(409, "sync_resource_pending", "Project skills still have pending changes.");
+          const result = await this.files.sync(resourceStorage(resources, `resources/${projectId}/${scope}`), `${projectId}:${scope}`, root, this.settings.deviceName, allowDeletions);
+          if (result.pending || result.stale) throw new ApiError(409, "sync_resource_pending", "Project skills still have pending changes.");
         }
       }
       this.files.markHydrated(`project:${projectId}`, workspace.path);
@@ -355,8 +360,9 @@ export class CloudReplica {
       return missed.length ? runProjectSync(this.config, { workspaceIds: missed }) : result;
     });
     let failed = false;
+    const privateResources = this.objects instanceof PlatformObjects ? await this.objects.adapter() : undefined;
     const results = await syncBatches(selected, 2, async id => {
-      try { return { projectId: id, result: await this.prepareWorkspace(id, allowDeletions, true, batch) }; }
+      try { return { projectId: id, result: await this.prepareWorkspace(id, allowDeletions, true, batch, privateResources) }; }
       catch (error) { failed = true; return { projectId: id, error }; }
     });
     // Even an empty project selection must drain its metadata round.
@@ -366,8 +372,8 @@ export class CloudReplica {
     // Global skills are needed at startup; bulk task attachments follow in the background.
     const roots = [["global-skills", globalSkillsDir()], ...(!startup ? [["task-attachments", join(dirname(runtimeDbPath(this.config)), "task-attachments")]] : [])];
     for (const [id, root] of roots) {
-      if (this.objects instanceof PlatformObjects && (this.settings.role === "executor" || existsSync(root))) {
-        const result = await this.files.sync(resourceStorage(await this.objects.adapter(), `resources/${id}`), id, root, this.settings.deviceName, allowDeletions);
+      if (privateResources && (this.settings.role === "executor" || existsSync(root))) {
+        const result = await this.files.sync(resourceStorage(privateResources, `resources/${id}`), id, root, this.settings.deviceName, allowDeletions);
         if (result.pending || result.stale) throw new ApiError(409, "sync_resource_pending", "Private resources still have pending changes.");
       }
     }
