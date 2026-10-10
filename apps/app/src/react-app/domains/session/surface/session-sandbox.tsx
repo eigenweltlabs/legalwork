@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Globe, RotateCcw, Shield, ShieldOff } from "lucide-react";
+import { Globe, RotateCcw, Shield, ShieldOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SandboxNetworkItems, networkLabel } from "../../settings/panels/sandbox-network-control";
 import { changeOrgPolicySetting } from "../../connections/org-policy";
@@ -32,10 +33,10 @@ export function SessionSandbox({ client, workspaceId, sessionId }: { client: Leg
   const Icon = state.enabled ? Shield : ShieldOff;
   const disabled = busy || !client.canApprove;
   return <DropdownMenu>
-    <DropdownMenuTrigger className="lw-composer-control inline-flex h-9 items-center gap-1.5 px-2.5 text-[13px] text-gray-10 hover:bg-gray-3 hover:text-gray-12" aria-label={t("sandbox.session_title")}>
-      <Icon size={14} aria-hidden /><span>{state.enabled ? t("sandbox.on") : t("sandbox.off")}</span><ChevronDown size={12} aria-hidden />
+    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="titlebar-no-drag" aria-label={t("sandbox.session_title")} title={`${t("sandbox.session_title")}: ${state.enabled ? t("sandbox.on") : t("sandbox.off")}`} />}>
+      <Icon size={16} aria-hidden />
     </DropdownMenuTrigger>
-    <DropdownMenuContent side="top" align="start" className="w-88 max-w-[calc(100vw-2rem)]">
+    <DropdownMenuContent side="bottom" align="end" className="w-88 max-w-[calc(100vw-2rem)]">
       <DropdownMenuGroup>
         <DropdownMenuLabel>{t("sandbox.session_title")}</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={state.source === "session" ? state.enabled ? "on" : "off" : "inherit"} onValueChange={value => {

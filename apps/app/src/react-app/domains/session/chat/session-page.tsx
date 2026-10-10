@@ -48,6 +48,7 @@ import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
+import { SessionSandbox } from "../surface/session-sandbox";
 import {
   SidebarInset,
   SidebarProvider,
@@ -1176,6 +1177,14 @@ export function SessionPage(props: SessionPageProps) {
             </div>
             <div className="flex items-center gap-1.5 text-gray-10 titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
+              {!hasMainView && !props.titlebarControlsHidden && props.legalworkServerClient && props.runtimeWorkspaceId && props.selectedSessionId ? (
+                <SessionSandbox
+                  key={`${props.runtimeWorkspaceId}:${props.selectedSessionId}`}
+                  client={props.legalworkServerClient}
+                  workspaceId={props.runtimeWorkspaceId}
+                  sessionId={props.selectedSessionId}
+                />
+              ) : null}
               {!hasMainView && props.selectedSessionId && isElectronRuntime() ? (
                 <Button
                   variant="ghost"

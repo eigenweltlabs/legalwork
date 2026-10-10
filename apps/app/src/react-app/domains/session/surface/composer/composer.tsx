@@ -125,7 +125,6 @@ type ComposerProps = {
   onUploadInboxFiles?: ((files: File[]) => void | Promise<unknown>) | null;
   draftScopeKey?: string;
   compactTopSpacing?: boolean;
-  sandboxAccessory?: ReactNode;
   topAccessory?: ReactNode;
   queueAccessory?: ReactNode;
   /** Fusion mode: fan tasks out to the selected candidate models; the session model fuses their outputs. */
@@ -1510,7 +1509,6 @@ export function ReactSessionComposer(props: ComposerProps) {
                   <span className="text-xs font-medium text-red-10">{t("composer.model_unavailable")}</span>
                 ) : null}
 
-                {props.sandboxAccessory}
                 <ModelBehaviorSelect
                   value={props.modelVariant}
                   label={props.modelVariantLabel}

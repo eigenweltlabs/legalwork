@@ -1,4 +1,3 @@
-import { SessionSandbox } from "./session-sandbox";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
@@ -2127,7 +2126,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
         ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
-          sandboxAccessory={<SessionSandbox client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
           draft={draft}
           mentions={mentions}
           onDraftChange={handleComposerDraftChange}

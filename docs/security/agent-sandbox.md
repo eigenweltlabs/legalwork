@@ -1,6 +1,6 @@
 # Protected command execution
 
-Agent command sandboxing is **off by default**, including existing installations that only saved a network choice. Settings > Tool Permissions controls the application default. The shield control in each chat offers **Use application default**, **Sandbox off**, or **Sandbox on**, with its own network choice when on. An explicit chat override is independent of later application changes. Child agents inherit their parent chat's effective settings. Removing an override restores inheritance.
+Agent command sandboxing is **off by default**, including existing installations that only saved a network choice. Settings > Tool Permissions controls the application default. The icon-only shield in the top-right corner of each chat opens a menu offering **Use application default**, **Sandbox off**, or **Sandbox on**, with its own network choice when on. An explicit chat override is independent of later application changes. Child agents inherit their parent chat's effective settings. Removing an override restores inheritance.
 
 Off runs commands directly on the host (Bash on macOS/Linux, PowerShell on Windows), with the computer's installed tools and OS access. It creates no VM and does not apply sandbox folder or network restrictions. Shell, read, edit, external-folder and network tool permissions are still evaluated conservatively for the whole command; they are approvals, not an OS confinement boundary. Read-only workers refuse native execution. Native processes have bounded output and timeouts; Unix process groups and Windows kill-on-close jobs reap background descendants.
 
@@ -14,7 +14,7 @@ Signed-in accounts with the `settings_presets` entitlement (Sync, Plus, Pro) syn
 
 ### Firm policy
 
-The platform's Policies > Tool Permissions section can set `sandbox: { mode, value: { enabled, networkMode } }` through the existing organization-policy sync channel. An enforced policy overrides application, chat and parent choices, including preferences saved before the policy arrived. The server refuses application, chat, legacy network and policy-release attempts while it is locked. The chat input hides its sandbox selector; Settings shows the firm's value and name with disabled controls. Policy changes cancel commands using the old permissions.
+The platform's Policies > Tool Permissions section can set `sandbox: { mode, value: { enabled, networkMode } }` through the existing organization-policy sync channel. An enforced policy overrides application, chat and parent choices, including preferences saved before the policy arrived. The server refuses application, chat, legacy network and policy-release attempts while it is locked. The chat header hides its sandbox icon; Settings shows the firm's value and name with disabled controls. Policy changes cancel commands using the old permissions.
 
 A firm default supplies the application value while allowing independent chat overrides. Changing the application value takes that default back through the existing policy flow. As with other firm settings, an enforced value remains after sign-out until the member explicitly confirms taking it back. Firm values never overwrite the member's personal synced preference. Both the updated platform and desktop are required; older desktops ignore policy keys they do not recognize.
 
