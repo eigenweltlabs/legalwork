@@ -56,10 +56,11 @@ export class CloudAssistantSetup {
       sync: matched ? this.replica?.syncStatus() : undefined };
   }
   private async save(value: z.infer<typeof Saved>) {
-    this.saved = Saved.parse(value);
+    const saved = Saved.parse(value);
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-    await writeFile(`${this.path}.tmp`, JSON.stringify(this.saved), { mode: 0o600 });
+    await writeFile(`${this.path}.tmp`, JSON.stringify(saved), { mode: 0o600 });
     await rename(`${this.path}.tmp`, this.path);
+    this.saved = saved;
   }
   private async remote(method: "GET" | "POST" | "DELETE") {
     await ensureFreshPlatformToken(this.options.config);
