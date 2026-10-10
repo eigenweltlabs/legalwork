@@ -52,11 +52,14 @@ export async function bootCloudSync(config: ServerConfig) {
       await replica.acquire();
       await replica.restore();
     }
-    await replica.syncFiles();
-    await replica.syncPreferences();
+    if (settings.role === "executor") await replica.prepareAssistant();
+    else {
+      await replica.syncFiles();
+      await replica.syncPreferences();
+    }
     await mkdir(dirname(lockPath(config)), { recursive: true });
     await writeFile(lockPath(config), JSON.stringify({ pid: process.pid, host: hostname(), boot: await bootId() }), { flag: "wx", mode: 0o600 });
-    const stop = replica.start();
+    const stop = replica.start(settings.role === "executor");
     return { replica, async stop() { try { await stop(); } finally { await rm(lockPath(config), { force: true }); } } };
   } catch (error) { await replica.release().catch(() => {}); replica.close(); throw error; }
 }

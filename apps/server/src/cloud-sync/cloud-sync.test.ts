@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { runtimeDbPath } from "../runtime-db.js";
 import { MANAGED_ENGINE_DB_FILENAME } from "../managed-opencode-db.js";
-import { prepareCloudExecution } from "./lifecycle.js";
+import { bootCloudSync, prepareCloudExecution } from "./lifecycle.js";
 import { DirectoryObjects, CHUNK_BYTES, digest, getBlob, putBlob, type SyncObjects } from "./objects.js";
 import { exportCheckpoint, recoverCheckpointRestore, remapPaths, restoreCheckpoint } from "./state.js";
 import { CloudReplica } from "./replica.js";
@@ -20,7 +20,7 @@ import { ChannelRuntime, type ChannelEngine } from "../channel-runtime.js";
 import { randomUUID } from "node:crypto";
 
 let root: string;
-const environments = ["LEGALWORK_RUNTIME_DB", "OPENCODE_DB", "LEGALWORK_DEV_MODE", "XDG_CONFIG_HOME", "TZ"];
+const environments = ["LEGALWORK_RUNTIME_DB", "OPENCODE_DB", "LEGALWORK_DEV_MODE", "LEGALWORK_CLOUD_SYNC_CONFIG", "XDG_CONFIG_HOME", "TZ"];
 const saved = new Map<string, string | undefined>();
 const databases: Database[] = [];
 const closers: Array<() => void> = [];
@@ -49,6 +49,57 @@ async function store() { const result = await DirectoryObjects.open(join(root, "
 const settings = (deviceId: string, role: "files" | "executor" | "companion" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
 
 describe("private replica checkpoints", () => {
+  test("a cold executor boot returns after preparing its assistant while bulk sync is pending", async () => {
+    const target = await config("vm"), remote = await store();
+    process.env.LEGALWORK_CLOUD_SYNC_CONFIG = join(root, "worker-sync.json");
+    await writeFile(process.env.LEGALWORK_CLOUD_SYNC_CONFIG, JSON.stringify(settings("vm")));
+    const open = CloudReplica.open.bind(CloudReplica);
+    const create = spyOn(CloudReplica, "open").mockImplementation((conf, profile) => open(conf, profile, remote));
+    const assistant = spyOn(CloudReplica.prototype, "prepareAssistant").mockResolvedValue(undefined);
+    let finish = () => {};
+    const background = new Promise<Awaited<ReturnType<CloudReplica["tick"]>>>(resolve => { finish = () => resolve(undefined); });
+    const bulk = spyOn(CloudReplica.prototype, "tick").mockReturnValue(background);
+    let runtime: Awaited<ReturnType<typeof bootCloudSync>> = null;
+    try {
+      runtime = await bootCloudSync(target);
+      expect(runtime?.replica.canExecute()).toBe(true);
+      expect(assistant).toHaveBeenCalledTimes(1);
+      expect(bulk).toHaveBeenCalledTimes(1);
+    } finally {
+      finish(); await background; await runtime?.stop();
+      create.mockRestore(); assistant.mockRestore(); bulk.mockRestore();
+    }
+  });
+  test("warm resume releases execution while bulk project refresh is still running", async () => {
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    await replica.acquire();
+    const assistant = spyOn(replica, "prepareAssistant").mockResolvedValue(undefined);
+    let finish = () => {};
+    const background = new Promise<Awaited<ReturnType<CloudReplica["tick"]>>>(resolve => { finish = () => resolve(undefined); });
+    const bulk = spyOn(replica, "tick").mockReturnValue(background);
+    try {
+      await target.cloudSync!.beginCheckpoint!();
+      expect(replica.canExecute()).toBe(false);
+      await target.cloudSync!.resume!();
+      expect(assistant).toHaveBeenCalledTimes(1);
+      expect(bulk).toHaveBeenCalledTimes(1);
+      expect(replica.canExecute()).toBe(true);
+    } finally {
+      finish(); await background;
+      assistant.mockRestore(); bulk.mockRestore();
+      await replica.release(); replica.close();
+    }
+  });
+  test("an executor rejects an unfinished initial project instead of treating it as empty", async () => {
+    const target = await config("vm"), remote = await store();
+    await remote.put("catalog.json", Buffer.from(JSON.stringify([{ id: target.workspaces[0].id, name: "Project", preset: "starter",
+      sourcePath: "/desktop/project", projectId: null, filesReady: false }])), null);
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    await expect(replica.prepareWorkspace(target.workspaces[0].id)).rejects.toMatchObject({ code: "sync_project_pending" });
+    expect(replica.syncStatus().pendingProjects).toBe(1);
+    replica.close();
+  });
   test("engine snapshots retain required empty credential schemas and scoped event history", async () => {
     const source = await config("desktop"), remote = await store();
     const db = await database(join(dirname(runtimeDbPath(source)), MANAGED_ENGINE_DB_FILENAME));

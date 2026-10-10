@@ -4,4 +4,5 @@ export type CloudAssistantStatus = {
   state: "off" | "preparing" | "syncing" | "starting" | "enabled" | "error";
   error: string | null;
   accountName: string | null;
+  sync?: { running: boolean; pendingProjects: number; error: string | null };
 };

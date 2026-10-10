@@ -39,6 +39,8 @@ export function CloudAssistantSettings({ client }: { client: LegalworkServerClie
     {status?.connected && <p className="text-xs text-muted-foreground">{t("assistant.cloud_schedules")}</p>}
     {settingUp && <p role="status" className="text-xs text-muted-foreground">{t(status.state === "syncing" ? "assistant.cloud_syncing" : status.state === "starting" ? "assistant.cloud_starting" : "assistant.cloud_preparing")}</p>}
     {status?.enabled && <p role="status" className="text-xs text-muted-foreground">{t("assistant.cloud_ready", { account: status.accountName ?? "Eigenwelt" })}</p>}
+    {status?.enabled && (status.sync?.running || (status.sync?.pendingProjects ?? 0) > 0) && <p role="status" className="text-xs text-muted-foreground">{t("assistant.cloud_background", { count: status.sync?.pendingProjects ?? 0 })}</p>}
+    {status?.enabled && status.sync?.error && <p role="alert" className="text-xs text-destructive">{status.sync.error}</p>}
     {(error || status?.error || refreshError) && <p role="alert" className="text-xs text-destructive">{error ?? status?.error ?? refreshError}</p>}
     {status?.state === "error" && <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { void change(true); }}>{t("assistant.cloud_retry")}</Button>}
   </div>;

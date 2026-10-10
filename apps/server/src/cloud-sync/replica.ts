@@ -13,7 +13,8 @@ import { getBlob, isConflict, putBlob, type SyncObjects } from "./objects.js";
 import { ReplicaResources } from "./files.js";
 import { PlatformObjects, resourceStorage } from "./platform.js";
 import { projectSyncStore } from "../project-sync-store.js";
-import { DEFAULT_PROJECT_SCOPE, runProjectSync, saveProjectSyncSettings, scopeIncludes } from "../project-sync.js";
+import { DEFAULT_PROJECT_SCOPE, runProjectSync, saveProjectSyncSettings, scopeIncludes, type ProjectSyncResult } from "../project-sync.js";
+import { syncBatches } from "../sync-batches.js";
 import { reviewDocumentKeys, syncProjectReviews, REVIEW_SYNC_PREFIX } from "../project-review-sync.js";
 import { reviewRunActive } from "../reviews/service.js";
 import { fileKey } from "../project-file-sync.js";
@@ -32,6 +33,7 @@ export class CloudReplica {
   private expiresAt = 0;
   private stopped = false;
   private round: Promise<unknown> | null = null;
+  private syncError: string | null = null;
   private materializing = new Map<string, Promise<unknown>>();
   private devicePath: string;
   private checkpointHash: string | null = null;
@@ -92,9 +94,9 @@ export class CloudReplica {
           throw new ApiError(409, "sync_lease_lost", "Another VM has taken ownership. Stop this VM and restore the latest checkpoint offline.");
         await replica.acquire();
       } else await replica.renew();
-      await replica.syncFiles();
-      await syncPreferences(config, replica.objects);
+      await replica.prepareAssistant();
       replica.quiescing = false;
+      void replica.tick().catch(() => {});
     };
     config.cloudSync.status = async () => { const { value } = await replica.control(); return { role: settings.role, canExecute: replica.canExecute(), checkpointAt: value.checkpointAt, nextRunAt: value.nextRunAt }; };
     return replica;
@@ -234,7 +236,8 @@ export class CloudReplica {
         for (const workspace of this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
           const link = links.linkByWorkspace(workspace.id);
           if (link) projects.set(workspace.id, ProjectSchema.parse({ id: workspace.id, name: workspace.name, preset: workspace.preset, sourcePath: workspace.path, projectId: link.projectId,
-            details: existsSync(workspace.path) ? await readProjectDetails(workspace.path) : undefined }));
+            details: existsSync(workspace.path) ? await readProjectDetails(workspace.path) : undefined,
+            filesReady: this.settings.role === "executor" ? projects.get(workspace.id)?.filesReady : this.files.isHydrated(`project:${workspace.id}`, workspace.path) }));
         }
         const data = Buffer.from(JSON.stringify([...projects.values()]));
         if (JSON.stringify(current.value) === data.toString()) return;
@@ -258,24 +261,48 @@ export class CloudReplica {
     }
     await persistServerWorkspaceState(this.config);
   }
-  async prepareWorkspace(projectId: string, allowDeletions = false, refresh = false) {
+  private async publishProjectReady(projectId: string) {
+    if (this.settings.role === "executor") return;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const current = await this.catalog();
+      const project = current.value.find(project => project.id === projectId);
+      if (!project || project.filesReady === true) return;
+      const value = current.value.map(project => project.id === projectId ? { ...project, filesReady: true } : project);
+      try { await this.objects.put("catalog.json", Buffer.from(JSON.stringify(value)), current.revision); return; }
+      catch (error) { if (!isConflict(error)) throw error; }
+    }
+    throw new Error("Project availability changed too often; retry sync");
+  }
+  private async initializeProject(projectId: string, allowDeletions: boolean) {
+    const workspace = this.config.workspaces.find(workspace => workspace.id === projectId && workspace.workspaceType !== "remote");
+    if (!workspace) throw new ApiError(404, "sync_project_missing", "This project is not registered on this replica.");
+    if (this.settings.role === "executor" && (await this.catalog()).value.find(project => project.id === projectId)?.filesReady === false)
+      throw new ApiError(409, "sync_project_pending", "This project's initial files are still syncing from the desktop. Try again shortly.");
+    this.requestedProjects.add(projectId);
+    const store = await projectSyncStore(this.config), link = store.linkByWorkspace(projectId);
+    if (this.settings.role === "executor" && this.files.initialize(`project:${projectId}`, workspace.path)) {
+      if (link) { store.clearFileBase(link.projectId); store.clearReviewBase(link.projectId); store.clearReviewBase(`private:${link.projectId}`); store.updateLink(projectId, { filesReconciledAt: null }); }
+      await mkdir(workspace.path, { recursive: true });
+    }
+    if (link && allowDeletions) store.updateLink(projectId, { allowDeletions: true });
+    return workspace;
+  }
+  async prepareWorkspace(projectId: string, allowDeletions = false, refresh = false, batch?: Promise<ProjectSyncResult>) {
     const pending = this.materializing.get(projectId);
     if (pending) return pending;
     const workspace = this.config.workspaces.find(workspace => workspace.id === projectId && workspace.workspaceType !== "remote");
     if (!workspace) throw new ApiError(404, "sync_project_missing", "This project is not registered on this replica.");
     if (!refresh && this.files.isHydrated(`project:${projectId}`, workspace.path)) return;
-    this.requestedProjects.add(projectId);
     const operation = (async () => {
-      const store = await projectSyncStore(this.config), link = store.linkByWorkspace(projectId);
-      if (this.settings.role === "executor" && this.files.initialize(`project:${projectId}`, workspace.path)) {
-        if (link) { store.clearFileBase(link.projectId); store.clearReviewBase(link.projectId); store.clearReviewBase(`private:${link.projectId}`); store.updateLink(projectId, { filesReconciledAt: null }); }
-        await mkdir(workspace.path, { recursive: true });
-      }
-      if (link && allowDeletions) store.updateLink(projectId, { allowDeletions: true });
-      let result = await runProjectSync(this.config);
+      if (!batch) await this.initializeProject(projectId, allowDeletions);
+      const store = await projectSyncStore(this.config);
+      const requestedAt = Date.now();
+      let result = await (batch ?? runProjectSync(this.config, { workspaceIds: [projectId] }));
       if (!result.ran || result.error) throw new ApiError(503, "sync_project_unavailable", result.error ?? "Connect Eigenwelt before syncing projects.");
-      // A round already in progress may have passed this project before it was requested.
-      if (store.linkByWorkspace(projectId)?.filesReconciledAt === null) result = await runProjectSync(this.config);
+      // An existing targeted round can have passed this project before it was requested.
+      const passed = store.linkByWorkspace(projectId);
+      if (!batch && (!passed?.lastSyncAt || passed.lastSyncAt < requestedAt || passed.filesReconciledAt === null))
+        result = await runProjectSync(this.config, { workspaceIds: [projectId] });
       if (!result.ran || result.error) throw new ApiError(503, "sync_project_unavailable", result.error ?? "Project sync is unavailable.");
       const updated = store.linkByWorkspace(projectId);
       const scope = updated?.settings.scope;
@@ -307,26 +334,56 @@ export class CloudReplica {
         }
       }
       this.files.markHydrated(`project:${projectId}`, workspace.path);
+      await this.publishProjectReady(projectId);
       return updated.report;
     })();
     this.materializing.set(projectId, operation);
     try { return await operation; } finally { this.materializing.delete(projectId); }
   }
-  async syncFiles(allowDeletions = false) {
+  async syncFiles(allowDeletions = false, priorityProjects?: readonly string[], startup = false) {
     await this.syncCatalog();
-    const selected = this.settings.projectIds.length ? this.settings.projectIds : this.settings.role !== "executor"
-      ? this.config.workspaces.map(workspace => workspace.id)
-      : this.config.workspaces.filter(workspace => workspace.preset === "main-assistant" || this.files.isHydrated(`project:${workspace.id}`, workspace.path)).map(workspace => workspace.id);
-    const results = [];
-    for (const id of selected) results.push({ projectId: id, result: await this.prepareWorkspace(id, allowDeletions, true) });
-    // Skills outside a project and local task attachments are separate safe roots.
-    for (const [id, root] of [["global-skills", globalSkillsDir()], ["task-attachments", join(dirname(runtimeDbPath(this.config)), "task-attachments")]]) {
+    const selected = priorityProjects ?? (this.settings.projectIds.length ? this.settings.projectIds : this.settings.role !== "executor"
+      ? this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id)
+      : this.config.workspaces.filter(workspace => workspace.preset === "main-assistant" || this.files.isHydrated(`project:${workspace.id}`, workspace.path)).map(workspace => workspace.id));
+    for (const id of selected) await this.initializeProject(id, allowDeletions);
+    const requestedAt = Date.now();
+    const batch = (selected.length ? runProjectSync(this.config, { workspaceIds: selected }) :
+      Promise.resolve<ProjectSyncResult>({ ran: false, pushed: 0, pulled: 0, arrived: 0, removed: 0, error: null })).then(async result => {
+      if (!result.ran || result.error) return result;
+      const store = await projectSyncStore(this.config);
+      const missed = selected.filter(id => (store.linkByWorkspace(id)?.lastSyncAt ?? 0) < requestedAt);
+      return missed.length ? runProjectSync(this.config, { workspaceIds: missed }) : result;
+    });
+    let failed = false;
+    const results = await syncBatches(selected, 2, async id => {
+      try { return { projectId: id, result: await this.prepareWorkspace(id, allowDeletions, true, batch) }; }
+      catch (error) { failed = true; return { projectId: id, error }; }
+    });
+    // Even an empty project selection must drain its metadata round.
+    const outcome = await batch;
+    if (selected.length && (!outcome.ran || outcome.error)) throw new ApiError(503, "sync_project_unavailable", outcome.error ?? "Project sync is unavailable.");
+    if (this.settings.role !== "executor") await this.syncCatalog();
+    // Global skills are needed at startup; bulk task attachments follow in the background.
+    const roots = [["global-skills", globalSkillsDir()], ...(!startup ? [["task-attachments", join(dirname(runtimeDbPath(this.config)), "task-attachments")]] : [])];
+    for (const [id, root] of roots) {
       if (this.objects instanceof PlatformObjects && (this.settings.role === "executor" || existsSync(root))) {
         const result = await this.files.sync(resourceStorage(await this.objects.adapter(), `resources/${id}`), id, root, this.settings.deviceName, allowDeletions);
-        if (result.pending) throw new ApiError(409, "sync_resource_pending", "Private resources still have pending changes.");
+        if (result.pending || result.stale) throw new ApiError(409, "sync_resource_pending", "Private resources still have pending changes.");
       }
     }
+    if (failed) throw new ApiError(409, "sync_project_pending", "Some project files are still syncing. Other projects remain available; sync will retry automatically.");
     return results;
+  }
+  /** Publish the assistant's dependencies first. Other projects never block VM creation. */
+  async prepareAssistant() {
+    const projects = this.config.workspaces.filter(workspace => workspace.preset === "main-assistant" && workspace.workspaceType !== "remote" &&
+      (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id))).map(workspace => workspace.id);
+    await this.syncFiles(false, projects, true);
+    await this.syncPreferences();
+  }
+  syncStatus() {
+    return { running: this.round !== null, error: this.syncError, pendingProjects: this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote" &&
+      (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)) && !this.files.isHydrated(`project:${workspace.id}`, workspace.path)).length };
   }
   async tick() {
     if (this.stopped) return;
@@ -338,11 +395,15 @@ export class CloudReplica {
       if (this.settings.role === "executor") await this.publishState();
       return files;
     })();
-    try { return await this.round; } finally { this.round = null; }
+    try { const result = await this.round; this.syncError = null; return result; }
+    catch (error) { this.syncError = "Some files could not sync. Sync will retry automatically."; throw error; }
+    finally { this.round = null; }
   }
   syncPreferences() { return syncPreferences(this.config, this.objects); }
-  start() {
-    const timer = setInterval(() => { void this.tick().catch(error => console.warn("[cloud-sync]", error instanceof Error ? error.message : "Sync failed")); }, this.settings.intervalMs);
+  start(immediate = false) {
+    const run = () => { void this.tick().catch(error => console.warn("[cloud-sync]", error instanceof Error ? error.message : "Sync failed")); };
+    const timer = setInterval(run, this.settings.intervalMs);
+    if (immediate) run();
     timer.unref();
     return async () => {
       clearInterval(timer); this.stopped = true;

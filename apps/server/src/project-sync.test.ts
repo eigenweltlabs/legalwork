@@ -251,6 +251,22 @@ async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prom
 }
 
 describe("project sync between computers", () => {
+  test("assistant startup syncs only its requested projects; a later round carries the remaining files", async () => {
+    const { platform } = fakeFirm(), owner = await machine("owner", "Owner");
+    const assistant = await localProject(owner.config, "Assistant"), matter = await localProject(owner.config, "Large matter");
+    await write(assistant, "profile.txt", "Assistant context"); await write(matter, "contract.txt", "Background document");
+    await saveProjectSyncSettings(owner.config, assistant, settings());
+    await saveProjectSyncSettings(owner.config, matter, settings());
+    const visited: string[] = [];
+    const storage = platform.storage;
+    platform.storage = (...args) => { visited.push(args[1]); return storage(...args); };
+    await runProjectSync(owner.config, { platform, workspaceIds: [assistant.id] });
+    const store = await projectSyncStore(owner.config);
+    expect(visited).toEqual([store.linkByWorkspace(assistant.id)!.projectId]);
+    expect(store.linkByWorkspace(matter.id)?.filesReconciledAt).toBeNull();
+    await runProjectSync(owner.config, { platform });
+    expect(store.linkByWorkspace(matter.id)?.filesReconciledAt).not.toBeNull();
+  });
   test("cloud replicas use the existing project files on demand and keep runtime config out of documents", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("owner", "Owner"), vm = await machine("owner", "Cloud VM");

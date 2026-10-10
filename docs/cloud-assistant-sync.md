@@ -16,9 +16,13 @@ One cloud process owns the VM checkpoint. A conditional control file holds its o
 
 1. Start the installed LegalWork binary and acquire execution ownership.
 2. Restore the latest runtime/engine checkpoint before launching the managed engine. A matching local checkpoint retains its databases. An interrupted restore is replayed from its local journal.
-3. Register all original project IDs and paths. Sync the Assistant project and any explicitly requested or previously downloaded projects.
-4. Download another project when preparing its first agent request or reading it through the project/file APIs. The project must finish transfer before execution proceeds. Call the prepare endpoint explicitly before using a project's path through an external filesystem consumer.
+3. Register all original project IDs and paths. Prepare the Assistant project, global skills and safe settings before accepting assistant requests. Refresh other projects and task attachments in the background, including after a warm resume.
+4. Download another project when preparing its first agent request or reading it through the project/file APIs. The project must finish transfer before execution proceeds. A project whose initial desktop upload is unfinished returns `sync_project_pending`, rather than appearing empty. Call the prepare endpoint explicitly before using a project's path through an external filesystem consumer.
 5. Continue ordinary project deltas. Cached files, file bases and indexes stay on the VM disk. A missing project directory resets its local bases and restores files instead of propagating an empty folder as deletions.
+
+A replica batch shares one project sync round instead of requesting a full round for every project. Project work runs two at a time, independent file transfers four at a time, and immutable checkpoint uploads three chunks at a time. Conflicts and deletions retain their serial ordering and conditional version checks. Immutable chunk lookups reuse the file listing until the next control read; execution ownership checks still read fresh control state.
+
+The catalog's optional `filesReady` field records initial project availability. Deploy the updated guest before enabling the updated desktop: older guests use a strict catalog schema and cannot read the new field.
 
 A VM resume keeps its disk and memory; it does not restore all project files again. A replacement VM downloads the state checkpoint and requested projects. Checkpoint databases are content-addressed in 8 MiB pieces so unchanged pieces are reused. Project documents continue to use the existing whole-file version/chunk behavior: a changed document gets a new version, while unchanged documents transfer no bytes.
 
@@ -149,7 +153,7 @@ The sync tests do not use real-user credentials or a deployed platform. VM orche
 
 ## Enable from the desktop
 
-Open the assistant settings by clicking its avatar/name and enable **Cloud assistant**. An Eigenwelt account with an assistant model allowance is required. Setup verifies the current user and organization, syncs the selected local projects, waits for an idle engine and exports a consistent initial checkpoint, then asks Model API to provision a user VM. The VM installs a separate account refresh family and user-scoped model key before startup, restores the checkpoint, and binds mobile dispatch only after ownership/readiness pass. Sign in on iOS with the same account and select the same organization.
+Open the assistant settings by clicking its avatar/name and enable **Cloud assistant**. An Eigenwelt account with an assistant model allowance is required. Setup verifies the current user and organization, prepares the Assistant project and safe settings, waits for an idle engine and exports a consistent initial checkpoint. It starts bulk project sync in the background and asks Model API to provision a user VM immediately. The switch becomes enabled when the VM is ready; a separate status shows remaining projects and retry errors. An interrupted setup can be resumed by enabling the switch again. The VM installs a separate account refresh family and user-scoped model key before startup, restores the checkpoint, and binds mobile dispatch only after ownership/readiness pass. Sign in on iOS with the same account and select the same organization.
 
 Existing desktop schedules remain active locally; their initial cloud copies are paused. Queued prompts, unfinished delegation/dispatch state and in-flight schedule runs are excluded from the companion seed, so enabling cloud cannot replay pending desktop work. Schedule edits are currently local to each executor. New schedules created by the cloud assistant run there; migrating existing schedule authority requires a separate explicit action.
 

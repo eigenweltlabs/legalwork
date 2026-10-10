@@ -17,6 +17,7 @@ export const ProjectSchema = z.object({
   sourcePath: z.string().max(4096),
   projectId: z.string().uuid().nullable().default(null),
   details: projectDetailsSchema.optional(),
+  filesReady: z.boolean().optional(),
 }).strict();
 export type SyncProject = z.infer<typeof ProjectSchema>;
 

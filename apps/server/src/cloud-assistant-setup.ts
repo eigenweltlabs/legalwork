@@ -33,6 +33,8 @@ export class CloudAssistantSetup {
     const service = new CloudAssistantSetup(options);
     try { service.saved = Saved.parse(JSON.parse(await readFile(service.path, "utf8"))); }
     catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+    if (service.saved && ["preparing", "syncing", "starting"].includes(service.saved.state))
+      await service.save({ ...service.saved, enabled: false, state: "error", error: "Setup was interrupted. Enable Cloud assistant to resume." });
     if (service.saved?.enabled && await service.matches()) {
       try { await service.attach(); }
       catch { await service.save({ ...service.saved, enabled: false, state: "error", error: "Cloud sync could not reconnect. Try enabling it again." }); }
@@ -50,7 +52,8 @@ export class CloudAssistantSetup {
     const account = (await readEigenweltConnection(this.options.config)).account;
     const matched = await this.matches();
     return { connected: Boolean(account?.userId && account.orgId), enabled: matched && Boolean(this.saved?.enabled),
-      state: matched ? this.saved?.state ?? "off" : "off", error: matched ? this.saved?.error ?? null : null, accountName: account?.orgName ?? null };
+      state: matched ? this.saved?.state ?? "off" : "off", error: matched ? this.saved?.error ?? null : null, accountName: account?.orgName ?? null,
+      sync: matched ? this.replica?.syncStatus() : undefined };
   }
   private async save(value: z.infer<typeof Saved>) {
     this.saved = Saved.parse(value);
@@ -70,14 +73,14 @@ export class CloudAssistantSetup {
     if (!account || value.userId !== account.userId || value.orgId !== account.orgId) throw new ApiError(409, "cloud_account_changed", "Your account changed during setup.");
     return value;
   }
-  private async attach() {
+  private async attach(start = true) {
     if (this.replica) return this.replica;
     if (this.options.config.cloudSync) throw new ApiError(409, "cloud_sync_already_configured", "This runtime already has a cloud sync profile.");
     if (!this.saved || !await this.matches()) throw new ApiError(409, "cloud_account_changed", "Connect your Eigenwelt account first.");
     const replica = await CloudReplica.open(this.options.config, SyncConfigSchema.parse({ version: 1, accountId: this.saved.accountId,
       deviceId: this.saved.deviceId, deviceName: "Desktop", store: { type: "platform" }, role: "companion", projectsDirectory: this.options.config.projectsDirectory }));
     this.replica = replica;
-    this.stopReplica = replica.start();
+    if (start) this.stopReplica = replica.start(true);
     return replica;
   }
   async enable() {
@@ -106,9 +109,9 @@ export class CloudAssistantSetup {
     return this.status();
   }
   private async setup() {
-    const replica = await this.attach();
+    const replica = await this.attach(false);
     await this.stage("syncing");
-    await replica.tick();
+    await replica.prepareAssistant();
     if (!(await replica.control()).value.checkpoint) {
       const release = await this.options.config.cloudSync?.beginCheckpoint?.();
       try {
@@ -116,6 +119,8 @@ export class CloudAssistantSetup {
         await replica.seedCompanion();
       } finally { release?.(); }
     }
+    // Bulk projects continue while the controller starts the VM.
+    this.stopReplica = replica.start(true);
     await this.stage("starting");
     let remote = await this.remote("POST");
     const deadline = Date.now() + 300000;
@@ -134,7 +139,8 @@ export class CloudAssistantSetup {
     if (!this.replica) return;
     const replica = this.replica;
     this.replica = null;
-    await this.stopReplica?.(); this.stopReplica = null;
+    if (this.stopReplica) await this.stopReplica(); else replica.close();
+    this.stopReplica = null;
     if (this.options.config.cloudSync?.canExecute === replica.canExecute) delete this.options.config.cloudSync;
   }
   private async checkAccount() {

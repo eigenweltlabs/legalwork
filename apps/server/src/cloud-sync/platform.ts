@@ -17,10 +17,12 @@ import { digest, syncConflict, type SyncObjects } from "./objects.js";
 export class PlatformObjects implements SyncObjects {
   private files: RemoteProjectFile[] = [];
   private seq: number | null = null;
+  private blobs: Promise<StorageAdapter> | null = null;
   private index: RemoteFileIndex = {
     seq: () => this.seq, files: () => this.files,
-    replace: (files, seq) => { this.files = files; this.seq = seq; },
+    replace: (files, seq) => { if (this.seq !== null && seq !== null && seq < this.seq) return; this.files = files; this.seq = seq; },
     apply: changes => {
+      if (this.seq !== null && changes.seq < this.seq) return;
       const files = new Map(this.files.map(file => [file.path.toLowerCase(), file]));
       for (const removed of changes.removed) files.delete(removed.toLowerCase());
       for (const file of changes.files) files.set(file.path.toLowerCase(), file);
@@ -45,9 +47,14 @@ export class PlatformObjects implements SyncObjects {
     return new PlatformObjects(client, id);
   }
   async adapter() { return eigenweltProjectStorage(await this.client(), this.projectId, this.index); }
-  async stat(key: string) { return (await (await this.adapter()).stat(key))?.version ?? null; }
+  private blobAdapter() { return this.blobs ??= this.adapter().catch(error => { this.blobs = null; throw error; }); }
+  async stat(key: string) { return (await (await (key.startsWith("blobs/") ? this.blobAdapter() : this.adapter())).stat(key))?.version ?? null; }
   async get(key: string) {
-    const adapter = await this.adapter();
+    // Control must always be fresh. Immutable chunks share a listing until
+    // the next control read; a newly published checkpoint refreshes it too.
+    if (key === "control.json") this.blobs = null;
+    let adapter = await (key.startsWith("blobs/") ? this.blobAdapter() : this.adapter());
+    if (key.startsWith("blobs/") && await adapter.stat(key) === null) adapter = await this.adapter();
     if (await adapter.stat(key) === null) return null;
     const temporary = await mkdtemp(join(tmpdir(), "legalwork-sync-read-"));
     try {

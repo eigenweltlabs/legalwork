@@ -52,6 +52,7 @@ import { reviewRunActive } from "./reviews/service.js";
 import { registerLocalProject, renameRegisteredWorkspace, unregisterWorkspace } from "./routes/workspaces.js";
 import { taskStore } from "./task-store.js";
 import { scheduleTaskSync } from "./task-sync.js";
+import { syncBatches } from "./sync-batches.js";
 import { connectedTaskOrgId } from "./tasks-api.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
@@ -761,19 +762,19 @@ async function syncDocuments(
 /** One full round, now. Concurrent callers share the round in flight. */
 export function runProjectSync(
   config: ServerConfig,
-  options: { platform?: ProjectSyncPlatform } = {},
+  options: { platform?: ProjectSyncPlatform; workspaceIds?: readonly string[] } = {},
 ): Promise<ProjectSyncResult> {
   const key = keyOf(config);
   const inFlight = rounds.get(key);
   if (inFlight) return inFlight;
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
+  const round = runRound(config, options.platform ?? REAL_PLATFORM, options.workspaceIds).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
   rounds.set(key, round);
   return round;
 }
 
-async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Promise<ProjectSyncResult> {
+async function runRound(config: ServerConfig, platform: ProjectSyncPlatform, workspaceIds?: readonly string[]): Promise<ProjectSyncResult> {
   await ensureFreshPlatformToken(config).catch(() => null);
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
@@ -793,8 +794,8 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
       userId: connection.account?.userId ?? "",
       name: connection.account?.userName?.trim() || connection.account?.userEmail?.trim() || null,
     };
-    for (const link of store.links(orgId)) {
-      if (link.state !== "active" || !link.confirmed) continue;
+    await syncBatches(store.links(orgId).filter(link => link.state === "active" && link.confirmed &&
+      (!workspaceIds || workspaceIds.includes(link.workspaceId))), 2, async link => {
       if (platform === REAL_PLATFORM) {
         try { await syncProjectCalendar(config, client, link); }
         catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; /* An older platform may not have the calendar API yet. Keep the outbox and continue document sync. */ }
@@ -805,7 +806,7 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
         const report = store.linkByWorkspace(link.workspaceId)?.report;
         if (pendingCalendar > 0) store.updateLink(link.workspaceId, { report: { pending: (report?.pending ?? 0) + pendingCalendar, skipped: report?.skipped ?? [], heldDeletions: report?.heldDeletions ?? 0 } });
       }
-    }
+    });
     roundStates.set(key, { offline: false, error: null, at: Date.now() });
     // Tasks published this round go up with the task sync (which waits for a
     // project's first upload before sending its tasks); a project that
@@ -815,7 +816,7 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     result.error = messageOf(error);
     roundStates.set(key, { offline: unreachable(error), error: result.error, at: Date.now() });
   }
-  if (platform === REAL_PLATFORM) {
+  if (platform === REAL_PLATFORM && !workspaceIds) {
     try { await syncCalendarSubscriptions(config); }
     catch (error) { result.error ??= messageOf(error); }
   }

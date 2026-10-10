@@ -58,3 +58,18 @@ test("an active local run blocks seeding without activating a cloud worker", asy
   expect(calls).toEqual(["GET"]);
   expect(config.cloudSync).toBeUndefined();
 });
+test("VM activation and enabled status do not wait for bulk project sync", async () => {
+  const { setup, calls } = await fixture();
+  let release = () => {};
+  const waiting = new Promise<Awaited<ReturnType<CloudReplica["syncFiles"]>>>(resolve => { release = () => resolve([]); });
+  const sync = CloudReplica.prototype.syncFiles;
+  const spy = spyOn(CloudReplica.prototype, "syncFiles").mockImplementation(function (this: CloudReplica, allowDeletions, projects, startup) {
+    return startup ? sync.call(this, allowDeletions, projects, startup) : waiting;
+  });
+  cleanup.push(() => spy.mockRestore()); cleanup.push(() => release());
+  await setup.enable(); await settle(setup);
+  expect(calls).toEqual(["GET", "POST"]);
+  expect((await setup.status()).state).toBe("enabled");
+  expect((await setup.status()).sync?.running).toBe(true);
+  release();
+});

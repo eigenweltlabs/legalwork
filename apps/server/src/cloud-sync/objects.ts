@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { ApiError } from "../errors.js";
 import { openSqlite, type SqliteHandle } from "../runtime-db.js";
 import { BlobSchema, type BlobReference } from "./schema.js";
+import { syncBatches } from "../sync-batches.js";
 
 export const CHUNK_BYTES = 8 * 1024 * 1024;
 export const digest = (data: Buffer) => createHash("sha256").update(data).digest("hex");
@@ -62,6 +63,15 @@ export async function putBlob(store: SyncObjects, source: Buffer | string): Prom
   const chunks: string[] = [];
   let size = 0;
   const file = typeof source === "string" ? await open(source, "r") : null;
+  let batch: { sha: string; chunk: Buffer }[] = [];
+  const upload = async () => {
+    await syncBatches(batch, 3, async ({ sha, chunk }) => {
+      if (await store.stat(`blobs/${sha}`) !== null) return;
+      try { await store.put(`blobs/${sha}`, chunk, null); }
+      catch (error) { if (!isConflict(error)) throw error; }
+    });
+    batch = [];
+  };
   try {
     while (true) {
       const bytes = Buffer.allocUnsafe(CHUNK_BYTES);
@@ -71,11 +81,10 @@ export async function putBlob(store: SyncObjects, source: Buffer | string): Prom
       const chunk = bytes.subarray(0, count);
       hash.update(chunk); size += count;
       const sha = digest(chunk); chunks.push(sha);
-      if (await store.stat(`blobs/${sha}`) === null) {
-        try { await store.put(`blobs/${sha}`, chunk, null); }
-        catch (error) { if (!isConflict(error)) throw error; }
-      }
+      batch.push({ sha, chunk });
+      if (batch.length === 3) await upload();
     }
+    await upload();
   } finally { await file?.close(); }
   return BlobSchema.parse({ sha256: hash.digest("hex"), size, chunks });
 }
