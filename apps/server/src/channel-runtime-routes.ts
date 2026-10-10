@@ -20,6 +20,7 @@ import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { channelLiveEvents, channelToolOutput } from "./channel-live-events.js";
 import { retryChannelTurn, retryableChannelError } from "./channel-recovery.js";
 import { watchChannelEvents } from "./channel-event-wait.js";
+import { channelMessageParts } from "./channel-message-parts.js";
 
 const sharedFileTypes: Record<string, string> = { ".txt": "text/plain", ".md": "text/plain", ".pdf": "application/pdf",
   ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -84,7 +85,7 @@ export async function registerChannelRuntimeRoutes(options: {
         files.push(file);
       }
       const response = await client.session.promptAsync({ sessionID: receipt.sessionId, messageID: receipt.messageId, agent: "legalwork", model: await model(),
-        parts: [{ type: "text", text: receipt.text, metadata: { legalworkChannel: receipt.channel, legalworkChannelEvent: receipt.id } }, ...files],
+        parts: channelMessageParts(receipt, files, Boolean(process.env.LEGALWORK_CLOUD_BROWSER_AUTH)),
       }, { signal: AbortSignal.timeout(30000) });
       if (!response.response.ok) throw new Error("Channel dispatch could not be confirmed");
     },
