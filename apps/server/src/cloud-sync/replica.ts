@@ -40,9 +40,11 @@ export class CloudReplica {
   private checkpointHash: string | null = null;
   private requestedProjects = new Set<string>();
   private quiescing = false;
+  private checkpointed = false;
   private leaseTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private renewing: Promise<void> | null = null;
+  private renewalGeneration = 0;
   private engineWrites = 0;
   private drained: Array<() => void> = [];
   private constructor(private config: ServerConfig, readonly settings: CloudSyncConfig, readonly objects: SyncObjects,
@@ -66,7 +68,13 @@ export class CloudReplica {
       shouldSyncFiles: id => settings.role !== "executor" || replica.requestedProjects.has(id) || files.isHydrated(`project:${id}`, config.workspaces.find(workspace => workspace.id === id)?.path ?? ""),
       deviceName: settings.deviceName };
     config.cloudSync.maintainsProject = id => !settings.projectIds.length || settings.projectIds.includes(id);
-    config.cloudSync.checkpoint = async () => { await replica.tick(true); return { checkpointAt: (await replica.control()).value.checkpointAt }; };
+    config.cloudSync.checkpoint = async () => {
+      await replica.tick(true);
+      replica.checkpointed = true;
+      // Never freeze a lease request/socket into a reusable VM snapshot.
+      await replica.renewing;
+      return { checkpointAt: (await replica.control()).value.checkpointAt };
+    };
     config.cloudSync.runEngineRequest = execute => {
       if (!replica.canExecute()) throw new ApiError(409, "sync_execution_owner", "The execution owner is paused or unavailable.");
       replica.engineWrites++;
@@ -75,7 +83,7 @@ export class CloudReplica {
       });
     };
     config.cloudSync.beginCheckpoint = async () => {
-      replica.quiescing = true;
+      replica.quiescing = true; replica.checkpointed = false;
       if (replica.engineWrites) await new Promise<void>((resolve, reject) => {
         const ready = () => { clearTimeout(timer); resolve(); };
         const timer = setTimeout(() => {
@@ -86,12 +94,14 @@ export class CloudReplica {
         timer.unref();
         replica.drained.push(ready);
       });
-      return () => { replica.quiescing = false; };
+      return () => { replica.quiescing = false; replica.checkpointed = false; };
     };
     config.cloudSync.resume = async () => {
-      // A suspended VM can resume with a renewal still in flight. Let that
-      // stale operation settle before reacquiring the same checkpoint.
-      await replica.renewing?.catch(() => {});
+      // Provider suspension can freeze sockets independently of checkpointing.
+      // Fence old callbacks, then require fresh control/CAS ownership proof.
+      // Their eventual success or failure must not change the resumed lease.
+      replica.renewalGeneration++;
+      replica.renewing = null;
       if (!replica.hasLease()) {
         const current = await replica.control();
         if (current.value.owner !== replica.owner || current.value.checkpoint?.sha256 !== replica.checkpointHash)
@@ -103,7 +113,7 @@ export class CloudReplica {
       // on each message blocks execution for seconds even on a warm VM.
       // Ownership is renewed above; incremental refresh follows in the normal
       // background round and individual project hydration still gates its use.
-      replica.quiescing = false;
+      replica.quiescing = false; replica.checkpointed = false;
       void replica.tick().catch(() => {});
       return { role: settings.role, canExecute: replica.canExecute(), nextRunAt: await nextScheduledRun(config) };
     };
@@ -137,7 +147,7 @@ export class CloudReplica {
         this.epoch = value.epoch; this.expiresAt = value.expiresAt; this.armExpiry();
         if (!this.heartbeat) {
           this.heartbeat = setInterval(() => {
-            if (this.quiescing && !this.hasLease()) return;
+            if (this.checkpointed || this.quiescing && !this.hasLease()) return;
             void this.renew().catch(error => console.warn("[cloud-sync] lease renewal failed:", error instanceof Error ? error.message : "unavailable"));
           }, Math.floor(this.settings.leaseMs / 3));
           this.heartbeat.unref();
@@ -149,12 +159,19 @@ export class CloudReplica {
   }
   async renew() {
     if (this.renewing) return this.renewing;
-    this.renewing = this.renewOnce();
-    try { await this.renewing; } finally { this.renewing = null; }
+    const pending = this.renewOnce(this.renewalGeneration);
+    this.renewing = pending;
+    try { await pending; } finally { if (this.renewing === pending) this.renewing = null; }
   }
-  private async renewOnce() {
+  private assertRenewal(generation: number) {
+    if (generation !== this.renewalGeneration)
+      throw new ApiError(409, "sync_renewal_superseded", "A resumed worker replaced this lease renewal.");
+  }
+  private async renewOnce(generation: number) {
     for (let attempt = 0; attempt < 8; attempt++) {
+      this.assertRenewal(generation);
       const current = await this.control();
+      this.assertRenewal(generation);
       if (this.epoch === null || current.value.owner !== this.owner || current.value.epoch !== this.epoch || current.value.expiresAt <= this.now()) {
         this.expiresAt = 0;
         // Lease expiry is expected during a checkpointed VM pause. Execution
@@ -166,6 +183,7 @@ export class CloudReplica {
       const expiresAt = this.now() + this.settings.leaseMs;
       try {
         await this.objects.put("control.json", Buffer.from(JSON.stringify({ ...current.value, expiresAt })), current.revision);
+        this.assertRenewal(generation);
         this.expiresAt = expiresAt; this.armExpiry(); return;
       } catch (error) { if (!isConflict(error)) throw error; }
     }

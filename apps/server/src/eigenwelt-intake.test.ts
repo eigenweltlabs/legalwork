@@ -1,7 +1,9 @@
-import { describe, expect, test, afterEach } from "bun:test";
+import { describe, expect, test, afterEach, spyOn } from "bun:test";
+import { createServer } from "node:http";
 
 import {
   intakeCreateTask,
+  intakeRequest,
   intakeDownloadAttachment,
   intakeGetTask,
   intakeListMembers,
@@ -78,6 +80,30 @@ const TASK = {
   createdAt: "2026-09-01T00:00:00.000Z",
   updatedAt: "2026-09-02T00:00:00.000Z",
 };
+
+test("platform requests time out both missing headers and a response body that never finishes", async () => {
+  const server = createServer((request, response) => {
+    request.resume();
+    if (request.url === "/body") { response.writeHead(200, { "content-type": "application/json" }); response.write("{"); }
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address(); if (!address || typeof address === "string") throw new Error("Test server unavailable");
+  const timeout = AbortSignal.timeout;
+  const bounded = spyOn(AbortSignal, "timeout").mockImplementation(() => timeout(30));
+  try {
+    for (const path of ["/headers", "/body"]) {
+      const result = await Promise.race([
+        intakeRequest({ platformURL: `http://127.0.0.1:${address.port}`, platformToken: "test" }, "GET", path).then(() => "unexpected_response", () => "timed_out"),
+        Bun.sleep(200).then(() => "hung"),
+      ]);
+      expect(result).toBe("timed_out");
+    }
+    expect(bounded.mock.calls.map(call => call[0])).toEqual([30000, 30000]);
+  } finally {
+    bounded.mockRestore(); server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
 
 describe("requireIntakeClient", () => {
   test("returns a client for an entitled connection and pins the configured platform", () => {

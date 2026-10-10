@@ -243,6 +243,8 @@ export async function intakeFetch(
         ...(init.contentType === undefined ? {} : { "Content-Type": init.contentType }),
       },
       body: init.body,
+      // Also abort a response body that stalls after its headers arrive.
+      signal: AbortSignal.timeout(30000),
     });
   } catch {
     throw new ApiError(502, "intake_unreachable", "Could not reach the Eigenwelt intake service.");

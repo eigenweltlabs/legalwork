@@ -49,6 +49,108 @@ async function store() { const result = await DirectoryObjects.open(join(root, "
 const settings = (deviceId: string, role: "files" | "executor" | "companion" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
 
 describe("private replica checkpoints", () => {
+  test("checkpoint waits for ownership IO still in flight before permitting a VM snapshot", async () => {
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    await replica.acquire(); await target.cloudSync!.beginCheckpoint!();
+    const held = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+    const get = remote.get.bind(remote); let holdNext = false;
+    const reads = spyOn(remote, "get").mockImplementation(async key => {
+      if (key === "control.json" && holdNext) { holdNext = false; entered.resolve(); await held.promise; }
+      return get(key);
+    });
+    const tick = spyOn(replica, "tick").mockImplementation(async () => {
+      holdNext = true; void replica.renew().catch(() => {});
+    });
+    const checkpoint = target.cloudSync!.checkpoint!();
+    try {
+      await entered.promise;
+      const pending = await Promise.race([checkpoint.then(() => false), Bun.sleep(20).then(() => true)]);
+      expect(pending).toBe(true);
+      held.resolve(); await checkpoint;
+      expect(replica.canExecute()).toBe(false);
+    } finally {
+      held.resolve(); await checkpoint.catch(() => {}); tick.mockRestore(); reads.mockRestore();
+      await replica.release(); replica.close();
+    }
+  });
+  test("heartbeats protect a long checkpoint export but stop before the completed snapshot barrier", async () => {
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    const interval = setInterval(() => {}, 999999); interval.unref();
+    const timers = spyOn(globalThis, "setInterval").mockReturnValue(interval);
+    const renew = spyOn(replica, "renew");
+    const exporting = Promise.withResolvers<Awaited<ReturnType<CloudReplica["tick"]>>>();
+    const tick = spyOn(replica, "tick").mockReturnValue(exporting.promise);
+    try {
+      await replica.acquire();
+      const heartbeat = timers.mock.calls[0]?.[0];
+      if (typeof heartbeat !== "function") throw new Error("Lease heartbeat not registered");
+      const cancel = await target.cloudSync!.beginCheckpoint!();
+      const checkpoint = target.cloudSync!.checkpoint!();
+      heartbeat(); await replica.renew(); expect(renew).toHaveBeenCalled();
+      exporting.resolve(undefined); await checkpoint; renew.mockClear();
+      heartbeat();
+      expect(renew).not.toHaveBeenCalled();
+      cancel(); heartbeat(); expect(renew).toHaveBeenCalled(); await replica.renew();
+    } finally {
+      exporting.resolve(undefined); tick.mockRestore(); renew.mockRestore(); timers.mockRestore(); await replica.release(); replica.close();
+    }
+  });
+  test("resume proves fresh ownership without waiting for a frozen renewal and fences its late failure", async () => {
+    let now = 100000;
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote, () => now);
+    await replica.acquire();
+    const files = spyOn(replica, "syncFiles").mockResolvedValue([]);
+    await target.cloudSync!.beginCheckpoint!(); await target.cloudSync!.checkpoint!(); files.mockRestore();
+    const held = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+    const get = remote.get.bind(remote); let holdNext = true, stopped = false;
+    target.cloudSync!.onLeaseLost = () => { stopped = true; };
+    const reads = spyOn(remote, "get").mockImplementation(async key => {
+      const response = await get(key);
+      if (key === "control.json" && holdNext) { holdNext = false; entered.resolve(); await held.promise; }
+      return response;
+    });
+    const tick = spyOn(replica, "tick").mockResolvedValue(undefined);
+    const old = replica.renew().catch(error => error);
+    try {
+      await entered.promise; now += settings("vm").leaseMs + 1;
+      const resumed = await Promise.race([target.cloudSync!.resume!(), Bun.sleep(100).then(() => null)]);
+      expect(resumed?.canExecute).toBe(true);
+      held.resolve(); expect(await old).toMatchObject({ code: "sync_renewal_superseded" });
+      expect(stopped).toBe(false); expect(replica.canExecute()).toBe(true);
+      expect((await replica.control()).value.expiresAt).toBe(now + settings("vm").leaseMs);
+    } finally {
+      held.resolve(); await old; tick.mockRestore(); reads.mockRestore(); await replica.release(); replica.close();
+    }
+  });
+  test("a late renewal CAS acknowledgement cannot overwrite the resumed local lease", async () => {
+    let now = 100000;
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote, () => now);
+    await replica.acquire();
+    const held = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+    const put = remote.put.bind(remote); let holdNext = true;
+    const writes = spyOn(remote, "put").mockImplementation(async (key, data, expected) => {
+      const result = await put(key, data, expected);
+      if (key === "control.json" && holdNext) { holdNext = false; entered.resolve(); await held.promise; }
+      return result;
+    });
+    const tick = spyOn(replica, "tick").mockResolvedValue(undefined);
+    const old = replica.renew().catch(error => error);
+    try {
+      await entered.promise; now += 1000;
+      const resumed = await Promise.race([target.cloudSync!.resume!(), Bun.sleep(100).then(() => null)]);
+      expect(resumed?.canExecute).toBe(true);
+      held.resolve(); expect(await old).toMatchObject({ code: "sync_renewal_superseded" });
+      now += settings("vm").leaseMs - 500;
+      // The original acknowledgement carried a lease already expired here.
+      expect(replica.canExecute()).toBe(true);
+    } finally {
+      held.resolve(); await old; tick.mockRestore(); writes.mockRestore(); await replica.release(); replica.close();
+    }
+  });
   test("a cold executor boot returns after preparing its assistant while bulk sync is pending", async () => {
     const target = await config("vm"), remote = await store();
     process.env.LEGALWORK_CLOUD_SYNC_CONFIG = join(root, "worker-sync.json");

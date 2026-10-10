@@ -212,7 +212,7 @@ export async function listRemoteProjectChanges(client: IntakeClient, projectId: 
 async function storageFetch(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, redirect: "error" });
+    response = await fetch(url, { ...init, redirect: "error", signal: init.signal ?? AbortSignal.timeout(120000) });
   } catch {
     throw new ApiError(502, "project_storage_unreachable", "Could not reach the firm's file storage.");
   }
