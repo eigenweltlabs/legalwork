@@ -100,6 +100,56 @@ describe("private replica checkpoints", () => {
     expect(replica.syncStatus().pendingProjects).toBe(1);
     replica.close();
   });
+  test("a checkpointed VM survives lease expiry and renewals resumed after suspension", async () => {
+    let now = 100000;
+    const target = await config("paused"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("paused"), remote, () => now);
+    let stopped = false;
+    target.cloudSync!.onLeaseLost = () => { stopped = true; };
+    const assistant = spyOn(replica, "prepareAssistant").mockResolvedValue(undefined);
+    const files = spyOn(replica, "syncFiles").mockResolvedValue([]);
+    try {
+      await replica.acquire();
+      await target.cloudSync!.beginCheckpoint!();
+      await target.cloudSync!.checkpoint!();
+      expect((await replica.control()).value.checkpoint).not.toBeNull();
+      files.mockClear();
+      now += settings("paused").leaseMs + 1;
+      await replica.tick();
+      expect(files).not.toHaveBeenCalled();
+      // A renewal accepted before suspension may finish after the lease ends.
+      await expect(replica.renew()).rejects.toThrow("ownership changed");
+      expect(stopped).toBe(false);
+      expect(replica.canExecute()).toBe(false);
+      await target.cloudSync!.resume!();
+      expect(replica.canExecute()).toBe(true);
+      expect(stopped).toBe(false);
+      await replica.tick();
+    } finally {
+      await replica.release(); replica.close();
+      assistant.mockRestore(); files.mockRestore();
+    }
+  });
+
+  test("a paused VM still stops if another execution owner takes over", async () => {
+    let now = 100000;
+    const remote = await store(), target = await config("old");
+    const one = await CloudReplica.open(target, settings("old"), remote, () => now);
+    const two = await CloudReplica.open(await config("new"), settings("new"), remote, () => now);
+    const close = remote.close.bind(remote); remote.close = () => {}; closers.push(close);
+    let stopped = false;
+    target.cloudSync!.onLeaseLost = () => { stopped = true; };
+    try {
+      await one.acquire();
+      await target.cloudSync!.beginCheckpoint!();
+      now += settings("old").leaseMs + 1;
+      await two.acquire();
+      await expect(one.renew()).rejects.toThrow("ownership changed");
+      expect(stopped).toBe(true);
+      await expect(target.cloudSync!.resume!()).rejects.toThrow("Another VM");
+      expect(one.canExecute()).toBe(false);
+    } finally { await two.release(); one.close(); two.close(); }
+  });
   test("engine snapshots retain required empty credential schemas and scoped event history", async () => {
     const source = await config("desktop"), remote = await store();
     const db = await database(join(dirname(runtimeDbPath(source)), MANAGED_ENGINE_DB_FILENAME));

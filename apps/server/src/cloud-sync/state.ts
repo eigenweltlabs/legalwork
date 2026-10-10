@@ -83,7 +83,12 @@ export function safeFolderPermissions(value: Record<string, unknown>, roots: str
 /** VACUUM INTO reads a consistent SQLite snapshot, including committed WAL. */
 async function copyDatabase(source: string, destination: string) {
   const reader = await openSqliteReadonly(source);
-  try { reader.run("VACUUM INTO ?", [destination]); }
+  try {
+    // Bun's SQLite can lack a usable disk temporary directory on macOS.
+    // Keep VACUUM's transient workspace in memory, not its output snapshot.
+    reader.run("PRAGMA temp_store = MEMORY", []);
+    reader.run("VACUUM INTO ?", [destination]);
+  }
   finally { reader.close(); }
 }
 
@@ -93,6 +98,9 @@ async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projec
   try {
     if (db.get("PRAGMA integrity_check")?.integrity_check !== "ok") throw new Error("Invalid checkpoint database");
     db.exec("PRAGMA foreign_keys = OFF; PRAGMA secure_delete = ON");
+    // This is a staged snapshot. Commit its sanitization once instead of
+    // syncing thousands of individual path updates to disk during restore.
+    db.exec("BEGIN IMMEDIATE");
     // A checkpoint has no executable views/triggers from another installation.
     for (const row of db.all("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite_%'")) {
       if (row.type !== "table" || !allowed.has(String(row.name))) db.exec(`DROP ${String(row.type).toUpperCase()} IF EXISTS ${quote(String(row.name))}`);
@@ -176,7 +184,7 @@ async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projec
         }
       }
     }
-    db.exec("VACUUM");
+    db.exec("COMMIT; VACUUM");
   } finally { db.close?.(); }
 }
 

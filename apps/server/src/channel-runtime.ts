@@ -22,8 +22,11 @@ export const ChannelLiveEvent = z.strictObject({ key: z.string().regex(/^[a-f0-9
   z.strictObject({ type: z.literal("message.created"), text: z.string().min(1).max(65536) }),
   z.strictObject({ type: z.literal("reaction.changed"), messageId: z.string().min(1).max(512), emoji: z.enum(["👍", "❤️", "😊", "🎉", "👀", "✅"]) }),
 ]) });
+const RETRY_DELAYS = [2_000, 8_000, 30_000];
 const Receipt = ChannelInput.extend({ fingerprint: z.string(), workspaceId: z.string(), sessionId: z.string(), messageId: z.string(),
   state: z.enum(["accepted", "sending", "running", "completed", "failed"]), textResult: z.string().nullable(),
+  retries: z.number().int().nonnegative().default(0), retryAt: z.number().nullable().default(null),
+  lastAttemptAt: z.number().optional(),
   files: z.array(ChannelFileResult), events: z.array(ChannelLiveEvent).max(256).default([]), code: z.string().nullable(), createdAt: z.number(), updatedAt: z.number(),
 });
 export type ChannelReceipt = z.infer<typeof Receipt>;
@@ -34,7 +37,8 @@ export type ChannelEngine = {
   hasMessage: (target: Target) => Promise<boolean>;
   busy: (target: Target) => Promise<boolean>;
   send: (receipt: ChannelReceipt) => Promise<void>;
-  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; code?: string }>;
+  retry?: (receipt: ChannelReceipt) => Promise<boolean>;
+  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; code?: string; retryable?: boolean }>;
 };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
@@ -114,10 +118,10 @@ export class ChannelRuntime {
   async cancel(id: string, stop: (receipt: ChannelReceipt) => Promise<void>) {
     this.writable();
     return this.locked("accept", async () => {
-      const receipt = await this.inspectLocked(this.get(z.uuid().parse(id)));
+      const receipt = await this.inspectLocked(this.get(z.uuid().parse(id)), false);
       if (["completed", "failed"].includes(receipt.state)) return { stopped: false };
       await stop(receipt);
-      receipt.state = "failed"; receipt.code = "cancelled"; this.save(receipt);
+      receipt.state = "failed"; receipt.code = "cancelled"; receipt.retryAt = null; this.save(receipt);
       return { stopped: true };
     });
   }
@@ -132,7 +136,7 @@ export class ChannelRuntime {
       return { configured: true };
     });
   }
-  private async inspectLocked(receipt: ChannelReceipt): Promise<ChannelReceipt> {
+  private async inspectLocked(receipt: ChannelReceipt, allowRecovery = true): Promise<ChannelReceipt> {
     if (["completed", "failed"].includes(receipt.state)) return receipt;
     await this.engine.validate(receipt);
     if (!await this.engine.hasMessage(receipt)) {
@@ -141,6 +145,23 @@ export class ChannelRuntime {
       // retaining the journal across restart, without issuing another prompt.
       if (this.now() - receipt.createdAt < 30000) return receipt;
       receipt.state = "failed"; receipt.code = "dispatch_uncertain"; this.save(receipt); return receipt;
+    }
+    if (receipt.retryAt !== null) {
+      if (!allowRecovery || this.now() < receipt.retryAt) return receipt;
+      if (await this.engine.busy(receipt)) {
+        receipt.retryAt = null; this.save(receipt);
+      } else {
+        // Journal before waking the same engine turn. A lost response is
+        // reconciled by inspecting that turn, never by adding a user message.
+        receipt.retries++; receipt.retryAt = null; receipt.lastAttemptAt = this.now(); this.save(receipt);
+        this.writable();
+        try {
+          if (!this.engine.retry || !await this.engine.retry(receipt)) {
+            receipt.state = "failed"; receipt.code = "recovery_unavailable"; this.save(receipt);
+          }
+        } catch { /* Inspect acceptance and engine state on the next poll. */ }
+        return receipt;
+      }
     }
     const result = await this.engine.result(receipt);
     for (const event of result.events ?? []) {
@@ -152,6 +173,15 @@ export class ChannelRuntime {
     // Complete bubbles are retained with the receipt, including across engine
     // compaction or a controller restart. Partial model text is never journaled.
     z.array(ChannelLiveEvent).max(256).parse(receipt.events);
+    if (result.state === "failed" && result.retryable && this.engine.retry) {
+      // prompt_async can acknowledge before engine state becomes visible.
+      // Give an uncertain wake time to settle before scheduling another one.
+      if (receipt.lastAttemptAt !== undefined && this.now() - receipt.lastAttemptAt < 30_000) return receipt;
+      if (receipt.retries < RETRY_DELAYS.length) {
+        receipt.state = "running"; receipt.code = result.code ?? "recovering";
+        receipt.retryAt = this.now() + RETRY_DELAYS[receipt.retries]; this.save(receipt); return receipt;
+      }
+    }
     receipt.state = result.state;
     receipt.textResult = result.text ?? null; receipt.files = result.files ?? [];
     receipt.code = result.code ?? null; this.save(receipt); return receipt;

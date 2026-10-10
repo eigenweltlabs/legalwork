@@ -18,6 +18,7 @@ import { projectSyncStore } from "./project-sync-store.js";
 import { createHash } from "node:crypto";
 import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { channelLiveEvents, channelToolOutput } from "./channel-live-events.js";
+import { retryChannelTurn, retryableChannelError } from "./channel-recovery.js";
 
 const sharedFileTypes: Record<string, string> = { ".txt": "text/plain", ".md": "text/plain", ".pdf": "application/pdf",
   ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -86,6 +87,7 @@ export async function registerChannelRuntimeRoutes(options: {
       }, { signal: AbortSignal.timeout(30000) });
       if (!response.response.ok) throw new Error("Channel dispatch could not be confirmed");
     },
+    retry: async receipt => { const { client } = await target(receipt); return retryChannelTurn(client, receipt); },
     result: async input => {
       const { workspace, client } = await target(input);
       const statuses = await client.session.status({}, requestOptions());
@@ -95,9 +97,9 @@ export async function registerChannelRuntimeRoutes(options: {
       const events = channelLiveEvents(turn, input.messageId);
       if (statuses.data[input.sessionId] && statuses.data[input.sessionId].type !== "idle") return { state: "running", events };
       const final = turn.at(-1);
-      if (!final || final.info.role !== "assistant") return Date.now() - input.createdAt < 30000 ? { state: "running", events } : { state: "failed", code: "turn_interrupted", events };
-      if (final.info.error) return { state: "failed", code: "engine_error", events };
-      if (!final.info.time.completed || !["stop", "length", "content-filter"].includes(final.info.finish ?? "")) return { state: "failed", code: "turn_interrupted", events };
+      if (!final || final.info.role !== "assistant") return Date.now() - (input.lastAttemptAt ?? input.createdAt) < 30000 ? { state: "running", events } : { state: "failed", code: "turn_interrupted", retryable: true, events };
+      if (final.info.error) return { state: "failed", code: final.info.error.name === "MessageAbortedError" ? "cancelled" : "engine_error", retryable: retryableChannelError(final.info.error), events };
+      if (!final.info.time.completed || !["stop", "length", "content-filter"].includes(final.info.finish ?? "")) return { state: "failed", code: "turn_interrupted", retryable: true, events };
       const text = final.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n").trim();
       const files: z.infer<typeof ChannelFileResult>[] = [];
       for (const message of turn) for (const part of message.parts) {
@@ -113,7 +115,7 @@ export async function registerChannelRuntimeRoutes(options: {
           if (!files.some(existing => existing.workspaceId === file.workspaceId && existing.path === file.path)) files.push(file);
         } catch { /* Only explicit, verified share-file outputs cross the channel boundary. */ }
       }
-      if (!text && !files.length && !events.some(item => item.event.type === "message.created")) return { state: "failed", code: "empty_reply", events };
+      if (!text && !files.length && !events.some(item => item.event.type === "message.created")) return { state: "failed", code: "empty_reply", retryable: final.info.finish !== "content-filter", events };
       return { state: "completed", text: text || (files.length ? "I’ve shared the requested file." : ""), files, events };
     },
   }, available);
