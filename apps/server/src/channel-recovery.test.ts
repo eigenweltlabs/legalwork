@@ -11,7 +11,7 @@ const assistant = (finish?: string): AssistantMessage => ({ id: "reply", parentI
 const history = (info = assistant("stop"), parts: Part[] = []): { info: Message; parts: Part[] }[] => [{ info: user, parts: [] }, { info, parts }];
 const completedTool: Part = { id: "tool", sessionID: "session", messageID: "reply", type: "tool", tool: "send_email", callID: "call",
   state: { status: "completed", input: {}, output: "Already sent", title: "Sent", metadata: {}, time: { start: 1, end: 2 } } };
-const receipt: ChannelReceipt = { id: "job", userId: "user", orgId: "org", channel: "ios", conversationId: "conversation", text: "Original request", attachments: [],
+const receipt: ChannelReceipt = { id: "job", userId: "user", orgId: "org", channel: "ios", conversationId: "conversation", text: "Original request", attachments: [], browserJobs: [],
   fingerprint: "fingerprint", workspaceId: "owned", sessionId: "session", messageId: "human", state: "running", textResult: null, files: [], events: [],
   code: "empty_reply", createdAt: 1, updatedAt: 1, retries: 1, retryAt: null };
 

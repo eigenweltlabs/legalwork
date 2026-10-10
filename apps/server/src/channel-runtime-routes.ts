@@ -17,7 +17,7 @@ import { resolveWithinRoot } from "./paths.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import { createHash } from "node:crypto";
 import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
-import { channelLiveEvents, channelToolOutput } from "./channel-live-events.js";
+import { channelBrowserJobs, channelLiveEvents, channelToolOutput } from "./channel-live-events.js";
 import { retryChannelTurn, retryableChannelError } from "./channel-recovery.js";
 import { watchChannelEvents } from "./channel-event-wait.js";
 import { channelMessageParts } from "./channel-message-parts.js";
@@ -102,7 +102,8 @@ export async function registerChannelRuntimeRoutes(options: {
       const response = await client.session.messages({ sessionID: input.sessionId, limit: 100 }, requestOptions());
       const turn = (response.data ?? []).filter(message => message.info.role === "assistant" && message.info.parentID === input.messageId);
       const events = channelLiveEvents(turn, input.messageId);
-      if (statuses.data[input.sessionId] && statuses.data[input.sessionId].type !== "idle") return { state: "running", events };
+      const browserJobs = channelBrowserJobs(turn, input.messageId);
+      if (statuses.data[input.sessionId] && statuses.data[input.sessionId].type !== "idle") return { state: "running", events, browserJobs };
       const final = turn.at(-1);
       if (!final || final.info.role !== "assistant") return Date.now() - (input.lastAttemptAt ?? input.createdAt) < 30000 ? { state: "running", events } : { state: "failed", code: "turn_interrupted", retryable: true, events };
       if (final.info.error) return { state: "failed", code: final.info.error.name === "MessageAbortedError" ? "cancelled" : "engine_error", retryable: retryableChannelError(final.info.error), events };
@@ -123,7 +124,7 @@ export async function registerChannelRuntimeRoutes(options: {
         } catch { /* Only explicit, verified share-file outputs cross the channel boundary. */ }
       }
       if (!text && !files.length && !events.some(item => item.event.type === "message.created")) return { state: "failed", code: "empty_reply", retryable: final.info.finish !== "content-filter", events };
-      return { state: "completed", text: text || (files.length ? "I’ve shared the requested file." : ""), files, events };
+      return { state: "completed", text: text || (files.length ? "I’ve shared the requested file." : ""), files, events, browserJobs };
     },
   }, available);
   const bind = async () => { runtime.bind(await identity()); if (!available()) throw new ApiError(409, "channel_execution_blocked", "Assistant execution is blocked."); };

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Message, Part } from "@opencode-ai/sdk/v2";
 import { AssistantReactionResultSchema } from "@legalwork/types/main-assistant";
 import { ChannelLiveEvent } from "./channel-runtime.js";
-import type { z } from "zod";
+import { z } from "zod";
 
 /** App-state reminders are model history, never part of a public tool result. */
 export function channelToolOutput(output: string): unknown {
@@ -32,4 +32,20 @@ export function channelLiveEvents(messages: { info: Message; parts: Part[] }[], 
     }
   }
   return events;
+}
+
+/** Associate asynchronous browser work only with the turn that created it. */
+export function channelBrowserJobs(messages: { info: Message; parts: Part[] }[], messageId: string): string[] {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if (message.info.role !== "assistant" || message.info.parentID !== messageId || message.info.summary) continue;
+    for (const part of message.parts) {
+      if (part.type !== "tool" || part.tool !== "legalwork_cloud_browser_task" || part.state.status !== "completed") continue;
+      try {
+        const output = z.object({ id: z.uuid() }).parse(channelToolOutput(part.state.output));
+        ids.add(output.id);
+      } catch { /* Status/read tools cannot attach unrelated browser jobs. */ }
+    }
+  }
+  return [...ids];
 }

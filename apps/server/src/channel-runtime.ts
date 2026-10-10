@@ -28,7 +28,7 @@ const Receipt = ChannelInput.extend({ fingerprint: z.string(), workspaceId: z.st
   state: z.enum(["accepted", "sending", "running", "completed", "failed"]), textResult: z.string().nullable(),
   retries: z.number().int().nonnegative().default(0), retryAt: z.number().nullable().default(null),
   lastAttemptAt: z.number().optional(),
-  files: z.array(ChannelFileResult), events: z.array(ChannelLiveEvent).max(256).default([]), code: z.string().nullable(), createdAt: z.number(), updatedAt: z.number(),
+  files: z.array(ChannelFileResult), events: z.array(ChannelLiveEvent).max(256).default([]), browserJobs: z.array(z.uuid()).max(50).default([]), code: z.string().nullable(), createdAt: z.number(), updatedAt: z.number(),
 });
 export type ChannelReceipt = z.infer<typeof Receipt>;
 type Target = Pick<ChannelReceipt, "workspaceId" | "sessionId" | "messageId">;
@@ -40,11 +40,11 @@ export type ChannelEngine = {
   send: (receipt: ChannelReceipt) => Promise<void>;
   retry?: (receipt: ChannelReceipt) => Promise<boolean>;
   watch?: (receipt: ChannelReceipt, notify: () => void, signal: AbortSignal) => Promise<void>;
-  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; code?: string; retryable?: boolean }>;
+  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; browserJobs?: string[]; code?: string; retryable?: boolean }>;
 };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const channelObservationVersion = (receipt: ChannelReceipt) => digest({ state: receipt.state, code: receipt.code,
-  retryAt: receipt.retryAt, retries: receipt.retries, text: receipt.textResult, files: receipt.files, events: receipt.events.map(item => item.key) });
+  retryAt: receipt.retryAt, retries: receipt.retries, text: receipt.textResult, files: receipt.files, events: receipt.events.map(item => item.key), browserJobs: receipt.browserJobs });
 
 /** Host-only inbox. Journal before dispatch; an uncertain dispatch is never blindly replayed. */
 export class ChannelRuntime {
@@ -206,6 +206,7 @@ export class ChannelRuntime {
     }
     const result = await this.engine.result(receipt);
     this.writable();
+    receipt.browserJobs = z.array(z.uuid()).max(50).parse([...new Set([...receipt.browserJobs, ...(result.browserJobs ?? [])])]);
     for (const event of result.events ?? []) {
       const parsed = ChannelLiveEvent.parse(event);
       const previous = receipt.events.find(item => item.key === parsed.key);

@@ -14,6 +14,7 @@ async function fixture() {
   let failure: { code: string; retryable: boolean } | undefined;
   let lostRetry = false;
   let events: z.infer<typeof ChannelLiveEvent>[] = [];
+  let browserJobs: string[]=[];
   let notify = () => {}, watchSignal: AbortSignal | undefined, inspection: (() => void) | undefined;
   const engine: ChannelEngine = {
     current: async () => ({ workspaceId: "owned-assistant", sessionId }), validate: async () => {},
@@ -22,7 +23,7 @@ async function fixture() {
     retry: async () => { retries++; failure = undefined; busy = true; if (lostRetry) throw new Error("Lost recovery response"); return true; },
     watch: async (_, callback, signal) => { notify = callback; watchSignal = signal; },
     result: async () => {
-      const result: Awaited<ReturnType<ChannelEngine["result"]>> = failure ? { state: "failed", ...failure, events } : complete ? { state: "completed", text: "Real final reply", events } : { state: "running", events };
+      const result: Awaited<ReturnType<ChannelEngine["result"]>> = failure ? { state: "failed", ...failure, events, browserJobs } : complete ? { state: "completed", text: "Real final reply", events, browserJobs } : { state: "running", events, browserJobs };
       const once = inspection; inspection = undefined; once?.(); return result;
     },
   };
@@ -36,10 +37,21 @@ async function fixture() {
     finish: () => { complete = true; busy = false; }, revoke: () => { available = false; }, uncertain: () => { uncertain = true; },
     missing: () => { hasMessage = false; }, persisted: () => { hasMessage = true; }, expireAcceptance: () => { now += 30001; },
     progress: (text="Acknowledged before work completes") => { events=[{key:"a".repeat(64),event:{type:"message.created",text}}]; }, compact: () => { events=[]; },
+    browser: (ids:string[]) => { browserJobs=ids; },
     reopen: async () => { runtime.close(); runtime = await ChannelRuntime.open(join(root, "runtime.sqlite"), engine, () => available, () => now); },
     close: async () => { runtime.close(); await rm(root, { recursive: true, force: true }); },
   };
 }
+test("browser correlation survives compaction, completion and restart without another prompt",async()=>{
+  const f=await fixture();try {
+    const initial=await f.runtime.accept(f.input),id=randomUUID();f.browser([id]);
+    const running=await f.runtime.inspect(f.input.id);expect(running.browserJobs).toEqual([id]);
+    expect(channelObservationVersion(running)).not.toBe(channelObservationVersion(initial));
+    f.browser([]);f.finish();await f.reopen();
+    expect((await f.runtime.inspect(f.input.id)).browserJobs).toEqual([id]);await f.reopen();
+    expect((await f.runtime.inspect(f.input.id)).browserJobs).toEqual([id]);expect(f.sends).toBe(1);
+  }finally {await f.close();}
+});
 test("a lost dispatch response and process restart recover the same engine message without a second prompt", async () => {
   const f = await fixture(); try {
     f.uncertain(); expect((await f.runtime.accept(f.input)).state).toBe("running");

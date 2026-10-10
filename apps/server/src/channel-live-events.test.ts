@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import type { AssistantMessage, Part } from "@opencode-ai/sdk/v2";
-import { channelLiveEvents } from "./channel-live-events.js";
+import { channelBrowserJobs, channelLiveEvents } from "./channel-live-events.js";
 
 const info = (id: string, parentID = "human"): AssistantMessage => ({id,parentID,sessionID:"session",role:"assistant",time:{created:1},
   modelID:"test",providerID:"test",mode:"legalwork",agent:"legalwork",path:{cwd:"/owned",root:"/owned"},cost:0,
@@ -38,4 +38,15 @@ test("model-only app-state reminders do not hide a valid reaction or leak into i
   const message={info:info("reply"),parts:[part]};
   expect(channelLiveEvents([message],"human").map(item=>item.event)).toEqual([{type:"reaction.changed",messageId:"human",emoji:"👀"}]);
   part.state.output+='\nUnrecognized trailing content';expect(channelLiveEvents([message],"human")).toEqual([]);
+});
+test("asynchronous browser sources come only from completed creation tools in the exact channel turn", () => {
+  const id="7f3fd1ab-fdab-4ad9-ad62-50885bf4fa3d";
+  const own={info:info("reply"),parts:[tool("create","legalwork_cloud_browser_task",{id,state:"queued"}),
+    tool("duplicate","legalwork_cloud_browser_task",{id,state:"queued"}),tool("read","legalwork_cloud_browser_status",{id:"6e705e6d-7bc5-4058-a06e-575cd4c9ddf1"}),
+    tool("invalid","legalwork_cloud_browser_task",{id:"private-invalid-id"})]};
+  const foreign={info:info("foreign","another-user-turn"),parts:[tool("foreign-create","legalwork_cloud_browser_task",{id:"6e705e6d-7bc5-4058-a06e-575cd4c9ddf1"})]};
+  expect(channelBrowserJobs([own,foreign],"human")).toEqual([id]);
+  const pending=own.parts[0]; if(pending.type!=="tool") throw new Error("Invalid fixture");
+  pending.state={status:"running",input:{},title:"",metadata:{},time:{start:1}};
+  own.parts.splice(1,1);expect(channelBrowserJobs([own],"human")).toEqual([]);
 });
