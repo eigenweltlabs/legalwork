@@ -32,8 +32,8 @@ export function SessionSandbox({ client, workspaceId, sessionId }: { client: Leg
   ];
   const Icon = state.enabled ? Shield : ShieldOff;
   const disabled = busy || !client.canApprove;
-  return <DropdownMenu>
-    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="titlebar-no-drag" aria-label={t("sandbox.session_title")} title={`${t("sandbox.session_title")}: ${state.enabled ? t("sandbox.on") : t("sandbox.off")}`} />}>
+  return <div className="absolute right-3 top-2 z-20"><DropdownMenu>
+    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("sandbox.session_title")} title={`${t("sandbox.session_title")}: ${state.enabled ? t("sandbox.on") : t("sandbox.off")}`} />}>
       <Icon size={16} aria-hidden />
     </DropdownMenuTrigger>
     <DropdownMenuContent side="bottom" align="end" className="w-88 max-w-[calc(100vw-2rem)]">
@@ -55,5 +55,5 @@ export function SessionSandbox({ client, workspaceId, sessionId }: { client: Leg
       <p className="px-3 py-2 text-xs leading-relaxed text-muted-foreground">{t("sandbox.session_scope")}</p>
       {error ? <p role="alert" className="px-3 py-2 text-sm text-destructive">{error}</p> : null}
     </DropdownMenuContent>
-  </DropdownMenu>;
+  </DropdownMenu></div>;
 }
