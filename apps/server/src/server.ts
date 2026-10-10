@@ -1731,6 +1731,11 @@ function createRoutes(
     const status = await config.cloudSync.resume();
     return jsonResponse({ ready: true, enabled: true, status });
   });
+  addRoute(routes, "POST", "/cloud-sync/ready", "host-token", async () => {
+    if (!config.cloudSync?.ready) throw new ApiError(409, "sync_disabled", "Cloud sync is not enabled.");
+    const status = await config.cloudSync.ready();
+    return jsonResponse({ ready: true, enabled: true, status });
+  });
   addRoute(routes, "POST", "/cloud-sync/projects/:id/prepare", "host-token", async ctx => {
     await resolveWorkspace(config, ctx.params.id);
     await prepareCloudExecution(config, ctx.params.id);

@@ -49,6 +49,68 @@ async function store() { const result = await DirectoryObjects.open(join(root, "
 const settings = (deviceId: string, role: "files" | "executor" | "companion" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
 
 describe("private replica checkpoints", () => {
+  test("warm readiness uses the valid fenced lease without remote IO or cancelling a pending heartbeat", async () => {
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    await replica.acquire();
+    const held = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+    const get = remote.get.bind(remote);
+    const reads = spyOn(remote, "get").mockImplementation(async key => {
+      if (key === "control.json") { entered.resolve(); await held.promise; }
+      return get(key);
+    });
+    const writes = spyOn(remote, "put"), tick = spyOn(replica, "tick").mockResolvedValue(undefined);
+    const pending = replica.renew();
+    try {
+      await entered.promise; const before = reads.mock.calls.length;
+      expect(await target.cloudSync!.ready!()).toEqual({ role: "executor", canExecute: true, nextRunAt: null });
+      expect(reads.mock.calls).toHaveLength(before); expect(writes).not.toHaveBeenCalled(); expect(tick).not.toHaveBeenCalled();
+      held.resolve(); await pending;
+      expect(replica.canExecute()).toBe(true); expect(writes).toHaveBeenCalledTimes(1);
+    } finally {
+      held.resolve(); await pending.catch(() => {}); reads.mockRestore(); writes.mockRestore(); tick.mockRestore();
+      await replica.release(); replica.close();
+    }
+  });
+  test("checkpointed readiness proves remote ownership even when its local lease has not expired", async () => {
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    await replica.acquire();
+    const tick = spyOn(replica, "tick").mockResolvedValue(undefined);
+    await target.cloudSync!.beginCheckpoint!(); await target.cloudSync!.checkpoint!();
+    const reads = spyOn(remote, "get"), writes = spyOn(remote, "put");
+    try {
+      expect(replica.canExecute()).toBe(false);
+      expect((await target.cloudSync!.ready!()).canExecute).toBe(true);
+      expect(reads.mock.calls.some(([key]) => key === "control.json")).toBe(true);
+      expect(writes.mock.calls.some(([key]) => key === "control.json")).toBe(true);
+    } finally { reads.mockRestore(); writes.mockRestore(); tick.mockRestore(); await replica.release(); replica.close(); }
+  });
+  test("near-expiry warm readiness renews remotely rather than admitting work on a nearly elapsed lease", async () => {
+    let now = 100000;
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote, () => now);
+    await replica.acquire(); now += 2 * settings("vm").leaseMs / 3;
+    const writes = spyOn(remote, "put"), tick = spyOn(replica, "tick").mockResolvedValue(undefined);
+    try {
+      expect((await target.cloudSync!.ready!()).canExecute).toBe(true);
+      expect(writes.mock.calls.some(([key]) => key === "control.json")).toBe(true);
+      expect((await replica.control()).value.expiresAt).toBe(now + settings("vm").leaseMs);
+    } finally { writes.mockRestore(); tick.mockRestore(); await replica.release(); replica.close(); }
+  });
+  test("lost ownership cannot be revived by the warm readiness path", async () => {
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    await replica.acquire();
+    const current = await replica.control();
+    await remote.put("control.json", Buffer.from(JSON.stringify({ ...current.value, owner: "another-worker", epoch: current.value.epoch + 1 })), current.revision);
+    await expect(replica.renew()).rejects.toMatchObject({ code: "sync_lease_lost" });
+    try {
+      expect(replica.canExecute()).toBe(false);
+      await expect(target.cloudSync!.ready!()).rejects.toMatchObject({ code: "sync_lease_lost" });
+      expect(replica.canExecute()).toBe(false);
+    } finally { await replica.release(); replica.close(); }
+  });
   test("checkpoint waits for ownership IO still in flight before permitting a VM snapshot", async () => {
     const target = await config("vm"), remote = await store();
     const replica = await CloudReplica.open(target, settings("vm"), remote);

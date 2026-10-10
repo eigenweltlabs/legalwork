@@ -96,7 +96,7 @@ export class CloudReplica {
       });
       return () => { replica.quiescing = false; replica.checkpointed = false; };
     };
-    config.cloudSync.resume = async () => {
+    const resume = async () => {
       // Provider suspension can freeze sockets independently of checkpointing.
       // Fence old callbacks, then require fresh control/CAS ownership proof.
       // Their eventual success or failure must not change the resumed lease.
@@ -116,6 +116,17 @@ export class CloudReplica {
       replica.quiescing = false; replica.checkpointed = false;
       void replica.tick().catch(() => {});
       return { role: settings.role, canExecute: replica.canExecute(), nextRunAt: await nextScheduledRun(config) };
+    };
+    config.cloudSync.resume = resume;
+    config.cloudSync.ready = async () => {
+      // Normal execution already relies on this bounded local lease, renewed
+      // by the heartbeat and fenced at expiry. A warm request need not repeat
+      // its remote read/CAS. Checkpointed, expired or near-expiry guests always
+      // run the same fresh resume proof, including stale-renewal fencing.
+      if (settings.role !== "executor" || replica.checkpointed || !replica.canExecute() ||
+        replica.expiresAt - replica.now() <= Math.floor(settings.leaseMs / 3)) return resume();
+      const nextRunAt = await nextScheduledRun(config);
+      return { role: settings.role, canExecute: replica.canExecute(), nextRunAt };
     };
     config.cloudSync.status = async () => { const { value } = await replica.control(); return { role: settings.role, canExecute: replica.canExecute(), checkpointAt: value.checkpointAt, nextRunAt: value.nextRunAt }; };
     return replica;
