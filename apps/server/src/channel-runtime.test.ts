@@ -10,12 +10,13 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "legalwork-channel-runtime-"));
   let sends = 0, hasMessage = false, busy = false, complete = false, available = true, uncertain = false;
   let now = Date.now(), retries = 0;
+  let sessionId = "daily-session";
   let failure: { code: string; retryable: boolean } | undefined;
   let lostRetry = false;
   let events: z.infer<typeof ChannelLiveEvent>[] = [];
   let notify = () => {}, watchSignal: AbortSignal | undefined, inspection: (() => void) | undefined;
   const engine: ChannelEngine = {
-    current: async () => ({ workspaceId: "owned-assistant", sessionId: "daily-session" }), validate: async () => {},
+    current: async () => ({ workspaceId: "owned-assistant", sessionId }), validate: async () => {},
     hasMessage: async () => hasMessage, busy: async () => busy,
     send: async () => { sends++; hasMessage = true; busy = true; if (uncertain) throw new Error("lost response"); },
     retry: async () => { retries++; failure = undefined; busy = true; if (lostRetry) throw new Error("Lost recovery response"); return true; },
@@ -30,6 +31,7 @@ async function fixture() {
   return { input, get runtime() { return runtime; }, get sends() { return sends; }, get retries() { return retries; },
     fail: (code = "empty_reply", retryable = true) => { failure = { code, retryable }; busy = false; },
     advance: (ms: number) => { now += ms; }, loseRetry: () => { lostRetry = true; },
+    nextDay: () => { sessionId = "next-daily-session"; },
     notify: () => notify(), get watchSignal() { return watchSignal; }, duringInspection: (run: () => void) => { inspection = run; },
     finish: () => { complete = true; busy = false; }, revoke: () => { available = false; }, uncertain: () => { uncertain = true; },
     missing: () => { hasMessage = false; }, persisted: () => { hasMessage = true; }, expireAcceptance: () => { now += 30001; },
@@ -44,6 +46,24 @@ test("a lost dispatch response and process restart recover the same engine messa
     await f.reopen(); expect((await f.runtime.accept(f.input)).state).toBe("running"); expect(f.sends).toBe(1);
     f.finish(); const result = await f.runtime.inspect(f.input.id); expect(result.textResult).toBe("Real final reply");
     await f.reopen(); expect((await f.runtime.accept(f.input)).textResult).toBe(result.textResult); expect(f.sends).toBe(1);
+  } finally { await f.close(); }
+});
+test("new channel turns follow the current assistant day while replayed receipts retain their original context", async () => {
+  const f = await fixture();
+  try {
+    f.uncertain();
+    const original = await f.runtime.accept(f.input);
+    expect(original.sessionId).toBe("daily-session");
+    f.nextDay(); await f.reopen();
+    const recovered = await f.runtime.accept(f.input);
+    expect(recovered.sessionId).toBe(original.sessionId);
+    expect(recovered.messageId).toBe(original.messageId);
+    expect(f.sends).toBe(1);
+    f.finish(); await f.runtime.inspect(f.input.id);
+    const next = await f.runtime.accept({ ...f.input, id: randomUUID(), text: "A new turn after midnight" });
+    expect(next.sessionId).toBe("next-daily-session");
+    expect(f.sends).toBe(2);
+    expect((await f.runtime.inspect(f.input.id)).sessionId).toBe(original.sessionId);
   } finally { await f.close(); }
 });
 

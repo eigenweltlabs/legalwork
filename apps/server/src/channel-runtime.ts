@@ -102,13 +102,16 @@ export class ChannelRuntime {
       if (this.jobs().some(job => !["completed", "failed"].includes(job.state)))
         throw new ApiError(409, "channel_busy", "Another channel turn is still active.");
       const mappingKey = digest([input.orgId, input.userId, input.channel, input.conversationId]);
-      const mapping = this.db.get("SELECT data FROM channel_runtime_conversations WHERE id=?", [mappingKey]);
-      const target = mapping ? z.strictObject({ workspaceId: z.string(), sessionId: z.string() }).parse(JSON.parse(String(mapping.data))) : await this.engine.current();
+      // Entry-point conversations can last indefinitely, while MainAssistant
+      // intentionally uses an independent context per local calendar day.
+      // Existing receipts above keep their exact engine target for recovery;
+      // only a new user turn follows the assistant's current day.
+      const target = await this.engine.current();
       const receipt = Receipt.parse({ ...input, ...target, messageId: `msg_${digest([input.orgId, input.userId, input.id]).slice(0, 26)}`,
         fingerprint, state: "accepted", textResult: null, files: [], code: null, createdAt: this.now(), updatedAt: this.now() });
       await this.engine.validate(receipt);
       if (await this.engine.busy(receipt)) throw new ApiError(409, "channel_busy", "The Assistant is already handling a turn.");
-      this.db.run("INSERT OR IGNORE INTO channel_runtime_conversations VALUES (?,?)", [mappingKey, JSON.stringify(target)]);
+      this.db.run("INSERT INTO channel_runtime_conversations VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", [mappingKey, JSON.stringify(target)]);
       this.save(receipt);
       receipt.state = "sending"; this.save(receipt);
       try { await this.engine.send(receipt); receipt.state = "running"; this.save(receipt); }
