@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService } from "./service.js";
-import { prepareOutboundRequest } from "./network.js";
+import { webInputSchema } from "./web.js";
+import { brokerRequest, type OutboundRequest, type OutboundResponse, prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
 import { readSandboxNetworkMode, writeSandboxNetworkMode, writeSandboxDefault, writeSessionSandbox, effectiveSandbox } from "./settings.js";
 import { ApprovalService } from "../approvals.js";
@@ -382,4 +383,160 @@ test("unprotected commands still respect shell, read and write denials", async (
     await expect(f.service.run(f.workspace, { command: "echo must-not-run", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal)).rejects.toThrow();
     expect(f.executions).toHaveLength(0);
   }
+});
+
+const webInput = (url = "https://wttr.in/Berlin?format=j1") => webInputSchema.parse({ kind: "fetch", url, format: "text", sessionID: "weather", agent: "build" });
+const waitForWebApproval = async (service: AgentSandboxService, count = 1) => {
+  for (let i = 0; i < 500; i++) {
+    if (service.approvals.list().length === count) return service.approvals.list();
+    await Bun.sleep(2);
+  }
+  throw new Error("Missing web approval");
+};
+function observedWebNetwork(responses: OutboundResponse[] = [{ status: 200, headers: {}, bodyBase64: Buffer.from("Weather").toString("base64") }]) {
+  const resolved: string[] = [], sent: OutboundRequest[] = [];
+  const send: typeof brokerRequest = (request, authorize, signal, _, options) => brokerRequest(request, authorize, signal, {
+    resolve: async host => { resolved.push(host); return [{ address: "93.184.216.34", family: 4 }]; },
+    send: async request => { sent.push(request); return responses[Math.min(sent.length - 1, responses.length - 1)]; },
+  }, options);
+  return { send, resolved, sent };
+}
+
+test("weather page waits for inline approval before DNS or sending, even with automatic tool approvals", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const net = observedWebNetwork();
+  const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send);
+  const [approval] = await waitForWebApproval(f.service);
+  expect(approval).toMatchObject({ sessionID: "weather", action: "sandbox.webfetch", network: { url: "https://wttr.in/Berlin?format=j1", method: "GET", bodyBytes: 0 } });
+  expect(net.resolved).toEqual([]);
+  expect(net.sent).toEqual([]);
+  expect(f.prompts).toEqual([]); // No separate host modal.
+  f.service.approvals.respond(approval.id, "allow");
+  expect((await result).output).toBe("Weather");
+  expect(net.resolved).toEqual(["wttr.in"]);
+  expect(net.sent).toHaveLength(1);
+});
+
+test("declining a web read or blocking networking sends nothing", async () => {
+  for (const mode of ["approve", "block"] satisfies Array<"approve" | "block">) {
+    const f = await fixture({ webfetch: "allow" });
+    await writeSandboxNetworkMode(f.config, mode);
+    const net = observedWebNetwork();
+    const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
+    if (mode === "approve") {
+      const [approval] = await waitForWebApproval(f.service);
+      f.service.approvals.respond(approval.id, "deny");
+    }
+    expect(await result).toBeInstanceOf(Error);
+    expect(net.resolved).toEqual([]);
+    expect(net.sent).toEqual([]);
+  }
+});
+
+test("web allow and sandbox-off skip network prompts but retain explicit permissions", async () => {
+  for (const enabled of [true, false]) {
+    const f = await fixture({ webfetch: "allow" });
+    await writeSandboxDefault(f.config, { enabled, networkMode: enabled ? "allow" : "block" });
+    const net = observedWebNetwork();
+    await f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send);
+    expect(net.sent).toHaveLength(1);
+    expect(f.service.approvals.list()).toEqual([]);
+    await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "deny" } }));
+    await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("blocked by your permissions");
+    expect(net.sent).toHaveLength(1);
+  }
+});
+
+test("website redirects require a fresh exact approval and cannot inherit consent", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const net = observedWebNetwork([{ status: 302, headers: { location: "https://other.example/private?data=canary" }, bodyBase64: "" }]);
+  const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
+  const [first] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(first.id, "allow");
+  const [second] = await waitForWebApproval(f.service);
+  expect(second.network?.url).toBe("https://other.example/private?data=canary");
+  expect(second.id).not.toBe(first.id);
+  expect(net.sent).toHaveLength(1);
+  f.service.approvals.respond(second.id, "deny");
+  expect(await result).toBeInstanceOf(Error);
+  expect(net.sent).toHaveLength(1);
+});
+
+test("approve web reads reject local-network redirects", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const net = observedWebNetwork([{ status: 302, headers: { location: "http://127.0.0.1/admin" }, bodyBase64: "" }]);
+  const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
+  const [approval] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(approval.id, "allow");
+  expect(String(await result)).toContain("private network");
+  expect(net.sent).toHaveLength(1);
+});
+
+test("changing chat network settings cancels a pending web read", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const net = observedWebNetwork();
+  const result = f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
+  await waitForWebApproval(f.service);
+  await writeSessionSandbox(f.config, f.workspace.id, "weather", { enabled: true, networkMode: "block" });
+  expect(await result).toBeInstanceOf(Error);
+  expect(f.service.approvals.list()).toEqual([]);
+  expect(net.resolved).toEqual([]);
+});
+
+test("ten web reads have independent approvals and honor cancellation", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const net = observedWebNetwork();
+  const controllers = Array.from({ length: 10 }, () => new AbortController());
+  const reads = controllers.map((controller, i) => f.service.web(f.workspace, { ...webInput(), sessionID: `chat-${i}` }, { type: "host" }, controller.signal, [], undefined, net.send).catch(error => error));
+  const approvals = await waitForWebApproval(f.service, 10);
+  expect(net.sent).toEqual([]);
+  controllers[0].abort();
+  for (const approval of approvals.filter(item => item.sessionID !== "chat-0")) f.service.approvals.respond(approval.id, approval.sessionID === "chat-1" ? "allow" : "deny");
+  const results = await Promise.all(reads);
+  expect(results.filter(value => value instanceof Error)).toHaveLength(9);
+  expect(net.sent).toHaveLength(1);
+  expect(f.service.approvals.list()).toEqual([]);
+});
+
+test("web search waits before sending the exact query to its provider", async () => {
+  const f = await fixture({ webfetch: "allow", websearch: "allow" });
+  const net = observedWebNetwork([{ status: 200, headers: {}, bodyBase64: Buffer.from(JSON.stringify({ result: { content: [{ type: "text", text: "Berlin weather" }] } })).toString("base64") }]);
+  const input = webInputSchema.parse({ kind: "search", query: "weather Berlin", sessionID: "weather", agent: "build" });
+  const result = f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send);
+  const [approval] = await waitForWebApproval(f.service);
+  expect(approval.description).toBe("Search the web for: weather Berlin");
+  expect(approval.network?.url).toBe("https://mcp.exa.ai/mcp");
+  expect(approval.network?.body).toContain('"query":"weather Berlin"');
+  expect(net.resolved).toEqual([]);
+  f.service.approvals.respond(approval.id, "allow");
+  expect((await result).output).toBe("Berlin weather");
+  expect(net.sent).toHaveLength(1);
+});
+
+test("web requests inherit parent settings and stricter agent permissions", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+  await writeSessionSandbox(f.config, f.workspace.id, "parent", { enabled: true, networkMode: "block" });
+  const net = observedWebNetwork();
+  await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal, [], ["weather", "parent"], net.send)).rejects.toThrow("blocked");
+  await expect(f.service.web(f.workspace, webInput(), { type: "host" }, new AbortController().signal,
+    [{ permission: "webfetch", pattern: "https://wttr.in/*", action: "deny" }], undefined, net.send)).rejects.toThrow("blocked");
+  expect(net.sent).toEqual([]);
+});
+
+test("changing network mode closes an active web response", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  await writeSandboxNetworkMode(f.config, "allow");
+  let connected: () => void = () => {};
+  const connection = new Promise<void>(resolve => { connected = resolve; });
+  const server = Bun.serve({ port: 0, fetch: () => {
+    connected();
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("partial response")); } }));
+  } });
+  try {
+    const result = f.service.web(f.workspace, webInput(server.url.href), { type: "host" }, AbortSignal.timeout(5000)).catch(error => error);
+    await connection;
+    await writeSandboxNetworkMode(f.config, "block");
+    expect(await result).toBeInstanceOf(Error);
+  } finally { server.stop(true); }
 });

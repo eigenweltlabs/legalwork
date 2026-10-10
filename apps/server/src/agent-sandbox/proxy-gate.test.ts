@@ -20,6 +20,6 @@ test("session rules and legacy tool switches cannot enable host execution", () =
   const protectedBody = sandboxSessionBody("/session/s1/message", body);
   expect(protectedBody).toBeDefined();
   const decoded = JSON.parse(new TextDecoder().decode(protectedBody));
-  expect(decoded.tools).toEqual({ "*": true, legalwork_shell: true, bash: false });
-  expect(decoded.permission.at(-1)).toEqual({ permission: "bash", pattern: "*", action: "deny" });
+  expect(decoded.tools).toEqual({ "*": true, legalwork_shell: true, bash: false, webfetch: false, websearch: false });
+  for (const permission of ["bash", "webfetch", "websearch"]) expect(decoded.permission).toContainEqual({ permission, pattern: "*", action: "deny" });
 });

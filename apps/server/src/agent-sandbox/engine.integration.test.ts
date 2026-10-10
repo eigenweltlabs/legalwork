@@ -1,3 +1,4 @@
+import { webInputSchema } from "./web.js";
 import { writeSandboxDefault } from "./settings.js";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -24,8 +25,8 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [folder],
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
-  await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow", edit: "ask", webfetch: "deny" } }));
-  await writeSandboxDefault(serverConfig, { enabled: true, networkMode: "block" });
+  await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow", edit: "ask", webfetch: "allow" } }));
+  await writeSandboxDefault(serverConfig, { enabled: true, networkMode: "approve" });
   const approvals: string[] = [];
   const chatApprovals = new ApprovalService(serverConfig.approval, async () => {
     throw new Error("Chat approvals must not open a host dialog.");
@@ -39,21 +40,31 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   const service = new AgentSandboxService(serverConfig, chatApprovals, sandbox);
   const offered: string[][] = [];
   const calls: { agent: string; sessionID: string }[] = [];
+  const webCalls: string[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path.includes("/sandbox/session/")) return Response.json({ enabled: true, networkMode: "block", shell: "Bash", platform: "linux", cwd: "/workspace" });
+    if (path.includes("/sandbox/session/")) return Response.json({ enabled: true, networkMode: "approve", shell: "Bash", platform: "linux", cwd: "/workspace" });
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }] });
     if (path === "/workspace/matter/sandbox/execute") {
       const command = z.object({ command: z.string(), write: z.boolean(), agent: z.string(), sessionID: z.string() }).parse(await request.json());
       calls.push(command);
       return Response.json(await service.run(workspace, { ...command, timeoutMs: 10000 }, { type: "host" }, request.signal));
     }
+    if (path === "/workspace/matter/sandbox/web") {
+      const input = webInputSchema.parse(await request.json());
+      webCalls.push(input.kind);
+      return Response.json(await service.web(workspace, input, { type: "host" }, request.signal));
+    }
     const input = z.object({ messages: z.array(z.object({ role: z.string() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
     const tools = input.tools?.map(tool => tool.function.name) ?? [];
     if (tools.length) offered.push(tools);
-    const invoke = tools.includes("legalwork_shell") && !input.messages.some(message => message.role === "tool");
-    const delta = invoke ? { tool_calls: [{ index: 0, id: "call_protected", type: "function", function: { name: "legalwork_shell",
-      arguments: JSON.stringify({ command: "python3 -c 'open(\"proof.txt\", \"w\").write(\"inside VM\")'", description: "Write isolation proof", write: true }) } }] } : { content: "Checked." };
+    const step = input.messages.filter(message => message.role === "tool").length;
+    const tool = step === 0 ? "legalwork_shell" : step === 1 ? "legalwork_webfetch" : null;
+    const invoke = tool !== null && tools.includes(tool);
+    const args = step === 0 ? { command: "python3 -c 'open(\"proof.txt\", \"w\").write(\"inside VM\")'", description: "Write isolation proof", write: true }
+      : { url: "https://example.com", format: "text" };
+    const delta = invoke ? { tool_calls: [{ index: 0, id: "call_protected_" + step, type: "function", function: { name: tool,
+      arguments: JSON.stringify(args) } }] } : { content: "Checked." };
     const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
     return new Response(chunk({ role: "assistant", ...delta }, null) + chunk({}, invoke ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
   } });
@@ -86,10 +97,16 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     const result = await response.text();
     expect(response.status, result).toBe(200);
     expect(offered.length).toBeGreaterThan(0);
-    for (const tools of offered) { expect(tools).not.toContain("bash"); expect(tools).toContain("legalwork_shell"); }
+    for (const tools of offered) { expect(tools).not.toContain("bash"); expect(tools).toContain("legalwork_shell"); expect(tools).not.toContain("webfetch"); expect(tools).not.toContain("websearch"); expect(tools).toContain("legalwork_webfetch"); expect(tools).toContain("legalwork_websearch"); }
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ agent: "build", sessionID: session.id });
-    expect(approvals).toEqual(["sandbox.bash", "sandbox.edit"]);
+    expect(approvals).toEqual(["sandbox.bash", "sandbox.edit", "sandbox.webfetch"]);
+    expect(webCalls).toEqual(["fetch"]);
+    const messages = z.array(z.object({ parts: z.array(z.object({ type: z.string(), tool: z.string().optional(), state: z.object({ status: z.string(), output: z.string().optional() }).optional() })) })).parse(
+      await (await fetch(`${base}/session/${session.id}/message`)).json());
+    const fetched = messages.flatMap(message => message.parts).find(part => part.tool === "legalwork_webfetch");
+    expect(fetched?.state?.status).toBe("completed");
+    expect(fetched?.state?.output).toContain("Example Domain");
     expect(await readFile(join(folder, "proof.txt"), "utf8")).toBe("inside VM");
     const direct = await fetch(`${base}/session/${session.id}/shell`, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ agent: "build", command: "echo escaped > host-escape.txt" }), signal: AbortSignal.timeout(10000) });

@@ -1,5 +1,6 @@
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
+import { webFetchArgs, webSearchArgs } from "../agent-sandbox/web.js";
 import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const args = z.object({
@@ -24,17 +25,40 @@ export const LegalWorkSandbox = async (input: SavedConversations = {}) => {
         (state.enabled ? `Network mode: ${state.networkMode}. Only shared folders are accessible. Python 3 and Node.js are installed. Authorized folders: /authorized/N. Skills: /skills/N.` : "Commands run directly on this computer with its installed tools and OS permissions. Sandbox network controls do not apply.");
     } catch { return null; }
   }, "Read the chat's current sandbox settings before running commands.", input);
+  const webTool = (kind: "fetch" | "search") => ({
+    description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using Exa, following this chat's network setting and web permissions. The query is sent only after any required approval.",
+    args: kind === "fetch" ? webFetchArgs.shape : webSearchArgs.shape,
+    async execute(raw: unknown, context: OpenCodeContext & { abort?: AbortSignal }) {
+      const args = kind === "fetch" ? webFetchArgs.parse(raw) : webSearchArgs.parse(raw);
+      if (!context.sessionID || !context.agent) throw new Error("Web access requires a session and agent identity.");
+      const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+      const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sandbox/web`, {
+        method: "POST", headers: { Authorization: `Bearer ${serverToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...args, kind, sessionID: context.sessionID, agent: context.agent }),
+        signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),
+      });
+      if (!response.ok) throw new Error(`Web access failed (${response.status}): ${await response.text()}`);
+      return z.object({ title: z.string(), output: z.string(), metadata: z.record(z.string(), z.unknown()),
+        attachments: z.array(z.object({ type: z.literal("file"), mime: z.string(), url: z.string() })).optional(),
+      }).parse(await response.json());
+    },
+  });
   return {
   "chat.message": reminders.userMessage,
   "tool.execute.after": reminders.toolResult,
   event: reminders.event,
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    output.system.push("Execute shell commands through legalwork_shell. The latest sandbox-settings reminder describes this chat's execution mode, shell and paths. Sandboxing off runs on the host; on runs in a protected Linux environment with only shared folders. Use host paths for ordinary file tools. Stricter tool and agent permissions still apply. A protected execution error must be resolved through the user's settings; never try another execution route to bypass it.");
+    output.system.push("Execute shell commands through legalwork_shell. Read web pages through legalwork_webfetch and search through legalwork_websearch. These web tools follow the same chat network setting as commands. The latest sandbox-settings reminder describes this chat's execution mode, shell and paths. Sandboxing off runs on the host; on runs in a protected Linux environment with only shared folders. Use host paths for ordinary file tools. Stricter tool and agent permissions still apply. A protected execution error must be resolved through the user's settings; never try another execution route to bypass it.");
   },
   // Covers the engine's direct shell endpoint and fails closed if a future
   // engine version accidentally selects its built-in bash tool.
   "shell.env": async () => { throw new Error("Use legalwork_shell for command execution."); },
+  "tool.execute.before": async ({ tool }: { tool: string }) => {
+    if (["webfetch", "websearch", "codesearch"].includes(tool)) throw new Error("Use legalwork_webfetch or legalwork_websearch so this chat's network setting is enforced.");
+  },
   tool: {
+    legalwork_webfetch: webTool("fetch"),
+    legalwork_websearch: webTool("search"),
     legalwork_shell: {
       description: "Execute commands using this chat's sandbox setting and the user's shell and file permissions. With sandboxing on, Linux commands have isolated files and controlled network access, with no host fallback. With sandboxing off, commands use the local shell and host paths.",
       args: args.shape,

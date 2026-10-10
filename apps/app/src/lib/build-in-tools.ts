@@ -362,16 +362,16 @@ export function isTodoWriteToolPart(part: ToolUIPart | DynamicToolUIPart): part 
   return part.type === "dynamic-tool" && part.toolName === "todowrite";
 }
 
-export type WebFetchToolPart = BuiltInDynamicToolPart<"webfetch", WebFetchInput>;
+export type WebFetchToolPart = BuiltInDynamicToolPart<"webfetch" | "legalwork_webfetch", WebFetchInput>;
 
 export function isWebFetchToolPart(part: ToolUIPart | DynamicToolUIPart): part is WebFetchToolPart {
-  return part.type === "dynamic-tool" && part.toolName === "webfetch";
+  return part.type === "dynamic-tool" && (part.toolName === "webfetch" || part.toolName === "legalwork_webfetch");
 }
 
-export type WebSearchToolPart = BuiltInDynamicToolPart<"websearch", WebSearchInput>;
+export type WebSearchToolPart = BuiltInDynamicToolPart<"websearch" | "legalwork_websearch", WebSearchInput>;
 
 export function isWebSearchToolPart(part: ToolUIPart | DynamicToolUIPart): part is WebSearchToolPart {
-  return part.type === "dynamic-tool" && part.toolName === "websearch";
+  return part.type === "dynamic-tool" && (part.toolName === "websearch" || part.toolName === "legalwork_websearch");
 }
 
 export type QuestionToolPart = BuiltInDynamicToolPart<"question", QuestionInput>;

@@ -1,4 +1,5 @@
 import { sandboxSyncStatus, saveSandboxDefault } from "../agent-sandbox/sync.js";
+import { webInputSchema } from "../agent-sandbox/web.js";
 import { hostShell } from "../agent-sandbox/host.js";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
@@ -74,6 +75,15 @@ export function registerAgentSandboxRoutes(options: {
     if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "This worker does not manage its agent sandbox.");
     await sandbox.backend.prepare();
     return jsonResponse({ ready: true });
+  });
+  addRoute(routes, "POST", "/workspace/:id/sandbox/web", "client", async (ctx) => {
+    options.requireClientScope(ctx, "collaborator");
+    if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "Managed web access is unavailable on this worker.");
+    const input = webInputSchema.parse(await options.readJsonBodyLimited(ctx.request, 32000));
+    const workspace = await options.resolveWorkspace(config, ctx.params.id);
+    const lineage = await options.sessionLineage(workspace, input.sessionID);
+    const rules = await options.agentRules(workspace, input.sessionID, input.agent);
+    return jsonResponse(await sandbox.web(workspace, input, ctx.actor ?? { type: "remote", scope: "viewer" }, ctx.request.signal, rules, lineage));
   });
   addRoute(routes, "POST", "/workspace/:id/sandbox/execute", "client", async (ctx) => {
     options.requireClientScope(ctx, "collaborator");

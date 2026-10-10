@@ -14,6 +14,8 @@ import { VmSandbox, validateMounts, type SandboxMount, type SandboxResult } from
 import { permissionAction, permissionPatternMatches, type PermissionAction } from "./permissions.js";
 import { effectiveSandbox, onSandboxSettingsChange, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
 import { runHostCommand } from "./host.js";
+import { brokerRequest, prepareOutboundRequest, type OutboundRequest } from "./network.js";
+import { webRequest, webResult, type WebInput } from "./web.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -88,44 +90,9 @@ export class AgentSandboxService {
   async run(workspace: WorkspaceInfo, command: SandboxCommand, actor: Actor, parentSignal: AbortSignal,
     agentRules: AgentPermissionRule[] = [], lineage: string[] = command.sessionID ? [command.sessionID] : []): Promise<SandboxResult & { sandbox: "host" | "virtual-machine" }> {
     if (this.config.readOnly && command.write) throw new ApiError(403, "read_only", "This server permits read-only sandbox commands.");
-    const controller = new AbortController();
-    let stopped: () => void = () => {};
-    this.active.set(controller, new Promise<void>((resolve) => { stopped = resolve; }));
-    const signal = AbortSignal.any([parentSignal, controller.signal]);
-    const unsubscribe = onRuntimeOpencodeConfigWrite((config, id) => {
-      if (config === this.config && (id === workspace.id || id === GLOBAL_TOOL_PERMISSIONS_ID)) {
-        controller.abort(new Error("Permissions changed. Run the command again with the current permissions."));
-      }
-    });
-    let dependencies: string[] | undefined;
-    const unsubscribeSandbox = onSandboxSettingsChange(async (config, id) => {
-      if (config !== this.config || (dependencies && !dependencies.includes(id))) return;
-      controller.abort(new Error("Sandbox settings changed. Run the command again with the current settings."));
-      await this.active.get(controller);
-    });
-    const unsubscribePolicy = onOrgPolicyChange(this.config, (scopes) => {
-      if (scopes.has("engine")) controller.abort(new Error("Organization policy changed. Run the command again with the current permissions."));
-    });
-    try {
-      const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));
-      const settings = await effectiveSandbox(this.config, workspace.id, lineage);
-      dependencies = settings.dependencies;
+    return this.withPolicy(workspace, command, actor, parentSignal, agentRules, lineage, async ({ settings, permissions, signal, ask, authorizeNetwork }) => {
       const networkMode = settings.networkMode;
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
-      signal.throwIfAborted();
-      const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true, network?: ApprovalRequest["network"]) => {
-        signal.throwIfAborted();
-        const action = restrictive([override ?? permissionAction(permissions, permission, pattern), agentAction(agentRules, permission, pattern)]);
-        if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", `${permission} is blocked by your permissions.`);
-        if (action === "ask") {
-          if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
-          const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
-            action: `sandbox.${permission}`, summary, paths, sessionID: command.sessionID, description: command.description,
-            ...(network ? { network } : {}) }, signal, true);
-          if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
-        }
-        signal.throwIfAborted();
-      };
       const commandAction = (tool: string) => restrictive([wholeCommandAction(permissions, tool), wholeAgentAction(agentRules, tool)]);
       await ask("bash", command.command, `Run this command ${settings.enabled ? "in the protected environment" : "on this computer"}?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       if (!settings.enabled) {
@@ -180,23 +147,107 @@ export class AgentSandboxService {
         timeoutMs: command.timeoutMs, signal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
-        authorizeNetwork: async (request) => {
-          signal.throwIfAborted();
-          if (networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "All sandbox network traffic is blocked in Settings.");
-          const bytes = Buffer.from(request.bodyBase64, "base64");
-          const text = bytes.toString("utf8");
-          const bodyFormat = Buffer.from(text).equals(bytes) && !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text) ? "text" : "base64";
-          const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
-          // The approval is bound to the in-memory immutable request. A changed
-          // body, URL or header necessarily produces a separate request.
-          const preview = `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
-          const action = permissionAction(permissions, "webfetch", request.url);
-          await ask("webfetch", request.url, preview, [], networkMode === "approve" ? restrictive(["ask", action]) : action, preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
-            body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes });
-          return true;
-        },
+        authorizeNetwork,
       });
       return { ...result, sandbox: "virtual-machine" };
+    });
+  }
+
+  async web(workspace: WorkspaceInfo, input: WebInput, actor: Actor, parentSignal: AbortSignal,
+    agentRules: AgentPermissionRule[] = [], lineage: string[] = [input.sessionID], send = brokerRequest) {
+    const description = input.kind === "fetch" ? `Read ${input.url}` : `Search the web for: ${input.query}`;
+    return this.withPolicy(workspace, { sessionID: input.sessionID, description }, actor, parentSignal, agentRules, lineage,
+      async ({ settings, signal, ask, authorizeNetwork }) => {
+        // Block before preparing a provider request or doing DNS/network IO.
+        if (settings.enabled && settings.networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "Web access is blocked by this chat's network setting.");
+        if (input.kind === "search") await ask("websearch", input.query, description, []);
+        let request = webRequest(input);
+        const allowPrivate = !settings.enabled || settings.networkMode === "allow";
+        for (let redirects = 0; redirects <= 5; redirects++) {
+          const prepared = prepareOutboundRequest(request, { allowPrivate });
+          const connection = new AbortController();
+          const requestSignal = AbortSignal.any([signal, connection.signal]);
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const authorize = async (request: OutboundRequest) => {
+            await authorizeNetwork(request);
+            // Waiting for a person is not part of the website's response timeout.
+            timer = setTimeout(() => connection.abort(new Error("Website request timed out.")), (input.kind === "fetch" ? input.timeout ?? 30 : 30) * 1000);
+            return true;
+          };
+          const response = await send(prepared, authorize, requestSignal, undefined, { allowPrivate }).finally(() => { clearTimeout(timer); });
+          if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.location) {
+            if (redirects === 5) throw new Error("Too many website redirects.");
+            // Search requests can carry credentials. Never forward them on a redirect.
+            if (input.kind === "search") throw new Error("The search provider redirected the request. No data was forwarded.");
+            request = { ...request, url: new URL(response.headers.location, prepared.url).href };
+            continue;
+          }
+          return webResult(input, prepared.url, response);
+        }
+        throw new Error("Website request did not finish.");
+      });
+  }
+
+  private async withPolicy<T>(workspace: WorkspaceInfo, operation: { sessionID?: string; description?: string }, actor: Actor,
+    parentSignal: AbortSignal, agentRules: AgentPermissionRule[], lineage: string[], work: (scope: {
+      settings: Awaited<ReturnType<typeof effectiveSandbox>>;
+      permissions: Record<string, unknown>;
+      signal: AbortSignal;
+      ask: (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable?: boolean, network?: ApprovalRequest["network"]) => Promise<void>;
+      authorizeNetwork: (request: OutboundRequest) => Promise<boolean>;
+    }) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    let stopped: () => void = () => {};
+    this.active.set(controller, new Promise<void>((resolve) => { stopped = resolve; }));
+    const signal = AbortSignal.any([parentSignal, controller.signal]);
+    const unsubscribe = onRuntimeOpencodeConfigWrite((config, id) => {
+      if (config === this.config && (id === workspace.id || id === GLOBAL_TOOL_PERMISSIONS_ID)) {
+        controller.abort(new Error("Permissions changed. Try again with the current permissions."));
+      }
+    });
+    let dependencies: string[] | undefined;
+    const unsubscribeSandbox = onSandboxSettingsChange(async (config, id) => {
+      if (config !== this.config || (dependencies && !dependencies.includes(id))) return;
+      controller.abort(new Error("Sandbox settings changed. Try again with the current settings."));
+      await this.active.get(controller);
+    });
+    const unsubscribePolicy = onOrgPolicyChange(this.config, (scopes) => {
+      if (scopes.has("engine")) controller.abort(new Error("Organization policy changed. Try again with the current permissions."));
+    });
+    try {
+      const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));
+      const settings = await effectiveSandbox(this.config, workspace.id, lineage);
+      dependencies = settings.dependencies;
+      signal.throwIfAborted();
+      const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true, network?: ApprovalRequest["network"]) => {
+        signal.throwIfAborted();
+        const action = restrictive([override ?? permissionAction(permissions, permission, pattern), agentAction(agentRules, permission, pattern)]);
+        if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", `${permission} is blocked by your permissions.`);
+        if (action === "ask") {
+          if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
+          const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
+            action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
+            ...(network ? { network } : {}) }, signal, true);
+          if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
+        }
+        signal.throwIfAborted();
+      };
+      const authorizeNetwork = async (request: OutboundRequest) => {
+        signal.throwIfAborted();
+        if (settings.enabled && settings.networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "All sandbox network traffic is blocked in Settings.");
+        const bytes = Buffer.from(request.bodyBase64, "base64");
+        const text = bytes.toString("utf8");
+        const bodyFormat = Buffer.from(text).equals(bytes) && !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text) ? "text" : "base64";
+        const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
+        // The approval is bound to the in-memory immutable request. A changed
+        // body, URL or header necessarily produces a separate request.
+        const preview = `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
+        const action = permissionAction(permissions, "webfetch", request.url);
+        await ask("webfetch", request.url, preview, [], settings.enabled && settings.networkMode === "approve" ? restrictive(["ask", action]) : action, preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
+          body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes });
+        return true;
+      };
+      return await work({ settings, permissions, signal, ask, authorizeNetwork });
     } finally {
       unsubscribeSandbox();
       unsubscribe();

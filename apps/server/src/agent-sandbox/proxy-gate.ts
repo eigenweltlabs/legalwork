@@ -1,5 +1,6 @@
 import { ApiError } from "../errors.js";
 import { z } from "zod";
+import { managedTools, managedToolName, managedNetworkGuard } from "./engine-policy.js";
 
 function enginePath(path: string): string {
   const canonical = new URL(path, "http://engine.invalid").pathname;
@@ -28,15 +29,16 @@ export function sandboxSessionBody(path: string, body: ArrayBuffer | undefined):
   const value = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(body).toString()));
   if (value.tools !== undefined) {
     const tools = z.record(z.string(), z.boolean()).parse(value.tools);
-    const shell = tools.bash;
-    delete tools.bash;
-    if (shell !== undefined) tools.legalwork_shell = shell;
-    value.tools = { ...tools, bash: false };
+    for (const [builtin, managed] of Object.entries(managedTools)) {
+      if (tools[builtin] !== undefined) tools[managed] = tools[builtin];
+      tools[builtin] = false;
+    }
+    value.tools = tools;
   }
   if (value.permission !== undefined) {
     const rules = z.array(z.object({ permission: z.string(), pattern: z.string(), action: z.enum(["allow", "ask", "deny"]) })).parse(value.permission);
-    value.permission = [...rules.map((rule) => ({ ...rule, permission: rule.permission === "bash" ? "legalwork_shell" : rule.permission })),
-      { permission: "bash", pattern: "*", action: "deny" }];
+    value.permission = [...rules.map((rule) => ({ ...rule, permission: managedToolName(rule.permission) })),
+      ...Object.keys(managedTools).map(permission => ({ permission, pattern: "*", action: "deny" })), { permission: managedNetworkGuard, pattern: "*", action: "deny" }];
   }
   return new TextEncoder().encode(JSON.stringify(value)).buffer;
 }

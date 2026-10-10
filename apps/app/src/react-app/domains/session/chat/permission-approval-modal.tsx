@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { Check, ChevronRight, Clock3, HardDrive, RefreshCcw, ShieldCheck, XCircle } from "lucide-react";
+import { Check, ChevronRight, Clock3, HardDrive, RefreshCcw, Search, Globe, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
 
 import {
@@ -403,7 +403,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
       ? props.permission.metadata
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
-  const Icon = presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
+  const Icon = network?.search ? Search : network ? Globe : presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
@@ -416,7 +416,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             <div className="min-w-0">
               <div className="text-[13px] font-medium leading-5 text-dls-text">{network?.action ?? presentation.title}</div>
               <div className="mt-0.5 text-[12px] leading-5 text-dls-secondary">{network?.description ?? presentation.message}</div>
-              {host?.description ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
+              {host?.description && !network?.search ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
               {presentation.note ? (
                 <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{presentation.note}</div>
               ) : null}
@@ -459,14 +459,27 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
 
         <div className="border-t border-dls-border px-4 py-3">
           {network ? <div className="space-y-3 text-[12px] leading-5">
-            <div><span className="font-medium text-dls-secondary">{t("sandbox.approval_destination")}</span>
-              <div className="break-words text-dls-text">{network.destination}</div>
-              {network.resource !== "/" ? <div className="break-all text-dls-secondary">{network.resource}</div> : null}
-            </div>
-            {network.sent ? <div><span className="font-medium text-dls-secondary">{t("sandbox.approval_sent")}</span>
-              <div className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words text-dls-text">{network.sent}</div>
+            {network.search ? <div>
+              <div className="mb-1.5 font-medium text-dls-secondary">{t("sandbox.approval_search_query")}</div>
+              <div className="max-h-32 overflow-auto rounded-lg border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[14px] leading-6 whitespace-pre-wrap break-words text-dls-text">{network.search.query}</div>
             </div> : null}
-            <p className="text-dls-secondary">{network.context} {t("sandbox.approval_once")}</p>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-dls-secondary">{t(network.search ? "sandbox.approval_search_provider" : "sandbox.approval_destination")}</span>
+              <span className="min-w-0 break-words text-dls-text">{network.search?.provider ?? network.destination}</span>
+              {network.search ? <span className="break-words text-dls-secondary">{network.destination}</span>
+                : network.resource !== "/" ? <span className="break-all text-dls-secondary">{network.resource}</span> : null}
+            </div>
+            {network.fields.length || network.omitted ? <div>
+              <div className="mb-1.5 font-medium text-dls-secondary">{t("sandbox.approval_sent")}</div>
+              <dl className="max-h-48 overflow-auto rounded-lg border border-dls-border divide-y divide-dls-border">
+                {network.fields.map((field, index) => <div key={index} className="grid gap-1 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:gap-4">
+                  <dt className="break-words text-dls-secondary">{field.label}</dt>
+                  <dd className="min-w-0 whitespace-pre-wrap break-words text-dls-text">{field.value}</dd>
+                </div>)}
+              </dl>
+              {network.omitted > 0 ? <p className="mt-1.5 text-dls-secondary">{t("sandbox.approval_more_details")}</p> : null}
+            </div> : null}
+            <p className="text-[11px] leading-5 text-dls-secondary">{network.context} {t("sandbox.approval_once")}</p>
           </div> : <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">

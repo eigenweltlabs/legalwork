@@ -42,6 +42,7 @@ import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor,
 import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
+import { managedPermissionRules } from "./agent-sandbox/engine-policy.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
 import { assertNoHostShellInterpolation, assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
@@ -908,11 +909,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       const agents = unwrapOpencodeResult(await client.app.agents(), "/agent");
       const agent = agents.find((item) => item.name === agentName);
       if (!agent) throw new ApiError(403, "sandbox_agent", "The selected agent is unavailable.");
-      // The engine's host bash is always denied. The protected tool carries
-      // the user's original shell policy under its separate identity.
-      return [...agent.permission, ...(session.permission ?? [])]
-        .filter((rule) => rule.permission !== "bash")
-        .map((rule) => ({ ...rule, permission: rule.permission === "legalwork_shell" ? "bash" : rule.permission }));
+      // Built-in host shell and web tools stay denied. Managed tools carry
+      // the original permissions under their separate identities.
+      return managedPermissionRules(agent.permission, session.permission ?? []);
     },
   });
 

@@ -57,14 +57,14 @@ export function prepareOutboundRequest(input: {
   method: string;
   headers: Record<string, string>;
   bodyBase64: string;
-}): OutboundRequest {
+}, options: { allowPrivate?: boolean } = {}): OutboundRequest {
   const url = new URL(input.url);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash) {
     throw new Error("The sandbox permits HTTP(S) requests without URL credentials or fragments.");
   }
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") ||
-      (isIP(hostname) && !publicAddress(hostname))) throw new Error("Access to local or private network addresses is blocked.");
+  if (!options.allowPrivate && (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") ||
+      (isIP(hostname) && !publicAddress(hostname)))) throw new Error("Access to local or private network addresses is blocked.");
   const method = input.method.toUpperCase();
   if (!/^[A-Z]{1,32}$/.test(method) || method === "CONNECT" || method === "TRACE") {
     throw new Error("Unsupported sandbox HTTP method.");
@@ -106,6 +106,7 @@ export async function brokerRequest(
   authorize: (request: OutboundRequest) => Promise<boolean>,
   signal: AbortSignal,
   dependencies: NetworkDependencies = { resolve: (host) => lookup(host, { all: true }), send: sendPinned },
+  options: { allowPrivate?: boolean } = {},
 ): Promise<OutboundResponse> {
   signal.throwIfAborted();
   if (!await authorize(request)) throw new Error("Internet access denied by LegalWork permissions.");
@@ -115,7 +116,7 @@ export async function brokerRequest(
     ? [{ address: hostname, family: isIP(hostname) }]
     : await dependencies.resolve(hostname);
   signal.throwIfAborted();
-  if (!addresses.length || addresses.some(({ address }) => !publicAddress(address))) {
+  if (!addresses.length || (!options.allowPrivate && addresses.some(({ address }) => !publicAddress(address)))) {
     throw new Error("The destination resolves to a local, private or reserved address.");
   }
   // The validated IP is dialled directly. TLS still verifies the original host.
