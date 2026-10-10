@@ -32,7 +32,7 @@ export function SessionSandbox({ client, workspaceId, sessionId }: { client: Leg
   ];
   const Icon = state.enabled ? Shield : ShieldOff;
   const disabled = busy || !client.canApprove;
-  return <div className="absolute right-3 top-2 z-20"><DropdownMenu>
+  return <div className="flex shrink-0 justify-end px-3 pt-2"><DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("sandbox.session_title")} title={`${t("sandbox.session_title")}: ${state.enabled ? t("sandbox.on") : t("sandbox.off")}`} />}>
       <Icon size={16} aria-hidden />
     </DropdownMenuTrigger>
