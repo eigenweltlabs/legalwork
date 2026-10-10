@@ -45,6 +45,7 @@ const fieldSchema = z.object({
 });
 
 const projectSchema = z.object({
+  purpose: z.enum(["project", "personal-state"]).optional(),
   id: z.string().uuid(),
   name: z.string(),
   ownerUserId: z.string(),
@@ -103,6 +104,7 @@ export async function listRemoteProjects(
 }
 
 export type RemoteProjectCreate = {
+  purpose?: "project" | "personal-state";
   personalizationPrompt?: string;
   remote?: ProjectRemote;
   id: string;
@@ -210,7 +212,7 @@ export async function listRemoteProjectChanges(client: IntakeClient, projectId: 
 async function storageFetch(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, redirect: "error" });
+    response = await fetch(url, { ...init, redirect: "error", signal: init.signal ?? AbortSignal.timeout(120000) });
   } catch {
     throw new ApiError(502, "project_storage_unreachable", "Could not reach the firm's file storage.");
   }

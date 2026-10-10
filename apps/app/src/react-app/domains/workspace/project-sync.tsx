@@ -157,7 +157,7 @@ export function ProjectShareButton(props: { client: LegalworkServerClient; works
   const [open, setOpen] = useState(false);
   const status = useProjectSyncStatus(props.client, props.workspaceId);
   const data = status.data;
-  const shared = data?.mode === "synced";
+  const shared = data?.mode === "synced" && (data.settings.access === "org" || data.settings.memberIds.length > 0 || data.role === "member");
   const members = useTaskMembers({ client: shared ? props.client : null, workspaceId: props.workspaceId });
   const others = shared && data.settings.access === "members"
     ? [data.ownerUserId, ...data.settings.memberIds].flatMap((id) => {

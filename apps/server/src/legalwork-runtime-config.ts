@@ -67,6 +67,7 @@ import {
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
+import { readChannelProvider } from "./channel-model.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -233,6 +234,7 @@ export async function buildLegalworkRuntimeConfigObject(
     ...storedProviders,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
+    ...(await readChannelProvider()),
   };
   const permission = { ...runtimeConfig.permission };
   const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
@@ -340,7 +342,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const content = await buildLegalworkRuntimeConfig(config, workspaceId);
     await mkdir(runtimeStorageDir(config), { recursive: true });
     const tmp = `${path}.${randomUUID()}.tmp`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
     await rename(tmp, path);
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();

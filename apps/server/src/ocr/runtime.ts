@@ -11,7 +11,9 @@ import { prepareSmallModel, prepareLayoutModel, layoutModelReady } from "./model
 import { llamaSupported, prepareQualityModel, qualityModelReady } from "./llama.js";
 
 const exists = async (path: string) => access(path).then(() => true, () => false);
-export const ocrResources = "resourcesPath" in process && typeof process.resourcesPath === "string" && existsSync(join(process.resourcesPath, "ocr", "worker.py"))
+export const ocrResources = process.env.LEGALWORK_RESOURCES_DIR
+  ? join(process.env.LEGALWORK_RESOURCES_DIR, "ocr")
+  : "resourcesPath" in process && typeof process.resourcesPath === "string" && existsSync(join(process.resourcesPath, "ocr", "worker.py"))
   ? join(process.resourcesPath, "ocr")
   : fileURLToPath(new URL("../../resources/ocr", import.meta.url));
 
@@ -32,7 +34,7 @@ export class OcrRuntime {
         executable: bundledNode && existsSync(bundledNode) ? bundledNode : process.versions.electron ? "node" : process.execPath,
         workerPath: join(ocrResources, "native-worker.cjs"),
         launcherPath: join(ocrResources, "llama-launcher.cjs"),
-        moduleDirectory: packaged ? join(resources, "app.asar.unpacked", "node_modules") : fileURLToPath(new URL("../../node_modules", import.meta.url)),
+        moduleDirectory: process.env.LEGALWORK_NATIVE_MODULES_DIR ?? (packaged ? join(resources, "app.asar.unpacked", "node_modules") : fileURLToPath(new URL("../../node_modules", import.meta.url))),
       },
     };
   }

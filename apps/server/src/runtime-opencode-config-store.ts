@@ -292,12 +292,12 @@ export async function writeRuntimeOpencodeConfig(
   config: ServerConfig,
   workspaceId: string,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
+  updatedAt = Date.now(),
 ): Promise<RuntimeOpencodeConfig> {
   const db = await runtimeDb(config);
   const next = normalizeRuntimeOpencodeConfig(updater(await readRuntimeOpencodeConfig(config, workspaceId)));
-  const now = Date.now();
   const configJson = JSON.stringify(next);
-  db.upsert({ workspaceId, configJson, updatedAt: now });
+  db.upsert({ workspaceId, configJson, updatedAt });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;
 }

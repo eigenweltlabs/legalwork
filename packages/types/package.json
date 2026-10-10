@@ -54,7 +54,8 @@
     "./calendar": "./src/calendar.ts",
     "./calculation": "./src/calculation.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
-    "./main-assistant": "./src/main-assistant.ts"
+    "./main-assistant": "./src/main-assistant.ts",
+    "./cloud-assistant": "./src/cloud-assistant.ts"
   },
   "files": [
     "src",

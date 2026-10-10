@@ -110,6 +110,7 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
+import { isChannelHistoryMessage } from "@/react-app/domains/session/surface/assistant-channel-transcript"
 import { collectToolParts, isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
@@ -593,7 +594,8 @@ function renderUserTextWithReferenceChips(rawText: string) {
 const UserMessage = React.memo(
   ({ message: sourceMessage, isStreaming, reaction }: UserMessageProps) => {
     const { message, files } = React.useMemo(() => assistantHandoffPresentation(sourceMessage), [sourceMessage])
-    const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, readOnly, assistantChat } = useMessageList()
+    const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, readOnly: listReadOnly, assistantChat } = useMessageList()
+    const readOnly = listReadOnly || isChannelHistoryMessage(sourceMessage)
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
     const sender = assistantMessageSender(message)
     const scheduledRun = scheduledRunOf(message)
@@ -945,7 +947,7 @@ function MessageGroup({
   // Branch/revert must target a real server-side message id. Synthetic
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
-  const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
+  const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message) && !isChannelHistoryMessage(item.message))
   if (!lastItem || isMessageEmptyGroup(items)) return null
 
   const renderableItems = getRenderableMessages(items)

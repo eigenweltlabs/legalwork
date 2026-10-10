@@ -17,6 +17,7 @@ import {
 } from "./project-review-sync.js";
 import { reviewRunningElsewhere, type ReviewCell, type ReviewColumn, type ReviewResult, type SavedReview } from "./reviews/schema.js";
 import { ReviewStore } from "./reviews/storage.js";
+import { resourceStorage } from "./cloud-sync/platform.js";
 
 /**
  * Two computers (Anna's and Ben's) and the firm's copy of one project, in
@@ -119,6 +120,20 @@ async function computer(firmCopy: ReturnType<typeof firm>, userId: string, name:
 const livePath = `${REVIEW_SYNC_PREFIX}/${ID}.json`;
 
 describe("Tabular Reviews with a synced project", () => {
+  test("private cloud reviews reuse the review engine under an isolated storage prefix", async () => {
+    const at = firm();
+    const adapter = resourceStorage(at.adapter, "resources/ws_private/reviews", REVIEW_SYNC_PREFIX);
+    const desktop = await computer({ ...at, adapter }, "owner", "Computer");
+    const vm = await computer({ ...at, adapter }, "owner", "Cloud VM");
+    await desktop.store.create(review());
+    expect((await desktop.sync()).uploaded).toBe(1);
+    expect(at.files.has(`resources/ws_private/reviews/${ID}.json`)).toBe(true);
+    expect(at.files.has(livePath)).toBe(false);
+    expect((await vm.sync()).downloaded).toBe(1);
+    expect((await vm.read()).id).toBe(ID);
+    expect((await vm.read()).columns).toEqual([assign]);
+  });
+
   test("only review data counts as review paths", () => {
     expect(reviewSyncPath(livePath)).toBe(true);
     expect(reviewSyncPath(`${REVIEW_SYNC_PREFIX}/history/${ID}-${RUN}.json`)).toBe(true);

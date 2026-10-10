@@ -124,6 +124,22 @@ export interface RecorderBridge {
 }
 
 export interface ServerConfig {
+  /** In-process cloud replica hooks; never accepted from a client/config JSON. */
+  cloudSync?: {
+    role?: "executor" | "files" | "companion";
+    canExecute: () => boolean;
+    prepareWorkspace: (id: string) => Promise<unknown>;
+    shouldSyncFiles: (id: string) => boolean;
+    maintainsProject?: (id: string) => boolean;
+    deviceName: string;
+    checkpoint?: () => Promise<unknown>;
+    beginCheckpoint?: () => Promise<() => void>;
+    runEngineRequest?: (execute: () => Promise<Response>) => Promise<Response>;
+    resume?: () => Promise<{ role: "files" | "executor" | "companion"; canExecute: boolean; nextRunAt: string | null }>;
+    ready?: () => Promise<{ role: "files" | "executor" | "companion"; canExecute: boolean; nextRunAt: string | null }>;
+    status?: () => Promise<unknown>;
+    onLeaseLost?: () => void;
+  };
   host: string;
   port: number;
   token: string;
