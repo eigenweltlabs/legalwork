@@ -1971,7 +1971,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
-    <div className="lw-session-typography flex h-full min-h-0 flex-col">
+    <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (

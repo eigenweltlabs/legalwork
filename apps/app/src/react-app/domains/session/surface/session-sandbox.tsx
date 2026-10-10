@@ -32,8 +32,10 @@ export function SessionSandbox({ client, workspaceId, sessionId }: { client: Leg
   ];
   const Icon = state.enabled ? Shield : ShieldOff;
   const disabled = busy || !client.canApprove;
-  return <div className="flex shrink-0 justify-end px-3 pt-2"><DropdownMenu>
-    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("sandbox.session_title")} title={`${t("sandbox.session_title")}: ${state.enabled ? t("sandbox.on") : t("sandbox.off")}`} />}>
+  return <div className="pointer-events-none absolute right-0 top-0 z-20 h-24 w-28">
+    <div aria-hidden className="absolute inset-0 bg-dls-surface backdrop-blur-sm [mask-image:radial-gradient(ellipse_at_top_right,#000_35%,transparent_75%)]" />
+    <DropdownMenu>
+    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="pointer-events-auto absolute right-3 top-2" aria-label={t("sandbox.session_title")} title={`${t("sandbox.session_title")}: ${state.enabled ? t("sandbox.on") : t("sandbox.off")}`} />}>
       <Icon size={16} aria-hidden />
     </DropdownMenuTrigger>
     <DropdownMenuContent side="bottom" align="end" className="w-88 max-w-[calc(100vw-2rem)]">
