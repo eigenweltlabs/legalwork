@@ -70,7 +70,7 @@ describe("private replica checkpoints", () => {
       create.mockRestore(); assistant.mockRestore(); bulk.mockRestore();
     }
   });
-  test("warm resume releases execution while bulk project refresh is still running", async () => {
+  test("warm resume validates ownership without repeating assistant preparation or waiting for bulk refresh", async () => {
     const target = await config("vm"), remote = await store();
     const replica = await CloudReplica.open(target, settings("vm"), remote);
     await replica.acquire();
@@ -81,8 +81,9 @@ describe("private replica checkpoints", () => {
     try {
       await target.cloudSync!.beginCheckpoint!();
       expect(replica.canExecute()).toBe(false);
-      await target.cloudSync!.resume!();
-      expect(assistant).toHaveBeenCalledTimes(1);
+      const status = await target.cloudSync!.resume!();
+      expect(assistant).not.toHaveBeenCalled();
+      expect(status).toMatchObject({ role: "executor", canExecute: true, nextRunAt: null });
       expect(bulk).toHaveBeenCalledTimes(1);
       expect(replica.canExecute()).toBe(true);
     } finally {
@@ -99,6 +100,22 @@ describe("private replica checkpoints", () => {
     await expect(replica.prepareWorkspace(target.workspaces[0].id)).rejects.toMatchObject({ code: "sync_project_pending" });
     expect(replica.syncStatus().pendingProjects).toBe(1);
     replica.close();
+  });
+  test("a hydrated project remains executable while its incremental refresh is pending", async () => {
+    const target = await config("vm"), remote = await store();
+    const replica = await CloudReplica.open(target, settings("vm"), remote);
+    const workspace = target.workspaces[0];
+    const files = new ReplicaResources(await projectSyncStore(target), "vm");
+    files.markHydrated(`project:${workspace.id}`, workspace.path);
+    const batch = Promise.withResolvers<{ ran: boolean; pushed: number; pulled: number; arrived: number; removed: number; error: string | null }>();
+    const refresh = replica.prepareWorkspace(workspace.id, false, true, batch.promise).catch(() => {});
+    try {
+      const ready = await Promise.race([replica.prepareWorkspace(workspace.id).then(() => true), Bun.sleep(50).then(() => false)]);
+      expect(ready).toBe(true);
+    } finally {
+      batch.resolve({ ran: false, pushed: 0, pulled: 0, arrived: 0, removed: 0, error: null });
+      await refresh; replica.close();
+    }
   });
   test("a checkpointed VM survives lease expiry and renewals resumed after suspension", async () => {
     let now = 100000;

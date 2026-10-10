@@ -135,7 +135,7 @@ export interface ServerConfig {
     checkpoint?: () => Promise<unknown>;
     beginCheckpoint?: () => Promise<() => void>;
     runEngineRequest?: (execute: () => Promise<Response>) => Promise<Response>;
-    resume?: () => Promise<void>;
+    resume?: () => Promise<{ role: "files" | "executor" | "companion"; canExecute: boolean; nextRunAt: string | null }>;
     status?: () => Promise<unknown>;
     onLeaseLost?: () => void;
   };

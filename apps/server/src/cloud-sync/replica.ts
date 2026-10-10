@@ -98,9 +98,14 @@ export class CloudReplica {
           throw new ApiError(409, "sync_lease_lost", "Another VM has taken ownership. Stop this VM and restore the latest checkpoint offline.");
         await replica.acquire();
       } else await replica.renew();
-      await replica.prepareAssistant();
+      // bootCloudSync prepared the assistant before exposing the server. A
+      // checkpoint retains those files and settings; re-listing every resource
+      // on each message blocks execution for seconds even on a warm VM.
+      // Ownership is renewed above; incremental refresh follows in the normal
+      // background round and individual project hydration still gates its use.
       replica.quiescing = false;
       void replica.tick().catch(() => {});
+      return { role: settings.role, canExecute: replica.canExecute(), nextRunAt: await nextScheduledRun(config) };
     };
     config.cloudSync.status = async () => { const { value } = await replica.control(); return { role: settings.role, canExecute: replica.canExecute(), checkpointAt: value.checkpointAt, nextRunAt: value.nextRunAt }; };
     return replica;
@@ -296,11 +301,13 @@ export class CloudReplica {
     return workspace;
   }
   async prepareWorkspace(projectId: string, allowDeletions = false, refresh = false, batch?: Promise<ProjectSyncResult>, privateResources?: StorageAdapter) {
-    const pending = this.materializing.get(projectId);
-    if (pending) return pending;
     const workspace = this.config.workspaces.find(workspace => workspace.id === projectId && workspace.workspaceType !== "remote");
     if (!workspace) throw new ApiError(404, "sync_project_missing", "This project is not registered on this replica.");
+    // A refresh of an already available project must not block new engine
+    // requests. Only first hydration requires the materialization barrier.
     if (!refresh && this.files.isHydrated(`project:${projectId}`, workspace.path)) return;
+    const pending = this.materializing.get(projectId);
+    if (pending) return pending;
     const operation = (async () => {
       if (!batch) await this.initializeProject(projectId, allowDeletions);
       const store = await projectSyncStore(this.config);
