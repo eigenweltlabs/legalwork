@@ -7,6 +7,9 @@ import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpe
 import { z } from "zod";
 import type { ServerConfig } from "../types.js";
 import { networkModeSchema, readSandboxNetworkMode } from "./settings.js";
+import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { scheduleOrgPolicySync } from "../org-policy.js";
 
 test("network settings API authenticates, validates, persists and respects read-only mode", async () => {
   const childRoot = process.env.LEGALWORK_NETWORK_API_TEST_ROOT;
@@ -31,7 +34,7 @@ test("network settings API authenticates, validates, persists and respects read-
     readOnly: false, agentSandboxEnabled: true, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false };
   const server = await startServer(config);
   const base = `http://127.0.0.1:${server.port}`;
-  const hostHeaders = { "x-legalwork-host-token": "host", "content-type": "application/json" };
+  const hostHeaders = { authorization: "Bearer client", "x-legalwork-host-token": "host", "content-type": "application/json" };
   const patch = (body: unknown, token?: string) => fetch(base + "/sandbox/network", { method: "PATCH", headers: {
     "content-type": "application/json", ...(token === "host" ? { "x-legalwork-host-token": "host" } : token ? { authorization: `Bearer ${token}` } : {}),
   }, body: JSON.stringify(body) });
@@ -68,6 +71,26 @@ test("network settings API authenticates, validates, persists and respects read-
     expect(await (await fetch(sessionPath, { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: true, networkMode: "block", source: "session" });
     expect((await fetch(sessionPath, { method: "PATCH", headers: hostHeaders, body: JSON.stringify({ settings: null }) })).status).toBe(200);
     expect(await (await fetch(sessionPath, { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: false, source: "application" });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === `${eigenweltPlatformUrl()}/api/desktop/policy`) return Response.json({ schemaVersion: 1, orgId: "test-firm", orgName: "Test Firm", revision: 1, role: "member", updatedAt: null,
+        entries: { sandbox: { mode: "enforced", value: { enabled: true, networkMode: "block" } } } });
+      return realFetch(input, init);
+    }, { preconnect: realFetch.preconnect });
+    try {
+      await writeEigenweltConnection(config, { platformURL: eigenweltPlatformUrl(), platformToken: "test-policy", account: { userId: "member", userName: "Test", userEmail: null, orgId: "test-firm", orgName: "Test Firm" } });
+      await scheduleOrgPolicySync(config, { force: true });
+      for (const path of [base + "/sandbox/status", sessionPath]) expect(await (await fetch(path, { headers: hostHeaders })).json()).toMatchObject({ enabled: true, networkMode: "block", policy: { mode: "enforced", locked: true, orgName: "Test Firm" } });
+      expect((await patch({ mode: "allow" }, "host")).status).toBe(403);
+      expect((await fetch(base + "/sandbox/settings", { method: "PATCH", headers: hostHeaders, body: JSON.stringify({ enabled: false, networkMode: "allow" }) })).status).toBe(403);
+      for (const settings of [null, { enabled: false, networkMode: "allow" }]) expect((await fetch(sessionPath, { method: "PATCH", headers: hostHeaders, body: JSON.stringify({ settings }) })).status).toBe(403);
+      expect((await fetch(base + "/org-policy/release", { method: "POST", headers: hostHeaders, body: JSON.stringify({ key: "sandbox" }) })).status).toBe(403);
+    } finally {
+      await writeEigenweltConnection(config, { platformToken: null, platformURL: null, account: null });
+      await scheduleOrgPolicySync(config, { force: true });
+      await fetch(base + "/org-policy/release", { method: "POST", headers: hostHeaders, body: JSON.stringify({ key: "sandbox" }) });
+      globalThis.fetch = realFetch;
+    }
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow" } }));
     const commands = Array.from({ length: 10 }, (_, index) => fetch(base + "/workspace/matter/sandbox/execute", {
       method: "POST", headers: { authorization: "Bearer client", "content-type": "application/json" },

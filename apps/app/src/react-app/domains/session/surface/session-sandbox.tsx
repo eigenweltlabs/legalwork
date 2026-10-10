@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Shield, ShieldOff } from "lucide-react";
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SandboxNetworkControl } from "../../settings/panels/sandbox-status";
+import { ChevronDown, Globe, RotateCcw, Shield, ShieldOff } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { SandboxNetworkItems, networkLabel } from "../../settings/panels/sandbox-network-control";
+import { changeOrgPolicySetting } from "../../connections/org-policy";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 
@@ -12,36 +12,47 @@ export function SessionSandbox({ client, workspaceId, sessionId }: { client: Leg
   const state = query.data;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!state?.supported) return null;
+  if (!state?.supported || state.policy?.locked) return null;
   const save = async (settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" } | null) => {
     setBusy(true); setError(null);
-    try { await client.setSessionSandbox(workspaceId, sessionId, settings); await query.refetch(); }
-    catch (error) { setError(error instanceof Error ? error.message : t("sandbox.network_save_failed")); }
+    try {
+      const change = () => client.setSessionSandbox(workspaceId, sessionId, settings).then(() => undefined);
+      if (state.policy?.mode === "enforced") await changeOrgPolicySetting("sandbox", change, client);
+      else await change();
+      await query.refetch();
+    }
+    catch (error) { setError(error instanceof Error ? error.message : t("sandbox.network_save_failed")); await query.refetch(); }
     finally { setBusy(false); }
   };
   const items = [
-    { value: "inherit", label: t("sandbox.inherit") },
-    { value: "off", label: t("sandbox.off") },
-    { value: "on", label: t("sandbox.on") },
+    { value: "inherit", label: t("sandbox.inherit"), description: state.source === "parent" ? t("sandbox.parent_scope") : t("sandbox.menu_inherit"), icon: RotateCcw },
+    { value: "on", label: t("sandbox.on"), description: t("sandbox.menu_on"), icon: Shield },
+    { value: "off", label: t("sandbox.off"), description: t("sandbox.menu_off"), icon: ShieldOff },
   ];
   const Icon = state.enabled ? Shield : ShieldOff;
-  return <Popover>
-    <PopoverTrigger className="lw-composer-control inline-flex h-9 items-center gap-1.5 px-2.5 text-[13px] text-gray-10 hover:bg-gray-3 hover:text-gray-12" aria-label={t("sandbox.session_title")}>
-      <Icon size={14} /><span>{state.enabled ? t("sandbox.on") : t("sandbox.off")}</span>
-    </PopoverTrigger>
-    <PopoverContent side="top" align="start" className="w-80">
-      <PopoverTitle>{t("sandbox.session_title")}</PopoverTitle>
-      <p className="text-sm text-subtext">{t("sandbox.session_scope")}</p>
-      <Select value={state.source === "session" ? state.enabled ? "on" : "off" : "inherit"} items={items} disabled={busy || !client.canApprove} onValueChange={value => {
-        if (value === "inherit") void save(null);
-        else if (value === "on" || value === "off") void save({ enabled: value === "on", networkMode: state.networkMode });
-      }}>
-        <SelectTrigger aria-label={t("sandbox.session_title")}><SelectValue /></SelectTrigger>
-        <SelectContent>{items.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
-      </Select>
-      <p className="text-xs text-subtext">{state.source === "parent" ? t("sandbox.parent_scope") : state.source === "application" ? t("sandbox.using_default") : t("sandbox.using_override")}</p>
-      {state.enabled ? <SandboxNetworkControl value={state.networkMode} disabled={busy || !client.canApprove} onChange={networkMode => { void save({ enabled: true, networkMode }); }} /> : <p className="text-sm text-subtext">{t("sandbox.off_description")}</p>}
-      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-    </PopoverContent>
-  </Popover>;
+  const disabled = busy || !client.canApprove;
+  return <DropdownMenu>
+    <DropdownMenuTrigger className="lw-composer-control inline-flex h-9 items-center gap-1.5 px-2.5 text-[13px] text-gray-10 hover:bg-gray-3 hover:text-gray-12" aria-label={t("sandbox.session_title")}>
+      <Icon size={14} aria-hidden /><span>{state.enabled ? t("sandbox.on") : t("sandbox.off")}</span><ChevronDown size={12} aria-hidden />
+    </DropdownMenuTrigger>
+    <DropdownMenuContent side="top" align="start" className="w-88 max-w-[calc(100vw-2rem)]">
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>{t("sandbox.session_title")}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={state.source === "session" ? state.enabled ? "on" : "off" : "inherit"} onValueChange={value => {
+          if (value === "inherit") void save(null);
+          else if (value === "on" || value === "off") void save({ enabled: value === "on", networkMode: state.networkMode });
+        }}>
+          {items.map(({ value, label, description, icon: Icon }) => <DropdownMenuRadioItem key={value} value={value} disabled={disabled} className="items-start py-3">
+            <Icon className="mt-0.5 size-4" aria-hidden /><span className="min-w-0"><span className="block">{label}</span><span className="mt-1 block text-xs font-normal leading-relaxed text-muted-foreground">{description}</span></span>
+          </DropdownMenuRadioItem>)}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuGroup>
+      {state.enabled ? <><DropdownMenuSeparator /><DropdownMenuSub>
+        <DropdownMenuSubTrigger disabled={disabled}><Globe className="size-4" aria-hidden />{networkLabel(state.networkMode)}</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-88 max-w-[calc(100vw-2rem)]"><SandboxNetworkItems value={state.networkMode} disabled={disabled} onChange={networkMode => { void save({ enabled: true, networkMode }); }} /></DropdownMenuSubContent>
+      </DropdownMenuSub></> : null}
+      <p className="px-3 py-2 text-xs leading-relaxed text-muted-foreground">{t("sandbox.session_scope")}</p>
+      {error ? <p role="alert" className="px-3 py-2 text-sm text-destructive">{error}</p> : null}
+    </DropdownMenuContent>
+  </DropdownMenu>;
 }

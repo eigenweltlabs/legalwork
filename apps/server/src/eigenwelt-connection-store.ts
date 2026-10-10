@@ -64,6 +64,7 @@ type UpsertValue = {
 };
 
 type EigenweltConnectionDb = {
+  close: () => void;
   get: (workspaceId: string) => EigenweltConnectionRow | undefined;
   upsert: (value: UpsertValue) => void;
   updateIfCurrent: (value: UpsertValue, expected: RefreshSnapshot) => boolean;
@@ -156,6 +157,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
     }
     const db = drizzle(sqlite);
     return {
+      close: () => sqlite.close(),
       get: (workspaceId) =>
         db
           .select()
@@ -220,6 +222,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
     "UPDATE eigenwelt_connections SET refresh_request_id = coalesce(refresh_request_id, ?) WHERE workspace_id = ? AND refresh_token = ? RETURNING refresh_request_id",
   );
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row)) return undefined;
@@ -262,6 +265,15 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
 }
 
 const dbByPath = new Map<string, Promise<EigenweltConnectionDb>>();
+
+/** Release test profile handles before removing their files, including on Windows. */
+export async function closeEigenweltConnectionForTests(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const db = dbByPath.get(path);
+  if (!db) return;
+  dbByPath.delete(path);
+  (await db).close();
+}
 
 async function connectionDb(config: ServerConfig): Promise<EigenweltConnectionDb> {
   const path = runtimeDbPath(config);

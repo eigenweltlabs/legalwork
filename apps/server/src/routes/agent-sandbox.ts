@@ -5,7 +5,7 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo, TokenScope } from "../types.js";
 import type { AgentSandboxService, AgentPermissionRule } from "../agent-sandbox/service.js";
 import { addRoute, type Route, type RequestContext } from "./registry.js";
-import { networkModeSchema, readSandboxDefault, effectiveSandbox, sandboxSettingsSchema, writeSessionSandbox } from "../agent-sandbox/settings.js";
+import { networkModeSchema, readSandboxDefault, applicationSandbox, effectiveSandbox, sandboxSettingsSchema, writeSessionSandbox } from "../agent-sandbox/settings.js";
 
 const commandSchema = z.object({
   command: z.string().min(1).max(128000),
@@ -35,7 +35,7 @@ export function registerAgentSandboxRoutes(options: {
     if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "This worker does not manage command execution.");
   };
   addRoute(routes, "GET", "/sandbox/status", "client", async () => {
-    const settings = await readSandboxDefault(config);
+    const settings = await applicationSandbox(config);
     return jsonResponse({ ...settings, supported: config.agentSandboxEnabled === true, backend: "virtual-machine", sync: sandboxSyncStatus(config),
       ...(settings.enabled ? await sandbox.backend.status() : { available: null }) });
   });
@@ -49,7 +49,7 @@ export function registerAgentSandboxRoutes(options: {
     const workspace = await options.resolveWorkspace(config, ctx.params.id);
     const lineage = await options.sessionLineage(workspace, ctx.params.sessionId);
     const { dependencies: _, ...settings } = await effectiveSandbox(config, workspace.id, lineage);
-    return jsonResponse({ ...settings, supported: config.agentSandboxEnabled === true, application: await readSandboxDefault(config),
+    return jsonResponse({ ...settings, supported: config.agentSandboxEnabled === true, application: await applicationSandbox(config),
       platform: settings.enabled ? "linux" : process.platform, shell: settings.enabled ? "Bash" : hostShell(), cwd: settings.enabled ? "/workspace" : workspace.path });
   });
   addRoute(routes, "PATCH", "/workspace/:id/sandbox/session/:sessionId", "host-token", async (ctx) => {
