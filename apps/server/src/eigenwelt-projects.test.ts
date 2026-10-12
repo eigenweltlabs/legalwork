@@ -97,6 +97,17 @@ const incomplete = () => json({ code: "conflict", message: "upload the missing c
 const FILE = { contentType: "application/pdf", updatedByUserId: "user_1", updatedAt: "2026-09-25T12:00:00.000Z" };
 
 describe("project documents over signed links", () => {
+  test("a fetch rejection without a platform-specific error code retries a signed download", async () => {
+    let reads = 0;
+    stubFetch(call => {
+      if (call.url.startsWith(client.platformURL)) return json({ sha256: sha(Buffer.from("whole")), size: 5, chunks: ["https://storage.test/native-fetch"] });
+      if (++reads === 1) throw new TypeError("fetch failed", { cause: { code: "ConnectionClosed" } });
+      return new Response("whole");
+    });
+    const destination = join(dir, "native-fetch-retry.txt");
+    expect(await downloadRemoteProjectFile(client, PROJECT, "state", destination)).toEqual({ size: 5, sha256: sha(Buffer.from("whole")) });
+    expect(reads).toBe(2);
+  });
   test("an interrupted storage body retries only that chunk without duplicating partial bytes", async () => {
     const whole = Buffer.from("first second");
     let secondReads = 0;

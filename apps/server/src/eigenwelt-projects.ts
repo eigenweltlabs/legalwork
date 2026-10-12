@@ -214,10 +214,12 @@ class StorageRequestError extends ApiError {
 }
 function interruptedStorage(error: unknown): boolean {
   if (error instanceof StorageRequestError) return error.retryable;
-  if (!(error instanceof Error) || ["AbortError", "TimeoutError"].includes(error.name)) return false;
-  const cause = error.cause instanceof Error ? error.cause : error;
-  return "code" in cause && typeof cause.code === "string" &&
-    ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "EAI_AGAIN", "UND_ERR_SOCKET"].includes(cause.code);
+  // Native fetch does not expose the same socket codes on every runtime.
+  // Classify transport exceptions where fetch/its body rejected, preserving
+  // terminal cancellation, timeout, malformed-URL and redirect failures.
+  if (!(error instanceof Error) || ["AbortError", "TimeoutError", "SyntaxError", "RangeError"].includes(error.name)) return false;
+  return !("code" in error && typeof error.code === "string" &&
+    ["ERR_INVALID_URL", "ERR_INVALID_PROTOCOL", "UnexpectedRedirect"].includes(error.code));
 }
 async function storageFetch(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
@@ -245,7 +247,9 @@ async function storageChunk(link: string, canceled: AbortSignal): Promise<Buffer
       const parts: Buffer[] = [];
       let size = 0;
       for (;;) {
-        const part = await reader.read();
+        const part = await reader.read().catch(error => {
+          throw new StorageRequestError("project_storage_unreachable", "The file download was interrupted.", interruptedStorage(error));
+        });
         if (part.done) break;
         size += part.value.byteLength;
         if (size > PROJECT_CHUNK_BYTES) throw new ApiError(502, "project_storage_failed", "A document chunk exceeded its size limit.");
