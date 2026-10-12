@@ -209,47 +209,77 @@ export async function listRemoteProjectChanges(client: IntakeClient, projectId: 
  * A request to the firm's storage over a link the platform signed. No
  * credentials go along: the link is the permission, for one object, briefly.
  */
+class StorageRequestError extends ApiError {
+  constructor(code: string, message: string, readonly retryable: boolean) { super(502, code, message); }
+}
+function interruptedStorage(error: unknown): boolean {
+  if (error instanceof StorageRequestError) return error.retryable;
+  if (!(error instanceof Error) || ["AbortError", "TimeoutError"].includes(error.name)) return false;
+  const cause = error.cause instanceof Error ? error.cause : error;
+  return "code" in cause && typeof cause.code === "string" &&
+    ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "EAI_AGAIN", "UND_ERR_SOCKET"].includes(cause.code);
+}
 async function storageFetch(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(url, { ...init, redirect: "error", signal: init.signal ?? AbortSignal.timeout(120000) });
-  } catch {
-    throw new ApiError(502, "project_storage_unreachable", "Could not reach the firm's file storage.");
+  } catch (error) {
+    throw new StorageRequestError("project_storage_unreachable", "Could not reach the firm's file storage.", interruptedStorage(error));
   }
   if (!response.ok) {
-    throw new ApiError(502, "project_storage_failed", `The firm's file storage answered ${response.status}.`);
+    await response.body?.cancel().catch(() => {});
+    throw new StorageRequestError("project_storage_failed", `The firm's file storage answered ${response.status}.`, response.status === 429 || response.status >= 500);
   }
   return response;
+}
+
+/** Keep at most one 8 MiB chunk until complete, so retry cannot duplicate bytes
+ * already written to the destination. Only idempotent signed GETs are replayed. */
+async function storageChunk(link: string, canceled: AbortSignal): Promise<Buffer> {
+  for (let attempt = 0; ; attempt++) {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await storageFetch(link, { method: "GET", signal: AbortSignal.any([canceled, AbortSignal.timeout(120000)]) });
+      if (!response.body) throw new ApiError(502, "project_storage_failed", "A document chunk arrived without content.");
+      reader = response.body.getReader();
+      const parts: Buffer[] = [];
+      let size = 0;
+      for (;;) {
+        const part = await reader.read();
+        if (part.done) break;
+        size += part.value.byteLength;
+        if (size > PROJECT_CHUNK_BYTES) throw new ApiError(502, "project_storage_failed", "A document chunk exceeded its size limit.");
+        parts.push(Buffer.from(part.value));
+      }
+      const length = response.headers.get("content-length");
+      if (length !== null && Number(length) !== size)
+        throw new StorageRequestError("project_storage_failed", "A document chunk was incomplete.", true);
+      return Buffer.concat(parts, size);
+    } catch (error) {
+      if (canceled.aborted || attempt >= 2 || !interruptedStorage(error)) {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(502, "project_storage_unreachable", "The file download was interrupted.");
+      }
+    } finally {
+      await reader?.cancel().catch(() => {});
+      reader?.releaseLock();
+    }
+    await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+    canceled.throwIfAborted();
+  }
 }
 
 /** The objects behind these links, one after another, as one stream. */
 function joinedChunks(links: string[]): ReadableStream<Uint8Array> {
   let next = 0;
-  let current: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  const canceled = new AbortController();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
-      for (;;) {
-        if (current === null) {
-          const link = links[next++];
-          if (link === undefined) {
-            controller.close();
-            return;
-          }
-          const body = (await storageFetch(link, { method: "GET" })).body;
-          if (!body) throw new ApiError(502, "project_storage_failed", "A document chunk arrived without content.");
-          current = body.getReader();
-        }
-        const read = await current.read();
-        if (!read.done) {
-          controller.enqueue(read.value);
-          return;
-        }
-        current = null;
-      }
+      const link = links[next++];
+      if (link === undefined) { controller.close(); return; }
+      controller.enqueue(await storageChunk(link, canceled.signal));
     },
-    async cancel(reason) {
-      await current?.cancel(reason);
-    },
+    cancel(reason) { canceled.abort(reason); },
   });
 }
 

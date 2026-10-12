@@ -97,6 +97,43 @@ const incomplete = () => json({ code: "conflict", message: "upload the missing c
 const FILE = { contentType: "application/pdf", updatedByUserId: "user_1", updatedAt: "2026-09-25T12:00:00.000Z" };
 
 describe("project documents over signed links", () => {
+  test("an interrupted storage body retries only that chunk without duplicating partial bytes", async () => {
+    const whole = Buffer.from("first second");
+    let secondReads = 0;
+    stubFetch(call => {
+      if (call.url.startsWith(client.platformURL)) return json({ sha256: sha(whole), size: whole.length,
+        chunks: ["https://storage.test/first", "https://storage.test/second"] });
+      if (call.url.endsWith("/first")) return new Response("first ");
+      secondReads++;
+      if (secondReads === 1) return new Response(new ReadableStream({
+        start(controller) { controller.enqueue(Buffer.from("sec")); },
+        pull(controller) { controller.error(Object.assign(new Error("Storage socket reset"), { code: "ECONNRESET" })); },
+      }));
+      return new Response("second");
+    });
+    const destination = join(dir, "storage-retry.txt");
+    expect(await downloadRemoteProjectFile(client, PROJECT, "state", destination)).toEqual({ size: whole.length, sha256: sha(whole) });
+    expect(await readFile(destination)).toEqual(whole);
+    expect(calls.filter(call => call.url.endsWith("/first"))).toHaveLength(1);
+    expect(secondReads).toBe(2);
+  });
+  test("persistent storage resets stop after three attempts and remove the partial download", async () => {
+    stubFetch(call => {
+      if (call.url.startsWith(client.platformURL)) return json({ sha256: sha(Buffer.from("whole")), size: 5, chunks: ["https://storage.test/reset"] });
+      throw Object.assign(new Error("Storage socket reset"), { code: "ECONNRESET" });
+    });
+    const destination = join(dir, "storage-reset.txt");
+    await expect(downloadRemoteProjectFile(client, PROJECT, "state", destination)).rejects.toMatchObject({ code: "project_storage_unreachable" });
+    expect(calls.filter(call => call.url.startsWith("https://storage.test"))).toHaveLength(3);
+    await expect(readFile(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+  test("storage permission rejection is never retried", async () => {
+    stubFetch(call => call.url.startsWith(client.platformURL)
+      ? json({ sha256: sha(Buffer.from("whole")), size: 5, chunks: ["https://storage.test/denied"] })
+      : new Response("Forbidden", { status: 403 }));
+    await expect(downloadRemoteProjectFile(client, PROJECT, "state", join(dir, "storage-denied.txt"))).rejects.toMatchObject({ code: "project_storage_failed" });
+    expect(calls.filter(call => call.url.startsWith("https://storage.test"))).toHaveLength(1);
+  });
   test("a stalled signed storage chunk times out during headers or body and removes its partial destination", async () => {
     const server = createServer((request, response) => {
       request.resume();
