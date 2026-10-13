@@ -24,10 +24,22 @@ export const ChannelLiveEvent = z.strictObject({ key: z.string().regex(/^[a-f0-9
   z.strictObject({ type: z.literal("reaction.changed"), messageId: z.string().min(1).max(512), emoji: z.enum(["👍", "❤️", "😊", "🎉", "👀", "✅"]) }),
 ]) });
 const RETRY_DELAYS = [2_000, 8_000, 30_000];
+export const ChannelOutcomeDiagnostics = z.strictObject({
+  finish: z.enum(["stop", "length", "tool-calls", "content-filter", "unknown"]).optional(),
+  errorName: z.enum(["APIError", "UnknownError", "MessageAbortedError", "ContextOverflowError", "MessageOutputLengthError", "StructuredOutputError"]).optional(),
+  httpStatus: z.number().int().min(100).max(599).optional(),
+  modelStartedAt: z.number().int().nonnegative().optional(), modelFinishedAt: z.number().int().nonnegative().optional(),
+  promptTokens: z.number().nonnegative().optional(), answerTokens: z.number().nonnegative().optional(), reasoningTokens: z.number().nonnegative().optional(),
+  answerCharacters: z.number().int().nonnegative().optional(),
+});
+const ChannelAttempt = z.strictObject({ index: z.number().int().nonnegative(), startedAt: z.number().int().nonnegative(),
+  finishedAt: z.number().int().nonnegative(), state: z.enum(["completed", "failed"]), code: z.string().max(64).optional(),
+  diagnostics: ChannelOutcomeDiagnostics.optional() });
 const Receipt = ChannelInput.extend({ fingerprint: z.string(), workspaceId: z.string(), sessionId: z.string(), messageId: z.string(),
   state: z.enum(["accepted", "sending", "running", "completed", "failed"]), textResult: z.string().nullable(),
   retries: z.number().int().nonnegative().default(0), retryAt: z.number().nullable().default(null),
   lastAttemptAt: z.number().optional(),
+  attempts: z.array(ChannelAttempt).max(4).optional(),
   files: z.array(ChannelFileResult), events: z.array(ChannelLiveEvent).max(256).default([]), browserJobs: z.array(z.uuid()).max(50).default([]), code: z.string().nullable(), createdAt: z.number(), updatedAt: z.number(),
 });
 export type ChannelReceipt = z.infer<typeof Receipt>;
@@ -40,7 +52,7 @@ export type ChannelEngine = {
   send: (receipt: ChannelReceipt) => Promise<void>;
   retry?: (receipt: ChannelReceipt) => Promise<boolean>;
   watch?: (receipt: ChannelReceipt, notify: () => void, signal: AbortSignal) => Promise<void>;
-  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; browserJobs?: string[]; code?: string; retryable?: boolean }>;
+  result: (target: ChannelReceipt) => Promise<{ state: "running" | "completed" | "failed"; text?: string; files?: z.infer<typeof ChannelFileResult>[]; events?: z.infer<typeof ChannelLiveEvent>[]; browserJobs?: string[]; code?: string; retryable?: boolean; diagnostics?: z.infer<typeof ChannelOutcomeDiagnostics> }>;
 };
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const channelObservationVersion = (receipt: ChannelReceipt) => digest({ state: receipt.state, code: receipt.code,
@@ -82,6 +94,13 @@ export class ChannelRuntime {
   private save(receipt: ChannelReceipt) {
     receipt.updatedAt = this.now();
     this.db.run("INSERT INTO channel_runtime_jobs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", [receipt.id, JSON.stringify(receipt)]);
+  }
+  private recordAttempt(receipt: ChannelReceipt, result: Awaited<ReturnType<ChannelEngine["result"]>>) {
+    if (result.state === "running") return;
+    const attempts = receipt.attempts ??= [];
+    if (attempts.some(attempt => attempt.index === receipt.retries)) return;
+    attempts.push(ChannelAttempt.parse({ index: receipt.retries, startedAt: receipt.lastAttemptAt ?? receipt.createdAt,
+      finishedAt: this.now(), state: result.state, code: result.code, diagnostics: result.diagnostics }));
   }
   private get(id: string) {
     const row = this.db.get("SELECT data FROM channel_runtime_jobs WHERE id=?", [id]);
@@ -219,12 +238,16 @@ export class ChannelRuntime {
     if (result.state === "failed" && result.retryable && this.engine.retry) {
       // prompt_async can acknowledge before engine state becomes visible.
       // Give an uncertain wake time to settle before scheduling another one.
-      if (receipt.lastAttemptAt !== undefined && this.now() - receipt.lastAttemptAt < 30_000) return receipt;
+      if (result.code === "turn_interrupted" && receipt.lastAttemptAt !== undefined && this.now() - receipt.lastAttemptAt < 30_000) return receipt;
+      // Retain outcome metadata before recovery removes an empty engine
+      // message. Prompts, response text, credentials and error bodies stay out.
+      this.recordAttempt(receipt, result);
       if (receipt.retries < RETRY_DELAYS.length) {
         receipt.state = "running"; receipt.code = result.code ?? "recovering";
         receipt.retryAt = this.now() + RETRY_DELAYS[receipt.retries]; this.save(receipt); return receipt;
       }
     }
+    this.recordAttempt(receipt, result);
     receipt.state = result.state;
     receipt.textResult = result.text ?? null; receipt.files = result.files ?? [];
     receipt.code = result.code ?? null; this.save(receipt); return receipt;

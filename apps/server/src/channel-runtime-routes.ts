@@ -3,7 +3,7 @@ import { basename, extname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
-import { ChannelRuntime, ChannelOwner, ChannelInput, ChannelCommand, ChannelFileResult, channelObservationVersion } from "./channel-runtime.js";
+import { ChannelRuntime, ChannelOwner, ChannelInput, ChannelCommand, ChannelFileResult, ChannelOutcomeDiagnostics, channelObservationVersion } from "./channel-runtime.js";
 import { ApiError } from "./errors.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
@@ -106,7 +106,17 @@ export async function registerChannelRuntimeRoutes(options: {
       if (statuses.data[input.sessionId] && statuses.data[input.sessionId].type !== "idle") return { state: "running", events, browserJobs };
       const final = turn.at(-1);
       if (!final || final.info.role !== "assistant") return Date.now() - (input.lastAttemptAt ?? input.createdAt) < 30000 ? { state: "running", events } : { state: "failed", code: "turn_interrupted", retryable: true, events };
-      if (final.info.error) return { state: "failed", code: final.info.error.name === "MessageAbortedError" ? "cancelled" : "engine_error", retryable: retryableChannelError(final.info.error), events };
+      const finish = ChannelOutcomeDiagnostics.shape.finish.safeParse(final.info.finish);
+      const errorName = ChannelOutcomeDiagnostics.shape.errorName.safeParse(final.info.error?.name);
+      const httpStatus = ChannelOutcomeDiagnostics.shape.httpStatus.safeParse(final.info.error?.name === "APIError" ? final.info.error.data.statusCode : undefined);
+      const diagnostics = ChannelOutcomeDiagnostics.parse({
+        ...(finish.success ? { finish: finish.data } : {}), ...(errorName.success ? { errorName: errorName.data } : {}),
+        ...(httpStatus.success ? { httpStatus: httpStatus.data } : {}),
+        modelStartedAt: final.info.time.created, modelFinishedAt: final.info.time.completed,
+        promptTokens: final.info.tokens.input, answerTokens: final.info.tokens.output, reasoningTokens: final.info.tokens.reasoning,
+        answerCharacters: final.parts.reduce((count, part) => count + (part.type === "text" && !part.synthetic && !part.ignored ? part.text.length : 0), 0),
+      });
+      if (final.info.error) return { state: "failed", code: final.info.error.name === "MessageAbortedError" ? "cancelled" : "engine_error", retryable: retryableChannelError(final.info.error), events, diagnostics };
       if (!final.info.time.completed || !["stop", "length", "content-filter"].includes(final.info.finish ?? "")) return { state: "failed", code: "turn_interrupted", retryable: true, events };
       const text = final.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n").trim();
       const files: z.infer<typeof ChannelFileResult>[] = [];
@@ -123,8 +133,8 @@ export async function registerChannelRuntimeRoutes(options: {
           if (!files.some(existing => existing.workspaceId === file.workspaceId && existing.path === file.path)) files.push(file);
         } catch { /* Only explicit, verified share-file outputs cross the channel boundary. */ }
       }
-      if (!text && !files.length && !events.some(item => item.event.type === "message.created")) return { state: "failed", code: "empty_reply", retryable: final.info.finish !== "content-filter", events };
-      return { state: "completed", text: text || (files.length ? "I’ve shared the requested file." : ""), files, events, browserJobs };
+      if (!text && !files.length && !events.some(item => item.event.type === "message.created")) return { state: "failed", code: "empty_reply", retryable: final.info.finish !== "content-filter", events, diagnostics };
+      return { state: "completed", text: text || (files.length ? "I’ve shared the requested file." : ""), files, events, browserJobs, diagnostics };
     },
   }, available);
   const bind = async () => { runtime.bind(await identity()); if (!available()) throw new ApiError(409, "channel_execution_blocked", "Assistant execution is blocked."); };

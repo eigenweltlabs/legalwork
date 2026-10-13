@@ -52,6 +52,22 @@ test("browser correlation survives compaction, completion and restart without an
     expect((await f.runtime.inspect(f.input.id)).browserJobs).toEqual([id]);expect(f.sends).toBe(1);
   }finally {await f.close();}
 });
+test("confirmed empty replies retry without an extra acceptance wait and preserve attempt diagnostics", async () => {
+  const f = await fixture(); try {
+    await f.runtime.accept(f.input); f.fail();
+    const first = await f.runtime.inspect(f.input.id);
+    expect(first.retryAt! - first.updatedAt).toBe(2000);
+    f.advance(2001); await f.runtime.inspect(f.input.id);
+    f.fail();
+    const second = await f.runtime.inspect(f.input.id);
+    expect(second.retryAt! - second.updatedAt).toBe(8000);
+    expect(second.attempts?.map(attempt => attempt.code)).toEqual(["empty_reply", "empty_reply"]);
+    await f.reopen(); f.advance(8001); await f.runtime.inspect(f.input.id);
+    f.finish(); const completed = await f.runtime.inspect(f.input.id);
+    expect(completed.attempts?.map(attempt => attempt.code)).toEqual(["empty_reply", "empty_reply", undefined]);
+    expect(f.sends).toBe(1); expect(f.retries).toBe(2);
+  } finally { await f.close(); }
+});
 test("a lost dispatch response and process restart recover the same engine message without a second prompt", async () => {
   const f = await fixture(); try {
     f.uncertain(); expect((await f.runtime.accept(f.input)).state).toBe("running");
