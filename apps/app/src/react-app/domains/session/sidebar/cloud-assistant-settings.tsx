@@ -72,7 +72,7 @@ export function CloudAssistantSettings({ client, profile = DEFAULT_ASSISTANT_PRO
         </div>
       </div>
       {status?.connected && status.accountName && <p className="text-xs text-muted-foreground">{t("assistant.cloud_account", { account: status.accountName })}</p>}
-      <Button type="button" variant={ready ? "outline" : "default"} className="w-full" disabled={query.isPending || change.isPending} onClick={showSetup}>
+      <Button type="button" variant={ready ? "outline" : "default"} size="sm" className="w-fit" disabled={query.isPending || change.isPending} onClick={showSetup}>
         {preparing ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> : <Cloud className="size-4" />}
         {t(query.isPending ? "assistant.cloud_checking" : ready ? "assistant.cloud_manage" : preparing ? "assistant.cloud_view_setup" : "assistant.cloud_enable")}
       </Button>
