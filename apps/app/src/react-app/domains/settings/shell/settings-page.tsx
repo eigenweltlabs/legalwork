@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Bell,
+  Bot,
   Bug,
   ChevronDown,
   CloudCog,
@@ -69,6 +70,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return Table2;
     case "account":
       return UserCircle;
+    case "assistant":
+      return Bot;
     case "personalisation":
       return Sparkles;
     case "notifications":
@@ -124,6 +127,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("review.title");
     case "account":
       return t("settings.tab_account");
+    case "assistant":
+      return t("assistant.title");
     case "personalisation":
       return t("settings.tab_personalisation");
     case "notifications":
@@ -181,6 +186,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_ai");
     case "account":
       return t("settings.tab_description_account");
+    case "assistant":
+      return t("assistant.settings_description");
     case "personalisation":
       return t("settings.tab_description_personalisation");
     case "notifications":
@@ -242,7 +249,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "tabular-review", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "assistant", "tabular-review", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after Account.
   if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");

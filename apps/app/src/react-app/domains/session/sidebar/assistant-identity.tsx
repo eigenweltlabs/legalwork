@@ -1,6 +1,7 @@
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { CloudAssistantSettings } from "./cloud-assistant-settings";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { DEFAULT_ASSISTANT_PROFILE, type AssistantProfile } from "@legalwork/types/main-assistant";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -51,6 +52,7 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
   busy: boolean;
   client?: LegalworkServerClient;
 }) {
+  const navigate = useNavigate();
   const [draft, setDraft] = useState({ ...profile, name: profile.name ?? t("assistant.title") });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,18 +84,14 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
           <fieldset disabled={saving} className="space-y-5 pb-5">
             <AssistantAppearanceFields compact profile={draft} onChange={value => setDraft({ ...value, name: value.name ?? "" })} />
           </fieldset>
-          {client && <CloudAssistantSettings client={client} />}
+          {client && <CloudAssistantSettings client={client} profile={draft} onSignIn={() => { onClose(); navigate("/settings/account"); }} />}
           <Collapsible defaultOpen={modelSettings?.modelPickerOpen} className="group/advanced border-t border-border">
             <CollapsibleTrigger type="button" className="flex w-full items-center justify-between rounded-sm py-4 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
               {t("settings.tab_advanced")}<ChevronDown className="size-4 -rotate-90 transition-transform group-data-[open]/advanced:rotate-0" />
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="mb-4 space-y-3 rounded-xl bg-muted/40 p-3">
-                <label className="flex items-start justify-between gap-4">
-                  <span className="min-w-0 space-y-1"><span className="block text-sm font-medium">{t("assistant.desktop_notifications")}</span>
-                    <span className="block text-xs leading-relaxed text-muted-foreground">{t("assistant.desktop_notifications_hint")}</span></span>
-                  <Switch className="mt-0.5 shrink-0" aria-label={t("assistant.desktop_notifications")} checked={desktopNotifications} onCheckedChange={setDesktopNotifications} />
-                </label>
+                <AssistantDesktopNotifications enabled={desktopNotifications} onChange={setDesktopNotifications} />
                 {modelSettings && <div className="space-y-1 border-t border-border/60 pt-2">
                   <div className="flex items-center justify-between gap-3"><span className="shrink-0 text-xs text-muted-foreground">{t("assistant.model")}</span>
                     <div className="flex min-w-0 justify-end"><ModelSelect value={modelSettings.selectedModel} locked={modelSettings.modelSelectorLocked} disabled={saving} open={modelSettings.modelPickerOpen} onOpenChange={modelSettings.onModelPickerOpenChange} onChange={modelSettings.onModelChange} /></div>
@@ -116,4 +114,12 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
       </form>
     </DialogContent>
   </Dialog>;
+}
+
+export function AssistantDesktopNotifications({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
+  return <label className="flex items-start justify-between gap-4">
+    <span className="min-w-0 space-y-1"><span className="block text-sm font-medium">{t("assistant.desktop_notifications")}</span>
+      <span className="block text-xs leading-relaxed text-muted-foreground">{t("assistant.desktop_notifications_hint")}</span></span>
+    <Switch className="mt-0.5 shrink-0" aria-label={t("assistant.desktop_notifications")} checked={enabled} onCheckedChange={onChange} />
+  </label>;
 }
