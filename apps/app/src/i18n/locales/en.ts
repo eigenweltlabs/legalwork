@@ -36,7 +36,7 @@ export default {
   "assistant.cloud_sign_in": "Sign in with Eigenwelt in Settings, then enable your cloud assistant.",
   "assistant.cloud_preparing": "Preparing your cloud assistant…",
   "assistant.cloud_syncing": "Preparing your assistant history and settings…",
-  "assistant.cloud_background": "Your assistant is ready. Project files are syncing in the background ({count} remaining).",
+  "assistant.cloud_background": "Project files are syncing in the background ({count} remaining).",
   "assistant.cloud_starting": "Starting your cloud assistant…",
   "assistant.cloud_ready": "Ready. Sign in on your phone with the same account and choose {account}.",
   "assistant.cloud_retry": "Try again",

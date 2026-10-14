@@ -75,7 +75,6 @@ export function CloudAssistantSettings({ client, profile = DEFAULT_ASSISTANT_PRO
         {preparing ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> : <Cloud className="size-4" />}
         {t(query.isPending ? "assistant.cloud_checking" : ready ? "assistant.cloud_manage" : preparing ? "assistant.cloud_view_setup" : "assistant.cloud_enable")}
       </Button>
-      {ready && <p className="text-xs leading-relaxed text-muted-foreground">{t("assistant.cloud_ready", { account: status?.accountName ?? "Eigenwelt" })}</p>}
       {ready && status?.sync && (status.sync.running || status.sync.pendingProjects > 0) && <p className="text-xs text-muted-foreground">{t("assistant.cloud_background", { count: status.sync.pendingProjects })}</p>}
       {(query.isError || error || status?.sync?.error) && <p role="alert" className="text-xs text-destructive">{query.isError ? t("assistant.cloud_status_error") : error ?? status?.sync?.error}</p>}
     </div>
@@ -83,10 +82,10 @@ export function CloudAssistantSettings({ client, profile = DEFAULT_ASSISTANT_PRO
       <DialogContent className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-[460px]">
         <div className="space-y-5 px-6 pb-6 pt-10">
           <CloudAssistantProgress profile={profile} status={status} preparing={preparing} error={Boolean(error)} />
-          <div className="space-y-2 text-center" aria-live="polite">
-            <DialogTitle>{t(error ? "assistant.cloud_setup_failed" : ready ? "assistant.cloud_setup_ready" : !status?.connected ? "assistant.cloud_connect_title" : "assistant.cloud_setup_title")}</DialogTitle>
-            <DialogDescription>{t(error ? "assistant.cloud_setup_retry_hint" : ready ? "assistant.cloud_ready" : !status?.connected ? "assistant.cloud_sign_in" : status?.state === "starting" ? "assistant.cloud_starting" : status?.state === "syncing" ? "assistant.cloud_syncing" : "assistant.cloud_preparing", { account: status?.accountName ?? "Eigenwelt" })}</DialogDescription>
-          </div>
+          {ready && !error ? <DialogTitle className="sr-only">{t("assistant.cloud_title")}</DialogTitle> : <div className="space-y-2 text-center" aria-live="polite">
+            <DialogTitle>{t(error ? "assistant.cloud_setup_failed" : !status?.connected ? "assistant.cloud_connect_title" : "assistant.cloud_setup_title")}</DialogTitle>
+            <DialogDescription>{t(error ? "assistant.cloud_setup_retry_hint" : !status?.connected ? "assistant.cloud_sign_in" : status?.state === "starting" ? "assistant.cloud_starting" : status?.state === "syncing" ? "assistant.cloud_syncing" : "assistant.cloud_preparing")}</DialogDescription>
+          </div>}
           {status?.connected && <CloudAssistantSteps status={status} preparing={preparing} error={Boolean(error)} />}
           {preparing && elapsed >= 45 && <p role="status" className="rounded-xl bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">{t("assistant.cloud_taking_longer")}</p>}
           {(error || query.isError) && <div role="alert" className="space-y-2 rounded-xl border border-red-6 bg-red-2 px-4 py-3 text-xs leading-relaxed text-red-11">

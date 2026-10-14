@@ -46,7 +46,7 @@ const de = {
   "assistant.cloud_sign_in": "Melden Sie sich in den Einstellungen bei Eigenwelt an und aktivieren Sie dann Ihren Cloud-Assistenten.",
   "assistant.cloud_preparing": "Ihr Cloud-Assistent wird vorbereitet…",
   "assistant.cloud_syncing": "Assistentenverlauf und Einstellungen werden vorbereitet…",
-  "assistant.cloud_background": "Ihr Assistent ist bereit. Projektdateien werden im Hintergrund synchronisiert ({count} verbleibend).",
+  "assistant.cloud_background": "Projektdateien werden im Hintergrund synchronisiert ({count} verbleibend).",
   "assistant.cloud_starting": "Ihr Cloud-Assistent wird gestartet…",
   "assistant.cloud_ready": "Bereit. Melden Sie sich auf dem Handy mit demselben Konto an und wählen Sie {account}.",
   "assistant.cloud_retry": "Erneut versuchen",
