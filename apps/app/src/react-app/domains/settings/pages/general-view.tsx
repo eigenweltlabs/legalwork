@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Bell,
   Bot,
-  ChevronDown,
   FileStack,
   FolderLock,
   KeyRound,
@@ -23,7 +22,6 @@ import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
@@ -45,6 +43,8 @@ const globalItems = (): SettingsItem[] => [
     desc: t("settings.tab_description_account"),
   },
   { tab: "assistant", icon: Bot, title: t("assistant.title"), desc: t("assistant.settings_description") },
+  { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: t("settings.tab_description_ai") },
+  { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: Table2, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
@@ -129,17 +129,6 @@ export function GeneralSettingsView(props: GeneralSettingsViewProps) {
     <div className="w-full max-w-3xl space-y-9">
       <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems()} onNavigateTab={props.onNavigateTab} />
       <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
-      <Collapsible className="group/advanced space-y-2.5">
-        <CollapsibleTrigger className="lw-section-eyebrow flex w-full items-center justify-between px-1 text-left">
-          {t("settings.tab_advanced")}<ChevronDown className="size-4 -rotate-90 group-data-[open]/advanced:rotate-0" />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <Surface className="divide-y divide-border/70 overflow-hidden">
-            <SettingsRow icon={Zap} title={t("settings.tab_ai")} desc={t("settings.tab_description_ai")} onClick={() => props.onNavigateTab("ai")} />
-            <SettingsRow icon={Bell} title={t("settings.tab_notifications")} desc={t("settings.tab_description_notifications")} onClick={() => props.onNavigateTab("notifications")} />
-          </Surface>
-        </CollapsibleContent>
-      </Collapsible>
       <p className="px-1 text-[11px] text-muted-foreground/70">
         {t("settings.tab_description_general")}
       </p>
