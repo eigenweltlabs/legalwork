@@ -11,13 +11,13 @@ import { assistantAvatarAnimations } from "./assistant-avatar-animation";
 import { assistantAnimalIcon, assistantAvatarImages } from "./assistant-avatar-assets";
 
 export function AssistantCircleIcon({ className, size = 24, ...props }: ComponentProps<"svg"> & { size?: number | string }) {
-  return <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className={cn("text-blue-10", className)} {...props}><circle cx="12" cy="12" r="9.5" /><circle cx="12" cy="12" r="4.25" /></svg>;
+  return <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className={className} {...props}><circle cx="12" cy="12" r="9.5" /><circle cx="12" cy="12" r="4.25" /></svg>;
 }
 
 export function AssistantAvatar({ icon = DEFAULT_ASSISTANT_PROFILE.icon, className = "", motion }: { icon?: AssistantIcon; className?: string; motion?: "idle" | "thinking" }) {
   const animation = assistantAvatarAnimations[assistantAnimalIcon(icon)];
   return <span aria-hidden="true" className={cn("inline-flex size-5 shrink-0 items-center justify-center", className)}>
-    {icon === "dot" ? <AssistantCircleIcon className="size-full" /> : motion ? <picture className="block size-full scale-125" data-assistant-avatar-motion={motion}>
+    {icon === "dot" ? <AssistantCircleIcon className="size-full text-blue-10" /> : motion ? <picture className="block size-full scale-125" data-assistant-avatar-motion={motion}>
       <source media="(prefers-reduced-motion: reduce)" srcSet={animation.idle} />
       <img src={animation[motion]} alt="" draggable={false} width={256} height={256} className="size-full object-contain" />
     </picture> : <img src={assistantAvatarImages[assistantAnimalIcon(icon)]} alt="" draggable={false} className="size-full scale-125 object-contain" />}
