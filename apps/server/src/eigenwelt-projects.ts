@@ -115,6 +115,10 @@ export type RemoteProjectCreate = {
   memberIds: string[];
 };
 
+export async function getRemoteProject(client: IntakeClient, projectId: string): Promise<RemoteProject> {
+  return parsed(z.object({ project: projectSchema }), await intakeRequest(client, "GET", base(projectId))).project;
+}
+
 export async function createRemoteProject(client: IntakeClient, input: RemoteProjectCreate): Promise<RemoteProject> {
   // Older platform versions require this retired field. Never transmit a summary.
   const json = await intakeRequest(client, "POST", "/api/projects", { ...input, ...(input.remote ? { remote: { ...input.remote, context: "" } } : {}) });

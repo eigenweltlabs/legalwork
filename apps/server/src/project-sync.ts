@@ -22,6 +22,7 @@ import { eigenweltProjectStorage, type RemoteFileIndex } from "./eigenwelt-proje
 import {
   createRemoteProject,
   deleteRemoteProject,
+  getRemoteProject,
   listRemoteProjects,
   patchRemoteProject,
   PROJECT_MAX_FILE_BYTES,
@@ -1011,6 +1012,30 @@ function requireOwner(link: ProjectLink | null): void {
   if (link && link.role !== "owner") {
     throw new ApiError(403, "project_sync_not_owner", "Only the project's owner can change who sees it and what it syncs.");
   }
+}
+
+/** Bind a private replica to the existing project without creating a project or changing its sharing. */
+export async function restoreProjectSyncLink(config: ServerConfig, workspace: WorkspaceInfo, projectId: string, origin: ProjectLink["origin"]) {
+  const store = await projectSyncStore(config);
+  const existing = store.linkByWorkspace(workspace.id);
+  if (existing) {
+    if (existing.projectId !== projectId) throw new ApiError(409, "sync_project_identity", "This folder is already linked to another project.");
+    return;
+  }
+  if (store.linkByProject(projectId)) throw new ApiError(409, "sync_project_duplicate", "This project already has a local copy.");
+  await ensureFreshPlatformToken(config);
+  const connection = await readEigenweltConnection(config);
+  const orgId = connectedTaskOrgId(connection);
+  if (!orgId) throw new ApiError(409, "project_sync_not_connected", "Sign in with Eigenwelt to restore project sync.");
+  const remote = await getRemoteProject(requireIntakeClient(connection), projectId);
+  if (remote.id !== projectId) throw new ApiError(502, "sync_project_identity", "The service returned a different project.");
+  await setProjectSyncId(workspace.path, projectId);
+  store.saveLink({ workspaceId: workspace.id, projectId, orgId, origin, role: remote.role,
+    ownerUserId: remote.ownerUserId, settings: { access: remote.access, memberIds: remote.memberIds, scope: remote.scope },
+    confirmed: true, remoteUpdatedAt: remote.updatedAt, filesReconciledAt: null,
+    state: "active", allowDeletions: false, lastSyncAt: null, lastError: null, report: null });
+  const tasks = await taskStore(config);
+  tasks.linkRemoteProjectTasks(projectId, workspace.id);
 }
 
 /**

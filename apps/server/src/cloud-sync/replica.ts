@@ -6,22 +6,22 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { runtimeDbPath } from "../runtime-db.js";
 import { MANAGED_ENGINE_DB_FILENAME } from "../managed-opencode-db.js";
-import type { ServerConfig } from "../types.js";
+import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import type { StorageAdapter } from "../file-storage/common.js";
 import { globalSkillsDir } from "../workspace-files.js";
-import { ControlSchema, CheckpointSchema, SyncConfigSchema, ProjectSchema, emptyControl, type CloudSyncConfig } from "./schema.js";
+import { ControlSchema, CheckpointSchema, SyncConfigSchema, ProjectSchema, emptyControl, type CloudSyncConfig, type SyncProject } from "./schema.js";
 import { getBlob, isConflict, putBlob, type SyncObjects } from "./objects.js";
 import { ReplicaResources } from "./files.js";
 import { PlatformObjects, resourceStorage } from "./platform.js";
 import { projectSyncStore } from "../project-sync-store.js";
-import { DEFAULT_PROJECT_SCOPE, runProjectSync, saveProjectSyncSettings, scopeIncludes, type ProjectSyncResult } from "../project-sync.js";
+import { DEFAULT_PROJECT_SCOPE, restoreProjectSyncLink, runProjectSync, saveProjectSyncSettings, scopeIncludes, type ProjectSyncResult } from "../project-sync.js";
 import { syncBatches } from "../sync-batches.js";
 import { reviewDocumentKeys, syncProjectReviews, REVIEW_SYNC_PREFIX } from "../project-review-sync.js";
 import { reviewRunActive } from "../reviews/service.js";
 import { fileKey } from "../project-file-sync.js";
 import { calendarStore } from "../calendar/store.js";
 import { persistServerWorkspaceState } from "../routes/workspaces.js";
-import { readProjectDetails, restoreProjectDetails, setProjectSyncId } from "../project-store.js";
+import { readProjectDetails, restoreProjectDetails } from "../project-store.js";
 import { syncPreferences } from "./settings.js";
 import { exportCheckpoint, nextScheduledRun, recoverCheckpointRestore, restoreCheckpoint } from "./state.js";
 
@@ -265,12 +265,16 @@ export class CloudReplica {
     return { value: object ? CatalogSchema.parse(JSON.parse(object.data.toString())) : [], revision: object?.revision ?? null };
   }
   async syncCatalog() {
-    if (this.settings.role !== "files") await this.importCatalog();
+    const catalog = (await this.catalog()).value;
+    await this.importCatalog(catalog);
     {
       const links = await projectSyncStore(this.config);
+      const incoming = new Set(catalog.map(project => project.id));
       for (const workspace of this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote" &&
         (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)))) {
-        if (!links.linkByWorkspace(workspace.id)) await saveProjectSyncSettings(this.config, workspace,
+        // An imported/legacy catalog entry must wait for its original sync identity.
+        // Only a genuinely new local project may publish a new remote project.
+        if (!links.linkByWorkspace(workspace.id) && !incoming.has(workspace.id)) await saveProjectSyncSettings(this.config, workspace,
           { access: "members", memberIds: [], scope: { ...DEFAULT_PROJECT_SCOPE, recordings: true } });
       }
       for (let attempt = 0; attempt < 8; attempt++) {
@@ -289,17 +293,23 @@ export class CloudReplica {
       throw new Error("Project catalog changed too often; retry sync");
     }
   }
-  private async importCatalog() {
-    const current = await this.catalog();
-    for (const project of current.value) {
-      if (this.config.workspaces.some(workspace => workspace.id === project.id)) continue;
-      this.config.workspaces.push({ id: project.id, name: project.name, preset: project.preset,
-        path: join(this.settings.projectsDirectory ?? join(dirname(runtimeDbPath(this.config)), "projects"), project.id), workspaceType: "local" });
-      const root = this.config.workspaces.at(-1)!.path;
+  private async importCatalog(projects: SyncProject[]) {
+    const links = await projectSyncStore(this.config);
+    for (const project of projects) {
+      const existing = this.config.workspaces.find(workspace => workspace.id === project.id);
+      if (!existing && this.settings.role === "files") continue;
+      if (existing && links.linkByWorkspace(existing.id)) continue;
+      // Team sync may already have materialized the same project with a local ID.
+      const linked = project.projectId ? links.linkByProject(project.projectId) : null;
+      if (!project.projectId || linked && linked.workspaceId !== project.id) continue;
+      const workspace: WorkspaceInfo = existing ?? { id: project.id, name: project.name, preset: project.preset,
+        path: join(this.settings.projectsDirectory ?? join(dirname(runtimeDbPath(this.config)), "projects"), project.id), workspaceType: "local" };
+      const root = workspace.path;
       await mkdir(root, { recursive: true });
+      if (!existing && project.details) await restoreProjectDetails(root, project.details);
+      await restoreProjectSyncLink(this.config, workspace, project.projectId, existing ? "local" : "remote");
+      if (!existing) this.config.workspaces.push(workspace);
       if (!this.config.authorizedRoots.includes(root)) this.config.authorizedRoots.push(root);
-      if (project.details) await restoreProjectDetails(root, project.details);
-      if (project.projectId) await setProjectSyncId(root, project.projectId);
     }
     await persistServerWorkspaceState(this.config);
   }

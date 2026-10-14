@@ -18,9 +18,10 @@ import { projectSyncStore } from "../project-sync-store.js";
 import { entry, type StorageAdapter } from "../file-storage/common.js";
 import { ChannelRuntime, type ChannelEngine } from "../channel-runtime.js";
 import { randomUUID } from "node:crypto";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 
 let root: string;
-const environments = ["LEGALWORK_RUNTIME_DB", "OPENCODE_DB", "LEGALWORK_DEV_MODE", "LEGALWORK_CLOUD_SYNC_CONFIG", "XDG_CONFIG_HOME", "TZ"];
+const environments = ["LEGALWORK_RUNTIME_DB", "OPENCODE_DB", "LEGALWORK_DEV_MODE", "LEGALWORK_CLOUD_SYNC_CONFIG", "XDG_CONFIG_HOME", "EIGENWELT_PLATFORM_URL", "TZ"];
 const saved = new Map<string, string | undefined>();
 const databases: Database[] = [];
 const closers: Array<() => void> = [];
@@ -49,6 +50,72 @@ async function store() { const result = await DirectoryObjects.open(join(root, "
 const settings = (deviceId: string, role: "files" | "executor" | "companion" = "executor") => SyncConfigSchema.parse({ version: 1, accountId: "test-user", deviceId, deviceName: deviceId, store: { type: "platform" }, role });
 
 describe("private replica checkpoints", () => {
+  test.each([false, true])("catalog imports preserve identity, sharing and folder ownership across rounds and restarts (existing=%p)", async existing => {
+    process.env.EIGENWELT_PLATFORM_URL = "https://platform.test";
+    const target = await config("catalog-import"); let remote = await store();
+    target.workspaces = existing ? [{ ...target.workspaces[0], id: "ws_original", name: "Assistant", preset: "main-assistant" }] : [];
+    await writeEigenweltConnection(target, { platformToken: "test-token",
+      account: { userId: "test-user", userName: "Test", orgId: "test-org", userEmail: "test@example.test", orgName: "Test" } });
+    const projectId = randomUUID();
+    const project = { id: projectId, name: "Assistant", role: "member", ownerUserId: "other-user", access: "members", memberIds: ["test-user"],
+      scope: { documents: true, notes: false, tasks: false, recordings: false, metadata: true, reviews: false, calendar: false }, fields: [],
+      createdAt: "2026-10-14T00:00:00Z", updatedAt: "2026-10-14T00:00:00Z" };
+    await remote.put("catalog.json", Buffer.from(JSON.stringify([{ id: "ws_original", name: "Assistant", preset: "main-assistant",
+      sourcePath: "/desktop/Assistant", projectId }])), null);
+    const calls: string[] = [];
+    const fetch = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${input}`);
+      return Response.json({ project });
+    }, { preconnect: globalThis.fetch.preconnect }));
+    let replica = await CloudReplica.open(target, settings("catalog", "companion"), remote);
+    try {
+      await replica.syncCatalog(); await replica.syncCatalog();
+      replica.close();
+      // Recover a crash after the binding committed but before server.json did.
+      target.workspaces = [];
+      remote = await store();
+      replica = await CloudReplica.open(target, settings("catalog", "companion"), remote);
+      await replica.syncCatalog();
+      expect(target.workspaces.map(workspace => workspace.id)).toEqual(["ws_original"]);
+      const links = await projectSyncStore(target);
+      expect(links.linkByWorkspace("ws_original")).toMatchObject({ projectId, origin: existing ? "local" : "remote", role: "member", ownerUserId: "other-user", settings: { scope: project.scope, memberIds: ["test-user"] } });
+      expect(links.outbox()).toEqual([]);
+      expect((await readProjectDetails(target.workspaces[0].path)).syncProjectId).toBe(projectId);
+      expect(calls).toEqual([`GET https://platform.test/api/projects/${projectId}`]);
+      expect(JSON.parse((await remote.get("catalog.json"))!.data.toString())).toHaveLength(1);
+    } finally { replica.close(); fetch.mockRestore(); }
+  });
+
+  test("catalog imports fail closed when the existing project is inaccessible", async () => {
+    process.env.EIGENWELT_PLATFORM_URL = "https://platform.test";
+    const target = await config("catalog-forbidden"), remote = await store();
+    target.workspaces = [];
+    await writeEigenweltConnection(target, { platformToken: "test-token",
+      account: { userId: "test-user", userName: "Test", orgId: "test-org", userEmail: "test@example.test", orgName: "Test" } });
+    await remote.put("catalog.json", Buffer.from(JSON.stringify([{ id: "ws_original", name: "Assistant", preset: "main-assistant",
+      sourcePath: "/desktop/Assistant", projectId: randomUUID() }])), null);
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: { code: "not_found", message: "Project not found" } }, { status: 404 }));
+    const replica = await CloudReplica.open(target, settings("catalog", "companion"), remote);
+    try {
+      await expect(replica.syncCatalog()).rejects.toMatchObject({ status: 404 });
+      expect(target.workspaces).toEqual([]);
+      expect((await projectSyncStore(target)).outbox()).toEqual([]);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally { replica.close(); fetch.mockRestore(); }
+  });
+
+  test("legacy catalog entries without a sync identity never create a second remote project", async () => {
+    const target = await config("catalog-legacy"), remote = await store();
+    await remote.put("catalog.json", Buffer.from(JSON.stringify([{ id: target.workspaces[0].id, name: "Project", preset: "starter",
+      sourcePath: "/desktop/project", projectId: null }, { id: "ws_legacy", name: "Project", preset: "starter", sourcePath: "/desktop/legacy", projectId: null }])), null);
+    const replica = await CloudReplica.open(target, settings("catalog", "companion"), remote);
+    try {
+      await replica.syncCatalog(); await replica.syncCatalog();
+      expect(target.workspaces).toHaveLength(1);
+      expect((await projectSyncStore(target)).outbox()).toEqual([]);
+    } finally { replica.close(); }
+  });
+
   test("warm readiness uses the valid fenced lease without remote IO or cancelling a pending heartbeat", async () => {
     const target = await config("vm"), remote = await store();
     const replica = await CloudReplica.open(target, settings("vm"), remote);
