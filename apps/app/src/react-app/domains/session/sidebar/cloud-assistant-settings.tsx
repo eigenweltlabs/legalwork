@@ -71,7 +71,6 @@ export function CloudAssistantSettings({ client, profile = DEFAULT_ASSISTANT_PRO
           <p className="text-xs leading-relaxed text-muted-foreground">{t("assistant.cloud_hint")}</p>
         </div>
       </div>
-      {status?.connected && status.accountName && <p className="text-xs text-muted-foreground">{t("assistant.cloud_account", { account: status.accountName })}</p>}
       <Button type="button" variant={ready ? "outline" : "default"} size="sm" className="w-fit" disabled={query.isPending || change.isPending} onClick={showSetup}>
         {preparing ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> : <Cloud className="size-4" />}
         {t(query.isPending ? "assistant.cloud_checking" : ready ? "assistant.cloud_manage" : preparing ? "assistant.cloud_view_setup" : "assistant.cloud_enable")}
@@ -96,10 +95,6 @@ export function CloudAssistantSettings({ client, profile = DEFAULT_ASSISTANT_PRO
           </div>}
           {ready && status?.sync && (status.sync.running || status.sync.pendingProjects > 0) && <p className="text-xs leading-relaxed text-muted-foreground">{t("assistant.cloud_background", { count: status.sync.pendingProjects })}</p>}
           {ready && status?.sync?.error && <p role="alert" className="text-xs text-destructive">{status.sync.error}</p>}
-          {status?.connected && <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
-            <p>{t("assistant.cloud_local_hint")}</p><p>{t("assistant.cloud_schedules")}</p>
-            {status.accountName && <p>{t("assistant.cloud_account", { account: status.accountName })}</p>}
-          </div>}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-muted/20 px-6 py-4">
           {ready && <Button type="button" variant="ghost" disabled={change.isPending} onClick={() => change.mutate(false)}>{t(change.isPending ? "assistant.cloud_disabling" : "assistant.cloud_disable")}</Button>}
@@ -126,7 +121,7 @@ export function CloudAssistantProgress({ profile, status, preparing, error }: { 
 export function CloudAssistantSteps({ status, preparing, error }: { status?: CloudAssistantStatus; preparing: boolean; error: boolean }) {
   const active = status?.enabled ? 3 : status?.state === "starting" ? 1 : 0;
   const labels = ["assistant.cloud_step_prepare", "assistant.cloud_step_start", "assistant.cloud_step_ready"];
-  return <ol aria-label={t("assistant.cloud_setup_progress")} className="space-y-3 rounded-2xl border border-border/70 bg-background/50 p-4">
+  return <ol aria-label={t("assistant.cloud_setup_progress")} className="space-y-3">
     {labels.map((label, index) => <li key={label} aria-current={!error && preparing && index === active ? "step" : undefined} className={cn("flex items-center gap-3 text-sm", index > active && "text-muted-foreground")}>
       <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-xs", index < active ? "bg-green-3 text-green-11" : index === active && !error ? "bg-blue-3 text-blue-11" : "bg-muted text-muted-foreground")}>
         {index < active ? <Check className="size-3.5" /> : index === active && preparing && !error ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : index + 1}
