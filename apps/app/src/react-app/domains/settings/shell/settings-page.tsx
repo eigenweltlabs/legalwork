@@ -2,7 +2,7 @@
 import type * as React from "react";
 import {
   Bell,
-  Bot,
+  Circle,
   Bug,
   ChevronDown,
   CloudCog,
@@ -69,7 +69,7 @@ export function getSettingsTabIcon(tab: SettingsTab) {
     case "account":
       return UserCircle;
     case "assistant":
-      return Bot;
+      return Circle;
     case "personalisation":
       return Sparkles;
     case "notifications":

@@ -2,7 +2,7 @@
 import {
   ArrowRight,
   Bell,
-  Bot,
+  Circle,
   FileStack,
   FolderLock,
   KeyRound,
@@ -43,7 +43,7 @@ const globalItems = (): SettingsItem[] => [
     desc: t("settings.tab_description_account"),
   },
   { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: t("settings.tab_description_ai") },
-  { tab: "assistant", icon: Bot, title: t("assistant.title"), desc: t("assistant.settings_description") },
+  { tab: "assistant", icon: Circle, title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: Table2, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
