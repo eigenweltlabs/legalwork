@@ -1,8 +1,8 @@
 /** @jsxImportSource react */
+import type { ComponentType } from "react";
 import {
   ArrowRight,
   Bell,
-  Circle,
   FileStack,
   FolderLock,
   KeyRound,
@@ -15,20 +15,21 @@ import {
   Table2,
   UserCircle,
   Zap,
-  type LucideIcon,
 } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
+import { AssistantCircleIcon } from "../../session/sidebar/assistant-appearance";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
   developerMode: boolean;
 };
 
-type SettingsItem = { tab: SettingsTab; icon: LucideIcon; title: string; desc: string };
+type SettingsIcon = ComponentType<{ size?: number; className?: string }>;
+type SettingsItem = { tab: SettingsTab; icon: SettingsIcon; title: string; desc: string };
 
 const workspaceItems = (): SettingsItem[] => [
   { tab: "permissions", icon: FolderLock, title: t("settings.tab_permissions"), desc: `${t("settings.tab_description_permissions")}.` },
@@ -43,7 +44,7 @@ const globalItems = (): SettingsItem[] => [
     desc: t("settings.tab_description_account"),
   },
   { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: t("settings.tab_description_ai") },
-  { tab: "assistant", icon: Circle, title: t("assistant.title"), desc: t("assistant.settings_description") },
+  { tab: "assistant", icon: AssistantCircleIcon, title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: Table2, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
@@ -83,7 +84,7 @@ function resolveGlobalItems(): SettingsItem[] {
   return [...items.slice(0, 3), recorderItem, officeAddinsItem, ...items.slice(3)];
 }
 
-function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
+function SettingsRow(props: { icon: SettingsIcon; title: string; desc: string; onClick: () => void }) {
   return (
     <button
       type="button"
