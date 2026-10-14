@@ -18,10 +18,18 @@ overrides:
   '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 
 patchedDependencies:
-  '@eigenpal/docx-editor-core@1.8.3': a852dfc46ccb55254be612de43b0993f2bb75043a7164a1221d6904f45f5c87a
-  '@eigenpal/docx-editor-react@1.8.3': 0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457
-  pptx-react-viewer@3.5.4: ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b
-  smb3-client@0.2.0: 6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d
+  '@eigenpal/docx-editor-core@1.8.3':
+    hash: a852dfc46ccb55254be612de43b0993f2bb75043a7164a1221d6904f45f5c87a
+    path: patches/@eigenpal__docx-editor-core@1.8.3.patch
+  '@eigenpal/docx-editor-react@1.8.3':
+    hash: 0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457
+    path: patches/@eigenpal__docx-editor-react@1.8.3.patch
+  pptx-react-viewer@3.5.4:
+    hash: ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b
+    path: patches/pptx-react-viewer@3.5.4.patch
+  smb3-client@0.2.0:
+    hash: 6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d
+    path: patches/smb3-client@0.2.0.patch
 
 importers:
 

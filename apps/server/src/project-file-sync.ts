@@ -6,6 +6,7 @@ import { dirname, extname, join, relative, sep } from "node:path";
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
 import { MERGEABLE_TEXT_MAX_BYTES, mergeableText, mergeText } from "./text-merge.js";
+import { syncBatches } from "./sync-batches.js";
 
 /**
  * One project folder kept in step with a remote copy of its documents.
@@ -341,7 +342,8 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
   /** Keep what both sides now agree a text says, if it is one that is merged. */
   const rememberText = async (key: string, path: string, abs: string, sha256: string): Promise<void> => {
     if (!base.putText || !mergeableText(path)) return;
-    const bytes = await readFile(abs).catch(() => null);
+    const info = await stat(abs).catch(() => null);
+    const bytes = info && info.size <= MERGEABLE_TEXT_MAX_BYTES ? await readFile(abs).catch(() => null) : null;
     const agreed = bytes && bytes.byteLength <= MERGEABLE_TEXT_MAX_BYTES && createHash("sha256").update(bytes).digest("hex") === sha256;
     base.putText(key, agreed ? bytes.toString("utf8") : null);
   };
@@ -428,7 +430,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
     }
   };
 
-  for (const { key, action, localSha } of plan) {
+  const apply = async ({ key, action, localSha }: (typeof plan)[number]) => {
     const file = local.get(key) ?? null;
     const remoteFile = remoteFiles.get(key) ?? null;
     const known = bases.get(key) ?? null;
@@ -501,7 +503,11 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
       else result.skipped.push({ path, reason: error instanceof ApiError && error.status === 413 ? "too_large" : "failed", detail: messageOf(error) });
       if (action === "upload" || action === "delete-remote" || action === "conflict") result.pending += 1;
     }
-  }
+  };
+  // Transfers touch distinct paths. Conflicts reserve new names and deletions
+  // change folder structure, so those retain their original serial ordering.
+  await syncBatches(plan.filter(step => ["upload", "download", "adopt"].includes(step.action)), 4, apply);
+  for (const step of plan.filter(step => !["upload", "download", "adopt"].includes(step.action))) await apply(step);
 
   // This computer's side of each conflict, as a new file under its own name.
   for (const copyPath of extraUploads) {

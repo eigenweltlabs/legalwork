@@ -27,6 +27,7 @@ import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { startModelCatalogRelay } from "./model-catalog.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
+import { bootCloudSync } from "./cloud-sync/lifecycle.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
@@ -67,108 +68,117 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
+  const cloudSync = await bootCloudSync(config);
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
+  const executionSnapshot = () => managedOpencode?.execution ?? null;
+  if (config.cloudSync) config.cloudSync.onLeaseLost = () => { void managedOpencode?.close(); };
   let catalogRelay: Awaited<ReturnType<typeof startModelCatalogRelay>> | null = null;
 
-  if (!config.readOnly) {
-    await retireSharedLegacyReview(globalSkillsDir());
-    await ensureBundledWorkflows();
-    for (const workspace of config.workspaces) {
-      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
-    }
-  }
-  // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
-  // engine config file is built: one bad stored block takes the engine down.
-  await repairAllWorkspaceRuntimeProviders(config);
-  // Desktop connectors are shared by every workspace. Fold what earlier builds
-  // stored per workspace or in files into the shared row before the engine
-  // config file is built from it, so nothing already connected disappears.
-  const connectorImport = await importConnectorsIntoSharedRow(config, {
-    runtimeConfigFile: legalworkRuntimeConfigFilePath(config),
-    globalOpencodeConfigFile: globalOpenCodeConfigPath(),
-  }).catch((error: unknown) => {
-    console.warn(`[embedded] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
-    return { imported: [] as string[] };
-  });
-  if (connectorImport.imported.length > 0) {
-    console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
-  }
-
-  if (!config.opencodeBaseUrl && options.manageOpencode) {
-    const workspace = config.workspaces[0];
-    if (workspace?.path) {
-      // Server-managed config file: the engine re-reads it from disk on every
-      // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
-      // on every runtime-DB write — so disposes always pick up current state.
-      const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
-      keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-      // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
-      // the kept key (no-op when not signed in) with the firm's access token,
-      // so the list reflects the admin's on/off choices, then rewrite the
-      // engine config so the current models appear across every workspace.
-      void ensureFreshPlatformToken(config)
-        .catch(() => null)
-        .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
-        .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
-        .catch(() => undefined);
-      const cwd = options.opencodeCwd
-        || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
-        || workspace.path;
-      await mkdir(cwd, { recursive: true });
-
-      // Private engine DB: never share OpenCode's global opencode.db with a
-      // separately installed OpenCode — a newer install migrates it to a
-      // schema the pinned sidecar can't open, which kills provider listing,
-      // MCP connect, and session create (issue #62). Also exported to
-      // process.env so server-side direct DB access (opencode-db.ts) targets
-      // the same file the engine writes.
-      const managedDb = await prepareManagedOpencodeEngineDb(config);
-      if (managedDb) process.env.OPENCODE_DB = managedDb.path;
-
-      catalogRelay = await startModelCatalogRelay(config);
-      managedOpencode = await createManagedOpencodeServer({
-        bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
-        cwd,
-        excludedPorts: [config.port],
-        env: {
-          ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
-          ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
-          LEGALWORK_SERVER_URL: serverUrl,
-          LEGALWORK_SERVER_TOKEN: config.token,
-          OPENCODE_CONFIG: runtimeConfigPath,
-          OPENCODE_MODELS_URL: catalogRelay.url,
-          ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
-        },
-      }).catch(async (error: unknown) => {
-        await catalogRelay?.stop();
-        throw error;
-      });
-
-      config.opencodeBaseUrl = managedOpencode.url;
-      config.opencodeUsername = managedOpencode.username;
-      config.opencodePassword = managedOpencode.password;
-      for (const entry of config.workspaces) {
-        if (entry.workspaceType === "remote") {
-          entry.baseUrl ??= managedOpencode.url;
-          entry.opencodeUsername ??= managedOpencode.username;
-          entry.opencodePassword ??= managedOpencode.password;
-          entry.directory ??= entry.path;
-          continue;
-        }
-        entry.baseUrl = managedOpencode.url;
-        entry.opencodeUsername = managedOpencode.username;
-        entry.opencodePassword = managedOpencode.password;
-        entry.directory = entry.path;
+  const server = await (async () => {
+    if (cloudSync?.replica.settings.role === "executor" && !options.manageOpencode)
+      throw new Error("A cloud execution owner requires a managed OpenCode engine");
+    if (!config.readOnly) {
+      await retireSharedLegacyReview(globalSkillsDir());
+      await ensureBundledWorkflows();
+      for (const workspace of config.workspaces) {
+        if (config.cloudSync && !config.cloudSync.shouldSyncFiles(workspace.id)) continue;
+        await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
       }
     }
-  }
+    // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
+    // engine config file is built: one bad stored block takes the engine down.
+    await repairAllWorkspaceRuntimeProviders(config);
+    // Desktop connectors are shared by every workspace. Fold what earlier builds
+    // stored per workspace or in files into the shared row before the engine
+    // config file is built from it, so nothing already connected disappears.
+    const connectorImport = await importConnectorsIntoSharedRow(config, {
+      runtimeConfigFile: legalworkRuntimeConfigFilePath(config),
+      globalOpencodeConfigFile: globalOpenCodeConfigPath(),
+    }).catch((error: unknown) => {
+      console.warn(`[embedded] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
+      return { imported: [] as string[] };
+    });
+    if (connectorImport.imported.length > 0) {
+      console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
+    }
 
-  const server = await startServer(config).catch(async (error: unknown) => {
+    if (!config.opencodeBaseUrl && options.manageOpencode) {
+      const workspace = config.workspaces[0];
+      if (workspace?.path) {
+        // Server-managed config file: the engine re-reads it from disk on every
+        // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
+        // on every runtime-DB write — so disposes always pick up current state.
+        const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
+        keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+        // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
+        // the kept key (no-op when not signed in) with the firm's access token,
+        // so the list reflects the admin's on/off choices, then rewrite the
+        // engine config so the current models appear across every workspace.
+        void ensureFreshPlatformToken(config)
+          .catch(() => null)
+          .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
+          .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
+          .catch(() => undefined);
+        const cwd = options.opencodeCwd
+          || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
+          || workspace.path;
+        await mkdir(cwd, { recursive: true });
+
+        // Private engine DB: never share OpenCode's global opencode.db with a
+        // separately installed OpenCode — a newer install migrates it to a
+        // schema the pinned sidecar can't open, which kills provider listing,
+        // MCP connect, and session create (issue #62). Also exported to
+        // process.env so server-side direct DB access (opencode-db.ts) targets
+        // the same file the engine writes.
+        const managedDb = await prepareManagedOpencodeEngineDb(config);
+        if (managedDb) process.env.OPENCODE_DB = managedDb.path;
+
+        catalogRelay = await startModelCatalogRelay(config);
+        managedOpencode = await createManagedOpencodeServer({
+          bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
+          cwd,
+          excludedPorts: [config.port],
+          env: {
+            ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
+            ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
+            LEGALWORK_SERVER_URL: serverUrl,
+            LEGALWORK_SERVER_TOKEN: config.token,
+            OPENCODE_CONFIG: runtimeConfigPath,
+            OPENCODE_MODELS_URL: catalogRelay.url,
+            ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
+          },
+        }).catch(async (error: unknown) => {
+          await catalogRelay?.stop();
+          throw error;
+        });
+
+        config.opencodeBaseUrl = managedOpencode.url;
+        config.opencodeUsername = managedOpencode.username;
+        config.opencodePassword = managedOpencode.password;
+        for (const entry of config.workspaces) {
+          if (entry.workspaceType === "remote") {
+            entry.baseUrl ??= managedOpencode.url;
+            entry.opencodeUsername ??= managedOpencode.username;
+            entry.opencodePassword ??= managedOpencode.password;
+            entry.directory ??= entry.path;
+            continue;
+          }
+          entry.baseUrl = managedOpencode.url;
+          entry.opencodeUsername = managedOpencode.username;
+          entry.opencodePassword = managedOpencode.password;
+          entry.directory = entry.path;
+        }
+      }
+    }
+
+    return startServer(config);
+  })().catch(async (error: unknown) => {
     await managedOpencode?.close();
     await catalogRelay?.stop();
+    await cloudSync?.stop();
     throw error;
   });
 
@@ -183,7 +193,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     port: server.port,
     url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`,
     config,
-    managedOpencodeExecution: managedOpencode?.execution ?? null,
+    managedOpencodeExecution: executionSnapshot(),
     managedOpencodeStatus: () => managedOpencode
       ? { running: managedOpencode.running(), pid: managedOpencode.pid }
       : null,
@@ -191,6 +201,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       await managedOpencode?.close();
       await server.stop();
       await catalogRelay?.stop();
+      if (cloudSync) {
+        try { await cloudSync.replica.tick(); }
+        finally { await cloudSync.stop(); }
+      }
     },
   };
 }

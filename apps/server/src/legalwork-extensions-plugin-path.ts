@@ -15,6 +15,8 @@ function resourcesPathFromAppAsarPath(path: string): string | null {
 }
 
 export function legalworkPluginPath(name: string, here = dirname(fileURLToPath(import.meta.url))): string {
+  const pluginDirectory = process.env.LEGALWORK_OPENCODE_PLUGINS_DIR?.trim();
+  if (pluginDirectory) return join(pluginDirectory, `${name}.js`);
   const resourcesPath = resourcesPathFromAppAsarPath(here);
   if (resourcesPath) {
     const electronResourcesPath = process.resourcesPath?.includes("app.asar") ? resourcesPath : process.resourcesPath?.trim();

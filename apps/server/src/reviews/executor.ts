@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cloudExecutionFetch, prepareCloudExecution } from "../cloud-sync/lifecycle.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { ApiError } from "../errors.js";
@@ -46,7 +47,7 @@ export class ReviewExecutor {
   private client(workspace: WorkspaceInfo) {
     const connection = resolveWorkspaceOpencodeConnection(this.config, workspace);
     if (!connection.baseUrl) throw new ApiError(503, "review_engine_unavailable", "Connect the project to its agent engine first.");
-    return createOpencodeClient({ baseUrl: connection.baseUrl, ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}) });
+    return createOpencodeClient({ baseUrl: connection.baseUrl, fetch: cloudExecutionFetch(this.config, workspace, fetch), ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}) });
   }
   async models(workspace: WorkspaceInfo): Promise<ReviewCapabilities> {
     const models: ReviewCapabilities["models"] = [], errors: string[] = [];
@@ -97,6 +98,7 @@ export class ReviewExecutor {
     return { models, errors, settings: { mode: subscribed || selectedJev ? "mixed" : "llm", jev: selectedJev, llm: selectedLlm }, allowedKinds: ReviewColumnKindSchema.options } satisfies ReviewCapabilities;
   }
   private async llm(workspace: WorkspaceInfo, selected: ReviewModel, column: ReviewColumn, pages: EvidencePage[], signal: AbortSignal, citationRepair?: string) {
+    await prepareCloudExecution(this.config, workspace.id);
     const client = this.client(workspace), query = { directory: workspace.path };
     const ids = await client.tool.ids({ query, signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) });
     if (!ids.data) throw new Error("Could not disable agent tools for review inference.");
@@ -161,6 +163,7 @@ export class ReviewExecutor {
     }
   }
   async execute(workspace: WorkspaceInfo, review: SavedReview, column: ReviewColumn, evidence: ReviewEvidence, signal: AbortSignal): Promise<ReviewResult> {
+    await prepareCloudExecution(this.config, workspace.id);
     const backend = columnBackend(review.settings.mode, column);
     const selected = backend === "systemone" ? review.settings.jev : review.settings.llm;
     if (!selected) throw new Error("Select the review model first.");

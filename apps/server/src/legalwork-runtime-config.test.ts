@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 
 import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
@@ -14,6 +15,7 @@ import {
 import {
   GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
+  readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
@@ -61,6 +63,46 @@ async function readConfigFile(config: ServerConfig): Promise<Record<string, unkn
 }
 
 describe("legalwork runtime config file", () => {
+  test("a cold channel worker gains its managed model after boot and refreshes a rotated key", async () => {
+    const { root, config } = await setup();
+    const previousSelection = process.env.LEGALWORK_CHANNEL_MODEL;
+    const previousConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.LEGALWORK_CHANNEL_MODEL = join(root, "channel-model.json");
+    process.env.XDG_CONFIG_HOME = join(root, "config");
+    try {
+      await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current,
+        agent: { reviewer: { mode: "subagent" } },
+      }));
+      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { bash: "ask" } }));
+      await writeLegalworkRuntimeConfigFile(config, "ws_1");
+      expect((await readConfigFile(config)).provider).toEqual({});
+
+      await mkdir(join(process.env.XDG_CONFIG_HOME, "opencode"), { recursive: true });
+      await writeFile(process.env.LEGALWORK_CHANNEL_MODEL, JSON.stringify({ providerID: "eigenwelt-cloud", modelID: "test-model" }));
+      const file = join(process.env.XDG_CONFIG_HOME, "opencode/opencode.json");
+      const provider = (apiKey: string) => ({ npm: "@ai-sdk/openai-compatible", options: { baseURL: "https://model.example/v1", apiKey }, models: { "test-model": { name: "Test" } } });
+      await writeFile(file, JSON.stringify({ model: "unrelated/default", permission: { bash: "allow" }, provider: { "eigenwelt-cloud": provider("scoped-first"), unrelated: provider("private-other") } }));
+      await writeLegalworkRuntimeConfigFile(config, "ws_1");
+      const before = z.object({ provider: z.record(z.string(), z.object({ options: z.object({ apiKey: z.string() }) })), permission: z.object({ bash: z.string() }), agent: z.record(z.string(), z.unknown()) }).parse(await readConfigFile(config));
+      expect(Object.keys(before.provider)).toEqual(["eigenwelt-cloud"]);
+      expect(before.provider["eigenwelt-cloud"].options.apiKey).toBe("scoped-first");
+      expect(before.permission.bash).toBe("ask");
+      expect(before.agent.reviewer).toEqual({ mode: "subagent" });
+
+      await writeFile(file, JSON.stringify({ provider: { "eigenwelt-cloud": provider("scoped-rotated") } }));
+      await writeLegalworkRuntimeConfigFile(config, "ws_1");
+      const after = z.object({ provider: z.record(z.string(), z.object({ options: z.object({ apiKey: z.string() }) })) }).parse(await readConfigFile(config));
+      expect(after.provider["eigenwelt-cloud"].options.apiKey).toBe("scoped-rotated");
+      expect((await readRuntimeOpencodeConfig(config, "ws_1")).provider).toBeUndefined();
+      expect((await readConfigFile(config)).model).toBeUndefined();
+    } finally {
+      if (previousSelection === undefined) delete process.env.LEGALWORK_CHANNEL_MODEL;
+      else process.env.LEGALWORK_CHANNEL_MODEL = previousSelection;
+      if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousConfigHome;
+    }
+  });
+
   test("writes runtime-DB MCPs and legalwork defaults into the file", async () => {
     const { config } = await setup();
     await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({

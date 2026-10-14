@@ -22,6 +22,7 @@ import { eigenweltProjectStorage, type RemoteFileIndex } from "./eigenwelt-proje
 import {
   createRemoteProject,
   deleteRemoteProject,
+  getRemoteProject,
   listRemoteProjects,
   patchRemoteProject,
   PROJECT_MAX_FILE_BYTES,
@@ -52,6 +53,7 @@ import { reviewRunActive } from "./reviews/service.js";
 import { registerLocalProject, renameRegisteredWorkspace, unregisterWorkspace } from "./routes/workspaces.js";
 import { taskStore } from "./task-store.js";
 import { scheduleTaskSync } from "./task-sync.js";
+import { syncBatches } from "./sync-batches.js";
 import { connectedTaskOrgId } from "./tasks-api.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
@@ -679,10 +681,11 @@ async function syncDocuments(
   link: ProjectLink,
   runner: { userId: string; name: string | null },
 ): Promise<void> {
-  const label = runner.name ?? "LegalWork";
+  const label = config.cloudSync?.deviceName ?? runner.name ?? "LegalWork";
   // A project leaves sync only when it is removed from the list (noteProjectRemoved),
   // never because a server with another project list does not know it.
   const workspace = workspaceOf(config, link.workspaceId);
+  if (config.cloudSync && !config.cloudSync.shouldSyncFiles(link.workspaceId)) return;
   if (!workspace || !(await folderAvailable(workspace.path))) return;
   const scope = link.settings.scope;
   if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews && scope.calendar === false) {
@@ -713,7 +716,7 @@ async function syncDocuments(
       root: resolve(workspace.path),
       remote,
       base: store.fileBase(link.projectId),
-      includes: (path) => scopeIncludes(scope, path, reviewed, attached),
+      includes: (path) => !(config.cloudSync && /^opencode\.jsonc?$/i.test(path)) && scopeIncludes(scope, path, reviewed, attached),
       reconcile,
       allowDeletions: link.allowDeletions,
       label,
@@ -760,19 +763,19 @@ async function syncDocuments(
 /** One full round, now. Concurrent callers share the round in flight. */
 export function runProjectSync(
   config: ServerConfig,
-  options: { platform?: ProjectSyncPlatform } = {},
+  options: { platform?: ProjectSyncPlatform; workspaceIds?: readonly string[] } = {},
 ): Promise<ProjectSyncResult> {
   const key = keyOf(config);
   const inFlight = rounds.get(key);
   if (inFlight) return inFlight;
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
+  const round = runRound(config, options.platform ?? REAL_PLATFORM, options.workspaceIds).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
   rounds.set(key, round);
   return round;
 }
 
-async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Promise<ProjectSyncResult> {
+async function runRound(config: ServerConfig, platform: ProjectSyncPlatform, workspaceIds?: readonly string[]): Promise<ProjectSyncResult> {
   await ensureFreshPlatformToken(config).catch(() => null);
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
@@ -792,8 +795,8 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
       userId: connection.account?.userId ?? "",
       name: connection.account?.userName?.trim() || connection.account?.userEmail?.trim() || null,
     };
-    for (const link of store.links(orgId)) {
-      if (link.state !== "active" || !link.confirmed) continue;
+    await syncBatches(store.links(orgId).filter(link => link.state === "active" && link.confirmed &&
+      (!workspaceIds || workspaceIds.includes(link.workspaceId))), 2, async link => {
       if (platform === REAL_PLATFORM) {
         try { await syncProjectCalendar(config, client, link); }
         catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; /* An older platform may not have the calendar API yet. Keep the outbox and continue document sync. */ }
@@ -804,7 +807,7 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
         const report = store.linkByWorkspace(link.workspaceId)?.report;
         if (pendingCalendar > 0) store.updateLink(link.workspaceId, { report: { pending: (report?.pending ?? 0) + pendingCalendar, skipped: report?.skipped ?? [], heldDeletions: report?.heldDeletions ?? 0 } });
       }
-    }
+    });
     roundStates.set(key, { offline: false, error: null, at: Date.now() });
     // Tasks published this round go up with the task sync (which waits for a
     // project's first upload before sending its tasks); a project that
@@ -814,7 +817,7 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     result.error = messageOf(error);
     roundStates.set(key, { offline: unreachable(error), error: result.error, at: Date.now() });
   }
-  if (platform === REAL_PLATFORM) {
+  if (platform === REAL_PLATFORM && !workspaceIds) {
     try { await syncCalendarSubscriptions(config); }
     catch (error) { result.error ??= messageOf(error); }
   }
@@ -1011,6 +1014,30 @@ function requireOwner(link: ProjectLink | null): void {
   }
 }
 
+/** Bind a private replica to the existing project without creating a project or changing its sharing. */
+export async function restoreProjectSyncLink(config: ServerConfig, workspace: WorkspaceInfo, projectId: string, origin: ProjectLink["origin"]) {
+  const store = await projectSyncStore(config);
+  const existing = store.linkByWorkspace(workspace.id);
+  if (existing) {
+    if (existing.projectId !== projectId) throw new ApiError(409, "sync_project_identity", "This folder is already linked to another project.");
+    return;
+  }
+  if (store.linkByProject(projectId)) throw new ApiError(409, "sync_project_duplicate", "This project already has a local copy.");
+  await ensureFreshPlatformToken(config);
+  const connection = await readEigenweltConnection(config);
+  const orgId = connectedTaskOrgId(connection);
+  if (!orgId) throw new ApiError(409, "project_sync_not_connected", "Sign in with Eigenwelt to restore project sync.");
+  const remote = await getRemoteProject(requireIntakeClient(connection), projectId);
+  if (remote.id !== projectId) throw new ApiError(502, "sync_project_identity", "The service returned a different project.");
+  await setProjectSyncId(workspace.path, projectId);
+  store.saveLink({ workspaceId: workspace.id, projectId, orgId, origin, role: remote.role,
+    ownerUserId: remote.ownerUserId, settings: { access: remote.access, memberIds: remote.memberIds, scope: remote.scope },
+    confirmed: true, remoteUpdatedAt: remote.updatedAt, filesReconciledAt: null,
+    state: "active", allowDeletions: false, lastSyncAt: null, lastError: null, report: null });
+  const tasks = await taskStore(config);
+  tasks.linkRemoteProjectTasks(projectId, workspace.id);
+}
+
 /**
  * Turn sync on for a project (its owner, on this machine), or change what it
  * syncs and who sees it. Changing the scope takes effect here at once: tasks
@@ -1078,6 +1105,9 @@ export async function stopProjectSync(config: ServerConfig, workspace: Workspace
   const link = store.linkByWorkspace(workspace.id);
   if (!link) return projectSyncStatus(config, workspace);
   requireOwner(link);
+  // Removing the last teammate ends sharing while retaining the owner's VM copy.
+  if (config.cloudSync?.maintainsProject?.(workspace.id)) return saveProjectSyncSettings(config, workspace,
+    { access: "members", memberIds: [], scope: link.settings.scope });
   const confirmed = link.confirmed;
   await keepAsLocal(config, store, link);
   if (confirmed) {

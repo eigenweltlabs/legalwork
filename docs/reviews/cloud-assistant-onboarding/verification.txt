@@ -1,0 +1,5 @@
+Activation, live stages, background continuation/reopen without duplicate POST, ready with 12 files pending: PASS
+Server error, explicit retry, narrow viewport and reduced motion: PASS
+Slow activation response does not block readiness polling or dismissing the success dialog: PASS
+Activation response lost after backend success: recovers through status without retrying setup: PASS
+Disable action and signed-out routing to Account without provisioning: PASS

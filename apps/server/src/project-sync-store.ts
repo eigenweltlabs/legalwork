@@ -139,6 +139,12 @@ export const PROJECT_SYNC_SCHEMA = [
     exported_at INTEGER NOT NULL,
     PRIMARY KEY (project_id, recording_id)
   )`,
+  // Device-local availability markers for on-demand project/resource roots.
+  `CREATE TABLE IF NOT EXISTS project_file_roots (
+    scope TEXT PRIMARY KEY NOT NULL,
+    root TEXT NOT NULL,
+    ready INTEGER NOT NULL DEFAULT 0
+  )`,
 ];
 
 function jsonOf(value: string): unknown {
@@ -430,6 +436,19 @@ export class ProjectSyncStore {
   }
 
   // --- Documents -----------------------------------------------------------------
+
+  fileRoot(scope: string): { root: string; ready: boolean } | null {
+    const row = this.db.get("SELECT root, ready FROM project_file_roots WHERE scope = ?", [scope]);
+    return row ? { root: text(row.root), ready: row.ready === 1 } : null;
+  }
+
+  setFileRoot(scope: string, root: string, ready: boolean): void {
+    this.db.run("INSERT INTO project_file_roots VALUES (?, ?, ?) ON CONFLICT(scope) DO UPDATE SET root = excluded.root, ready = excluded.ready", [scope, root, ready ? 1 : 0]);
+  }
+
+  forgetFileRoots(root: string): void {
+    this.db.run("DELETE FROM project_file_roots WHERE root = ? OR substr(root, 1, ?) = ?", [root, root.length + 1, `${root}/`]);
+  }
 
   fileBase(projectId: string): FileBaseStore {
     return {

@@ -152,6 +152,20 @@ describe("decide", () => {
 });
 
 describe("syncProjectFiles", () => {
+  test("transfers independent files in batches of four and reuses unchanged files", async () => {
+    const s = await setup();
+    for (let i = 0; i < 12; i++) await s.write(`file-${i}.txt`, `contents ${i}`);
+    const upload = s.remote.adapter.upload;
+    let active = 0, peak = 0, uploads = 0;
+    s.remote.adapter.upload = async (...args) => {
+      uploads++; peak = Math.max(peak, ++active);
+      try { await new Promise(resolve => setTimeout(resolve, 5)); await upload(...args); }
+      finally { active--; }
+    };
+    expect((await run(s)).uploaded).toBe(12);
+    expect(peak).toBe(4); expect(s.base.entries().size).toBe(12);
+    expect((await run(s)).uploaded).toBe(0); expect(uploads).toBe(12);
+  });
   test("uploads new local files, downloads new remote ones, and adopts identical ones", async () => {
     const s = await setup();
     await s.write("Schriftsätze/Klage.pdf", "klage");

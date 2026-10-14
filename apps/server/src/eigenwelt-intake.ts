@@ -243,6 +243,8 @@ export async function intakeFetch(
         ...(init.contentType === undefined ? {} : { "Content-Type": init.contentType }),
       },
       body: init.body,
+      // Also abort a response body that stalls after its headers arrive.
+      signal: AbortSignal.timeout(30000),
     });
   } catch {
     throw new ApiError(502, "intake_unreachable", "Could not reach the Eigenwelt intake service.");
@@ -264,12 +266,22 @@ export async function intakeRequest(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
-  const response = await intakeFetch(client, method, path, {
-    body: body === undefined ? undefined : JSON.stringify(body),
-    contentType: body === undefined ? undefined : "application/json",
-  });
-  const text = await response.text();
-  return text ? parseJsonBody(text) : null;
+  for (let attempt = 0; ; attempt++) {
+    const response = await intakeFetch(client, method, path, {
+      body: body === undefined ? undefined : JSON.stringify(body),
+      contentType: body === undefined ? undefined : "application/json",
+    });
+    try {
+      const text = await response.text();
+      return text ? parseJsonBody(text) : null;
+    } catch (error) {
+      // A socket can fail after headers arrive. Re-read only safe GETs; a
+      // mutation may already have committed even when its reply is lost.
+      if (method !== "GET" || attempt >= 2 || !(error instanceof Error) ||
+        !("code" in error) || !["ECONNRESET", "EPIPE", "UND_ERR_SOCKET"].includes(String(error.code))) throw error;
+      await new Promise(resolve => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
 }
 
 /** A 2xx body that is not JSON came from the wrong responder (an HTML page, a

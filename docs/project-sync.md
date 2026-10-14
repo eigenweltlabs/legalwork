@@ -13,6 +13,8 @@ There is no separate "stop sharing": when the owner removes the last person (and
 
 Chats never sync with a project; a chat is shared on its own, through its own sharing.
 
+The optional [personal assistant cloud profile](cloud-assistant-sync.md) reuses this sync for the owner's VM. It retains owner-only sync when the last teammate is removed. Personal sessions and settings remain private and use the same file transport through a protected personal-state project; they are never included in team sharing.
+
 Colleagues with access get the project on their computers without doing anything: a folder in their projects folder, the documents, notes, details and tasks. They can edit everything; only the owner changes access and scope. A colleague can leave a project; it is removed from their computer and the firm keeps it.
 
 Once shared, the button reads **Shared** with the faces of the others who have it (or the firm icon), and the sidebar row a quiet people mark. Syncing itself stays out of sight: only offline, sync problem, folder missing, paused or access ended replace it with a warning. Home shows a banner for anything that needs a decision. A colleague sees the same dialog read-only and can **Leave project**, which removes it from their computer.

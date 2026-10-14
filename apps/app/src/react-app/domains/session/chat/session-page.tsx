@@ -1424,7 +1424,7 @@ export function SessionPage(props: SessionPageProps) {
 
               {canRenderReactSurface ? (
                 <div className="flex h-full min-h-0 flex-col">
-                  {props.sidebar.assistantActive && <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={props.selectedSessionId!} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={props.surface!} />}
+                  {props.sidebar.assistantActive && <AssistantIdentity client={props.legalworkServerClient ?? undefined} workspaceId={props.runtimeWorkspaceId!} sessionId={props.selectedSessionId!} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={props.surface!} />}
                   {props.sidebar.assistantActive && props.legalworkServerClient && <AssistantAttentionPanel client={props.legalworkServerClient} profile={props.sidebar.assistantProfile} onOpenSession={props.sidebar.onOpenSession}
                     permission={props.activePermission} question={props.activeQuestion} permissionBusy={props.permissionReplyBusy} questionBusy={props.questionReplyBusy} onPermission={props.respondPermission} onQuestion={props.respondQuestion} />}
                   {/* Session tab bar removed per design. */}

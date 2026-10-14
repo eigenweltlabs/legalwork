@@ -251,6 +251,69 @@ async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prom
 }
 
 describe("project sync between computers", () => {
+  test("assistant startup syncs only its requested projects; a later round carries the remaining files", async () => {
+    const { platform } = fakeFirm(), owner = await machine("owner", "Owner");
+    const assistant = await localProject(owner.config, "Assistant"), matter = await localProject(owner.config, "Large matter");
+    await write(assistant, "profile.txt", "Assistant context"); await write(matter, "contract.txt", "Background document");
+    await saveProjectSyncSettings(owner.config, assistant, settings());
+    await saveProjectSyncSettings(owner.config, matter, settings());
+    const visited: string[] = [];
+    const storage = platform.storage;
+    platform.storage = (...args) => { visited.push(args[1]); return storage(...args); };
+    await runProjectSync(owner.config, { platform, workspaceIds: [assistant.id] });
+    const store = await projectSyncStore(owner.config);
+    expect(visited).toEqual([store.linkByWorkspace(assistant.id)!.projectId]);
+    expect(store.linkByWorkspace(matter.id)?.filesReconciledAt).toBeNull();
+    await runProjectSync(owner.config, { platform });
+    expect(store.linkByWorkspace(matter.id)?.filesReconciledAt).not.toBeNull();
+  });
+  test("cloud replicas use the existing project files on demand and keep runtime config out of documents", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("owner", "Owner"), vm = await machine("owner", "Cloud VM");
+    const project = await localProject(owner.config, "Matter");
+    owner.config.cloudSync = { canExecute: () => false, prepareWorkspace: async () => {}, shouldSyncFiles: () => true, deviceName: "Computer", maintainsProject: () => true };
+    await write(project, "Contract.txt", "Existing cloud document");
+    await write(project, "opencode.json", "Do not transfer this configuration");
+    await saveProjectSyncSettings(owner.config, project, settings());
+    await runProjectSync(owner.config, { platform });
+    let requested = false;
+    vm.config.cloudSync = { canExecute: () => true, prepareWorkspace: async () => {}, shouldSyncFiles: () => requested, deviceName: "Cloud VM" };
+    await runProjectSync(vm.config, { platform });
+    const copy = projectsOf(vm.config)[0];
+    expect(copy).toBeDefined();
+    expect(await read(copy, "Contract.txt")).toBeNull();
+    requested = true;
+    await runProjectSync(vm.config, { platform });
+    expect(await read(copy, "Contract.txt")).toBe("Existing cloud document");
+    expect(await read(copy, "opencode.json")).not.toBe("Do not transfer this configuration");
+    await write(copy, "Contract.txt", "Changed on the VM");
+    await runProjectSync(vm.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect(await read(project, "Contract.txt")).toBe("Changed on the VM");
+  });
+
+  test("removing teammates preserves an enabled personal cloud copy", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("owner", "Owner"), member = await machine("member", "Member");
+    const project = await localProject(owner.config, "Private after sharing");
+    owner.config.cloudSync = { canExecute: () => false, prepareWorkspace: async () => {}, shouldSyncFiles: () => true, deviceName: "Computer", maintainsProject: () => true };
+    await write(project, "Contract.txt", "Keep the private copy");
+    await saveProjectSyncSettings(owner.config, project, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect(projectsOf(member.config)).toHaveLength(1);
+    const id = (await projectSyncStore(owner.config)).linkByWorkspace(project.id)!.projectId;
+    await stopProjectSync(owner.config, project);
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect(projectsOf(member.config)).toHaveLength(0);
+    const link = (await projectSyncStore(owner.config)).linkByWorkspace(project.id);
+    expect(link?.projectId).toBe(id);
+    expect(link?.settings.memberIds).toEqual([]);
+    expect(link?.confirmed).toBe(true);
+    expect(await read(project, "Contract.txt")).toBe("Keep the private copy");
+  });
+
   test("instructions arrive with a shared project, edits return, and clearing reaches both computers", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");

@@ -13,6 +13,7 @@ const entrySchema = targetSchema.extend({
 });
 export type AssistantQueuedMessage = z.infer<typeof entrySchema>;
 export type AssistantQueueExecutor = {
+  available?: () => boolean;
   inspect: (target: AssistantSessionTarget) => Promise<{ busy: boolean; pending: boolean; interrupted: boolean }>;
   hasMessage: (target: AssistantSessionTarget, id: string) => Promise<boolean>;
   send: (entry: AssistantQueuedMessage) => Promise<void>;
@@ -96,6 +97,7 @@ export class AssistantSessionQueue {
     } finally { this.stopping--; }
   }
   private async deliver(target: AssistantSessionTarget) {
+    if (this.executor.available && !this.executor.available()) return;
     const entry = this.list(target)[0];
     if (!entry || entry.state === "paused" || this.stopped || this.stopping) return;
     try {
