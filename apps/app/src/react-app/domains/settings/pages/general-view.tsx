@@ -42,8 +42,8 @@ const globalItems = (): SettingsItem[] => [
     title: t("settings.tab_account"),
     desc: t("settings.tab_description_account"),
   },
-  { tab: "assistant", icon: Bot, title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: t("settings.tab_description_ai") },
+  { tab: "assistant", icon: Bot, title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: Table2, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
@@ -79,8 +79,8 @@ function resolveGlobalItems(): SettingsItem[] {
     // omits it because the settings-page tab header uses no trailing period.
     desc: `${t("office_addins.tab_description")}.`,
   };
-  // After Account, mirroring getGlobalSettingsTabs.
-  return [...items.slice(0, 1), recorderItem, officeAddinsItem, ...items.slice(1)];
+  // After Account, AI Providers and Assistant, mirroring getGlobalSettingsTabs.
+  return [...items.slice(0, 3), recorderItem, officeAddinsItem, ...items.slice(3)];
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {

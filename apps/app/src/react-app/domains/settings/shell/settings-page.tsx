@@ -247,12 +247,12 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "assistant", "ai", "notifications", "tabular-review", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
-  // Placed right after Account.
-  if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");
+  // Keep Account, AI Providers and Assistant first.
+  if (isDesktopRuntime()) tabs.splice(3, 0, "office-addins");
   // Recorder models/settings are desktop-only (local transcription engine).
-  if (isDesktopRuntime()) tabs.splice(1, 0, "recorder");
+  if (isDesktopRuntime()) tabs.splice(3, 0, "recorder");
   if (developerMode) tabs.push("debug");
   return tabs;
 }
