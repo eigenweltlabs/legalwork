@@ -4,6 +4,7 @@ import { ACTAPORT_ORIGIN, ActaportError, type TokenProvider } from "./auth.js";
 import { isRecord, pathParameters, type Operation } from "./spec.js";
 
 const JSON_LIMIT = 10 * 1024 * 1024;
+const UPLOAD_LIMIT = 50 * 1024 * 1024;
 const FILE_LIMIT = 60 * 1024 * 1024;
 const resultHeaders = ["location", "tus-resumable", "tus-version", "tus-extension", "tus-max-size", "upload-offset", "upload-length", "upload-expires", "content-type"];
 
@@ -121,7 +122,7 @@ export class ActaportClient {
       const handle = await open(path, "r");
       try {
         const info = await handle.stat();
-        if (!info.isFile() || info.size > FILE_LIMIT) throw new ActaportError("file_too_large", "Multipart uploads require a regular file of at most 60 MB. Use TUS for larger files.");
+        if (!info.isFile() || info.size > UPLOAD_LIMIT) throw new ActaportError("file_too_large", "Multipart uploads require a regular file of at most 50 MB. Use TUS for larger files.");
         const content = await handle.readFile();
         const form = new FormData();
         form.set("file", new Blob([content]), path.split(/[\\/]/).pop());

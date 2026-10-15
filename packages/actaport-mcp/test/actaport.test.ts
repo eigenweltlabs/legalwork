@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -72,12 +72,12 @@ describe("API execution", () => {
       const url = new URL(request.url);
       expect(url.pathname).toBe("/v1/akten");
       expect(url.searchParams.get("page")).toBe("1");
-      expect(url.searchParams.getAll("filter")).toEqual(["bezeichnung==Example", "status==AKTIV"]);
+      expect(url.searchParams.getAll("filter")).toEqual(["contains(aktenbezeichnung,'Example')", "eq(status,'AKTIV')"]);
       expect(request.headers.get("Authorization")).toBe("Bearer private-token");
       expect(request.redirect).toBe("manual");
       return Response.json({ content: [{ id: 42 }], next: 2 });
     }) });
-    expect(await client.execute(operation("getAkten"), { page: 1, filter: ["bezeichnung==Example", "status==AKTIV"] })).toMatchObject({ status: 200, data: { next: 2 } });
+    expect(await client.execute(operation("getAkten"), { page: 1, filter: ["contains(aktenbezeichnung,'Example')", "eq(status,'AKTIV')"] })).toMatchObject({ status: 200, data: { next: 2 } });
   });
   test("invalid arguments and read-only writes fail before any HTTP request", async () => {
     let calls = 0;
@@ -140,6 +140,26 @@ describe("API execution", () => {
       const item = operations.find((entry) => entry.method === "HEAD");
       if (!item) throw new Error("Missing HEAD operation");
       expect(await head.execute(item, { id: "a887d131-5b45-486f-beee-123c55f81745" })).toMatchObject({ headers: { "upload-offset": "5" } });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+  test("enforces Actaport's 50 MB multipart limit before authentication or upload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "actaport-upload-limit-"));
+    let tokenCalls = 0;
+    let uploads = 0;
+    const client = new ActaportClient(async () => { tokenCalls++; return token(); }, {
+      allowWrites: true, fileRoot: root,
+      fetch: mockFetch(() => { uploads++; return Response.json({ id: "document" }); }),
+    });
+    const args = { laufendeNummer: "1", bezugsJahr: 26, body: { file: "large.pdf" } };
+    try {
+      const file = await open(join(root, "large.pdf"), "w");
+      try { await file.truncate(50 * 1024 * 1024); } finally { await file.close(); }
+      await client.execute(operation("uploadDocument"), args);
+      expect([tokenCalls, uploads]).toEqual([1, 1]);
+      const larger = await open(join(root, "large.pdf"), "r+");
+      try { await larger.truncate(50 * 1024 * 1024 + 1); } finally { await larger.close(); }
+      await expect(client.execute(operation("uploadDocument"), args)).rejects.toMatchObject({ code: "file_too_large" });
+      expect([tokenCalls, uploads]).toEqual([1, 1]);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
   test("downloads files without overwriting, rejects symlink escapes, and handles async download creation", async () => {
