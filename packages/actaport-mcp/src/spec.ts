@@ -104,7 +104,7 @@ export function buildOperations() {
       if (contentType === "application/offset+octet-stream") properties.body = { type: "string", format: "byte", maxLength: Math.ceil(10 * 1024 * 1024 / 3) * 4, description: "Base64-encoded TUS chunk (maximum 10 MB)." };
       if (contentType === "multipart/form-data" && isRecord(properties.body)) {
         const fields = properties.body.properties;
-        if (isRecord(fields)) fields.file = { type: "string", minLength: 1, description: "Path to an existing file within the MCP file root (maximum 60 MB)." };
+        if (isRecord(fields)) fields.file = { type: "string", minLength: 1, description: "Path to an existing file within the MCP file root (maximum 50 MB)." };
       }
       if (parsed.requestBody?.required) required.push("body");
     }
