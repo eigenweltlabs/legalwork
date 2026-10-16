@@ -62,7 +62,7 @@ const ENTITLEMENTS = {
   features: ["admin_hub", "settings_presets"],
   seats: 5,
   usage: {
-    window: "week" as const,
+    window: "month" as const,
     allowanceCents: 5000,
     remainingCents: 4000,
     usedPercent: 20,

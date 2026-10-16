@@ -81,7 +81,7 @@ export type EigenweltAccountViewProps = {
   modelCount?: number;
 };
 
-/** The reset day of the included usage in the app's language, or null when unknown. */
+/** The exact allowance reset in the app’s language and local time zone. */
 function formatUsageResetDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const at = Date.parse(iso);
@@ -91,9 +91,12 @@ function formatUsageResetDate(iso: string | null | undefined): string | null {
       weekday: "short",
       day: "numeric",
       month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZoneName: "short",
     }).format(new Date(at));
   } catch {
-    return new Date(at).toDateString();
+    return new Date(at).toISOString();
   }
 }
 
@@ -416,9 +419,11 @@ export function EigenweltAccountView({
               {!syncPlan && <LayoutSectionItemHeaderActions>
                 <span className="text-sm text-muted-foreground">
                   {t(
-                    entitlements.usage.window === "week"
-                      ? "firm_hub.usage_this_week"
-                      : "firm_hub.usage_today",
+                    entitlements.usage.window === "month"
+                      ? "firm_hub.usage_this_month"
+                      : entitlements.usage.window === "week"
+                        ? "firm_hub.usage_this_week"
+                        : "firm_hub.usage_today",
                     { percent: String(includedUsagePercent) },
                   )}
                 </span>

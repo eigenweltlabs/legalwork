@@ -48,8 +48,8 @@ describe("terminal error text", () => {
 describe("standalone legacy limit display", () => {
   test("links standalone legacy errors to billing", () => {
     const expected = {
-      title: "Your seat's included usage for this week is used up",
-      body: "It resets next week. Your firm's billing shows this week's usage in detail.",
+      title: "Your seat's included usage for this month is used up",
+      body: "It renews on your subscription’s monthly anniversary. Your firm's billing shows your usage in detail.",
       upgradeLabel: "Open Billing",
     };
     expect(eigenweltBudgetLimitDisplay("plus")).toEqual(expected);

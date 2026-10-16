@@ -4044,6 +4044,7 @@ const de = {
   "firm_hub.free_plan": "Kostenlos",
   "firm_hub.seats": "{seats} Plätze",
   "firm_hub.usage_today": "{percent} % heute genutzt",
+  "firm_hub.usage_this_month": "{percent} % diesen Monat genutzt",
   "firm_hub.usage_this_week": "{percent} % diese Woche genutzt",
   "firm_hub.usage_resets": "Zurücksetzung am {date}",
   "firm_hub.locked_title": "Die Kanzleifreigabe gehört zu Ihrem Eigenwelt-Abonnement",
@@ -4107,6 +4108,7 @@ const de = {
   "firm_hub.learn_more": "Mehr erfahren",
   "firm_hub.subscription_title": "Kanzlei-Abonnement",
   "firm_hub.usage_label": "Tagesnutzung",
+  "firm_hub.usage_label_month": "Monatsnutzung",
   "firm_hub.usage_label_week": "Wochennutzung",
   "firm_hub.workflows_desc":
     "Was Ihre Kanzlei anbietet. Was Ihr Admin für alle installiert hat, ist schon da; den Rest fügen Sie hinzu, wenn Sie es brauchen.",
@@ -4596,7 +4598,7 @@ const de = {
   "recorder.tier_premium_unlock_hint":
     "Dieses Transkriptionsmodell ist Teil der Tarife Plus und Pro. Es wird automatisch freigeschaltet, sobald Ihr Tarif aktiv ist.",
   "premium_upsell.eyebrow": "Eigenwelt Plus & Pro",
-  "premium_upsell.headline": "Testen Sie Eigenwelt 7 Tage kostenlos",
+  "premium_upsell.headline": "Testen Sie Eigenwelt 30 Tage kostenlos",
   "premium_upsell.intro":
     "Nach der Testphase ab 29 € pro Platz und Monat. Für jeden Platz Ihrer Kanzlei enthalten:",
   "premium_upsell.audio_title": "Premium-Transkriptionsmodelle",
@@ -4608,7 +4610,7 @@ const de = {
   "premium_upsell.share_title": "Workflows & Integrationen im Team teilen",
   "premium_upsell.share_body":
     "Veröffentliche Workflows und Integrationen für die ganze Kanzlei im gemeinsamen Hub.",
-  "premium_upsell.cta": "7 Tage kostenlos testen",
+  "premium_upsell.cta": "30 Tage kostenlos testen",
   "premium_upsell.headline_upgrade": "Eigenwelt-Modelle für Ihre Kanzlei freischalten",
   "premium_upsell.intro_upgrade":
     "Ab 29 € pro Platz und Monat bei jährlicher Zahlung, 39 € monatlich. Für jeden Platz Ihrer Kanzlei enthalten:",
@@ -4689,7 +4691,7 @@ const de = {
   "onboarding_audio.panel_footer": "Läuft lokal · Privat · Ihre Daten",
   "chat.no_model_title": "Keine KI verbunden.",
   "chat.no_model_body":
-    "Starten Sie Ihre 7-tägige kostenlose Testphase bei Eigenwelt oder verbinden Sie Ihren eigenen Anbieter.",
+    "Starten Sie Ihre 30-tägige kostenlose Testphase bei Eigenwelt oder verbinden Sie Ihren eigenen Anbieter.",
   "chat.no_model_trial": "Kostenlos testen",
   "chat.no_model_login": "Anmelden",
   "chat.no_model_byo": "Anbieter verbinden",
@@ -4702,14 +4704,14 @@ const de = {
   "chat.no_ai_plan_upgrade": "Tarif upgraden",
   "chat.signed_out_title": "Von Eigenwelt abgemeldet.",
   "chat.signed_out_body":
-    "Melden Sie sich an, um die Eigenwelt-Modelle weiter zu nutzen, starten Sie Ihre 7-tägige kostenlose Testphase oder verbinden Sie Ihren eigenen Anbieter.",
+    "Melden Sie sich an, um die Eigenwelt-Modelle weiter zu nutzen, starten Sie Ihre 30-tägige kostenlose Testphase oder verbinden Sie Ihren eigenen Anbieter.",
   "free_retired.eyebrow": "Eigenwelt-Modelle",
   "free_retired.headline": "Kostenlose Modelle wurden eingestellt.",
   "free_retired.intro":
-    "Den kostenlosen Zugang gibt es nicht mehr. Starten Sie Ihre 7-tägige kostenlose Testphase, um Eigenwelt-Modelle weiter zu nutzen.",
+    "Den kostenlosen Zugang gibt es nicht mehr. Starten Sie Ihre 30-tägige kostenlose Testphase, um Eigenwelt-Modelle weiter zu nutzen.",
   "free_retired.keep_title": "Ihre Arbeit bleibt unberührt",
   "free_retired.keep_body": "Workspaces, Sitzungen und Dokumente bleiben genau so auf diesem Computer.",
-  "free_retired.trial_title": "7 Tage kostenlos, voller Zugriff",
+  "free_retired.trial_title": "30 Tage kostenlos, voller Zugriff",
   "free_retired.trial_body":
     "Premium-Modelle, in der EU gehostet, ohne Datenspeicherung. Kündige während der Testphase und zahle nichts.",
   "free_retired.byo_title": "Oder verbinden Sie Ihr eigenes Modell",
@@ -4733,7 +4735,7 @@ const de = {
   "onboarding_permissions.mock_deny": "Jetzt nicht",
   "ai_plans.title": "Wählen Sie, wie Sie KI in LegalWork nutzen.",
   "ai_plans.subtitle":
-    "Nutzen Sie Ihre eigene KI kostenlos oder testen Sie Sync, Plus oder Pro 7 Tage kostenlos.",
+    "Nutzen Sie Ihre eigene KI kostenlos oder testen Sie Sync, Plus oder Pro 30 Tage kostenlos.",
   "ai_plans.subtitle_returning":
     "Nutzen Sie Ihre eigene KI kostenlos, wählen Sie Sync für Zusammenarbeit oder Plus oder Pro mit inkludierter KI-Nutzung.",
   "ai_plans.title_ended": "Ihr Eigenwelt-Abo ist beendet.",
@@ -4763,7 +4765,7 @@ const de = {
   "ai_plans.confirm_year": "Jahr",
   "ai_plans.confirm_month": "Monat",
   "ai_plans.confirm_continue": "Weiter zum Checkout",
-  "ai_plans.confirm_trial": "7 Tage kostenlos testen",
+  "ai_plans.confirm_trial": "30 Tage kostenlos testen",
   "ai_plans.confirm_footnote": "Umsatzsteuer und mögliche Testphase sehen Sie im Checkout.",
   "ai_plans.per_seat_month": "pro Platz / Monat",
   "ai_plans.tagline_sync": "Alle LegalWork-Funktionen. Bringen Sie Ihre eigene KI mit.",
@@ -4819,7 +4821,7 @@ const de = {
   "provider_limit.error": "Die Aktion konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
   "ai_plans.tagline_plus": "Ideal für Kanzleien, die mit KI starten",
   "ai_plans.tagline_pro": "Ideal für tägliche Entwürfe, Prüfung und Recherche",
-  "ai_plans.try": "{plan} 7 Tage kostenlos testen",
+  "ai_plans.try": "{plan} 30 Tage kostenlos testen",
   "ai_plans.get": "{plan} wählen",
   "ai_plans.restart": "Mit {plan} neu starten",
   "ai_plans.upgrade": "Zu {plan} wechseln",
@@ -6633,9 +6635,9 @@ const de = {
   "server.health_timeout": "Zeitüberschreitung beim Warten auf den Serverstatus",
   "tool.waiting_for_input": "Warten auf Eingabe…",
   "tool.permission_scoped": "Auf Ihre Berechtigungen beschränkt",
-  "budget.exceeded_title": "Das enthaltene Kontingent Ihres Platzes für diese Woche ist aufgebraucht",
+  "budget.exceeded_title": "Das enthaltene Kontingent Ihres Platzes für diesen Monat ist aufgebraucht",
   "budget.exceeded_body":
-    "Es wird nächste Woche zurückgesetzt. Die Abrechnung Ihrer Kanzlei zeigt die Nutzung dieser Woche im Detail.",
+    "Es wird monatlich am Stichtag Ihres Abonnements erneuert. Die Abrechnung Ihrer Kanzlei zeigt Ihre Nutzung im Detail.",
   "budget.upgrade_label": "Abrechnung öffnen",
   "providers.removed_title": "Modellanbieter entfernt",
   "providers.removed_retired":

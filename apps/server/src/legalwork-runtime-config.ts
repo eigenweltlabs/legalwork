@@ -217,7 +217,7 @@ export async function buildLegalworkRuntimeConfigObject(
   // Refresh models, cleared on sign-out). Key rides in the block's headers, so
   // it works in every workspace without a per-workspace auth entry.
   const paidManifest = config ? await readCachedEigenweltPaidManifest(config) : null;
-  // Premium (paid Eigenwelt) models require an ACTIVE subscription (the 7-day
+  // Premium (paid Eigenwelt) models require an ACTIVE subscription (the 30-day
   // trial counts), not merely a signed-in account. Without one the provider is
   // left out entirely — there is no free fallback tier; the composer shows the
   // connect-AI state instead. A lapse propagates on the next config rebuild

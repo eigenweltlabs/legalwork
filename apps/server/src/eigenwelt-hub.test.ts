@@ -225,6 +225,16 @@ describe("integration payloads", () => {
 });
 
 describe("parseEigenweltEntitlements", () => {
+  test("preserves calendar-month usage and its reset date from the platform", () => {
+    const parsed = parseEigenweltEntitlements({
+      plan: "plus",
+      usage: { window: "month", allowanceCents: 3000, remainingCents: 2100, usedPercent: 30,
+        resetsAt: "2026-11-01T00:00:00.000Z" },
+    });
+    expect(parsed?.usage).toMatchObject({ window: "month", allowanceCents: 3000, remainingCents: 2100,
+      usedPercent: 30, resetsAt: "2026-11-01T00:00:00.000Z", dailyAllowanceCents: 3000, dailyRemainingCents: 2100 });
+  });
+
   test("returns undefined for absent / non-object input (legacy platform)", () => {
     expect(parseEigenweltEntitlements(undefined)).toBeUndefined();
     expect(parseEigenweltEntitlements(null)).toBeUndefined();

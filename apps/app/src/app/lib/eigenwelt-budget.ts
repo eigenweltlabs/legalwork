@@ -13,7 +13,7 @@ const eigenweltBudgetUpgradeLabel = () => t("budget.upgrade_label");
 
 export type EigenweltBudgetPlan = "sync" | "plus" | "pro" | null;
 
-/** Terminal-card copy when the weekly allowance is used up. Plus and Pro
+/** Terminal-card copy when the monthly allowance is used up. Plus and Pro
  *  see the same copy (the plan param is kept for callers and future use). */
 export function eigenweltBudgetLimitDisplay(_plan: EigenweltBudgetPlan): {
   title: string;
