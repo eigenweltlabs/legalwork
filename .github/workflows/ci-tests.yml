@@ -118,10 +118,10 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
-      - name: Verify scheduling with the shipped engine
+      - name: Verify scheduling and file search with the shipped engine
         run: |
           pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts apps/server/src/managed-opencode.search.e2e.test.ts
 
       - name: Verify built draft routes load in Node
         run: pnpm test:drafts:build
