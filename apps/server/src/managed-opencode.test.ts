@@ -19,6 +19,7 @@ try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 n += 1;
 fs.writeFileSync(counter, String(n));
 fs.writeFileSync(counter + ".skills", process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS || "");
+fs.writeFileSync(counter + ".fff", process.env.OPENCODE_DISABLE_FFF || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
@@ -78,6 +79,23 @@ test("waits for the HTTP listener even when the child announces readiness early"
   try {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
     expect((await fetch(`${server.url}/health`)).status).toBe(200);
+  } finally {
+    await server.close();
+  }
+}, 20000);
+
+test("keeps FFF disabled in the child and execution details even if caller env enables it", async () => {
+  const { bin, counter } = fakeBin(0);
+  const server = await createManagedOpencodeServer({
+    bin,
+    cwd: dir!,
+    env: { FAKE_OPENCODE_COUNTER: counter, OPENCODE_DISABLE_FFF: "false" },
+  });
+  try {
+    expect(readFileSync(counter + ".fff", "utf8")).toBe("true");
+    expect(server.execution.env.find(entry => entry.name === "OPENCODE_DISABLE_FFF")).toEqual({
+      name: "OPENCODE_DISABLE_FFF", value: "true", redacted: false,
+    });
   } finally {
     await server.close();
   }
