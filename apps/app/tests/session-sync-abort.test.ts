@@ -50,3 +50,41 @@ test("provider failures and budget-triggered aborts retain their recovery error"
     expect(activity.getSessionError(input.workspaceId, sessionId)).toBe("Budget exhausted");
   } finally { dispose(); activity.removeSession(input.workspaceId, sessionId); getReactQueryClient().clear(); }
 });
+
+test("abort and idle events leave other chats and another project's child streaming", () => {
+  const projects = ["stop-project-a", "stop-project-b"].map(workspaceId => ({ workspaceId, baseUrl: "http://127.0.0.1:1", legalworkToken: "fixture" }));
+  const disposers = projects.map(__createWorkspaceSessionSyncForTest);
+  const runs = [
+    { project: projects[0], id: "parent-a" }, { project: projects[0], id: "sibling-a" },
+    { project: projects[1], id: "parent-b" }, { project: projects[1], id: "child-b" },
+  ];
+  const releases = runs.map(run => trackWorkspaceSessionSync(run.project, run.id));
+  const query = getReactQueryClient(), activity = useSessionActivityStore.getState();
+  try {
+    for (const run of runs) __applySessionSyncEventForTest(run.project, {
+      type: "session.status", properties: { sessionID: run.id, status: { type: "busy" } },
+    });
+    __applySessionSyncEventForTest(projects[0], { type: "session.error", properties: {
+      sessionID: "parent-a", error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+    } });
+    __applySessionSyncEventForTest(projects[0], { type: "session.idle", properties: { sessionID: "parent-a" } });
+    expect(activity.getStatus(projects[0].workspaceId, "parent-a")).toBe("idle");
+    for (const run of runs.slice(1)) {
+      expect(query.getQueryData(statusKey(run.project.workspaceId, run.id))).toEqual({ type: "busy" });
+      expect(useComposerStateStore.getState().pausedQueues[run.id]).not.toBe(true);
+      __applySessionSyncEventForTest(run.project, { type: "message.part.updated", properties: { part: {
+        id: `${run.id}-part`, messageID: `${run.id}-message`, sessionID: run.id, type: "text", text: "Still working after another chat stopped.",
+      } } });
+      const transcript = query.getQueryData<UIMessage[]>(transcriptKey(run.project.workspaceId, run.id));
+      expect(transcript?.at(-1)?.parts).toContainEqual(expect.objectContaining({ type: "text", text: "Still working after another chat stopped." }));
+      expect(["thinking", "responding"]).toContain(activity.getStatus(run.project.workspaceId, run.id));
+    }
+  } finally {
+    releases.forEach(release => release()); disposers.forEach(dispose => dispose());
+    for (const run of runs) {
+      activity.removeSession(run.project.workspaceId, run.id);
+      useComposerStateStore.getState().setQueuePaused(run.id, false);
+    }
+    query.clear();
+  }
+});

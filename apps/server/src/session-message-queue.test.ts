@@ -71,6 +71,30 @@ test("Stop can pause while an idle check is pending, before delivery is claimed"
   expect((await sending).entries[0].status).toBe("queued");
   expect(sends).toBe(0);
 });
+test("Stop pauses only its queue while other chats finish and dispatch their next message", async () => {
+  const delivered: string[] = [];
+  const release = new Map<string, () => void>();
+  const { queue } = await setup({ idle: async () => true, send: async (workspace, session, entry) => {
+    const key = `${workspace}/${session}`;
+    delivered.push(`${key}/${entry.draft.text}`);
+    if (entry.draft.text === "first") await new Promise<void>(resolve => release.set(key, resolve));
+  } });
+  const runs = [{ workspace: "a", session: "chat" }, { workspace: "a", session: "sibling" }, { workspace: "b", session: "chat" }];
+  for (const run of runs) {
+    await queue.act(run.workspace, run.session, message("first"));
+    await queue.act(run.workspace, run.session, message("next"));
+  }
+  await queue.act("a", "chat", { type: "pause", paused: true, reason: "stop" });
+  for (const finish of release.values()) finish();
+  await until(async () => (await Promise.all(runs.map(run => queue.read(run.workspace, run.session)))).every(state => state.entries.length === 1));
+  await queue.tick();
+  await until(async () => (await queue.read("a", "sibling")).entries.length === 0 && (await queue.read("b", "chat")).entries.length === 0);
+  expect(delivered).toContain("a/sibling/next");
+  expect(delivered).toContain("b/chat/next");
+  expect(delivered).not.toContain("a/chat/next");
+  expect((await queue.read("a", "chat")).paused).toBe(true);
+  expect((await queue.read("a", "chat")).entries[0].status).toBe("queued");
+});
 test("two windows enqueue durably and only one dispatcher sends in order", async () => {
   const sent: string[] = []; let idle = false; let release = () => {};
   const pending = new Promise<void>(r => { release = r; });

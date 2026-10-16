@@ -8,10 +8,16 @@ const issuer = process.env.ISSUER || `http://${host}:${port}`;
 const autoApprove = process.env.AUTO_APPROVE !== "0";
 const dynamicRegistration = process.env.DYNAMIC_REGISTRATION !== "0";
 const normalizeLoopbackCallback = process.env.NORMALIZE_LOOPBACK_CALLBACK === "1";
+const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 3600);
+const rotateRefreshTokens = process.env.ROTATE_REFRESH_TOKENS !== "0";
+const omitRefreshTokenOnRefresh = process.env.OMIT_REFRESH_TOKEN_ON_REFRESH === "1";
+const refreshDelayMs = Number(process.env.REFRESH_DELAY_MS || 0);
 
 const clients = new Map();
 const codes = new Map();
-const tokens = new Set();
+const tokens = new Map();
+const refreshTokens = new Map();
+const stats = { authorizationGrants: 0, refreshGrants: 0, rejectedRefreshGrants: 0, resourceLists: 0 };
 const requests = [];
 if (process.env.CLIENT_ID) {
   clients.set(process.env.CLIENT_ID, {
@@ -222,14 +228,34 @@ async function issueToken(req, res) {
     }
   }
 
+  if (grantType === "refresh_token") {
+    if (refreshTokens.get(form.refresh_token) !== client.client_id) {
+      stats.rejectedRefreshGrants++;
+      json(res, 400, { error: "invalid_grant", error_description: "Refresh token is invalid or already consumed" });
+      return;
+    }
+    stats.refreshGrants++;
+    if (rotateRefreshTokens && !omitRefreshTokenOnRefresh) refreshTokens.delete(form.refresh_token);
+    if (refreshDelayMs) await new Promise(resolve => setTimeout(resolve, refreshDelayMs));
+  } else if (grantType === "authorization_code") {
+    stats.authorizationGrants++;
+  } else {
+    json(res, 400, { error: "unsupported_grant_type" });
+    return;
+  }
+
   if (form.code) codes.delete(form.code);
   const accessToken = `mock-access-${randomUUID()}`;
-  tokens.add(accessToken);
+  tokens.set(accessToken, Date.now() + accessTokenTtlSeconds * 1000);
+  const omitRefresh = grantType === "refresh_token" && omitRefreshTokenOnRefresh;
+  const refreshToken = grantType === "refresh_token" && (!rotateRefreshTokens || omitRefresh)
+    ? form.refresh_token : `mock-refresh-${randomUUID()}`;
+  refreshTokens.set(refreshToken, client.client_id);
   json(res, 200, {
     access_token: accessToken,
-    refresh_token: `mock-refresh-${randomUUID()}`,
+    ...(!omitRefresh ? { refresh_token: refreshToken } : {}),
     token_type: "Bearer",
-    expires_in: 3600,
+    expires_in: accessTokenTtlSeconds,
     scope: "mcp:read mcp:write",
   });
 }
@@ -237,7 +263,7 @@ async function issueToken(req, res) {
 function isAuthorized(req) {
   const header = req.headers.authorization || "";
   const match = header.match(/^Bearer\s+(.+)$/i);
-  return Boolean(match && tokens.has(match[1]));
+  return Boolean(match && (tokens.get(match[1]) || 0) > Date.now());
 }
 
 function mcpResult(message) {
@@ -245,7 +271,7 @@ function mcpResult(message) {
     case "initialize":
       return {
         protocolVersion: "2025-06-18",
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, resources: {} },
         serverInfo: { name: "mock-oauth-mcp", version: "1.0.0" },
       };
     case "tools/list":
@@ -263,6 +289,9 @@ function mcpResult(message) {
           },
         ],
       };
+    case "resources/list":
+      stats.resourceLists++;
+      return { resources: [{ name: "mock-resource", uri: "mock://resource" }] };
     case "tools/call":
       return {
         content: [
@@ -318,6 +347,17 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/health") {
       json(res, 200, { ok: true, issuer, autoApprove, requests: requests.length });
+      return;
+    }
+
+    // Synthetic test controls, never expose tokens or authorization codes.
+    if (url.pathname === "/stats") {
+      json(res, 200, stats);
+      return;
+    }
+    if (url.pathname === "/expire" && req.method === "POST") {
+      tokens.clear();
+      json(res, 200, { ok: true });
       return;
     }
 
