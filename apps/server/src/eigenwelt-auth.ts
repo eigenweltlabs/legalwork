@@ -119,9 +119,9 @@ export function eigenweltInputModalities(value: unknown): EigenweltInputModality
 
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
-  /** The window the included allowance applies to: a week on current
-   *  platforms, a day on platforms from before the weekly allowance. */
-  window: "day" | "week";
+  /** The included allowance cadence: current platforms use calendar months;
+   *  older platforms may still send a week or day. */
+  window: "day" | "week" | "month";
   allowanceCents: number;
   remainingCents: number;
   /** Share of this window's allowance consumed, 0–100 (server-computed). */
@@ -146,7 +146,7 @@ export type EigenweltEntitlements = {
   plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
-   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
+   * ISO timestamp when the 30-day trial ends (or ended — compare against now);
    * null when the platform sent none or the value was malformed. Pair with
    * `subscriptionStatus === "trialing"` to know a trial is still running.
    */
@@ -286,7 +286,7 @@ export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlement
   const usageRaw = isRecord(value.usage) ? value.usage : {};
   // Current platforms send the window plus generic names; older ones only the
   // daily names (and enforced a daily allowance).
-  const window = usageRaw.window === "week" ? "week" : "day";
+  const window = usageRaw.window === "month" || usageRaw.window === "week" ? usageRaw.window : "day";
   const allowanceCents = toFiniteNumber(
     usageRaw.allowanceCents,
     toFiniteNumber(usageRaw.dailyAllowanceCents),

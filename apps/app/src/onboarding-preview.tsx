@@ -150,7 +150,7 @@ function SyncFlowPreview() {
         connected: true, platformURL: null,
         account: { userId: "preview", orgId: "preview", userName: "Preview", userEmail: null, orgName: "Preview" },
         entitlements: { plan, subscriptionStatus: "active", features: [], seats: 1, usage: {
-          window: "week", allowanceCents: 0, remainingCents: 0, usedPercent: 0, resetsAt: null,
+          window: "month", allowanceCents: 0, remainingCents: 0, usedPercent: 0, resetsAt: null,
           dailyAllowanceCents: 0, dailyRemainingCents: 0, dailyUsedPercent: 0,
           extraUsageEnabled: true, prepaidBalanceCents: 0,
         } },

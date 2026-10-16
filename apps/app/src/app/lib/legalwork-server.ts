@@ -199,7 +199,7 @@ export type EigenweltManifestModel = {
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
   /** A week on current platforms, a day on platforms from before the weekly allowance. */
-  window: "day" | "week";
+  window: "day" | "week" | "month";
   allowanceCents: number;
   remainingCents: number;
   /** Share of this window's allowance consumed, 0–100 (server-computed). */
@@ -220,7 +220,7 @@ export type EigenweltEntitlements = {
   plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
-   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
+   * ISO timestamp when the 30-day trial ends (or ended — compare against now);
    * null when unknown. A trial is live only while `subscriptionStatus` is
    * "trialing". Older servers omit the field entirely.
    */

@@ -3804,7 +3804,7 @@ export default {
   "account.credit_usage_amount": "{used} used this month · {limit} monthly limit",
   "account.models_not_in_plan": "Not included in your firm's plan. Upgrade to get the Eigenwelt models.",
   "account.models_label": "Models",
-  // 7-day free trial (card-upfront; converts automatically at trial end)
+  // 30-day free trial (card-upfront; converts automatically at trial end)
   "account.trial_ends_today": "Free trial: ends today",
   "account.trial_ends_in_one": "Free trial: 1 day left",
   "account.trial_ends_in": "Free trial: {days} days left",
@@ -3819,6 +3819,7 @@ export default {
   "firm_hub.free_plan": "Free",
   "firm_hub.seats": "{seats} seats",
   "firm_hub.usage_today": "{percent}% used today",
+  "firm_hub.usage_this_month": "{percent}% used this month",
   "firm_hub.usage_this_week": "{percent}% used this week",
   "firm_hub.usage_resets": "Resets {date}",
   "firm_hub.locked_title": "Firm sharing is part of your Eigenwelt subscription",
@@ -3883,6 +3884,7 @@ export default {
   // Subscription summary
   "firm_hub.subscription_title": "Firm subscription",
   "firm_hub.usage_label": "Daily usage",
+  "firm_hub.usage_label_month": "Monthly usage",
   "firm_hub.usage_label_week": "Weekly usage",
   // Section descriptions
   "firm_hub.workflows_desc": "What your firm offers. What your admin installed for everyone is already in; add the rest when you need it.",
@@ -4326,7 +4328,7 @@ export default {
   "recorder.tier_premium_unlock": "Plus plan",
   "recorder.tier_premium_unlock_hint": "This transcription model is part of the Plus and Pro plans. It will unlock automatically once your plan is active.",
   "premium_upsell.eyebrow": "Eigenwelt Plus & Pro",
-  "premium_upsell.headline": "Try Eigenwelt free for 7 days",
+  "premium_upsell.headline": "Try Eigenwelt free for 30 days",
   "premium_upsell.intro": "From €29 per seat/month after the trial. Included for every seat in your firm:",
   "premium_upsell.audio_title": "Premium audio transcription models",
   "premium_upsell.audio_body": "The most accurate on-device models for recordings and dictation, running fully on your machine.",
@@ -4334,7 +4336,7 @@ export default {
   "premium_upsell.eu_body": "€30 of AI usage per seat each month on Plus, €70 on Pro, on EU-resident infrastructure that keeps no prompts or outputs.",
   "premium_upsell.share_title": "Share workflows & integrations with your team",
   "premium_upsell.share_body": "Publish workflows and integrations to your whole firm from the shared hub.",
-  "premium_upsell.cta": "Start 7-day free trial",
+  "premium_upsell.cta": "Start 30-day free trial",
   "premium_upsell.headline_upgrade": "Add the Eigenwelt models to your firm",
   "premium_upsell.intro_upgrade": "From €29 per seat/month billed yearly, €39 monthly. Included for every seat in your firm:",
   "premium_upsell.cta_upgrade": "Upgrade plan",
@@ -4408,7 +4410,7 @@ export default {
   "onboarding_audio.panel_footer": "Runs locally · Private · Your data",
   // Composer: no model connected (the free tier is retired)
   "chat.no_model_title": "No AI connected.",
-  "chat.no_model_body": "Start your 7-day free trial with Eigenwelt, or connect your own provider.",
+  "chat.no_model_body": "Start your 30-day free trial with Eigenwelt, or connect your own provider.",
   "chat.no_model_trial": "Start free trial",
   "chat.no_model_login": "Log in",
   "chat.no_model_byo": "Connect a provider",
@@ -4420,15 +4422,15 @@ export default {
   "chat.no_ai_plan_body": "Your firm's plan covers sharing only. Upgrade for the Eigenwelt models, or connect your own provider.",
   "chat.no_ai_plan_upgrade": "Upgrade plan",
   "chat.signed_out_title": "Signed out of Eigenwelt.",
-  "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 7-day free trial, or connect your own provider.",
+  "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 30-day free trial, or connect your own provider.",
   // One-time migration dialog after the free tier was retired.
   "free_retired.eyebrow": "Eigenwelt models",
   "free_retired.headline": "Free models have been retired.",
   "free_retired.intro":
-    "The free tier is no longer available. Start your 7-day free trial to keep using Eigenwelt models.",
+    "The free tier is no longer available. Start your 30-day free trial to keep using Eigenwelt models.",
   "free_retired.keep_title": "Your work is untouched",
   "free_retired.keep_body": "Workspaces, sessions and documents stay on this computer, exactly as they are.",
-  "free_retired.trial_title": "7 days free, full access",
+  "free_retired.trial_title": "30 days free, full access",
   "free_retired.trial_body":
     "Premium EU-hosted models with zero data retention. Cancel during the trial and pay nothing.",
   "free_retired.byo_title": "Or connect your own model",
@@ -4454,7 +4456,7 @@ export default {
   // whenever no model is usable (own model, Plus, Pro)
   "ai_plans.title": "Choose how you use AI in LegalWork.",
   "ai_plans.subtitle":
-    "Use your own AI for free, or try Sync, Plus or Pro free for 7 days.",
+    "Use your own AI for free, or try Sync, Plus or Pro free for 30 days.",
   "ai_plans.subtitle_returning":
     "Use your own AI for free, add Sync for collaboration, or choose Plus or Pro with included AI usage.",
   "ai_plans.title_ended": "Your Eigenwelt subscription has ended.",
@@ -4484,7 +4486,7 @@ export default {
   "ai_plans.confirm_year": "year",
   "ai_plans.confirm_month": "month",
   "ai_plans.confirm_continue": "Continue to checkout",
-  "ai_plans.confirm_trial": "Start 7-day free trial",
+  "ai_plans.confirm_trial": "Start 30-day free trial",
   "ai_plans.confirm_footnote": "VAT and any free trial are shown in checkout.",
   "ai_plans.per_seat_month": "per seat / month",
   "ai_plans.tagline_sync": "All LegalWork features. Bring your own AI",
@@ -4540,7 +4542,7 @@ export default {
   "provider_limit.error": "Could not complete this action. Please try again.",
   "ai_plans.tagline_plus": "Best for firms starting with AI",
   "ai_plans.tagline_pro": "Best for daily drafting, review and research",
-  "ai_plans.try": "Try {plan} free for 7 days",
+  "ai_plans.try": "Try {plan} free for 30 days",
   "ai_plans.get": "Get {plan}",
   "ai_plans.restart": "Restart with {plan}",
   "ai_plans.upgrade": "Upgrade to {plan}",
@@ -6261,8 +6263,8 @@ export default {
   "server.health_timeout": "Timed out waiting for server health",
   "tool.waiting_for_input": "Waiting for input…",
   "tool.permission_scoped": "Permission-scoped to you",
-  "budget.exceeded_title": "Your seat's included usage for this week is used up",
-  "budget.exceeded_body": "It resets next week. Your firm's billing shows this week's usage in detail.",
+  "budget.exceeded_title": "Your seat's included usage for this month is used up",
+  "budget.exceeded_body": "It renews on your subscription’s monthly anniversary. Your firm's billing shows your usage in detail.",
   "budget.upgrade_label": "Open Billing",
   // Tasks — the firm's shared intake inbox (Eigenwelt "intake" feature).
   "sidebar.tasks": "Tasks",

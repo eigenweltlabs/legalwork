@@ -7,7 +7,7 @@
  * these variants:
  *
  *  - "new":        nobody signed in to Eigenwelt on this computer yet. The
- *                  three cards: own model, Plus and Pro with the 7-day trial.
+ *                  three cards: own model, Plus and Pro with the 30-day trial.
  *  - "signed-out": an account was signed in before and is not any more (a
  *                  sign-out, or the platform revoked the sign-in). Sign-in
  *                  first, the cards one click away.

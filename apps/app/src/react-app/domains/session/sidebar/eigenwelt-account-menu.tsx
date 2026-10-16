@@ -31,7 +31,7 @@ export function EigenweltAccountMenu({ client, workspaceId }: {
     ? Math.round(Math.max(0, Math.min(100, 100 - usage.usedPercent))) : null;
   const resetAt = usage?.resetsAt ? Date.parse(usage.resetsAt) : NaN;
   const resetLabel = Number.isFinite(resetAt)
-    ? new Intl.DateTimeFormat(currentLocale(), { weekday: "short", day: "numeric", month: "short" }).format(resetAt) : null;
+    ? new Intl.DateTimeFormat(currentLocale(), { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(resetAt) : null;
   const openSettings = (tab: string) => navigate(workspaceId ? workspaceSettingsRoute(workspaceId, tab) : `/settings/${tab}`, { state: location.state });
   const avatar = (large = false) => (
     <span aria-hidden="true" className={cn("flex shrink-0 items-center justify-center rounded-full font-medium", large ? "size-10 text-sm" : "size-8 text-[11px]", connected ? "bg-amber-5 text-amber-12" : "bg-muted text-muted-foreground")}>
@@ -64,7 +64,7 @@ export function EigenweltAccountMenu({ client, workspaceId }: {
             <Gauge className="mt-0.5 size-4 text-muted-foreground" />
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-4">
-                <span>{t(usage?.window === "day" ? "firm_hub.usage_label" : "firm_hub.usage_label_week")}</span>
+                <span>{t(usage?.window === "month" ? "firm_hub.usage_label_month" : usage?.window === "week" ? "firm_hub.usage_label_week" : "firm_hub.usage_label")}</span>
                 <span className="text-xs font-normal tabular-nums text-muted-foreground">{remaining === null ? t("account.usage_unavailable") : t("account.usage_left", { percent: String(remaining) })}</span>
               </span>
               {remaining !== null && <span className="mt-2 block h-1 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-foreground/70" style={{ width: `${remaining}%` }} /></span>}

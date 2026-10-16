@@ -1,6 +1,6 @@
 /**
  * Trial-state derivation for the Eigenwelt subscription. New subscriptions
- * start with a 7-day card-upfront trial on the platform; the entitlements
+ * start with a 30-day card-upfront trial on the platform; the entitlements
  * payload carries `subscriptionStatus` (raw Stripe status) and `trialEndsAt`
  * (ISO). This module turns those into the three states the UI cares about:
  *

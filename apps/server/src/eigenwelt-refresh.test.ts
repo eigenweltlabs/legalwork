@@ -56,7 +56,7 @@ async function signedInFirm(): Promise<ServerConfig> {
       subscriptionStatus: "active",
       features: ["premium_models"],
       seats: 1,
-      usage: { window: "week", allowanceCents: 693, remainingCents: 693 },
+      usage: { window: "month", allowanceCents: 3000, remainingCents: 3000 },
     }),
     account: { userId: "user_1", userName: null, userEmail: "anna@kanzlei.de", orgId: "org_1", orgName: "Kanzlei Berg" },
     platformToken: "access-token",
