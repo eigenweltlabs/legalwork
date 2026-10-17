@@ -4,6 +4,10 @@ import path from "node:path";
 const SETTINGS_FILE = "system-dictation.json";
 const RESTORE_DELAY_MS = 500;
 const PASTE_DELAY_MS = 120;
+const TAP_MAX_PRESS_MS = 200;
+const MIN_HOLD_MS = 500;
+const DOUBLE_TAP_GAP_MS = 300;
+const RESTART_COOLDOWN_MS = 250;
 const MODIFIER_KEYS = ["Fn", "Control", "Alt", "Shift", "Command", "Super"];
 const NAMED_KEYS = new Set([
   "Space", "Backspace", "Tab", "Enter", "PageUp", "PageDown", "End", "Home",
@@ -96,8 +100,8 @@ export class SystemDictationService {
    *   onToggle: () => void,
    *   onPress?: () => void,
    *   onRelease?: () => void,
-   *   onCancel: () => void,
-   *   onState?: (state: string, message: string) => void,
+   *   onCancel: (reason?: "short-press") => void,
+   *   onState?: (state: string, message: string, locale?: "en" | "de") => void,
    *   onStatus?: (status: import("@legalwork/types/audio").AudioSystemDictationStatus) => void,
    * }} options
    */
@@ -124,6 +128,11 @@ export class SystemDictationService {
     this.customAccelerator = false;
     /** @type {import("@legalwork/types/audio").AudioSystemDictationMode} */
     this.mode = "tap";
+    this.runtimeState = "idle";
+    this.gesture = null;
+    this.gestureTimer = null;
+    this.shortcutPressedAt = 0;
+    this.settledAt = 0;
     this.shortcutCaptureActive = false;
     this.capturePrevious = null;
     this.captureChord = new Set();
@@ -143,7 +152,6 @@ export class SystemDictationService {
         this.accelerator = parsed.accelerator.trim();
         this.customAccelerator = parsed.customAccelerator === true;
       }
-      this.mode = parsed?.mode === "hold" ? "hold" : "tap";
     } catch {
       this.enabled = false;
     }
@@ -195,16 +203,11 @@ export class SystemDictationService {
       this.registered = true;
       return;
     }
-    if (this.mode === "hold") {
-      this.error = "Hold-to-talk needs keyboard monitoring permission. Restart LegalWork after granting it.";
-      return;
-    }
-
     const candidates = this.customAccelerator
       ? [this.accelerator]
       : [this.accelerator, ...candidateAccelerators(this.platform).filter((item) => item !== this.accelerator)];
     for (const accelerator of candidates) {
-      if (registerShortcut(this.globalShortcut, accelerator, this.onToggle)) {
+      if (registerShortcut(this.globalShortcut, accelerator, () => this.toggleHandsFree())) {
         this.accelerator = accelerator;
         this.registered = true;
         this.registeredAccelerator = accelerator;
@@ -257,23 +260,6 @@ export class SystemDictationService {
     return this.status();
   }
 
-  async setMode(mode) {
-    const previous = this.mode;
-    this.mode = mode === "hold" ? "hold" : "tap";
-    if (this.enabled && this.mode === "hold") await this.ensureKeyMonitor();
-    this.resetShortcutTrigger(previous === "hold");
-    this.applyRegistration();
-    if (this.enabled && !this.registered) {
-      const failure = this.error;
-      this.mode = previous;
-      this.applyRegistration();
-      this.error = failure;
-    } else {
-      await this.persist();
-    }
-    return this.status();
-  }
-
   persist() {
     return writeFile(
       this.settingsPath,
@@ -281,7 +267,6 @@ export class SystemDictationService {
         enabled: this.enabled,
         accelerator: this.accelerator,
         customAccelerator: this.customAccelerator,
-        mode: this.mode,
       }, null, 2)}\n`,
       "utf8",
     );
@@ -332,7 +317,7 @@ export class SystemDictationService {
     this.keyMonitor?.stop();
     this.monitorAvailable = false;
     this.pressedKeys.clear();
-    this.resetShortcutTrigger(this.mode === "hold");
+    this.resetShortcutTrigger(true);
   }
 
   unregisterPrimaryShortcut() {
@@ -342,15 +327,84 @@ export class SystemDictationService {
   }
 
   resetShortcutTrigger(release) {
-    if (release && this.shortcutTriggered) this.onRelease();
+    const gesture = this.gesture;
+    this.clearGesture();
     this.shortcutTriggered = false;
+    if (release && gesture === "hold") this.onRelease();
+    if (release && gesture === "tap-pending") this.onCancel();
+  }
+
+  clearGesture() {
+    clearTimeout(this.gestureTimer);
+    this.gestureTimer = null;
+    this.gesture = null;
+  }
+
+  toggleHandsFree() {
+    if (["transcribing", "inserting"].includes(this.runtimeState) || this.gesture === "finishing") return;
+    if (Date.now() - this.settledAt < RESTART_COOLDOWN_MS) return;
+    const active = ["starting", "listening"].includes(this.runtimeState) || this.gesture === "hands-free";
+    this.clearGesture();
+    this.gesture = active ? "finishing" : "hands-free";
+    this.mode = "tap";
+    this.onStatus(this.status());
+    this.onToggle();
+  }
+
+  pressShortcut() {
+    if (Date.now() - this.settledAt < RESTART_COOLDOWN_MS) return;
+    if (this.gesture === "tap-pending") {
+      // Keep the capture opened by the first press; the second tap only
+      // removes the requirement to keep holding the shortcut.
+      this.clearGesture();
+      this.gesture = "hands-free";
+      this.mode = "tap";
+      this.onStatus(this.status());
+      return;
+    }
+    if (this.gesture === "hands-free") {
+      this.gesture = "finishing";
+      this.onRelease();
+      return;
+    }
+    if (["transcribing", "inserting"].includes(this.runtimeState) || this.gesture === "finishing") return;
+    if (["starting", "listening"].includes(this.runtimeState)) {
+      this.toggleHandsFree();
+      return;
+    }
+    this.gesture = "hold";
+    this.mode = "hold";
+    this.shortcutPressedAt = Date.now();
+    this.onStatus(this.status());
+    this.onPress();
+  }
+
+  releaseShortcut() {
+    if (this.gesture !== "hold") return;
+    const heldMs = Date.now() - this.shortcutPressedAt;
+    if (heldMs >= MIN_HOLD_MS) {
+      this.gesture = "finishing";
+      this.onRelease();
+      return;
+    }
+    if (heldMs >= TAP_MAX_PRESS_MS) {
+      this.gesture = "finishing";
+      this.onCancel("short-press");
+      return;
+    }
+    this.gesture = "tap-pending";
+    this.gestureTimer = setTimeout(() => {
+      this.gestureTimer = null;
+      this.gesture = "finishing";
+      this.onCancel("short-press");
+    }, DOUBLE_TAP_GAP_MS);
   }
 
   async handleMonitorEvent(event) {
     if (event.type === "unavailable") {
       this.monitorAvailable = false;
       this.pressedKeys.clear();
-      this.resetShortcutTrigger(this.mode === "hold");
+      this.resetShortcutTrigger(true);
       this.applyRegistration();
       if (!this.registered && !this.error) this.error = event.error;
       this.onStatus(this.status());
@@ -365,7 +419,7 @@ export class SystemDictationService {
       // the next key-up can't commit half a pre-reset combination.
       this.pressedKeys.clear();
       this.captureChord.clear();
-      this.resetShortcutTrigger(this.mode === "hold");
+      this.resetShortcutTrigger(true);
       return;
     }
 
@@ -385,8 +439,7 @@ export class SystemDictationService {
       const expected = acceleratorKeys(this.accelerator, this.platform);
       if ([...expected].every((key) => this.pressedKeys.has(key))) {
         this.shortcutTriggered = true;
-        if (this.mode === "hold") this.onPress();
-        else this.onToggle();
+        this.pressShortcut();
       }
       return;
     }
@@ -402,7 +455,7 @@ export class SystemDictationService {
     const expected = acceleratorKeys(this.accelerator, this.platform);
     if ([...expected].some((key) => !this.pressedKeys.has(key))) {
       this.shortcutTriggered = false;
-      if (this.mode === "hold") this.onRelease();
+      this.releaseShortcut();
     }
   }
 
@@ -449,7 +502,7 @@ export class SystemDictationService {
       // after wake can't silently commit it as the new shortcut.
       this.pressedKeys.clear();
       this.captureChord.clear();
-      this.shortcutTriggered = false;
+      this.resetShortcutTrigger(false);
       if (hadMonitor && typeof this.keyMonitor.restart === "function") {
         this.monitorAvailable = await this.keyMonitor.restart();
       } else if (!hadMonitor && this.keyMonitor.isSupported?.() !== false) {
@@ -485,14 +538,23 @@ export class SystemDictationService {
     return this.status();
   }
 
-  setRuntimeState(state, message = "") {
-    if (state === "listening" && !this.escapeRegistered) {
-      this.escapeRegistered = registerShortcut(this.globalShortcut, "Escape", this.onCancel);
-    } else if (state !== "listening" && this.escapeRegistered) {
+  setRuntimeState(state, message = "", locale = "en") {
+    if (["success", "cancelled", "error"].includes(state) || (state === "idle" && this.runtimeState !== "idle")) {
+      this.settledAt = Date.now();
+    }
+    this.runtimeState = state;
+    if (!["starting", "listening"].includes(state)) this.clearGesture();
+    const cancellable = ["starting", "listening", "transcribing"].includes(state);
+    if (cancellable && !this.escapeRegistered) {
+      this.escapeRegistered = registerShortcut(this.globalShortcut, "Escape", () => {
+        this.clearGesture();
+        this.onCancel();
+      });
+    } else if (!cancellable && this.escapeRegistered) {
       this.globalShortcut.unregister("Escape");
       this.escapeRegistered = false;
     }
-    this.onState(state, message);
+    this.onState(state, message, locale === "de" ? "de" : "en");
     return this.status();
   }
 
@@ -505,7 +567,7 @@ export class SystemDictationService {
   }
 
   async performPaste(text) {
-    if (!text) return { pasted: false, copied: false, error: "No speech was transcribed." };
+    if (!text) return { pasted: false, copied: false, error: null };
 
     let snapshot = [];
     try {
@@ -553,6 +615,7 @@ export class SystemDictationService {
   }
 
   dispose() {
+    this.clearGesture();
     this.unregisterPrimaryShortcut();
     if (this.escapeRegistered) this.globalShortcut.unregister("Escape");
     this.escapeRegistered = false;

@@ -1,0 +1,17 @@
+.lw-recording-transcript { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--lw-canvas); }
+.lw-recording-transcript-header { display: flex; flex-shrink: 0; align-items: flex-start; justify-content: space-between; gap: var(--lw-space-3); padding: var(--lw-space-6); }
+.lw-recording-transcript-header h1 { color: var(--lw-text-primary); font-size: 22px; font-weight: 500; letter-spacing: -.035em; line-height: 1.25; overflow-wrap: anywhere; }
+.lw-recording-transcript-header p { margin-top: var(--lw-space-2); color: var(--lw-text-secondary); font-size: 12px; }
+.lw-recording-transcript-meta { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: var(--lw-space-3); margin: 0 var(--lw-space-6); padding: var(--lw-space-3) var(--lw-space-4); border-radius: var(--lw-radius-lg); background: var(--lw-sunken); color: var(--lw-text-secondary); font-size: 12px; }
+.lw-recording-transcript-meta > span:first-child { color: var(--lw-text-primary); font-weight: 500; }
+.lw-recording-transcript-status { display: inline-flex; align-items: center; gap: var(--lw-space-2); margin-left: auto; }
+.lw-recording-transcript-dot { width: 6px; height: 6px; border-radius: var(--lw-radius-full); background: var(--lw-danger); animation: lw-transcript-recording 1.6s ease-in-out infinite; }
+@keyframes lw-transcript-recording { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.lw-recording-transcript-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--lw-space-6); overscroll-behavior: contain; }
+.lw-recording-transcript-turn + .lw-recording-transcript-turn { margin-top: var(--lw-space-6); }
+.lw-recording-transcript-speaker { display: flex; align-items: center; justify-content: space-between; gap: var(--lw-space-3); margin-bottom: var(--lw-space-2); font-size: 12px; font-weight: 500; }
+.lw-recording-transcript-speaker time { color: var(--lw-text-secondary); font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.lw-recording-transcript-words { width: fit-content; max-width: 100%; border-radius: var(--lw-radius-xl); background: var(--lw-sunken); padding: var(--lw-space-3) var(--lw-space-4); color: var(--lw-text-primary); font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; white-space: pre-wrap; }
+.lw-recording-transcript-partial { color: var(--lw-text-secondary); }
+.lw-recording-transcript-empty { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: var(--lw-space-3); color: var(--lw-text-secondary); text-align: center; font-size: 13px; line-height: 1.6; }
+@media (prefers-reduced-motion: reduce) { .lw-recording-transcript-dot { animation: none; } }

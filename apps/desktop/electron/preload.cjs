@@ -174,6 +174,13 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     sendPcm(streamId, buffer) {
       ipcRenderer.send("legalwork:audio:pcm", streamId, buffer);
     },
+    /** Send the live microphone meter independently of transcription batching. */
+    sendDictationLevel(level) {
+      ipcRenderer.send("legalwork:audio:dictation-level", level);
+    },
+    sendMeetingLevel(recordingId, level) {
+      ipcRenderer.send("legalwork:audio:meeting-level", recordingId, level);
+    },
     /** Append a MediaRecorder chunk to the recording file on disk. */
     sendMediaChunk(recordingId, chunk) {
       ipcRenderer.send("legalwork:audio:media-chunk", recordingId, chunk);

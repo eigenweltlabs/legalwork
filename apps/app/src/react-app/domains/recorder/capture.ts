@@ -18,6 +18,8 @@
 import { audioLoopbackDisable, audioLoopbackEnable } from "@/app/lib/desktop";
 import type { AudioCaptureSourceKind } from "@legalwork/types/audio";
 import { t } from "@/i18n";
+import { dictationMeterLevel } from "./dictation-meter";
+import { refreshDictationMicrophones } from "./dictation-microphone";
 
 const TARGET_SAMPLE_RATE = 16000;
 const PCM_BATCH_SAMPLES = 4096; // 256 ms at 16 kHz
@@ -29,8 +31,20 @@ class LegalworkPcmBatcher extends AudioWorkletProcessor {
     super();
     this.buffer = new Float32Array(${PCM_BATCH_SAMPLES});
     this.offset = 0;
+    this.flushed = false;
+    this.port.onmessage = ({ data }) => {
+      if (data !== "flush") return;
+      this.flushed = true;
+      if (this.offset > 0) {
+        const tail = this.buffer.slice(0, this.offset);
+        this.port.postMessage(tail.buffer, [tail.buffer]);
+        this.offset = 0;
+      }
+      this.port.postMessage("flushed");
+    };
   }
   process(inputs) {
+    if (this.flushed) return false;
     const channel = inputs[0]?.[0];
     if (!channel) return true;
     let read = 0;
@@ -91,6 +105,9 @@ export type CaptureHandle = {
 export type CaptureCallbacks = {
   onPcm: (chunk: ArrayBuffer) => void;
   onMediaChunk: (chunk: ArrayBuffer) => void;
+  /** Live dictation feedback, independent of transcription's 256 ms PCM batches. */
+  onMeter?: (level: number) => void;
+  onMicrophone?: (name: string) => void;
   /** A source track ended outside our control (e.g. device unplugged). */
   onSourceEnded: (source: AudioCaptureSourceKind) => void;
 };
@@ -164,7 +181,7 @@ async function ensureLiveMicStream(
   );
 }
 
-async function requestMicStream(withEchoCancellation: boolean): Promise<MediaStream> {
+async function requestMicStream(withEchoCancellation: boolean, dictation: boolean): Promise<MediaStream> {
   const ask = window.__LEGALWORK_ELECTRON__?.system?.askMicrophoneAccess;
   if (ask) {
     const result = await ask();
@@ -175,6 +192,28 @@ async function requestMicStream(withEchoCancellation: boolean): Promise<MediaStr
     }
   }
   const constraints = micConstraints(withEchoCancellation);
+  if (dictation && ask) {
+    const state = await refreshDictationMicrophones();
+    if (!state.resolvedDeviceId && state.selection !== "default") {
+      throw new Error(t(state.selection === "auto" ? "recorder.dictation_mic_none" : "recorder.dictation_mic_missing"));
+    }
+    if (state.selection !== "default" && state.resolvedDeviceId && typeof constraints.audio === "object") {
+      constraints.audio.deviceId = { exact: state.resolvedDeviceId };
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      return await ensureLiveMicStream(stream, constraints);
+    } catch (error) {
+      if (!["auto", "default"].includes(state.selection) && error instanceof DOMException
+        && ["NotFoundError", "OverconstrainedError"].includes(error.name)) {
+        throw new Error(t("recorder.dictation_mic_missing"));
+      }
+      // Automatic can recover if a device disappears between discovery and
+      // opening. An explicit choice must never silently use a different input.
+      if (state.selection !== "auto" || (error instanceof DOMException && error.name === "NotAllowedError")) throw error;
+      if (typeof constraints.audio === "object") delete constraints.audio.deviceId;
+    }
+  }
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   return ensureLiveMicStream(stream, constraints);
 }
@@ -205,17 +244,29 @@ async function requestSystemStream(): Promise<MediaStream> {
 export async function startCapture(
   sources: AudioCaptureSourceKind[],
   callbacks: CaptureCallbacks,
+  options: { dictation?: boolean } = {},
 ): Promise<CaptureHandle> {
-  const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+  // Recording processes input without opening the playback device. A silent
+  // sink still clocks the worklet, and avoids disturbing Bluetooth playback.
+  // Chromium supports sinkId; our DOM typings do not include it yet.
+  const contextOptions: AudioContextOptions & { sinkId?: { type: "none" } } = {
+    sampleRate: TARGET_SAMPLE_RATE,
+    sinkId: { type: "none" },
+  };
+  const context = new AudioContext(contextOptions);
   const streams = new Map<AudioCaptureSourceKind, MediaStream>();
   const analysers = new Map<AudioCaptureSourceKind, AnalyserNode>();
   let recorder: MediaRecorder | null = null;
   let workletNode: AudioWorkletNode | null = null;
+  let meterTimer: number | null = null;
   let stopped = false;
+  let onPcmFlushed: (() => void) | null = null;
+  let stopPromise: Promise<void> | null = null;
 
   const cleanup = async () => {
     if (stopped) return;
     stopped = true;
+    if (meterTimer !== null) window.clearInterval(meterTimer);
     try {
       workletNode?.port.close();
       workletNode?.disconnect();
@@ -234,18 +285,33 @@ export async function startCapture(
     // suspended; the graph would build fine and record silence.
     if (context.state === "suspended") await context.resume().catch(() => {});
 
-    const workletUrl = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: "text/javascript" }));
-    try {
-      await context.audioWorklet.addModule(workletUrl);
-    } finally {
-      URL.revokeObjectURL(workletUrl);
-    }
+    const loadWorklet = async () => {
+      const workletUrl = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: "text/javascript" }));
+      try {
+        await context.audioWorklet.addModule(workletUrl);
+      } finally {
+        URL.revokeObjectURL(workletUrl);
+      }
+    };
 
     // Echo cancellation on the mic only matters when the machine is also
     // playing captured system audio that could leak back into it.
     const hasOtherSources = sources.includes("system");
-    if (sources.includes("microphone")) {
-      streams.set("microphone", await requestMicStream(hasOtherSources));
+    const openMicrophone = async () => {
+      if (sources.includes("microphone")) {
+        streams.set("microphone", await requestMicStream(hasOtherSources, options.dictation === true));
+      }
+    };
+    if (options.dictation) {
+      // Open input while the worklet loads. Wait for both to settle so a
+      // failure cannot leave a late-arriving microphone stream running.
+      const results = await Promise.allSettled([loadWorklet(), openMicrophone()]);
+      for (const result of results) {
+        if (result.status === "rejected") throw result.reason;
+      }
+    } else {
+      await loadWorklet();
+      await openMicrophone();
     }
     if (sources.includes("system")) {
       streams.set("system", await requestSystemStream());
@@ -296,6 +362,7 @@ export async function startCapture(
     });
     workletNode.port.onmessage = (event) => {
       if (!stopped && event.data instanceof ArrayBuffer) callbacks.onPcm(event.data);
+      if (event.data === "flushed") onPcmFlushed?.();
     };
     bus.connect(workletNode);
 
@@ -320,6 +387,51 @@ export async function startCapture(
     };
     recorder.start(1000);
 
+    const onMicrophone = callbacks.onMicrophone;
+    if (options.dictation && onMicrophone) {
+      const track = streams.get("microphone")?.getAudioTracks()[0];
+      const name = track?.label || "";
+      onMicrophone(name);
+      // Resolving the physical name behind "default" is UI metadata. Do it
+      // after capture starts so discovery cannot swallow the first words.
+      const settings = track?.getSettings();
+      void navigator.mediaDevices.enumerateDevices().then(devices => {
+        const physical = devices.filter(device => device.kind === "audioinput"
+          && device.deviceId !== "default" && device.deviceId !== "communications");
+        const input = physical.find(device => device.deviceId === settings?.deviceId)
+          ?? physical.find(device => settings?.groupId && device.groupId === settings.groupId);
+        if (!stopped && input?.label && input.label !== name) onMicrophone(input.label);
+      }).catch(() => {});
+    }
+
+    const flushPcm = async () => {
+      const node = workletNode;
+      if (!node) return;
+      if (context.state === "suspended") await context.resume();
+      let timeout: number | undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          onPcmFlushed = resolve;
+          timeout = window.setTimeout(() => reject(new Error(t("recorder.capture_finish_failed"))), 1500);
+          node.port.postMessage("flush");
+        });
+      } finally {
+        onPcmFlushed = null;
+        if (timeout !== undefined) window.clearTimeout(timeout);
+      }
+    };
+
+    const onMeter = callbacks.onMeter;
+    const meterAnalyser = analysers.get("microphone");
+    if (onMeter && meterAnalyser) {
+      const samples = new Float32Array(meterAnalyser.fftSize);
+      meterTimer = window.setInterval(() => {
+        if (stopped) return;
+        meterAnalyser.getFloatTimeDomainData(samples);
+        onMeter(dictationMeterLevel(samples));
+      }, 16);
+    }
+
     const levelData = new Uint8Array(256);
     return {
       readLevels: () => {
@@ -334,22 +446,31 @@ export async function startCapture(
         }
         return levels;
       },
-      stop: async () => {
-        // Flush the encoder before the graph goes away so the final webm
-        // chunk (containing the cues) reaches disk.
-        const activeRecorder = recorder;
-        if (activeRecorder && activeRecorder.state !== "inactive") {
-          await new Promise<void>((resolve) => {
-            activeRecorder.addEventListener("stop", () => resolve(), { once: true });
-            activeRecorder.stop();
-          });
-        }
-        // The last ondataavailable resolves its blob asynchronously — wait
-        // for every queued chunk before the caller finalizes the file.
-        while (pendingChunkWrites.size > 0) {
-          await Promise.all(Array.from(pendingChunkWrites));
-        }
-        await cleanup();
+      stop: () => {
+        stopPromise ??= (async () => {
+          try {
+            // Flush the encoder before the graph goes away so the final
+            // webm chunk (containing the cues) reaches disk.
+            const activeRecorder = recorder;
+            if (activeRecorder && activeRecorder.state !== "inactive") {
+              await new Promise<void>((resolve) => {
+                activeRecorder.addEventListener("stop", () => resolve(), { once: true });
+                activeRecorder.stop();
+              });
+            }
+            // The acknowledgement trails the final partial PCM batch on
+            // the same port. Finalize transcription only after it is sent.
+            await flushPcm();
+            // Blob conversions are asynchronous: wait for the final WebM
+            // chunk before the caller finalizes the file.
+            while (pendingChunkWrites.size > 0) {
+              await Promise.all(Array.from(pendingChunkWrites));
+            }
+          } finally {
+            await cleanup();
+          }
+        })();
+        return stopPromise;
       },
     };
   } catch (error) {

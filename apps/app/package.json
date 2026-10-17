@@ -21,6 +21,7 @@
     "test:todos": "node scripts/todos.mjs",
     "test:permissions": "node scripts/permissions.mjs",
     "test:voice-cdp": "node scripts/voice-cdp.mjs",
+    "test:dictation": "bun test scripts/dictation-runtime.test.ts scripts/dictation-meter.test.ts",
     "test:remote-diagnostics": "bun test scripts/remote-workspace-diagnostics.test.ts",
     "test:open-target": "bun test scripts/open-target.test.ts",
     "test:artifact-spreadsheet": "bun test scripts/artifact-spreadsheet.test.ts",

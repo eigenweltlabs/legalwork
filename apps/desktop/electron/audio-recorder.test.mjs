@@ -7,12 +7,53 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
+import { runInNewContext } from "node:vm";
 
 import { AUDIO_MODEL_CATALOG, VAD_MODEL, findAudioModel } from "./audio/model-catalog.mjs";
 import { AudioModelManager } from "./audio/model-manager.mjs";
 import { RecorderService, assignSpeakers } from "./audio/recorder-service.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+test("worker finalization preserves audio ending between VAD windows", async () => {
+  const windows = [];
+  const messages = [];
+  /** @type {(event: { data: object }) => void} */
+  let onMessage = () => assert.fail("worker did not subscribe to messages");
+  let flushed = 0;
+  class Vad {
+    acceptWaveform(samples) { windows.push([...samples]); }
+    isDetected() { return false; }
+    isEmpty() { return true; }
+    flush() { flushed += 1; }
+  }
+  const source = await fsp.readFile(path.join(__dirname, "audio", "transcription-worker.cjs"), "utf8");
+  runInNewContext(source, {
+    Float32Array, Buffer, setTimeout,
+    require: name => name === "sherpa-onnx-node" ? { Vad } : {},
+    process: {
+      env: { LEGALWORK_TRANSCRIBER_FAKE_ASR: "1" }, on: () => {},
+      parentPort: { postMessage: message => messages.push(message), on: (_event, callback) => { onMessage = callback; } },
+    },
+  });
+  onMessage({ data: { type: "load", vadPath: "test-vad" } });
+  assert.ok(messages.some(message => message.type === "ready"));
+  for (const count of [1, 511, 512, 5633]) {
+    windows.length = 0;
+    const input = Float32Array.from({ length: count }, (_, index) => (index + 1) / 16_000);
+    for (let offset = 0; offset < count; offset += 4096) {
+      onMessage({ data: { type: "pcm", streamId: String(count), buffer: input.slice(offset, offset + 4096).buffer } });
+    }
+    onMessage({ data: { type: "finalize", streamId: String(count) } });
+    await new Promise(resolve => setImmediate(resolve));
+    const samples = windows.flat();
+    assert.deepEqual(samples.slice(0, count), [...input], `all ${count} real samples are delivered before VAD flush`);
+    assert.equal(samples.length, Math.ceil(count / 512) * 512);
+    assert.ok(samples.slice(count).every(sample => sample === 0), "only the final window is padded with silence");
+    assert.equal(messages.filter(message => message.type === "finalized" && message.streamId === String(count)).length, 1);
+  }
+  assert.equal(flushed, 4);
+});
 
 function tempDir(prefix) {
   return fsp.mkdtemp(path.join(os.tmpdir(), prefix));

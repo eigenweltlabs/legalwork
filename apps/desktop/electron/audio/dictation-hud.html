@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LegalWork dictation</title>
+  <link rel="stylesheet" href="dictation-hud.css">
+  <script src="dictation-hud-renderer.js" type="module"></script>
+</head>
+<body data-state="idle">
+  <div id="notice" role="status" aria-live="polite"></div>
+  <aside id="meeting-prompt" hidden>
+    <div><strong id="meeting-title"></strong><span id="meeting-description"></span></div>
+    <button id="meeting-record" type="button"></button>
+    <button id="meeting-dismiss" type="button"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+  </aside>
+  <main id="bar" aria-label="Dictate anywhere">
+    <button id="cancel" aria-label="Cancel dictation" title="Cancel · Esc"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+    <button id="start" aria-label="Start dictation"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span id="start-label" aria-hidden="true">Dictate</span></button>
+    <button id="meeting-start" type="button" aria-label="Record meeting"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/></svg></button>
+    <button id="meeting-open" type="button" aria-label="Open recording"><span id="record-light"></span></button>
+    <span id="meeting-time" aria-hidden="true">0:00</span>
+    <div id="visual" aria-hidden="true">
+      <div id="waveform"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <svg id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+    </div>
+    <span id="label"></span>
+    <button id="stop" aria-label="Finish and insert text" title="Finish and insert text"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button>
+    <button id="meeting-stop" type="button" aria-label="Stop and save meeting"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button>
+    <button id="meeting-close" type="button" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+    <button id="dismiss" aria-label="Dismiss" title="Dismiss"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+  </main>
+</body>
+</html>

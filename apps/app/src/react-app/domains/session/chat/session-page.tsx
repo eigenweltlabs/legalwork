@@ -510,7 +510,7 @@ export function SessionPage(props: SessionPageProps) {
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
       openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview, besideChat: tab.openBesideChat });
-      if (tab.type === "artifact" && tab.pendingImportId && destination?.kind === "workspace") {
+      if (destination?.kind === "workspace" && ((tab.type === "artifact" && tab.pendingImportId) || (tab.type === "recording" && hasMainView))) {
         navigate(workspaceSessionRoute(destination.workspaceId) + "?view=workspace");
       }
       if (scope !== panelStateSessionId) return;

@@ -13,7 +13,6 @@ import { hasEndedEigenweltSubscription, isEigenweltSubscriptionEndedErrorText } 
 import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
 import { eigenweltUsageLimitFromError, isProviderUsageLimitError, parseProviderUsageLimit, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
-import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
@@ -2013,7 +2012,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         status={status}
                         retryStatus={retryStatusForDisplay}
                       />
-                      <RecordingDetailDialog />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
                 </OpenTargetProvider>

@@ -1,0 +1,484 @@
+/* LegalWork's white / glass / graphite chrome, including its theme and motion palette. */
+:root {
+  color-scheme:light;
+  --surface:rgba(255,255,255,.94);
+  --ink:#0d0d0f;
+  --muted:#6c6c76;
+  --border:rgba(13,13,15,.1);
+  --hover:rgba(13,13,15,.06);
+  --primary:#252529;
+  --primary-fg:#fff;
+  --success:#12a150;
+  --danger:#e5484d;
+  --ease:cubic-bezier(.16,1,.3,1)
+}
+
+:root[data-theme=dark] {
+  color-scheme:dark;
+  --surface:rgba(28,28,32,.96);
+  --ink:#f1f1f3;
+  --muted:#b6b6bd;
+  --border:rgba(255,255,255,.14);
+  --hover:rgba(255,255,255,.08);
+  --primary:#ececee;
+  --primary-fg:#1c1c20;
+  --success:#32b56b;
+  --danger:#f16a6e;
+}
+
+* {
+  box-sizing:border-box
+}
+html,
+body {
+  width:100%;
+  height:100%;
+  margin:0;
+  background:transparent;
+  overflow:hidden
+}
+
+body {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-direction:column;
+  padding:8px 16px;
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:12px;
+  color:var(--ink);
+  user-select:none
+}
+
+#bar {
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  flex:none;
+  width:30px;
+  height:28px;
+  padding:0;
+  border:1px solid var(--border);
+  border-radius:9px;
+  background:var(--surface);
+  box-shadow:0 6px 16px rgba(16,24,40,.12),0 2px 5px rgba(16,24,40,.06);
+  transition:width 300ms var(--ease),height 300ms var(--ease),border-radius 300ms var(--ease),padding 300ms var(--ease),gap 300ms var(--ease),transform 300ms var(--ease);
+  animation:appear 300ms var(--ease)
+}
+
+button {
+  flex:none;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:22px;
+  height:22px;
+  padding:4px;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:var(--muted);
+  cursor:pointer;
+  transition:background 140ms,color 140ms,transform 140ms
+}
+
+button:hover {
+  background:var(--hover);
+  color:var(--ink)
+}
+button:active {
+  transform:scale(.91)
+}
+button:focus-visible {
+  outline:2px solid var(--muted);
+  outline-offset:2px
+}
+
+svg {
+  width:14px;
+  height:14px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round
+}
+
+#cancel,#stop,#dismiss,#check,#label,#start {
+  display:none
+}
+
+#visual {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:40px;
+  height:24px;
+  flex:none
+}
+
+#waveform {
+  height:24px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:2px
+}
+
+#waveform i {
+  display:block;
+  width:2px;
+  height:2px;
+  border-radius:3px;
+  background:var(--muted);
+  transition:background 180ms
+}
+
+#label {
+  font-size:11px;
+  font-weight:500;
+  white-space:nowrap;
+  letter-spacing:-.1px;
+  animation:appear 180ms var(--ease)
+}
+
+#notice {
+  max-width:312px;
+  max-height:104px;
+  margin-bottom:7px;
+  padding:7px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--surface);
+  box-shadow:0 4px 12px rgba(16,24,40,.08);
+  font-size:11px;
+  line-height:1.45;
+  text-align:center;
+  opacity:0;
+  transform:translateY(4px);
+  transition:opacity 180ms,transform 180ms;
+  pointer-events:none;
+  overflow:hidden
+}
+
+body[data-state=idle] #bar {
+  box-shadow:0 3px 9px rgba(16,24,40,.13),0 1px 2px rgba(16,24,40,.08)
+}
+
+/* Keep the compact microphone tile easy to hover. */
+body[data-state=idle] #bar::before {
+  content:"";
+  position:absolute;
+  inset:-6px -8px;
+  z-index:0;
+  border-radius:999px
+}
+
+body[data-state=idle] #bar > button { position:relative; z-index:1 }
+
+body[data-state=idle] #visual {
+  display:none
+}
+
+body[data-state=idle] #bar:is(:hover,:focus-within) {
+  width:94px
+}
+
+body[data-state=idle] #start {
+  display:flex;
+  width:100%;
+  height:100%;
+  padding:0;
+  border-radius:inherit;
+  color:var(--ink)
+}
+
+#start svg {
+  flex:none
+}
+
+#start-label {
+  max-width:0;
+  margin-left:0;
+  overflow:hidden;
+  white-space:nowrap;
+  font-size:11px;
+  font-weight:500;
+  opacity:0;
+  transform:translateX(-3px);
+  transition:max-width 300ms var(--ease),margin-left 300ms var(--ease),opacity 140ms,transform 180ms var(--ease)
+}
+
+body[data-state=idle] #bar:is(:hover,:focus-within) #start-label {
+  max-width:68px;
+  margin-left:7px;
+  opacity:1;
+  transform:translateX(0);
+  transition-delay:0ms,0ms,70ms,0ms
+}
+
+body[data-state=idle]:has(#bar:is(:hover,:focus-within)) #notice,
+body[data-hint=true] #notice,
+body[data-state=listening]:has(#bar:hover) #notice,
+body[data-state=error] #notice,
+body[data-slow=true] #notice {
+  opacity:1;
+  transform:translateY(0)
+}
+
+body:not([data-state=idle]) #bar {
+  width:144px;
+  height:32px;
+  border-radius:999px;
+  padding:4px;
+  gap:8px
+}
+
+body[data-state=starting] #bar,
+body[data-state=listening] #bar {
+  width:118px;
+  padding:2px 4px
+}
+
+body[data-state=starting] #visual,
+body[data-state=listening] #visual,
+body[data-state=starting] #waveform,
+body[data-state=listening] #waveform {
+  height:26px
+}
+
+body[data-state=listening] #cancel,
+body[data-state=listening] #stop,
+body[data-state=starting] #cancel,
+body[data-state=starting] #stop,
+body[data-state=transcribing] #cancel {
+  display:flex
+}
+
+body[data-state=listening] #stop,
+body[data-state=starting] #stop {
+  background:var(--primary);
+  color:var(--primary-fg)
+}
+
+body[data-state=listening] #waveform i,
+body[data-state=starting] #waveform i {
+  height:26px;
+  background:var(--ink);
+  will-change:transform
+}
+
+body[data-state=transcribing] #bar {
+  width:160px;
+  gap:7px
+}
+
+body[data-state=transcribing] #label,
+body[data-state=inserting] #label,
+body[data-state=success] #label,
+body[data-state=cancelled] #label,
+body[data-state=error] #label {
+  display:block
+}
+
+body[data-state=transcribing] #visual,
+body[data-state=inserting] #visual {
+  width:18px
+}
+
+body[data-state=transcribing] #waveform,
+body[data-state=inserting] #waveform {
+  gap:3px
+}
+
+body[data-state=transcribing] #waveform i:nth-child(n+4),
+body[data-state=inserting] #waveform i:nth-child(n+4) {
+  display:none
+}
+
+body[data-state=transcribing] #waveform i,
+body[data-state=inserting] #waveform i {
+  width:4px;
+  height:4px;
+  border-radius:50%;
+  background:var(--ink);
+  opacity:.45;
+  animation:processing 900ms ease-in-out infinite
+}
+
+body[data-state=transcribing] #waveform i:nth-child(2),
+body[data-state=inserting] #waveform i:nth-child(2) {
+  animation-delay:300ms
+}
+body[data-state=transcribing] #waveform i:nth-child(3),
+body[data-state=inserting] #waveform i:nth-child(3) {
+  animation-delay:600ms
+}
+
+body[data-state=inserting] #bar {
+  width:140px
+}
+body[data-state=success] #bar,
+body[data-state=cancelled] #bar {
+  width:132px
+}
+
+body[data-state=success] #visual {
+  width:16px;
+  color:var(--success)
+}
+
+body[data-state=success] #waveform {
+  display:none
+}
+
+body[data-state=success] #check {
+  display:block;
+  width:16px;
+  height:16px;
+  animation:appear 200ms var(--ease)
+}
+
+body[data-state=cancelled] #visual {
+  display:none
+}
+
+body[data-state=cancelled] #bar {
+  width:104px
+}
+
+body[data-state=error] #bar {
+  width:210px
+}
+body[data-state=error] #visual {
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--danger)
+}
+body[data-state=error] #waveform {
+  display:none
+}
+body[data-state=error] #dismiss {
+  display:flex
+}
+
+@keyframes processing {
+  0%,33.333%,100% {
+  transform:translateY(0);
+  opacity:.45
+}
+16.667% {
+  transform:translateY(-4px);
+  opacity:1
+}
+
+}
+
+@keyframes appear {
+  from {
+  opacity:0;
+  transform:translateY(5px) scale(.97)
+}
+to {
+  opacity:1;
+  transform:translateY(0) scale(1)
+}
+
+}
+
+@media(prefers-reduced-motion:reduce) {
+  *,*::before,*::after {
+  animation:none!important;
+  transition:none!important
+}
+
+}
+
+
+html[lang=de] body[data-state=transcribing] #bar {
+  width:184px
+}
+
+html[lang=de] body[data-state=inserting] #bar {
+  width:162px
+}
+
+html[lang=de] body[data-state=error] #bar {
+  width:250px
+}
+
+#meeting-start,#meeting-open,#meeting-stop,#meeting-close,#meeting-time { display:none }
+
+#meeting-prompt {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:8px;
+  width:360px;
+  max-width:100%;
+  margin-bottom:8px;
+  padding:12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--surface);
+  box-shadow:0 4px 16px rgba(16,24,40,.12);
+  animation:appear 200ms var(--ease)
+}
+#meeting-prompt[hidden] { display:none }
+#meeting-prompt strong { display:block; font-size:12px; font-weight:600 }
+#meeting-description { display:block; margin-top:4px; font-size:11px; color:var(--muted) }
+#meeting-record { width:auto; height:28px; padding:0 10px; border-radius:7px; background:var(--primary); color:var(--primary-fg); font-size:11px; font-weight:600 }
+
+body[data-state=idle][data-meeting-available=true] #bar { gap:0 }
+body[data-state=idle][data-meeting-available=true] #start { flex:1; min-width:0; width:auto }
+body[data-state=idle][data-meeting-available=true] #bar:is(:hover,:focus-within) { width:132px }
+body[data-state=idle][data-meeting-available=true] #meeting-start {
+  display:flex;
+  flex:none;
+  width:0;
+  height:26px;
+  padding:0;
+  opacity:0;
+  overflow:hidden;
+  pointer-events:none;
+  transition:width 300ms var(--ease),margin 300ms var(--ease),opacity 140ms
+}
+body[data-state=idle][data-meeting-available=true] #bar:is(:hover,:focus-within) #meeting-start {
+  width:28px;
+  margin-left:4px;
+  opacity:1;
+  pointer-events:auto;
+  transition-delay:0ms,0ms,70ms
+}
+#meeting-start svg { flex:none; width:16px; height:16px }
+#meeting-start svg circle:last-child { fill:currentColor; stroke:none }
+
+body:is([data-state=meeting-starting],[data-state=meeting-recording]) #bar { width:158px; padding:2px 5px; gap:7px }
+body:is([data-state=meeting-starting],[data-state=meeting-recording]) #meeting-open,
+body:is([data-state=meeting-starting],[data-state=meeting-recording]) #meeting-time,
+body[data-state=meeting-recording] #meeting-stop { display:flex }
+#meeting-time { min-width:34px; justify-content:center; font-size:11px; font-variant-numeric:tabular-nums; color:var(--muted) }
+#record-light { width:8px; height:8px; border-radius:50%; background:var(--muted) }
+body[data-state=meeting-recording] #record-light { background:var(--danger); animation:recording-light 1200ms ease-in-out infinite }
+body[data-state=meeting-recording] #meeting-stop { background:var(--primary); color:var(--primary-fg) }
+body:is([data-state=meeting-starting],[data-state=meeting-recording]) #visual,
+body:is([data-state=meeting-starting],[data-state=meeting-recording]) #waveform { height:26px }
+body:is([data-state=meeting-starting],[data-state=meeting-recording]) #waveform i { height:26px; background:var(--ink); will-change:transform }
+body:is([data-state=meeting-starting],[data-state=meeting-recording]):has(#bar:hover) #notice { opacity:1; transform:translateY(0) }
+body[data-state=meeting-saving] #bar { width:214px }
+body[data-state=meeting-saving] #label { display:block }
+body[data-state=meeting-saving] #visual { width:18px }
+body[data-state=meeting-saving] #waveform { gap:3px }
+body[data-state=meeting-saving] #waveform i:nth-child(n+4) { display:none }
+body[data-state=meeting-saving] #waveform i { width:4px; height:4px; border-radius:50%; background:var(--ink); opacity:.45; animation:processing 900ms ease-in-out infinite }
+body[data-state=meeting-saving] #waveform i:nth-child(2) { animation-delay:300ms }
+body[data-state=meeting-saving] #waveform i:nth-child(3) { animation-delay:600ms }
+body[data-state=meeting-error] #bar { width:auto; max-width:380px; padding:4px 8px }
+body[data-state=meeting-error] #visual { display:none }
+body[data-state=meeting-error] #label { display:block; overflow:hidden; text-overflow:ellipsis }
+body[data-state=meeting-error] #meeting-close { display:flex; flex:none }
+@keyframes recording-light { 0%,100% { opacity:1; box-shadow:0 0 0 3px rgba(229,72,77,.08) } 50% { opacity:.4; box-shadow:0 0 0 0 rgba(229,72,77,0) } }
+@media (prefers-reduced-motion:reduce) { #record-light { animation:none !important } }

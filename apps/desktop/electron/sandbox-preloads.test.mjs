@@ -60,6 +60,10 @@ test("main preload runs with sandbox APIs and preserves native invocation and ev
   assert.deepEqual(messages[1], ["legalwork:system:architecture-download"]);
   assert.equal(documentElement.dataset.legalworkShell, "electron");
   assert.equal(classes.has("legalwork-electron"), true);
+  bridge.audio.sendDictationLevel(0.7);
+  assert.deepEqual(messages.at(-1), ["legalwork:audio:dictation-level", 0.7]);
+  bridge.audio.sendMeetingLevel("meeting-id", 0.4);
+  assert.deepEqual(messages.at(-1), ["legalwork:audio:meeting-level", "meeting-id", 0.4]);
   let calls = 0;
   const unsubscribe = bridge.audio.onEvent(() => calls++);
   ipc.emit("legalwork:audio:event", {}, { kind: "transcript" });
@@ -80,4 +84,20 @@ test("menu and call preloads preserve their sandboxed IPC bridges", () => {
   overlay.bridge.ask("ask-1", "Question");
   assert.deepEqual(overlay.messages[0], ["legalwork:audio:overlay-ask", "ask-1", "Question"]);
   assert.equal(overlay.bridge.platform, "darwin");
+});
+
+test("dictation preload exposes only its own controls and status subscriptions", () => {
+  const { bridge, ipc, messages } = loadPreload("./audio/dictation-hud-preload.cjs", "dictationHud");
+  bridge.action("cancel");
+  bridge.pointer(true);
+  assert.deepEqual(messages, [["legalwork:dictation-hud:action", "cancel"], ["legalwork:dictation-hud:pointer", true]]);
+  const states = [];
+  const levels = [];
+  bridge.onState((state) => states.push(state));
+  bridge.onLevel((level) => levels.push(level));
+  ipc.emit("legalwork:dictation-hud:state", {}, { state: "listening" });
+  ipc.emit("legalwork:dictation-hud:level", {}, 0.5);
+  assert.equal(states[0].state, "listening");
+  assert.equal(levels[0], 0.5);
+  assert.equal(bridge.invokeDesktop, undefined);
 });

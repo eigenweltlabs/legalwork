@@ -176,6 +176,22 @@ export type AudioDiarizationState = {
 
 export type AudioRecordingStatus = "recording" | "complete" | "error";
 
+export type AudioMeetingCandidate = {
+  id: string;
+  app: string;
+  title: string;
+};
+
+export type AudioMeetingStatus = {
+  detectionEnabled: boolean;
+  detectionSupported: boolean;
+  detected: AudioMeetingCandidate | null;
+  state: "idle" | "starting" | "recording" | "saving" | "error";
+  recordingId: string | null;
+  startedAt: number | null;
+  error: string | null;
+};
+
 export type AudioRecordingMeta = {
   id: string;
   title: string;
@@ -218,12 +234,34 @@ export type AudioTranscriberStatus = {
 export type AudioSystemDictationPlatform = "darwin" | "windows" | "linux";
 export type AudioSystemDictationMode = "tap" | "hold";
 
+export type AudioDictationMicrophoneInput = { id: string; name: string };
+export type AudioDictationMicrophone = AudioDictationMicrophoneInput & {
+  bluetooth: boolean;
+  builtIn: boolean;
+  available: boolean;
+};
+export type AudioDictationMicrophoneState = {
+  /** "auto", "default", or a specific media device id. */
+  selection: string;
+  selectedName: string | null;
+  devices: AudioDictationMicrophone[];
+  resolvedDeviceId: string | null;
+  activeName: string | null;
+};
+/** Read-only Core Audio metadata; querying it never opens a microphone. */
+export type AudioDictationNativeInputs = {
+  inputs: { name: string; bluetooth: boolean; builtIn: boolean }[];
+  defaultInputName: string | null;
+  lidClosed: boolean;
+};
+
 export type AudioSystemDictationStatus = {
   enabled: boolean;
   registered: boolean;
   accelerator: string;
   defaultAccelerator: string;
   customAccelerator: boolean;
+  /** Current shortcut interaction, detected automatically; never a preference. */
   mode: AudioSystemDictationMode;
   supportsHold: boolean;
   shortcutCaptureActive: boolean;
@@ -268,8 +306,12 @@ export type AudioDictationReadiness = {
 
 export type AudioSystemDictationRuntimeState =
   | "idle"
+  | "starting"
   | "listening"
   | "transcribing"
+  | "inserting"
+  | "success"
+  | "cancelled"
   | "error";
 
 export type AudioSystemDictationPasteResult = {
@@ -317,11 +359,17 @@ export type AudioRecorderEvent =
   | { type: "recording-started"; recordingId: string }
   | { type: "transcribe-file-done"; streamId: string }
   | { type: "recording-error"; recordingId: string; error: string }
+  | { type: "meeting-recording-start"; title?: string }
+  | { type: "meeting-recording-stop" }
+  | { type: "meeting-recording-open" }
+  | { type: "meeting-status"; status: AudioMeetingStatus }
   | { type: "system-dictation-toggle" }
   | { type: "system-dictation-press" }
   | { type: "system-dictation-release" }
-  | { type: "system-dictation-cancel" }
+  | { type: "system-dictation-stop" }
+  | { type: "system-dictation-cancel"; reason?: "short-press" }
   | { type: "system-dictation-status"; status: AudioSystemDictationStatus }
+  | { type: "system-dictation-microphones"; status: AudioDictationMicrophoneState }
   /**
    * The machine is about to sleep — finalize the active call recording and
    * cancel any dictation (pasting into whatever is focused after wake would

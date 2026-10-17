@@ -38,9 +38,9 @@ import {
   takePendingTasksPaneRequest,
   type TasksPaneOpenDetail,
 } from "../domains/tasks/tasks-pane-request";
+import { useAutoOpenRecordingTranscript } from "../domains/recorder/recording-transcript-tabs";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
-  RECORDER_TRANSCRIPT_EVENT,
   registerRecorderCopilotContext,
   useRecorderStore,
 } from "../domains/recorder/recorder-store";
@@ -409,6 +409,12 @@ export function SessionRoute() {
     navigate("/recorder");
   };
   const showTasksPane = useCallback(() => navigate("/tasks"), [navigate]);
+  useEffect(() => {
+    const openRecorder = () => { setRecorderProject(null); navigate("/recorder"); };
+    window.addEventListener("legalwork:open-recorder", openRecorder);
+    if (new URLSearchParams(location.search).get("recorder") === "1") openRecorder();
+    return () => window.removeEventListener("legalwork:open-recorder", openRecorder);
+  }, [navigate, location.search]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
@@ -772,6 +778,7 @@ export function SessionRoute() {
   useEffect(() => {
     void useRecorderStore.getState().init();
   }, []);
+  useAutoOpenRecordingTranscript(selectedWorkspaceId);
   useEffect(() => {
     registerRecorderCopilotContext({
       getClient: () => opencodeClient,
@@ -2755,6 +2762,7 @@ export function SessionRoute() {
           </div>
         ) : showRecorder ? (
           <RecorderPane
+            workspaceId={selectedWorkspaceId}
             project={recorderProject}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
@@ -2766,15 +2774,6 @@ export function SessionRoute() {
               }))
               // Selected workspace first, so the common case is one click away.
               .sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId))}
-            onInsertTranscript={(text) => {
-              // The composer's listener lives in SessionSurface, which is
-              // unmounted while this pane is the main view — swap back to the
-              // session first, then dispatch once it has remounted.
-              navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
-              window.setTimeout(() => {
-                window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
-              }, 350);
-            }}
           />
         ) : undefined
       }

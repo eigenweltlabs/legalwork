@@ -28,18 +28,20 @@ import type {
   AudioDiarizationState,
   AudioDictationPermissionKind,
   AudioDictationReadiness,
+  AudioDictationMicrophoneInput,
+  AudioDictationMicrophoneState,
   AudioModelDiskCandidate,
   AudioModelImportResult,
   AudioModelState,
   AudioPermissionKind,
   AudioRecorderBootstrap,
+  AudioMeetingStatus,
   AudioTapApp,
   AudioRecordingDetail,
   AudioRecordingMeta,
   AudioRecordingStartInput,
   AudioSaveToWorkspaceResult,
   AudioSystemDictationPasteResult,
-  AudioSystemDictationMode,
   AudioSystemDictationRuntimeState,
   AudioSystemDictationStatus,
   AudioTranscribeLanguage,
@@ -746,17 +748,20 @@ export type DesktopCommandMap = {
     args: [accelerator: string];
     result: AudioSystemDictationStatus;
   };
-  audioSystemDictationSetMode: {
-    args: [mode: AudioSystemDictationMode];
-    result: AudioSystemDictationStatus;
-  };
   audioSystemDictationSetShortcutCapture: {
     args: [active: boolean];
     result: AudioSystemDictationStatus;
   };
   audioSystemDictationOpenSettings: { args: []; result: AudioSystemDictationStatus };
+  audioMeetingGet: { args: []; result: AudioMeetingStatus };
+  audioMeetingDetectionSet: { args: [enabled: boolean]; result: AudioMeetingStatus };
+  audioMeetingSetState: {
+    args: [state: AudioMeetingStatus["state"], recordingId?: string, error?: string];
+    result: AudioMeetingStatus;
+  };
+  audioMeetingOpen: { args: []; result: void };
   audioSystemDictationSetState: {
-    args: [state: AudioSystemDictationRuntimeState, message?: string];
+    args: [state: AudioSystemDictationRuntimeState, message?: string, locale?: "en" | "de"];
     result: AudioSystemDictationStatus;
   };
   audioSystemDictationPaste: {
@@ -768,6 +773,13 @@ export type DesktopCommandMap = {
    * monitoring, accessibility, automation), probed live against the OS.
    */
   audioSystemDictationReadiness: { args: []; result: AudioDictationReadiness };
+  audioSystemDictationMicrophonesGet: { args: []; result: AudioDictationMicrophoneState };
+  audioSystemDictationMicrophonesUpdate: {
+    args: [inputs: AudioDictationMicrophoneInput[], defaultDeviceId: string | null];
+    result: AudioDictationMicrophoneState;
+  };
+  audioSystemDictationMicrophoneSelect: { args: [selection: string]; result: AudioDictationMicrophoneState };
+  audioSystemDictationMicrophoneActive: { args: [name: string]; result: void };
   /**
    * Fire the strongest available re-prompt for one dictation permission
    * (native prompt where macOS still allows one, exact pane deep link

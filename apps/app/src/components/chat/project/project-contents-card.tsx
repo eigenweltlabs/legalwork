@@ -10,7 +10,7 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { useMessageList } from "../message-list-provider";
 import { classifyOpenTarget } from "@/react-app/domains/session/artifacts/open-target";
-import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
+import { recordingTranscriptTab } from "@/react-app/domains/recorder/recording-transcript-tabs";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { projectFieldLabel } from "@/react-app/domains/workspace/project-defaults-store";
 import { parseProjectContents } from "./project-tool";
@@ -70,8 +70,7 @@ export function ProjectContentsCard({ contents }: { contents: ProjectContents })
     if (item.kind === "tasks") requestOpenTask(item.id, item.title);
     else if (item.kind === "sessions") navigate(workspaceSessionRoute(workspaceId, item.id));
     else if (item.kind === "recordings") {
-      try { await useRecorderStore.getState().openRecording(item.id); }
-      catch { toast.error(t("project_chat.failed")); }
+      requestPanelTab(recordingTranscriptTab({ id: item.id, title: item.title }));
     } else if (item.directory) await load(section, { path: item.id });
     else requestPanelTab({ id: `file:${item.id.toLowerCase()}`, type: "artifact", label: item.title, value: item.id, preview: classifyOpenTarget(item.id, "file") });
   };

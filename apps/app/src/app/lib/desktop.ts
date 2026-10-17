@@ -157,6 +157,8 @@ declare global {
       };
       audio?: {
         sendPcm?: (streamId: string, buffer: ArrayBuffer) => void;
+        sendDictationLevel?: (level: number) => void;
+        sendMeetingLevel?: (recordingId: string, level: number) => void;
         sendMediaChunk?: (recordingId: string, chunk: ArrayBuffer) => void;
         sendAskAnswer?: (askId: string, text: string, done: boolean, error?: string | null) => void;
         onEvent?: (callback: (event: import("@legalwork/types/audio").AudioRecorderEvent) => void) => () => void;
@@ -547,14 +549,21 @@ const {
   audioOverlaySetVisible,
   audioOverlayGetVisible,
   audioSystemDictationGet,
+  audioMeetingGet,
+  audioMeetingDetectionSet,
+  audioMeetingSetState,
+  audioMeetingOpen,
   audioSystemDictationSetEnabled,
   audioSystemDictationSetShortcut,
-  audioSystemDictationSetMode,
   audioSystemDictationSetShortcutCapture,
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
   audioSystemDictationReadiness,
+  audioSystemDictationMicrophonesGet,
+  audioSystemDictationMicrophonesUpdate,
+  audioSystemDictationMicrophoneSelect,
+  audioSystemDictationMicrophoneActive,
   audioSystemDictationRequestPermission,
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
@@ -660,14 +669,21 @@ export {
   audioOverlaySetVisible,
   audioOverlayGetVisible,
   audioSystemDictationGet,
+  audioMeetingGet,
+  audioMeetingDetectionSet,
+  audioMeetingSetState,
+  audioMeetingOpen,
   audioSystemDictationSetEnabled,
   audioSystemDictationSetShortcut,
-  audioSystemDictationSetMode,
   audioSystemDictationSetShortcutCapture,
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
   audioSystemDictationReadiness,
+  audioSystemDictationMicrophonesGet,
+  audioSystemDictationMicrophonesUpdate,
+  audioSystemDictationMicrophoneSelect,
+  audioSystemDictationMicrophoneActive,
   audioSystemDictationRequestPermission,
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,

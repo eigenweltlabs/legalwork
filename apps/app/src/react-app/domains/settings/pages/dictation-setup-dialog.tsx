@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { AudioLines, Keyboard, MousePointerClick } from "lucide-react";
+import { Keyboard } from "lucide-react";
 
 import {
   Dialog,
@@ -138,49 +138,15 @@ export function DictationSetupDialog(props: {
             </span>
           </button>
 
-          <div className="mt-6 flex items-center justify-between gap-4 border-t border-subtle pt-5">
-            <div>
-              <div className="text-xs font-semibold uppercase text-subtext">
-                {t("recorder.dictation_mode_label")}
-              </div>
-              <div className="mt-1 text-sm text-subtext">
-                {dictation?.mode === "hold"
-                  ? t("recorder.dictation_mode_hold_description")
-                  : dictation && !dictation.supportsHold
-                    ? t("recorder.dictation_mode_hold_permission")
-                    : t("recorder.dictation_mode_tap_description")}
-              </div>
-            </div>
-            <div className="flex rounded-xl bg-sunken p-0.5">
-              <button
-                type="button"
-                aria-pressed={dictation?.mode === "tap"}
-                className={cn(
-                  "flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium",
-                  dictation?.mode === "tap" ? "bg-surface text-ink shadow-xs" : "text-subtext",
-                )}
-                onClick={() => void store.setSystemDictationMode("tap")}
-              >
-                <MousePointerClick className="size-4" />
-                {t("recorder.dictation_mode_tap")}
-              </button>
-              <button
-                type="button"
-                aria-pressed={dictation?.mode === "hold"}
-                title={dictation?.supportsHold ? undefined : t("recorder.dictation_mode_hold_unavailable")}
-                className={cn(
-                  "flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium",
-                  dictation?.mode === "hold" ? "bg-surface text-ink shadow-xs" : "text-subtext",
-                )}
-                onClick={() => {
-                  if (dictation?.supportsHold) void store.setSystemDictationMode("hold");
-                  else void store.openSystemDictationSettings();
-                }}
-              >
-                <AudioLines className="size-4" />
-                {t("recorder.dictation_mode_hold")}
-              </button>
-            </div>
+          <div className="mt-6 space-y-2 border-t border-subtle pt-5 text-sm text-subtext">
+            {dictation?.supportsHold === false ? (
+              <p>{t("recorder.dictation_gestures_fallback")}</p>
+            ) : (
+              <>
+                <p>{t("recorder.dictation_gestures_hold")}</p>
+                <p>{t("recorder.dictation_gestures_hands_free")}</p>
+              </>
+            )}
           </div>
         </section>
 

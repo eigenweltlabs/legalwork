@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { HardDrive, Keyboard, Languages, Mic, ShieldCheck } from "lucide-react";
+import { HardDrive, Keyboard, Languages, Mic, ShieldCheck, Video } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,20 +33,22 @@ import { useRecorderStore } from "../../recorder/recorder-store";
 import { HubTabs } from "../segmented-tabs";
 import { DictationReadinessGate } from "./dictation-readiness";
 import { DictationSetupDialog } from "./dictation-setup-dialog";
+import { DictationMicrophoneSetting } from "./dictation-microphone-setting";
 
 export function RecorderSettingsView() {
   const store = useRecorderStore();
   const [searchParams] = useSearchParams();
   // Callers deep-link the tab: "Dictate anywhere" opens ?tab=dictation, model
   // entries default to the models tab.
-  const [tab, setTab] = useState<"models" | "dictation">(
-    searchParams.get("tab") === "dictation" ? "dictation" : "models",
+  const [tab, setTab] = useState<"models" | "dictation" | "meetings">(
+    searchParams.get("tab") === "dictation" ? "dictation" : searchParams.get("tab") === "meetings" ? "meetings" : "models",
   );
   useEffect(() => {
     const requested = searchParams.get("tab");
-    if (requested === "dictation" || requested === "models") setTab(requested);
+    if (requested === "dictation" || requested === "models" || requested === "meetings") setTab(requested);
   }, [searchParams]);
   const [changingDictation, setChangingDictation] = useState(false);
+  const [changingMeetingDetection, setChangingMeetingDetection] = useState(false);
   const [dictationSetupOpen, setDictationSetupOpen] = useState(false);
   const [loginItem, setLoginItem] = useState<{ openAtLogin: boolean; requiresApproval: boolean } | null>(null);
   const [changingLoginItem, setChangingLoginItem] = useState(false);
@@ -65,6 +67,8 @@ export function RecorderSettingsView() {
     const onFocus = () => {
       void store.refreshSystemDictation();
       void store.refreshPermissions();
+      void store.refreshDictationMicrophones();
+      void store.refreshMeeting();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -88,6 +92,7 @@ export function RecorderSettingsView() {
         items={[
           { id: "models", label: t("recorder.models_tab"), icon: HardDrive },
           { id: "dictation", label: t("recorder.dictation_tab"), icon: Keyboard },
+          { id: "meetings", label: t("recorder.meetings_tab"), icon: Video },
         ]}
       />
 
@@ -133,6 +138,42 @@ export function RecorderSettingsView() {
             <ModelManagerList />
           </LayoutSectionItem>
         </>
+      ) : tab === "meetings" ? (
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <div>
+              <LayoutSectionItemTitle>{t("recorder.meetings_title")}</LayoutSectionItemTitle>
+              <LayoutSectionItemDescription>{t("recorder.meetings_description")}</LayoutSectionItemDescription>
+            </div>
+            <LayoutSectionItemHeaderActions>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedModelInstalled || store.finalizing || store.meeting?.state === "starting" || Boolean(store.dictationRecordingId)}
+                onClick={() => { void (store.recording ? store.stopRecording() : store.startMeetingRecording()); }}
+              >
+                {store.recording ? t("recorder.meeting_stop") : t("recorder.meeting_start")}
+              </Button>
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+          <div className="flex items-center justify-between gap-4 border-t border-subtle pt-4">
+            <div>
+              <div className="text-xs font-medium text-ink">{t("recorder.meeting_detection_title")}</div>
+              <div className="mt-1 text-sm text-subtext">{t("recorder.meeting_detection_description")}</div>
+            </div>
+            <Switch
+              aria-label={t("recorder.meeting_detection_title")}
+              checked={store.meeting?.detectionEnabled === true}
+              disabled={!store.meeting || changingMeetingDetection}
+              onCheckedChange={(enabled) => {
+                setChangingMeetingDetection(true);
+                void store.setMeetingDetection(enabled).finally(() => setChangingMeetingDetection(false));
+              }}
+            />
+          </div>
+          <p className="text-xs text-subtext">{t("recorder.meeting_detection_support")}</p>
+          <p className="text-xs text-subtext">{t("recorder.meeting_recording_location")}</p>
+        </LayoutSectionItem>
       ) : (
         <DictationReadinessGate>
           <LayoutSectionItem>
@@ -182,6 +223,7 @@ export function RecorderSettingsView() {
         </div>
 
         <DictationSetupDialog open={dictationSetupOpen} onOpenChange={setDictationSetupOpen} />
+        <DictationMicrophoneSetting />
 
         {loginItem !== null ? (
           <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">

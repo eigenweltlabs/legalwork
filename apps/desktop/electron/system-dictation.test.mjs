@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -141,6 +141,13 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
   service.setRuntimeState("listening");
   shortcuts.callbacks.get("Escape")?.();
   assert.equal(cancels, 1);
+  service.setRuntimeState("starting");
+  shortcuts.callbacks.get("Escape")?.();
+  service.setRuntimeState("transcribing");
+  shortcuts.callbacks.get("Escape")?.();
+  assert.equal(cancels, 3);
+  service.setRuntimeState("inserting");
+  assert.equal(shortcuts.callbacks.has("Escape"), false);
   service.setRuntimeState("idle");
   assert.equal(shortcuts.callbacks.has("Escape"), false);
 
@@ -212,7 +219,8 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
   await rm(userDataDir, { recursive: true, force: true });
 });
 
-test("native shortcut monitoring supports modifier-only capture and hold-to-talk", async () => {
+test("native shortcut monitoring supports modifier-only capture and both dictation gestures", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   const userDataDir = await tempDir();
   const keyMonitor = new FakeKeyMonitor();
   let presses = 0;
@@ -245,11 +253,11 @@ test("native shortcut monitoring supports modifier-only capture and hold-to-talk
   assert.equal(service.status().accelerator, "Fn+Control");
   assert.equal(service.status().shortcutCaptureActive, false);
 
-  const hold = await service.setMode("hold");
-  assert.equal(hold.mode, "hold");
   await keyMonitor.emit("down", "Fn");
   await keyMonitor.emit("down", "Control");
   assert.equal(presses, 1);
+  assert.equal(service.status().mode, "hold");
+  t.mock.timers.tick(500);
   await keyMonitor.emit("up", "Control");
   assert.equal(releases, 1);
   await keyMonitor.emit("up", "Fn");
@@ -258,19 +266,30 @@ test("native shortcut monitoring supports modifier-only capture and hold-to-talk
   await keyMonitor.emit("down", "Control");
   await keyMonitor.emit("up", "Control");
   assert.equal(service.status().accelerator, "Control");
-  await service.setMode("tap");
   await keyMonitor.emit("down", "Control");
-  assert.equal(toggles, 1);
+  t.mock.timers.tick(50);
   await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(100);
+  await keyMonitor.emit("down", "Control");
+  assert.equal(service.status().mode, "tap");
+  await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(500);
+  assert.equal(presses, 2, "double-tap keeps the first capture");
+  assert.equal(releases, 1, "neither tap releases hands-free capture");
+  assert.equal(toggles, 0);
+  await keyMonitor.emit("down", "Control");
+  await keyMonitor.emit("up", "Control");
+  assert.equal(releases, 2, "one press finishes hands-free dictation");
 
   const stored = JSON.parse(await readFile(path.join(userDataDir, "system-dictation.json"), "utf8"));
   assert.equal(stored.accelerator, "Control");
-  assert.equal(stored.mode, "tap");
+  assert.equal(stored.mode, undefined, "gesture choice is no longer a preference");
   service.dispose();
   await rm(userDataDir, { recursive: true, force: true });
 });
 
-test("a monitor reset releases a latched hold and clears chord state", async () => {
+test("a monitor reset releases a latched hold and clears chord state", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   const userDataDir = await tempDir();
   const keyMonitor = new FakeKeyMonitor();
   let presses = 0;
@@ -295,7 +314,6 @@ test("a monitor reset releases a latched hold and clears chord state", async () 
   await service.setShortcutCapture(true);
   await keyMonitor.emit("down", "Control");
   await keyMonitor.emit("up", "Control");
-  await service.setMode("hold");
 
   // Hold engaged, then the tap/hook is rebuilt (wake, session switch) and
   // the key-up is lost: the reset must finalize the dictation, not leave it
@@ -308,11 +326,163 @@ test("a monitor reset releases a latched hold and clears chord state", async () 
   // Chord state was cleared, so the next press starts cleanly.
   await keyMonitor.emit("down", "Control");
   assert.equal(presses, 2);
+  t.mock.timers.tick(500);
   await keyMonitor.emit("up", "Control");
   assert.equal(releases, 2);
 
   service.dispose();
   await rm(userDataDir, { recursive: true, force: true });
+});
+
+async function gestureService(t) {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
+  const userDataDir = await tempDir();
+  const keyMonitor = new FakeKeyMonitor();
+  const shortcuts = new FakeShortcuts();
+  const events = [];
+  const cancelReasons = [];
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: shortcuts, keyMonitor,
+    clipboard: new FakeClipboard(), systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => {},
+    onPress: () => { events.push("start"); service.setRuntimeState("starting"); },
+    onRelease: () => { events.push("finish"); service.setRuntimeState("transcribing"); },
+    onToggle: () => { events.push("toggle"); service.setRuntimeState("starting"); },
+    onCancel: (reason) => { cancelReasons.push(reason); events.push("cancel"); service.setRuntimeState("cancelled"); },
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  await service.initialize();
+  await service.setEnabled(true);
+  await service.setShortcut("Fn");
+  return { service, keyMonitor, shortcuts, events, cancelReasons };
+}
+
+test("double-tap during microphone startup starts once and finishes with one press", async (t) => {
+  const { service, keyMonitor, events } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("down", "Fn"); // OS auto-repeat is ignored.
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(150);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start"]);
+  assert.equal(service.status().mode, "tap");
+  service.setRuntimeState("listening");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  await keyMonitor.emit("down", "Fn"); // No extra start or stop during transcription.
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "finish"]);
+});
+
+test("one quick tap requests guidance and a late second tap does not lock recording", async (t) => {
+  const { keyMonitor, events, cancelReasons } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(299);
+  assert.deepEqual(events, ["start"]);
+  t.mock.timers.tick(1);
+  assert.deepEqual(events, ["start", "cancel"]);
+  assert.deepEqual(cancelReasons, ["short-press"]);
+  t.mock.timers.tick(250);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "cancel", "start", "finish"]);
+});
+
+test("brief holds up to 499 ms show guidance instead of transcribing", async (t) => {
+  const { keyMonitor, events, cancelReasons } = await gestureService(t);
+  for (const duration of [200, 350, 499]) {
+    await keyMonitor.emit("down", "Fn");
+    t.mock.timers.tick(duration);
+    await keyMonitor.emit("up", "Fn");
+    assert.equal(events.at(-1), "cancel", `${duration} ms is too short to dictate`);
+    assert.equal(cancelReasons.at(-1), "short-press");
+    t.mock.timers.tick(300);
+  }
+  assert.deepEqual(events, ["start", "cancel", "start", "cancel", "start", "cancel"]);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.equal(events.at(-1), "finish", "500 ms is a valid hold");
+});
+
+test("a press during completion debounce cannot latch or restart dictation", async (t) => {
+  const { service, keyMonitor, events } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  service.setRuntimeState("success");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "finish"]);
+  t.mock.timers.tick(250);
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "finish", "start", "finish"]);
+});
+
+test("Escape, monitor reset, and disposal clear a pending double-tap", async (t) => {
+  const { service, keyMonitor, shortcuts, events } = await gestureService(t);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  shortcuts.callbacks.get("Escape")();
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel"]);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  await keyMonitor.emit("reset");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel", "start", "cancel"]);
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  service.dispose();
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel", "start", "cancel", "start"]);
+});
+
+test("old saved Tap or Hold choices no longer decide shortcut behavior", async (t) => {
+  const { service, keyMonitor, events } = await gestureService(t);
+  await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: "Fn", mode: "tap" }));
+  await service.initialize();
+  await keyMonitor.emit("down", "Fn");
+  t.mock.timers.tick(500);
+  await keyMonitor.emit("up", "Fn");
+  assert.deepEqual(events, ["start", "finish"]);
+  await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: "Fn", mode: "hold" }));
+  service.setRuntimeState("idle");
+  t.mock.timers.tick(250);
+  await service.initialize();
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  await keyMonitor.emit("down", "Fn");
+  await keyMonitor.emit("up", "Fn");
+  t.mock.timers.tick(500);
+  assert.equal(service.status().mode, "tap");
+  assert.deepEqual(events, ["start", "finish", "start"]);
+});
+
+test("an empty dictation is a successful no-op that preserves rich clipboard data", async (t) => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  let pasteCount = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => { pasteCount += 1; },
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText(" \n "), { pasted: false, copied: false, error: null });
+  assert.equal(pasteCount, 0);
+  assert.equal(clipboard.readText(), "before");
+  assert.equal(clipboard.readBuffer("text/html").toString(), "<b>before</b>");
 });
 
 test("refreshAfterResume restarts the monitor and re-registers only a lost chord", async () => {

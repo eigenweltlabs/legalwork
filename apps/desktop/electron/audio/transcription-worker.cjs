@@ -448,6 +448,11 @@ function handleFinalize(message) {
   if (state) {
     streams.delete(message.streamId);
     try {
+      // The capture flush may end between VAD windows. Preserve every real
+      // sample, padding only the last window with silence before VAD flush.
+      if (state.pending.length > 0) {
+        feedPcm(state, new Float32Array(VAD_WINDOW - state.pending.length));
+      }
       state.vad.flush();
       drainVadSegments(state);
     } catch {

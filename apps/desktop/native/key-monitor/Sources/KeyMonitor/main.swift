@@ -1,5 +1,7 @@
 import AppKit
 import ApplicationServices
+import CoreAudio
+import Darwin
 import Foundation
 import IOKit.hid
 
@@ -133,6 +135,205 @@ private func runAutomationMode(askUser: Bool) -> Never {
     exit(0)
 }
 
+// Query device metadata without opening an audio stream or changing routing.
+// Keeping dictation off a Bluetooth microphone preserves its playback mode.
+private func audioUInt32(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> UInt32? {
+    var address = AudioObjectPropertyAddress(
+        mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var value: UInt32 = 0
+    var size = UInt32(MemoryLayout<UInt32>.size)
+    guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr else { return nil }
+    return value
+}
+
+private struct DictationNativeInput: Encodable {
+    let name: String
+    let bluetooth: Bool
+    let builtIn: Bool
+}
+
+private struct DictationInputInfo: Encodable {
+    var inputs: [DictationNativeInput] = []
+    var defaultInputName: String?
+    var lidClosed = false
+}
+
+private func dictationInputInfo() -> DictationInputInfo {
+    var result = DictationInputInfo()
+    let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+    if service != 0 {
+        if let property = IORegistryEntryCreateCFProperty(service, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0) {
+            result.lidClosed = property.takeRetainedValue() as? Bool ?? false
+        }
+        IOObjectRelease(service)
+    }
+    let defaultInput = audioUInt32(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice)
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return result }
+    var devices = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+    let status = devices.withUnsafeMutableBytes { bytes in
+        guard let pointer = bytes.baseAddress else { return OSStatus(kAudioHardwareUnspecifiedError) }
+        return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, pointer)
+    }
+    guard status == noErr else { return result }
+    for device in devices {
+        var streamsAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams, mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var streamsSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(device, &streamsAddress, 0, nil, &streamsSize) == noErr, streamsSize > 0 else { continue }
+        var nameAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        if AudioObjectGetPropertyData(device, &nameAddress, 0, nil, &nameSize, &name) == noErr, let name {
+            let label = name.takeRetainedValue() as String
+            let transport = audioUInt32(device, kAudioDevicePropertyTransportType)
+            result.inputs.append(DictationNativeInput(
+                name: label,
+                bluetooth: transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE,
+                builtIn: transport == kAudioDeviceTransportTypeBuiltIn
+            ))
+            if device == defaultInput { result.defaultInputName = label }
+        }
+    }
+    return result
+}
+
+private func runDictationInputMode() -> Never {
+    let result = dictationInputInfo()
+    if let data = try? JSONEncoder().encode(result) {
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+    exit(0)
+}
+
+private struct MeetingDocument: Encodable {
+    let title: String
+    let url: String
+}
+
+private struct MeetingProcess: Encodable {
+    let bundleId: String
+    let inputActive: Bool
+    let documents: [MeetingDocument]
+}
+
+private func audioString(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {
+    var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    var value: Unmanaged<CFString>?
+    var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+    guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr else { return nil }
+    return value?.takeRetainedValue() as String?
+}
+
+private func axString(_ element: AXUIElement, _ attribute: String) -> String {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return "" }
+    if let url = value as? URL { return url.absoluteString }
+    return value as? String ?? ""
+}
+
+private func meetingApplication(_ object: AudioObjectID, _ bundleId: String, _ apps: [NSRunningApplication]) -> NSRunningApplication? {
+    // Audio helpers can have a different bundle ID from their call app.
+    // Resolve the real owning app through its process ancestry first.
+    var pid = pid_t(audioUInt32(object, kAudioProcessPropertyPID) ?? 0)
+    for _ in 0..<8 {
+        if let app = apps.first(where: { $0.processIdentifier == pid && $0.activationPolicy == .regular }) { return app }
+        guard pid > 1 else { break }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { break }
+        let parent = pid_t(info.pbi_ppid)
+        guard parent != pid else { break }
+        pid = parent
+    }
+    return apps.first { app in
+        guard let id = app.bundleIdentifier else { return false }
+        return app.activationPolicy == .regular && (bundleId == id || bundleId.hasPrefix(id + "."))
+    }
+}
+
+// Read window metadata and the top-level document URL only. Stop at web areas
+// instead of traversing page contents or collecting conversation text.
+private func meetingDocuments(_ app: NSRunningApplication) -> [MeetingDocument] {
+    guard AXIsProcessTrusted() else { return [] }
+    let element = AXUIElementCreateApplication(app.processIdentifier)
+    AXUIElementSetMessagingTimeout(element, 0.1)
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success,
+          let windows = value as? [AXUIElement] else { return [] }
+    let deadline = Date().addingTimeInterval(0.8)
+    return windows.prefix(8).map { window in
+        if Date() >= deadline { return MeetingDocument(title: "", url: "") }
+        let title = axString(window, kAXTitleAttribute)
+        var url = axString(window, kAXDocumentAttribute)
+        var queue: [(AXUIElement, Int)] = [(window, 0)]
+        var visited = 0
+        while url.isEmpty, !queue.isEmpty, visited < 80, Date() < deadline {
+            let (node, depth) = queue.removeFirst()
+            visited += 1
+            url = axString(node, kAXURLAttribute)
+            if !url.isEmpty { break }
+            if depth >= 5 || axString(node, kAXRoleAttribute) == "AXWebArea" { continue }
+            var childrenValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(node, kAXChildrenAttribute as CFString, &childrenValue) == .success,
+               let children = childrenValue as? [AXUIElement] {
+                queue.append(contentsOf: children.prefix(20).map { ($0, depth + 1) })
+            }
+        }
+        return MeetingDocument(title: title, url: url)
+    }
+}
+
+private func runMeetingActivityMode() -> Never {
+    struct Result: Encodable { let supported: Bool; let processes: [MeetingProcess] }
+    var processes: [MeetingProcess] = []
+    let supported: Bool
+    if #available(macOS 14.2, *) {
+        supported = true
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        if AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr {
+            var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+            let status = objects.withUnsafeMutableBytes { bytes in
+                guard let pointer = bytes.baseAddress else { return OSStatus(kAudioHardwareUnspecifiedError) }
+                return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, pointer)
+            }
+            if status == noErr {
+                let apps = NSWorkspace.shared.runningApplications
+                let nativeIds = ["us.zoom.xos", "com.microsoft.teams2", "com.microsoft.teams", "com.tinyspeck.slackmacgap", "com.cisco.webexmeetingsapp", "com.cisco.webex"]
+                let browserIds = ["com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "company.thebrowser.dia", "com.apple.Safari", "org.mozilla.firefox"]
+                var seen = Set<String>()
+                for object in objects where audioUInt32(object, kAudioProcessPropertyIsRunningInput) == 1 {
+                    guard let bundleId = audioString(object, kAudioProcessPropertyBundleID), !bundleId.isEmpty else { continue }
+                    // Browser audio runs in helper processes; read the parent
+                    // application's windows, not the helper's empty AX tree.
+                    guard let app = meetingApplication(object, bundleId, apps), let id = app.bundleIdentifier, !seen.contains(id) else { continue }
+                    guard nativeIds.contains(id) || browserIds.contains(id) else { continue }
+                    seen.insert(id)
+                    processes.append(MeetingProcess(bundleId: id, inputActive: true, documents: browserIds.contains(id) ? meetingDocuments(app) : []))
+                }
+            }
+        }
+    } else { supported = false }
+    if let data = try? JSONEncoder().encode(Result(supported: supported, processes: processes)) {
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+    exit(0)
+}
+
 private let modeArguments = CommandLine.arguments.dropFirst()
 if let mode = modeArguments.first {
     switch mode {
@@ -140,6 +341,8 @@ if let mode = modeArguments.first {
     case "--request": runInputMonitoringRequest()
     case "--check-automation": runAutomationMode(askUser: false)
     case "--request-automation": runAutomationMode(askUser: true)
+    case "--dictation-input": runDictationInputMode()
+    case "--meeting-activity": runMeetingActivityMode()
     default:
         FileHandle.standardError.write(Data("Unknown mode: \(mode)\n".utf8))
         exit(64)

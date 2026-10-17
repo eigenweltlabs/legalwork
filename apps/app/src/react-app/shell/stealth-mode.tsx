@@ -33,7 +33,7 @@ export function StealthMode() {
   // Content protection follows the privacy setting, independent of the badge.
   const shouldHide = hideMode === "always" || (hideMode === "recording" && isRecording);
   // The topbar cue is only for a real recording (not the system-dictation HUD).
-  const showBadge = Boolean(recording && recording.id !== dictationRecordingId);
+  const showBadge = Boolean(recording && !recording.ephemeral && recording.id !== dictationRecordingId);
 
   useEffect(() => {
     // Best-effort: on plain web the bridge is absent and this no-ops.

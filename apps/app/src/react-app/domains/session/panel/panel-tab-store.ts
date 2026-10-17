@@ -81,10 +81,12 @@ export type TaskPanelTab = {
   label: string;
 };
 
+export type RecordingPanelTab = { id: string; type: "recording"; recordingId: string; label: string };
+
 export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
 export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
 
-export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab | ViewPanelTab | ViewDraftTab;
+export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab | ViewPanelTab | ViewDraftTab | RecordingPanelTab;
 
 export type DocumentPaneState = { id: string; tabIds: string[]; activeTabId: string | null; previewTabId?: string };
 export type SessionPanelState = {
@@ -99,7 +101,7 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTab = ViewPanelTab | WikiPanelTab | ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser"; background?: boolean } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
+type PersistedPanelTab = RecordingPanelTab | ViewPanelTab | WikiPanelTab | ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser"; background?: boolean } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -128,6 +130,7 @@ function restoredTab(value: unknown): PanelTab | null {
     return { id: value.id, type: "artifact", label: value.label, value: value.value, preview: classifyOpenTarget(value.value, "file"),
       ...(record(value.wikiSuggestion) && typeof value.wikiSuggestion.workspaceId === "string" && typeof value.wikiSuggestion.id === "string" && suggestionIdFromFile(value.value) === value.wikiSuggestion.id ? { wikiSuggestion: { workspaceId: value.wikiSuggestion.workspaceId, id: value.wikiSuggestion.id } } : {}) };
   if (typeof value.label === "string") {
+    if (value.type === "recording" && typeof value.recordingId === "string" && value.recordingId) return { id: value.id, type: "recording", recordingId: value.recordingId, label: value.label };
     if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label);
     if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
@@ -354,6 +357,10 @@ function isSameTab(left: PanelTab, right: PanelTab) {
   if (left.type === "review" && right.type === "review") return left.label === right.label && left.reviewId === right.reviewId;
   if (left.type === "task" && right.type === "task") {
     return left.label === right.label && left.taskId === right.taskId;
+  }
+
+  if (left.type === "recording" && right.type === "recording") {
+    return left.label === right.label && left.recordingId === right.recordingId;
   }
 
   if (left.type === "workflow" && right.type === "workflow") return left.label === right.label;
@@ -783,7 +790,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           Object.entries(state.sessions).map(([sessionId, session]) => {
             const tabs = session.tabs
               .flatMap<PersistedPanelTab>((tab) => {
-                if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki" || tab.type === "view") return [tab];
+                if (tab.type === "recording" || tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki" || tab.type === "view") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource" || tab.type === "view-draft") return [];
                 if (tab.type === "browser") return [{ id: tab.id, type: tab.type, background: tab.background }];

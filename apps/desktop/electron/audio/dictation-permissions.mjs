@@ -187,6 +187,20 @@ export class DictationPermissions {
     };
   }
 
+  /** @returns {Promise<import('@legalwork/types/audio').AudioDictationNativeInputs | null>} */
+  async microphoneInputs() {
+    if (this.platform !== "darwin") return null;
+    const result = await runHelperMode(this.app, "--dictation-input", CHECK_TIMEOUT_MS, this.spawn);
+    if (!Array.isArray(result?.inputs)) return null;
+    return {
+      inputs: result.inputs.filter(input => typeof input?.name === "string").map(input => ({
+        name: input.name, bluetooth: input.bluetooth === true, builtIn: input.builtIn === true,
+      })),
+      defaultInputName: typeof result.defaultInputName === "string" ? result.defaultInputName : null,
+      lidClosed: result.lidClosed === true,
+    };
+  }
+
   /**
    * Whether the hotkey listener just became usable, so the caller can
    * restart the long-running key monitor (a monitor started under a stale
