@@ -1,0 +1,107 @@
+name: PR test environment
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: PR number in this repository
+        required: true
+      companion_ref:
+        description: Companion repository branch, SHA, or refs/pull/123/head
+      platforms:
+        description: Comma-separated platforms
+        default: linux-x64,windows-x64
+      ttl_hours:
+        description: Environment lifetime in hours (1–168)
+        default: '4'
+      live_smoke:
+        description: Optional capped real-provider connectivity check (synthetic data only)
+        type: boolean
+        default: false
+      action:
+        type: choice
+        options: [create, destroy]
+        default: create
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+concurrency:
+  group: test-lab-${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request }}
+  cancel-in-progress: false
+jobs:
+  environment:
+    if: >-
+      vars.LAB_URL != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+        (startsWith(github.event.comment.body, '/test-stack ') || startsWith(github.event.comment.body, 'test with ') || startsWith(github.event.comment.body, '/lab '))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      LAB_URL: ${{ vars.LAB_URL }}
+      LAB_PROJECT: eigenwelt-test-lab
+      LAB_BUCKET: eigenwelt-test-lab-artifacts
+      LAB_PROJECT_NUMBER: ${{ vars.LAB_PROJECT_NUMBER }}
+      LAB_CLERK_PUBLISHABLE_KEY: ${{ vars.LAB_CLERK_PUBLISHABLE_KEY }}
+      LAB_CLERK_OAUTH_CLIENT_ID: ${{ vars.LAB_CLERK_OAUTH_CLIENT_ID }}
+      LAB_CLERK_FRONTEND_URL: ${{ vars.LAB_CLERK_FRONTEND_URL }}
+      LAB_HUMAN_USER_ID: ${{ vars.LAB_HUMAN_USER_ID }}
+      LAB_PLATFORMS: ${{ vars.LAB_PLATFORMS || 'linux-x64,windows-x64' }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.LAB_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: lab-deployer@eigenwelt-test-lab.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+          run_install: false
+      - name: Download trusted environment controller
+        env:
+          LAB_BUNDLE_URI: ${{ vars.LAB_BUNDLE_URI }}
+          LAB_BUNDLE_SHA256: ${{ vars.LAB_BUNDLE_SHA256 }}
+        run: |
+          gcloud storage cp "$LAB_BUNDLE_URI" "$RUNNER_TEMP/controller.tar.gz"
+          printf '%s  %s\n' "$LAB_BUNDLE_SHA256" "$RUNNER_TEMP/controller.tar.gz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/controller"
+          tar -xzf "$RUNNER_TEMP/controller.tar.gz" -C "$RUNNER_TEMP/controller"
+          cd "$RUNNER_TEMP/controller"
+          pnpm install --frozen-lockfile
+      - name: Resolve PRs and create or clean environment
+        id: stack
+        run: node "$RUNNER_TEMP/controller/scripts/github-run.mjs"
+      - name: Provision selected stack
+        if: steps.stack.outputs.environment_id != ''
+        run: node "$RUNNER_TEMP/controller/scripts/provision.mjs" '${{ steps.stack.outputs.environment_id }}' '${{ steps.stack.outputs.source_root }}'
+      - name: Run deployed browser and desktop tests
+        id: tests
+        if: steps.stack.outputs.environment_id != ''
+        run: node "$RUNNER_TEMP/controller/scripts/run-tests.mjs" '${{ steps.stack.outputs.environment_id }}'
+      - name: Optional bounded real-provider smoke test
+        if: steps.stack.outputs.environment_id != '' && github.event_name == 'workflow_dispatch' && inputs.live_smoke && inputs.action == 'create'
+        run: node "$RUNNER_TEMP/controller/scripts/live-model.mjs" '${{ steps.stack.outputs.environment_id }}'
+      - name: Store sensitive traces and screenshots privately
+        if: always() && steps.stack.outputs.environment_id != ''
+        run: node "$RUNNER_TEMP/controller/scripts/publish-results.mjs" '${{ steps.stack.outputs.environment_id }}'
+      - name: Upload safe test summary
+        if: always() && steps.stack.outputs.environment_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-lab-${{ steps.stack.outputs.environment_id }}
+          path: ${{ runner.temp }}/controller/test-results/public-summary.json
+          retention-days: 30
+      - name: Report environment on PR
+        if: always() && steps.stack.outputs.environment_id != ''
+        env:
+          LAB_TEST_STATUS: ${{ steps.tests.outcome }}
+        run: node "$RUNNER_TEMP/controller/scripts/github-report.mjs" "$RUNNER_TEMP/lab-environment.json"
