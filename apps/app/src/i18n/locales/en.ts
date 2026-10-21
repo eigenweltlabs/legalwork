@@ -7173,6 +7173,7 @@ export default {
   "views.independent_copy_hint": "Create an independent file. Changes to one copy do not change the others.",
   "views.already_saved_in": "Already saved in",
   "views.no_further_destinations": "No other locations in this category.",
+  "views.open_location_failed": "This location could not be opened. Reconnect the project or wiki and try again.",
   "views.locations_check_failed": "Could not check the saved locations. Please try again.",
   "views.copy_folder_hint": "The copy will appear in the {folder} folder.",
   "views.save_as": "Save as…",

@@ -7550,6 +7550,7 @@ const de = {
   "views.independent_copy_hint": "Erstellt eine eigenständige Datei. Änderungen an einer Kopie ändern die anderen nicht.",
   "views.already_saved_in": "Bereits gespeichert in",
   "views.no_further_destinations": "Keine weiteren Speicherorte in dieser Kategorie.",
+  "views.open_location_failed": "Dieser Speicherort konnte nicht geöffnet werden. Verbinden Sie das Projekt oder Wiki erneut und versuchen Sie es noch einmal.",
   "views.locations_check_failed": "Die Speicherorte konnten nicht geprüft werden. Bitte versuchen Sie es erneut.",
   "views.copy_folder_hint": "Die Kopie erscheint im Ordner „{folder}“.",
   "views.save_as": "Speichern unter…",

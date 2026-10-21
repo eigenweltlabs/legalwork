@@ -4,6 +4,7 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
+import type { WikiVault } from "@legalwork/types/wiki";
 import type { ViewInput, ViewOwner, ViewRecord } from "@legalwork/types/views";
 import { useViewGenerationStore, viewDraftTab, viewGenerationId, type ViewGeneration } from "./react-app/domains/views/view-generation";
 import { sameViewOwner, viewInput } from "./react-app/domains/views/view-save";
@@ -106,6 +107,9 @@ const workspace: WorkspaceInfo = {
 const otherWorkspace: WorkspaceInfo = {
   ...workspace, id: "visual-personal", name: "Personal", displayName: "Personal", path: "/workspaces/personal",
 };
+const fixtureWiki: WikiVault = { id: "visual-wiki", workspaceId: "visual-wiki-workspace", name: "Firm knowledge", root: "/synthetic/wiki", allowInProjects: true, sync: null, writable: true, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } };
+const wikiWorkspace: WorkspaceInfo = { ...workspace, id: fixtureWiki.workspaceId, name: fixtureWiki.name, displayName: fixtureWiki.name, path: fixtureWiki.root, preset: "wiki" };
+const fixtureWorkspaces = [workspace, otherWorkspace, ...(dashboardExplorer ? [wikiWorkspace] : []), ...(previewParams.has("many-destinations") ? Array.from({ length: 18 }, (_, index) => ({ ...otherWorkspace, id: `visual-destination-${index}`, name: `Project ${String(index + 1).padStart(2, "0")}`, displayName: `Project ${String(index + 1).padStart(2, "0")}`, path: `/synthetic/project-${index}` })) : [])];
 const welcomeId = "visual-welcome";
 const reply = "I've reviewed the sample terms and organized the key points.\n\n### Review priorities\n\n1. **Liability:** confirm the agreed cap applies consistently.\n2. **Termination:** align the notice periods for both parties.\n3. **Data handling:** make the return and deletion process explicit.\n\nThe next step is to compare these points against your standard playbook. This is a simulated response for visual review.";
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
@@ -442,8 +446,10 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
   ...(dashboardExplorer ? {
-    listWorkspaces: async () => ({ items: [workspace, otherWorkspace, ...(previewParams.has("many-destinations") ? Array.from({ length: 18 }, (_, index) => ({ ...otherWorkspace, id: `visual-destination-${index}`, name: `Project ${String(index + 1).padStart(2, "0")}`, displayName: `Project ${String(index + 1).padStart(2, "0")}`, path: `/synthetic/project-${index}` })) : [])] }),
-    listWikis: async () => ({ items: [{ id: "visual-wiki", workspaceId: "visual-wiki-workspace", name: "Firm knowledge", root: "/synthetic/wiki", allowInProjects: true, sync: null, writable: true, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } }] }),
+    listWorkspaces: async () => ({ items: fixtureWorkspaces }),
+    listWikis: async () => ({ items: [fixtureWiki] }),
+    wikiContributions: async () => ({ items: [], unavailableProjects: [] }),
+    wikiSnapshot: async () => ({ wiki: fixtureWiki, pages: [], assets: [], folders: ["Dashboards"], warnings: [] }),
     listViews: async (owner: ViewOwner) => ({ items: [...explorerViews.values()].filter(view => sameViewOwner(view.owner, owner)).map(view => ({ ...view, path: `${view.mode === "dashboard" ? "Dashboards" : "Reports"}/${view.id}.view.json` })), issues: [] }),
     readView: async (owner: ViewOwner, id: string) => { const view = explorerViews.get(id); if (!view || !sameViewOwner(view.owner, owner)) throw new LegalworkServerError(404, "view_not_found", "Synthetic dashboard not found"); return view; },
     createView: async (owner: ViewOwner, input: ViewInput) => saveExplorerView(owner, input),
@@ -668,8 +674,10 @@ function SessionPreview() {
   const [projectOrder, setProjectOrder] = useState([workspace.id, otherWorkspace.id]);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   useEffect(() => {
-    const projectRoute = location.pathname.match(/^\/workspace\/([^/]+)/);
-    if (projectRoute) setActiveWorkspace(decodeURIComponent(projectRoute[1]) === workspace.id ? workspace : otherWorkspace);
+    const projectRoute = location.pathname.match(/^\/(?:workspace|wikis)\/([^/]+)/);
+    const routedWorkspace = projectRoute && fixtureWorkspaces.find(item => item.id === decodeURIComponent(projectRoute[1]));
+    if (routedWorkspace) setActiveWorkspace(routedWorkspace);
+    if (location.pathname.startsWith("/wikis/")) { setSelectedSessionId(null); setShowHome(false); setShowWorkflows(false); return; }
     if (location.pathname === "/home") { setShowHome(true); setShowWorkflows(false); return; }
     const route = location.pathname.match(/^\/workspace\/[^/]+\/session(?:\/([^/]+))?$/);
     if (projectPage) { setShowHome(false); setShowWorkflows(false); }
@@ -778,7 +786,9 @@ function SessionPreview() {
             }}
           /> : showWorkflows ? <WorkflowsPreview reviewClient={fixtureClient} /> : undefined}
           selectedSessionId={selectedSessionId} selectedWorkspaceId={activeWorkspace.id} selectedWorkspaceDisplay={{ ...activeWorkspace, displayName: activeWorkspace.displayName ?? activeWorkspace.name }}
-          selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={[workspace, otherWorkspace]}
+          selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={fixtureWorkspaces}
+          wikiWorkspace={activeWorkspace.id === wikiWorkspace.id ? fixtureWiki : undefined}
+          wiki={dashboardExplorer ? { client: fixtureClient, serverUrl: fixtureClient.baseUrl, workspaceId: activeWorkspace.id, workspaces: fixtureWorkspaces, selectedWikiId: fixtureWiki.id, onOpenWiki: wiki => navigate(`/wikis/${wiki.workspaceId}`), onOpenWikiSession: async () => { previewNotice(); } } : undefined}
           clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
@@ -796,7 +806,7 @@ function SessionPreview() {
             setRevision((value) => value + 1);
           }}
           sidebar={{
-            workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
+            workspaceSessionGroups: activeWorkspace.id === wikiWorkspace.id ? [{ workspace: wikiWorkspace, status: "ready", sessions: [] }] : projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
             sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
@@ -807,7 +817,7 @@ function SessionPreview() {
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
             onShowProjects: () => { setShowHome(false); setShowWorkflows(false); navigate("/projects"); },
             onShowChats: () => { setShowHome(true); setShowWorkflows(false); }, onShowEvals: previewNotice, onShowWorkflows: () => { setShowHome(false); setShowWorkflows(true); navigate("/workflows"); }, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
-            activeNav: showWorkflows ? "workflows" : null,
+            activeNav: showWorkflows ? "workflows" : activeWorkspace.id === wikiWorkspace.id ? "wikis" : null,
           }}
           surface={{
             workspaceRoot: activeWorkspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
@@ -845,7 +855,7 @@ previewRoot.render(
         <LocalProvider>
           <ShellConfigProvider>
             <ReloadCoordinatorProvider>
-              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
+              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={fixtureWorkspaces.map(item => ({ ...item, displayNameResolved: item.displayName ?? item.name }))} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
                 <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
                   <LegalworkControlProvider>
                     <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
