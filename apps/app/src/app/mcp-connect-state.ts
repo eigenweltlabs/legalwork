@@ -24,12 +24,15 @@ export function mcpAuthEntryFromServer(entry: McpServerEntry): McpDirectoryInfo 
 }
 
 export type McpConnectOutcome = "auth" | "connected" | "failed" | "pending";
+export const mcpMigrationStatus = (status: McpStatus | undefined) => status && "migration" in status ? status.migration : undefined;
 
 export function mcpConnectOutcome(
   entry: McpDirectoryInfo,
   status: McpStatus | undefined,
   hasHeaders: boolean,
 ): McpConnectOutcome {
+  if (status?.status === "connecting") return "pending";
+  if (status?.status === "failed" && status.migration) return "failed";
   // Static headers usually mean a token-authed server that must not start OAuth,
   // unless the entry asks for OAuth explicitly: then the headers ride along.
   const credentialHeaders = hasHeaders && (!entry.headers || Object.keys(entry.headers).some(isCredentialHeader));

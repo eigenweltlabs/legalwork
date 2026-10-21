@@ -1,5 +1,6 @@
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
@@ -50,12 +51,14 @@ async function withWorkspace(fn: (input: { root: string; config: ServerConfig })
   const previousDb = process.env.LEGALWORK_RUNTIME_DB;
   const dbPath = join(root, "runtime.sqlite");
   process.env.LEGALWORK_RUNTIME_DB = dbPath;
+  const config = serverConfig(root, dbPath);
   try {
-    await fn({ root, config: serverConfig(root, dbPath) });
+    await fn({ root, config });
   } finally {
+    await closeTestRuntime(config);
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
     else process.env.LEGALWORK_RUNTIME_DB = previousDb;
-    await rm(root, { recursive: true, force: true });
+    await removeTestDirectory(root);
   }
 }
 
@@ -315,7 +318,9 @@ describe("runtime OpenCode config store", () => {
           legacyLegalwork: { keys: [] },
           userOpencode: { exists: false, keys: [] },
         });
-        expect(status.effectiveRuntime.mcp).toMatchObject({ legacy: { url: "https://legacy.example/mcp" } });
+        expect(status.effectiveRuntime.mcp).toMatchObject({ legacy: {
+          url: expect.stringContaining(`/mcp/gateway/${WORKSPACE_ID}/`), oauth: false,
+        } });
         expect(status.effectiveRuntime.default_agent).toBe("legalwork");
         expect(status.effectiveRuntime.agent).toMatchObject({ legalwork: { mode: "primary" } });
         expect(status.effectiveRuntime.provider).toMatchObject({ legacy: { npm: "legacy-provider" } });

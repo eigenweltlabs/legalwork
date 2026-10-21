@@ -7,7 +7,7 @@ import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
-import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
+import { createServerLogger, startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
@@ -26,6 +26,7 @@ import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { migrateLegacyMcpOAuth, startLegacyMcpMigrationRetry } from "./mcp-migration.js";
 
 const args = parseCliArgs(process.argv.slice(2));
 
@@ -64,9 +65,11 @@ await importConnectorsIntoSharedRow(config, {
   console.warn(`[legalwork-server] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
 });
 
+let stopMigration = async () => {};
 const server = await startServer(config, { onListening: async (port) => {
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
   if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
+    const migration = await migrateLegacyMcpOAuth(config);
     const workspace = config.workspaces[0];
     if (workspace?.path) {
       // Server-managed config file: the engine re-reads it from disk on every
@@ -108,6 +111,7 @@ const server = await startServer(config, { onListening: async (port) => {
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
       });
+      if (migration.deferred) stopMigration = startLegacyMcpMigrationRetry(config, () => new Set(managedOpencode?.running() && managedOpencode.pid ? [managedOpencode.pid] : []));
       config.opencodeBaseUrl = managedOpencode.url;
       config.opencodeUsername = managedOpencode.username;
       config.opencodePassword = managedOpencode.password;
@@ -121,17 +125,11 @@ const server = await startServer(config, { onListening: async (port) => {
     }
   }
 } }).catch(async (error: unknown) => {
+  await stopMigration();
   await managedOpencode?.close();
   throw error;
 });
 
-
-// The runtime config file above only covers workspaces[0]. Push every
-// workspace's runtime-DB MCPs into the engine so they aren't invisible
-// until a manual reload. Best-effort.
-if (managedOpencode) {
-  void syncAllWorkspacesRuntimeMcpToEngine(config);
-}
 
 const url = `http://${config.host}:${server.port}`;
 logger.log("info", `LegalWork server listening on ${url}`);
@@ -161,6 +159,7 @@ if (args.verbose) {
 }
 
 const shutdown = () => {
+  void stopMigration();
   void managedOpencode?.close();
   (server as { stop?: (closeActiveConnections?: boolean) => void }).stop?.(true);
 };

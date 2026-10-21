@@ -74,3 +74,6 @@ apps/server/resources/agent-sandbox/runtime/
 
 # Locked plugin SDK staged at build time for offline engine startup.
 apps/desktop/resources/opencode-sdk/
+
+# Native credential-store ownership probe (built on macOS).
+apps/server/resources/helpers/

@@ -8,10 +8,23 @@ const issuer = process.env.ISSUER || `http://${host}:${port}`;
 const autoApprove = process.env.AUTO_APPROVE !== "0";
 const dynamicRegistration = process.env.DYNAMIC_REGISTRATION !== "0";
 const normalizeLoopbackCallback = process.env.NORMALIZE_LOOPBACK_CALLBACK === "1";
+const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 3600);
+const rotateRefreshTokens = process.env.ROTATE_REFRESH_TOKENS !== "0";
+const omitRefreshTokenOnRefresh = process.env.OMIT_REFRESH_TOKEN_ON_REFRESH === "1";
+const refreshDelayMs = Number(process.env.REFRESH_DELAY_MS || 0);
+const revokeFamilyOnReuse = process.env.REFRESH_REUSE_REVOKES_FAMILY === "1";
+const legacySse = process.env.LEGACY_SSE === "1";
+const sseSessions = new Map();
 
 const clients = new Map();
 const codes = new Map();
-const tokens = new Set();
+const tokens = new Map();
+const refreshTokens = new Map();
+const usedRefreshTokens = new Map();
+const revokedFamilies = new Set();
+const stats = { authorizationGrants: 0, refreshGrants: 0, rejectedRefreshGrants: 0, resourceLists: 0, revokedFamilies: 0, refreshAttempts: 0, toolCalls: 0, cancelledCalls: 0 };
+let refreshMode = "ok";
+const pendingTools = new Map();
 const requests = [];
 if (process.env.CLIENT_ID) {
   clients.set(process.env.CLIENT_ID, {
@@ -83,9 +96,12 @@ function protectedResourceMetadata() {
   };
 }
 
+let requiredScope = "";
+
 function authorizationServerMetadata() {
   return {
     issuer,
+    ...(process.env.OAUTH_ISSUER_PARAMETER === "1" ? { authorization_response_iss_parameter_supported: true } : {}),
     authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
     registration_endpoint: `${issuer}/register`,
@@ -128,6 +144,7 @@ function redirectWithCode(res, params) {
 
   const callback = new URL(redirectUri);
   callback.searchParams.set("code", code);
+  if (process.env.OAUTH_ISSUER_PARAMETER === "1") callback.searchParams.set("iss", issuer);
   const state = params.get("state");
   if (state) callback.searchParams.set("state", state);
 
@@ -195,6 +212,7 @@ async function issueToken(req, res) {
     return;
   }
   const grantType = form.grant_type || "authorization_code";
+  let family = randomUUID();
 
   if (grantType === "authorization_code") {
     const grant = codes.get(form.code);
@@ -223,14 +241,49 @@ async function issueToken(req, res) {
     }
   }
 
+  if (grantType === "refresh_token") {
+    stats.refreshAttempts++;
+    if (refreshMode !== "ok") {
+      json(res, refreshMode === "unavailable" ? 503 : 400, { error: refreshMode === "unavailable" ? "temporarily_unavailable" : "invalid_grant" });
+      return;
+    }
+    const grant = refreshTokens.get(form.refresh_token);
+    if (!grant || grant.clientId !== client.client_id || revokedFamilies.has(grant.family)) {
+      const reused = usedRefreshTokens.get(form.refresh_token);
+      if (revokeFamilyOnReuse && reused?.clientId === client.client_id && !revokedFamilies.has(reused.family)) {
+        revokedFamilies.add(reused.family);
+        stats.revokedFamilies++;
+      }
+      stats.rejectedRefreshGrants++;
+      json(res, 400, { error: "invalid_grant", error_description: "Refresh token is invalid or already consumed" });
+      return;
+    }
+    family = grant.family;
+    stats.refreshGrants++;
+    if (rotateRefreshTokens && !omitRefreshTokenOnRefresh) {
+      usedRefreshTokens.set(form.refresh_token, grant);
+      refreshTokens.delete(form.refresh_token);
+    }
+    if (refreshDelayMs) await new Promise(resolve => setTimeout(resolve, refreshDelayMs));
+  } else if (grantType === "authorization_code") {
+    stats.authorizationGrants++;
+  } else {
+    json(res, 400, { error: "unsupported_grant_type" });
+    return;
+  }
+
   if (form.code) codes.delete(form.code);
   const accessToken = `mock-access-${randomUUID()}`;
-  tokens.add(accessToken);
+  tokens.set(accessToken, { expiresAt: Date.now() + accessTokenTtlSeconds * 1000, family });
+  const omitRefresh = grantType === "refresh_token" && omitRefreshTokenOnRefresh;
+  const refreshToken = grantType === "refresh_token" && (!rotateRefreshTokens || omitRefresh)
+    ? form.refresh_token : `mock-refresh-${randomUUID()}`;
+  refreshTokens.set(refreshToken, { clientId: client.client_id, family });
   json(res, 200, {
     access_token: accessToken,
-    refresh_token: `mock-refresh-${randomUUID()}`,
+    ...(!omitRefresh ? { refresh_token: refreshToken } : {}),
     token_type: "Bearer",
-    expires_in: 3600,
+    expires_in: accessTokenTtlSeconds,
     scope: "mcp:read mcp:write",
   });
 }
@@ -238,7 +291,8 @@ async function issueToken(req, res) {
 function isAuthorized(req) {
   const header = req.headers.authorization || "";
   const match = header.match(/^Bearer\s+(.+)$/i);
-  return Boolean(match && tokens.has(match[1]));
+  const token = match && tokens.get(match[1]);
+  return Boolean(token && token.expiresAt > Date.now() && !revokedFamilies.has(token.family));
 }
 
 function mcpResult(message) {
@@ -246,7 +300,7 @@ function mcpResult(message) {
     case "initialize":
       return {
         protocolVersion: "2025-06-18",
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, resources: {}, prompts: {} },
         serverInfo: { name: "mock-oauth-mcp", version: "1.0.0" },
       };
     case "tools/list":
@@ -264,7 +318,16 @@ function mcpResult(message) {
           },
         ],
       };
+    case "resources/list":
+      stats.resourceLists++;
+      return { resources: [{ name: "mock-resource", uri: "mock://resource" }] };
+    case "resources/templates/list": return { resourceTemplates: [] };
+    case "resources/read": return { contents: [{ uri: message.params.uri, mimeType: "text/plain", text: "MOCK_RESOURCE_CONTENT" }] };
+    case "prompts/list": return { prompts: [{ name: "mock_prompt", description: "Synthetic prompt" }] };
+    case "prompts/get": return { messages: [{ role: "user", content: { type: "text", text: "MOCK_PROMPT_CONTENT" } }] };
     case "tools/call":
+      stats.toolCalls++;
+      if (message.params?.arguments?.text === "PROVIDER_ERROR") return { isError: true, content: [{ type: "text", text: "Synthetic provider failure" }] };
       return {
         content: [
           {
@@ -287,11 +350,54 @@ async function handleMcp(req, res) {
   }
 
   if (req.method === "GET") {
+    if (legacySse) {
+      const id = randomUUID();
+      sseSessions.set(id, res);
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+      res.write(`event: endpoint\ndata: ${issuer}/messages?session=${id}\n\n`);
+      req.on("close", () => sseSessions.delete(id));
+      return;
+    }
     json(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+  if (requiredScope) {
+    json(res, 403, { error: "insufficient_scope" }, { "www-authenticate": `Bearer error="insufficient_scope", scope="${requiredScope}"` });
+    return;
+  }
+  if (legacySse && new URL(req.url, issuer).pathname === "/mcp") {
+    json(res, 405, { error: "legacy_sse_only" });
     return;
   }
 
   const body = await readJson(req).catch(() => ({}));
+  if (body.method === "notifications/cancelled") {
+    const pending = pendingTools.get(body.params?.requestId);
+    if (pending) {
+      stats.cancelledCalls++;
+      pendingTools.delete(body.params.requestId);
+      clearTimeout(pending.timer);
+      json(pending.res, 200, { jsonrpc: "2.0", id: body.params.requestId, error: { code: -32800, message: "Cancelled" } });
+    }
+  }
+  if (body.method === "tools/call" && body.params?.arguments?.text === "WAIT_FOR_CANCEL") {
+    stats.toolCalls++;
+    const timer = setTimeout(() => { pendingTools.delete(body.id); json(res, 200, { jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: "Uncancelled" }] } }); }, 10_000);
+    pendingTools.set(body.id, { res, timer });
+    return;
+  }
+  if (body.method === "tools/call" && body.params?.arguments?.text === "DROP_AFTER_EXECUTION") {
+    stats.toolCalls++;
+    res.destroy();
+    return;
+  }
+  if (body.method === "tools/call" && body.params?.arguments?.text === "REPORT_PROGRESS") {
+    const result = mcpResult(body);
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: body.params._meta?.progressToken, progress: 1, total: 2 } })}\n\n`);
+    res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: body.id, result })}\n\n`);
+    return;
+  }
   const messages = Array.isArray(body) ? body : [body];
   const responses = messages.flatMap((message) => {
     if (!message || typeof message !== "object" || message.id === undefined) return [];
@@ -304,7 +410,12 @@ async function handleMcp(req, res) {
     return;
   }
 
-  json(res, 200, Array.isArray(body) ? responses : responses[0]);
+  if (legacySse) {
+    const stream = sseSessions.get(new URL(req.url, issuer).searchParams.get("session"));
+    if (!stream) { json(res, 404, { error: "session_not_found" }); return; }
+    for (const response of responses) stream.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+    res.writeHead(202).end();
+  } else json(res, 200, Array.isArray(body) ? responses : responses[0]);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -319,6 +430,29 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/health") {
       json(res, 200, { ok: true, issuer, autoApprove, requests: requests.length });
+      return;
+    }
+
+    // Synthetic test controls, never expose tokens or authorization codes.
+    if (url.pathname === "/stats") {
+      json(res, 200, stats);
+      return;
+    }
+    if (url.pathname === "/expire" && req.method === "POST") {
+      tokens.clear();
+      json(res, 200, { ok: true });
+      return;
+    }
+    if (url.pathname === "/required-scope" && req.method === "POST") {
+      const body = await readJson(req);
+      requiredScope = typeof body.scope === "string" ? body.scope : "";
+      json(res, 200, { ok: true });
+      return;
+    }
+    if (url.pathname === "/refresh-mode" && req.method === "POST") {
+      const body = await readJson(req);
+      refreshMode = ["ok", "unavailable", "invalid_grant"].includes(body.mode) ? body.mode : "ok";
+      json(res, 200, { ok: true });
       return;
     }
 
@@ -364,7 +498,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (url.pathname === "/mcp") {
+    if (url.pathname === "/mcp" || (legacySse && url.pathname === "/messages")) {
       await handleMcp(req, res);
       return;
     }

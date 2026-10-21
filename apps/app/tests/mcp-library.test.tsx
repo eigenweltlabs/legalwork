@@ -9,6 +9,7 @@ import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hu
 import { IntegrationLibraryLayoutContext, type IntegrationLibrarySource } from "../src/react-app/domains/settings/pages/integration-library";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import type { McpStatus } from "../src/app/types";
+import { McpMigrationRecovery } from "../src/react-app/domains/settings/pages/connector-status";
 
 const noop = () => {};
 const attioUrl = "https://example.invalid/attio";
@@ -25,6 +26,19 @@ const props: McpViewProps = {
   setSelectedMcp: noop, quickConnect: [attio, available, native], connectMcp: noop, authorizeMcp: noop, logoutMcpAuth: noop, removeMcp: noop,
   setMcpEnabled: async () => {}, isExtensionConnected: entry => entry === native,
 };
+
+test("migration recovery distinguishes waiting, blocked and inaccessible-vault actions", () => {
+  const render = (state: "waiting" | "blocked", canReconnect: boolean) => renderToStaticMarkup(<McpMigrationRecovery migration={{ state, canReconnect }} message="Saved sign-in preserved; close the other app." busy={false} onRetry={async () => {}} onReconnect={noop} />);
+  expect(render("waiting", true)).toContain("Transferring your saved sign-in");
+  expect(render("waiting", true)).not.toContain("<button");
+  const blocked = render("blocked", true);
+  expect(blocked).toContain("Sign-in transfer needs attention");
+  expect(blocked).toContain("Saved sign-in preserved; close the other app.");
+  expect(blocked).toContain("Retry transfer");
+  expect(blocked).toContain("Sign in again");
+  expect(render("blocked", false)).toContain("Retry transfer");
+  expect(render("blocked", false)).not.toContain("Sign in again");
+});
 
 test("connector library leads with saved connectors and exposes Browse directory separately", () => {
   const html = renderToStaticMarkup(<McpView {...props} />);

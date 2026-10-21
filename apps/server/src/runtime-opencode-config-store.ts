@@ -151,7 +151,7 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
     const get = sqlite.query<{ configJson: string }, [string]>("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
     const upsert = sqlite.query("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
     return {
-      close: () => { get.finalize(); upsert.finalize(); sqlite.close(); },
+      close: () => { get.finalize(); upsert.finalize(); sqlite.close(true); },
       get: workspaceId => get.get(workspaceId) ?? undefined,
       upsert: ({ workspaceId, configJson, updatedAt }) => { upsert.run(workspaceId, configJson, updatedAt); },
     };

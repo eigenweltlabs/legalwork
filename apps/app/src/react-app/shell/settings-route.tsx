@@ -2352,6 +2352,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             configSlotForEntry={extensionController.configSlotForEntry}
             isExtensionConnected={extensionController.isConnected}
             authorizeMcp={connectionsStore.authorizeMcp}
+            retryMcpMigration={connectionsStore.retryMcpMigration}
             logoutMcpAuth={(name) => connectionsStore.logoutMcpAuth(name)}
             removeMcp={(name) => {
               void connectionsStore.removeMcp(name);

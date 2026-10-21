@@ -133,6 +133,7 @@ mac:
       filter:
         - LegalWorkAudioTap
         - LegalWorkKeyMonitor
+        - LegalWorkProcessInfo
   target:
     - dmg
     - zip

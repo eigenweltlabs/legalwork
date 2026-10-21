@@ -20,6 +20,7 @@
  * shared entry or resurrect a disconnected connector on an engine rebuild.
  * Other configuration and comments stay intact.
  */
+import { isDeepStrictEqual } from "node:util";
 import { dirname, join } from "node:path";
 import { installedCloudPluginMcpNames } from "./cloud-plugins.js";
 import { readJsoncFile, updateJsoncPath } from "./jsonc.js";
@@ -58,6 +59,14 @@ function mcpMapOf(value: unknown): McpMap {
 
 /** An entry the engine would refuse must not poison the shared row. */
 function usable(name: string, entry: Record<string, unknown>): boolean {
+  // The current runtime file contains ephemeral local gateway capabilities,
+  // not provider configuration. Never import it as a new upstream connector.
+  if (entry.type === "remote" && typeof entry.url === "string") {
+    try {
+      const url = new URL(entry.url);
+      if (["127.0.0.1", "localhost"].includes(url.hostname) && url.pathname.startsWith("/mcp/gateway/")) return false;
+    } catch { /* The ordinary config validator reports malformed URLs. */ }
+  }
   try {
     validateMcpName(name);
     validateMcpConfig(entry);
@@ -88,6 +97,7 @@ export async function importConnectorsIntoSharedRow(
   if (retiredShared) delete shared["computer-use"];
   const imported: string[] = [];
   const sourceEntries: Array<{ path: string; name: string }> = [];
+  const workspaceEntries: Array<{ id: string; pluginOwned: Set<string>; overrides: Set<string> }> = [];
   const take = (name: string, entry: Record<string, unknown>) => {
     if (retiredComputerUse(name, entry) || Object.prototype.hasOwnProperty.call(shared, name) || !usable(name, entry)) return;
     shared[name] = entry;
@@ -100,16 +110,15 @@ export async function importConnectorsIntoSharedRow(
     const row = runtimeMcpMap(await readRuntimeOpencodeConfig(config, workspace.id));
     if (Object.keys(row).length === 0) continue;
     const pluginOwned = await installedCloudPluginMcpNames(config, workspace.id);
-    const moving = Object.entries(row).filter(([name, entry]) => !pluginOwned.has(name) || retiredComputerUse(name, entry));
+    const moving = Object.entries(row).filter(([name, entry]) => !entry.managedConnectionId && (!pluginOwned.has(name) || retiredComputerUse(name, entry)));
     if (moving.length === 0) continue;
     for (const [name, entry] of moving) take(name, entry);
-    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {
-      const next = { ...current };
-      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => pluginOwned.has(name) && !retiredComputerUse(name, entry)));
-      if (Object.keys(kept).length) next.mcp = kept;
-      else delete next.mcp;
-      return next;
-    });
+    // Distinct existing workspace accounts are not stale copies of a shared
+    // connection. Preserve those settings for the manager to own independently.
+    // A managed shared descriptor hides its original settings. After an
+    // interrupted reconciliation, a raw workspace row cannot be proven equal.
+    const overrides = new Set(moving.filter(([name, entry]) => !retiredComputerUse(name, entry) && usable(name, entry) && shared[name] && !isDeepStrictEqual(shared[name], entry)).map(([name]) => name));
+    workspaceEntries.push({ id: workspace.id, pluginOwned, overrides });
   }
 
   const globalDirectory = dirname(sources.globalOpencodeConfigFile);
@@ -132,6 +141,17 @@ export async function importConnectorsIntoSharedRow(
 
   if (imported.length > 0 || retiredShared) {
     await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({ ...current, mcp: shared }));
+  }
+  // Commit the destination first. An interrupted import must leave the original
+  // workspace settings available for the next startup to retry.
+  for (const { id, pluginOwned, overrides } of workspaceEntries) {
+    await writeRuntimeOpencodeConfig(config, id, (current) => {
+      const next = { ...current };
+      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => Boolean(entry.managedConnectionId) || overrides.has(name) || (pluginOwned.has(name) && !retiredComputerUse(name, entry))));
+      if (Object.keys(kept).length) next.mcp = kept;
+      else delete next.mcp;
+      return next;
+    });
   }
   for (const { path, name } of sourceEntries) {
     await updateJsoncPath(path, ["mcp", name], undefined);

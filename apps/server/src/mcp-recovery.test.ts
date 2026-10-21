@@ -149,3 +149,19 @@ test("pending OAuth pauses every instance sharing credentials, then ends or expi
   await recovery.recover(b);
   expect(b.connects).toEqual(["notes"]);
 });
+
+
+test("recovery is reported only while the actual reconnect is pending", async () => {
+  const recovery = new McpRecovery();
+  const current = input();
+  const started = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const running = recovery.recover({ ...current, connect: async () => { started.resolve(); await release.promise; throw new Error("Still offline"); } });
+  await started.promise;
+  expect(recovery.isRecovering(current.engine, current.directory, "notes")).toBe(true);
+  expect(recovery.isRecovering(current.engine, "/another", "notes")).toBe(false);
+  release.resolve(); await running;
+  expect(recovery.isRecovering(current.engine, current.directory, "notes")).toBe(false);
+  current.statuses.notes.status = "connecting";
+  await recovery.recover(current);
+  expect(current.connects).toEqual([]);
+});

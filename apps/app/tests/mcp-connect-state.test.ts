@@ -39,6 +39,9 @@ describe("MCP connection outcomes", () => {
     expect(mcpConnectOutcome(entry, { status: "disabled" }, false)).toBe("failed");
     expect(mcpConnectOutcome(entry, undefined, false)).toBe("pending");
   });
+  test("a blocked migration cannot fall through to automatic OAuth", () => {
+    expect(mcpConnectOutcome({ ...entry, oauth: true }, { status: "failed", error: "Transfer paused", migration: { state: "blocked", canReconnect: true } }, false)).toBe("failed");
+  });
 
   test("manual sign-in retains the saved server identity, endpoint and complete OAuth configuration", () => {
     const configured = mcpAuthEntryFromServer({
@@ -62,8 +65,8 @@ const browserWindow = new EventTarget();
 let config = "{}";
 let status: McpStatusMap = {};
 let saveError = "";
-let engineSaveError = "";
 let serverAdds: unknown[] = [];
+let migrationActions: unknown[] = [];
 let engineAdds: unknown[] = [];
 let analyticsEvents: string[] = [];
 let reloads: Array<{ reason: ReloadReason; trigger?: ReloadTrigger }> = [];
@@ -151,8 +154,8 @@ describe("connection store success reporting", () => {
     config = "{}";
     status = { "test-server": { status: "connected" } };
     saveError = "";
-    engineSaveError = "";
     serverAdds = [];
+    migrationActions = [];
     engineAdds = [];
     analyticsEvents = [];
     reloads = [];
@@ -178,6 +181,13 @@ describe("connection store success reporting", () => {
       value: async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         const pathname = new URL(request.url).pathname;
+        if (/^\/workspace\/[^/]+\/mcp\/[^/]+\/migration$/.test(pathname)) {
+          const body: unknown = await request.json();
+          migrationActions.push(body);
+          if (saveError) return Response.json({ code: "recovery_failed", message: saveError }, { status: 500 });
+          status = { "test-server": { status: "needs_auth" } };
+          return Response.json({ ok: true });
+        }
         if (/^\/workspace\/[^/]+\/mcp\/[^/]+\/enabled$/.test(pathname)) {
           serverEnables.push(await request.json());
           remoteSaveStarted?.();
@@ -199,7 +209,7 @@ describe("connection store success reporting", () => {
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
         if (request.method === "POST") engineAdds.push(await request.json());
-        if (request.method === "POST" && engineSaveError) return Response.json({ message: engineSaveError }, { status: 500 });
+        if (request.method === "POST") return Response.json({ message: "Change settings and connected apps through LegalWork." }, { status: 403 });
         const engineStatus = status;
         engineStatusRequests += 1;
         engineStatusStarted?.();
@@ -214,6 +224,41 @@ describe("connection store success reporting", () => {
     if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
     else Reflect.deleteProperty(globalThis, "window");
     globalThis.fetch = originalFetch;
+  });
+
+  test("retrying a transfer uses the server recovery API without opening OAuth", async () => {
+    const store = makeStore();
+    try {
+      expect(await store.retryMcpMigration("test-server")).toBe(true);
+      expect(migrationActions).toEqual([{ action: "retry" }]);
+      expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+      expect(serverAdds).toHaveLength(0);
+    } finally { store.dispose(); }
+  });
+
+  test("switching workspaces before recovery resolves cannot mutate the other workspace", async () => {
+    const store = makeStore();
+    try {
+      const retry = store.retryMcpMigration("test-server");
+      selectedWorkspaceId = "another-workspace";
+      expect(await retry).toBe(false);
+      expect(migrationActions).toHaveLength(0);
+    } finally { store.dispose(); }
+  });
+
+  test.each([false, true])("explicit migration reconnect opens OAuth only after server recovery succeeds (failure=%s)", async failure => {
+    const store = makeStore();
+    status = { "test-server": { status: "failed", error: "Transfer paused", migration: { state: "blocked", canReconnect: true } } };
+    try {
+      await store.refreshMcpServers();
+      if (failure) saveError = "Vault unavailable";
+      const saved = store.getSnapshot().mcpServers[0];
+      if (!saved) throw new Error("Missing saved connector");
+      await store.authorizeMcp(saved);
+      expect(migrationActions).toEqual([{ action: "reconnect" }]);
+      expect(store.getSnapshot().mcpAuthModalOpen).toBe(!failure);
+      expect(serverAdds).toHaveLength(0);
+    } finally { store.dispose(); }
   });
 
   test("saved connector configuration is visible while engine status is still loading", async () => {
@@ -293,6 +338,18 @@ describe("connection store success reporting", () => {
       await oldRefresh;
       expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
     } finally { finishStatus(); await oldRefresh; store.dispose(); }
+  });
+
+  test("a saved connection waiting for migration stays pending without a false failure or sign-in", async () => {
+    status = { "test-server": { status: "connecting", message: "Transferring saved sign-in" } };
+    const store = makeStore();
+    try {
+      expect(await store.connectMcp({ ...entry, oauth: true })).toBe(true);
+      expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+      expect(store.getSnapshot().mcpStatus).toBe("Connecting…");
+      expect(connectedEvents()).toHaveLength(0);
+      expect(serverAdds).toHaveLength(1);
+    } finally { store.dispose(); }
   });
 
   test("OAuth waits for verified completion, emits once, and retains the final success message", async () => {
@@ -394,18 +451,18 @@ describe("connection store success reporting", () => {
 
   test("a rejected settings update cannot report success using the old connected engine entry", async () => {
     const store = makeStore();
-    engineSaveError = "Updated configuration was rejected";
+    saveError = "Updated configuration was rejected";
     expect(await store.connectMcp({ ...entry, headers: { Authorization: "Bearer synthetic-token" }, oauth: false })).toBe(false);
     expect(connectedEvents()).toEqual([]);
     store.dispose();
   });
 
-  test("configuring an imported local connector preserves ownership and forwards its full launch configuration to the engine", async () => {
+  test("configuring an imported local connector preserves ownership and sends its full launch configuration only to the server", async () => {
     const config = { type: "local", command: ["node", "/plugin/server.js", "", "two words"], cwd: "/plugin", environment: { KEY: "synthetic-key", EMPTY: "" }, timeout: 45000 } satisfies import("../src/app/types").McpServerConfig;
     const store = makeStore();
     expect(await store.connectMcp({ ...entry, ...config, existingConfig: config, oauth: false })).toBe(true);
     expect(serverAdds[0]).toMatchObject({ name: "test-server", preserveScope: true, config: { ...config, enabled: true } });
-    expect(engineAdds[0]).toMatchObject({ name: "test-server", config: { ...config, enabled: true } });
+    expect(engineAdds).toEqual([]);
     store.dispose();
   });
 
@@ -448,7 +505,7 @@ describe("connection store success reporting", () => {
     expect(await store.connectMcp(integration)).toBe(true);
     const config = { type: "local", enabled: true, ...openComputerUseConfig };
     expect(serverAdds).toEqual([{ name: "open-computer-use", config }]);
-    expect(engineAdds).toEqual([{ name: "open-computer-use", config }]);
+    expect(engineAdds).toEqual([]);
     expect(openComputerUseCalls).toBe(1);
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
   });
@@ -529,4 +586,9 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
     expect(connectedEvents()).toHaveLength(0);
   });
+});
+
+
+test("migration and automatic reconnect wait without starting another OAuth sign-in", () => {
+  expect(mcpConnectOutcome({ name: "Saved connector", description: "", type: "remote", oauth: true }, { status: "connecting", message: "Transferring saved sign-in" }, false)).toBe("pending");
 });

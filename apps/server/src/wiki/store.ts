@@ -89,7 +89,7 @@ async function openSqlite(path: string): Promise<Sqlite> {
   if (typeof process.versions.bun === "string") {
     const { Database } = await import("bun:sqlite");
     const db = new Database(path, { create: true });
-    return { run: (sql, values = []) => { db.query(sql).run(...values); }, all: (sql, values = []) => db.query(sql).all(...values), exec: (sql) => { db.exec(sql); }, close: () => db.close() };
+    return { run: (sql, values = []) => { db.query(sql).run(...values); }, all: (sql, values = []) => db.query(sql).all(...values), exec: (sql) => { db.exec(sql); }, close: () => db.close(true) };
   }
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(path);

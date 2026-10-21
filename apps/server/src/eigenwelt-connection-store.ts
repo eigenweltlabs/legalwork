@@ -157,7 +157,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
     }
     const db = drizzle(sqlite);
     return {
-      close: () => sqlite.close(),
+      close: () => sqlite.close(true),
       get: (workspaceId) =>
         db
           .select()

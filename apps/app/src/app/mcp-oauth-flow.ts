@@ -11,8 +11,8 @@ export type McpOAuthState = {
 
 export type McpOAuthDriver = {
   start: () => Promise<{ authorizationUrl?: string }>;
-  complete: (code: string) => Promise<{ status: string; error?: string }>;
-  receiveCode?: (state: string) => Promise<{ code: string }>;
+  complete: (code: string, issuer?: string) => Promise<{ status: string; error?: string }>;
+  receiveCode?: (state: string) => Promise<{ code: string; issuer?: string }>;
   dispose: () => void | Promise<void>;
   notice?: string;
 };
@@ -93,12 +93,12 @@ export function createMcpOAuthFlow(options: {
     pending = result.then(() => {}, () => {});
     return result;
   };
-  const complete = async (attempt: Attempt, code: string) => {
+  const complete = async (attempt: Attempt, code: string, issuer?: string) => {
     if (current !== attempt || state.phase !== "waiting" || !attempt.driver) return;
     const driver = attempt.driver;
     publish({ ...state, phase: "completing", error: undefined });
     try {
-      const result = await enqueue(attempt, () => driver.complete(code));
+      const result = await enqueue(attempt, () => issuer === undefined ? driver.complete(code) : driver.complete(code, issuer));
       if (current !== attempt) return;
       if (result.status !== "connected") {
         throw new Error(result.error || t("mcp.auth.provider_did_not_finish"));
@@ -144,7 +144,7 @@ export function createMcpOAuthFlow(options: {
         // Register the callback before opening the browser (fast SSO can return immediately).
         if (driver.receiveCode) {
           void driver.receiveCode(oauthState).then(
-            ({ code }) => complete(attempt, code),
+            ({ code, issuer }) => complete(attempt, code, issuer),
             (error: unknown) => fail(attempt, error),
           );
         }
@@ -173,7 +173,8 @@ export function createMcpOAuthFlow(options: {
       const attempt = current;
       try {
         const code = parseMcpOAuthCallback(input, state.authorizationUrl);
-        await complete(attempt, code);
+        const issuer = /^https?:\/\//i.test(input.trim()) ? new URL(input.trim()).searchParams.get("iss") ?? undefined : undefined;
+        await complete(attempt, code, issuer);
       } catch (error) {
         if (current === attempt) publish({ ...state, error: getMcpOAuthErrorMessage(error) });
       }

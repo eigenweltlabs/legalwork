@@ -33,6 +33,7 @@ const eigenweltHubInstalls = sqliteTable("eigenwelt_hub_installs", {
 });
 
 type EigenweltHubInstallsDb = {
+  close: () => void;
   get: (workspaceId: string) => { installsJson: string } | undefined;
   upsert: (value: { workspaceId: string; installsJson: string; updatedAt: number }) => void;
 };
@@ -61,6 +62,7 @@ async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
     sqlite.run(CREATE_TABLE_SQL);
     const db = drizzle(sqlite);
     return {
+      close: () => sqlite.close(true),
       get: (workspaceId) =>
         db
           .select()
@@ -89,6 +91,7 @@ async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
     "INSERT INTO eigenwelt_hub_installs (workspace_id, installs_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET installs_json = excluded.installs_json, updated_at = excluded.updated_at",
   );
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.installsJson !== "string") return undefined;
@@ -101,6 +104,15 @@ async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
 }
 
 const dbByPath = new Map<string, Promise<EigenweltHubInstallsDb>>();
+
+/** Release disposable test-profile handles before Windows removes the database. */
+export async function closeHubInstallsForTests(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const db = dbByPath.get(path);
+  if (!db) return;
+  dbByPath.delete(path);
+  (await db).close();
+}
 
 async function installsDb(config: ServerConfig): Promise<EigenweltHubInstallsDb> {
   const path = runtimeDbPath(config);

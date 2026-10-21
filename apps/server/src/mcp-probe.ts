@@ -4,8 +4,8 @@
  *
  * The MCP authorization spec (basic/authorization) defines the signals:
  *
- * - An `initialize` request answered 2xx means the server accepts anonymous
- *   requests: no sign-in.
+ * - A valid `initialize` or modern `server/discover` result means the server
+ *   accepts anonymous requests: no sign-in. An HTTP 200 RPC error is not success.
  * - 401 (or 403) means the server wants credentials. An OAuth server MUST
  *   publish Protected Resource Metadata (RFC 9728), pointed to by
  *   `WWW-Authenticate: Bearer resource_metadata="…"` or served at the
@@ -35,6 +35,8 @@
  * says so, in its own words, before anything is saved.
  */
 import { ApiError } from "./errors.js";
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from "@modelcontextprotocol/client";
+import { DiscoverResultSchema } from "@modelcontextprotocol/core";
 
 export type McpProbeStepId = "connect" | "resource_metadata" | "authorization_server";
 
@@ -111,6 +113,8 @@ export async function legalworkMcpClientIdentity(probe: McpProbeResult, redirect
 }
 
 const PROTOCOL_VERSION = "2025-06-18";
+// SDK 2's LATEST_PROTOCOL_VERSION names its default legacy era, not modern MCP.
+const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -187,13 +191,18 @@ async function discardBody(response: Response): Promise<void> {
 }
 
 /** A 200 JSON page is not proof that it implements the MCP initialize contract. */
-async function isInitializeResponse(response: Response): Promise<boolean> {
+async function isProbeResponse(response: Response, modern = false): Promise<boolean> {
   const reader = response.body?.getReader();
   if (!reader) return false;
   const decoder = new TextDecoder();
   let text = "";
   let bytes = 0;
-  const valid = (value: unknown) => isRecord(value) && value.jsonrpc === "2.0" && value.id === 1 && isRecord(value.result) && typeof value.result.protocolVersion === "string" && isRecord(value.result.serverInfo);
+  const valid = (value: unknown) => {
+    if (!isRecord(value) || value.jsonrpc !== "2.0" || value.id !== 1 || !isRecord(value.result)) return false;
+    if (!modern) return typeof value.result.protocolVersion === "string" && isRecord(value.result.serverInfo);
+    const result = DiscoverResultSchema.safeParse(value.result);
+    return result.success && result.data.supportedVersions.includes(MODERN_PROTOCOL_VERSION);
+  };
   try {
     while (bytes <= 65536) {
       const chunk = await reader.read();
@@ -264,14 +273,35 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
       });
       const type = contentType(response);
       if (response.ok && (type.includes("application/json") || type.includes("text/event-stream"))) {
-        if (options.exactUrl && !await isInitializeResponse(response)) return { kind: "not_mcp", status: response.status, detail: "unexpected content type" };
-        await discardBody(response);
-        return { kind: "open", status: response.status, transport: "streamable-http" };
+        if (await isProbeResponse(response)) {
+          await discardBody(response);
+          return { kind: "open", status: response.status, transport: "streamable-http" };
+        }
       }
       await discardBody(response);
       if (response.status === 401) return { kind: "auth", status: 401, challenge: response.headers.get("www-authenticate") };
       if (response.status === 403) {
         const challenge = response.headers.get("www-authenticate");
+        return challenge ? { kind: "auth", status: 403, challenge } : { kind: "refused", status: 403 };
+      }
+      // Modern-only servers can reject initialize entirely. Probe the current
+      // SDK's stateless discovery envelope before trying legacy SSE or a sibling.
+      const modernHeaders = new Headers(options.headers);
+      for (const [key, value] of Object.entries({ "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": MODERN_PROTOCOL_VERSION, "mcp-method": "server/discover" })) modernHeaders.set(key, value);
+      const modern = await request(target, {
+        method: "POST",
+        headers: modernHeaders,
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: {
+          [PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
+          [CLIENT_INFO_META_KEY]: { name: "LegalWork", version: "probe" },
+          [CLIENT_CAPABILITIES_META_KEY]: {},
+        } } }),
+      });
+      if (modern.ok && await isProbeResponse(modern, true)) return { kind: "open", status: modern.status, transport: "streamable-http" };
+      await discardBody(modern);
+      if (modern.status === 401) return { kind: "auth", status: 401, challenge: modern.headers.get("www-authenticate") };
+      if (modern.status === 403) {
+        const challenge = modern.headers.get("www-authenticate");
         return challenge ? { kind: "auth", status: 403, challenge } : { kind: "refused", status: 403 };
       }
       if (response.status === 404 || response.status === 405) {

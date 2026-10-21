@@ -8,6 +8,7 @@ import { nextOccurrence } from "./schedule.js";
 
 export class ScheduledTaskStore {
   private constructor(private db: SqliteHandle, private onChange?: () => void) {}
+  close() { this.db.close(); }
   static async open(path: string, onChange?: () => void) {
     await mkdir(dirname(path), { recursive: true });
     const db = await openSqlite(path);

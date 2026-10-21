@@ -171,10 +171,13 @@ export function McpAuthModal(props: McpAuthModalProps) {
       setPreparation(t("mcp.auth.requesting_link"));
       const authClient = client;
       const activeListenerId = listenerId;
+      let authorizationState = "";
       return {
         start: async () => {
           try {
-            return unwrap(await authClient.mcp.auth.start({ name, directory }));
+            const result = unwrap(await authClient.mcp.auth.start({ name, directory }));
+            authorizationState = result.authorizationUrl ? new URL(result.authorizationUrl).searchParams.get("state") ?? "" : "";
+            return result;
           } catch (error) {
             // Some engine versions mask discovery errors on auth/start as a
             // generic 500, while mcp/status retains the provider's explanation.
@@ -189,7 +192,7 @@ export function McpAuthModal(props: McpAuthModalProps) {
             throw error;
           }
         },
-        complete: async (code) => unwrap(await authClient.mcp.auth.callback({ name, directory, code })),
+        complete: async (code, issuer) => unwrap(await authClient.mcp.auth.callback({ name, directory, code }, { headers: { "x-legalwork-oauth-state": authorizationState, ...(issuer ? { "x-legalwork-oauth-issuer": issuer } : {}) } })),
         receiveCode: activeListenerId ? (state) => mcpOAuthWait({ listenerId: activeListenerId, state }) : undefined,
         dispose,
         notice,

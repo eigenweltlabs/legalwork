@@ -1,4 +1,6 @@
-import type { McpServerEntry, McpStatus } from "@/app/types";
+import { useState } from "react";
+import type { McpMigrationStatus, McpServerEntry, McpStatus } from "@/app/types";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { connectorNeedsSetup } from "@/app/mcp-configuration";
 
@@ -13,7 +15,7 @@ export function resolveConnectorState(input: {
 }): ConnectorState {
   if (!input.enabled || input.status === "disabled") return "disabled";
   if (input.needsKey) return "needs_key";
-  if (input.status === "connected" || input.status === "failed" || input.status === "needs_client_registration") return input.status;
+  if (input.status === "connecting" || input.status === "connected" || input.status === "failed" || input.status === "needs_client_registration") return input.status;
   if (input.status === "needs_auth" || input.needsSignIn) return "needs_auth";
   return input.status ?? "disconnected";
 }
@@ -25,6 +27,7 @@ export function configuredConnectorState(entry: McpServerEntry, status?: McpStat
 
 const messages = {
   connected: null,
+  connecting: "mcp.connecting",
   disabled: "integrations.connector_needs_enable",
   needs_auth: "firm_hub.connector_needs_sign_in",
   needs_key: "firm_hub.connector_needs_key",
@@ -36,6 +39,7 @@ const messages = {
 
 const dots = {
   connected: null,
+  connecting: "bg-blue-9 animate-pulse",
   disabled: null,
   needs_auth: "bg-amber-9",
   needs_key: "bg-amber-9",
@@ -58,6 +62,26 @@ export function ConnectorStatus({ state }: { state: ConnectorState }) {
     {dot ? <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} /> : null}
     {label}
   </span>;
+}
+
+export function McpMigrationRecovery(props: {
+  migration: McpMigrationStatus; message: string | null; busy: boolean;
+  onRetry?: () => Promise<unknown>; onReconnect: () => void | Promise<void>;
+}) {
+  const [working, setWorking] = useState(false);
+  const act = async (operation: () => unknown) => {
+    setWorking(true);
+    try { await operation(); } finally { setWorking(false); }
+  };
+  const blocked = props.migration.state === "blocked";
+  return <div role={blocked ? "alert" : "status"} className="space-y-3 rounded-lg border border-border p-3 text-xs leading-5">
+    <p className="font-medium">{t(blocked ? "mcp.migration_blocked" : "mcp.migration_waiting")}</p>
+    <p className="text-muted-foreground">{props.message}</p>
+    {blocked ? <div className="flex flex-wrap gap-2">
+      {props.onRetry ? <Button variant="outline" size="sm" disabled={props.busy || working} onClick={() => void act(() => props.onRetry?.())}>{t("mcp.migration_retry")}</Button> : null}
+      {props.migration.canReconnect ? <Button size="sm" disabled={props.busy || working} onClick={() => void act(props.onReconnect)}>{t("mcp.migration_reconnect")}</Button> : null}
+    </div> : null}
+  </div>;
 }
 
 /** A plugin can have usable skills alongside connectors that still need setup. */

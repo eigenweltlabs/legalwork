@@ -34,6 +34,16 @@ describe("MCP OAuth browser callback", () => {
     }
   });
 
+  it("preserves the issuer parameter for authorization-server validation", async () => {
+    const broker = createMcpOAuthCallbackBroker();
+    try {
+      const listener = await broker.listen({ redirectUri: await callbackUri() });
+      const waiting = broker.wait({ listenerId: listener.listenerId, state: "state" });
+      await fetch(`${listener.redirectUri}?${new URLSearchParams({ state: "state", code: "code", iss: "https://issuer.example" })}`);
+      assert.deepEqual(await waiting, { code: "code", issuer: "https://issuer.example" });
+    } finally { broker.close(); }
+  });
+
   it("delivers provider denial and releases the callback port", async () => {
     const broker = createMcpOAuthCallbackBroker();
     try {

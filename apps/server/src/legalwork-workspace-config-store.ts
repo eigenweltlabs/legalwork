@@ -12,6 +12,7 @@ const legalworkWorkspaceConfigs = sqliteTable("legalwork_workspace_configs", {
 });
 
 type LegalworkWorkspaceConfigDb = {
+  close: () => void;
   get: (workspaceId: string) => { configJson: string } | undefined;
   upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
@@ -41,6 +42,7 @@ async function openDb(path: string): Promise<LegalworkWorkspaceConfigDb> {
     sqlite.run("CREATE TABLE IF NOT EXISTS legalwork_workspace_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
     const db = drizzle(sqlite);
     return {
+      close: () => sqlite.close(true),
       get: (workspaceId) => db
         .select()
         .from(legalworkWorkspaceConfigs)
@@ -64,6 +66,7 @@ async function openDb(path: string): Promise<LegalworkWorkspaceConfigDb> {
   const get = sqlite.prepare("SELECT config_json AS configJson FROM legalwork_workspace_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO legalwork_workspace_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
@@ -76,6 +79,15 @@ async function openDb(path: string): Promise<LegalworkWorkspaceConfigDb> {
 }
 
 const dbByPath = new Map<string, Promise<LegalworkWorkspaceConfigDb>>();
+
+/** Release disposable test-profile handles before Windows removes the database. */
+export async function closeWorkspaceConfigForTests(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const db = dbByPath.get(path);
+  if (!db) return;
+  dbByPath.delete(path);
+  (await db).close();
+}
 
 async function workspaceConfigDb(config: ServerConfig): Promise<LegalworkWorkspaceConfigDb> {
   const path = runtimeDbPath(config);

@@ -3189,6 +3189,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         },
       ),
 
+    recoverMcpMigration: (workspaceId: string, name: string, action: "retry" | "reconnect") =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}/migration`, {
+        token, hostToken, method: "POST", body: { action }, timeoutMs: timeouts.mcpSetup,
+      }),
+
     logoutMcpAuth: (workspaceId: string, name: string) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}/auth`, {
         token,

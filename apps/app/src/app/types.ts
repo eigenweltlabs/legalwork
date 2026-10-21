@@ -359,10 +359,12 @@ export type McpServerEntry = {
   source?: McpServerSource;
 };
 
+export type McpMigrationStatus = { state: "waiting" | "blocked"; canReconnect: boolean };
 export type McpStatus =
   | { status: "connected" }
+  | { status: "connecting"; message?: string; migration?: McpMigrationStatus }
   | { status: "disabled" }
-  | { status: "failed"; error: string }
+  | { status: "failed"; error: string; migration?: McpMigrationStatus }
   | { status: "needs_auth" }
   | { status: "needs_client_registration"; error: string };
 

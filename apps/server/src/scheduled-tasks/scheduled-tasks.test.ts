@@ -118,6 +118,30 @@ describe("persistent scheduled task execution", () => {
       expect(reopened.get("project", task.id).status).toBe("completed");
     } finally { stop(); }
   });
+  test("stopping waits for delivery bookkeeping before its database can close", async () => {
+    const { store } = await open();
+    const task = store.create("project", input, now);
+    let release = () => {};
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    let started = () => {};
+    const sending = new Promise<void>(resolve => { started = resolve; });
+    const runner = new ScheduledTaskRunner(store, {
+      available: async () => true,
+      createSession: async () => "existing",
+      send: async () => { started(); await blocked; },
+    }, () => now + 3600000);
+    const stop = runner.start();
+    await sending;
+    let drained = false;
+    const stopping = stop().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    release();
+    await stopping;
+    expect(store.runs(task.id)[0]?.status).toBe("sent");
+    store.close();
+  });
+
   test("persists edits, rejects stale revisions and cross-project access", async () => {
     const { store, path } = await open(), task = store.create("project", input, now);
     store.update("project", task.id, 1, { title: "Updated" }, now);

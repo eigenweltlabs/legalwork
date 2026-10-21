@@ -5,6 +5,9 @@ import type { McpItem, ServerConfig } from "./types.js";
 import { readJsoncFile, updateJsoncPath } from "./jsonc.js";
 import { globalOpencodeConfigDir, opencodeConfigPath, opencodeConfigPaths } from "./workspace-files.js";
 import { validateMcpConfig, validateMcpName } from "./validators.js";
+import { mcpManager } from "./mcp-manager.js";
+import { connectorConfigVariables } from "./connector-config.js";
+import { firmHubConnectorBlocks } from "./firm-hub.js";
 import {
   GLOBAL_MCP_ID,
   readRuntimeOpencodeConfig,
@@ -96,6 +99,16 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
   const runtimeMap = await runtimeMcpMapForWorkspace(serverConfig, workspaceId);
 
   const items: McpItem[] = [];
+  const firm = await firmHubConnectorBlocks(serverConfig);
+  for (const [name, value] of Object.entries(firm)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    // Firm credentials stay server-side. The app needs only display and login metadata.
+    const entry = getMcpConfig({ mcp: { [name]: value } })[name];
+    if (!entry) continue;
+    const oauth = entry.oauth;
+    const publicOAuth = oauth && typeof oauth === "object" && !Array.isArray(oauth) ? { ...oauth, clientSecret: undefined } : oauth;
+    items.push({ name, config: { ...entry, headers: undefined, oauth: publicOAuth }, source: "config.global" });
+  }
 
   // Global MCPs first; project-level entries override global ones with the
   // same name. A runtime entry of the same name wins too: earlier desktop
@@ -103,6 +116,7 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
   // the startup migration imports those into the shared runtime row, so the
   // file copy must not show up as a second, read-only card.
   for (const [name, entry] of Object.entries(globalMcpMap)) {
+    if (Object.hasOwn(firm, name)) continue;
     if (hasOwn(projectMcpMap, name) || hasOwn(runtimeMap, name)) continue;
     items.push({
       name,
@@ -115,6 +129,7 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
 
   // Project MCPs (highest priority).
   for (const [name, entry] of Object.entries(projectMcpMap)) {
+    if (Object.hasOwn(firm, name)) continue;
     if (hasOwn(runtimeMap, name)) continue;
     items.push({
       name,
@@ -126,9 +141,10 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
 
   // LegalWork-owned MCPs are stored by the server and injected at runtime.
   for (const [name, entry] of Object.entries(runtimeMap)) {
+    if (Object.hasOwn(firm, name)) continue;
     items.push({
       name,
-      config: entry,
+      config: await mcpManager(serverConfig)?.original(entry) ?? entry,
       source: "config.remote",
       disabledByTools: isMcpDisabledByTools(config, name) || undefined,
     });
@@ -152,19 +168,28 @@ export async function addMcp(
   config: Record<string, unknown>,
   scope: McpScope = "global",
 ): Promise<{ action: "added" | "updated" }> {
+  const operation = () => persistMcp(serverConfig, workspaceId, name, config, scope);
+  return mcpManager(serverConfig)?.mutateConfiguration(name, operation) ?? operation();
+}
+
+async function persistMcp(serverConfig: ServerConfig, workspaceId: string, name: string, config: Record<string, unknown>, scope: McpScope): Promise<{ action: "added" | "updated" }> {
   validateMcpName(name);
   validateMcpConfig(config);
   const rows = await readMcpRows(serverConfig, workspaceId);
   const existed = hasOwn(rows.global, name) || hasOwn(rows.workspace, name);
   const rowId = scope === "global" ? GLOBAL_MCP_ID : workspaceId;
+  const manager = mcpManager(serverConfig);
+  const storedConfig = manager && config.type === "remote" && connectorConfigVariables(config).length === 0
+    ? await manager.save(rowId, name, config) : config;
   await writeRuntimeOpencodeConfig(serverConfig, rowId, (current) => ({
     ...current,
-    mcp: { ...runtimeMcpMap(current), [name]: config },
+    mcp: { ...runtimeMcpMap(current), [name]: storedConfig },
   }));
   // A workspace copy of the same name would shadow the shared entry in this
   // workspace's engine config.
   if (scope === "global" && workspaceId !== GLOBAL_MCP_ID && hasOwn(rows.workspace, name)) {
     await writeRuntimeOpencodeConfig(serverConfig, workspaceId, withoutMcp(name));
+    await manager?.remove(workspaceId, name);
   }
   return { action: existed ? "updated" : "added" };
 }
@@ -176,6 +201,11 @@ export async function addMcp(
  * particular row, and a surviving copy in the other row would resurrect it.
  */
 export async function removeMcp(serverConfig: ServerConfig, workspaceId: string, name: string): Promise<McpScope[]> {
+  const operation = () => removeStoredMcp(serverConfig, workspaceId, name);
+  return mcpManager(serverConfig)?.mutateConfiguration(name, operation) ?? operation();
+}
+
+async function removeStoredMcp(serverConfig: ServerConfig, workspaceId: string, name: string): Promise<McpScope[]> {
   validateMcpName(name);
   const files: string[] = [];
   // OpenCode can merge several config files. Remove every copy of this entry,
@@ -206,6 +236,8 @@ export async function removeMcp(serverConfig: ServerConfig, workspaceId: string,
     await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_MCP_ID, withoutMcp(name));
   }
   if (hasOwn(rows.global, name) || removedFile) removed.push("global");
+  await mcpManager(serverConfig)?.remove(workspaceId, name);
+  await mcpManager(serverConfig)?.remove(GLOBAL_MCP_ID, name);
   return removed;
 }
 
@@ -220,6 +252,11 @@ export async function setMcpEnabled(
   name: string,
   enabled: boolean,
 ): Promise<boolean> {
+  const operation = () => persistMcpEnabled(serverConfig, workspaceId, name, enabled);
+  return mcpManager(serverConfig)?.mutateConfiguration(name, operation) ?? operation();
+}
+
+async function persistMcpEnabled(serverConfig: ServerConfig, workspaceId: string, name: string, enabled: boolean): Promise<boolean> {
   validateMcpName(name);
   const rows = await readMcpRows(serverConfig, workspaceId);
   const rowId = hasOwn(rows.workspace, name) ? workspaceId : hasOwn(rows.global, name) ? GLOBAL_MCP_ID : null;

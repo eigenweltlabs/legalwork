@@ -1,7 +1,7 @@
 // Launch the real packaged main process with an isolated profile. This catches
 // bad ASAR integrity metadata, missing native modules, and startup regressions.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +14,14 @@ if (!target) throw new Error("Usage: node packaged-startup-regression.mjs <packa
 const resources = path.resolve(path.dirname(target), process.platform === "darwin" ? "../Resources" : "resources");
 assertPackagedServerImports(path.join(resources, "app.asar"));
 assertPackagedOpencodeSdk(resources);
+if (process.platform === "darwin") {
+  const helper = path.join(resources, "helpers/LegalWorkProcessInfo");
+  const paths = JSON.parse(execFileSync(helper, [String(process.pid)], { encoding: "utf8" }));
+  assert.ok(Object.keys(paths).every(name => ["HOME", "XDG_DATA_HOME"].includes(name)));
+  assert.equal(paths.HOME, process.env.HOME);
+  console.log("PASS: packaged credential ownership helper reads only path variables");
+}
+
 const root = await mkdtemp(path.join(tmpdir(), "legalwork-packaged-startup-"));
 const userData = path.join(root, "userdata");
 const runtime = path.join(root, "runtime");

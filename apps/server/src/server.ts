@@ -50,6 +50,11 @@ import { assertNoHostShellInterpolation, assertSandboxProxyAllowed, sandboxSessi
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, existingMcpScope, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
+import { initializeMcpManager, managedMcpEngineEntries, mcpManager, stopMcpManager } from "./mcp-manager.js";
+import { LocalMcpGateway } from "./mcp-gateway.js";
+import { retryLegacyMcpMigration } from "./mcp-migration.js";
+import { isMcpSecureStorageError } from "./mcp-manager-store.js";
+import { hasConnectorRuntimeCapability } from "./connectors/capability.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
 import { McpRecovery } from "./mcp-recovery.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
@@ -224,7 +229,7 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
-import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
+import { firmHubConnectorBlocks, firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
@@ -800,6 +805,8 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, runtimeOptions: { modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+  const connectorManager = initializeMcpManager(config);
+  const mcpGateway = new LocalMcpGateway(connectorManager);
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
@@ -1017,6 +1024,22 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       if (request.method === "OPTIONS") {
         return finalize(new Response(null, { status: 204 }));
       }
+
+      const gateway = url.pathname.match(/^\/mcp\/gateway\/([^/]+)\/([^/]+)$/);
+      if (url.pathname === "/internal/mcp/config" && request.method === "GET") {
+        if (!hasConnectorRuntimeCapability(config, request)) return jsonResponse({ error: "unauthorized" }, 401);
+        const directory = url.searchParams.get("directory");
+        if (!directory) return jsonResponse({ error: "directory_required" }, 400);
+        try { return jsonResponse(await connectorManager.engineConfiguration(directory)); }
+        catch { return jsonResponse({ error: "mcp_configuration_unavailable" }, 503); }
+      }
+      if (gateway) {
+        try { return await mcpGateway.handle(request, decodeURIComponent(gateway[1]), decodeURIComponent(gateway[2])); }
+        catch (error) {
+          const apiError = error instanceof ApiError ? error : new ApiError(502, "mcp_gateway_failed", "The connector is temporarily unavailable. Check its connection in LegalWork.");
+          return jsonResponse(formatError(apiError), apiError.status);
+        }
+      }
       if (!ready) return finalize(jsonResponse({ code: "server_starting", message: "LegalWork is starting." }, 503));
 
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
@@ -1201,6 +1224,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      ready = false;
+      await mcpGateway.close();
+      await stopMcpManager(config);
       stopSandboxSettingsSync();
       agentSandbox.stop();
       approvals.dispose();
@@ -1215,7 +1241,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       stopOrgPolicy();
       stopFirmHub();
       stopTaskReminders();
-      stopScheduledTasks();
+      // Keep the store alive for an in-flight delivery's final bookkeeping
+      // without making server shutdown wait for a remote agent to finish.
+      void Promise.resolve(stopScheduledTasks()).then(() => scheduledTasks.close()).catch(error => {
+        logger.log("warn", `Could not close the scheduled-task store: ${String(error)}`);
+      });
       await wikiSync.stop();
       await wikiStore.close();
       benchmarkRunner.dispose();
@@ -1229,8 +1259,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   try {
     // Bind first: a busy preferred port can move the listener. Agent tools
     // must receive this listener's actual address and matching credentials.
+    await connectorManager.reconcile().catch(error => { if (!isMcpSecureStorageError(error)) throw error; });
     await runtimeOptions.onListening?.(server.port);
     ready = true;
+    // Refresh process-local gateway bearers in managed and externally attached
+    // engines alike. A server restart must not leave cached engine entries stale.
+    void syncAllWorkspacesRuntimeMcpToEngine(config).catch(() => {});
     return startedServer;
   } catch (error) {
     await startedServer.stop();
@@ -1316,6 +1350,9 @@ async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInf
       return mcpRecoveryStatuses.parse(result.data);
     };
     const statuses = snapshot === undefined ? await readStatuses() : mcpRecoveryStatuses.parse(snapshot);
+    if (isRecord(snapshot)) for (const [name, status] of Object.entries(snapshot)) {
+      if (isRecord(status) && status.migration) delete statuses[name];
+    }
     await mcpRecovery(config).recover({
       engine: resolveWorkspaceOpencodeConnection(config, workspace).baseUrl ?? "",
       directory, statuses, readStatuses,
@@ -1363,9 +1400,41 @@ async function proxyOpencodeRequest(input: {
 }) {
   const path = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
   const method = input.request.method.toUpperCase();
+  const manager = mcpManager(input.config);
+  const managedAction = path.match(/^\/mcp\/([^/]+)\/(auth(?:\/callback|\/authenticate)?|connect|disconnect)$/);
+  if (manager && input.workspace && managedAction) {
+    const name = decodeURIComponent(managedAction[1]);
+    const found = await manager.find(input.workspace.id, name);
+    if (found) {
+      if (input.config.readOnly && method !== "GET") throw new ApiError(403, "read_only", "This server is read-only.");
+      if (method === "POST" && managedAction[2] === "auth") return jsonResponse(await manager.startAuthorization(input.workspace.id, name));
+      if (method === "POST" && managedAction[2] === "auth/authenticate") throw new ApiError(409, "mcp_browser_signin_required", "Sign in to this connector through LegalWork.");
+      if (method === "POST" && managedAction[2] === "auth/callback") {
+        const body = z.object({ code: z.string().min(1) }).parse(await input.request.json());
+        const result = await manager.finishAuthorization(input.workspace.id, name, body.code, input.request.headers.get("x-legalwork-oauth-state") ?? "", input.request.headers.get("x-legalwork-oauth-issuer") ?? undefined);
+        await syncRuntimeMcpToOpencodeEngine(input.config, input.workspace, [name]).catch(() => undefined);
+        await syncSharedMcpToOtherWorkspaces(input.config, input.workspace, [name]);
+        return jsonResponse(result);
+      }
+      if (method === "DELETE" && managedAction[2] === "auth") {
+        await manager.logout(input.workspace.id, name);
+        return jsonResponse({ success: true });
+      }
+    }
+  }
   const mcp = path.match(/^\/mcp\/([^/]+)\/(connect|disconnect|auth(?:\/(?:callback|authenticate))?)$/);
   const added = method === "POST" && path === "/mcp"
     ? z.object({ name: z.string() }).safeParse(await input.request.clone().json().catch(() => null)) : null;
+  if (manager && input.workspace && added?.success) {
+    const payload = z.object({ name: z.string(), config: z.record(z.string(), z.unknown()) }).parse(await input.request.clone().json());
+    if (payload.config.type === "remote") {
+      if (!await manager.find(input.workspace.id, payload.name)) throw new ApiError(400, "mcp_not_registered", "Add this connector through LegalWork before connecting it.");
+      const entries = await managedMcpEngineEntries(input.config, input.workspace.id, { [payload.name]: payload.config });
+      const headers = new Headers(input.request.headers);
+      headers.delete("content-length");
+      input = { ...input, request: new Request(input.request.url, { method, headers, body: JSON.stringify({ name: payload.name, config: entries[payload.name] }) }) };
+    }
+  }
   const name = mcp && (method === "POST" || method === "DELETE") ? decodeURIComponent(mcp[1]) : added?.success ? added.data.name : null;
   if (name) {
     const recovery = mcpRecovery(input.config);
@@ -1480,10 +1549,28 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     body,
   });
 
-  if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "GET" && normalizedPath === "/mcp" && response.ok) {
+  if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "GET" && normalizedPath === "/mcp" && response.ok && !mcpManager(input.config)) {
     // The desktop already polls this endpoint. Repair only failed remote
     // transports without delaying the status response or reloading the engine.
     void response.clone().json().then(statuses => recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses)).catch(() => undefined);
+  }
+
+  if (workspace && method === "GET" && normalizedPath === "/mcp" && response.ok && mcpManager(input.config)) {
+    const statuses = z.record(z.string(), z.unknown()).parse(await response.json());
+    const manager = mcpManager(input.config);
+    for (const name of new Set([...Object.keys(statuses), ...Object.keys(await runtimeMcpMapForWorkspace(input.config, workspace.id))])) {
+      const status = await manager?.status(workspace.id, name);
+      if (status && status.status !== "connected") statuses[name] = status;
+    }
+    if (sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer") {
+      void recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses).catch(() => {});
+      const engine = resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl ?? "";
+      for (const name of Object.keys(statuses)) {
+        if (isRecord(statuses[name]) && statuses[name].migration) continue;
+        if (mcpRecovery(input.config).isRecovering(engine, sessionDirectory, name)) statuses[name] = { status: "connecting", message: "Reconnecting to your connector…" };
+      }
+    }
+    return jsonResponse(statuses);
   }
 
   if (method === "POST" && response.ok && (normalizedPath === "/session" || normalizedPath.endsWith("/fork")) && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
@@ -1536,7 +1623,7 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
   headers.set("Access-Control-Allow-Origin", allowOrigin);
   headers.set(
     "Access-Control-Allow-Headers",
-    "Authorization, Content-Type, X-LegalWork-Host-Token, X-LegalWork-Client-Id, X-OpenCode-Directory, X-Opencode-Directory, x-opencode-directory",
+    "Authorization, Content-Type, X-LegalWork-Host-Token, X-LegalWork-Client-Id, X-OpenCode-Directory, X-Opencode-Directory, x-opencode-directory, X-LegalWork-OAuth-State, X-LegalWork-OAuth-Issuer",
   );
   headers.set("Access-Control-Expose-Headers", "X-LegalWork-Updated-At");
   headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -3154,7 +3241,7 @@ function createRoutes(
     const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
     if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
     try {
-      return jsonResponse(await fetchLegalMemoryTreeRoots(server, await engineAccessToken(server.name)));
+      return jsonResponse(await fetchLegalMemoryTreeRoots(server, await engineAccessToken(config, workspace.id, server.name)));
     } catch (error) {
       throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File tree failed");
     }
@@ -3178,7 +3265,7 @@ function createRoutes(
       return jsonResponse(await fetchLegalMemoryTreeChildren(
         server,
         { sourceId, path: path || undefined, offset, limit },
-        await engineAccessToken(server.name),
+        await engineAccessToken(config, workspace.id, server.name),
       ));
     } catch (error) {
       throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "Folder listing failed");
@@ -3200,7 +3287,7 @@ function createRoutes(
       return jsonResponse(await fetchLegalMemoryTreeSearch(
         server,
         { query, limit },
-        await engineAccessToken(server.name),
+        await engineAccessToken(config, workspace.id, server.name),
       ));
     } catch (error) {
       throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File search failed");
@@ -3223,7 +3310,7 @@ function createRoutes(
     const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
     if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
     try {
-      const graph = await fetchLegalMemoryGraph(server, documentId, await engineAccessToken(server.name));
+      const graph = await fetchLegalMemoryGraph(server, documentId, await engineAccessToken(config, workspace.id, server.name));
       return jsonResponse({ ok: true, graph });
     } catch (error) {
       throw new ApiError(502, "legalmemory_graph_failed", error instanceof Error ? error.message : "Traversal failed");
@@ -3253,7 +3340,7 @@ function createRoutes(
 
     let document: Awaited<ReturnType<typeof fetchLegalMemoryDocument>>;
     try {
-      document = await fetchLegalMemoryDocument(server, documentId, await engineAccessToken(server.name));
+      document = await fetchLegalMemoryDocument(server, documentId, await engineAccessToken(config, workspace.id, server.name));
     } catch (error) {
       throw new ApiError(502, "legalmemory_fetch_failed", error instanceof Error ? error.message : "LegalMemory download failed");
     }
@@ -3300,7 +3387,7 @@ function createRoutes(
     if (!server) {
       throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured for this workspace");
     }
-    const bearer = await engineAccessToken(server.name);
+    const bearer = await engineAccessToken(config, workspace.id, server.name);
 
     let listing: Awaited<ReturnType<typeof collectLegalMemoryFolderFiles>>;
     try {
@@ -4901,6 +4988,32 @@ function createRoutes(
     return jsonResponse({ items });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/mcp/:name/migration", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = ctx.params.name;
+    validateMcpName(name);
+    const { action } = z.object({ action: z.enum(["retry", "reconnect"]) }).parse(await readJsonBody(ctx.request));
+    const manager = mcpManager(config);
+    const status = await manager?.status(workspace.id, name);
+    if (!manager || !status || !("migration" in status) || !status.migration) throw new ApiError(409, "mcp_migration_not_pending", "This connector no longer needs a sign-in transfer.");
+    await requireApproval(ctx, { workspaceId: workspace.id, action: `mcp.migration.${action}`,
+      summary: action === "retry" ? `Retry saved sign-in transfer for ${name}` : `Sign in again to ${name}`, paths: [manager.store.path] });
+    if (action === "retry") {
+      await retryLegacyMcpMigration(config);
+      await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+      await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
+    }
+    else {
+      if (!status.migration.canReconnect) throw new ApiError(503, "mcp_secure_storage_unreadable", "Restore access to the app encryption key before signing in again.");
+      await manager.prepareMigrationReconnect(workspace.id, name);
+    }
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+      action: `mcp.migration.${action}`, target: name, summary: `Connector migration recovery: ${action}`, timestamp: Date.now() });
+    return jsonResponse({ ok: true });
+  });
+
   addRoute(routes, "DELETE", "/workspace/:id/mcp/:name/auth", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -4908,13 +5021,19 @@ function createRoutes(
     const name = String(ctx.params.name ?? "").trim();
     validateMcpName(name);
 
-    const authStorePath = join(homedir(), ".config", "opencode", "mcp-auth.json");
+    const managed = await mcpManager(config)?.find(workspace.id, name);
+    const authStorePath = managed ? mcpManager(config)!.store.path : join(homedir(), ".config", "opencode", "mcp-auth.json");
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "mcp.auth.remove",
       summary: `Logout MCP ${name}`,
       paths: [authStorePath],
     });
+
+    if (managed) {
+      await mcpManager(config)?.logout(workspace.id, name);
+      return jsonResponse({ ok: true });
+    }
 
     // Best-effort disconnect so any active connection is torn down.
     try {
@@ -5594,6 +5713,7 @@ async function awaitEngineInstance(
   authHeader: string | null,
   directory: string | null,
   deadlineMs = 30_000,
+  signal?: AbortSignal,
 ): Promise<void> {
   const url = new URL(baseUrl);
   url.pathname = "/mcp";
@@ -5602,12 +5722,13 @@ async function awaitEngineInstance(
   const headers: Record<string, string> = {};
   if (authHeader) headers.Authorization = authHeader;
   const deadline = Date.now() + deadlineMs;
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !signal?.aborted) {
     try {
-      const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
+      const response = await fetch(url, { headers, signal: AbortSignal.any([AbortSignal.timeout(20_000), ...(signal ? [signal] : [])]) });
       await response.text().catch(() => undefined);
       return;
     } catch {
+      if (signal?.aborted) return;
       await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
     }
   }
@@ -5623,12 +5744,16 @@ async function syncRuntimeMcpToOpencodeEngine(
   workspace: WorkspaceInfo,
   onlyNames?: string[],
 ): Promise<void> {
+  const signal = mcpManager(config)?.signal;
+  if (signal?.aborted) return;
   if (await localWorkspaceUnavailable(workspace)) return;
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
 
-  const entries = Object.entries(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(
+  const own = await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id));
+  const firm = z.record(z.string(), z.record(z.string(), z.unknown())).parse(await firmHubConnectorBlocks(config));
+  const entries = Object.entries(await managedMcpEngineEntries(config, workspace.id, { ...own, ...firm })).filter(
     ([name]) => !onlyNames || onlyNames.includes(name),
   );
   if (entries.length === 0) return;
@@ -5646,7 +5771,8 @@ async function syncRuntimeMcpToOpencodeEngine(
   // each engine reload.
   const failures: EngineMcpSyncFailure[] = [];
   for (const [name, mcpConfig] of entries) {
-    const failure = await mcpRecovery(config).mutate(name, () => postMcpEntryWithRetry(url, headers, name, mcpConfig));
+    if (signal?.aborted) return;
+    const failure = await mcpRecovery(config).mutate(name, () => postMcpEntryWithRetry(url, headers, name, mcpConfig, signal));
     if (failure) failures.push(failure);
   }
 
@@ -5678,15 +5804,18 @@ async function postMcpEntryWithRetry(
   headers: Record<string, string>,
   name: string,
   mcpConfig: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<EngineMcpSyncFailure | null> {
   let failure: EngineMcpSyncFailure | null = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (signal?.aborted) return null;
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
     try {
       const response = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify({ name, config: mcpConfig }),
+        signal,
         // Releasing the connector lock on an HTTP timeout leaves the engine's
         // handshake running, able to overwrite a later disable or disconnect.
       });
@@ -5745,11 +5874,15 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
     // Constructing an engine instance runs plugins that create .opencode.
     // A disconnected folder must stay missing until the user restores it.
     if (await localWorkspaceUnavailable(workspace)) continue;
+    // There is nothing to rebind without connectors. Probing an empty engine
+    // here races workspace activation and adds unsolicited reload attempts.
+    if (Object.keys(await runtimeMcpMapForWorkspace(config, workspace.id)).length === 0 &&
+        Object.keys(await firmHubConnectorBlocks(config)).length === 0) continue;
     // Right after start the engine is still building instances; registering
     // into a half-built one is recorded as a failure the UI then shows.
     const connection = resolveWorkspaceOpencodeConnection(config, workspace);
     if (connection.baseUrl?.trim()) {
-      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
+      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace), 30_000, mcpManager(config)?.signal);
     }
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
   }

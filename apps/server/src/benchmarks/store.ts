@@ -355,7 +355,7 @@ async function openSqlite(path: string): Promise<SqliteHandle> {
     return {
       prepare: (sql) => db.prepare(sql) as unknown as Statement,
       exec: (sql) => db.exec(sql),
-      close: () => db.close(),
+      close: () => db.close(true),
     };
   }
   const { DatabaseSync } = await import("node:sqlite");

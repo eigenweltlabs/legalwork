@@ -11,6 +11,10 @@ export class McpRecovery {
 
   constructor(private now = Date.now, private retryDelayMs = 30_000) {}
 
+  isRecovering(engine: string, directory: string, name: string) {
+    return Boolean(this.attempts.get(JSON.stringify([engine, directory, name]))?.pending);
+  }
+
   private enqueue<T>(name: string, operation: () => Promise<T>): Promise<T> {
     const result = (this.queues.get(name) ?? Promise.resolve()).then(operation);
     const settled = result.then(() => {}, () => {});

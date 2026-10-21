@@ -432,3 +432,12 @@ describe("MCP OAuth manual callback validation", () => {
     }
   });
 });
+
+test("manual callback preserves the issuer through the authenticated completion request", async () => {
+  const complete = mock(async (_code: string, _issuer?: string) => ({ status: "connected" }));
+  const h = harness({ driver: makeDriver({ complete }) });
+  await h.flow.start();
+  await h.flow.submit(callbackUrl() + "&iss=https%3A%2F%2Fissuer.example");
+  expect(complete).toHaveBeenCalledWith("authorization-code", "https://issuer.example");
+  expect(h.flow.getState().phase).toBe("success");
+});

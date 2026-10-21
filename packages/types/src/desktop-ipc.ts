@@ -641,7 +641,7 @@ export type DesktopCommandMap = {
   };
   mcpOAuthWait: {
     args: [options: { listenerId: string; state: string }];
-    result: { code: string };
+    result: { code: string; issuer?: string };
   };
   mcpOAuthCancel: { args: [listenerId: string]; result: void };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };

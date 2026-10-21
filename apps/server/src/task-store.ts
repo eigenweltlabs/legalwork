@@ -626,6 +626,7 @@ function parseOp(json: string): TaskSyncOp | null {
 // ---------------------------------------------------------------------------
 
 export class TaskStore {
+  close() { this.db.close(); }
   private constructor(
     private readonly db: SqliteHandle,
     private readonly filesDir: string,
@@ -1913,4 +1914,13 @@ export function taskStore(config: ServerConfig): Promise<TaskStore> {
   const opened = TaskStore.open(path, dir);
   storeByPath.set(path, opened);
   return opened;
+}
+
+/** Release disposable profile state after its reminder/sync timers stop. */
+export async function closeTaskStoreForTests(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const store = storeByPath.get(path);
+  if (!store) return;
+  storeByPath.delete(path);
+  (await store).close();
 }

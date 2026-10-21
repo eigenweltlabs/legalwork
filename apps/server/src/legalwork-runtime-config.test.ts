@@ -1,3 +1,4 @@
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,6 +9,7 @@ import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
+  drainLegalworkRuntimeConfigWrites,
   legalworkRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
@@ -19,12 +21,14 @@ import {
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
+const configs: ServerConfig[] = [];
 const cleanups: Array<() => void> = [];
 let previousDb: string | undefined;
 
 afterEach(async () => {
   while (cleanups.length) cleanups.pop()?.();
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+  for (const config of configs.splice(0)) await closeTestRuntime(config);
+  while (roots.length) await removeTestDirectory(roots.pop()!);
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;
 });
@@ -52,6 +56,7 @@ async function setup() {
     logFormat: "pretty",
     logRequests: false,
   };
+  configs.push(config);
   return { root, config };
 }
 
@@ -183,6 +188,18 @@ describe("legalwork runtime config file", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(mcp.stripe?.enabled).toBe(false);
+  });
+
+  test("another server's writes cannot rewrite this engine's connector configuration", async () => {
+    const { config } = await setup();
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const before = await readFile(legalworkRuntimeConfigFilePath(config), "utf8");
+    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
+    await writeRuntimeOpencodeConfig({ ...config }, "ws_1", () => ({
+      mcp: { other: { type: "remote", url: "https://other.example/mcp" } },
+    }));
+    await drainLegalworkRuntimeConfigWrites(config);
+    expect(await readFile(legalworkRuntimeConfigFilePath(config), "utf8")).toBe(before);
   });
 
   test("writes for other workspaces do not rewrite the primary file", async () => {

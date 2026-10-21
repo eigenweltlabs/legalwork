@@ -1,6 +1,7 @@
+import { closeTestRuntime, removeTestDirectory } from "../runtime.test-helpers.js";
 import { saveConnectorWriteSetting } from "./settings.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -90,12 +91,13 @@ beforeEach(async () => {
 afterEach(async () => {
   while (stops.length) await stops.pop()?.();
   globalThis.fetch = nativeFetch;
+  await closeTestRuntime(config);
   Object.defineProperty(globalThis, "WebSocket", { value: nativeWebSocket, configurable: true, writable: true });
   const restore: [string, string | undefined][] = [["EIGENWELT_PLATFORM_URL", priorPlatform], ["LEGALWORK_TOKEN_STORE", priorTokenStore], ["LEGALWORK_RUNTIME_DB", priorRuntimeDb]];
   for (const [key, value] of restore) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
-  await rm(root, { recursive: true, force: true });
+  await removeTestDirectory(root);
 });
 
 test("registers discoverable tools for both mail providers", () => {

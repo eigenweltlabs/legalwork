@@ -90,7 +90,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
       child.stdout?.off("data", onStdout);
       child.stderr?.off("data", onStderr);
       child.off("error", fail);
-      child.off("exit", onExit);
+      child.off("close", onExit);
     };
     const done = (value: string) => {
       if (settled) return;
@@ -125,7 +125,9 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
     child.once("error", fail);
-    child.once("exit", onExit);
+    // close follows the final stdout/stderr data. exit can arrive first and
+    // otherwise hide the lock error needed to decide whether startup can retry.
+    child.once("close", onExit);
   });
 }
 
@@ -195,7 +197,7 @@ export async function createManagedOpencodeServer(options: {
   // LegalWork supplies its deduplicated skill catalog explicitly. The engine's
   // recursive external scan also picks up nested packages for other agent apps.
   const features = { OPENCODE_DISABLE_EXTERNAL_SKILLS: "true", OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     ...features,
     ...options.env,
@@ -204,6 +206,8 @@ export async function createManagedOpencodeServer(options: {
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   };
+  // Credential-vault keys belong to the LegalWork server, never its engine.
+  delete env.LEGALWORK_ENCRYPTION_KEY;
   const injectedEnv = Object.entries({
     ...features,
     ...(options.env ?? {}),
@@ -211,7 +215,7 @@ export async function createManagedOpencodeServer(options: {
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   })
-    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .filter((entry): entry is [string, string] => entry[0] !== "LEGALWORK_ENCRYPTION_KEY" && typeof entry[1] === "string")
     .map(([name, value]) => ({
       name,
       value: SECRET_ENV_PATTERN.test(name) ? "<redacted>" : value,

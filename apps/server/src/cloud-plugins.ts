@@ -104,6 +104,7 @@ const cloudPluginInstallConfigs = sqliteTable("cloud_plugin_install_configs", {
 });
 
 type CloudPluginDb = {
+  close: () => void;
   get: (workspaceId: string) => { configJson: string } | undefined;
   upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
@@ -552,6 +553,7 @@ async function openCloudPluginDb(path: string): Promise<CloudPluginDb> {
     sqlite.run("CREATE TABLE IF NOT EXISTS cloud_plugin_install_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
     const db = drizzle(sqlite);
     return {
+      close: () => sqlite.close(true),
       get: (workspaceId) => db
         .select()
         .from(cloudPluginInstallConfigs)
@@ -575,6 +577,7 @@ async function openCloudPluginDb(path: string): Promise<CloudPluginDb> {
   const get = sqlite.prepare("SELECT config_json AS configJson FROM cloud_plugin_install_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO cloud_plugin_install_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
@@ -587,6 +590,15 @@ async function openCloudPluginDb(path: string): Promise<CloudPluginDb> {
 }
 
 const dbByPath = new Map<string, Promise<CloudPluginDb>>();
+
+/** Release disposable test-profile handles before Windows removes the database. */
+export async function closeCloudPluginDbForTests(config: ServerConfig): Promise<void> {
+  const path = runtimeDbPath(config);
+  const db = dbByPath.get(path);
+  if (!db) return;
+  dbByPath.delete(path);
+  (await db).close();
+}
 
 async function cloudPluginDb(config: ServerConfig): Promise<CloudPluginDb> {
   const path = runtimeDbPath(config);

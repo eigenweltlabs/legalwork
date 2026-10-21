@@ -21,6 +21,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { mcpManager } from "./mcp-manager.js";
+import type { ServerConfig } from "./types.js";
 
 const JSON_RPC_HEADERS = {
   "content-type": "application/json",
@@ -722,15 +724,16 @@ export async function fetchLegalMemoryDocument(
 }
 
 /**
- * The access token the engine already holds for this server, if any.
+ * The server-owned access token for this connection, if any.
  *
- * An appliance behind Keycloak needs one; an open deployment does not. We read
- * the engine's own store rather than running a second OAuth flow, so there is
- * exactly one sign-in and one place tokens live. A missing or expired entry is
- * not an error here: the call is attempted without a token and the server says
- * what it thinks.
+ * An appliance behind Keycloak needs one; an open deployment does not. The
+ * manager supplies the same grant used by agent calls and refreshes it when
+ * necessary, keeping one refresh owner for both appliance features and tools. The
+ * legacy file is consulted only when running without a connector manager.
  */
-export async function engineAccessToken(serverName: string): Promise<string | undefined> {
+export async function engineAccessToken(config: ServerConfig, workspaceId: string, serverName: string): Promise<string | undefined> {
+  const manager = mcpManager(config);
+  if (manager) return manager.accessToken(workspaceId, serverName);
   const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
   try {
     const raw = await readFile(join(dataHome, "opencode", "mcp-auth.json"), "utf8");

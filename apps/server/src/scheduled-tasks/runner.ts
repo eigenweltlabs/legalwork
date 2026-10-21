@@ -10,10 +10,13 @@ export type ScheduledExecutor = {
 export class ScheduledTaskRunner {
   private ticking = false;
   private stopped = false;
+  private completion = Promise.resolve();
   constructor(private store: ScheduledTaskStore, private executor: ScheduledExecutor, private now = Date.now) {}
   async tick() {
     if (this.ticking || this.stopped) return;
     this.ticking = true;
+    let complete = () => {};
+    this.completion = new Promise<void>(resolve => { complete = resolve; });
     try {
       for (const task of this.store.list()) {
         if (this.stopped) break;
@@ -35,7 +38,7 @@ export class ScheduledTaskRunner {
           this.store.record({ ...run, status: "sent" });
         } catch (error) { this.store.fail(task, run, error, deliveryRevision); }
       }
-    } finally { this.ticking = false; }
+    } finally { this.ticking = false; complete(); }
   }
   start() {
     const tick = () => { void this.tick().catch(error => console.warn("[scheduled-tasks]", error)); };
@@ -43,6 +46,6 @@ export class ScheduledTaskRunner {
     timer.unref();
     // Check persisted due times immediately on reopening, including overdue one-time tasks.
     tick();
-    return () => { this.stopped = true; clearInterval(timer); };
+    return async () => { this.stopped = true; clearInterval(timer); await this.completion; };
   }
 }

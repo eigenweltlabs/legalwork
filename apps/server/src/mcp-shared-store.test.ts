@@ -1,3 +1,4 @@
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,13 +31,15 @@ import type { ServerConfig } from "./types.js";
  */
 
 const roots: string[] = [];
+const configs: ServerConfig[] = [];
 const cleanups: Array<() => void> = [];
 let previousDb: string | undefined;
 let previousXdg: string | undefined;
 
 afterEach(async () => {
   while (cleanups.length) cleanups.pop()?.();
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+  for (const config of configs.splice(0)) await closeTestRuntime(config);
+  while (roots.length) await removeTestDirectory(roots.pop()!);
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;
   if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;
@@ -77,6 +80,7 @@ async function setup() {
     logFormat: "pretty",
     logRequests: false,
   };
+  configs.push(config);
   return { root, wsA, wsB, config };
 }
 
@@ -97,6 +101,21 @@ async function waitFor(check: () => Promise<boolean>, label: string) {
 }
 
 describe("shared connector store", () => {
+  test("an interrupted import preserves workspace settings until the shared destination is committed", async () => {
+    const { config, root } = await setup();
+    await writeRuntimeOpencodeConfig(config, "ws_a", () => ({ mcp: { fibery: FIBERY } }));
+    const unreadableFile = join(root, "directory-instead-of-config");
+    await mkdir(unreadableFile);
+    const sources = { runtimeConfigFile: join(root, "runtime.json"), globalOpencodeConfigFile: unreadableFile };
+    await expect(importConnectorsIntoSharedRow(config, sources)).rejects.toThrow();
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toEqual({ fibery: FIBERY });
+    expect(await readGlobalMcpMap(config)).toEqual({});
+    await rm(unreadableFile, { recursive: true });
+    expect((await importConnectorsIntoSharedRow(config, sources)).imported).toEqual(["fibery"]);
+    expect(await readGlobalMcpMap(config)).toEqual({ fibery: FIBERY });
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toBeUndefined();
+  });
+
   test("retires the old helper from shared, workspace and file config without reconnecting it", async () => {
     const { wsA, config, root } = await setup();
     const runtimeConfigFile = join(root, "runtime-opencode-config.json");
@@ -246,6 +265,16 @@ describe("importing connectors from earlier builds", () => {
     expect(await listMcp(config, "ws_b", wsB)).toEqual([expect.objectContaining({ name: "legalmemory", source: "config.remote", config: FIBERY })]);
     expect((await readJsoncFile(join(wsA, "opencode.jsonc"), {})).data).toEqual({ mcp: {} });
   });
+  test("different existing workspace connections with the same name retain their own configuration", async () => {
+    const { root, config } = await setup();
+    await writeRuntimeOpencodeConfig(config, "ws_a", () => ({ mcp: { service: FIBERY } }));
+    await writeRuntimeOpencodeConfig(config, "ws_b", () => ({ mcp: { service: NOTION } }));
+    await importConnectorsIntoSharedRow(config, { runtimeConfigFile: join(root, "runtime.json"), globalOpencodeConfigFile: join(root, "global.json") });
+    expect((await readGlobalMcpMap(config)).service).toEqual(FIBERY);
+    expect((await readRuntimeOpencodeConfig(config, "ws_b")).mcp?.service).toEqual(NOTION);
+    expect((await engineMcp(config, "ws_b")).service).toEqual(NOTION);
+  });
+
   test("moves workspace rows and copies file entries into the shared row once", async () => {
     const { root, config } = await setup();
     const runtimeConfigFile = join(root, "runtime-opencode-config.json");

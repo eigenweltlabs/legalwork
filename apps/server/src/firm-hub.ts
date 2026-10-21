@@ -406,6 +406,12 @@ export async function firmHubConnectorBlocks(config: ServerConfig): Promise<Reco
   return blocks;
 }
 
+/** Ownership namespace for a member's grants to firm-provided MCP servers. */
+export async function firmHubConnectorScope(config: ServerConfig): Promise<string | null> {
+  const connection = await readEigenweltConnection(config);
+  return connection.platformToken && connection.account ? JSON.stringify([connection.platformURL, connection.account.orgId, connection.account.userId]) : null;
+}
+
 /** The names the firm's connectors run under: the firm's switch for members' own leaves them alone. */
 export async function firmHubConnectorNames(config: ServerConfig): Promise<Set<string>> {
   const names = new Set<string>();
@@ -539,6 +545,10 @@ export async function setFirmHubMemberKey(config: ServerConfig, id: string, key:
 }
 
 /** Tests: forget the in-memory state for a runtime folder. */
+export async function drainFirmHubSyncForTests(config: ServerConfig): Promise<void> {
+  await runtimes.get(hubDir(config))?.running;
+}
+
 export function resetFirmHubRuntimeForTests(config: ServerConfig): void {
   runtimes.delete(hubDir(config));
 }

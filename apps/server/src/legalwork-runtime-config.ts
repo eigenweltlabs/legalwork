@@ -24,6 +24,7 @@ import {
   legalworkExtensionsPreviewPluginPath,
   legalworkChromeDevtoolsPluginPath,
   legalworkSandboxPluginPath,
+  legalworkMcpGatewayPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
   legalworkAnthropicAdaptiveThinkingPluginPath,
@@ -46,6 +47,8 @@ import {
   legalworkOrgPolicyGuardPluginPath,
 } from "./legalwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
+import { managedMcpEngineEntries } from "./mcp-manager.js";
+import { z } from "zod";
 import {
   applyGlobalToolPermissions,
   GLOBAL_MCP_ID,
@@ -328,13 +331,14 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkWikiToolsPluginPath(), config),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
+      ...(config ? [bundledPluginSpec(legalworkMcpGatewayPluginPath(), config)] : []),
       // The member's own plugins, unless the firm allows none.
       ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),
       ...(config?.agentSandboxEnabled ? [bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: config
-      ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
+      ? await managedMcpEngineEntries(config, workspaceId ?? config.workspaces[0]?.id ?? GLOBAL_MCP_ID, await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) }))
       : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
   if (config?.agentSandboxEnabled) {
@@ -346,7 +350,9 @@ export async function buildLegalworkRuntimeConfigObject(
 /** The firm's enforced engine layer, against the member's own settings of `workspaceId`. */
 export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {
   const own = await memberRuntimeConfig(config, workspaceId);
-  return buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } });
+  const layer = await buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } });
+  if (layer.mcp) layer.mcp = await managedMcpEngineEntries(config, workspaceId, z.record(z.string(), z.record(z.string(), z.unknown())).parse(layer.mcp));
+  return layer;
 }
 
 export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
@@ -380,6 +386,10 @@ export async function readEngineEigenweltProvider(config: ServerConfig): Promise
 // job reads the latest runtime-DB state.
 const fileWriteQueue = new Map<string, Promise<void>>();
 
+export async function drainLegalworkRuntimeConfigWrites(config: ServerConfig): Promise<void> {
+  await fileWriteQueue.get(legalworkRuntimeConfigFilePath(config));
+}
+
 /**
  * Rebuild the engine-visible runtime config file from the runtime DB.
  * Atomic (temp file + rename) so the engine never reads a partial file
@@ -391,7 +401,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const content = await buildLegalworkRuntimeConfig(config, workspaceId);
     await mkdir(runtimeStorageDir(config), { recursive: true });
     const tmp = `${path}.${randomUUID()}.tmp`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
     await rename(tmp, path);
     // The firm's enforced layer is rewritten with it, before every reload.
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
@@ -410,6 +420,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  */
 export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
   return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+    if (writeConfig !== config) return;
     // Global tool-permission, personalisation and connector writes affect
     // every workspace's derived config.
     if (

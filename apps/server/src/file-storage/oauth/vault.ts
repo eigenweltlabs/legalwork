@@ -30,7 +30,7 @@ export class OAuthVault {
     const path = `${this.path}.key`;
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     try { return await readFile(path); } catch (error) { if (!absent(error)) throw error; }
-    try { await writeFile(path, randomBytes(32), { flag: "wx", mode: 0o600 }); }
+    try { await writeFile(path, randomBytes(32), { flag: "wx", mode: 0o600, flush: true }); }
     catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
     return readFile(path);
   }
@@ -75,7 +75,7 @@ export class OAuthVault {
       const temporary = `${this.path}.${randomUUID()}.tmp`;
       try {
         await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-        await writeFile(temporary, Buffer.concat([iv, cipher.getAuthTag(), ciphertext]), { mode: 0o600 });
+        await writeFile(temporary, Buffer.concat([iv, cipher.getAuthTag(), ciphertext]), { mode: 0o600, flush: true });
         if (isCurrent && !isCurrent()) return false;
         await rename(temporary, this.path);
         return true;

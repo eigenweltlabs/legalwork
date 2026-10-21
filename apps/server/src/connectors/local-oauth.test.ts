@@ -1,6 +1,7 @@
+import { closeTestRuntime, removeTestDirectory } from "../runtime.test-helpers.js";
 import { z } from "zod";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectorDefinitions, connectorOAuthClientInputSchema } from "@legalwork/types/connectors";
@@ -52,8 +53,9 @@ beforeEach(async () => {
 afterEach(async () => {
   while (cancellations.length) await cancellations.pop()?.();
   globalThis.fetch = nativeFetch;
+  await closeTestRuntime(config);
   for (const [key, value] of priorEnvironment) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
-  await rm(root, { recursive: true, force: true });
+  await removeTestDirectory(root);
 });
 
 async function start(id = "gmail", connectionId?: string) {
@@ -403,7 +405,7 @@ test("every connector defaults to blocked writes before credentials; preferences
   await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
   expect((await connectorSettings({ ...config })).writeAccess.outlook).toBe(true);
   expect((await connectorSettings(config)).writeAccess["outlook-calendar"]).toBe(false);
-  expect((await stat(connectorSettingsPath(config))).mode & 0o777).toBe(0o600);
+  if (process.platform !== "win32") expect((await stat(connectorSettingsPath(config))).mode & 0o777).toBe(0o600);
   await writeFile(connectorSettingsPath(config), JSON.stringify({ writeAccess: true }));
   expect(Object.values((await connectorSettings(config)).writeAccess).every((value) => !value)).toBe(true);
   await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });

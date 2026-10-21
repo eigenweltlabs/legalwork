@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,7 +23,7 @@ const stops: Array<() => void | Promise<void>> = [];
 const roots: string[] = [];
 afterEach(async () => {
   while (stops.length) await stops.pop()?.();
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+  while (roots.length) await removeTestDirectory(roots.pop()!);
 });
 
 type Route = (request: Request, url: URL) => Response | null | Promise<Response | null>;
@@ -51,6 +52,7 @@ function oauthServer(
     challengeHeader?: boolean;
     prmAtRoot?: boolean;
     scopes?: string[];
+    modernOnly?: boolean;
     /** Answers a registration. Absent, the endpoint is advertised but answers 404, as Auth0 does with registration off. */
     register?: (body: unknown) => Response | Promise<Response>;
   } = {},
@@ -58,6 +60,7 @@ function oauthServer(
   const { registration = true, cimd = false, challengeHeader = true, prmAtRoot = false, scopes, register } = options;
   const fake = serve(async (request, url) => {
     if (url.pathname === "/mcp" && request.method === "POST") {
+      if (options.modernOnly && (await request.json()).method !== "server/discover") return Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "Method not found" } });
       const headers: Record<string, string> = challengeHeader
         ? { "www-authenticate": `Bearer resource_metadata="${fake.origin}/.well-known/oauth-protected-resource/mcp"` }
         : {};
@@ -88,6 +91,10 @@ function oauthServer(
 }
 
 describe("probeMcpServer", () => {
+  test("modern-only OAuth discovery still finds the issuer and registration method", async () => {
+    const fake = oauthServer({ modernOnly: true });
+    for (const exactUrl of [false, true]) expect(await probeMcpServer(`${fake.origin}/mcp`, { exactUrl })).toMatchObject({ reachable: true, auth: "oauth", oauth: { authorizationServer: `${fake.origin}/auth`, dynamicRegistration: true } });
+  });
   test("an anonymous initialize that succeeds means no sign-in", async () => {
     const fake = serve((request, url) => (url.pathname === "/mcp" && request.method === "POST" ? rpcResult() : null));
     const result = await probeMcpServer(`${fake.origin}/mcp`);
@@ -325,13 +332,16 @@ describe("POST /workspace/:id/mcp/probe and /register-client", () => {
     roots.push(root);
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
     process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+    let config: ServerConfig | undefined;
+    let server: Served | undefined;
     try {
       const fake = oauthServer({ register: () => Response.json({ client_id: "client-1" }, { status: 201 }) });
-      const config: ServerConfig = {
+      config = {
         host: "127.0.0.1",
         port: 0,
         token: "owt_test_token",
         hostToken: "owt_host_token",
+        configPath: join(root, "server.json"),
         approval: { mode: "auto", timeoutMs: 1000 },
         corsOrigins: ["*"],
         workspaces: [{ id: "ws_1", name: "Workspace", path: root, preset: "starter", workspaceType: "local" }],
@@ -343,8 +353,7 @@ describe("POST /workspace/:id/mcp/probe and /register-client", () => {
         logFormat: "pretty",
         logRequests: false,
       };
-      const server = await startServer(config) as Served;
-      stops.push(() => server.stop(true));
+      server = await startServer(config);
       const base = `http://127.0.0.1:${server.port}`;
       const headers = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" };
 
@@ -388,6 +397,8 @@ describe("POST /workspace/:id/mcp/probe and /register-client", () => {
       });
       expect(anonymous.status).toBe(401);
     } finally {
+      await server?.stop(true);
+      if (config) await closeTestRuntime(config);
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
     }

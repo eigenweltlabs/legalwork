@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { McpStatus, McpStatusMap } from "@/app/types";
+import { mcpMigrationStatus } from "@/app/mcp-connect-state";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -17,7 +18,7 @@ import { IconTile } from "@/react-app/design-system/surface";
 import { IntegrationLibraryRow } from "./integration-library";
 import { FIRM_HUB_QUERY_KEY, useFirmHub } from "../../connections/firm-hub";
 import { MemberKeyDialog } from "../../connections/org-policy-ui";
-import { ConnectorStatus, connectorStatusText, resolveConnectorState } from "./connector-status";
+import { ConnectorStatus, McpMigrationRecovery, connectorStatusText, resolveConnectorState } from "./connector-status";
 
 export const firmConnectorName = (slug: string) => slug.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, letter => letter.toUpperCase());
 
@@ -39,11 +40,13 @@ export function FirmConnectorAccessSettings(props: {
   onAddedChange: (added: boolean) => void;
   onSignIn: () => void;
   onManageKey: () => void;
+  onRetryMigration?: () => Promise<unknown>;
 }) {
   const { item, status } = props;
   const installed = item.installation === "automatic" || item.added;
   const connector = item.connector;
-  const canSignIn = connector?.access === "oauth" && connector.url && status?.status !== "connected";
+  const migration = mcpMigrationStatus(status);
+  const canSignIn = connector?.access === "oauth" && connector.url && status?.status !== "connected" && !migration;
   const accountHint = connector?.access === "oauth"
     ? status?.status === "connected" ? t("storage.oauth_connected")
       : connector.url ? t("integrations.team_sign_in_hint", { name: firmConnectorName(item.name) })
@@ -73,7 +76,8 @@ export function FirmConnectorAccessSettings(props: {
         {canSignIn ? <Button size="sm" disabled={props.busy} onClick={props.onSignIn}>{props.busy ? <Loader2 className="size-3.5 animate-spin" /> : <LogIn className="size-3.5" />}{t("firm_hub.sign_in")}</Button> : null}
       </div> : null}
     </div>
-    {installed && (status?.status === "failed" || status?.status === "needs_client_registration") ? <Alert variant="destructive">
+    {installed && migration ? <McpMigrationRecovery migration={migration} message={status && "error" in status ? status.error : status && "message" in status ? status.message ?? null : null} busy={props.busy} onRetry={props.onRetryMigration} onReconnect={props.onSignIn} /> : null}
+    {installed && !migration && (status?.status === "failed" || status?.status === "needs_client_registration") ? <Alert variant="destructive">
       <CircleAlert />
       <AlertTitle>{connectorStatusText(status.status)}</AlertTitle>
       <AlertDescription><p>{t("integrations.team_connection_help")}</p>{status.error ? <p className="break-words">{status.error}</p> : null}</AlertDescription>
@@ -82,7 +86,7 @@ export function FirmConnectorAccessSettings(props: {
 }
 
 /** Team-owned config stays managed by the hub; only optional membership and the member's account can change here. */
-export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkServerClient; statuses: McpStatusMap; busy: boolean; onSignIn: (name: string, url: string) => void; onChanged?: () => void }) {
+export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkServerClient; statuses: McpStatusMap; busy: boolean; onSignIn: (name: string, url: string) => void; onChanged?: () => void; onRetryMigration?: (name: string) => Promise<unknown> }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
@@ -93,13 +97,14 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
   const installed = item.installation === "automatic" || item.added;
   const connector = item.connector;
   const status = connector ? props.statuses[connector.serverName]?.status : undefined;
+  const migration = mcpMigrationStatus(connector ? props.statuses[connector.serverName] : undefined);
   const needsKey = installed && connector?.access === "member" && !connector.hasOwnKey;
   const needsSignIn = installed && connector?.access === "oauth" && status !== "connected";
-  const canSignIn = needsSignIn && connector?.url;
+  const canSignIn = needsSignIn && connector?.url && (!migration || migration.state === "blocked" && migration.canReconnect);
   const state = resolveConnectorState({ enabled: installed, status, needsKey, needsSignIn });
 
   function signIn() {
-    if (canSignIn && connector?.url) props.onSignIn(connector.serverName, connector.url);
+    if (canSignIn && connector?.url) return props.onSignIn(connector.serverName, connector.url);
   }
 
   async function setAdded(added: boolean) {
@@ -131,6 +136,7 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
           </DialogDescription>
         </DialogHeader>
         <FirmConnectorAccessSettings item={item} status={connector ? props.statuses[connector.serverName] : undefined} busy={props.busy || busy}
+          onRetryMigration={connector && props.onRetryMigration ? () => props.onRetryMigration!(connector.serverName) : undefined}
           onAddedChange={added => { if (added) setConfirmAdd(true); else void setAdded(false); }} onSignIn={signIn} onManageKey={() => setKeyOpen(true)} />
       </DialogContent>
     </Dialog>

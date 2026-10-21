@@ -25,7 +25,7 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
     const { Database } = await import("bun:sqlite");
     const db = new Database(path, { create: true });
     return {
-      close: () => db.close(),
+      close: () => db.close(true),
       run: (sql, params = []) => {
         db.query(sql).run(...params);
       },

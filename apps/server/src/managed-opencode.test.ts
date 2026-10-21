@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 n += 1;
 fs.writeFileSync(counter, String(n));
 fs.writeFileSync(counter + ".skills", process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS || "");
+fs.writeFileSync(counter + ".vault-key", process.env.LEGALWORK_ENCRYPTION_KEY || "");
 fs.writeFileSync(counter + ".fff", process.env.OPENCODE_DISABLE_FFF || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
@@ -41,17 +43,23 @@ afterEach(() => {
   dir = null;
 });
 
-function fakeBin(failUntil: number): { bin: string; counter: string } {
+function fakeBin(source = FAKE_OPENCODE): { bin: string; counter: string } {
   dir = mkdtempSync(join(tmpdir(), "managed-opencode-"));
-  const bin = join(dir, "fake-opencode");
+  const script = join(dir, "fake-opencode.cjs");
+  const bin = process.platform === "win32" ? join(dir, "fake-opencode.exe") : script;
   const counter = join(dir, "counter");
-  writeFileSync(bin, FAKE_OPENCODE, "utf8");
-  chmodSync(bin, 0o755);
+  writeFileSync(script, source, "utf8");
+  if (process.platform === "win32") {
+    // Windows cannot spawn a POSIX shebang. Exercise the same process contract
+    // with a native fixture executable, without adding a shell to production.
+    const compiled = spawnSync(process.execPath, ["build", script, "--compile", "--outfile", bin], { encoding: "utf8" });
+    if (compiled.status !== 0) throw new Error(`Could not build engine fixture: ${compiled.stderr}`);
+  } else chmodSync(bin, 0o755);
   return { bin, counter };
 }
 
 test("retries the engine spawn while the DB is locked, then succeeds", async () => {
-  const { bin, counter } = fakeBin(2); // fail twice, succeed on the 3rd
+  const { bin, counter } = fakeBin(); // fail twice, succeed on the 3rd
   const server = await createManagedOpencodeServer({
     bin,
     cwd: dir!,
@@ -69,13 +77,14 @@ test("retries the engine spawn while the DB is locked, then succeeds", async () 
 }, 20000);
 
 test("waits for the HTTP listener even when the child announces readiness early", async () => {
-  const { bin, counter } = fakeBin(0);
+  const { bin, counter } = fakeBin();
   const startedAt = Date.now();
   const server = await createManagedOpencodeServer({
     bin,
     cwd: dir!,
     env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_LISTEN_DELAY_MS: "300" },
   });
+
   try {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
     expect((await fetch(`${server.url}/health`)).status).toBe(200);
@@ -84,8 +93,14 @@ test("waits for the HTTP listener even when the child announces readiness early"
   }
 }, 20000);
 
+test("the engine never inherits the server's credential-vault encryption key", async () => {
+  const { bin, counter } = fakeBin();
+  const server = await createManagedOpencodeServer({ bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter, LEGALWORK_ENCRYPTION_KEY: "server-only-test-key" } });
+  try { expect(readFileSync(counter + ".vault-key", "utf8")).toBe(""); }
+  finally { await server.close(); }
+});
 test("keeps FFF disabled in the child and execution details even if caller env enables it", async () => {
-  const { bin, counter } = fakeBin(0);
+  const { bin, counter } = fakeBin();
   const server = await createManagedOpencodeServer({
     bin,
     cwd: dir!,
@@ -104,24 +119,16 @@ test("keeps FFF disabled in the child and execution details even if caller env e
 test("does NOT retry a non-lock start failure (fails fast)", async () => {
   // fail "forever" but with a lock message would retry; use a bin that exits
   // with a different error so the loop must give up on the first attempt.
-  dir = mkdtempSync(join(tmpdir(), "managed-opencode-"));
-  const bin = join(dir, "fake-opencode");
-  const counter = join(dir, "counter");
-  writeFileSync(
-    bin,
-    `#!/usr/bin/env node
+  const { bin, counter } = fakeBin(`#!/usr/bin/env node
 const fs = require("node:fs");
 const counter = process.env.FAKE_OPENCODE_COUNTER;
 let n = 0; try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 fs.writeFileSync(counter, String(n + 1));
 process.stderr.write("Error: config parse failed\\n");
 process.exit(1);
-`,
-    "utf8",
-  );
-  chmodSync(bin, 0o755);
+`);
   await expect(
-    createManagedOpencodeServer({ bin, cwd: dir, env: { FAKE_OPENCODE_COUNTER: counter } }),
+    createManagedOpencodeServer({ bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter } }),
   ).rejects.toThrow(/config parse failed/);
   expect(Number(readFileSync(counter, "utf8"))).toBe(1); // exactly one attempt
 }, 20000);

@@ -38,9 +38,10 @@ import {
   getMcpIdentityKey,
   normalizeMcpSlug,
 } from "../../../../app/mcp";
-import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
+import type { McpMigrationStatus, McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { isDesktopRuntime } from "../../../../app/utils";
 import { t } from "../../../../i18n";
+import { mcpMigrationStatus } from "@/app/mcp-connect-state";
 import { importedConnectorPlugin, pluginImportConnectorName, pluginImportName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,7 +66,7 @@ import { HubTabs, type HubTab } from "../segmented-tabs";
 import type { FirmHubItem } from "@legalwork/types/firm-hub";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { FirmConnectorLibrary, FirmConnectorRow, firmConnectorName } from "./firm-connectors";
-import { ConnectorStatus, configuredConnectorState, type ConnectorState } from "./connector-status";
+import { ConnectorStatus, McpMigrationRecovery, configuredConnectorState, type ConnectorState } from "./connector-status";
 import { connectorUsesOAuth } from "@legalwork/types/connector-config";
 import { connectorNeedsSetup } from "@/app/mcp-configuration";
 import { McpConfigurationForm } from "../../connections/modals/mcp-configuration-form";
@@ -113,6 +114,7 @@ export type McpViewProps = {
   registerMcpClient?: (url: string, headers?: Record<string, string>) => Promise<LegalworkMcpRegisterClientResult>;
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
+  retryMcpMigration?: (name: string) => Promise<unknown>;
   logoutMcpAuth: (name: string) => Promise<void> | void;
   removeMcp: (name: string) => void;
   setMcpEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
@@ -420,7 +422,7 @@ export function McpView(props: McpViewProps) {
   if (props.detailsOnly) {
     const entry = props.mcpServers.find(item => item.name === props.selectedMcp);
     return <>
-      {entry ? <McpConfiguredServerDetails entry={entry} directoryEntry={resolveQuickConnectMatch(entry.name)} status={resolveStatus(entry)} errorInfo={readMcpErrorInfo(props.mcpStatuses[entry.name])} selected busy={props.busy} logoutBusy={logoutBusy} logoutTarget={logoutTarget} togglingMcp={togglingMcp} displayName={displayName} supportsOauth={supportsOauth} onSelect={props.setSelectedMcp} onAuthorize={props.authorizeMcp} onConfigure={props.connectMcp} onCancelSetup={props.cancelPendingMcpAuth} onRequestLogout={requestLogout} onRemove={props.removeMcp} onToggleEnabled={props.setMcpEnabled} onToggleBusy={setTogglingMcp} pluginName={props.pluginName} /> : <Dialog open onOpenChange={open => { if (!open) props.setSelectedMcp(null); }}><DialogContent><DialogHeader><DialogTitle>{t("extensions.connectors_label")}</DialogTitle><DialogDescription>{t("plugin_details.unavailable")}</DialogDescription></DialogHeader><Button variant="outline" onClick={() => props.setSelectedMcp(null)}><ArrowLeft />{t("plugin_details.back", { name: props.pluginName ?? "" })}</Button></DialogContent></Dialog>}
+      {entry ? <McpConfiguredServerDetails entry={entry} directoryEntry={resolveQuickConnectMatch(entry.name)} status={resolveStatus(entry)} errorInfo={readMcpErrorInfo(props.mcpStatuses[entry.name])} migration={mcpMigrationStatus(props.mcpStatuses[entry.name])} onRetryMigration={props.retryMcpMigration} selected busy={props.busy} logoutBusy={logoutBusy} logoutTarget={logoutTarget} togglingMcp={togglingMcp} displayName={displayName} supportsOauth={supportsOauth} onSelect={props.setSelectedMcp} onAuthorize={props.authorizeMcp} onConfigure={props.connectMcp} onCancelSetup={props.cancelPendingMcpAuth} onRequestLogout={requestLogout} onRemove={props.removeMcp} onToggleEnabled={props.setMcpEnabled} onToggleBusy={setTogglingMcp} pluginName={props.pluginName} /> : <Dialog open onOpenChange={open => { if (!open) props.setSelectedMcp(null); }}><DialogContent><DialogHeader><DialogTitle>{t("extensions.connectors_label")}</DialogTitle><DialogDescription>{t("plugin_details.unavailable")}</DialogDescription></DialogHeader><Button variant="outline" onClick={() => props.setSelectedMcp(null)}><ArrowLeft />{t("plugin_details.back", { name: props.pluginName ?? "" })}</Button></DialogContent></Dialog>}
       {logoutConfirmation}
     </>;
   }
@@ -486,6 +488,7 @@ export function McpView(props: McpViewProps) {
         supportsOauth={supportsOauth}
         onSelect={props.setSelectedMcp}
         onAuthorize={props.authorizeMcp}
+        onRetryMigration={props.retryMcpMigration}
         onConfigure={props.connectMcp}
         onCancelSetup={props.cancelPendingMcpAuth}
         onRequestLogout={requestLogout}
@@ -1014,6 +1017,7 @@ function McpConfiguredServersSection(props: {
   supportsOauth: (entry: McpServerEntry) => boolean;
   onSelect: (name: string | null) => void;
   onAuthorize: (entry: McpServerEntry) => void;
+  onRetryMigration?: McpViewProps["retryMcpMigration"];
   onConfigure: McpViewProps["connectMcp"];
   onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
@@ -1053,7 +1057,7 @@ function McpConfiguredServersSection(props: {
         {rows.length ? (
           <div className="space-y-1">
             {rows.map(row => {
-              if (row.kind === "firm") return props.firmClient ? <FirmConnectorRow key={`firm:${row.item.id}`} item={row.item} client={props.firmClient} statuses={props.statuses} busy={props.busy} onChanged={props.onFirmConfigApplied} onSignIn={(name, url) => props.onAuthorize({ name, config: { type: "remote", url } })} /> : null;
+              if (row.kind === "firm") return props.firmClient ? <FirmConnectorRow key={`firm:${row.item.id}`} item={row.item} client={props.firmClient} statuses={props.statuses} busy={props.busy} onChanged={props.onFirmConfigApplied} onRetryMigration={props.onRetryMigration} onSignIn={(name, url) => props.onAuthorize({ name, config: { type: "remote", url } })} /> : null;
               if (row.kind === "entry") return <McpConnectedToolRow key={`entry:${getMcpIdentityKey(row.item)}`} entry={row.item} busy={props.busy} onDetail={props.onEntryDetail} />;
               const entry = row.item;
               return (
@@ -1063,6 +1067,7 @@ function McpConfiguredServersSection(props: {
                   directoryEntry={props.directoryEntry(entry.name)}
                   status={props.resolveStatus(entry)}
                   errorInfo={readMcpErrorInfo(props.statuses[entry.name])}
+                  migration={mcpMigrationStatus(props.statuses[entry.name])}
                   selected={props.selectedMcp === entry.name}
                   busy={props.busy}
                   logoutBusy={props.logoutBusy}
@@ -1072,6 +1077,7 @@ function McpConfiguredServersSection(props: {
                   supportsOauth={props.supportsOauth}
                   onSelect={props.onSelect}
                   onAuthorize={props.onAuthorize}
+                  onRetryMigration={props.onRetryMigration}
                   onConfigure={props.onConfigure}
                   onCancelSetup={props.onCancelSetup}
                   onRequestLogout={props.onRequestLogout}
@@ -1101,6 +1107,7 @@ function McpConnectedToolRow(props: { entry: McpDirectoryInfo; busy: boolean; on
 }
 
 function readMcpErrorInfo(status: McpStatusMap[string] | undefined) {
+  if (status?.status === "connecting" && status.migration) return status.message ?? null;
   if (!status || status.status !== "failed") return null;
   return "error" in status ? status.error : t("mcp.connection_failed");
 }
@@ -1110,6 +1117,7 @@ function McpConfiguredServerRow(props: {
   directoryEntry: McpDirectoryInfo | undefined;
   status: ReactMcpStatus;
   errorInfo: string | null;
+  migration?: McpMigrationStatus;
   selected: boolean;
   busy: boolean;
   logoutBusy: boolean;
@@ -1119,6 +1127,7 @@ function McpConfiguredServerRow(props: {
   supportsOauth: (entry: McpServerEntry) => boolean;
   onSelect: (name: string | null) => void;
   onAuthorize: (entry: McpServerEntry) => void;
+  onRetryMigration?: McpViewProps["retryMcpMigration"];
   onConfigure: McpViewProps["connectMcp"];
   onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
@@ -1190,7 +1199,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
           <div className="space-y-2"><h3 className="text-sm font-medium">{t("integrations.connector_chat_access")}</h3><McpConnectorStatus {...props} /></div>
           {needsSetup && props.entry.source === "config.remote" && props.onToggleEnabled ? <Button size="sm" disabled={props.busy} onClick={() => setEditing(true)}>{t("connector_setup.action")}</Button> : <McpConnectorToggle {...props} onSetup={() => setEditing(true)} />}
         </div>
-        {props.supportsOauth(props.entry) && !needsSetup ? <div className="flex items-center justify-between gap-4 py-5">
+        {props.supportsOauth(props.entry) && !needsSetup && !props.migration ? <div className="flex items-center justify-between gap-4 py-5">
           <div className="min-w-0 space-y-1"><h3 className="text-sm font-medium">{t("integrations.connector_account_access")}</h3><p className="text-xs leading-5 text-muted-foreground">{t(props.entry.config.enabled === false && props.onToggleEnabled ? "integrations.connector_enable_signin_hint" : "integrations.connector_account_hint")}</p></div>
           {props.status === "connected" ? <Button variant="outline" size="sm" disabled={props.busy || props.logoutBusy} onClick={() => props.onRequestLogout(props.entry.name)}>{t(props.logoutBusy && props.logoutTarget === props.entry.name ? "mcp.logout_working" : "mcp.logout_action")}</Button> : <Button size="sm" disabled={props.busy || signingIn || props.togglingMcp !== null} onClick={() => void signIn()}>{signingIn ? <Loader2 className="animate-spin" /> : null}{t("mcp.login_action")}</Button>}
         </div> : null}
@@ -1200,7 +1209,8 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
           <div className="mt-3 space-y-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground"><p>{t(props.entry.config.type === "remote" ? "integrations.connector_remote" : "integrations.connector_local")}</p><p className="break-all font-mono">{props.entry.config.type === "remote" ? props.entry.config.url : props.entry.config.command?.join(" ")}</p></div>
         </details>
       </div>
-      {props.errorInfo && !needsSetup ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
+      {props.migration ? <McpMigrationRecovery migration={props.migration} message={props.errorInfo} busy={props.busy || signingIn} onRetry={props.onRetryMigration ? () => props.onRetryMigration!(props.entry.name) : undefined} onReconnect={signIn} /> : null}
+      {props.errorInfo && !needsSetup && !props.migration ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
       {props.entry.source !== "config.global" && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
         <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
       </DialogFooter> : null}

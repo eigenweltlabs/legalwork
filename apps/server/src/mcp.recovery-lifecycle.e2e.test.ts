@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
-import { addMcp, listMcp } from "./mcp.js";
+import { listMcp } from "./mcp.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -43,7 +43,7 @@ async function setup(url: string, oauth: false | { callbackPort: number }) {
   for (const directory of directories) {
     await mkdir(directory);
     await writeFile(join(directory, "opencode.jsonc"), JSON.stringify({
-      mcp: { notes: remote }, plugin: [], autoupdate: false, lsp: false, formatter: false,
+      mcp: {}, plugin: [], autoupdate: false, lsp: false, formatter: false,
     }));
   }
   let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
@@ -73,20 +73,20 @@ async function setup(url: string, oauth: false | { callbackPort: number }) {
     config.opencodeBaseUrl = engine.url;
     config.opencodeUsername = engine.username;
     config.opencodePassword = engine.password;
-    await addMcp(config, "a", "notes", remote);
     server = await startServer(config);
     const engineUrl = engine.url;
     const engineAuthorization = `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`;
     const appUrl = `http://127.0.0.1:${server.port}`;
-    async function request(base: string, path: string, authorization: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
-      const response = await fetch(base + path, { method, headers: { authorization, "content-type": "application/json" },
+    async function request(base: string, path: string, authorization: string, body?: unknown, method = body === undefined ? "GET" : "POST", extraHeaders: Record<string, string> = {}) {
+      const response = await fetch(base + path, { method, headers: { authorization, "content-type": "application/json", ...extraHeaders },
         body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
       if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
       return response.json();
     }
     const direct = (workspace: "a" | "b", path: string) => request(engineUrl, `${path}?directory=${encodeURIComponent(directories[workspace === "a" ? 0 : 1])}`, engineAuthorization);
-    const app = (path: string, body?: unknown, method?: string) => request(appUrl, path, `Bearer ${config.token}`, body, method);
-    const proxy = (workspace: "a" | "b", path: string, body?: unknown) => app(`/workspace/${workspace}/opencode${path}`, body);
+    const app = (path: string, body?: unknown, method?: string, headers?: Record<string, string>) => request(appUrl, path, `Bearer ${config.token}`, body, method, headers);
+    const proxy = (workspace: "a" | "b", path: string, body?: unknown, headers?: Record<string, string>) => app(`/workspace/${workspace}/opencode${path}`, body, undefined, headers);
+    await app("/workspace/a/mcp", { name: "notes", config: remote });
     for (const workspace of ["a", "b"] satisfies Array<"a" | "b">) {
       expect(statuses.parse(await direct(workspace, "/mcp")).notes.status).toBe("failed");
     }
@@ -101,6 +101,7 @@ for (const action of ["disable", "remove", "disconnect"]) test.skipIf(!existsSyn
     if (offline) return new Response("Synthetic outage", { status: 503 });
     if (request.method !== "POST") return new Response(null, { status: 405 });
     const message = z.object({ id: z.union([z.string(), z.number()]).optional(), method: z.string() }).parse(await request.json());
+    if (message.method === "server/discover") return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Legacy fixture: discovery is not supported" } });
     if (message.method === "initialize" && hold) { started.resolve(); await release.promise; }
     if (message.id === undefined) return new Response(null, { status: 202 });
     const result = message.method === "initialize" ? { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "synthetic", version: "1" } }
@@ -112,16 +113,23 @@ for (const action of ["disable", "remove", "disconnect"]) test.skipIf(!existsSyn
   try {
     fixture = await setup(provider.url.origin + "/mcp", false);
     offline = false; hold = true;
-    await fixture.proxy("a", "/mcp");
+    // Allow the manager’s short transport cooldown from the initial outage to
+    // expire before asking the engine to replace its failed gateway session.
+    await Bun.sleep(3100);
+    expect(statuses.parse(await fixture.proxy("a", "/mcp")).notes.status).toBe("connecting");
     await started.promise;
     mutation = action === "disconnect" ? fixture.proxy("a", "/mcp/notes/disconnect", {})
       : fixture.app(`/workspace/a/mcp/notes${action === "disable" ? "/enabled" : ""}`, action === "disable" ? { enabled: false } : undefined, action === "disable" ? "POST" : "DELETE");
-    const acknowledgedBeforeRelease = await Promise.race([mutation.then(() => true), Bun.sleep(100).then(() => false)]);
+    await Promise.race([mutation, Bun.sleep(100)]);
     release.resolve();
     await mutation;
-    // A completed mutation is the barrier: no earlier recovery can finish later.
+    // The manager may cancel the old handshake immediately. After its delayed
+    // response is released, it must not restore the retired engine connection.
     expect(statuses.parse(await fixture.direct("a", "/mcp")).notes.status).toBe("disabled");
-    expect(acknowledgedBeforeRelease).toBe(false);
+    await Bun.sleep(100);
+    expect(statuses.parse(await fixture.direct("a", "/mcp")).notes.status).toBe("disabled");
+    if (action !== "disconnect") expect(statuses.parse(await fixture.direct("b", "/mcp")).notes.status).not.toBe("connected");
+    if (action === "disable") expect(statuses.parse(await fixture.proxy("b", "/mcp")).notes.status).toBe("disabled");
     if (action === "disable") expect((await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).find(item => item.name === "notes")?.config.enabled).toBe(false);
     if (action === "remove") expect(await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).toEqual([]);
   } finally {
@@ -162,7 +170,10 @@ for (const pollingWorkspace of ["a", "b"] satisfies Array<"a" | "b">) test.skipI
     const redirect = consent.headers.get("location");
     if (!redirect) throw new Error("Synthetic authorization did not return a code");
     const callback = new URL(redirect);
-    expect(await fixture.proxy("a", "/mcp/notes/auth/callback", { code: callback.searchParams.get("code") })).toEqual({ status: "connected" });
+    expect(await fixture.proxy("a", "/mcp/notes/auth/callback", { code: callback.searchParams.get("code") }, {
+      "x-legalwork-oauth-state": callback.searchParams.get("state") ?? "",
+      ...(callback.searchParams.has("iss") ? { "x-legalwork-oauth-issuer": callback.searchParams.get("iss")! } : {}),
+    })).toEqual({ status: "connected" });
     expect(registrations).toBe(registeredBeforePolling);
     await fixture.proxy("b", "/mcp");
     const current = fixture;
