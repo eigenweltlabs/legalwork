@@ -1,4 +1,5 @@
 import { ViewSaveDialog } from "./view-save-dialog";
+import { ViewSaveActions } from "./view-save-actions";
 import { viewInput } from "./view-save";
 import { t } from "@/i18n";
 import { Component, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
@@ -94,7 +95,7 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
     {view.data && <div className="lw-saved-view-toolbar">
       {!inline && <span>{t(view.data.mode === "report" ? "views.report_snapshot" : Object.keys(view.data.queries).length ? "views.live_dashboard" : "views.dashboard")}</span>}
       <div className="ml-auto flex items-center gap-1">
-        {!readOnly && <Button size="sm" variant="ghost" onClick={() => setSaving(true)}>{t("views.save_copy")}</Button>}
+        {!readOnly && <ViewSaveActions saved onSaveAs={() => setSaving(true)} />}
         <Button size="icon-xs" variant="ghost" aria-label={t("views.refresh")} title={t("views.refresh")} onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button>
       </div>
     </div>}
@@ -109,7 +110,7 @@ function SavedViewCopy({ client, view, onClose }: { client: LegalworkServerClien
     return { ...viewInput(view), datasets };
   } });
   if (!snapshot.data) return <div className="p-4 text-sm">{snapshot.error ? snapshot.error.message : t("wiki.loading")}{snapshot.error && <Button variant="ghost" size="sm" disabled={snapshot.isFetching} onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>}<Button variant="ghost" size="sm" onClick={onClose}>{t("common.close")}</Button></div>;
-  return <ViewSaveDialog client={client} preview={{ status: "preview", owner: view.owner, input: snapshot.data }} onClose={onClose} onSaved={onClose} />;
+  return <ViewSaveDialog copyTitle client={client} preview={{ status: "preview", owner: view.owner, input: snapshot.data }} onClose={onClose} onSaved={onClose} />;
 }
 export function PreviewView({ client, preview, generationId }: { client: LegalworkServerClient; preview: ViewPreview; generationId: string }) {
   return <ResolvedView client={client} view={{ ...preview.input, queries: {}, mode: "report", owner: preview.owner, id: generationId, revision: generationId, updatedAt: 0 }} refreshKey={0} readOnly />;

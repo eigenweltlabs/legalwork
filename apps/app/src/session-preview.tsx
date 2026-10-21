@@ -4,7 +4,9 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
-import type { ViewRecord } from "@legalwork/types/views";
+import type { ViewInput, ViewOwner, ViewRecord } from "@legalwork/types/views";
+import { useViewGenerationStore, viewDraftTab, viewGenerationId, type ViewGeneration } from "./react-app/domains/views/view-generation";
+import { sameViewOwner, viewInput } from "./react-app/domains/views/view-save";
 import type { ToolPart } from "@opencode-ai/sdk/v2/client";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
@@ -287,6 +289,18 @@ const explorerDashboard: ViewRecord = {
   program: 'root = Stack([Heading("Matter overview",1),Text("Synthetic project dashboard"),Stack([Metric("Open matters",12),Metric("Due this week",3)],2),Card("Priorities",[Table([{matter:"Supplier agreement",status:"In review"},{matter:"Office lease",status:"Ready"}],[{field:"matter",label:"Matter"},{field:"status",label:"Status"}])])])',
 };
 const explorerDashboardPath = `Dashboards/${explorerDashboard.id}.view.json`;
+const explorerViews = new Map([[explorerDashboard.id, explorerDashboard]]);
+function saveExplorerView(owner: ViewOwner, input: ViewInput, id = crypto.randomUUID()): ViewRecord {
+  const view = { ...input, owner, id, revision: crypto.randomUUID(), updatedAt: Date.now() };
+  explorerViews.set(id, view);
+  if (owner.kind === "workspace") {
+    const folder = input.mode === "dashboard" ? "Dashboards" : "Reports";
+    if (!files.some(file => file.path === folder)) files.push({ name: folder, path: folder, kind: "dir", empty: false });
+    const path = `${folder}/${id}.view.json`;
+    if (!files.some(file => file.path === path)) files.push({ name: `${id}.view.json`, path, kind: "file", size: 850, updatedAt: view.updatedAt });
+  }
+  return view;
+}
 let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Contracts", path: "Contracts", kind: "dir" },
   { name: "Policies", path: "Policies", kind: "dir" },
@@ -428,9 +442,15 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
   ...(dashboardExplorer ? {
-    listWikis: async () => ({ items: [] }),
-    listViews: async () => ({ items: [{ ...explorerDashboard, path: explorerDashboardPath }], issues: [] }),
-    readView: async () => explorerDashboard,
+    listWorkspaces: async () => ({ items: [workspace, otherWorkspace] }),
+    listWikis: async () => ({ items: [{ id: "visual-wiki", workspaceId: "visual-wiki-workspace", name: "Firm knowledge", root: "/synthetic/wiki", allowInProjects: true, sync: null, writable: true, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } }] }),
+    listViews: async (owner: ViewOwner) => ({ items: [...explorerViews.values()].filter(view => sameViewOwner(view.owner, owner)).map(view => ({ ...view, path: `${view.mode === "dashboard" ? "Dashboards" : "Reports"}/${view.id}.view.json` })), issues: [] }),
+    readView: async (_owner: ViewOwner, id: string) => { const view = explorerViews.get(id); if (!view) throw new Error("Synthetic dashboard not found"); return view; },
+    createView: async (owner: ViewOwner, input: ViewInput) => saveExplorerView(owner, input),
+    updateView: async (owner: ViewOwner, id: string, change: { baseRevision: string; input: ViewInput }) => {
+      if (explorerViews.get(id)?.revision !== change.baseRevision) throw new LegalworkServerError(409, "view_revision_conflict", "Synthetic dashboard changed on disk");
+      return saveExplorerView(owner, change.input, id);
+    },
   } : {}),
   reviewLibrary: async (_workspaceId, language) => ({ entries: [{
     id: "11111111-1111-4111-8111-111111111112", kind: "set", version: 1,
@@ -684,6 +704,21 @@ function SessionPreview() {
     saveSnapshot({ ...next, messages: [...(previous?.messages ?? []), ...next.messages] });
     setRevision((value) => value + 1);
   };
+  const openDashboardPreview = (mode: "new" | "edit" | "conflict" | "wiki") => {
+    const callId = crypto.randomUUID();
+    const id = viewGenerationId(fixtureClient.baseUrl, welcomeId, callId);
+    const current = explorerViews.get(explorerDashboard.id)!;
+    const generation: ViewGeneration = {
+      serverUrl: fixtureClient.baseUrl, workspaceId: workspace.id, sessionId: welcomeId, toolCallId: callId,
+      title: "Matter overview", program: current.program, status: "preview",
+      preview: { status: "preview", owner: mode === "wiki" ? { kind: "wiki", id: "visual-wiki" } : current.owner,
+        input: { ...viewInput(current), title: mode === "new" ? "New matter dashboard" : current.title },
+        ...(mode === "edit" || mode === "conflict" ? { target: { viewId: current.id, baseRevision: mode === "conflict" ? "outdated" : current.revision } } : {}),
+      },
+    };
+    useViewGenerationStore.getState().update(id, generation);
+    requestPanelTab(viewDraftTab(id, generation), { kind: "workspace", workspaceId: workspace.id });
+  };
 
   return (
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
@@ -693,6 +728,12 @@ function SessionPreview() {
       </>}
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
+        {dashboardExplorer && <span className="ml-3 inline-flex gap-3">
+          <button onClick={() => openDashboardPreview("new")}>New dashboard preview</button>
+          <button onClick={() => openDashboardPreview("edit")}>Updated preview</button>
+          <button onClick={() => openDashboardPreview("conflict")}>Conflicting preview</button>
+          <button onClick={() => openDashboardPreview("wiki")}>Wiki preview</button>
+        </span>}
         {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">
           <button onClick={() => requestPanelTab({ id: `review:${previewReview.id}`, type: "review", reviewId: previewReview.id, label: previewReview.name })}>Open sample review</button>
           <button onClick={() => requestPanelTab({ id: "task:visual-task", type: "task", taskId: "visual-task", label: "Review supplier notice" })}>Open sample task</button>
