@@ -42,7 +42,7 @@ export function WikiExplorer(props: {
     const sources = readProjectFilesDrag(data);
     const items: WikiImportFile[] = [];
     for (const source of sources) {
-      const saved = await projectFiles.readSaved(source);
+      const saved = await projectFiles.readSaved(source, true);
       items.push({ file: new File([saved.data], source.name), path: source.name });
     }
     return items;
@@ -115,7 +115,7 @@ export function WikiExplorer(props: {
       <ContextMenuItem variant="destructive" disabled={!props.writable || props.busy} onClick={() => props.onAction(entry, "trash")}><Trash2 size={15} />{t("wiki.move_to_trash")}</ContextMenuItem>
     </ContextMenuContent>
   </ContextMenu>;
-  const file = (entry: WikiTreeEntry, depth: number, name: string) => menu(entry, <FileBrowserRow draggable={Boolean(props.onDragFile)} onDragStart={event => props.onDragFile?.(event.dataTransfer, entry.path)} selected={props.active === entry.path} style={{ paddingLeft: 6 + depth * 15 }} aria-current={props.active === entry.path ? "page" : undefined} title={props.viewFiles?.[entry.path] ? `${props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"} · ${entry.path}` : entry.path} onClick={() => props.onOpen(entry.path)} leading={<span className="size-3.5 shrink-0" />} icon={props.viewFiles?.[entry.path]?.mode === "dashboard" ? <DashboardIcon className="size-5 text-muted-foreground" /> : <ArtifactIcon type={classifyOpenTarget(entry.path, "file")} className="size-5" />}>{wikiFileLabel(entry.path, props.viewFiles?.[entry.path]?.title ?? props.pageTitles?.[entry.path] ?? name)}{props.viewFiles?.[entry.path] && <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"}</span>}</FileBrowserRow>);
+  const file = (entry: WikiTreeEntry, depth: number, name: string) => menu(entry, <FileBrowserRow draggable={Boolean(props.onDragFile)} onDragStart={event => props.onDragFile?.(event.dataTransfer, entry.path)} selected={props.active === entry.path} style={{ paddingLeft: 6 + depth * 15 }} aria-current={props.active === entry.path ? "page" : undefined} title={props.viewFiles?.[entry.path] ? `${props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"} · ${entry.path}` : entry.path} onClick={() => props.onOpen(entry.path)} leading={<span className="size-3.5 shrink-0" />} icon={props.viewFiles?.[entry.path]?.mode === "dashboard" ? <span className="flex size-5 items-center justify-center"><DashboardIcon className="text-muted-foreground" /></span> : <ArtifactIcon type={classifyOpenTarget(entry.path, "file")} className="size-5" />}>{wikiFileLabel(entry.path, props.viewFiles?.[entry.path]?.title ?? props.pageTitles?.[entry.path] ?? name)}{props.viewFiles?.[entry.path] && <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"}</span>}</FileBrowserRow>);
   let shown = 0;
   let total = 0;
   const rows: ReactNode[] = [];
@@ -125,7 +125,7 @@ export function WikiExplorer(props: {
       if (shown < limit) {
         shown++;
         if (node.kind === "file") rows.push(file(node, depth, node.name));
-        else rows.push(menu(node, <FileBrowserRow muted={wikiFolderEmpty(node)} style={{ paddingLeft: 6 + depth * 15 }} aria-expanded={expanded.has(node.path)} title={node.path} onClick={() => toggleFolder(node.path)} leading={<ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded.has(node.path) && "rotate-90")} />} icon={node.path === "Dashboards" ? <DashboardIcon className={cn("size-5 text-muted-foreground", wikiFolderEmpty(node) && "opacity-45")} /> : <FolderIcon open={expanded.has(node.path)} empty={wikiFolderEmpty(node)} />}>{node.name}</FileBrowserRow>));
+        else rows.push(menu(node, <FileBrowserRow muted={wikiFolderEmpty(node)} style={{ paddingLeft: 6 + depth * 15 }} aria-expanded={expanded.has(node.path)} title={node.path} onClick={() => toggleFolder(node.path)} leading={<ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded.has(node.path) && "rotate-90")} />} icon={<FolderIcon dashboard={node.path === "Dashboards"} open={expanded.has(node.path)} empty={wikiFolderEmpty(node)} />}>{node.name}</FileBrowserRow>));
       }
       if (node.kind === "folder" && expanded.has(node.path)) visit(node.children, depth + 1);
     }

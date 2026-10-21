@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { startServer, type StartedServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { projectFileLinkSchema } from "@legalwork/types/project-files";
+import { StoredViewSchema } from "./views/schema.js";
+import { ViewRepository, workspaceViewFiles } from "./views/repository.js";
 
 const roots: string[] = [];
 const servers: StartedServer[] = [];
@@ -26,6 +28,43 @@ async function serve(readOnly = false) {
   return { source, target, request, base, token: config.token };
 }
 const sourceRef = { projectId: "source", workspaceId: "source", path: "contract.md", name: "contract.md" };
+
+test("dashboard imports and same-project copies have independent IDs, safe source links and no overwrites", async () => {
+  const { source, target, request, base } = await serve();
+  const original = StoredViewSchema.parse({ version: 1, id: crypto.randomUUID(), updatedAt: 100, title: "Overview", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Overview")', queries: {}, datasets: {
+    matters: { rows: [{ title: "Original matter" }], total: 1, revision: "source-1", asOf: 100, truncated: false, sources: [{ path: "Matter.md", revision: "matter-1" }], sourceOwner: { kind: "workspace", id: "source" }, sourceServerUrl: base },
+  } });
+  const bytes = Buffer.from(JSON.stringify(original));
+  await writeFile(join(source, "Overview.view.json"), bytes);
+  const body = { source: { ...sourceRef, path: "Overview.view.json" }, dataBase64: bytes.toString("base64") };
+  for (const path of ["Folder/Overview.view.json", "Folder/Overview (2).view.json"]) {
+    const response = await request("import", { ...body, path });
+    expect(response.status).toBe(201); await response.arrayBuffer();
+  }
+  expect((await request("import", { ...body, path: "Folder/Overview.view.json" })).status).toBe(409);
+  expect((await request("import", { ...body, path: "Folder/Overview.json" })).status).toBe(400);
+  const copied = await request("copy", { path: "Folder/Overview.view.json", targetPath: "Folder/Copy.view.json" });
+  expect(copied.status).toBe(201); await copied.arrayBuffer();
+  const repo = new ViewRepository({ kind: "workspace", id: "target" }, workspaceViewFiles(target));
+  const list = await repo.list();
+  expect(list.issues).toEqual([]); expect(list.items).toHaveLength(3);
+  expect(new Set([original.id, ...list.items.map(item => item.id)]).size).toBe(4);
+  for (const item of list.items) expect((await repo.read(item.id)).datasets).toEqual(original.datasets);
+  expect(await readFile(join(source, "Overview.view.json"))).toEqual(bytes);
+});
+
+test("external dashboard imports never rebind unknown source links or execute foreign live queries", async () => {
+  const { target, request } = await serve();
+  const original = StoredViewSchema.parse({ version: 1, id: crypto.randomUUID(), updatedAt: 100, title: "External", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("External")', queries: {}, datasets: { rows: { rows: [], total: 0, revision: "r1", asOf: 100, truncated: false } } });
+  const imported = await request("import", { path: "External.view.json", dataBase64: Buffer.from(JSON.stringify(original)).toString("base64") });
+  expect(imported.status).toBe(201); await imported.arrayBuffer();
+  expect(StoredViewSchema.parse(JSON.parse(await readFile(join(target, "External.view.json"), "utf8"))).datasets?.rows.sourceServerUrl).toBe("");
+  const live = { ...original, queries: { missing: { fields: ["title"] } } };
+  const rejected = await request("import", { path: "Live.view.json", dataBase64: Buffer.from(JSON.stringify(live)).toString("base64") });
+  expect(rejected.status).toBe(400);
+  expect(await rejected.json()).toMatchObject({ code: "invalid_view_import" });
+  await expect(readFile(join(target, "Live.view.json"))).rejects.toMatchObject({ code: "ENOENT" });
+});
 
 test("file-session batch writes serialize revision checks for concurrent editors", async () => {
   const { target, request, base, token } = await serve();

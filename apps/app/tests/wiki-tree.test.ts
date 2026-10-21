@@ -15,6 +15,7 @@ test("wiki folders form a real hierarchy, including empty folders and attachment
 test("duplicate paths retain their extension and avoid existing files", () => {
   expect(wikiCopyPath("Research/Note.md", ["Research/Note copy.md", "Research/Note copy 2.md"])).toBe("Research/Note copy 3.md");
   expect(wikiCopyPath("Empty", [])).toBe("Empty copy");
+  expect(wikiCopyPath("Dashboards/Overview.view.json", ["Dashboards/Overview copy.view.json"])).toBe("Dashboards/Overview copy 2.view.json");
 });
 
 test("instruction files retain their actual filename instead of their heading", async () => {

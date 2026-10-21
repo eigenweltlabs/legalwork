@@ -20,10 +20,10 @@ export function viewInputForDestination(input: ViewInput, source: ViewOwner, des
   if (sameViewOwner(source, destination)) return input.mode === "dashboard" && source.kind === "wiki"
     ? { ...input, datasets: Object.fromEntries(Object.entries(input.datasets ?? {}).filter(([name]) => !Object.hasOwn(input.queries, name))) } : input;
   if (Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new Error(t("views.copy_refresh_required"));
-  return { ...input, queries: {}, datasets: Object.fromEntries(Object.entries(input.datasets ?? {}).map(([name, data]) => [name, { ...data, sourceOwner: data.sourceOwner ?? source }])) };
+  return { ...input, sourceOwner: input.sourceOwner ?? source, queries: {}, datasets: Object.fromEntries(Object.entries(input.datasets ?? {}).map(([name, data]) => [name, { ...data, sourceOwner: data.sourceOwner ?? source }])) };
 }
 
 export function viewInput(record: ViewInput): ViewInput {
-  const { version, title, mode, catalog, program, queries, datasets, fallbackMarkdown } = record;
-  return { version, title, mode, catalog, program, queries, datasets, fallbackMarkdown };
+  const { version, title, mode, catalog, program, queries, datasets, sourceOwner, sourceServerUrl, fallbackMarkdown } = record;
+  return { version, title, mode, catalog, program, queries, datasets, sourceOwner, sourceServerUrl, fallbackMarkdown };
 }

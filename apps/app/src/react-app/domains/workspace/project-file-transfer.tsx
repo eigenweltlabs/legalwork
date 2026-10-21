@@ -66,9 +66,10 @@ export function ProjectFileTransfer({ projectId, sources, folder, initialMode = 
         const name = item.name.trim();
         const path = folder ? `${folder}/${name}` : name;
         void startFileCopy(name, tab => requestPanelTab(tab, { kind: "workspace", workspaceId: target.projectId }), async () => {
-          const saved = await files.readSaved(item.source);
+          const saved = await files.readSaved(item.source, true);
           const result = await target.client.importProjectFile(target.workspaceId, path, item.source, saved.data);
           for (const key of ["workspace-files", "project-files", "project-file-search"]) void queryClient.invalidateQueries({ queryKey: [key, target.workspaceId] });
+          for (const key of ["workspace-view-files", "ui-views", "view-file"]) void queryClient.invalidateQueries({ queryKey: [key, target.client.baseUrl] });
           return { path, updatedAt: result.updatedAt };
         });
       }

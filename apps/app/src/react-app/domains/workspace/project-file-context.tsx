@@ -11,6 +11,8 @@ import { encodeComposerMentionValue } from "../session/surface/composer/mention-
 import { createProjectAttachmentMention } from "../session/surface/composer/workspace-attachment";
 import { LinkedFileMoveDialogs } from "./linked-file-move";
 import { attachmentFilename } from "@/app/lib/attachment-filename";
+import { isViewFile } from "@legalwork/types/views";
+import { prepareViewFileCopy } from "../views/view-file";
 
 const ProjectFilesContext = createContext<(ReturnType<typeof createProjectFileAccess> & { dragTypes: readonly string[] }) | null>(null);
 
@@ -47,7 +49,7 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
       const source = identify(client, workspaceId, file);
       if (source) writeProjectFileDrag(data, source);
     },
-    async readSaved(source: ProjectFileSource) {
+    async readSaved(source: ProjectFileSource, forCopy = false) {
       const owner = sourceProject(source);
       const copy = source.connectionId ? await owner.client.checkoutStorageFile(owner.workspaceId, source.connectionId, source.path) : null;
       const path = copy?.localPath ?? source.path;
@@ -58,7 +60,8 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
       if (!after.exists || before.updatedAt !== after.updatedAt || before.size !== after.size) throw new Error(t("project_files.changed_during_copy"));
       const digest = await crypto.subtle.digest("SHA-256", download.data);
       const version = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-      return { ...download, version, projectName: owner.name, filename: attachmentFilename(source.path) };
+      const data = forCopy && !source.connectionId && isViewFile(source.path) ? await prepareViewFileCopy(owner.client, owner.workspaceId, download.data) : download.data;
+      return { ...download, data, version, projectName: owner.name, filename: attachmentFilename(source.path) };
     },
     async newChat(projectId: string, source: ProjectFileSource | ProjectFileSource[]) {
       const sources = Array.isArray(source) ? source : [source];

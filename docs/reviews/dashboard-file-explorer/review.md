@@ -1,47 +1,30 @@
-# Dashboard flow review — 21 October 2026
+# Dashboard flow review — resolved follow-ups, 21 October 2026
 
-Scope: generation → Save / Save a copy → saved locations → project and wiki navigation → both file explorers → ordinary file rename/copy/import. This includes existing file/storage behavior exposed by the dashboard feature, not just lines introduced in PR #322.
+Scope: generation → Save / Save a copy → saved locations → owner navigation → both explorers → ordinary file rename/copy/import.
 
-Only the requested **Open in the owning project/wiki** correction has been implemented. The findings below are recommendations, not implemented changes.
+## Implemented
 
-## 1. High: ordinary file copying does not preserve dashboard meaning
+1. **Independent copies preserve dashboard meaning.** App copy/import paths recognize `.view.json`, assign a fresh ID, and preserve source owners and server provenance. A repeated import no longer produces duplicate IDs that hide both records. This covers cross-project copies, project-to-wiki imports, native file/folder imports, and wiki file/folder duplication. Cross-owner transfers freeze live queries against the source wiki. Same-wiki duplication keeps its live queries. Existing synchronization, restoration and revision-checked editing retain identity.
+2. **Rename changes the visible title.** Project explorer, file sidebar and wiki menus use the dashboard update API with revision protection. The JSON filename and `.view.json` suffix remain intact. Explorer titles and open dashboard tabs refresh; search and pinned entries use the same title metadata. The generated content is preserved, including any heading inside its program.
+3. **Snapshot and live behavior are explicit.** Frozen data shows `Snapshot · data as of …` (the oldest included dataset timestamp) and `Reload saved file`. Live queries show `Live dashboard` and `Refresh data`. `Export snapshot` produces a shareable `.view.json` with frozen data and source context. A legacy live file without its required snapshot is rejected on import with an export instruction, rather than executing its queries against the recipient's wiki.
+4. **Folder and file icons are distinct.** The Dashboards container uses the existing folder silhouette with a small dashboard badge. Dashboard files use a 16 px icon in the normal row slot, consistently in the explorer, sidebar and wiki tree.
 
-The explorer's **Copy to project** transfers raw bytes through `ProjectFileTransfer` (`apps/app/src/react-app/domains/workspace/project-file-transfer.tsx:68`) and `importProjectFile` (`apps/server/src/project-file-links.ts:51`). This bypasses the dashboard-aware `viewInputForDestination` conversion (`apps/app/src/react-app/domains/views/view-save.ts:19`).
+The preceding owner-navigation fix remains: Already saved in → Open switches to the saved file's project or wiki, preserving the source workspace and migrating legacy destination tabs first.
 
-A dashboard with dataset source paths and no explicit `sourceOwner` will consequently resolve those paths against its destination project. `ViewRepository.records` assigns the destination owner, while the renderer falls back to that owner for source links (`apps/app/src/react-app/domains/views/view-renderer.tsx:69`). The displayed values can still be from project A, but their links point to project B. Raw copying of live wiki files into another wiki similarly retains queries that will now execute against the destination wiki; copying those live files into a project cannot resolve the wiki queries.
+## Boundaries
 
-Raw imports also retain the internal dashboard ID. Importing the same dashboard again under another filename in the same owner leaves two records with the same ID: the repository deliberately excludes both from its list and returns a revision-conflict error. Their bytes are preserved; this is an identity conflict, not deletion (`apps/server/src/views/repository.ts:45`).
+- Import/copy means an explicit operation through LegalWork. Raw operating-system or sync copies keep their identities; actual sync conflicts remain visible and are not silently converted into independent copies.
+- Exported snapshots retain source metadata. On another or unknown server, their data remains readable but source navigation is unavailable instead of opening an unrelated destination file. This does not grant source access or transfer credentials.
+- The optional source metadata extends the strict view schema. Use the matching app/server version for these flows; older versions may reject newly exported files. There is no database migration or rewrite of existing files.
+- Native imports use the server's authenticated, approval-checked import route. A failed dashboard import cannot fall back to an unsafe raw copy; folder import failures are surfaced.
 
-**Proposed fix:** recognize dashboard files during copy/import and explicitly distinguish an independent copy from restoring/synchronizing an existing file. Independent copies need a new ID, preserved source attribution, and a snapshot for queries that cannot retain their original owner. External file sharing needs a small export/import contract for the same reason. Keep conflict detection for actual synchronization conflicts.
+## Validation
 
-**Verification:** exercised the real `ViewRepository` with isolated in-memory files. A raw A → B copy resolved an unattributed dataset's source owner to B; a raw wiki copy retained live queries under wiki B; adding a second filename with the same ID returned zero listed views and a conflict. No user files were touched. The existing Save a copy path already handles new identity and cross-owner snapshots correctly.
+- App/OpenUI tests: **92 passed, 426 assertions** across 15 files (views, saving, copy receipts, navigation, chat deletion, generation, board actions, file sidebar/drop behavior, wiki import/tree, and OpenUI rendering).
+- Existing project-file access tests: **4 passed, 19 assertions**.
+- Server HTTP/repository/wiki tests: **65 passed, 413 assertions; 1 pre-existing failure**. The remaining `graph polling observes edits, assets, folders and configuration without returning rich snapshots` failure receives `unchanged` instead of `delta`. Reproduced the same failure using the unchanged store and test from prior commit `6884fdd2`; it is not introduced by this follow-up. The copy collision regression found during development was fixed and its existing test now passes.
+- Native file/folder import tests: **14 passed**.
+- App and Electron typechecks, app production build, server build/typecheck, translation check (**7,044 keys in English and German**), and `git diff --check`: passed. App build reports dependency annotation and chunk-size warnings.
+- Browser check with synthetic data: rename updates the explorer and tab, the program still renders, snapshot data/timestamp survives reload, the reload action is accurately labeled, and the folder badge/file icon appear in the existing explorer and sidebar. No user dashboard was modified for testing.
 
-## 2. Medium: Rename does not rename the title users see
-
-The explorer displays `view.title` (`apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx:173`), but its generic Rename dialog edits `entry.name` and executes only a filesystem rename (`apps/app/src/react-app/domains/session/panel/workspace-entry-menu.tsx:49`, `:97`). Renaming `uuid.view.json` to `Quarterly overview.view.json` still leaves the original dashboard title in the explorer and tab. Removing the special extension also prevents dashboard recognition.
-
-**Proposed fix:** a dashboard-aware Rename edits its title with the existing revision guard and preserves the file type. If the physical filename should also be human-readable, treat that as a deliberate coordinated change rather than presenting a raw UUID and editable extension as the dashboard's name.
-
-**Verification:** moving the stored bytes to `Dashboards/Renamed.view.json` through the repository's file adapter returned the new path and the unchanged old title.
-
-## 3. Design: the dashboard folder looks like a dashboard file
-
-The shared explorer uses the exact same `DashboardIcon` at `size-5` (20 px) for the Dashboards folder and every dashboard file (`apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx:192`). The normal `FolderIcon` also has a 20 px box, so this is not a larger CSS size. The tile icon has a taller, squarer silhouette and a different visual treatment from the blue folder asset; it looks more prominent and communicates a document/app rather than a container. The folder chevron appears only on hover/focus.
-
-**Proposed fix:** retain the existing folder silhouette for the container, with a small dashboard badge on its face. Use a separate, simpler dashboard/document glyph for files, optically sized around 16–18 px inside the same row slot. Apply it consistently in the main explorer, file sidebar, wiki tree, and tabs. This preserves recognition without introducing a second dashboard category.
-
-## 4. UX clarification: distinguish frozen data from live data
-
-The toolbar labels a live wiki view **Live dashboard**, but a frozen project/cross-owner view just **Dashboard**, and both show **Refresh** (`apps/app/src/react-app/domains/views/view-renderer.tsx:97`). For a frozen view, refresh reloads the saved file; it does not recompute its source data (`:43`). The timestamp exists under the expandable Data section, and copying live queries already shows a snapshot warning, so this is an ongoing-state clarity gap rather than missing snapshot protection.
-
-**Proposed fix:** show **Snapshot · data as of …** for frozen datasets and label its refresh action **Reload saved file**. Keep **Refresh data** for a live query. Do not imply an automatic source update that the backend cannot perform.
-
-## Fixed and checked in this change
-
-- Already saved in → Open selects the saved file in its owner's workspace and navigates there.
-- Wiki navigation resolves the wiki's workspace ID, including read-only wikis. Project navigation resolves the owning server and remote UI ID. Missing/unconnected targets leave the dialog open with an error instead of opening a tab in the current workspace.
-- Existing source tabs remain intact; legacy target tabs migrate before the dashboard is selected.
-- 52 targeted tests passed, with 220 assertions. Typecheck and the English/German translation check passed.
-- Browser verification with synthetic data: Northstar Legal → Personal → Firm knowledge, correct owner header and dashboard tab at each destination. Other review recommendations above remain unimplemented.
-
-Evidence: [Project destination](open-saved-project.png), [Wiki destination](open-saved-wiki.png).
+Evidence: [Folder badge](folder-badge.png), [renamed dashboard](renamed-dashboard.png), [snapshot and sidebar](snapshot-and-sidebar.png), [owner navigation: project](open-saved-project.png), [owner navigation: wiki](open-saved-wiki.png).

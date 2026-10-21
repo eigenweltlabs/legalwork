@@ -134,7 +134,7 @@ function WorkspaceFilesPanelContent({
       const wiki = (await client.listWikis()).items.find(item => item.workspaceId === workspaceId);
       return client.listViews(wiki ? { kind: "wiki", id: wiki.id } : { kind: "workspace", id: workspaceId });
     },
-    enabled: Boolean(active && client && workspaceId && data?.entries.some(entry => /\.view\.json$/i.test(entry.path))),
+    enabled: Boolean(active && client && workspaceId && (data?.entries.some(entry => /\.view\.json$/i.test(entry.path)) || pins.some(pin => /\.view\.json$/i.test(pin.path)) || search.data?.items.some(item => item.path && /\.view\.json$/i.test(item.path)))),
     staleTime: 10_000, refetchInterval: active ? 10_000 : false,
   });
   const viewFiles = React.useMemo(() => new Map((savedViews.data?.items ?? []).map(view => [view.path ?? `Views/${view.id}.view.json`, view])), [savedViews.data?.items]);
@@ -173,7 +173,7 @@ function WorkspaceFilesPanelContent({
     const displayName = view?.title ?? (entry.kind === "file" ? projectFileDisplayName(entry.path, entry.name) : entry.name);
     return (
       <WorkspaceEntryMenu key={entry.path} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
-        folderPath={entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/")))} entry={entry} onOpen={() => entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry)}
+        view={view} folderPath={entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/")))} entry={entry} onOpen={() => entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry)}
         onRefresh={() => void refetch()}>
       <FileBrowserRow
         data-project-folder={entry.kind === "dir" ? entry.path : undefined}
@@ -189,9 +189,7 @@ function WorkspaceFilesPanelContent({
         title={entry.path}
         className="data-[file-move-over]:bg-primary/10 data-[file-move-over]:ring-1 data-[file-move-over]:ring-primary/40"
         muted={entry.kind === "dir" && entry.empty === true}
-        icon={entry.kind === "dir" && entry.path === "Dashboards" || view?.mode === "dashboard"
-          ? <DashboardIcon className={cn("size-5 text-muted-foreground", entry.kind === "dir" && entry.empty === true && "opacity-45")} />
-          : entry.kind === "dir" ? <FolderIcon empty={entry.empty === true} /> : <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />}
+        icon={entry.kind === "dir" ? <FolderIcon dashboard={entry.path === "Dashboards"} empty={entry.empty === true} /> : view?.mode === "dashboard" ? <span className="flex size-5 items-center justify-center"><DashboardIcon className="text-muted-foreground" /></span> : <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />}
         trailing={view ? <span className="shrink-0 text-[11px] text-muted-foreground">{t(view.mode === "dashboard" ? "views.dashboard" : "views.report")}</span> : entry.kind === "dir" ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" /> : entry.size !== undefined ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatFileSize(entry.size)}</span> : null}
       >
         <span className="block truncate">{displayName}</span>{pinned && entry.path.includes("/") && <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>}
@@ -297,11 +295,12 @@ function WorkspaceFilesPanelContent({
             {query.trim() !== searchQuery || search.isFetching ? <p role="status" className="p-3 text-sm text-muted-foreground">{t("project_browser.searching")}</p> : search.error ? <PanelEmptyState icon={<AlertCircle />} title={t("project_browser.search_failed")} description={projectErrorMessage(search.error)}><Button variant="outline" size="sm" onClick={() => void search.refetch()}>{t("workspace_files.try_again")}</Button></PanelEmptyState> : <>
               {search.data?.items.filter(item => item.path).map(item => {
                 const filePath = item.path!;
+                const view = viewFiles.get(filePath);
                 const entry: LegalworkWorkspaceDirectoryEntry = { kind: "file", name: filePath.split("/").at(-1) || item.title, path: filePath, updatedAt: item.updatedAt };
                 return <WorkspaceEntryMenu key={item.id} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
-                  folderPath={filePath.slice(0, Math.max(0, filePath.lastIndexOf("/")))} entry={entry} onOpen={() => onOpenFile(entry)} onRefresh={() => void search.refetch()}>
+                  view={view} folderPath={filePath.slice(0, Math.max(0, filePath.lastIndexOf("/")))} entry={entry} onOpen={() => onOpenFile(entry)} onRefresh={() => void search.refetch()}>
                   <button className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" draggable onDragStart={event => { if (workspaceId) { writeWorkspaceFileDrag(event.dataTransfer, { workspaceId, path: filePath, name: entry.name }); if (client) projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: filePath, name: entry.name }); if (client) writeWorkspaceFileMove(event.dataTransfer, { baseUrl: client.baseUrl, workspaceId, paths: [filePath] }); } }} onClick={() => onOpenFile(entry)}>
-                    <ArtifactIcon type={classifyOpenTarget(filePath, "file")} className="mt-0.5 size-5 shrink-0" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{filePath}</span>{item.excerpt && <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.excerpt}</span>}</span>
+                    {view?.mode === "dashboard" ? <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center"><DashboardIcon className="text-muted-foreground" /></span> : <ArtifactIcon type={classifyOpenTarget(filePath, "file")} className="mt-0.5 size-5 shrink-0" />}<span className="min-w-0"><span className="block truncate text-sm font-medium">{view?.title ?? item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{filePath}</span>{item.excerpt && <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.excerpt}</span>}</span>
                   </button>
                 </WorkspaceEntryMenu>;
               })}

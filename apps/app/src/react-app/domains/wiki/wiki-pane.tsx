@@ -1,3 +1,6 @@
+import { downloadViewFile } from "../views/view-file";
+import { ViewRenameDialog } from "../views/view-rename-dialog";
+import type { ViewSummary } from "@legalwork/types/views";
 import { WikiContributions } from "./wiki-contributions";
 import { WikiChatHistory, type WikiChatHistoryProps } from "./wiki-chat-history";
 import { writeWikiFileDrag } from "@/app/lib/wiki-file-drag";
@@ -78,6 +81,7 @@ function WikiContentPane(props: WikiPaneProps) {
   const [pageAnchor, setPageAnchor] = useState(props.tab?.location.kind === "page" ? props.tab.location.anchor ?? "" : "");
   const [viewModeRequest, setViewModeRequest] = useState<{ mode: "source" | "rich-text" }>({ mode: props.tab?.location.kind === "page" && props.tab.location.mode === "source" ? "source" : "rich-text" });
   const [surface, setSurface] = useState(props.tab?.location.kind === "graph" ? "graph" : "page");
+  const [renamingView, setRenamingView] = useState<ViewSummary | null>(null);
   const [fileDialog, setFileDialog] = useState<WikiFileDialogAction | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -278,6 +282,8 @@ function WikiContentPane(props: WikiPaneProps) {
   const downloadAsset = async (source: string) => {
     if (!props.client || !wiki) return;
     const assetPath = resolveAssetPath(source);
+    const view = savedViews.data?.items.find(view => view.path === assetPath);
+    if (view) return downloadViewFile(props.client, view);
     const result = await props.client.downloadWikiAsset(wiki.id, assetPath);
     const url = URL.createObjectURL(new Blob([result.data], { type: result.contentType ?? "application/octet-stream" }));
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = assetPath.split("/").at(-1) ?? "attachment";
@@ -331,6 +337,8 @@ function WikiContentPane(props: WikiPaneProps) {
     refresh();
   };
   const entryAction = (entry: WikiTreeEntry, action: WikiExplorerAction) => {
+    const view = savedViews.data?.items.find(view => view.path === entry.path);
+    if (action === "rename" && view) { setRenamingView(view); return; }
     if (action === "edit") { openPage(entry.path, "", "source"); return; }
     if (action === "history") { setHistoryPath(entry.path); setHistory(true); return; }
     void run(async () => {
@@ -401,6 +409,7 @@ function WikiContentPane(props: WikiPaneProps) {
         </main> : null}
       </div>
     </>}
+    {renamingView && props.client && <ViewRenameDialog client={props.client} view={renamingView} onClose={() => setRenamingView(null)} />}
     {fileDialog && wiki ? <WikiFileDialog value={fileDialog} folders={folders} onClose={() => setFileDialog(null)} onSubmit={changeEntry} /> : null}
     {newWiki && props.client ? <CreateWikiDialog client={props.client} serverUrl={props.serverUrl} wikis={list.data?.items ?? []} onClose={() => setNewWiki(false)} onCreate={async (input) => { const result = await props.client?.createWiki(input); if (!result) return; setNewWiki(false); acceptWiki(result.wiki); chooseWiki(result.wiki.id, result.wiki); setSharingActionError(result.sharingError ? { wikiId: result.wiki.id, message: result.sharingError } : null); props.onWikisChanged?.(); }} onJoin={async (input) => { const result = await props.client?.joinWiki(input); if (!result) return; setNewWiki(false); acceptWiki(result.wiki); chooseWiki(result.wiki.id, result.wiki); props.onWikisChanged?.(); }} /> : null}
     {settings && props.client && wiki ? <WikiSettingsDialog key={wiki.id} initialTab={settingsTab} client={props.client} serverUrl={props.serverUrl} wiki={wiki} projectWorkspaces={props.workspaces.filter((workspace) => !list.data?.items.some((item) => item.workspaceId === workspace.id))} onClose={() => setSettings(false)} onUpdate={async (input) => { const result = await props.client?.updateWiki(wiki.id, input); if (result) acceptWiki(result.wiki); setSettings(false); }} onShare={async (input, update) => { const result = update ? await props.client?.updateWikiSharing(wiki.id, input) : await props.client?.shareWiki(wiki.id, input); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onStopSharing={async () => { const result = await props.client?.stopWikiSharing(wiki.id); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onForget={async () => { if (drafts.dirty.some((item) => item.wikiId === wiki.id)) throw new Error(t("wiki.save_before_forget")); await props.client?.forgetWiki(wiki.id); setSettings(false); if (tabOnly) props.onCloseTab?.(); else chooseWiki(""); refresh(); }} /> : null}

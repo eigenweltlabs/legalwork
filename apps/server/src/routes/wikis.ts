@@ -1,3 +1,4 @@
+import { isViewFile, copyViewFile } from "../views/schema.js";
 import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { registerWikiProjectRoutes } from "./wiki-projects.js";
 import { registerWikiSuggestionRoutes } from "./wiki-suggestions.js";
@@ -402,7 +403,12 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const parsed = assetSchema.safeParse(await readJsonBodyLimited(ctx.request, Math.ceil(WIKI_MAX_ASSET_BYTES * 4 / 3) + 32 * 1024));
     if (!parsed.success || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(parsed.data.dataBase64)) throw new ApiError(400, "invalid_wiki_asset", "Provide a file path and valid base64 data.");
     await authorize(ctx, wiki, "wiki.attach", [parsed.data.path]);
-    const result = await store.writeAsset(wiki.id, parsed.data.path, Buffer.from(parsed.data.dataBase64, "base64"), parsed.data.baseRevision ?? "");
+    let bytes = Buffer.from(parsed.data.dataBase64, "base64");
+    if (isViewFile(parsed.data.path) && !parsed.data.baseRevision) {
+      try { bytes = Buffer.from(copyViewFile(bytes)); }
+      catch (error) { throw new ApiError(400, "invalid_view_import", error instanceof Error ? error.message : "Invalid dashboard file."); }
+    }
+    const result = await store.writeAsset(wiki.id, parsed.data.path, bytes, parsed.data.baseRevision ?? "");
     change(wiki.id);
     return jsonResponse(result);
   });

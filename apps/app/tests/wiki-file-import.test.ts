@@ -57,6 +57,13 @@ describe("wiki file import", () => {
     expect(result.errors).toHaveLength(2);
   });
 
+  test("dashboard collision names preserve the complete file type", async () => {
+    const client = { changeWikiEntry: async (): Promise<{ ok: true }> => ({ ok: true }), uploadWikiAsset: async (_id: string, path: string) => ({ path }) };
+    const result = await importWikiFiles(client, "wiki", "Dashboards", [{ file: new File(["{}"], "Overview.view.json"), path: "Overview.view.json" }], ["Dashboards/Overview.view.json"]);
+    expect(result.saved).toEqual(["Dashboards/Overview (2).view.json"]);
+    expect(result.errors).toEqual([]);
+  });
+
   test("rejects paths that escape the wiki or become invisible in its tree", () => {
     for (const path of ["../outside", "/absolute", "a/../../escape", ".hidden", "a/.private/file", "a//b", "a#b", "C:\\file"]) expect(() => wikiImportPath("", path)).toThrow();
     expect(wikiImportPath("Clients", "Müller\\Evidence.pdf")).toBe("Clients/Müller/Evidence.pdf");

@@ -290,7 +290,8 @@ if (subagentApprovals) {
 const explorerDashboard: ViewRecord = {
   version: 1, id: "11111111-1111-4111-8111-111111111111", title: "Matter overview", mode: "dashboard", catalog: "legalwork-1",
   owner: { kind: "workspace", id: workspace.id }, revision: "fixture-1", updatedAt: now, queries: {},
-  program: 'root = Stack([Heading("Matter overview",1),Text("Synthetic project dashboard"),Stack([Metric("Open matters",12),Metric("Due this week",3)],2),Card("Priorities",[Table([{matter:"Supplier agreement",status:"In review"},{matter:"Office lease",status:"Ready"}],[{field:"matter",label:"Matter"},{field:"status",label:"Status"}])])])',
+  datasets: { priorities: { rows: [{ matter: "Supplier agreement", status: "In review" }, { matter: "Office lease", status: "Ready" }], total: 2, revision: "fixture-data-1", asOf: now, truncated: false } },
+  program: 'priorities = Query("data",{name:"priorities"})\nroot = Stack([Heading("Matter overview",1),Text("Synthetic project dashboard"),Stack([Metric("Open matters",12),Metric("Due this week",3)],2),Card("Priorities",[Table(priorities.rows,[{field:"matter",label:"Matter"},{field:"status",label:"Status"}])])])',
 };
 const explorerDashboardPath = `Dashboards/${explorerDashboard.id}.view.json`;
 const explorerViews = new Map([[explorerDashboard.id, explorerDashboard]]);
