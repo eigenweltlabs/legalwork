@@ -11,6 +11,7 @@ import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { t } from "@/i18n";
 import { isViewSaveConflict, sameViewOwner, viewInputForDestination, viewOwnerKey } from "./view-save";
 import { useViewGenerationStore, viewGenerationId } from "./view-generation";
+import { useViewCopyStore } from "./view-save-locations";
 import { sessionDeleteError } from "./session-view-delete";
 
 export type SessionViewDeleteRequest = { client: LegalworkServerClient; workspaceId: string; sessionId: string; review: SessionViewReview; onDelete: (discardReview?: string) => Promise<void> };
@@ -66,6 +67,7 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
           void cache.invalidateQueries({ queryKey: ["workspace-files", view.owner.id] });
           void cache.invalidateQueries({ queryKey: ["workspace-view-files", client.baseUrl, view.owner.id] });
         }
+        useViewCopyStore.getState().remember(client.baseUrl, { key: viewGenerationId(client.baseUrl, item.sessionId ?? sessionId, item.callId) }, view);
         useViewGenerationStore.getState().markSaved(viewGenerationId(client.baseUrl, item.sessionId ?? sessionId, item.callId), view);
       }
       savingKey = undefined;

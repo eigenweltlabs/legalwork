@@ -8,6 +8,7 @@ import { useViewGenerationStore, type ViewDraftTab, type ViewGeneration } from "
 import type { ViewPreview, ViewRecord } from "@legalwork/types/views";
 import { ViewSaveActions } from "./view-save-actions";
 import { useViewSave } from "./use-view-save";
+import { useViewSaveLocations } from "./use-view-save-locations";
 import { isViewSaveConflict } from "./view-save";
 import { useCallback, useEffect, useState } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -43,20 +44,24 @@ export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client:
 }
 
 function ViewDraftContent({ client, generation, preview, generationId }: { client: LegalworkServerClient; generation: ViewGeneration; preview: ViewPreview; generationId: string }) {
-  const [saveAs, setSaveAs] = useState(false);
+  const [saveCopy, setSaveCopy] = useState(false);
+  const scope = { key: generationId, existing: generation.saved };
+  const locations = useViewSaveLocations(client, scope);
+  const saved = !locations.error && Boolean(locations.data?.length);
   const requestTab = useRequestPanelTab();
   const savedFrom = { workspaceId: generation.workspaceId, sessionId: generation.sessionId, callId: generation.toolCallId };
   const onSaved = (view: ViewRecord) => {
     useViewGenerationStore.getState().markSaved(generationId, view);
     usePanelTabStore.getState().resolveViewTab(generationId, viewPanelTab(client.baseUrl, { owner: view.owner, viewId: view.id }, view.title));
-    setSaveAs(false);
+    setSaveCopy(false);
   };
-  const save = useViewSave(client, preview, savedFrom, onSaved);
+  const save = useViewSave(client, preview, savedFrom, onSaved, scope);
   const conflict = isViewSaveConflict(save.error);
   return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><div className="lw-saved-view">
-    <div className="lw-saved-view-toolbar"><span>{t(generation.saved ? "views.original_preview" : "views.preview_unsaved")}</span><ViewSaveActions saved={Boolean(generation.saved)} busy={save.isPending} saveDisabled={conflict} onSave={() => { if (!save.isPending && !generation.saved) save.mutate({}); }} onSaveAs={() => setSaveAs(true)} /></div>
-    {save.error && <div role="alert" className="lw-saved-view-error">{conflict ? t("views.direct_save_conflict") : save.error.message}{conflict && <div className="mt-2 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => { if (preview.target) requestTab(viewPanelTab(client.baseUrl, { owner: preview.owner, viewId: preview.target.viewId }, preview.input.title)); }}>{t("views.open_latest")}</Button><Button size="sm" variant="outline" onClick={() => setSaveAs(true)}>{t("views.save_as")}</Button></div>}</div>}
+    <div className="lw-saved-view-toolbar"><span>{t(generation.saved ? "views.original_preview" : "views.preview_unsaved")}</span><ViewSaveActions saved={saved} busy={save.isPending} saveDisabled={conflict || locations.isPending || Boolean(locations.error)} onSave={() => { if (!save.isPending && !saved) save.mutate({}); }} onSaveCopy={() => setSaveCopy(true)} /></div>
+    {save.error && <div role="alert" className="lw-saved-view-error">{conflict ? t("views.direct_save_conflict") : save.error.message}{conflict && <div className="mt-2 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => { if (preview.target) requestTab(viewPanelTab(client.baseUrl, { owner: preview.owner, viewId: preview.target.viewId }, preview.input.title)); }}>{t("views.open_latest")}</Button><Button size="sm" variant="outline" onClick={() => setSaveCopy(true)}>{t("views.save_copy")}</Button></div>}</div>}
+    {locations.error && <div role="alert" className="lw-saved-view-error">{t("views.locations_check_failed")}<Button size="sm" variant="ghost" onClick={() => void locations.refetch()}>{t("wiki.retry")}</Button></div>}
     <PreviewView client={client} preview={preview} generationId={generationId} />
-    {saveAs && <ViewSaveDialog copyTitle={Boolean(generation.saved || preview.target)} savedFrom={savedFrom} client={client} preview={preview} onClose={() => setSaveAs(false)} onSaved={onSaved} />}
+    {saveCopy && <ViewSaveDialog scope={scope} savedFrom={savedFrom} client={client} preview={preview} onClose={() => setSaveCopy(false)} onSaved={onSaved} />}
   </div></div>;
 }

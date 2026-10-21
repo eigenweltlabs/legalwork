@@ -6,7 +6,7 @@ export const sameViewOwner = (a: ViewOwner, b: ViewOwner) => a.kind === b.kind &
 export const viewOwnerKey = (owner: ViewOwner) => `${owner.kind}:${owner.id}`;
 export const isViewSaveConflict = (error: unknown) => error instanceof LegalworkServerError && error.code === "view_revision_conflict";
 
-/** Save updates the preview's original revision; Save as always creates a new file. */
+/** Save updates the preview's original revision; Save a copy always creates a new file. */
 export function saveViewPreview(client: Pick<LegalworkServerClient, "createView" | "updateView">, preview: ViewPreview, options: { owner?: ViewOwner; title?: string; copy?: boolean; savedFrom?: ViewSaveSource } = {}) {
   const owner = options.owner ?? preview.owner;
   const input = viewInputForDestination({ ...preview.input, title: options.title?.trim() ?? preview.input.title }, preview.owner, owner);

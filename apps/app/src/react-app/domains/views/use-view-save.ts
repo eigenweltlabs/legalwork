@@ -7,14 +7,16 @@ import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { viewPanelTab } from "./view-reference";
 import { sameViewOwner, saveViewPreview } from "./view-save";
 import { useViewSaveDestinations } from "./view-save-destinations";
+import { useViewCopyStore, type ViewSaveScope } from "./view-save-locations";
 
-export function useViewSave(client: LegalworkServerClient, preview: ViewPreview, savedFrom: ViewSaveSource | undefined, onSaved: (view: ViewRecord) => void) {
+export function useViewSave(client: LegalworkServerClient, preview: ViewPreview, savedFrom: ViewSaveSource | undefined, onSaved: (view: ViewRecord) => void, scope: ViewSaveScope) {
   const cache = useQueryClient();
   const requestTab = useRequestPanelTab();
   const destinations = useViewSaveDestinations(client);
   return useMutation({
     mutationFn: (options: { owner?: ViewOwner; title?: string; copy?: boolean }) => saveViewPreview(client, preview, { ...options, savedFrom }),
     onSuccess: view => {
+      useViewCopyStore.getState().remember(client.baseUrl, scope, view);
       const owner = view.owner;
       void cache.invalidateQueries({ queryKey: ["ui-views", client.baseUrl, owner.kind, owner.id] });
       void cache.invalidateQueries({ queryKey: ["ui-view", client.baseUrl, owner.kind, owner.id] });

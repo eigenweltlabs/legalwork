@@ -445,7 +445,7 @@ const fixtureClient: LegalworkServerClient = {
     listWorkspaces: async () => ({ items: [workspace, otherWorkspace] }),
     listWikis: async () => ({ items: [{ id: "visual-wiki", workspaceId: "visual-wiki-workspace", name: "Firm knowledge", root: "/synthetic/wiki", allowInProjects: true, sync: null, writable: true, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } }] }),
     listViews: async (owner: ViewOwner) => ({ items: [...explorerViews.values()].filter(view => sameViewOwner(view.owner, owner)).map(view => ({ ...view, path: `${view.mode === "dashboard" ? "Dashboards" : "Reports"}/${view.id}.view.json` })), issues: [] }),
-    readView: async (_owner: ViewOwner, id: string) => { const view = explorerViews.get(id); if (!view) throw new Error("Synthetic dashboard not found"); return view; },
+    readView: async (owner: ViewOwner, id: string) => { const view = explorerViews.get(id); if (!view || !sameViewOwner(view.owner, owner)) throw new LegalworkServerError(404, "view_not_found", "Synthetic dashboard not found"); return view; },
     createView: async (owner: ViewOwner, input: ViewInput) => saveExplorerView(owner, input),
     updateView: async (owner: ViewOwner, id: string, change: { baseRevision: string; input: ViewInput }) => {
       if (explorerViews.get(id)?.revision !== change.baseRevision) throw new LegalworkServerError(409, "view_revision_conflict", "Synthetic dashboard changed on disk");

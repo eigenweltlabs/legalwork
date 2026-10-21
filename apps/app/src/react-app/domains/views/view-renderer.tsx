@@ -1,5 +1,6 @@
 import { ViewSaveDialog } from "./view-save-dialog";
 import { ViewSaveActions } from "./view-save-actions";
+import { savedViewKey } from "./view-save-locations";
 import { viewInput } from "./view-save";
 import { t } from "@/i18n";
 import { Component, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
@@ -95,7 +96,7 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
     {view.data && <div className="lw-saved-view-toolbar">
       {!inline && <span>{t(view.data.mode === "report" ? "views.report_snapshot" : Object.keys(view.data.queries).length ? "views.live_dashboard" : "views.dashboard")}</span>}
       <div className="ml-auto flex items-center gap-1">
-        {!readOnly && <ViewSaveActions saved onSaveAs={() => setSaving(true)} />}
+        {!readOnly && !view.error && <ViewSaveActions saved onSaveCopy={() => setSaving(true)} />}
         <Button size="icon-xs" variant="ghost" aria-label={t("views.refresh")} title={t("views.refresh")} onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button>
       </div>
     </div>}
@@ -104,13 +105,13 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
   </div>;
 }
 function SavedViewCopy({ client, view, onClose }: { client: LegalworkServerClient; view: ViewRecord; onClose: () => void }) {
-  const snapshot = useQuery({ queryKey: ["view-copy-snapshot", client.baseUrl, view.id, view.revision], gcTime: 0, queryFn: async () => {
+  const snapshot = useQuery({ queryKey: ["view-copy-snapshot", client.baseUrl, view.owner.kind, view.owner.id, view.id, view.revision], gcTime: 0, queryFn: async () => {
     const datasets = { ...view.datasets };
     if (view.owner.kind === "wiki" && view.mode === "dashboard") for (const [name, query] of Object.entries(view.queries)) datasets[name] = { ...await client.queryWiki(view.owner.id, query), sourceOwner: view.owner };
     return { ...viewInput(view), datasets };
   } });
   if (!snapshot.data) return <div className="p-4 text-sm">{snapshot.error ? snapshot.error.message : t("wiki.loading")}{snapshot.error && <Button variant="ghost" size="sm" disabled={snapshot.isFetching} onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>}<Button variant="ghost" size="sm" onClick={onClose}>{t("common.close")}</Button></div>;
-  return <ViewSaveDialog copyTitle client={client} preview={{ status: "preview", owner: view.owner, input: snapshot.data }} onClose={onClose} onSaved={onClose} />;
+  return <ViewSaveDialog scope={{ key: savedViewKey(client.baseUrl, view), existing: view }} client={client} preview={{ status: "preview", owner: view.owner, input: snapshot.data }} onClose={onClose} onSaved={onClose} />;
 }
 export function PreviewView({ client, preview, generationId }: { client: LegalworkServerClient; preview: ViewPreview; generationId: string }) {
   return <ResolvedView client={client} view={{ ...preview.input, queries: {}, mode: "report", owner: preview.owner, id: generationId, revision: generationId, updatedAt: 0 }} refreshKey={0} readOnly />;
