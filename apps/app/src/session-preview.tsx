@@ -442,7 +442,7 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
   ...(dashboardExplorer ? {
-    listWorkspaces: async () => ({ items: [workspace, otherWorkspace] }),
+    listWorkspaces: async () => ({ items: [workspace, otherWorkspace, ...(previewParams.has("many-destinations") ? Array.from({ length: 18 }, (_, index) => ({ ...otherWorkspace, id: `visual-destination-${index}`, name: `Project ${String(index + 1).padStart(2, "0")}`, displayName: `Project ${String(index + 1).padStart(2, "0")}`, path: `/synthetic/project-${index}` })) : [])] }),
     listWikis: async () => ({ items: [{ id: "visual-wiki", workspaceId: "visual-wiki-workspace", name: "Firm knowledge", root: "/synthetic/wiki", allowInProjects: true, sync: null, writable: true, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } }] }),
     listViews: async (owner: ViewOwner) => ({ items: [...explorerViews.values()].filter(view => sameViewOwner(view.owner, owner)).map(view => ({ ...view, path: `${view.mode === "dashboard" ? "Dashboards" : "Reports"}/${view.id}.view.json` })), issues: [] }),
     readView: async (owner: ViewOwner, id: string) => { const view = explorerViews.get(id); if (!view || !sameViewOwner(view.owner, owner)) throw new LegalworkServerError(404, "view_not_found", "Synthetic dashboard not found"); return view; },
