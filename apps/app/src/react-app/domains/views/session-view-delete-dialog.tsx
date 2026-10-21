@@ -62,6 +62,10 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
         setReceipts(values => [...values, view]);
         void cache.invalidateQueries({ queryKey: ["ui-views", client.baseUrl, view.owner.kind, view.owner.id] });
         if (view.owner.kind === "wiki") void cache.invalidateQueries({ queryKey: ["wiki-snapshot", client.baseUrl, view.owner.id] });
+        else {
+          void cache.invalidateQueries({ queryKey: ["workspace-files", view.owner.id] });
+          void cache.invalidateQueries({ queryKey: ["workspace-view-files", client.baseUrl, view.owner.id] });
+        }
         useViewGenerationStore.getState().markSaved(viewGenerationId(client.baseUrl, item.sessionId ?? sessionId, item.callId), view);
       }
       savingKey = undefined;

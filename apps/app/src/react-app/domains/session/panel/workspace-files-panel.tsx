@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, formatFileSize } from "@/lib/utils";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
+import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { FileBrowserRow } from "@/react-app/design-system/file-browser-row";
 import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-chrome";
 
@@ -188,8 +189,10 @@ function WorkspaceFilesPanelContent({
         title={entry.path}
         className="data-[file-move-over]:bg-primary/10 data-[file-move-over]:ring-1 data-[file-move-over]:ring-primary/40"
         muted={entry.kind === "dir" && entry.empty === true}
-        icon={entry.kind === "dir" ? <FolderIcon empty={entry.empty === true} /> : <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />}
-        trailing={view ? <span className="shrink-0 text-[11px] text-muted-foreground">{view.mode === "dashboard" ? "Dashboard" : "Report"}</span> : entry.kind === "dir" ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" /> : entry.size !== undefined ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatFileSize(entry.size)}</span> : null}
+        icon={entry.kind === "dir" && entry.path === "Dashboards" || view?.mode === "dashboard"
+          ? <DashboardIcon className={cn("size-5 text-muted-foreground", entry.kind === "dir" && entry.empty === true && "opacity-45")} />
+          : entry.kind === "dir" ? <FolderIcon empty={entry.empty === true} /> : <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />}
+        trailing={view ? <span className="shrink-0 text-[11px] text-muted-foreground">{t(view.mode === "dashboard" ? "views.dashboard" : "views.report")}</span> : entry.kind === "dir" ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" /> : entry.size !== undefined ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatFileSize(entry.size)}</span> : null}
       >
         <span className="block truncate">{displayName}</span>{pinned && entry.path.includes("/") && <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>}
       </FileBrowserRow>

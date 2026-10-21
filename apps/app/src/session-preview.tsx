@@ -4,6 +4,7 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
+import type { ViewRecord } from "@legalwork/types/views";
 import type { ToolPart } from "@opencode-ai/sdk/v2/client";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
@@ -62,6 +63,7 @@ initLocale();
 
 const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
+const dashboardExplorer = previewParams.has("dashboard-explorer");
 const platform = previewParams.get("platform");
 const captionHeight = previewParams.has("tall-titlebar") ? 64 : 44;
 if (platform === "mac" || platform === "windows") document.documentElement.classList.add("legalwork-electron", `legalwork-platform-${platform}`);
@@ -279,6 +281,12 @@ if (subagentApprovals) {
   };
 }
 
+const explorerDashboard: ViewRecord = {
+  version: 1, id: "11111111-1111-4111-8111-111111111111", title: "Matter overview", mode: "dashboard", catalog: "legalwork-1",
+  owner: { kind: "workspace", id: workspace.id }, revision: "fixture-1", updatedAt: now, queries: {},
+  program: 'root = Stack([Heading("Matter overview",1),Text("Synthetic project dashboard"),Stack([Metric("Open matters",12),Metric("Due this week",3)],2),Card("Priorities",[Table([{matter:"Supplier agreement",status:"In review"},{matter:"Office lease",status:"Ready"}],[{field:"matter",label:"Matter"},{field:"status",label:"Status"}])])])',
+};
+const explorerDashboardPath = `Dashboards/${explorerDashboard.id}.view.json`;
 let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Contracts", path: "Contracts", kind: "dir" },
   { name: "Policies", path: "Policies", kind: "dir" },
@@ -289,6 +297,10 @@ let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Annual report.pdf", path: "Annual report.pdf", kind: "file", size: 2480000, updatedAt: now },
   { name: ".workspace.json", path: ".workspace.json", kind: "file", size: 320, updatedAt: now },
 ];
+if (dashboardExplorer) files.unshift(
+  { name: "Dashboards", path: "Dashboards", kind: "dir", empty: false },
+  { name: `${explorerDashboard.id}.view.json`, path: explorerDashboardPath, kind: "file", size: 850, updatedAt: now },
+);
 const memoryFiles: LegalMemoryTreeFile[] = files.filter((file) => file.kind === "file" && !file.name.startsWith(".")).map((file) => ({
   source_object_id: file.path, source_id: "visual-drive", name: file.name, path: file.path,
   mime_type: null, size_bytes: file.size ?? null, mtime: new Date(now).toISOString(), document_id: file.path,
@@ -415,6 +427,11 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 }
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  ...(dashboardExplorer ? {
+    listWikis: async () => ({ items: [] }),
+    listViews: async () => ({ items: [{ ...explorerDashboard, path: explorerDashboardPath }], issues: [] }),
+    readView: async () => explorerDashboard,
+  } : {}),
   reviewLibrary: async (_workspaceId, language) => ({ entries: [{
     id: "11111111-1111-4111-8111-111111111112", kind: "set", version: 1,
     name: "Supplier terms", description: "Compare notice requirements across supplier agreements.",

@@ -42,6 +42,10 @@ export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, o
         void cache.invalidateQueries({ queryKey: ["ui-views", client.baseUrl, owner.kind, owner.id] });
         void cache.invalidateQueries({ queryKey: ["ui-view", client.baseUrl, owner.kind, owner.id] });
         if (owner.kind === "wiki") void cache.invalidateQueries({ queryKey: ["wiki-snapshot", client.baseUrl, owner.id] });
+        else {
+          void cache.invalidateQueries({ queryKey: ["workspace-files", owner.id] });
+          void cache.invalidateQueries({ queryKey: ["workspace-view-files", client.baseUrl, owner.id] });
+        }
       }
       const view = preferredSavedView(completed, preview.owner);
       if (view) {
