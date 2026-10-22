@@ -28,3 +28,11 @@ The preceding owner-navigation fix remains: Already saved in → Open switches t
 - Browser check with synthetic data: rename updates the explorer and tab, the program still renders, snapshot data/timestamp survives reload, the reload action is accurately labeled, and the folder badge/file icon appear in the existing explorer and sidebar. No user dashboard was modified for testing.
 
 Evidence: [Folder badge](folder-badge.png), [renamed dashboard](renamed-dashboard.png), [snapshot and sidebar](snapshot-and-sidebar.png), [owner navigation: project](open-saved-project.png), [owner navigation: wiki](open-saved-wiki.png).
+
+## CI follow-up — 22 October 2026
+
+The Ubuntu run exposed two failures in the new navigation tests: each store hydrated the same global test storage, so later tests inherited earlier tabs while expecting an empty store. Reproduced both failures with a shared in-memory `localStorage` preload. Navigation tests now inject their own storage without changing the app's default persistence. The unavailable-destination test also starts with an open dashboard and checks that every rejected lookup leaves the entire state unchanged.
+
+- From `apps/app`: `pnpm dlx bun@1.4.2 test tests/` — **1,690 passed, 0 failed, 109,009 assertions** across 263 files, using the same Bun version as CI. The older local Bun 1.3.14 encounters three Lexical initialization errors; they do not occur with 1.4.2.
+- From `apps/app`: `pnpm exec bun test tests/notification-store.test.ts tests/view-navigation.test.ts` — **14 passed, 0 failed, 50 assertions**. The shared-storage preload reproduction also passes all four navigation tests after the fix, on both Bun versions.
+- `pnpm --filter @legalwork/app typecheck` and `git diff --check` — passed.

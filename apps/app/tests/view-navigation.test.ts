@@ -12,8 +12,18 @@ const view = { id: "00000000-0000-4000-8000-000000000001", title: "Saved dashboa
 const wiki: WikiVault = { id: "wiki-id", workspaceId: "wiki-workspace", name: "Wiki", root: "/wiki", allowInProjects: true, sync: null, writable: false, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } };
 const client = { baseUrl, listWikis: async () => ({ items: [wiki] }) };
 
+function createTestPanelTabStore() {
+  // Exercise persistence without inheriting or overwriting another test's tabs.
+  const data = new Map<string, string>();
+  return createPanelTabStore(() => ({
+    getItem: key => data.get(key) ?? null,
+    setItem: (key, value) => { data.set(key, value); },
+    removeItem: key => { data.delete(key); },
+  }));
+}
+
 test("Open selects the saved file in its project, preserving the current workspace and migrating legacy tabs first", async () => {
-  const store = createPanelTabStore();
+  const store = createTestPanelTabStore();
   const source = { ...view, id: "source", owner: { kind: "workspace", id: "source" } } satisfies Parameters<typeof openSavedView>[0]["view"];
   store.getState().openTab(workspacePanelKey("source"), viewPanelTab(baseUrl, { owner: source.owner, viewId: source.id }));
   const before = store.getState().sessions[workspacePanelKey("source")];
@@ -32,7 +42,7 @@ test("Open selects the saved file in its project, preserving the current workspa
 });
 
 test("Open resolves the wiki workspace ID and supports a wiki that is now read-only", async () => {
-  const store = createPanelTabStore();
+  const store = createTestPanelTabStore();
   const saved = { ...view, owner: { kind: "wiki", id: wiki.id } } satisfies Parameters<typeof openSavedView>[0]["view"];
   expect(await openSavedView({ client, view: saved, workspaces: [], localServer, panels: store.getState() })).toBe("/wikis/wiki-workspace");
   expect(store.getState().sessions[workspacePanelKey(wiki.workspaceId)].tabs).toEqual([viewPanelTab(baseUrl, { owner: saved.owner, viewId: saved.id }, saved.title)]);
@@ -40,7 +50,7 @@ test("Open resolves the wiki workspace ID and supports a wiki that is now read-o
 });
 
 test("remote projects use their UI route ID and cannot open a same-ID project on another server", async () => {
-  const store = createPanelTabStore();
+  const store = createTestPanelTabStore();
   const remote: RouteWorkspace = { ...project, id: "rem_target", workspaceType: "remote", legalworkWorkspaceId: project.id, baseUrl: "https://remote.example", legalworkToken: "remote" };
   const remoteClient = { ...client, baseUrl: remote.baseUrl! };
   expect(await openSavedView({ client: remoteClient, view, workspaces: [project], localServer, panels: store.getState() })).toBeNull();
@@ -50,11 +60,16 @@ test("remote projects use their UI route ID and cannot open a same-ID project on
 });
 
 test("unavailable destinations or failed wiki lookup leave the current tabs untouched", async () => {
-  const store = createPanelTabStore();
+  const store = createTestPanelTabStore();
+  store.getState().openTab(workspacePanelKey(project.id), viewPanelTab(baseUrl, { owner: view.owner, viewId: view.id }, view.title));
+  const before = store.getState();
   const saved = { ...view, owner: { kind: "wiki", id: "missing" } } satisfies Parameters<typeof openSavedView>[0]["view"];
   expect(await openSavedView({ client, view, workspaces: [], localServer, panels: store.getState() })).toBeNull();
+  expect(store.getState()).toBe(before);
   expect(await openSavedView({ client, view: saved, workspaces: [], localServer, panels: store.getState() })).toBeNull();
+  expect(store.getState()).toBe(before);
   expect(await openSavedView({ client: { ...client, baseUrl: "https://remote.example" }, view: { ...saved, owner: { kind: "wiki", id: wiki.id } }, workspaces: [], localServer, panels: store.getState() })).toBeNull();
+  expect(store.getState()).toBe(before);
   await expect(openSavedView({ client: { ...client, listWikis: async () => { throw new Error("Disconnected"); } }, view: saved, workspaces: [], localServer, panels: store.getState() })).rejects.toThrow("Disconnected");
-  expect(store.getState().sessions).toEqual({});
+  expect(store.getState()).toBe(before);
 });
