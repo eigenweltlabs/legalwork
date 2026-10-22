@@ -196,6 +196,7 @@ export default {
   "integrations.import_title": "Import your existing setup",
   "integrations.import_action": "Import",
   "integrations.import_choose_provider": "Choose where to import your plugins, skills and connectors from.",
+  "integrations.import_workflow_description": "Import a plugin to Integrations, or add individual skills as workflows.",
   "integrations.change_import_provider": "Change app",
   "integrations.import_description": "Bring in plugins, skills and connectors from this computer.",
   "integrations.connectors_description": "Tools LegalWork can use in your conversations.",

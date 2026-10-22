@@ -207,7 +207,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
       setPage(Math.floor((newDrafts.length + Math.max(0, extensions.skills().filter(isWorkflowCard).findIndex((skill) => skill.name === draft.name))) / WORKFLOWS_PER_PAGE));
       showWorkflow(draft);
     }} /> : null}
-    <ImportSkillsButton open={importOpen} onOpenChange={setImportOpen} asWorkflow busy={props.busy} canUseDesktopTools={props.canUseDesktopTools} existingNames={installedNames} extensions={extensions} />
+    <ImportSkillsButton open={importOpen} onOpenChange={setImportOpen} pluginImports={props.pluginImports} asWorkflow busy={props.busy} canUseDesktopTools={props.canUseDesktopTools} existingNames={installedNames} extensions={extensions} />
     {firmWorkflow ? <FirmSkillDialog name={firmWorkflow.name} added={firmWorkflow.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmWorkflow(null)} /> : null}
     <LegalQuantsImportButton open={legalQuantsOpen} onOpenChange={setLegalQuantsOpen} busy={props.busy} existingNames={installedNames} extensions={extensions} className="hidden" />
     <ConfirmModal open={Boolean(removeTarget)} title={t("skills.uninstall_title")} message={t("skills.uninstall_warning").replace("{name}", removeTarget?.name ?? "")} confirmLabel={t("skills.uninstall")} cancelLabel={t("common.cancel")} confirmButtonVariant="destructive" onCancel={() => setRemoveTarget(null)} onConfirm={() => {

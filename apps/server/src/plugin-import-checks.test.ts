@@ -87,7 +87,8 @@ test("scope pins are blocked while callback paths, environment objects and porta
   expect(config("key")?.headers).toMatchObject({ "X-Provider-Token": "${API_KEY}" });
   expect(config("confidential")?.oauth).toMatchObject({ clientId: "registered", clientSecret: "${OAUTH_CLIENT_SECRET}", scope: "read" });
   expect(imported.preview.connectors?.find(check => check.name === "scopes")).toMatchObject({ status: "blocked", code: "pinned_scopes" });
-  expect(imported.preview.connectors?.filter(check => check.name !== "scopes").every(check => check.status !== "blocked")).toBe(true);
+  expect(imported.preview.connectors?.find(check => check.name === "confidential")).toMatchObject({ status: "blocked", code: "pinned_scopes" });
+  expect(imported.preview.connectors?.filter(check => !["scopes", "confidential"].includes(check.name)).every(check => check.status !== "blocked")).toBe(true);
 });
 
 test("automatic registration is checked once and its exact callback/scopes survive installation preparation", async () => {

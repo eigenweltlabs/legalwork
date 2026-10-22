@@ -206,6 +206,7 @@ const de = {
   "integrations.import_title": "Vorhandenes Setup importieren",
   "integrations.import_action": "Importieren",
   "integrations.import_choose_provider": "Wählen Sie aus, von welcher App Sie Ihre Plugins, Skills und Konnektoren übernehmen möchten.",
+  "integrations.import_workflow_description": "Übernehmen Sie ein Plugin in Integrationen oder fügen Sie einzelne Skills als Workflows hinzu.",
   "integrations.change_import_provider": "App wechseln",
   "integrations.import_description": "Plugins, Skills und Konnektoren von diesem Computer übernehmen.",
   "integrations.connectors_description": "Tools, die LegalWork in Ihren Chats verwenden kann.",

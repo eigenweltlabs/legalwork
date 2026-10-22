@@ -2301,7 +2301,7 @@ function createRoutes(
     else requireClientScope(ctx, "collaborator");
     if (plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector") await requireOrgPolicyAllows(config, "plugins.allowCustom");
     if (origin.kind === "configuration" || origin.kind === "archive" && !isAbsolute(origin.location)) throw new ApiError(400, "plugin_source_missing", "Choose the updated connector configuration or archive in Import.");
-    const source = origin.kind === "github" ? { provider: origin.provider, url: origin.location, ref: origin.ref, directory: origin.directory } : { provider: origin.provider, path: origin.location };
+    const source = origin.kind === "github" ? { provider: origin.provider, url: origin.location, ref: origin.ref, directory: origin.directory } : { provider: origin.provider, path: origin.location, marketplace: origin.marketplace };
     const scope = plugin.scope === "global" ? "global" : "project";
     const plans = await resolvePluginImports({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow }, workspace.path);
     const plan = plans.find(item => item.preview.id === plugin.pluginId);

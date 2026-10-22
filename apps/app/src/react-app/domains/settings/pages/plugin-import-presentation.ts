@@ -62,5 +62,5 @@ export function groupPluginImportCandidates(candidates: PluginImportCandidate[])
 }
 
 export function pluginImportCandidateKey(candidate: PluginImportCandidate): string {
-  return JSON.stringify([candidate.path, candidate.connector?.name, candidate.connector?.project, candidate.connector?.pluginRoot]);
+  return JSON.stringify([candidate.path, candidate.marketplace, candidate.connector?.name, candidate.connector?.project, candidate.connector?.pluginRoot]);
 }

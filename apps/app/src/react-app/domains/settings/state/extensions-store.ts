@@ -1554,7 +1554,7 @@ export function createExtensionsStore(options: {
 
   async function importStandaloneSkills(request: PluginImportRequest) {
     const target = await pluginImportTarget();
-    const globalRequest: PluginImportRequest = { ...request, scope: "global" };
+    const globalRequest: PluginImportRequest = { ...request, scope: "global", detectFormat: true };
     const previews = (await target.client.previewPluginImports(target.id, globalRequest)).items;
     if (previews.length !== 1 || previews[0]?.components.some(item => item.type !== "skill")) throw new Error(t("extensions.import_no_components"));
     const preview = previews[0]!;

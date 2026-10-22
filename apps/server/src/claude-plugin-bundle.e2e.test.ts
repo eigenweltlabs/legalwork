@@ -203,7 +203,7 @@ describe("claude plugin bundles use the shared import lifecycle", () => {
   test("reviews an immutable full archive, preserves assets and identifies unsupported components", async () => {
     const legalwork = await startLegalwork();
     const preview = await review(legalwork);
-    expect(preview.name).toBe("slack");
+    expect(preview.name).toBe("Slack");
     expect(preview.version).toBe("1.0.0");
     expect(preview.review.provenance?.revision).toBe("a".repeat(40));
     expect(preview.components.filter(item => item.type === "skill").map(item => item.name)).toEqual(["slack-search"]);

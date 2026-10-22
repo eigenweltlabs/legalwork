@@ -195,7 +195,7 @@ describe("complete plugin imports", () => {
     expect(plan!.preview.format).toBe("codex");
     expect(plan!.resolved.plugin.sourceKind).toBe("plugin");
     expect(plan!.preview.components.map(c => c.type)).toEqual(["skill", "mcp"]);
-    expect(plan!.preview.warnings.join(" ")).toContain("Provider app IDs");
+    expect(plan!.preview.requirements).toContainEqual(expect.objectContaining({ kind: "app", required: true, status: "blocked" }));
     expect(plan!.resourceFiles.some(f => f.path.endsWith("scripts/shared.py"))).toBe(true);
   });
   test("portable metadata stays canonical and inline OpenAI extension replaces legacy overlay", async () => {
@@ -204,7 +204,7 @@ describe("complete plugin imports", () => {
         $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "canonical", version: "2",
         extensions: { "com.openai": { apps: "./.app.json", mcpServers: {
           public: { url: "https://public.example/mcp", extensions: { "com.openai": { auth: { type: "none" } } } },
-          private: { url: "https://private.example/mcp", extensions: { "com.openai": { auth: { type: "oauth", client: { mode: "provided", clientId: "client" }, baseScopes: ["read"] } } } },
+          private: { url: "https://private.example/mcp", extensions: { "com.openai": { auth: { type: "oauth", client: { mode: "provided", clientId: "client" } } } } },
         } } },
       }),
       ".app.json": '{"apps":{}}', ".codex-plugin/plugin.json": '{"name":"legacy","version":"1","mcpServers":"./missing.json"}', "skills/search/SKILL.md": skill,
@@ -341,10 +341,10 @@ describe("complete plugin imports", () => {
       for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     }
   }));
-  test("recognizes root manifests without optional fields and rejects using the wrong provider", async () => {
+  test("recognizes portable manifests and retains explicit provider-only validation", async () => {
     const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", zipBase64: archive({ "plugin.json": '{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"plain"}', "skills/search/SKILL.md": skill, "mcp.json": '{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"remote":{"type":"streamable-http","url":"https://example.com/mcp"}}}' }) }, scope: "project" }, "/project");
     expect(plan!.preview.components).toHaveLength(2);
-    await expect(resolvePluginImports({ ...request(), source: { provider: "chatgpt", zipBase64: archive(fixtures) } }, "/project")).rejects.toThrow("matching import button");
+    await expect(resolvePluginImports({ ...request(), source: { provider: "chatgpt", zipBase64: archive(fixtures) }, detectFormat: false }, "/project")).rejects.toThrow("matching import button");
   });
   test("validates mutually exclusive import source fields", () => {
     expect(() => parsePluginImportRequest({ source: { provider: "claude", path: "/tmp", zipBase64: "UEs=" }, scope: "project" })).toThrow();

@@ -2262,6 +2262,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             kind={route.tab === "workflows" ? "workflows" : "skills"}
+            pluginImports={extensionsStore}
             workspaceName={selectedWorkspaceName}
             busy={busy}
             showHeader={props.singleView === true}

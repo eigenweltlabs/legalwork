@@ -83,6 +83,7 @@ import { BuiltInSkills, matchingBuiltInSkills, packageParts, type SkillPackagesS
 import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
 import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
+import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -174,6 +175,7 @@ export type SkillsViewProps = {
   canUseDesktopTools: boolean;
   accessHint?: string | null;
   extensions: SkillsExtensionsStore;
+  pluginImports?: PluginImportStore;
   onOpenLink: (url: string) => void;
   createSessionAndOpen: (initialPrompt?: string) => Promise<string | undefined> | string | void;
   /**
@@ -607,6 +609,7 @@ export function SkillsView(props: SkillsViewProps) {
             {isWorkflowsView ? (
               <>
                 <ImportSkillsButton
+                  pluginImports={props.pluginImports}
                   asWorkflow
                   busy={props.busy}
                   canUseDesktopTools={props.canUseDesktopTools}
@@ -648,6 +651,7 @@ export function SkillsView(props: SkillsViewProps) {
             ) : (
               <>
                 {!libraryLayout ? <ImportSkillsButton
+                  pluginImports={props.pluginImports}
                   asWorkflow={false}
                   busy={props.busy}
                   canUseDesktopTools={props.canUseDesktopTools}
@@ -1551,12 +1555,14 @@ export function ImportSkillsButton(props: {
   canUseDesktopTools: boolean;
   existingNames: Set<string>;
   extensions: SkillImportStore;
+  pluginImports?: PluginImportStore;
   /** A whole package was imported (skills, connectors and commands together). */
   onPackageImported?: () => void;
 }) {
   const { extensions, asWorkflow } = props;
   // A repo that is a package is offered whole, where the firm lets members import packages.
-  const offerPackages = !asWorkflow && !useOrgPolicyForbids("plugins.allowCustom");
+  const canImportPackages = !useOrgPolicyForbids("plugins.allowCustom");
+  const offerPackages = !asWorkflow && canImportPackages;
   const [found, setFound] = useState<{ url: string; preview: LegalworkClaudePluginPreview } | null>(null);
   const [partialAccepted, setPartialAccepted] = useState(false);
   const noun = asWorkflow ? "workflow" : "skill";
@@ -1729,7 +1735,7 @@ export function ImportSkillsButton(props: {
         <Download size={14} />
         {t(asWorkflow ? "skills.import" : "skills.import_skills_title")}
       </Button>
-      <Dialog
+      {open && props.pluginImports && canImportPackages ? <PluginImportDialog store={props.pluginImports} initialAsWorkflow={asWorkflow} canImportSkills canImportLocalSkills={props.canUseDesktopTools} onImportSkills={() => {}} onClose={() => setOpen(false)} onImported={() => { props.onImported?.(); props.onPackageImported?.(); setOpen(false); }} /> : <Dialog
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
@@ -1904,7 +1910,7 @@ export function ImportSkillsButton(props: {
             <DialogClose render={<Button variant="outline" />}>Done</DialogClose>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </>
   );
 }
