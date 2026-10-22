@@ -274,8 +274,8 @@ async function cleanStaleUpdaterState(app) {
   }
 }
 
-// On macOS downloadUpdate() finishes when the ZIP has been served to Squirrel,
-// before Squirrel unpacks and validates it. Only the native event means ready.
+// With auto-install disabled, MacUpdater only starts its local ZIP server.
+// Explicitly start Squirrel preparation, then wait for native validation.
 export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 300_000) {
   if (!nativeUpdater) {
     await updater.downloadUpdate();
@@ -290,7 +290,13 @@ export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 30
     timer = setTimeout(() => reject(new Error("The update could not finish preparing for installation. Please try downloading it again.")), timeoutMs);
   });
   try {
-    await Promise.all([ready, Promise.resolve().then(() => updater.downloadUpdate())]);
+    await Promise.all([ready, Promise.resolve().then(async () => {
+      await updater.downloadUpdate();
+      // MacUpdater starts this itself only when autoInstallOnAppQuit is true.
+      // Keep that flag disabled until preparation succeeds, including retries
+      // after a channel change, instead of allowing an unready update on quit.
+      if (!updater.autoInstallOnAppQuit) nativeUpdater.checkForUpdates();
+    })]);
   } finally {
     clearTimeout(timer);
     nativeUpdater.removeListener("update-downloaded", onReady);

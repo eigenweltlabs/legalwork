@@ -25,6 +25,23 @@ Run `pnpm --filter @legalwork/app dev:web --host 127.0.0.1 --port 4467 --strictP
 
 Click Start subscription and reset limit, then Start subscription to confirm its sample payment, then Back to chat. Reload and click Add credits to confirm a sample €20 top-up. Both paths restore usable AI usage. These are local fixtures with simulated payment results and no connected services; they never initiate live charges. The preview currently logs missing-service requests to `legalwork-preview.invalid` from unrelated background panels. No application exception was observed in these flows.
 
+## Funded trial blocked by a spending limit
+
+`/session-preview.html?trial=member-limit&lang=de&theme=light` models a trial
+whose included allowance and €15 personal monthly limit are used, while €25
+remains in the shared wallet. The chat must show the personal-limit explanation
+and its limit controls rather than the trial-exhausted purchase options. Increase
+the personal limit to €40 in the sample dialog: it restores €25 of usable credit
+without a new payment. Add `&role=member` for the admin-request flow.
+
+Trial recovery remains available when the included trial allowance and usable
+funding are exhausted. A funded wallet with extra usage disabled instead shows
+the enable-extra-usage action. Separate service limits and missing seats retain
+their own explanations. All preview payments are simulated.
+
+![Funded trial with a personal spending cap](screenshots/trial-limit-priority/funded-trial-limit-de.jpg)
+![Credit usable after raising the cap](screenshots/trial-limit-priority/funded-trial-recovered-de.jpg)
+
 ## Evidence
 
 ![Plus exhausted trial](screenshots/trial-recovery/plus-trial-used.png)

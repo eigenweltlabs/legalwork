@@ -5307,7 +5307,7 @@ const de = {
   "recorder.overlay_no_transcript": "Warten auf das Gespr\u00e4ch\u2026",
   "recorder.overlay_close": "Schließen",
   "recorder.overlay_hidden_note": "In Bildschirmfreigaben unsichtbar",
-  "stealth.recording_locally": "Nimmt lokal auf",
+  "stealth.recording_locally": "Aufnahme",
   "recorder.settings_tab_label": "Rekorder",
   "recorder.settings_tab_description": "Systemweites Diktieren, lokale Modelle und Standardwerte",
   "recorder.defaults_title": "Transkriptions-Standards",

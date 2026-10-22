@@ -1,6 +1,6 @@
 import type { TrialSubscriptionResult, UsageControlView } from "@legalwork/types/usage-control";
 import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
-import { usageIsAvailable } from "./usage-recovery";
+import { requestUsageBlockReason, usageIsAvailable } from "./usage-recovery";
 
 export function parseTrialSubscriptionResult(value: unknown): TrialSubscriptionResult {
   if (typeof value !== "object" || value === null || !("quoteId" in value) || typeof value.quoteId !== "string") throw new Error("response");
@@ -16,7 +16,13 @@ export function parseTrialSubscriptionResult(value: unknown): TrialSubscriptionR
   throw new Error("response");
 }
 export function trialAllowanceExhausted(view: UsageControlView | null, providerId: string, limit?: UsageLimitDetails | null) {
-  return !!view?.enabled && !!view.trial && providerId === "eigenwelt" &&
+  if (!(view?.enabled && view.trial && providerId === "eigenwelt" &&
     (view.me.plan === "plus" || view.me.plan === "pro") && view.me.remainingCents === 0 &&
-    view.me.blockedReason !== "service_limit" && limit?.reason !== "service_limit" && !usageIsAvailable(view, limit);
+    !usageIsAvailable(view, limit))) return false;
+  const reason = requestUsageBlockReason(view, limit);
+  // Explain an actionable spending boundary before offering another purchase.
+  if (reason === "member_limit" || reason === "organization_limit" || reason === "seat_required" || reason === "service_limit") return false;
+  // Without wallet visibility, direct a member to their admin rather than a top-up.
+  if (reason === "extra_disabled") return view.walletCents === 0;
+  return true;
 }

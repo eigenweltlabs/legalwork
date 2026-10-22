@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
@@ -19,6 +20,69 @@ import {
 const checkForUpdatesWithFeedFallback = (app, updater) => checkUpdates(app, updater, { resolveFeed: async () => { throw new Error("Simulated API outage"); } });
 
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
+
+// Exercise the dependency's real Squirrel proxy and autoInstallOnAppQuit branch.
+// Only the native OS boundary is simulated: it must fetch the feed and ZIP
+// before reporting validation success or failure. No installer is executed.
+const { MacUpdater } = createRequire(import.meta.url)("electron-updater/out/MacUpdater.js");
+for (const autoInstallOnAppQuit of [false, true]) {
+  for (const preparationFails of [false, true]) {
+    it(`prepares through the real MacUpdater handoff (auto install=${autoInstallOnAppQuit}, failure=${preparationFails})`, async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-mac-updater-"));
+      const downloadedFile = path.join(root, "update.zip");
+      const payload = Buffer.from("downloaded update fixture");
+      await writeFile(downloadedFile, payload);
+      const native = Object.assign(new EventEmitter(), {
+        feed: null,
+        checks: 0,
+        transferred: false,
+        setFeedURL(feed) { this.feed = feed; },
+        checkForUpdates() {
+          this.checks++;
+          void this.prepare().catch((error) => native.emit("error", error));
+        },
+        async prepare() {
+          assert.ok(this.feed, "MacUpdater must configure its local feed first");
+          const response = await fetch(this.feed.url, { headers: this.feed.headers, signal: AbortSignal.timeout(3_000) });
+          assert.equal(response.status, 200);
+          const { url } = await response.json();
+          const zip = await fetch(url, { signal: AbortSignal.timeout(3_000) });
+          assert.equal(zip.status, 200);
+          assert.deepEqual(Buffer.from(await zip.arrayBuffer()), payload);
+          this.transferred = true;
+          // Native validation happens after the proxy has finished serving.
+          await new Promise((resolve) => setImmediate(resolve));
+          if (preparationFails) throw new Error("Native signature validation failed");
+          native.emit("update-downloaded");
+        },
+      });
+      // Bypass the constructor's Electron singleton, retaining the real
+      // updateDownloaded, closeServerIfExists, and event dispatch methods.
+      const updater = Object.assign(Object.create(MacUpdater.prototype), {
+        nativeUpdater: native,
+        autoInstallOnAppQuit,
+        _logger: { info() {}, warn() {}, error() {} },
+        downloadUpdate() {
+          return MacUpdater.prototype.updateDownloaded.call(this, { url: new URL("https://example.test/update.zip"), info: { size: payload.length } }, { downloadedFile });
+        },
+      });
+      EventEmitter.call(updater);
+      try {
+        const result = downloadUpdateReady(updater, native, 5_000);
+        if (preparationFails) await assert.rejects(result, /Native signature validation failed/);
+        else await result;
+        assert.equal(native.checks, 1, "preparation must start exactly once");
+        assert.equal(native.transferred, true);
+        assert.equal(updater.autoInstallOnAppQuit, autoInstallOnAppQuit, "preparation must not enable automatic installation");
+        assert.equal(native.listenerCount("update-downloaded"), 0);
+        assert.equal(native.listenerCount("error"), 0);
+      } finally {
+        updater.closeServerIfExists();
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+}
 
 it("resolves each persisted channel to an exact release without permitting a downgrade", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-channel-test-"));
@@ -70,7 +134,7 @@ describe("downloadUpdateReady", () => {
   it("waits for macOS to finish unpacking after the ZIP transfer", async () => {
     const native = new EventEmitter();
     let downloaded = false, ready = false;
-    const result = downloadUpdateReady({ async downloadUpdate() { downloaded = true; } }, native).then(() => { ready = true; });
+    const result = downloadUpdateReady({ autoInstallOnAppQuit: true, async downloadUpdate() { downloaded = true; } }, native).then(() => { ready = true; });
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(downloaded, true);
     assert.equal(ready, false);
@@ -83,7 +147,7 @@ describe("downloadUpdateReady", () => {
 
   it("reports an unpacking failure after downloadUpdate has already resolved", async () => {
     const native = new EventEmitter();
-    const result = downloadUpdateReady({ async downloadUpdate() {} }, native);
+    const result = downloadUpdateReady({ autoInstallOnAppQuit: true, async downloadUpdate() {} }, native);
     const rejected = assert.rejects(result, /No space left on device/);
     await new Promise((resolve) => setImmediate(resolve));
     native.emit("error", new Error("ditto: No space left on device"));
@@ -96,7 +160,7 @@ describe("downloadUpdateReady", () => {
     /** @type {() => void} */
     let finish = () => assert.fail("download must start first");
     let ready = false;
-    const result = downloadUpdateReady({ downloadUpdate() {
+    const result = downloadUpdateReady({ autoInstallOnAppQuit: true, downloadUpdate() {
       native.emit("update-downloaded");
       return new Promise((resolve) => { finish = () => resolve(undefined); });
     } }, native).then(() => { ready = true; });
@@ -109,23 +173,25 @@ describe("downloadUpdateReady", () => {
 
   it("cleans up native listeners when the download fails", async () => {
     const native = new EventEmitter();
-    await assert.rejects(downloadUpdateReady({ async downloadUpdate() { throw new Error("Download failed"); } }, native), /Download failed/);
+    await assert.rejects(downloadUpdateReady({ autoInstallOnAppQuit: true, async downloadUpdate() { throw new Error("Download failed"); } }, native), /Download failed/);
     assert.equal(native.listenerCount("error"), 0);
     assert.equal(native.listenerCount("update-downloaded"), 0);
   });
 
   it("times out a missing native completion event so retry remains possible", async () => {
     const native = new EventEmitter();
-    await assert.rejects(downloadUpdateReady({ async downloadUpdate() {} }, native, 10), /could not finish preparing/);
+    await assert.rejects(downloadUpdateReady({ autoInstallOnAppQuit: true, async downloadUpdate() {} }, native, 10), /could not finish preparing/);
     assert.equal(native.listenerCount("error"), 0);
     assert.equal(native.listenerCount("update-downloaded"), 0);
   });
 
   it("keeps the download promise as readiness off macOS", async () => {
-    let downloaded = false;
-    await downloadUpdateReady({ async downloadUpdate() { downloaded = true; } }, null);
-    assert.equal(downloaded, true);
-    await assert.rejects(downloadUpdateReady({ async downloadUpdate() { throw new Error("Download failed"); } }, null), /Download failed/);
+    for (const autoInstallOnAppQuit of [false, true]) {
+      let downloaded = false;
+      await downloadUpdateReady({ autoInstallOnAppQuit, async downloadUpdate() { downloaded = true; } }, null);
+      assert.equal(downloaded, true);
+      await assert.rejects(downloadUpdateReady({ autoInstallOnAppQuit, async downloadUpdate() { throw new Error("Download failed"); } }, null), /Download failed/);
+    }
   });
 });
 

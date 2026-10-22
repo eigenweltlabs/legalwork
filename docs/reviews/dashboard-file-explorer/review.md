@@ -36,3 +36,5 @@ The Ubuntu run exposed two failures in the new navigation tests: each store hydr
 - From `apps/app`: `pnpm dlx bun@1.4.2 test tests/` — **1,690 passed, 0 failed, 109,009 assertions** across 263 files, using the same Bun version as CI. The older local Bun 1.3.14 encounters three Lexical initialization errors; they do not occur with 1.4.2.
 - From `apps/app`: `pnpm exec bun test tests/notification-store.test.ts tests/view-navigation.test.ts` — **14 passed, 0 failed, 50 assertions**. The shared-storage preload reproduction also passes all four navigation tests after the fix, on both Bun versions.
 - `pnpm --filter @legalwork/app typecheck` and `git diff --check` — passed.
+
+Merged `origin/dev` at `4cd05894` without conflicts. Re-ran `pnpm dlx bun@1.4.2 test tests/` from `apps/app`: **1,693 passed, 0 failed, 109,018 assertions**. App typecheck, `pnpm --filter @legalwork/app test:i18n` (7,044 keys in both languages), and `git diff --cached --check` passed. `pnpm exec node --test apps/desktop/electron/updater.test.mjs`: **22 passed, 0 failed, 1 non-macOS test skipped** on macOS.

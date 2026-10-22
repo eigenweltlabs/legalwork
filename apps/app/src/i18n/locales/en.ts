@@ -5017,7 +5017,7 @@ export default {
   "recorder.overlay_no_transcript": "Waiting for the conversation…",
   "recorder.overlay_close": "Close",
   "recorder.overlay_hidden_note": "Invisible in screen shares",
-  "stealth.recording_locally": "Recording locally",
+  "stealth.recording_locally": "Recording",
   "recorder.settings_tab_label": "Recorder",
   "recorder.settings_tab_description": "System-wide dictation, local models, and defaults",
   "recorder.defaults_title": "Transcription defaults",
