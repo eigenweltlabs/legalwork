@@ -1,5 +1,5 @@
 import { captureWikiViews } from "./view-snapshots.js";
-import { ViewInputSchema } from "../views/schema.js";
+import { ViewInputSchema, isViewFile, copyViewFile } from "../views/schema.js";
 import type { WikiViewSnapshots } from "@legalwork/types/views";
 import { lineChanges } from "./line-diff.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -712,18 +712,33 @@ export class WikiStore {
       wikiPath(operation.destination);
       if (operation.destination === operation.path || operation.destination.startsWith(`${operation.path}/`)) throw new ApiError(400, "invalid_wiki_destination", "Choose a destination outside the source folder.");
       if (entry.kind === "file" && isMarkdown(operation.path) && !isMarkdown(operation.destination)) throw new ApiError(400, "invalid_wiki_page", "Markdown pages keep the .md extension.");
+      if (isViewFile(operation.path) && !isViewFile(operation.destination)) throw new ApiError(400, "invalid_view_path", "Dashboard files keep the .view.json extension.");
       const destination = await this.safePath(wiki, operation.destination, true);
       if (operation.action === "move") await this.moveWithoutReplacing(source, destination, entry.kind);
       else {
+        const copy = async (from: string, to: string): Promise<void> => {
+          const info = await lstat(from);
+          if (info.isDirectory()) {
+            await mkdir(to);
+            for (const name of await readdir(from)) await copy(join(from, name), join(to, name));
+            return;
+          }
+          if (!info.isFile()) throw new ApiError(403, "unsafe_wiki_path", "Only regular files and folders can be copied.");
+          if (!isViewFile(from)) return cp(from, to, { errorOnExist: true, force: false });
+          if (info.size > 2 * 1024 * 1024) throw new ApiError(400, "invalid_view_import", "Invalid dashboard file.");
+          const sourcePath = relative(await realpath(wiki.root), from).split(sep).join("/");
+          const bytes = await this.fileBytes(wiki, sourcePath, 2 * 1024 * 1024);
+          await writeFile(to, copyViewFile(bytes, undefined, true), { flag: "wx", mode: 0o600 });
+        };
         // Reserving the destination prevents copies from merging into existing folders.
         if (entry.kind === "folder") await mkdir(destination);
         try {
           if (entry.kind === "folder") {
             // Copy children into our reservation; Bun rejects copying onto an existing root.
             for (const name of await readdir(source)) {
-              await cp(join(source, name), join(destination, name), { recursive: true, errorOnExist: true, force: false });
+              await copy(join(source, name), join(destination, name));
             }
-          } else await cp(source, destination, { errorOnExist: true, force: false });
+          } else await copy(source, destination);
         }
         catch (error) { if (entry.kind === "folder") await rm(destination, { recursive: true, force: true }); throw error; }
       }

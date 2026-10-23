@@ -44,7 +44,7 @@ export function wikiImportPath(folder: string, path: string): string {
 
 function availablePath(path: string, occupied: Set<string>) {
   if (!occupied.has(path)) return path;
-  const dot = path.lastIndexOf(".");
+  const dot = /\.view\.json$/i.test(path) ? path.length - ".view.json".length : path.lastIndexOf(".");
   const extension = dot > path.lastIndexOf("/") ? path.slice(dot) : "";
   const stem = extension ? path.slice(0, -extension.length) : path;
   for (let number = 2; ; number++) {

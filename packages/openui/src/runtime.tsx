@@ -31,10 +31,10 @@ function display(value: unknown): string {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function SourceButton({ path, sourceOwner, binding, children }: { path: unknown; sourceOwner?: unknown; binding?: string; children: ReactNode }) {
+function SourceButton({ path, sourceOwner, binding, available, children }: { path: unknown; sourceOwner?: unknown; binding?: string; available?: unknown; children: ReactNode }) {
   const host = useContext(Host);
   const owner = SourceOwnerSchema.safeParse(sourceOwner);
-  return typeof path === "string" && host.openSource && !host.streaming
+  return available !== false && typeof path === "string" && host.openSource && !host.streaming
     ? <button type="button" className="lw-view-source" onClick={() => host.openSource?.(path, owner.success ? owner.data : undefined, binding)}>{children}</button>
     : <span>{children}</span>;
 }
@@ -46,7 +46,7 @@ function DataTable({ rows, columns, searchable = true }: { rows: Row[]; columns:
     return sort ? next.sort((a, b) => (typeof a[sort.field] === "number" && typeof b[sort.field] === "number" ? Number(a[sort.field]) - Number(b[sort.field]) : display(a[sort.field]).localeCompare(display(b[sort.field]), undefined, { numeric: true })) * (sort.desc ? -1 : 1)) : next;
   }, [rows, columns, search, sort]);
   return <div className="lw-view-table">{searchable && rows.length > 5 && <Input aria-label="Filter displayed rows" placeholder="Filter displayed rows…" value={search} onChange={event => setSearch(event.target.value)} />}
-    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field} className={typeof row[col.field] === "number" ? "lw-view-number" : undefined}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}>{display(row[col.field])}</SourceButton> : /(?:stage|status|priority)$/.test(col.field) && typeof row[col.field] === "string" ? <Tag text={display(row[col.field])} variant={stageTone(row[col.field])} size="sm" /> : display(row[col.field])}</TableCell>)}</TableRow>)}</TableBody></Table>
+    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field} className={typeof row[col.field] === "number" ? "lw-view-number" : undefined}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner} binding={typeof row.__viewBinding === "string" ? row.__viewBinding : undefined} available={row.__viewSourceAvailable}>{display(row[col.field])}</SourceButton> : /(?:stage|status|priority)$/.test(col.field) && typeof row[col.field] === "string" ? <Tag text={display(row[col.field])} variant={stageTone(row[col.field])} size="sm" /> : display(row[col.field])}</TableCell>)}</TableRow>)}</TableBody></Table>
     {!visible.length && <p className="lw-view-muted">No matching records</p>}
   </div>;
 }
@@ -81,7 +81,7 @@ function Board({ rows, groupBy, titleField, fields = [], groupOrder = [] }: { ro
       const editable = Boolean(actions?.canMove(row, groupBy));
       const title = display(row[titleField]) || "Untitled";
       return <article key={typeof row.path === "string" ? row.path : i} draggable={editable && !pending} onDragStart={event => { if (!editable || pending) { event.preventDefault(); return; } event.stopPropagation(); dragging.current = row; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", title); }} onDragEnd={() => { dragging.current = null; setDropTarget(null); }}>
-        <Card width="full" variant="sunk" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}><strong>{title}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}
+        <Card width="full" variant="sunk" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner} binding={typeof row.__viewBinding === "string" ? row.__viewBinding : undefined} available={row.__viewSourceAvailable}><strong>{title}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}
           {editable && <select className="lw-view-board-stage" aria-label={`Move ${title} to stage`} disabled={pending} value={name} onChange={event => void move(row, event.target.value)}>{stages.map(stage => <option key={stage} value={stage}>{stage || "Unassigned"}</option>)}</select>}
         </Card>
       </article>;

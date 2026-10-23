@@ -10,7 +10,7 @@ import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { hasUnsavedSessionDocument, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
@@ -411,7 +411,7 @@ function mergePersistedSessions(
   };
 }
 
-export const createPanelTabStore = () => create<PanelTabStore>()(
+export const createPanelTabStore = (storage?: () => StateStorage) => create<PanelTabStore>()(
   persist(
     (set, get) => ({
       sessions: {},
@@ -771,7 +771,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
     }),
     {
       name: PERSISTED_PANEL_TAB_STORE_KEY,
-      storage: createJSONStorage(() => {
+      storage: createJSONStorage(storage ?? (() => {
         if (typeof window === "undefined") return localStorage;
         // A detached window keeps its own layout even after navigation removes
         // the initial query parameter, including after a renderer reload.
@@ -783,7 +783,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           setItem: (key, value) => sessionStorage.setItem(key, value),
           removeItem: key => sessionStorage.removeItem(key),
         };
-      }),
+      })),
       partialize: (state) => ({
         opening: state.opening,
         sessions: Object.fromEntries(

@@ -1,4 +1,6 @@
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
+import { workspaceViewFiles } from "../views/repository.js";
+import { isViewFile, copyViewFile } from "../views/schema.js";
 import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -1126,15 +1128,21 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const source = projectFileSourceSchema.safeParse(body.source);
+    const source = projectFileSourceSchema.optional().safeParse(body.source);
     if (!source.success || typeof body.path !== "string" || typeof body.dataBase64 !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.dataBase64)) throw new ApiError(400, "invalid_payload", "Invalid project file import");
     const parsedPath = projectFilePath.safeParse(body.path);
     if (!parsedPath.success) throw new ApiError(400, "invalid_path", "Invalid destination file");
     const path = parsedPath.data;
-    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${source.data.name} into this project`, paths: [join(workspace.path, path)] });
-    const result = await importProjectFile(workspace.path, path, Buffer.from(body.dataBase64, "base64"));
+    if (source.data && isViewFile(source.data.path) && !isViewFile(path)) throw new ApiError(400, "invalid_view_path", "Dashboard copies keep the .view.json extension.");
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${source.data?.name ?? path} into this project`, paths: [join(workspace.path, path)] });
+    let bytes = Buffer.from(body.dataBase64, "base64");
+    if (isViewFile(path)) {
+      try { bytes = Buffer.from(copyViewFile(bytes)); }
+      catch (error) { throw new ApiError(400, "invalid_view_import", error instanceof Error ? error.message : "Invalid dashboard file."); }
+    }
+    const result = await importProjectFile(workspace.path, path, bytes);
     recordWorkspaceFileEvent(workspace.id, { type: "write", path });
-    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: join(workspace.path, path), summary: `Copied saved file from project ${source.data.projectId}: ${source.data.path}`, timestamp: Date.now() });
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: join(workspace.path, path), summary: source.data ? `Copied saved file from project ${source.data.projectId}: ${source.data.path}` : "Imported a local file", timestamp: Date.now() });
     return jsonResponse({ ok: true, ...result }, 201);
   });
 
@@ -1271,7 +1279,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const target = storagePath(typeof body.targetPath === "string" ? body.targetPath : "", false);
     await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Create ${target} from ${source}`, paths: [join(workspace.path, target)] });
     let result;
-    try { result = await keepWorkspaceCopy(workspace.path, source, target); }
+    try {
+      if (isViewFile(source)) {
+        if (!isViewFile(target)) throw new ApiError(400, "invalid_view_path", "Dashboard copies keep the .view.json extension.");
+        const bytes = await workspaceViewFiles(workspace.path).read(source);
+        result = await importProjectFile(workspace.path, target, copyViewFile(bytes, undefined, true));
+      } else result = await keepWorkspaceCopy(workspace.path, source, target);
+    }
     catch (error) { throw providerError(error); }
     recordWorkspaceFileEvent(workspace.id, { type: "write", path: target });
     await recordAudit(workspace.path, {

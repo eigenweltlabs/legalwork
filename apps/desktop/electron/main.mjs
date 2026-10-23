@@ -61,7 +61,7 @@ import { createSafeOpen } from "./safe-open.mjs";
 import { getApplicationsForFile } from "./file-applications.mjs";
 import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
-import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
+import { copyFilesIntoProject, resolveProjectFolder, dashboardFileImporter } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
 import { parseSkillFrontmatter } from "./skill-frontmatter.mjs";
@@ -1796,8 +1796,9 @@ const desktopCommandHandlers = {
   "workspaceCopyFiles": async (event, ...args) => {
       const input = args[0];
       const state = await workspaceStore.readWorkspaceState();
-      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, await runtimeManager.legalworkServerInfo());
-      return copyFilesIntoProject(root, input.paths, undefined, input.folder);
+      const server = await runtimeManager.legalworkServerInfo();
+      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, server);
+      return copyFilesIntoProject(root, input.paths, undefined, input.folder, dashboardFileImporter(server, input.workspaceId));
   },
   "workspaceCreateRemote": async (event, ...args) => {
       return workspaceStore.createRemoteWorkspace(args[0] ?? {});

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { WikiStore } from "./store.js";
+import { StoredViewSchema } from "../views/schema.js";
 
 const roots: string[] = [], stores: WikiStore[] = [];
 afterEach(async () => {
@@ -24,6 +25,24 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("duplicating a dashboard or its folder assigns new IDs but retains same-wiki live queries", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Views", template: "blank" });
+    const original = StoredViewSchema.parse({ version: 1, id: crypto.randomUUID(), updatedAt: 100, title: "Live overview", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Overview")', queries: { rows: { fields: ["title"] } } });
+    const bytes = Buffer.from(JSON.stringify(original));
+    await store.writeAsset(wiki.id, "Dashboards/Overview.view.json", bytes, "");
+    const file = await store.entry(wiki.id, "Dashboards/Overview.view.json");
+    await store.changeEntry(wiki.id, { action: "copy", path: file.path, destination: "Dashboards/Overview copy.view.json", baseRevision: file.revision });
+    const folder = await store.entry(wiki.id, "Dashboards");
+    await store.changeEntry(wiki.id, { action: "copy", path: folder.path, destination: "Copies", baseRevision: folder.revision });
+    const ids = new Set([original.id]);
+    for (const path of ["Dashboards/Overview copy.view.json", "Copies/Overview.view.json", "Copies/Overview copy.view.json"]) {
+      const copy = StoredViewSchema.parse(JSON.parse((await store.readAsset(wiki.id, path)).toString()));
+      ids.add(copy.id); expect(copy.queries).toEqual(original.queries);
+    }
+    expect(ids.size).toBe(4);
+    expect(await store.readAsset(wiki.id, file.path)).toEqual(bytes);
+    await expect(store.changeEntry(wiki.id, { action: "copy", path: file.path, destination: "Wrong.json", baseRevision: file.revision })).rejects.toMatchObject({ code: "invalid_view_path" });
+  });
   test("identifies default storage across canonical paths and keeps custom folders distinct", async () => {
     const { root, store } = await fixture();
     const managed = await store.create({ name: "Managed", template: "blank" });

@@ -55,6 +55,37 @@ test("copies original bytes without replacing collisions and deduplicates a drop
   assert.equal(await readFile(source, "utf8"), "Original contract – unchanged");
 });
 
+test("native dashboard imports use the validated importer and retain the compound extension on collisions", async () => {
+  const { root, project } = await fixture();
+  const source = path.join(root, "Overview.view.json");
+  await writeFile(source, "original dashboard");
+  let imports = 0;
+  const importer = async (_source, destination) => {
+    const content = `independent dashboard ${++imports}`;
+    await writeFile(path.join(project, destination), content, { flag: "wx" });
+    return Buffer.byteLength(content);
+  };
+  for (const expected of ["Overview.view.json", "Overview (2).view.json"]) {
+    const result = await copyFilesIntoProject(project, [source], undefined, "", importer);
+    assert.equal(result.files[0].status, "copied");
+    assert.equal(result.files[0].path, expected);
+    assert.match(await readFile(path.join(project, expected), "utf8"), /^independent dashboard/);
+  }
+  assert.equal(await readFile(source, "utf8"), "original dashboard");
+});
+
+test("nested dashboards cannot fall back to raw copying when the importer is unavailable", async () => {
+  const { root, project } = await fixture();
+  const folder = path.join(root, "Shared");
+  await mkdir(folder);
+  await writeFile(path.join(folder, "Overview.view.json"), "original dashboard");
+  await writeFile(path.join(folder, "Notes.txt"), "ordinary document");
+  const result = await copyFilesIntoProject(project, [folder]);
+  assert.ok(result.files.some(file => file.error === "dashboard"));
+  assert.deepEqual(await readdir(path.join(project, "Shared")), ["Notes.txt"]);
+  assert.equal(await readFile(path.join(folder, "Overview.view.json"), "utf8"), "original dashboard");
+});
+
 test("copy is independent of the original and preserves modification time", async () => {
   const { project, source } = await fixture();
   const before = await stat(source);
