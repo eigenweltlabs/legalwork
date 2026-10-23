@@ -1,3 +1,4 @@
+import { getReactQueryClient } from "../infra/query-client";
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import type { SyncPoke } from "@legalwork/types/sync-events";
@@ -11,7 +12,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
  * covers is not polled; while it is not (still connecting, or a server
  * without sync events), the polling goes on as before.
  */
-export const useSyncEventsLive = create<{ live: boolean }>(() => ({ live: false }));
+export const useSyncEventsLive = create<{ live: boolean; metadata: boolean; baseUrl: string | null }>(() => ({ live: false, metadata: false, baseUrl: null }));
 
 const listeners = new Set<(poke: SyncPoke) => void>();
 
@@ -56,21 +57,30 @@ export function useSyncEvents(client: LegalworkServerClient | null): void {
           await latest.current?.syncEvents((poke) => {
             heard = true;
             // The first event of every connection: from here on nothing is missed.
-            if (poke.resync) useSyncEventsLive.setState({ live: true });
+            if (poke.resync) useSyncEventsLive.setState({ live: true, metadata: poke.metadata === true, baseUrl });
+            const roots = [
+              ...(poke.reviews || poke.resync ? ["project-reviews"] : []),
+              ...(poke.suggestions || poke.resync ? ["wiki-suggestion", "wiki-suggestions"] : []),
+              ...(poke.views || poke.resync ? ["ui-view", "ui-views"] : []),
+              ...(poke.queues || poke.resync ? ["session-message-queue"] : []),
+              ...(poke.sessions || poke.resync ? ["scheduled-tasks", "scheduled-task"] : []),
+              ...(poke.sandbox || poke.policy || poke.reload || poke.resync ? ["sandbox-default", "session-sandbox"] : []),
+            ];
+            for (const root of roots) void getReactQueryClient().invalidateQueries({ queryKey: [root] });
             for (const listener of listeners) listener(poke);
           }, stop.signal);
         } catch {
           // Dropped, or a server without sync events: polled meanwhile, and tried again.
         }
         if (stop.signal.aborted) return;
-        useSyncEventsLive.setState({ live: false });
+        useSyncEventsLive.setState({ live: false, metadata: false, baseUrl: null });
         backoff = heard ? RETRY_MS : Math.min(backoff * 2, MAX_RETRY_MS);
         await sleep(backoff, stop.signal);
       }
     })();
     return () => {
       stop.abort();
-      useSyncEventsLive.setState({ live: false });
+      useSyncEventsLive.setState({ live: false, metadata: false, baseUrl: null });
     };
   }, [baseUrl]);
 }

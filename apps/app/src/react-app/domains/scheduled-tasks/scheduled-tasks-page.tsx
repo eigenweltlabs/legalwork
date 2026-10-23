@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Search } from "lucide-react";
@@ -18,6 +19,7 @@ export function ScheduledTasksPage({ client, projects, defaultModel, openTaskId,
   client: ScheduleClient | null; projects: ScheduleProject[]; defaultModel?: ScheduledTaskInput["model"];
   openTaskId?: string | null; onOpenSession: (workspaceId: string, sessionId: string) => void;
 }) {
+  const metadataInterval = useMetadataPolling(client?.baseUrl, 15000);
   const cache = useQueryClient();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -28,9 +30,9 @@ export function ScheduledTasksPage({ client, projects, defaultModel, openTaskId,
   const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
   const [busy, setBusy] = useState(false);
   const [initial, setInitial] = useState<ScheduledTaskDraft>();
-  const tasks = useQuery({ queryKey: ["scheduled-tasks", client?.baseUrl], enabled: Boolean(client), queryFn: () => client!.scheduledTasks(), refetchInterval: 15000 });
+  const tasks = useQuery({ queryKey: ["scheduled-tasks", client?.baseUrl], enabled: Boolean(client), queryFn: () => client!.scheduledTasks(), refetchInterval: metadataInterval });
   const selected = tasks.data?.tasks.find(task => task.id === selectedId);
-  const detail = useQuery({ queryKey: ["scheduled-task", client?.baseUrl, selected?.workspaceId, selectedId], enabled: Boolean(client && selected), queryFn: () => client!.scheduledTask(selected!.workspaceId, selected!.id), refetchInterval: 15000 });
+  const detail = useQuery({ queryKey: ["scheduled-task", client?.baseUrl, selected?.workspaceId, selectedId], enabled: Boolean(client && selected), queryFn: () => client!.scheduledTask(selected!.workspaceId, selected!.id), refetchInterval: metadataInterval });
   const current = selected ? detail.data?.task ?? selected : undefined;
   const projectName = (task: ScheduledTask) => projects.find(project => project.id === task.workspaceId)?.name ?? task.workspaceId;
   useEffect(() => { if (openTaskId) { setSelectedId(openTaskId); setEditing(null); setDirty(false); } }, [openTaskId]);

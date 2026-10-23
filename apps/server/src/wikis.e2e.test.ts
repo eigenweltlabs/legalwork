@@ -220,11 +220,15 @@ describe("Wiki HTTP API", () => {
       expect(tasks.parse(await (await request("/scheduled-tasks", "owner")).json()).tasks.map(item => item.id)).toContain(privateTask.id);
       expect(projects.parse(await (await request("/scheduled-tasks/projects", "owner")).json()).projects.map(item => item.id)).toContain(wiki.workspaceId);
       expect(inbox.parse(await (await request("/session-inbox", "owner")).json()).sessions.map(item => item.sessionId)).toContain("private-chat");
+      const groupBatch = `/session-groups/events?${new URLSearchParams({ cursors: JSON.stringify({ [wiki.workspaceId]: null, [project.id]: null }) })}`;
+      const groups = z.object({ items: z.array(z.object({ workspaceId: z.string() })) });
+      expect(groups.parse(await (await request(groupBatch, "owner")).json()).items.map(item => item.workspaceId)).toContain(wiki.workspaceId);
       const actors: Array<"collaborator" | "viewer"> = ["collaborator", "viewer"];
       for (const actor of actors) {
         expect(tasks.parse(await (await request("/scheduled-tasks", actor)).json()).tasks.map(item => item.id)).toEqual([projectTask.id]);
         expect(projects.parse(await (await request("/scheduled-tasks/projects", actor)).json()).projects.map(item => item.id)).toEqual([project.id]);
         expect(inbox.parse(await (await request("/session-inbox", actor)).json()).sessions.map(item => item.sessionId)).toEqual(["project-chat"]);
+        expect(groups.parse(await (await request(groupBatch, actor)).json()).items.map(item => item.workspaceId)).toEqual([project.id]);
         expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks/${privateTask.id}`, actor)).status).toBe(404);
       }
       expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks`, "collaborator", "POST", input)).status).toBe(404);

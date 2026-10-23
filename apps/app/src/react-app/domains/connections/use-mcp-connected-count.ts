@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { startRequestPolling } from "@/app/lib/request-poller";
 import { unwrap } from "../../../app/lib/opencode";
 import type { Client, McpStatusMap } from "../../../app/types";
 
@@ -20,22 +21,22 @@ export function useMcpConnectedCount(client: Client | null, directory: string): 
     }
 
     let cancelled = false;
-    const refresh = async () => {
+    const refresh = async (signal: AbortSignal) => {
       try {
-        const status = unwrap(await client.mcp.status({ directory }));
+        const status = unwrap(await client.mcp.status({ directory }, { signal }));
         if (cancelled) return;
         const values = Object.values(status as McpStatusMap);
         setCount(values.filter((entry) => entry.status === "connected").length);
-      } catch {
+      } catch (error) {
         if (!cancelled) setCount(0);
+        throw error;
       }
     };
 
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
+    const poller = startRequestPolling(refresh, { intervalMs: REFRESH_INTERVAL_MS });
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      poller.stop();
     };
   }, [client, directory]);
 

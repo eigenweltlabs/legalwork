@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { suggestionOutcome, suggestionTab, suggestionTools } from "./wiki-suggestion-model";
 import { useEffect, useRef } from "react";
 import type { DynamicToolUIPart, UIMessage } from "ai";
@@ -9,10 +10,11 @@ import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 
 export function WikiSuggestionCard({ part }: { part: DynamicToolUIPart }) {
   const { legalworkClient } = useMessageList();
+  const metadataInterval = useMetadataPolling(legalworkClient?.baseUrl, 5000);
   const open = useRequestPanelTab();
   const original = suggestionOutcome(part.output);
   const { data } = useQuery({ queryKey: ["wiki-suggestion", legalworkClient?.baseUrl, original?.workspaceId, original?.id], enabled: Boolean(legalworkClient && original),
-    queryFn: () => legalworkClient!.wikiSuggestion(original!.workspaceId, original!.id), refetchInterval: 5000 });
+    queryFn: () => legalworkClient!.wikiSuggestion(original!.workspaceId, original!.id), refetchInterval: metadataInterval });
   const item = data ?? original;
   if (!item) return null;
   return <div className="my-3 flex items-center gap-3 rounded-xl border p-3"><FilePenLine className="size-4 shrink-0 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.title}</p><p className="text-xs text-muted-foreground">{item.status === "pending" ? "Wiki suggestion · Ready for your review" : item.status === "saved" ? "Saved to wiki" : "Dismissed"}</p></div><Button size="sm" variant="outline" onClick={() => open(suggestionTab(item), { besideChat: true })}>{item.status === "pending" ? "Review" : "Open"}</Button></div>;

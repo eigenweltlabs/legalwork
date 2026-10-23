@@ -7,7 +7,7 @@ export class ReloadEventStore {
   private maxSize: number;
   private lastRecorded: Map<string, number> = new Map();
 
-  constructor(maxSize = 200) {
+  constructor(maxSize = 200, private readonly onChange?: () => void) {
     this.maxSize = maxSize;
   }
 
@@ -22,6 +22,7 @@ export class ReloadEventStore {
     };
 
     this.events.push(event);
+    this.onChange?.();
     if (this.events.length > this.maxSize) {
       this.events.splice(0, this.events.length - this.maxSize);
     }

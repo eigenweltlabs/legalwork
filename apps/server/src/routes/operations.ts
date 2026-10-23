@@ -14,6 +14,7 @@ interface RegisterOperationRoutesOptions {
   readJsonBody: ReadJsonBody;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  resolveWorkspaceMetadata?: (config: ServerConfig, id: string) => WorkspaceInfo;
   reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<void>;
 }
 
@@ -28,8 +29,9 @@ export function registerOperationRoutes(options: RegisterOperationRoutesOptions)
     reloadOpencodeEngine,
   } = options;
 
+  const metadata = options.resolveWorkspaceMetadata ?? resolveWorkspace;
   addRoute(routes, "GET", "/workspace/:id/events", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const sinceRaw = ctx.url.searchParams.get("since");
     const since = sinceRaw ? Number(sinceRaw) : undefined;
     const items = ctx.reloadEvents.list(workspace.id, since);

@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, RefreshCw, Shield, ShieldOff } from "lucide-react";
@@ -9,8 +10,9 @@ import { HubTabs } from "../segmented-tabs";
 import { SandboxNetworkControl, networkDescription, type NetworkMode } from "./sandbox-network-control";
 
 export function SandboxStatus({ client, canWrite = false, variant = "full" }: { client: LegalworkServerClient; canWrite?: boolean; variant?: "full" | "quick" }) {
+  const metadataInterval = useMetadataPolling(client.baseUrl, 5000);
   const cache = useQueryClient();
-  const query = useQuery({ queryKey: ["sandbox-default", client.baseUrl], queryFn: () => client.sandboxStatus(), refetchInterval: 5000 });
+  const query = useQuery({ queryKey: ["sandbox-default", client.baseUrl], queryFn: () => client.sandboxStatus(), refetchInterval: metadataInterval });
   const status = query.data;
   const syncLabels = {
     local: t("sandbox.sync_local"), syncing: t("sandbox.sync_syncing"),

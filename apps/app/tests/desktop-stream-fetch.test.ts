@@ -2,6 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { fetchDesktopStream } from "../src/app/lib/desktop-stream-fetch";
 
 describe("desktop event streams", () => {
+  test("caller cancellation rejects even while main-process headers are unavailable", async () => {
+    const controller = new AbortController();
+    let cancelled = false;
+    const opening = fetchDesktopStream({
+      __streamOpen: () => new Promise(() => {}),
+      __streamRead: async () => null,
+      __streamCancel: async () => { cancelled = true; },
+    }, "https://example.test/metadata", { signal: controller.signal });
+    controller.abort(new Error("Changed server"));
+    await expect(opening).rejects.toThrow("Changed server");
+    expect(cancelled).toBe(true);
+  });
   test("preserves split UTF-8 chunks and request authorization without buffering the entire stream", async () => {
     const bytes = new TextEncoder().encode("data: geändert\n\n");
     const chunks = [bytes.slice(0, 8), bytes.slice(8)];

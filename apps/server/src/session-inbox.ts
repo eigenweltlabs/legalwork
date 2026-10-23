@@ -7,7 +7,7 @@ import { localSessionDatabasePath } from "./content-search.js";
 import { openSqliteReadonly } from "./managed-opencode-db.js";
 
 /** Read metadata, not transcripts. This also recovers activity missed while the UI was closed. */
-export async function readSessionInbox(config: ServerConfig, workspaces: WorkspaceInfo[], automated: SessionInboxEntry[]): Promise<SessionInboxEntry[]> {
+export async function readSessionInbox(config: ServerConfig, workspaces: WorkspaceInfo[], automated: SessionInboxEntry[], signal?: AbortSignal): Promise<SessionInboxEntry[]> {
   const allowed = new Set(workspaces.map(workspace => workspace.id));
   const automation = new Map(automated.filter(entry => allowed.has(entry.workspaceId)).map(entry => [entry.sessionId, entry]));
   const path = localSessionDatabasePath(config);
@@ -16,8 +16,10 @@ export async function readSessionInbox(config: ServerConfig, workspaces: Workspa
   try {
     const sessions: SessionInboxEntry[] = [];
     for (const workspace of workspaces) {
+      signal?.throwIfAborted();
       const root = workspace.opencode?.directory || workspace.directory || workspace.path;
       const canonical = await realpath(root).catch(() => resolve(root));
+      signal?.throwIfAborted();
       const rows = db.all(`SELECT s.id, s.time_updated,
         (SELECT MAX(COALESCE(json_extract(m.data, '$.time.completed'), m.time_created)) FROM message m
           WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'assistant'

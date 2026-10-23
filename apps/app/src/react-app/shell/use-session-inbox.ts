@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { RouteWorkspace } from "./route-workspaces";
 import { workspaceServerId } from "@/app/lib/workspace-endpoint";
+import { startRequestPolling } from "@/app/lib/request-poller";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { useSessionInboxStore } from "../domains/session/sidebar/session-inbox-store";
 import type { SessionInboxEntry } from "@legalwork/types/scheduled-tasks";
@@ -22,35 +23,29 @@ export function useSessionInbox(client: LegalworkServerClient | null, workspaces
   const workspaceKey = workspaces.map(workspace => workspace.id).join("|");
   useEffect(() => {
     if (!client) return;
-    let stopped = false, running = false, pending = false;
-    let timer: ReturnType<typeof setTimeout>;
     let lastFullRefresh = 0;
-    const poll = async () => {
-      clearTimeout(timer);
-      if (running) { pending = true; return; }
-      running = true;
-      try {
-        const { sessions } = await latest.current.client!.sessionInbox();
-        if (stopped) return;
-        const changed = new Set(useSessionInboxStore.getState().receive(sessions));
-        const fullRefresh = Date.now() - lastFullRefresh >= 30_000;
-        const targets = latest.current.workspaces.filter(workspace => workspace.workspaceType !== "remote" && (
-          fullRefresh || changed.has(workspaceServerId(workspace)) ||
-          inboxNeedsRefresh(sessions.filter(entry => entry.workspaceId === workspaceServerId(workspace)), latest.current.listed[workspace.id] ?? [])
-        ));
-        if (fullRefresh) lastFullRefresh = Date.now();
-        if (targets.length) await latest.current.reload(targets);
-      } catch { /* Server starting or reconnecting. Retain the last known state and retry. */ }
-      finally {
-        running = false;
-        if (!stopped) { timer = setTimeout(() => void poll(), pending ? 0 : 5000); pending = false; }
-      }
-    };
-    const unsubscribe = onSyncPoke(poke => { if (poke.sessions || poke.resync) void poll(); });
-    const wake = () => { void poll(); };
+    let previous: SessionInboxEntry[] = [];
+    const poller = startRequestPolling(async signal => {
+      const { sessions } = await latest.current.client!.sessionInbox(signal);
+      if (signal.aborted) return;
+      const changed = new Set(useSessionInboxStore.getState().receive(sessions));
+      const ids = new Set(sessions.map(entry => entry.sessionId));
+      // Archive/deletion is a change too, so unchanged projects no longer need
+      // full list downloads every thirty seconds to discover removed chats.
+      for (const entry of previous) if (!ids.has(entry.sessionId)) changed.add(entry.workspaceId);
+      previous = sessions;
+      const fullRefresh = Date.now() - lastFullRefresh >= 5 * 60_000;
+      const targets = latest.current.workspaces.filter(workspace => workspace.workspaceType !== "remote" && (
+        fullRefresh || changed.has(workspaceServerId(workspace)) ||
+        inboxNeedsRefresh(sessions.filter(entry => entry.workspaceId === workspaceServerId(workspace)), latest.current.listed[workspace.id] ?? [])
+      ));
+      if (fullRefresh) lastFullRefresh = Date.now();
+      if (targets.length) await latest.current.reload(targets);
+    }, { intervalMs: 5000, pauseWhenHidden: false });
+    const unsubscribe = onSyncPoke(poke => { if (poke.sessions || poke.resync) poller.wake(); });
+    const wake = () => poller.wake();
     window.addEventListener("focus", wake);
-    void poll();
-    return () => { stopped = true; clearTimeout(timer); unsubscribe(); window.removeEventListener("focus", wake); };
+    return () => { poller.stop(); unsubscribe(); window.removeEventListener("focus", wake); };
   }, [client?.baseUrl, workspaceKey]);
   useEffect(() => {
     const syncRead = (event: StorageEvent) => { if (event.key === "legalwork.react.sessionInbox") void useSessionInboxStore.persist.rehydrate(); };

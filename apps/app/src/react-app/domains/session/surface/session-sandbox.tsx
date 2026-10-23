@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Globe, RotateCcw, Shield, ShieldOff } from "lucide-react";
@@ -9,7 +10,8 @@ import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/lega
 import { t } from "@/i18n";
 
 export function SessionSandbox({ client, workspaceId, sessionId }: { client: LegalworkServerClient; workspaceId: string; sessionId: string }) {
-  const query = useQuery({ queryKey: ["session-sandbox", client.baseUrl, workspaceId, sessionId], queryFn: () => client.sessionSandbox(workspaceId, sessionId), refetchInterval: 5000 });
+  const metadataInterval = useMetadataPolling(client.baseUrl, 5000);
+  const query = useQuery({ queryKey: ["session-sandbox", client.baseUrl, workspaceId, sessionId], queryFn: () => client.sessionSandbox(workspaceId, sessionId), refetchInterval: metadataInterval });
   const state = query.data;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

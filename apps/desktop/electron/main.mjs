@@ -52,6 +52,7 @@ import { createUiControlServer } from "./ui-control-server.mjs";
 import { createOpenComputerUseIntegration } from "./open-computer-use.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
+import { createHttpRequests } from "./http-requests.mjs";
 import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
@@ -670,6 +671,7 @@ const IDLE_ROUTER_INFO = Object.freeze({
 let mainWindow = null;
 const secondaryWindows = new Set();
 const eventStreams = createEventStreams();
+const httpRequests = createHttpRequests();
 const pendingDeepLinks = [];
 
 // Relay a content-free error signal to the renderer, which turns it into an
@@ -2768,24 +2770,8 @@ const desktopCommandHandlers = {
         return String(err?.message ?? err);
       }
   },
-  "__fetch": async (event, ...args) => {
-      const url = String(args[0] ?? "").trim();
-      const init = args[1] ?? {};
-      if (!url) throw new Error("URL is required.");
-      const timeoutMs = Number(init.timeoutMs);
-      const response = await fetch(url, {
-        method: typeof init.method === "string" ? init.method : undefined,
-        headers: init.headers && typeof init.headers === "object" ? init.headers : undefined,
-        body: typeof init.body === "string" ? init.body : undefined,
-        signal: Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined,
-      });
-      return {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Array.from(response.headers.entries()),
-        body: await response.text(),
-      };
-  },
+  "__fetch": async (event, url, init) => httpRequests.fetch(event.sender, url, init),
+  "__fetchCancel": async (event, id) => httpRequests.cancel(event.sender, id),
   "__homeDir": async (event, ...args) => {
       return os.homedir();
   },

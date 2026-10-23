@@ -10,6 +10,8 @@ export async function fetchDesktopStream(bridge: StreamBridge, input: RequestInf
   const id = crypto.randomUUID();
   let body: ReadableStreamDefaultController<Uint8Array> | undefined;
   let finished = false;
+  let rejectAbort: (reason: unknown) => void = () => {};
+  const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
   const cleanup = () => {
     finished = true;
     request.signal.removeEventListener("abort", abort);
@@ -18,13 +20,14 @@ export async function fetchDesktopStream(bridge: StreamBridge, input: RequestInf
   const abort = () => {
     cleanup();
     body?.error(request.signal.reason);
+    rejectAbort(request.signal.reason);
     cancel();
   };
   // Start before installing the abort handler so cancellation cannot overtake open.
   const opening = bridge.__streamOpen(id, request.url, Object.fromEntries(request.headers.entries()));
   request.signal.addEventListener("abort", abort, { once: true });
   try {
-    const metadata = await opening;
+    const metadata = await Promise.race([opening, cancelled]);
     request.signal.throwIfAborted();
     if ([204, 205, 304].includes(metadata.status)) {
       cleanup();

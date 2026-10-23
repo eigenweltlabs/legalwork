@@ -1263,7 +1263,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               return { workspaceId: workspace.id, sessions: [], error: null as string | null };
             }
             try {
-              const response = await client.listSessions(workspace.id, { limit: 200 });
+              const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: normalizedBaseUrl, token: resolvedToken, hostToken: resolvedHostToken, localClient: client });
+              if (!endpoint) return { workspaceId: workspace.id, sessions: [], error: null };
+              const response = await endpoint.client.listSessions(endpoint.workspaceId, { limit: 200 });
               const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
               const items = workspaceRoot
                 ? (response.items ?? []).filter((session) =>

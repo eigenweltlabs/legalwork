@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useNavigate } from "react-router-dom";
 import { getToolName, type ToolUIPart, type DynamicToolUIPart } from "ai";
 import { useQuery } from "@tanstack/react-query";
@@ -39,9 +40,10 @@ export function parseScheduledTaskCard(output: unknown) {
 export function ScheduledTaskToolCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
   const initial = part.state === "output-available" ? parseScheduledTaskCard(part.output) : null;
   const { legalworkClient, workspaceId } = useMessageList();
+  const metadataInterval = useMetadataPolling(legalworkClient?.baseUrl, 15000);
   const available = Boolean(legalworkClient && initial && initial.workspaceId === workspaceId);
   const query = useQuery({ queryKey: ["scheduled-task", legalworkClient?.baseUrl, workspaceId, initial?.id], enabled: available,
-    queryFn: () => legalworkClient!.scheduledTask(workspaceId, initial!.id), refetchInterval: 15000 });
+    queryFn: () => legalworkClient!.scheduledTask(workspaceId, initial!.id), refetchInterval: metadataInterval });
   if (part.state !== "output-available" && part.state !== "output-error") return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("scheduled.loading")}</p>;
   if (!initial) return <p role="alert" className="text-sm text-destructive">{t("scheduled.save_failed")}</p>;
   const task = query.data?.task ?? initial;
@@ -56,8 +58,9 @@ export function ScheduledTaskRunCard({ run }: { run: NonNullable<ReturnType<type
     queryFn: () => legalworkClient!.scheduledTasks(), staleTime: 15000 });
   const matches = list.data?.tasks.filter(task => task.workspaceId === workspaceId && task.title === run.title && task.prompt === run.prompt) ?? [];
   const taskId = run.taskId ?? (matches.length === 1 ? matches[0].id : undefined);
+  const metadataInterval = useMetadataPolling(legalworkClient?.baseUrl, 15000);
   const query = useQuery({ queryKey: ["scheduled-task", legalworkClient?.baseUrl, workspaceId, taskId], enabled: available && Boolean(taskId),
-    queryFn: () => legalworkClient!.scheduledTask(workspaceId, taskId!), refetchInterval: 15000 });
+    queryFn: () => legalworkClient!.scheduledTask(workspaceId, taskId!), refetchInterval: metadataInterval });
   // Legacy text alone must not link an unrelated task with the same name.
   const linked = available && query.data && (run.taskId || query.data.runs.some(item => item.sessionId === sessionId));
   const task = linked ? query.data?.task : undefined;

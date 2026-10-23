@@ -38,7 +38,7 @@ import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, Wik
 import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
 import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
-import { desktopFetch, desktopStreamFetch } from "./desktop";
+import { desktopFetch, desktopReadFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { ImportedMarketplace, ImportedPlugin } from "./extension-imports";
@@ -1453,24 +1453,28 @@ type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 // The desktop app keeps this window's console warnings in main.log, which
 // support collects. A timeout or an unreachable server never reaches the
 // server's own log, so every failed request is reported here.
-async function fetchWithTimeout(
+async function fetchWithTimeout(fetchImpl: FetchLike, url: string, init: RequestInit, timeoutMs: number): Promise<Response>;
+async function fetchWithTimeout<T>(fetchImpl: FetchLike, url: string, init: RequestInit, timeoutMs: number, consume: (response: Response, progress: () => void) => Promise<T>): Promise<T>;
+async function fetchWithTimeout<T = Response>(
   fetchImpl: FetchLike,
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  consume?: (response: Response, progress: () => void) => Promise<T>,
 ) {
   const startedAt = Date.now();
   const describe = () => `[legalwork-server] ${init.method ?? "GET"} ${url.split("?")[0]} failed after ${Date.now() - startedAt}ms:`;
   try {
-    const response = await fetchWithDeadline(fetchImpl, url, init, timeoutMs);
-    if (!response.ok) {
-      const label = describe();
-      void response.clone().text().then(
-        (body) => console.warn(label, response.status, body.slice(0, 1000)),
-        () => console.warn(label, response.status),
-      );
-    }
-    return response;
+    return await fetchWithDeadline(fetchImpl, url, init, timeoutMs, async (response, progress) => {
+      if (!response.ok) {
+        const label = describe();
+        void response.clone().text().then(
+          (body) => console.warn(label, response.status, body.slice(0, 1000)),
+          () => console.warn(label, response.status),
+        );
+      }
+      return consume ? consume(response, progress) : response;
+    });
   } catch (error) {
     // A caller that cancels on purpose (init.signal) is not a failure.
     if (!init.signal?.aborted) console.warn(describe(), error instanceof Error ? error.message : error);
@@ -1478,14 +1482,18 @@ async function fetchWithTimeout(
   }
 }
 
-async function fetchWithDeadline(
+async function fetchWithDeadline(fetchImpl: FetchLike, url: string, init: RequestInit, timeoutMs: number): Promise<Response>;
+async function fetchWithDeadline<T>(fetchImpl: FetchLike, url: string, init: RequestInit, timeoutMs: number, consume: (response: Response, progress: () => void) => Promise<T>): Promise<T>;
+async function fetchWithDeadline<T = Response>(
   fetchImpl: FetchLike,
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  consume?: (response: Response, progress: () => void) => Promise<T>,
 ) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return fetchImpl(url, init);
+    const response = await fetchImpl(url, init);
+    return consume ? consume(response, () => {}) : response;
   }
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -1493,21 +1501,26 @@ async function fetchWithDeadline(
   const initWithSignal = signal ? { ...init, signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal } : init;
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let progress = () => {};
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      try {
+    progress = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
         controller?.abort();
-      } catch {
-        // ignore
-      }
-      reject(new Error(t("app.request_timed_out")));
-    }, timeoutMs);
+        reject(new Error(t("app.request_timed_out")));
+      }, timeoutMs);
+    };
+    progress();
   });
 
   try {
-    return await Promise.race([fetchImpl(url, initWithSignal), timeoutPromise]);
+    return await Promise.race([(async () => {
+      const response = await fetchImpl(url, initWithSignal);
+      if (consume) { progress(); return consume(response, progress); }
+      return response;
+    })(), timeoutPromise]);
   } catch (error) {
-    const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
+    const name = error && typeof error === "object" && "name" in error && typeof error.name === "string" ? error.name : "";
     if (init.signal?.aborted) throw error;
     if (name === "AbortError") {
       throw new Error(t("app.request_timed_out"));
@@ -1518,35 +1531,60 @@ async function fetchWithDeadline(
   }
 }
 
+type JsonReply = { ok: boolean; status: number; statusText: string; text: string };
+const pendingJsonReads = new Map<string, Promise<JsonReply>>();
+
+async function readJsonText(response: Response, progress: () => void): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  try {
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      progress();
+      chunks.push(decoder.decode(chunk.value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally { reader.releaseLock(); }
+}
+
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal; readOnly?: boolean } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
-  // The desktop text bridge cannot cancel an in-flight search request.
-  const fetchImpl = options.signal ? globalThis.fetch.bind(globalThis) : resolveFetch(url);
-  const response = await fetchWithTimeout(
-    fetchImpl,
-    url,
-    {
-      method: options.method ?? "GET",
-      headers: buildHeaders(options.token, options.hostToken),
-      body: options.body ? JSON.stringify(options.body) : undefined,
-      signal: options.signal,
-    },
-    options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS,
-  );
-
-  const text = await response.text();
-  const json = text ? JSON.parse(text) : null;
-
+  const method = options.method ?? "GET";
+  const readOnly = method === "GET" || options.readOnly === true;
+  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS;
+  const fetchImpl = method === "GET" && isDesktopRuntime() ? desktopReadFetch : resolveFetch(url);
+  const read = () => fetchWithTimeout(fetchImpl, url, {
+    method, headers: buildHeaders(options.token, options.hostToken),
+    body, signal: options.signal,
+  }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
+  // Never share mutations or a caller's cancellation. Only concurrent reads
+  // join; there is no result cache, and every caller parses its own value.
+  const key = readOnly && !options.signal
+    ? JSON.stringify([method, url, options.token, options.hostToken, timeoutMs, body]) : null;
+  if (!readOnly) pendingJsonReads.clear();
+  let pending = key ? pendingJsonReads.get(key) : undefined;
+  if (!pending) {
+    pending = read();
+    if (key) {
+      const own = pending;
+      pendingJsonReads.set(key, own);
+      void own.finally(() => { if (pendingJsonReads.get(key) === own) pendingJsonReads.delete(key); }).catch(() => {});
+    }
+  }
+  const response = await pending;
+  const json = response.text ? JSON.parse(response.text) : null;
   if (!response.ok) {
     const code = typeof json?.code === "string" ? json.code : "request_failed";
     const message = typeof json?.message === "string" ? json.message : response.statusText;
     throw new LegalworkServerError(response.status, code, message, json?.details);
   }
-
   return json as T;
 }
 
@@ -1752,7 +1790,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     readView: (owner: ViewOwner, id: string) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken }),
     createView: (owner: ViewOwner, input: ViewInput, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "POST", body: input }),
     updateView: (owner: ViewOwner, id: string, input: { baseRevision: string; input: ViewInput }, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "PUT", body: input }),
-    queryWiki: (id: string, query: WikiDataQuery) => requestJson<WikiDataResult>(baseUrl, `/wikis/${encodeURIComponent(id)}/query`, { token, hostToken, method: "POST", body: query }),
+    queryWiki: (id: string, query: WikiDataQuery) => requestJson<WikiDataResult>(baseUrl, `/wikis/${encodeURIComponent(id)}/query`, { token, hostToken, method: "POST", body: query, readOnly: true }),
     updateWikiProperties: (id: string, input: { path: string; baseRevision: string; patch: { set: Record<string, string> } }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/properties`, { token, hostToken, method: "PATCH", body: input }),
     wikiFields: (id: string) => requestJson<WikiFields>(baseUrl, `/wikis/${encodeURIComponent(id)}/fields`, { token, hostToken }),
     wikiGraphRevision: (id: string) => requestJson<{ revision: string }>(baseUrl, `/wikis/${encodeURIComponent(id)}/graph/revision`, { token, hostToken, timeoutMs: 120_000 }),
@@ -1916,7 +1954,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     },
     getJevSearchProgress: (workspaceId: string, jobId: string) => requestJson<JevSearchProgress>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}`, { token, hostToken }),
     getJevSearchResults: (workspaceId: string, jobId: string, answer: string, offset = 0) => requestJson<JevSearchResults>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}/results?${new URLSearchParams({ answer, offset: String(offset) })}`, { token, hostToken }),
-    queryReviewRows: (workspaceId: string, reviewId: string, input: Omit<QueryReviewResults, "cursor" | "limit" | "view">) => requestJson<{ revision: number; documentIds: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/rows/query`, { token, hostToken, method: "POST", body: input }),
+    queryReviewRows: (workspaceId: string, reviewId: string, input: Omit<QueryReviewResults, "cursor" | "limit" | "view">) => requestJson<{ revision: number; documentIds: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/rows/query`, { token, hostToken, method: "POST", body: input, readOnly: true }),
     deleteReview: (workspaceId: string, reviewId: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "DELETE", body: { revision } }),
     createReview: (workspaceId: string, input: CreateReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken, method: "POST", body: input }),
     editReview: (workspaceId: string, reviewId: string, input: EditReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "PATCH", body: input }),
@@ -2158,11 +2196,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.benchmark },
       ),
-    getSessionGroups: (workspaceId: string) =>
+    getSessionGroups: (workspaceId: string, signal?: AbortSignal) =>
       requestJson<{ state: LegalworkSessionGroupState; updatedAt: number | null }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
+        { token, hostToken, timeoutMs: timeouts.sessionRead, signal },
       ),
     putSessionGroups: (workspaceId: string, state: LegalworkSessionGroupState) =>
       requestJson<{ state: LegalworkSessionGroupState; updatedAt: number }>(
@@ -2200,12 +2238,16 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
       ),
-    listSessionGroupEvents: (workspaceId: string, options?: { since?: number }) => {
+    listSessionGroupsBatch: (cursors: Record<string, number | null>, signal?: AbortSignal) =>
+      requestJson<{ items: { workspaceId: string; cursor: number; state?: LegalworkSessionGroupState; updatedAt?: number | null }[] }>(
+        baseUrl, `/session-groups/events?${new URLSearchParams({ cursors: JSON.stringify(cursors) })}`, { token, hostToken, signal },
+      ),
+    listSessionGroupEvents: (workspaceId: string, options?: { since?: number; signal?: AbortSignal }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
       return requestJson<{ items: LegalworkSessionGroupEvent[]; cursor?: number }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups/events${query}`,
-        { token, hostToken },
+        { token, hostToken, signal: options?.signal },
       );
     },
     searchSourcePage: (workspaceId: string, source: SearchSourceReference) => requestJson<SearchSourcePage>(baseUrl,
@@ -2855,11 +2897,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     decideCalculation: (workspaceId: string, id: string, action: "save" | "reject" | "acknowledge") => requestJson<{ presentation: CalculationPresentation }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar/presentations/${encodeURIComponent(id)}/decision`, { token, hostToken, method: "POST", body: { action } }),
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
-    sessionInbox: () => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken }),
+    sessionInbox: (signal?: AbortSignal) => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken, signal }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
     scheduledTaskChats: (workspaceId: string, search = "") => requestJson<{ sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/chats?search=${encodeURIComponent(search)}`, { token, hostToken }),
-    previewTaskSchedule: (workspaceId: string, schedule: TaskSchedule) => requestJson<{ occurrences: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/preview`, { token, hostToken, method: "POST", body: { schedule } }),
+    previewTaskSchedule: (workspaceId: string, schedule: TaskSchedule) => requestJson<{ occurrences: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/preview`, { token, hostToken, method: "POST", body: { schedule }, readOnly: true }),
     createScheduledTask: (workspaceId: string, input: ScheduledTaskInput) => requestJson<{ task: ScheduledTask }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks`, { token, hostToken, method: "POST", body: input }),
     updateScheduledTask: (workspaceId: string, id: string, revision: number, input: Partial<ScheduledTaskInput> & { status?: "active" | "paused" }) => requestJson<{ task: ScheduledTask }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: { ...input, revision } }),
     deleteScheduledTask: (workspaceId: string, id: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", body: { revision } }),
@@ -2980,12 +3022,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "POST",
         timeoutMs: timeouts.status,
       }),
-    listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
+    listReloadEvents: (workspaceId: string, options?: { since?: number; signal?: AbortSignal }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
       return requestJson<{ items: LegalworkReloadEvent[]; cursor?: number }>(
         baseUrl,
         `/workspace/${workspaceId}/events${query}`,
-        { token, hostToken },
+        { token, hostToken, signal: options?.signal },
       );
     },
     reloadEngine: (workspaceId: string) =>

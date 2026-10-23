@@ -91,6 +91,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
+      if (workspace.workspaceType === "remote") continue;
       await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
     }
   }
@@ -114,7 +115,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   const server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch, onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
     if (!config.opencodeBaseUrl && options.manageOpencode) {
-      const workspace = config.workspaces[0];
+      const workspace = config.workspaces.find(entry => entry.workspaceType !== "remote");
       if (workspace?.path) {
         // Server-managed config file: the engine re-reads it from disk on every
         // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
@@ -203,7 +204,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     throw error;
   });
 
-  // The runtime config file above only covers workspaces[0]. Push every
+  // The runtime config file above only covers the first local workspace. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
   // until a manual reload. Best-effort.
   if (managed.engine) {

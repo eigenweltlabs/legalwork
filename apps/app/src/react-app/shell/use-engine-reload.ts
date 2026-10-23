@@ -5,6 +5,8 @@
 // instead of `any`.
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { startRequestPolling } from "@/app/lib/request-poller";
+import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
 import { engineInfo } from "@/app/lib/desktop";
 import type { EngineInfo } from "@/app/lib/desktop-types";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
@@ -41,7 +43,14 @@ export function useEngineReload(input: UseEngineReloadInput) {
   const reloadCoordinator = useReloadCoordinator();
   const [engineReloadVersion, setEngineReloadVersion] = useState(0);
   const [routeEngineInfo, setRouteEngineInfo] = useState<EngineInfo | null>(null);
+  const activePoller = useRef<ReturnType<typeof startRequestPolling> | null>(null);
+  const sync = useSyncEventsLive();
+  const previousSync = useRef(sync);
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
   const reloadEventCursorByWorkspaceRef = useRef<Record<string, number | null>>({});
+  const resolvedEndpoint = client && workspaceId ? endpointForWorkspace(workspace) : null;
+  const endpointKey = JSON.stringify([resolvedEndpoint?.baseUrl, resolvedEndpoint?.workspaceId, resolvedEndpoint?.token, resolvedEndpoint?.hostToken]);
 
   const reloadWorkspaceEngineFromUi = useCallback(async () => {
     if (!client || !workspaceId) {
@@ -74,44 +83,31 @@ export function useEngineReload(input: UseEngineReloadInput) {
   }, [activeReloadBlockingSessions, client, reloadCoordinator, reloadWorkspaceEngineFromUi, workspaceId]);
 
   useEffect(() => {
-    if (!client || !workspaceId) return;
-    const endpoint = endpointForWorkspace(workspace);
+    const endpoint = resolvedEndpoint;
     if (!endpoint) return;
-    let cancelled = false;
+    const poller = startRequestPolling(async (signal) => {
+      const currentCursor = reloadEventCursorByWorkspaceRef.current[endpointKey];
+      const response = await endpoint.client.listReloadEvents(endpoint.workspaceId, {
+        ...(typeof currentCursor === "number" ? { since: currentCursor } : {}), signal,
+      });
+      if (signal.aborted) return;
+      reloadEventCursorByWorkspaceRef.current[endpointKey] = response.cursor ?? Math.max(currentCursor ?? 0, ...response.items.map(item => item.seq));
+      // Establish a baseline before showing new changes, including after route entry.
+      if (currentCursor === undefined || currentCursor === null) return;
+      for (const event of response.items) reloadCoordinator.markReloadRequired(event.reason, event.trigger);
+    }, { intervalMs: () => syncRef.current.live && syncRef.current.metadata && syncRef.current.baseUrl === endpoint.client.baseUrl ? 30_000 : 3000 });
+    activePoller.current = poller;
+    const unsubscribe = onSyncPoke(poke => {
+      if (syncRef.current.baseUrl === endpoint.client.baseUrl && (poke.reload || poke.resync)) poller.wake();
+    });
+    return () => { unsubscribe(); poller.stop(); if (activePoller.current === poller) activePoller.current = null; };
+  }, [endpointKey, reloadCoordinator]);
 
-    const pollReloadEvents = async () => {
-      const currentCursor = reloadEventCursorByWorkspaceRef.current[workspaceId];
-      try {
-        const response = await endpoint.client.listReloadEvents(
-          endpoint.workspaceId,
-          typeof currentCursor === "number" ? { since: currentCursor } : undefined,
-        );
-        if (cancelled) return;
-        reloadEventCursorByWorkspaceRef.current[workspaceId] =
-          typeof response.cursor === "number"
-            ? response.cursor
-            : Math.max(currentCursor ?? 0, ...((response.items ?? []).map((item) => Number(item.seq) || 0)));
-        // The first poll establishes the server cursor so historical reload
-        // events don't show a stale toast on route entry. Subsequent polls mark
-        // new filesystem/server-side mutations, including skills created by an
-        // agent while the session page is open.
-        if (currentCursor === undefined || currentCursor === null) return;
-        for (const event of response.items ?? []) {
-          reloadCoordinator.markReloadRequired(event.reason, event.trigger);
-        }
-      } catch {
-        // Reload-event polling is best-effort; normal route health checks still
-        // surface connection failures.
-      }
-    };
-
-    void pollReloadEvents();
-    const interval = window.setInterval(() => void pollReloadEvents(), 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [client, endpointForWorkspace, reloadCoordinator, workspace, workspaceId]);
+  useEffect(() => {
+    const previous = previousSync.current;
+    if (previous.live !== sync.live || previous.metadata !== sync.metadata || previous.baseUrl !== sync.baseUrl) activePoller.current?.wake();
+    previousSync.current = sync;
+  }, [sync.live, sync.metadata, sync.baseUrl]);
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;

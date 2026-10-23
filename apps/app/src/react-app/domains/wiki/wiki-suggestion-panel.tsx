@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { WikiContentPreview } from "./wiki-content-preview";
 import { WikiDiff, WikiContentStats } from "./wiki-diff";
 import { t } from "@/i18n";
@@ -26,11 +27,12 @@ const input = (draft: WikiSuggestion): WikiSuggestionInput => ({ title: draft.ti
 const fingerprint = (draft: WikiSuggestion) => JSON.stringify(input(draft));
 
 export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client: LegalworkServerClient; workspaceId: string; id: string; tabId: string }) {
+  const metadataInterval = useMetadataPolling(client.baseUrl, 3000);
   const cache = useQueryClient(), open = useRequestPanelTab();
   const key = ["wiki-suggestion", client.baseUrl, workspaceId, id];
-  const query = useQuery({ queryKey: key, queryFn: () => client.wikiSuggestion(workspaceId, id), refetchInterval: 3000 });
+  const query = useQuery({ queryKey: key, queryFn: () => client.wikiSuggestion(workspaceId, id), refetchInterval: metadataInterval });
   const wikis = useQuery({ queryKey: ["wikis", client.baseUrl], queryFn: () => client.listWikis() });
-  const siblings = useQuery({ queryKey: ["wiki-suggestions", client.baseUrl, workspaceId], queryFn: () => client.wikiSuggestions(workspaceId), refetchInterval: 5000 });
+  const siblings = useQuery({ queryKey: ["wiki-suggestions", client.baseUrl, workspaceId], queryFn: () => client.wikiSuggestions(workspaceId), refetchInterval: metadataInterval });
   const [draft, setDraft] = useState<WikiSuggestion | null>(null);
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
   const [viewModeRequest, setViewModeRequest] = useState<{ mode: "source" | "rich-text" }>({ mode: "rich-text" });

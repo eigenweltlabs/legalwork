@@ -15,6 +15,14 @@ const SyncPokeSchema = z.object({
   sessions: z.boolean().optional(),
   approvals: z.boolean().optional(),
   resync: z.boolean().optional(),
+  groups: z.boolean().optional(),
+  reload: z.boolean().optional(),
+  metadata: z.boolean().optional(),
+  reviews: z.boolean().optional(),
+  suggestions: z.boolean().optional(),
+  sandbox: z.boolean().optional(),
+  views: z.boolean().optional(),
+  queues: z.boolean().optional(),
 });
 export type SyncPoke = z.infer<typeof SyncPokeSchema>;
 

@@ -1,3 +1,4 @@
+import { announceSyncChange } from "./app-sync-events.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -28,7 +29,7 @@ export class SessionMessageQueue {
   private ready: Promise<void>;
   private timer: ReturnType<typeof setInterval>;
   private stopped = false;
-  constructor(private directory: string, private transport: QueueTransport) {
+  constructor(private directory: string, private transport: QueueTransport, private readonly onChange?: () => void) {
     this.ready = this.load();
     // Keep startup failures observable by API calls without an unhandled rejection.
     void this.ready.catch(() => {});
@@ -97,6 +98,7 @@ export class SessionMessageQueue {
       queue.revision++;
       await this.persist(queue);
       this.states.set(key, queue);
+      this.onChange?.();
       if (queue.entries.length) this.pending.add(key); else this.pending.delete(key);
       return structuredClone(queue);
     })();
@@ -264,6 +266,6 @@ export class SessionMessageQueue {
 const queues = new WeakMap<ServerConfig, SessionMessageQueue>();
 export function registerMessageQueue(config: ServerConfig, transport: QueueTransport) {
   const directory = join(dirname(config.configPath || process.env.LEGALWORK_RUNTIME_DB || join(homedir(), ".config/legalwork/config.json")), "message-queues");
-  const queue = new SessionMessageQueue(directory, transport); queues.set(config, queue); return queue;
+  const queue = new SessionMessageQueue(directory, transport, () => announceSyncChange(config, "queues")); queues.set(config, queue); return queue;
 }
 export function stopMessageQueue(config: ServerConfig) { queues.get(config)?.stop(); queues.delete(config); }

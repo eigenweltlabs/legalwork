@@ -1,5 +1,6 @@
 import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
+import { fetchDesktopText } from "./desktop-text-fetch";
 import { fetchDesktopStream } from "./desktop-stream-fetch";
 
 export type * from "./desktop-types";
@@ -276,46 +277,14 @@ export const desktopFetch: typeof globalThis.fetch = async (input, init) => {
     return globalThis.fetch(input, init);
   }
 
-  // Extract method/headers/body from either a Request object or the (input, init)
-  // pair. The OpenCode SDK calls fetch(request) (no init), so reading these only
-  // from `init` would silently drop the Authorization header and the POST body
-  // — the remote would then reject every request with "Invalid bearer token".
-  let url: string;
-  let method: string | undefined;
-  let headers: Record<string, string> | undefined;
-  let body: string | undefined;
+  return fetchDesktopText(desktopBridge, input, init);
+};
 
-  if (typeof Request !== "undefined" && input instanceof Request) {
-    url = input.url;
-    method = init?.method ?? input.method;
-    const headersSource = init?.headers ? new Headers(init.headers) : input.headers;
-    headers = Object.fromEntries(headersSource.entries());
-    if (typeof init?.body === "string") {
-      body = init.body;
-    } else if (input.body) {
-      // Request body is a stream — buffer to text so it survives the IPC hop
-      // to the Electron main process.
-      body = await input.clone().text();
-    }
-  } else {
-    url = typeof input === "string" ? input : input.toString();
-    method = init?.method;
-    headers = init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : undefined;
-    body = typeof init?.body === "string" ? init.body : undefined;
-  }
-
-  const result = await invokeElectronHelper("__fetch", url, { method, headers, body });
-
-  // Response constructor rejects bodies for null-body status codes, so we
-  // must pass null instead of an empty string for those.
-  const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
-  const responseBody = NULL_BODY_STATUSES.has(result.status) ? null : result.body;
-
-  return new Response(responseBody, {
-    status: result.status,
-    statusText: result.statusText,
-    headers: result.headers,
-  });
+// Finite JSON reads expose body progress to their inactivity deadline. The
+// SDK's transport keeps its existing buffered semantics for long model turns.
+export const desktopReadFetch: typeof globalThis.fetch = (input, init) => {
+  if (isLoopbackUrl(input) || !window.__LEGALWORK_ELECTRON__?.invokeDesktop) return globalThis.fetch(input, init);
+  return fetchDesktopStream(desktopBridge, input, init);
 };
 
 export const desktopStreamFetch: typeof globalThis.fetch = (input, init) => {
@@ -324,38 +293,7 @@ export const desktopStreamFetch: typeof globalThis.fetch = (input, init) => {
 };
 
 export async function desktopFetchViaMain(input: RequestInfo | URL, init?: RequestInit, timeoutMs?: number): Promise<Response> {
-  let url: string;
-  let method: string | undefined;
-  let headers: Record<string, string> | undefined;
-  let body: string | undefined;
-
-  if (typeof Request !== "undefined" && input instanceof Request) {
-    url = input.url;
-    method = init?.method ?? input.method;
-    const headersSource = init?.headers ? new Headers(init.headers) : input.headers;
-    headers = Object.fromEntries(headersSource.entries());
-    if (typeof init?.body === "string") {
-      body = init.body;
-    } else if (input.body) {
-      body = await input.clone().text();
-    }
-  } else {
-    url = typeof input === "string" ? input : input.toString();
-    method = init?.method;
-    headers = init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : undefined;
-    body = typeof init?.body === "string" ? init.body : undefined;
-  }
-
-  const result = await invokeElectronHelper("__fetch", url, { method, headers, body, timeoutMs });
-
-  const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
-  const responseBody = NULL_BODY_STATUSES.has(result.status) ? null : result.body;
-
-  return new Response(responseBody, {
-    status: result.status,
-    statusText: result.statusText,
-    headers: result.headers,
-  });
+  return fetchDesktopText(desktopBridge, input, init, timeoutMs);
 }
 
 // ---------------------------------------------------------------------------

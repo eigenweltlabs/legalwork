@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { t } from "@/i18n";
 import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { useQuery } from "@tanstack/react-query";
@@ -9,7 +10,8 @@ import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { viewPanelTab } from "./view-reference";
 
 export function useSavedViews(client: LegalworkServerClient | null, owner: ViewOwner) {
-  return useQuery({ queryKey: ["ui-views", client?.baseUrl, owner.kind, owner.id], queryFn: () => client!.listViews(owner), enabled: Boolean(client && owner.id), refetchInterval: 10_000 });
+  const metadataInterval = useMetadataPolling(client?.baseUrl, 10_000);
+  return useQuery({ queryKey: ["ui-views", client?.baseUrl, owner.kind, owner.id], queryFn: () => client!.listViews(owner), enabled: Boolean(client && owner.id), refetchInterval: metadataInterval });
 }
 export function ViewList({ client, owner, issuesOnly = false }: { client: LegalworkServerClient | null; owner: ViewOwner; issuesOnly?: boolean }) {
   const request = useRequestPanelTab();

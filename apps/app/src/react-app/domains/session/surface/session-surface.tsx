@@ -824,6 +824,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     queryFn: async () => {
       const startedAt = Date.now();
       const statuses = unwrap(await opencodeClient.session.status({ directory: props.workspaceRoot.trim() || undefined }));
+      queryClient.setQueryData(["subagent-run-status", props.client.baseUrl, props.workspaceId], { started: startedAt, statuses });
       const activity = useSessionActivityStore.getState().recordsByWorkspaceId[props.workspaceId]?.[props.sessionId];
       // A prompt submitted while this request was in flight supersedes its idle result.
       if (activity?.runActive && activity.updatedAt > startedAt) return { type: "busy" };

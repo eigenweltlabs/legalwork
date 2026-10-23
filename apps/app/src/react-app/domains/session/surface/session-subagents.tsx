@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import type { Client } from "@/app/types";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { unwrap } from "@/app/lib/opencode";
 import { LoaderCircle, X } from "lucide-react";
 import { SubagentDot, subagentColors } from "@/components/chat/subagent-dot";
 import { Button } from "@/components/ui/button";
@@ -36,19 +34,18 @@ export function SessionSubagents({ workspaceId, workspaceRoot, sessionId, client
   const agents = sessionSubagents(sessionId, sessions, statuses, waiting?.filter(id => !stopped.includes(id)));
   const ids = agents.map(agent => agent.id).sort().join("|");
   const colors = useMemo(() => subagentColors(sessionId, sessions), [sessionId, sessions]);
-  const runs = useQuery({
-    queryKey: ["subagent-run-status", workspaceId], enabled: Boolean(client && ids),
-    queryFn: async () => ({ started: Date.now(), statuses: unwrap(await client!.session.status({ directory: workspaceRoot.trim() || undefined })) }),
-    refetchInterval: 5000,
-  });
+  // The visible surface already reads this complete workspace status map.
+  const runs = useQueryCacheState<{ started: number; statuses: Record<string, import("@opencode-ai/sdk/v2/client").SessionStatus> } | null>(
+    ["subagent-run-status", serverClient.baseUrl, workspaceId], null,
+  );
   useEffect(() => {
-    if (!runs.data) return;
+    if (!runs) return;
     const store = useSessionActivityStore.getState();
     for (const id of ids.split("|").filter(Boolean)) {
-      if ((store.recordsByWorkspaceId[workspaceId]?.[id]?.updatedAt ?? 0) > runs.data.started) continue;
-      store.setRunStatus(workspaceId, id, runs.data.statuses[id] ?? { type: "idle" });
+      if ((store.recordsByWorkspaceId[workspaceId]?.[id]?.updatedAt ?? 0) > runs.started) continue;
+      store.setRunStatus(workspaceId, id, runs.statuses[id] ?? { type: "idle" });
     }
-  }, [runs.data, ids, workspaceId]);
+  }, [runs, ids, workspaceId]);
   useEffect(() => {
     setStopped(previous => previous.some(id => statuses[id] && statuses[id] !== "idle")
       ? previous.filter(id => !statuses[id] || statuses[id] === "idle") : previous);

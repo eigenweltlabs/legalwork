@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { ViewSaveDialog } from "./view-save-dialog";
 import { viewInput } from "./view-save";
 import { t } from "@/i18n";
@@ -85,9 +86,10 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   </>;
 }
 export function SavedView({ client, reference, inline = false, onTitle, openSource, readOnly }: { client: LegalworkServerClient | null; reference: ViewReference; inline?: boolean; readOnly?: boolean; onTitle?: (title: string) => void; openSource?: (path: string) => void }) {
+  const metadataInterval = useMetadataPolling(client?.baseUrl, 15000);
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error("Connect to view this report"); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), refetchInterval: 15_000 });
+  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error("Connect to view this report"); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), refetchInterval: metadataInterval });
   useEffect(() => { if (view.data) onTitle?.(view.data.title); }, [view.data?.title, onTitle]);
   if (!client) return <p className="lw-saved-view-error">Connect to view this report.</p>;
   return <div className={`lw-saved-view${inline ? " lw-saved-view-inline" : ""}`}>

@@ -15,6 +15,7 @@ export function registerScheduledTaskRoutes(options: {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  resolveWorkspaceMetadata?: (config: ServerConfig, id: string) => WorkspaceInfo;
   listSessions: (workspace: WorkspaceInfo, search?: string) => Promise<{ id: string; title: string; directory: string; time: { archived?: number } }[]>;
   getSession: (workspace: WorkspaceInfo, id: string) => Promise<{ directory: string; time: { archived?: number } } | null>;
 }) {
@@ -55,10 +56,12 @@ export function registerScheduledTaskRoutes(options: {
   addRoute(options.routes, "GET", "/session-inbox", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspaces = [];
+    ctx.request.signal.throwIfAborted();
     for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
-      try { workspaces.push(await options.resolveWorkspace(config, item.id)); } catch { /* Not accessible. */ }
+      ctx.request.signal.throwIfAborted();
+      try { workspaces.push(await (options.resolveWorkspaceMetadata ?? options.resolveWorkspace)(config, item.id)); } catch { /* Not accessible. */ }
     }
-    return options.jsonResponse({ sessions: await readSessionInbox(config, workspaces, store.sessionActivity()) });
+    return options.jsonResponse({ sessions: await readSessionInbox(config, workspaces, store.sessionActivity(), ctx.request.signal) });
   });
   route("GET", "", async (_ctx, workspace) => ({ tasks: store.list(workspace.id) }));
   route("GET", "/chats", async (ctx, workspace) => ({ sessions: (await options.listSessions(await options.resolveWorkspace(config, workspace.id), ctx.url.searchParams.get("search")?.slice(0, 200)))

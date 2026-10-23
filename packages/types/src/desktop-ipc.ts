@@ -301,6 +301,7 @@ export type CacheResetResult = {
 };
 
 export type DesktopFetchInit = {
+  requestId?: string;
   method?: string;
   headers?: Record<string, string>;
   body?: string;
@@ -846,6 +847,7 @@ export type DesktopCommandMap = {
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };
   __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
+  __fetchCancel: { args: [id: string]; result: void };
   __streamOpen: { args: [id: string, url: string, headers: Record<string, string>]; result: Omit<DesktopFetchResult, "body"> };
   __streamRead: { args: [id: string]; result: Uint8Array | null };
   __streamCancel: { args: [id: string]; result: void };

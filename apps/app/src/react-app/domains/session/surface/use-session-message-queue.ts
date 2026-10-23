@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { reconcileQueuedOrder } from "./queued-order";
 import { useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +36,7 @@ function hydrateDraft(entry: SessionQueue["entries"][number], editToken?: string
 /** Queue state is shared; only the edit buffer and its stashed composer belong
  * to this window. A lease pauses delivery while a queued item is being edited. */
 export function useSessionMessageQueue(client: LegalworkServerClient, workspaceId: string, sessionId: string) {
+  const metadataInterval = useMetadataPolling(client.baseUrl, 5000);
   const queryClient = useQueryClient();
   const key = ["session-message-queue", client.baseUrl, workspaceId, sessionId];
   const claim = useRef<{ id: string; token: string } | null>(null);
@@ -43,7 +45,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     const queue = await client.sessionMessageQueue(workspaceId, sessionId, queryClient.getQueryData<SessionQueue>(key));
     const previous = queryClient.getQueryData<SessionQueue>(key);
     return previous && previous.revision > queue.revision ? previous : queue;
-  }, refetchInterval: query => query.state.data?.entries.length ? 1000 : 5000 });
+  }, refetchInterval: query => query.state.data?.entries.length ? 1000 : metadataInterval });
   const latest = useRef(query.data); latest.current = query.data;
   const apply = useCallback((queue: SessionQueue) => {
     if (!latest.current || queue.revision >= latest.current.revision) latest.current = queue;
