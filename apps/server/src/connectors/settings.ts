@@ -7,11 +7,22 @@ import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { oauthVaultPath, vaultLock } from "../file-storage/oauth/vault.js";
 import { connectorDefinition } from "./definition.js";
+import { synchronizeConnectorBindings } from "./sync.js";
 
 export const connectorSettingsPath = (config: ServerConfig) => join(dirname(oauthVaultPath(config)), "connector-settings.json");
 const defaults = () => connectorSettingsSchema.parse({ writeAccess: {} });
 const legacyGlobalSetting = z.object({ writeAccess: z.boolean() }).strict();
 export async function connectorSettings(config: ServerConfig) {
+  if (config.cloudSync?.role === "executor") {
+    const bindings = await synchronizeConnectorBindings(config);
+    const result = defaults();
+    for (const binding of bindings.filter(item => !item.deleted)) for (const [id, policy] of Object.entries(binding.policies)) {
+      if (!policy.active || !policy.cloudEnabled) continue;
+      result.writeAccess = { ...result.writeAccess, [id]: policy.writeAccess };
+      if (id === "outlook" || id === "outlook-calendar") result.activeAccounts[id] = binding.id;
+    }
+    return connectorSettingsSchema.parse(result);
+  }
   try {
     const saved: unknown = JSON.parse(await readFile(connectorSettingsPath(config), "utf8"));
     // A prior global flag never authorizes an individual connector.
@@ -23,6 +34,7 @@ export async function connectorSettings(config: ServerConfig) {
   }
 }
 export async function saveConnectorSettings(config: ServerConfig, input: unknown) {
+  if (config.cloudSync?.role === "executor") throw new ApiError(403, "connector_desktop_required", "Manage connector permissions from your desktop.");
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
   const parsed = connectorSettingsSchema.safeParse(input);
   if (!parsed.success) throw new ApiError(400, "invalid_payload", "Invalid connector settings.");
@@ -38,6 +50,7 @@ export async function saveConnectorSettings(config: ServerConfig, input: unknown
   });
 }
 export async function ensureConnectorWritesAllowed(config: ServerConfig, id: string) {
+  if (config.cloudSync?.role === "executor") await synchronizeConnectorBindings(config, { force: true });
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
   if (!(await connectorWriteSetting(config, id)).writeAccess) throw new ApiError(403, "connector_writes_disabled", "Enable write access for this connector in Settings → Integrations → Connectors before making changes to its account.");
 }
@@ -45,7 +58,7 @@ export async function connectorWriteSetting(config: ServerConfig, id: string) {
   if (!connectorDefinitions.some((item) => item.id === id)) throw new ApiError(404, "connector_not_found", "Connector not found.");
   const settings = await connectorSettings(config);
   const entry = Object.entries(settings.writeAccess).find(([key]) => key === id);
-  return { writeAccess: entry?.[1] === true, readOnly: config.readOnly };
+  return { writeAccess: entry?.[1] === true, readOnly: config.readOnly || config.cloudSync?.role === "executor" };
 }
 export async function saveConnectorWriteSetting(config: ServerConfig, id: string, input: unknown) {
   const parsed = z.object({ writeAccess: z.boolean() }).strict().safeParse(input);

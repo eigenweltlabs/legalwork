@@ -1,11 +1,12 @@
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
-import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
+import type { ConnectorWriteSetting, ConnectorCloudAccess } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
-import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantSettingsCatalog, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
+import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantSettingsCatalog, AssistantChannelHistory, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
+import type { CloudAssistantStatus } from "@legalwork/types/cloud-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -1845,6 +1846,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     connectorSettings: (id: string) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, timeoutMs: timeouts.config }),
     connectorSavedStatus: (id?: string) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}/saved` : "/connectors/saved", { token, hostToken, timeoutMs: timeouts.status }),
     setConnectorSettings: (id: string, writeAccess: boolean) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { writeAccess }, timeoutMs: timeouts.config }),
+    connectorCloudAccess: (id: string) => requestJson<ConnectorCloudAccess>(baseUrl, `/connectors/${encodeURIComponent(id)}/cloud-access`, { token, hostToken, timeoutMs: timeouts.config }),
+    setConnectorCloudAccess: (id: string, enabled: boolean) => requestJson<ConnectorCloudAccess>(baseUrl, `/connectors/${encodeURIComponent(id)}/cloud-access`, { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     connectorStatus: (id?: string, forceRefresh = false) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}${forceRefresh ? "?refresh=true" : ""}` : "/connectors", { token, hostToken, timeoutMs: 120_000 }),
     connectorStorageLocations: (id: string, connectionId: string, kind: "sites" | "drives", options?: { siteId?: string; pageToken?: string; query?: string }) => requestJson<{ sites?: { id: string; displayName?: string; webUrl?: string }[]; drives?: { id: string; name?: string; webUrl?: string }[]; nextPageToken?: string | null }>(baseUrl, `/connectors/${encodeURIComponent(id)}/storage-locations?${new URLSearchParams({ connectionId, kind, ...options })}`, { token, hostToken, timeoutMs: timeouts.status }),
     connectorActivation: (id: string, connectionId: string, active: boolean) => requestJson<{ active: boolean }>(baseUrl, `/connectors/${encodeURIComponent(id)}/activation`, { token, hostToken, method: "PUT", body: { connectionId, active } }),
@@ -2860,6 +2863,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     assistantSettings: () => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken }),
     updateAssistantSettings: (settings: AssistantSettings) => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken, method: "PATCH", body: settings }),
     assistantSettingsCatalog: () => requestJson<AssistantSettingsCatalog>(baseUrl, "/assistant/settings/catalog", { token, hostToken }),
+    cloudAssistantStatus: () => requestJson<CloudAssistantStatus>(baseUrl, "/assistant/cloud", { token, hostToken }),
+    enableCloudAssistant: () => requestJson<CloudAssistantStatus>(baseUrl, "/assistant/cloud", { token, hostToken, method: "POST" }),
+    disableCloudAssistant: () => requestJson<CloudAssistantStatus>(baseUrl, "/assistant/cloud", { token, hostToken, method: "DELETE" }),
+    assistantChannelHistory: (date?: string) => requestJson<AssistantChannelHistory>(baseUrl, `/assistant/channel-history${date ? `?date=${encodeURIComponent(date)}` : ""}`, { token, hostToken }),
+    assistantChannelDays: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string | null }[]; nextBefore: string | null }>(baseUrl, `/assistant/channel-days?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null }>(baseUrl, "/assistant", { token, hostToken }),
     assistantAttention: (cursor?: string) => requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention?presented=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { token, hostToken }),
     setAssistantAttentionVisibility: (item: Pick<AssistantAttentionItem, "id" | "revision" | "workspaceId" | "sessionId">, visible: boolean) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/visibility", { token, hostToken, method: "POST", body: { id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, visible } }),

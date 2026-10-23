@@ -53,7 +53,9 @@ test("scheduling tools use the current project/chat, explicit new-chat mode, and
 });
 
 test("chat creation supplies the computer zone for every schedule kind and respects explicit zones", async () => {
-  const oldZone = process.env.TZ, oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const localOptions = Intl.DateTimeFormat().resolvedOptions();
+  const localZone = spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions");
   const saved: ScheduledTaskInput[] = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     if (new URL(request.url).pathname === "/workspaces") return Response.json({ items: [{ id: "current", path: "/matters/current" }] });
@@ -73,7 +75,7 @@ test("chat creation supplies the computer zone for every schedule kind and respe
       ["Europe/Berlin", "2026-10-24T04:00:00.000Z", "2026-10-25T05:00:00.000Z"],
       ["America/New_York", "2026-10-24T10:00:00.000Z", "2026-10-25T10:00:00.000Z"],
     ]) {
-      process.env.TZ = zone;
+      localZone.mockReturnValue({ ...localOptions, timeZone: zone });
       const output: { system: string[] } = { system: [] };
       const before = wallTime(new Date().toISOString(), zone);
       await plugin["experimental.chat.system.transform"]({}, output);
@@ -101,7 +103,7 @@ test("chat creation supplies the computer zone for every schedule kind and respe
     expect(saved.at(-1)?.schedule.timeZone).toBe("Asia/Tokyo");
   } finally {
     server.stop(true);
-    if (oldZone === undefined) delete process.env.TZ; else process.env.TZ = oldZone;
+    localZone.mockRestore();
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
     if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;
   }

@@ -33,6 +33,7 @@ import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { bootCloudSync } from "./cloud-sync/lifecycle.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Desktop networking stack, including its system proxy, for model assets. */
@@ -80,6 +81,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
+  const cloudSync = await bootCloudSync(config);
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   const managed: {
@@ -87,10 +89,14 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     catalog: Awaited<ReturnType<typeof startModelCatalogRelay>> | null;
   } = { engine: null, catalog: null };
 
+  if (config.cloudSync) config.cloudSync.onLeaseLost = () => { void managed.engine?.close(); };
+  if (cloudSync?.replica.settings.role === "executor" && !options.manageOpencode)
+    throw new Error("A cloud execution owner requires a managed OpenCode engine");
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
+      if (config.cloudSync && !config.cloudSync.shouldSyncFiles(workspace.id)) continue;
       await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
     }
   }
@@ -200,6 +206,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   } }).catch(async (error: unknown) => {
     await managed.engine?.close();
     await managed.catalog?.stop();
+    await cloudSync?.stop();
     throw error;
   });
 
@@ -222,6 +229,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       await managed.engine?.close();
       await server.stop();
       await managed.catalog?.stop();
+      if (cloudSync) {
+        try { await cloudSync.replica.tick(); }
+        finally { await cloudSync.stop(); }
+      }
     },
   };
 }

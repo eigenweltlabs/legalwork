@@ -11,6 +11,7 @@ import { AssistantAppearanceFields, AssistantAvatar } from "../../session/sideba
 import { useAssistantNotificationPreferences } from "../../session/sidebar/assistant-notification-preferences";
 import { AssistantBehaviorFields } from "./assistant-behavior-settings";
 import { createAssistantSettingsAutosave, getAssistantSettingsAutosave, type AssistantSettingsDraft } from "./assistant-settings-autosave";
+import { CloudAssistantSettings } from "../../session/sidebar/cloud-assistant-settings";
 import { SettingsNotice } from "../settings-section";
 import {
   LayoutStack, LayoutSection, LayoutSectionHeader, LayoutSectionTitle, LayoutSectionDescription,
@@ -18,8 +19,8 @@ import {
   LayoutSectionItemHeaderActions,
 } from "../settings-layout";
 
-export function AssistantSettingsView({ client, onModels }: {
-  client: LegalworkServerClient | null; onModels: () => void;
+export function AssistantSettingsView({ client, onSignIn, onModels }: {
+  client: LegalworkServerClient | null; onSignIn: () => void; onModels: () => void;
 }) {
   const cache = useQueryClient();
   const profile = useQuery({ queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client),
@@ -32,7 +33,7 @@ export function AssistantSettingsView({ client, onModels }: {
   const setNotifications = useAssistantNotificationPreferences(state => state.setDesktopNotifications);
   if (!client || profile.isPending || settings.isPending || catalog.isPending) return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("assistant.settings_loading")}</p>;
   if (profile.isError || settings.isError || catalog.isError) return <div role="alert" className="space-y-3"><p className="text-sm text-destructive">{t("assistant.settings_load_failed")}</p><Button variant="outline" onClick={() => { void profile.refetch(); void settings.refetch(); void catalog.refetch(); }}>{t("assistant.attention_retry")}</Button></div>;
-  return <AssistantSettingsEditor key={`${client.baseUrl}:${profile.data.workspace?.id ?? "new"}`}
+  return <><AssistantSettingsEditor key={`${client.baseUrl}:${profile.data.workspace?.id ?? "new"}`}
     autosaveKey={client.baseUrl}
     profile={profile.data.profile} settings={settings.data.settings} catalog={catalog.data} notifications={notifications} onModels={onModels}
     onSave={async draft => {
@@ -48,7 +49,7 @@ export function AssistantSettingsView({ client, onModels }: {
         cache.setQueryData(["assistant-settings", client.baseUrl], saved);
       }
       setNotifications(draft.notifications);
-    }} />;
+    }} /><CloudAssistantSettings client={client} profile={profile.data.profile} onSignIn={onSignIn} /></>;
 }
 
 export function AssistantSettingsEditor({ profile, settings, catalog, notifications, onSave, onModels, autosaveKey }: AssistantSettingsDraft & {

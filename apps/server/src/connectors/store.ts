@@ -9,7 +9,10 @@ import { ApiError } from "../errors.js";
 import { OAuthVault, oauthVaultPath, vaultLock } from "../file-storage/oauth/vault.js";
 
 const connectionsSchema = z.array(connectorConnectionSchema);
-const storedConnectionsSchema = z.array(connectorConnectionSchema.extend({ nangoConnectionId: z.string().min(1).max(500) }));
+const storedConnectionsSchema = z.array(connectorConnectionSchema.extend({
+  nangoConnectionId: z.string().min(1).max(500).optional(),
+  bindingId: z.uuid().optional(),
+}).refine(connection => Boolean(connection.nangoConnectionId || connection.bindingId)));
 export type StoredConnectorConnection = z.infer<typeof storedConnectionsSchema>[number];
 const encryptedPrefix = "encrypted:v1:";
 

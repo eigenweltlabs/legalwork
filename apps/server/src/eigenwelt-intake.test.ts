@@ -1,7 +1,9 @@
-import { describe, expect, test, afterEach } from "bun:test";
+import { describe, expect, test, afterEach, spyOn } from "bun:test";
+import { createServer } from "node:http";
 
 import {
   intakeCreateTask,
+  intakeRequest,
   intakeDownloadAttachment,
   intakeGetTask,
   intakeListMembers,
@@ -51,6 +53,40 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function interruptedResponse() {
+  return new Response(new ReadableStream({
+    start(controller) { controller.error(Object.assign(new Error("Connection closed after headers"), { code: "ECONNRESET" })); },
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
+test("a sync read retries a connection lost while consuming the response body", async () => {
+  stubFetch(() => calls.length === 1 ? interruptedResponse() : jsonResponse({ checkpoint: null }));
+  expect(await intakeRequest(client, "GET", "/sync/control")).toEqual({ checkpoint: null });
+  expect(calls).toHaveLength(2);
+});
+
+test("persistent body-read failure stops after three safe reads", async () => {
+  stubFetch(() => interruptedResponse());
+  await expect(intakeRequest(client, "GET", "/sync/control")).rejects.toThrow("Connection closed after headers");
+  expect(calls).toHaveLength(3);
+});
+
+test("a lost mutation response is never replayed", async () => {
+  stubFetch(() => interruptedResponse());
+  await expect(intakeRequest(client, "POST", "/api/projects", { name: "New project" })).rejects.toThrow("Connection closed after headers");
+  expect(calls).toHaveLength(1);
+});
+
+test("invalid JSON and authorization failures do not trigger read retries", async () => {
+  stubFetch(() => new Response("not JSON", { status: 200 }));
+  await expect(intakeRequest(client, "GET", "/sync/control")).rejects.toMatchObject({ code: "intake_bad_response" });
+  expect(calls).toHaveLength(1);
+  calls.length = 0;
+  stubFetch(() => jsonResponse({ code: "forbidden", message: "Access denied" }, 403));
+  await expect(intakeRequest(client, "GET", "/sync/control")).rejects.toMatchObject({ status: 403 });
+  expect(calls).toHaveLength(1);
+});
+
 function headerOf(call: FetchCall, name: string): string | undefined {
   const headers = call.init.headers;
   if (!headers || Array.isArray(headers) || headers instanceof Headers) return undefined;
@@ -78,6 +114,30 @@ const TASK = {
   createdAt: "2026-09-01T00:00:00.000Z",
   updatedAt: "2026-09-02T00:00:00.000Z",
 };
+
+test("platform requests time out both missing headers and a response body that never finishes", async () => {
+  const server = createServer((request, response) => {
+    request.resume();
+    if (request.url === "/body") { response.writeHead(200, { "content-type": "application/json" }); response.write("{"); }
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address(); if (!address || typeof address === "string") throw new Error("Test server unavailable");
+  const timeout = AbortSignal.timeout;
+  const bounded = spyOn(AbortSignal, "timeout").mockImplementation(() => timeout(30));
+  try {
+    for (const path of ["/headers", "/body"]) {
+      const result = await Promise.race([
+        intakeRequest({ platformURL: `http://127.0.0.1:${address.port}`, platformToken: "test" }, "GET", path).then(() => "unexpected_response", () => "timed_out"),
+        Bun.sleep(200).then(() => "hung"),
+      ]);
+      expect(result).toBe("timed_out");
+    }
+    expect(bounded.mock.calls.map(call => call[0])).toEqual([30000, 30000]);
+  } finally {
+    bounded.mockRestore(); server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
 
 describe("requireIntakeClient", () => {
   test("returns a client for an entitled connection and pins the configured platform", () => {

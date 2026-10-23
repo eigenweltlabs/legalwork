@@ -29,6 +29,19 @@ export type AssistantSettingsCatalog = {
   projects: Array<{ id: string; name: string }>;
   unavailable: string[];
 };
+const ChannelDesktopSourceSchema = z.object({ deviceId: z.string().uuid(), messageId: z.string().min(1), createdAt: z.string().datetime() });
+export const AssistantChannelMessageSchema = z.object({
+  id: z.string().uuid(), channel: z.enum(["ios", "whatsapp", "email"]), actor: z.enum(["user", "assistant"]),
+  text: z.string().max(65536), createdAt: z.string().datetime(),
+  attachments: z.array(z.object({ id: z.string().uuid(), filename: z.string(), contentType: z.string(), size: z.number().nonnegative() })),
+  desktop: ChannelDesktopSourceSchema.optional(), localMessageId: z.string().optional(),
+  settled: z.boolean().optional(),
+});
+export type AssistantChannelMessage = z.infer<typeof AssistantChannelMessageSchema>;
+export const AssistantChannelHistorySchema = z.object({ messages: z.array(AssistantChannelMessageSchema),
+  reactions: z.array(z.object({ messageId: z.string().uuid(), emoji: z.string().max(32) })), typing: z.boolean(),
+});
+export type AssistantChannelHistory = z.infer<typeof AssistantChannelHistorySchema>;
 export const AssistantSharedFilesSchema = z.array(z.object({
   name: z.string().min(1), path: z.string().min(1), bytes: z.number().nonnegative().optional(),
 })).max(20);

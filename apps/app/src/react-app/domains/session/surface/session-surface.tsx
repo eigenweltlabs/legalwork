@@ -21,6 +21,7 @@ import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
 import { useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
+import { mergeAssistantChannelHistory } from "./assistant-channel-transcript";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -539,7 +540,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // Also needed while a connect notice may show: a firm on the Knowledge
     // Hub plan is signed in with no model and gets its own wording.
     enabled:
-      props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
+      Boolean(props.assistantDate) || props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
   });
   const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
   const subscriptionEndedNoticeVisible = hasEndedEigenweltSubscription(eigenweltEntitlementsQuery.data) &&
@@ -954,8 +955,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
     !renderedMessages.some(message => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) &&
       !hasAssistantReplyAfter(renderedMessages, message.id) &&
       message.parts.some(part => part.type === "text" && isSubscriptionRecoveryError(part.text)));
-  const displayedMessages = useMemo(() => props.assistantDate ? assistantBubbleMessages(renderedMessages, snapshot, chatStreaming) : renderedMessages,
-    [props.assistantDate, renderedMessages, snapshot, chatStreaming]);
+  const channelHistory = useQuery({
+    queryKey: ["assistant-channel-history", props.client.baseUrl, props.workspaceId, props.assistantDate, eigenweltEntitlementsQuery.data?.account?.orgId, eigenweltEntitlementsQuery.data?.account?.userId],
+    enabled: Boolean(props.assistantDate && eigenweltEntitlementsQuery.data?.connected),
+    queryFn: () => props.client.assistantChannelHistory(props.assistantDate),
+    refetchInterval: 3000,
+    retry: false,
+  });
+  const channelData = eigenweltEntitlementsQuery.data?.connected ? channelHistory.data : undefined;
+  const displayedMessages = useMemo(() => props.assistantDate ? mergeAssistantChannelHistory(assistantBubbleMessages(renderedMessages, snapshot, chatStreaming), channelData) : renderedMessages,
+    [props.assistantDate, renderedMessages, snapshot, chatStreaming, channelData]);
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -2053,6 +2062,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         status={props.assistantDate && (props.activePermission || props.activeQuestion) ? "ready" : status}
                         retryStatus={props.assistantDate && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
                       />
+                      {props.assistantDate && channelData?.typing && <p role="status" className="px-2 py-2 text-xs text-muted-foreground">{t("assistant.title")} …</p>}
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
                 </OpenTargetProvider>

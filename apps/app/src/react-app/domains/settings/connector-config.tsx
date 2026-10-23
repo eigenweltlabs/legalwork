@@ -12,6 +12,7 @@ import { usePlatform } from "../../kernel/platform";
 import { registerExtensionRuntime } from "./extension-registry";
 import type { ExtensionConfigContext } from "./extension-registry";
 import { CONNECTOR_SETTINGS_CHANGED, ConnectorWriteSettings } from "./connector-write-settings";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { resolveBrandIconSrc } from "../../design-system/extension-icon-src";
 
 export function ConnectorConfig({ id, legalworkServerClient: client, onExtensionConnectionChange, presentation = "panel" }: Pick<ExtensionConfigContext, "legalworkServerClient" | "onExtensionConnectionChange"> & { id: string; presentation?: "panel" | "dialog" }) {
@@ -58,6 +59,10 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
       }
     };
   }, [client, refresh]);
+
+  useEffect(() => onSyncPoke(poke => {
+    if (poke.connectors) void refresh().catch(() => { if (mounted.current) setError(t("connectors.failed")); });
+  }), [refresh]);
 
   useEffect(() => {
     const changed = () => {

@@ -4,6 +4,8 @@ import { ChevronDown } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n";
+import type { ConnectorCloudAccess } from "@legalwork/types/connectors";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
 
 export const CONNECTOR_SETTINGS_CHANGED = "legalwork-connector-settings-changed";
 export function ConnectorWriteSettings({ id, kind, client }: { id: string; kind: "mail" | "calendar" | "files"; client: LegalworkServerClient | null | undefined }) {
@@ -43,5 +45,33 @@ export function ConnectorWriteSettings({ id, kind, client }: { id: string; kind:
       <p className="mt-2 leading-relaxed">{t("connectors.write_access_permissions")}</p>
     </details>
     {error && <p className="mt-2 text-sm text-destructive" role="alert">{error}</p>}
+    <ConnectorCloudSettings id={id} client={client} />
   </section>;
+}
+
+function ConnectorCloudSettings({ id, client }: { id: string; client: LegalworkServerClient }) {
+  const [value, setValue] = useState<ConnectorCloudAccess | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => { void client.connectorCloudAccess(id).then(result => {
+      if (!cancelled) { setValue(result); setError(result.syncError); }
+    }).catch(() => { if (!cancelled) setError(true); }); };
+    setValue(null); setError(false); load();
+    const unsubscribe = onSyncPoke(poke => { if (poke.connectors) load(); });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [client, id]);
+  return <div className="flex items-start justify-between gap-4 border-t border-dls-border pt-3">
+    <div className="space-y-1">
+      <label htmlFor={`${id}-cloud-access`} className="text-sm font-medium text-dls-text">{t("connectors.cloud_access")}</label>
+      <p className="text-[13px] leading-relaxed text-dls-secondary">{t(value?.available ? "connectors.cloud_access_description" : "connectors.cloud_access_unavailable")}</p>
+      {error && <p className="text-sm text-destructive" role="alert">{t("connectors.cloud_access_failed")}</p>}
+    </div>
+    <Switch id={`${id}-cloud-access`} checked={value?.enabled ?? false} disabled={!value?.available || value.readOnly || busy || error} onCheckedChange={enabled => {
+      if (busy) return;
+      setBusy(true); setError(false);
+      void client.setConnectorCloudAccess(id, enabled).then(result => { setValue(result); setError(result.syncError); }).catch(() => setError(true)).finally(() => setBusy(false));
+    }} />
+  </div>;
 }

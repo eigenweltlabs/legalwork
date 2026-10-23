@@ -9,6 +9,7 @@ import { scheduleProjectSync, setProjectSyncPoked } from "./project-sync.js";
 import { scheduleTaskSync } from "./task-sync.js";
 import { connectedTaskOrgId } from "./tasks-api.js";
 import type { ServerConfig } from "./types.js";
+import { scheduleConnectorSync } from "./connectors/sync.js";
 
 /**
  * Pokes from the firm: while this computer is signed in to a firm, it keeps
@@ -53,6 +54,7 @@ export function startSyncEvents(
       if (poke.tasks || poke.resync) scheduleTaskSync(config, POKE_DELAY_MS);
       if (poke.policy || poke.resync) void scheduleOrgPolicySync(config, { force: true });
       if (poke.hub || poke.resync) void scheduleFirmHubSync(config, { force: true });
+      if (poke.connectors || poke.resync) scheduleConnectorSync(config);
     });
   void (async () => {
     let backoff = 1_000;

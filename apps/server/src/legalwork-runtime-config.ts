@@ -82,6 +82,7 @@ import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
+import { readChannelProvider } from "./channel-model.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -254,6 +255,7 @@ export async function buildLegalworkRuntimeConfigObject(
     ...storedProviders,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
+    ...(await readChannelProvider()),
   };
   // The firm's tool permissions apply over the member's own.
   const { permission } = config

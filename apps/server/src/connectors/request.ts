@@ -1,5 +1,6 @@
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
+import { synchronizeConnectorBindings } from "./sync.js";
 import { connectorAccessToken, connectorDefinition, listConnectorConnections, savedConnectorConnections } from "./broker.js";
 import { boundedDownload } from "./native.js";
 import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
@@ -34,6 +35,7 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
   if (connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
   const apiOrigin = connection.source === "custom" && id === "onedrive-personal" ? "https://graph.microsoft.com" : definition.apiOrigin;
   const assertCurrent = async (writing: boolean) => {
+    if (config.cloudSync?.role === "executor") await synchronizeConnectorBindings(config, { force: true });
     const current = await savedConnectorConnections(config, id);
     requireSingleConnectorAccount(current);
     if (!current.some((item) => item.id === connection.id && !item.needsReconnect)) throw new ApiError(409, "connector_account_changed", "This account changed. Refresh the connection before continuing.");

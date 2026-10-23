@@ -173,7 +173,13 @@ describe("interrupted and delayed refresh recovery", () => {
     const output = await new Response(child.stdout).text();
     expect(await child.exited).toBe(0);
     const errors = await new Response(child.stderr).text();
-    expect({ output: JSON.parse(output), errors }).toMatchObject({ output: { connected: true }, errors: "" });
+    expect(JSON.parse(output)).toMatchObject({ connected: true });
+    const traces = errors.trim().split("\n").map(line => JSON.parse(line));
+    expect(traces.map(trace => trace.phase)).toEqual(["started", "response", "stored", "completed"]);
+    expect(traces.every(trace => trace.event === "assistant.platform-refresh" && /^[a-f0-9]{64}$/.test(trace.requestHash))).toBe(true);
+    for (const secret of ["rotated-access", "rotated-refresh", "refresh-token", pending.refreshRequestId]) {
+      if (secret) expect(errors).not.toContain(secret);
+    }
     if (!pending.refreshRequestId) throw new Error("request ID not persisted");
     expect(requestIds.length).toBeGreaterThanOrEqual(2);
     expect([...new Set(requestIds)]).toEqual([pending.refreshRequestId]);

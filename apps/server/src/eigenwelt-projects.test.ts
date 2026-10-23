@@ -1,4 +1,5 @@
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test, spyOn } from "bun:test";
+import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -96,6 +97,84 @@ const incomplete = () => json({ code: "conflict", message: "upload the missing c
 const FILE = { contentType: "application/pdf", updatedByUserId: "user_1", updatedAt: "2026-09-25T12:00:00.000Z" };
 
 describe("project documents over signed links", () => {
+  test("a fetch rejection without a platform-specific error code retries a signed download", async () => {
+    let reads = 0;
+    stubFetch(call => {
+      if (call.url.startsWith(client.platformURL)) return json({ sha256: sha(Buffer.from("whole")), size: 5, chunks: ["https://storage.test/native-fetch"] });
+      if (++reads === 1) throw new TypeError("fetch failed", { cause: { code: "ConnectionClosed" } });
+      return new Response("whole");
+    });
+    const destination = join(dir, "native-fetch-retry.txt");
+    expect(await downloadRemoteProjectFile(client, PROJECT, "state", destination)).toEqual({ size: 5, sha256: sha(Buffer.from("whole")) });
+    expect(reads).toBe(2);
+  });
+  test("an interrupted storage body retries only that chunk without duplicating partial bytes", async () => {
+    const whole = Buffer.from("first second");
+    let secondReads = 0;
+    stubFetch(call => {
+      if (call.url.startsWith(client.platformURL)) return json({ sha256: sha(whole), size: whole.length,
+        chunks: ["https://storage.test/first", "https://storage.test/second"] });
+      if (call.url.endsWith("/first")) return new Response("first ");
+      secondReads++;
+      if (secondReads === 1) return new Response(new ReadableStream({
+        start(controller) { controller.enqueue(Buffer.from("sec")); },
+        pull(controller) { controller.error(Object.assign(new Error("Storage socket reset"), { code: "ECONNRESET" })); },
+      }));
+      return new Response("second");
+    });
+    const destination = join(dir, "storage-retry.txt");
+    expect(await downloadRemoteProjectFile(client, PROJECT, "state", destination)).toEqual({ size: whole.length, sha256: sha(whole) });
+    expect(await readFile(destination)).toEqual(whole);
+    expect(calls.filter(call => call.url.endsWith("/first"))).toHaveLength(1);
+    expect(secondReads).toBe(2);
+  });
+  test("persistent storage resets stop after three attempts and remove the partial download", async () => {
+    stubFetch(call => {
+      if (call.url.startsWith(client.platformURL)) return json({ sha256: sha(Buffer.from("whole")), size: 5, chunks: ["https://storage.test/reset"] });
+      throw Object.assign(new Error("Storage socket reset"), { code: "ECONNRESET" });
+    });
+    const destination = join(dir, "storage-reset.txt");
+    await expect(downloadRemoteProjectFile(client, PROJECT, "state", destination)).rejects.toMatchObject({ code: "project_storage_unreachable" });
+    expect(calls.filter(call => call.url.startsWith("https://storage.test"))).toHaveLength(3);
+    await expect(readFile(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+  test("storage permission rejection is never retried", async () => {
+    stubFetch(call => call.url.startsWith(client.platformURL)
+      ? json({ sha256: sha(Buffer.from("whole")), size: 5, chunks: ["https://storage.test/denied"] })
+      : new Response("Forbidden", { status: 403 }));
+    await expect(downloadRemoteProjectFile(client, PROJECT, "state", join(dir, "storage-denied.txt"))).rejects.toMatchObject({ code: "project_storage_failed" });
+    expect(calls.filter(call => call.url.startsWith("https://storage.test"))).toHaveLength(1);
+  });
+  test("a stalled signed storage chunk times out during headers or body and removes its partial destination", async () => {
+    const server = createServer((request, response) => {
+      request.resume();
+      if (request.url === "/body") { response.writeHead(200); response.write("partial"); }
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("Test storage unavailable");
+    const timeout = AbortSignal.timeout;
+    const bounded = spyOn(AbortSignal, "timeout").mockImplementation(() => timeout(30));
+    let chunkPath = "/headers";
+    globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith(client.platformURL)) return json({ sha256: sha(Buffer.from("whole")), size: 5, chunks: [`http://127.0.0.1:${address.port}${chunkPath}`] });
+      return originalFetch(input, init);
+    }, { preconnect: originalFetch.preconnect });
+    try {
+      for (const path of ["/headers", "/body"]) {
+        chunkPath = path; const destination = join(dir, `timeout-${path.slice(1)}`);
+        const result = await Promise.race([
+          downloadRemoteProjectFile(client, PROJECT, "control.json", destination).then(() => "unexpected_response", () => "timed_out"),
+          Bun.sleep(200).then(() => "hung"),
+        ]);
+        expect(result).toBe("timed_out");
+        await expect(readFile(destination)).rejects.toMatchObject({ code: "ENOENT" });
+      }
+      expect(bounded.mock.calls.filter(call => call[0] === 120000)).toHaveLength(2);
+    } finally {
+      bounded.mockRestore(); server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
   test("uploads only the chunks the platform lacks, straight to storage, then commits", async () => {
     const bytes = Buffer.alloc(PROJECT_CHUNK_BYTES + 5, 3);
     const hash = sha(bytes);

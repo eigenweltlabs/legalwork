@@ -1,5 +1,6 @@
 /** Desktop refresh recovery. The request ID is saved before sending and kept
  * until the rotated credentials are saved, so retries survive sleep/restarts. */
+import { createHash } from "node:crypto";
 import {
   eigenweltPlatformUrl, parseEigenweltAccountIdentity, parseEigenweltEntitlements,
   validateEigenweltPlatformUrl,
@@ -22,6 +23,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 const inFlight = new Map<string, { refreshToken: string; run: Promise<string | null> }>();
+function refreshTrace(requestId: string, phase: "started" | "response" | "deferred" | "rejected" | "stored" | "completed",
+  fields: { status?: number; stored?: boolean; expiresAt?: number } = {}) {
+  console.error(JSON.stringify({ event: "assistant.platform-refresh", requestHash: createHash("sha256").update(requestId).digest("hex"),
+    phase, at: Date.now(), ...fields }));
+}
 
 export async function ensureFreshPlatformToken(config: ServerConfig,
   options?: { force?: boolean }): Promise<string | null> {
@@ -57,6 +63,7 @@ async function doRefresh(config: ServerConfig, conn: EigenweltConnection): Promi
   const requestId = await claimEigenweltRefreshRequest(config, conn.refreshToken);
   if (!requestId) return latestToken(config);
   const expected = { refreshToken: conn.refreshToken, refreshRequestId: requestId };
+  refreshTrace(requestId, "started");
   let response: Response;
   let payload: unknown;
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -73,8 +80,10 @@ async function doRefresh(config: ServerConfig, conn: EigenweltConnection): Promi
       payload = null;
     }
   } catch {
+    refreshTrace(requestId, "deferred");
     return retryLater(config, expected, "network_or_timeout");
   }
+  refreshTrace(requestId, "response", { status: response.status });
   if (response.status === 401) {
     const reason = isRecord(payload) && typeof payload.code === "string" && rejectionCodes.has(payload.code)
       ? payload.code : "refresh_rejected";
@@ -83,6 +92,7 @@ async function doRefresh(config: ServerConfig, conn: EigenweltConnection): Promi
         entitlements: null, account: null, platformToken: null, refreshToken: null,
         accessTokenExpiresAt: null,
       }, expected);
+      refreshTrace(requestId, "rejected", { status: 401, stored: cleared });
       if (cleared) {
         console.warn(`[eigenwelt-refresh] signed out: ${reason}`);
         await clearCachedEigenweltPaidManifest(config);
@@ -116,12 +126,14 @@ async function doRefresh(config: ServerConfig, conn: EigenweltConnection): Promi
       ...(entitlements ? { entitlements } : {}), ...(account ? { account } : {}),
       ...(platformURL ? { platformURL } : {}),
     }, expected);
+    refreshTrace(requestId, "stored", { stored: saved, expiresAt });
     if (!saved) return;
     if (Array.isArray(models)) {
       await applyEigenweltPaidManifestModels(config, parseManifestModels(models)).catch(() => undefined);
     }
     await applyEigenweltSystemOne(config, systemOne).catch(() => undefined);
   });
+  refreshTrace(requestId, "completed");
   return latestToken(config);
 }
 

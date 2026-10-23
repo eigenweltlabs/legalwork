@@ -12,6 +12,7 @@ const SyncPokeSchema = z.object({
   tasks: z.boolean().optional(),
   policy: z.boolean().optional(),
   hub: z.boolean().optional(),
+  connectors: z.boolean().optional(),
   sessions: z.boolean().optional(),
   approvals: z.boolean().optional(),
   resync: z.boolean().optional(),

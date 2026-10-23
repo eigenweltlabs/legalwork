@@ -32,7 +32,7 @@ export async function initializeProjectFields(root: string, fields: ReturnType<t
   return updateProjectDetails(root, { revision: 0, fields });
 }
 
-const detailsSchema = z.object({
+export const projectDetailsSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
   fields: projectFieldsSchema,
@@ -40,6 +40,7 @@ const detailsSchema = z.object({
   syncProjectId: z.string().uuid().optional(),
   remote: projectRemoteSchema.optional(),
 });
+const detailsSchema = projectDetailsSchema;
 const patchSchema = z.object({
   revision: z.number().int().nonnegative(),
   fields: projectFieldsSchema,
@@ -127,6 +128,12 @@ export async function updateProjectDetails(
     }
     return { ...current, fields: parsed.data.fields };
   });
+}
+
+/** Offline checkpoint restore through the same validated, atomic writer. */
+export async function restoreProjectDetails(root: string, value: unknown) {
+  const details = projectDetailsSchema.parse(value);
+  return writeProjectDetails(root, () => details);
 }
 
 export async function updateProjectPersonalization(root: string, input: unknown): Promise<ProjectDetails> {

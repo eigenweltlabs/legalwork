@@ -11,6 +11,8 @@ legalwork-server --workspace /path/to/workspace --approval auto
 
 `legalwork-server` ships as a compiled binary, so Bun is not required at runtime.
 
+For a persistent personal assistant VM, see [Personal assistant cloud sync](../../docs/cloud-assistant-sync.md).
+
 Or from source with Bun 1.4.2+ (older runtimes can truncate FTPS transfers):
 
 ```bash

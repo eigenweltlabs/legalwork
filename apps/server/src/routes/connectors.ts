@@ -13,6 +13,7 @@ import { connectorOAuthClientInputSchema } from "../connectors/schema.js";
 import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient } from "../connectors/local-oauth.js";
 
 import { connectorSettings, connectorWriteSetting, saveConnectorWriteSetting } from "../connectors/settings.js";
+import { connectorCloudAccess, saveConnectorCloudAccess } from "../connectors/sync.js";
 import { deliverConnectorEmailDraft, deliverConnectorCalendarDraft, refreshConnectorCalendarDraft, reloadConnectorEmailDraft } from "../connectors/drafts.js";
 import { recordAudit } from "../audit.js";
 
@@ -59,6 +60,8 @@ export function registerConnectorRoutes(options: {
     return jsonResponse(result);
   });
   add("GET", "/connectors/:connectorId/settings", async (ctx) => jsonResponse(await connectorWriteSetting(config, ctx.params.connectorId)));
+  add("GET", "/connectors/:connectorId/cloud-access", async (ctx) => jsonResponse(await connectorCloudAccess(config, ctx.params.connectorId)));
+  add("PUT", "/connectors/:connectorId/cloud-access", async (ctx) => jsonResponse(await saveConnectorCloudAccess(config, ctx.params.connectorId, await readOptionalJsonBody(ctx.request))));
   add("PUT", "/connectors/:connectorId/settings", async (ctx) => jsonResponse(await saveConnectorWriteSetting(config, ctx.params.connectorId, await readOptionalJsonBody(ctx.request))));
   add("GET", "/connectors", async () => jsonResponse(await connectorStatus(config)));
   add("GET", "/connectors/:connectorId", async (ctx) => jsonResponse(await connectorStatus(config, ctx.params.connectorId, new URL(ctx.request.url).searchParams.get("refresh") === "true")));

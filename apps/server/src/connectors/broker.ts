@@ -7,7 +7,8 @@ import {
 import { ApiError } from "../errors.js";
 import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
-import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
+import { brokerIdentity, brokerRequest, ownerKey } from "./transport.js";
+import { synchronizeConnectorBindings, registerConnectorBinding, revokeConnectorBinding, syncConnectorActivation, cloudConnectorPolicy } from "./sync.js";
 import type { ServerConfig } from "../types.js";
 import { connectorVault, readConnectorConnections, readConnectorState, writeConnectorConnections, type StoredConnectorConnection } from "./store.js";
 import { createNangoAuthFlow } from "./auth-flow.js";
@@ -21,54 +22,6 @@ const statusSchema = z.object({ connection: connectorConnectionSchema });
 const sessionSchema = z.object({ sessionToken: z.string().min(1), integrationId: z.string().min(1), expiresAt: z.number().finite() });
 const catalogSchema = z.object({ configured: z.boolean(), providers: z.array(z.object({ id: z.string() })) });
 
-function ownerKey(account: { orgId: string; userId: string }) {
-  return JSON.stringify([eigenweltPlatformUrl(), account.orgId, account.userId]);
-}
-
-async function brokerIdentity(config: ServerConfig) {
-  const token = await ensureFreshPlatformToken(config);
-  const connection = await readEigenweltConnection(config);
-  if (!token || !connection.account) throw new ApiError(403, "connector_signin_required", "Sign in with Eigenwelt to connect an account.");
-  return { token, owner: ownerKey(connection.account) };
-}
-
-async function brokerRequest(config: ServerConfig, method: string, path: string, body?: unknown, expectedOwner?: string): Promise<unknown> {
-  const identity = await brokerIdentity(config);
-  if (expectedOwner && identity.owner !== expectedOwner) throw new ApiError(409, "connector_account_changed", "Your Eigenwelt account changed. Start again.");
-  const request = async (token: string) => {
-    try {
-      return await fetch(`${eigenweltPlatformUrl()}/api/connectors${path}`, {
-        method, redirect: "error", signal: AbortSignal.timeout(35_000),
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-    } catch {
-      throw new ApiError(502, "connector_broker_unreachable", "Could not reach the account connection service. Try again shortly.");
-    }
-  };
-  let response = await request(identity.token);
-  if (response.status === 401) {
-    await ensureFreshPlatformToken(config, { force: true });
-    const refreshed = await brokerIdentity(config);
-    if (refreshed.owner !== identity.owner) throw new ApiError(409, "connector_account_changed", "Your Eigenwelt account changed. Start again.");
-    response = await request(refreshed.token);
-  }
-  if (!response.ok) {
-    const codes: Record<number, [string, string]> = {
-      401: ["connector_signin_required", "Sign in with Eigenwelt again to connect an account."],
-      403: ["connector_access_denied", "Your Eigenwelt account cannot access this connection."],
-      404: ["connector_connection_not_found", "Connection not found. Connect the account again."],
-      409: ["connector_reconnect_required", "Reconnect this account to restore access."],
-      429: ["connector_rate_limited", "Too many connection requests. Try again shortly."],
-      503: ["connectors_not_configured", "Account connections are not available yet. Try again later."],
-    };
-    const [code, message] = codes[response.status] ?? ["connector_broker_failed", "The account connection service could not complete this request."];
-    throw new ApiError(response.status >= 500 ? 502 : response.status, code, message);
-  }
-  try { return await response.json(); }
-  catch { throw new ApiError(502, "connector_broker_invalid", "The account connection service returned an invalid response."); }
-}
-
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new ApiError(502, "connector_broker_invalid", "The account connection service returned an invalid response.");
@@ -77,8 +30,9 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 
 async function checkConnection(config: ServerConfig, owner: string, id: string, connection: StoredConnectorConnection) {
   try {
-    const status = parse(statusSchema, await brokerRequest(config, "POST", `/${encodeURIComponent(id)}/connection/status`, { connectionId: connection.nangoConnectionId }, owner)).connection;
-    if (status.id !== connection.nangoConnectionId) throw new ApiError(502, "connector_broker_invalid", "The connection service returned an invalid account.");
+    const status = parse(statusSchema, await brokerRequest(config, "POST", connection.bindingId ? "/bindings/status" : `/${encodeURIComponent(id)}/connection/status`,
+      connection.bindingId ? { bindingId: connection.bindingId, connectorId: id } : { connectionId: connection.nangoConnectionId }, owner)).connection;
+    if (status.id !== (connection.bindingId ?? connection.nangoConnectionId)) throw new ApiError(502, "connector_broker_invalid", "The connection service returned an invalid account.");
     return { ...connection, createdAt: status.createdAt, needsReconnect: status.needsReconnect };
   } catch (error) {
     if (error instanceof ApiError && error.code === "connector_connection_not_found") return null;
@@ -95,7 +49,7 @@ const STATUS_CACHE_MS = 30_000;
 
 async function refreshConnection(config: ServerConfig, owner: string, id: string, connection: StoredConnectorConnection, forceRefresh = false) {
   if (connection.needsReconnect) return connection;
-  const key = JSON.stringify([oauthVaultPath(config), owner, connectionProvider(id), connection]);
+  const key = JSON.stringify([oauthVaultPath(config), owner, config.cloudSync?.role === "executor" ? id : connectionProvider(id), connection]);
   let entry = statusChecks.get(key);
   if (!entry || (entry.until !== 0 && (forceRefresh || entry.until <= Date.now()))) {
     if (statusChecks.size >= 256) {
@@ -119,7 +73,15 @@ export async function listConnectorConnections(config: ServerConfig, id: string,
   if (!account || (!platform.platformToken && !platform.refreshToken)) return local;
   const owner = ownerKey(account);
   const provider = connectionProvider(id);
-  const savedState = await readConnectorState(config, owner, provider);
+  let savedState = await readConnectorState(config, owner, provider);
+  if (config.cloudSync || savedState.connections.some(item => item.bindingId)) {
+    await synchronizeConnectorBindings(config, { force: forceRefresh }).catch(error => { if (config.cloudSync?.role === "executor") throw error; });
+    savedState = await readConnectorState(config, owner, provider);
+  }
+  if (config.cloudSync?.role === "executor") {
+    const value = await cloudConnectorPolicy(config, id);
+    if (!value?.policy?.active || !value.policy.cloudEnabled) return [];
+  }
   let connections = savedState.connections;
   if (connections.some((connection) => !connection.needsReconnect)) {
     const refreshed = await Promise.all(connections.map((connection) => refreshConnection(config, owner, id, connection, forceRefresh)));
@@ -133,6 +95,10 @@ export async function listConnectorConnections(config: ServerConfig, id: string,
 
 /** Admission checks read only saved metadata; they never discover accounts remotely. */
 export async function savedConnectorConnections(config: ServerConfig, id: string) {
+  if (config.cloudSync?.role === "executor") {
+    const value = await cloudConnectorPolicy(config, id);
+    if (!value?.policy?.active || !value.policy.cloudEnabled) return [];
+  }
   const local = await localOAuthConnections(config, id);
   const platform = await readEigenweltConnection(config);
   if (!platform.account || (!platform.platformToken && !platform.refreshToken)) return local;
@@ -181,9 +147,9 @@ export async function connectorStatus(config: ServerConfig, connectorId?: string
   return { configured: catalog.configured, requiresSignIn: false,
     connectors: await Promise.all(definitions.map(async ({ id, name }) => {
       const configured = catalog.configured && catalog.providers.some((provider) => provider.id === id);
-      const provider = connectionProvider(id);
-      let list = lists.get(provider);
-      if (configured && !list) { list = listConnectorConnections(config, id, forceRefresh); lists.set(provider, list); }
+      const listKey = config.cloudSync?.role === "executor" ? id : connectionProvider(id);
+      let list = lists.get(listKey);
+      if (configured && !list) { list = listConnectorConnections(config, id, forceRefresh); lists.set(listKey, list); }
       const customConfigured = (await localOAuthClient(config, id)).configured;
       const connections = list ? await list : await localOAuthConnections(config, id);
       return { id, name, configured, customConfigured, connections, active: await connectorActiveStatus(config, id, connections) };
@@ -200,6 +166,7 @@ export async function setConnectorActivation(config: ServerConfig, id: string, c
   return withConnectorConnectLock(config, id, async () => {
     requireConnectorConnectSlot(await savedConnectorConnections(config, id), connectionId);
     await recordConnectorActivation(config, id, connectionId, active);
+    await syncConnectorActivation(config, id, connectionId, active);
     return { active: await connectorIsActivated(config, id, connectionId) };
   });
 }
@@ -208,6 +175,7 @@ export async function setConnectorActivation(config: ServerConfig, id: string, c
 // the local vault; Nango access tokens are held only in process memory.
 export async function connectorAccessToken(config: ServerConfig, id: string, connectionId: string, forceRefresh = false) {
   connectorDefinition(id);
+  if (config.cloudSync?.role === "executor") await synchronizeConnectorBindings(config);
   await requireConnectorActivated(config, id, connectionId);
   const localToken = await localOAuthAccessToken(config, id, connectionId, forceRefresh);
   if (localToken) return localToken;
@@ -218,7 +186,8 @@ export async function connectorAccessToken(config: ServerConfig, id: string, con
   const connection = saved.find((connection) => connection.id === connectionId && !connection.needsReconnect);
   if (!connection) throw new ApiError(409, "connector_not_connected", "Connect this account in Integrations before using it.");
   return parse(connectorTokenSchema, await brokerRequest(config, "POST",
-    `/${encodeURIComponent(id)}/connection/token`, { connectionId: connection.nangoConnectionId, forceRefresh }, owner)).accessToken;
+    connection.bindingId ? "/bindings/token" : `/${encodeURIComponent(id)}/connection/token`,
+    connection.bindingId ? { bindingId: connection.bindingId, connectorId: id, forceRefresh } : { connectionId: connection.nangoConnectionId, forceRefresh }, owner)).accessToken;
 }
 
 export async function disconnectConnector(config: ServerConfig, id: string, connectionId: string) {
@@ -232,7 +201,8 @@ export async function disconnectConnector(config: ServerConfig, id: string, conn
   const saved = await readConnectorConnections(config, owner, provider);
   const connection = saved.find((connection) => connection.id === connectionId);
   if (!connection) throw new ApiError(404, "connector_connection_not_found", "Connection not found.");
-  await brokerRequest(config, "POST", `/${encodeURIComponent(id)}/connection/disconnect`, { connectionId: connection.nangoConnectionId }, owner);
+  if (!await revokeConnectorBinding(config, id, connection, owner))
+    await brokerRequest(config, "POST", `/${encodeURIComponent(id)}/connection/disconnect`, { connectionId: connection.nangoConnectionId }, owner);
   await writeConnectorConnections(config, owner, provider, saved.filter((connection) => connection.id !== connectionId));
   await clearConnectorActivation(config, id, connectionId);
   return connectorStatus(config);
@@ -255,8 +225,10 @@ export function createConnectorFlows(config: ServerConfig, authorize = createNan
       requireConnectorConnectSlot(saved.map((item) => connectorConnectionSchema.parse(item)), connectionId, "nango");
       const connection = saved.find((entry) => entry.id === connectionId);
       if (connectionId && !connection) throw new ApiError(404, "connector_connection_not_found", "Connection not found.");
-      const path = connection ? `/${encodeURIComponent(id)}/connection/reconnect` : `/${encodeURIComponent(id)}/connect`;
-      const session = parse(sessionSchema, await brokerRequest(config, "POST", path, { flowId, ...(connection ? { connectionId: connection.nangoConnectionId } : {}) }, owner));
+      const bound = connection?.bindingId && !connection.nangoConnectionId;
+      const path = bound ? "/bindings/reconnect" : connection ? `/${encodeURIComponent(id)}/connection/reconnect` : `/${encodeURIComponent(id)}/connect`;
+      const session = parse(sessionSchema, await brokerRequest(config, "POST", path, { flowId,
+        ...(bound ? { bindingId: connection.bindingId, connectorId: id } : connection ? { connectionId: connection.nangoConnectionId } : {}) }, owner));
       if (session.expiresAt <= Date.now()) throw new ApiError(502, "connector_broker_invalid", "The sign-in session has expired.");
       const auth = await authorize(session);
       flows.set(flowId, { id, owner, expiresAt: session.expiresAt, connectionId, auth });
@@ -272,14 +244,14 @@ export function createConnectorFlows(config: ServerConfig, authorize = createNan
       if (!nangoId) return { status: "pending", connection: null };
       const provider = connectionProvider(flow.id);
       const saved = await readConnectorConnections(config, flow.owner, provider);
-      const existing = saved.find((entry) => entry.nangoConnectionId === nangoId);
+      const existing = saved.find((entry) => entry.nangoConnectionId === nangoId || (entry.id === flow.connectionId && entry.bindingId && !entry.nangoConnectionId));
       if (flow.connectionId && existing?.id !== flow.connectionId) throw new ApiError(502, "connector_broker_invalid", "The sign-in returned a different account.");
       const candidate = { id: existing?.id ?? randomUUID(), createdAt: existing?.createdAt ?? null, needsReconnect: false, nangoConnectionId: nangoId };
       const connection = await refreshConnection(config, flow.owner, flow.id, candidate, true);
       if (flows.get(flowId) !== flow) throw new ApiError(404, "connector_flow_not_found", "Connection flow not found. Start again.");
       if (!connection || connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", "Reconnect this account to restore access.");
       const current = await readConnectorState(config, flow.owner, provider);
-      const currentConnection = current.connections.find((entry) => entry.nangoConnectionId === nangoId);
+      const currentConnection = current.connections.find((entry) => entry.nangoConnectionId === nangoId || (entry.id === flow.connectionId && entry.bindingId && !entry.nangoConnectionId));
       if (flow.connectionId && currentConnection?.id !== flow.connectionId) throw new ApiError(404, "connector_connection_not_found", "Connection was removed. Start again.");
       requireConnectorConnectSlot(current.connections.map((item) => connectorConnectionSchema.parse(item)), currentConnection?.id);
       connection.id = currentConnection?.id ?? connection.id;
@@ -325,6 +297,10 @@ export function createConnectorFlows(config: ServerConfig, authorize = createNan
         if (result.status === "connected" && result.connection && !admission.activated && admissions.get(flowId) === admission) {
           await recordConnectorActivation(config, admission.id, result.connection.id, true);
           admission.activated = true;
+          if (admission.method === "nango" && config.cloudSync?.role === "companion") {
+            // OAuth success stays usable locally if cloud registration is temporarily offline.
+            await registerConnectorBinding(config, admission.id, result.connection.id, true).catch(() => {});
+          }
         }
         return result;
       });

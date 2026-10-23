@@ -17,6 +17,7 @@ export async function createAssistantSessionQueue(path: string, options: {
   access: AssistantSessionAccess;
   config: ServerConfig;
   preparePrompt: (workspace: WorkspaceInfo, directory: string) => Promise<void>;
+  available?: () => boolean;
 }) {
   const requestOptions = () => ({ throwOnError: true, signal: AbortSignal.timeout(10000) });
   const read = async (target: AssistantSessionTarget) => {
@@ -33,6 +34,7 @@ export async function createAssistantSessionQueue(path: string, options: {
     return { workspace, client, session };
   };
   return AssistantSessionQueue.open(path, {
+    available: options.available,
     inspect: async target => {
       const { workspace, client, session } = await read(target);
       const { data: statuses } = await client.session.status({}, requestOptions());

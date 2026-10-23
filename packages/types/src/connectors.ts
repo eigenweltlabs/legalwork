@@ -96,6 +96,12 @@ export const connectorWriteSettingSchema = z.object({ writeAccess: z.boolean(), 
 export type ConnectorWriteSetting = z.infer<typeof connectorWriteSettingSchema>;
 export type ConnectorSettings = z.infer<typeof connectorSettingsSchema>;
 
+export const connectorCloudAccessSchema = z.object({
+  available: z.boolean(), enabled: z.boolean(), writeAccess: z.boolean(), readOnly: z.boolean(),
+  syncError: z.boolean().default(false),
+});
+export type ConnectorCloudAccess = z.infer<typeof connectorCloudAccessSchema>;
+
 export const connectorMailDraftTargetSchema = z.object({ connectorId: z.enum(["gmail", "outlook"]), connectionId: z.string().min(1).max(500) }).strict();
 export const connectorCalendarDraftTargetSchema = z.object({ connectorId: z.enum(["google-calendar", "outlook-calendar"]), connectionId: z.string().min(1).max(500), calendarId: z.string().min(1).max(1000) }).strict();
 export const connectorDraftDeliverySchema = z.object({

@@ -26,6 +26,13 @@ import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { bootCloudSync } from "./cloud-sync/lifecycle.js";
+import { runCloudSyncCli } from "./cloud-sync/cli.js";
+
+if (process.argv[2] === "sync") {
+  await runCloudSyncCli(process.argv.slice(3));
+  process.exit(0);
+}
 
 const args = parseCliArgs(process.argv.slice(2));
 
@@ -41,13 +48,18 @@ if (args.version) {
 
 const config = await resolveServerConfig(args);
 config.agentSandboxEnabled = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
+const cloudSync = await bootCloudSync(config);
 const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
+if (config.cloudSync) config.cloudSync.onLeaseLost = () => { void managedOpencode?.close(); };
 
+if (cloudSync?.replica.settings.role === "executor" && process.env.LEGALWORK_MANAGE_OPENCODE !== "1")
+  throw new Error("A cloud execution owner requires LEGALWORK_MANAGE_OPENCODE=1");
 if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
+    if (config.cloudSync && !config.cloudSync.shouldSyncFiles(workspace.id)) continue;
     await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
   }
 }
@@ -122,6 +134,7 @@ const server = await startServer(config, { onListening: async (port) => {
   }
 } }).catch(async (error: unknown) => {
   await managedOpencode?.close();
+  await cloudSync?.stop();
   throw error;
 });
 
@@ -160,16 +173,21 @@ if (args.verbose) {
   logger.log("info", `Host token source: ${config.hostTokenSource}`);
 }
 
-const shutdown = () => {
-  void managedOpencode?.close();
-  (server as { stop?: (closeActiveConnections?: boolean) => void }).stop?.(true);
+const shutdown = async () => {
+  await managedOpencode?.close();
+  await server.stop();
+  if (cloudSync) {
+    try { await cloudSync.replica.tick(); }
+    catch (error) { logger.log("error", `Final cloud checkpoint failed: ${error instanceof Error ? error.message : "Sync unavailable"}`); }
+    await cloudSync.stop();
+  }
 };
 
-process.once("SIGINT", () => {
-  shutdown();
+process.once("SIGINT", async () => {
+  await shutdown();
   process.exit(0);
 });
-process.once("SIGTERM", () => {
-  shutdown();
+process.once("SIGTERM", async () => {
+  await shutdown();
   process.exit(0);
 });

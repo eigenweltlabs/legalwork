@@ -2,10 +2,15 @@ import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
+import { CloudAssistantSetup } from "./cloud-assistant-setup.js";
+import { AssistantChannelHistory } from "./assistant-channel-history.js";
+import { registerAssistantChannelHistoryRoutes } from "./routes/assistant-channel-history.js";
 import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
+import { registerChannelRuntimeRoutes } from "./channel-runtime-routes.js";
+import { cloudExecutionFetch, prepareCloudExecution } from "./cloud-sync/lifecycle.js";
 import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
 import { createAssistantScheduledSession, prepareAssistantScheduledWork } from "./assistant-scheduled-work.js";
 import { AssistantDelegations } from "./assistant-delegations.js";
@@ -239,6 +244,7 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
+import { startConnectorSync } from "./connectors/sync.js";
 import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
@@ -841,6 +847,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
   const stopProjectSyncTimer = startProjectSyncTimer(config);
   // The firm pokes this computer when something changed, so rounds start at once.
+  const stopConnectorSync = startConnectorSync(config);
   const stopSyncEvents = startSyncEvents(config);
   const stopSandboxSettingsSync = startSandboxSettingsSync(config);
   // The firm's policy: pulled now and whenever the firm pokes; what changes
@@ -896,6 +903,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       create: async title => unwrapOpencodeResult(await client.session.create({ title }, { signal: AbortSignal.timeout(10000) }), "/session"),
     };
   }, () => { restartReloadWatchers(); announceSyncChange(config, "projects"); });
+  const cloudAssistantSetup = await CloudAssistantSetup.open({ config, idle: async () => {
+    for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+      const statuses = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      if (Object.values(statuses).some(status => status.type !== "idle")) return false;
+    }
+    return true;
+  } });
+  const assistantChannelHistory = await AssistantChannelHistory.open(runtimeDbPath(config), { config, assistant: mainAssistant,
+    client: workspace => createWorkspaceOpencodeClient(config, workspace),
+    enabled: () => config.cloudSync?.role === "executor" ? Promise.resolve(true) : cloudAssistantSetup.enabled(),
+    executor: Boolean(process.env.LEGALWORK_CHANNEL_IDENTITY) });
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -909,6 +927,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     },
     available: async task => {
       if (config.readOnly) return false;
+      if (config.cloudSync && !config.cloudSync.canExecute()) return false;
       const workspace = await scheduledWorkspace(task);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const status = unwrapOpencodeResult(await client.session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
@@ -926,6 +945,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
     },
     send: (task, sessionId) => withSessionExecution(config, sessionId, async () => {
+      await prepareCloudExecution(config, task.workspaceId);
       const workspace = await scheduledWorkspace(task);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
@@ -992,6 +1012,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     },
     idle: async destination => {
       if (config.readOnly) return false;
+      if (config.cloudSync && !config.cloudSync.canExecute()) return false;
       const { client, session } = await delegationSession(destination.workspaceId, destination.sessionId);
       if (session.time.archived) return false;
       const statuses = unwrapOpencodeResult(await client.session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
@@ -1017,6 +1038,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     }, true),
   });
   const sessionQueue = await createAssistantSessionQueue(runtimeDbPath(config), { workspace: id => resolveWorkspace(config, id),
+    available: () => !config.cloudSync || config.cloudSync.canExecute(),
     client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions"),
     config, access: assistantSessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant, delegations, sessionQueue, assistantSessionAccess);
@@ -1053,6 +1075,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       return managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
     },
   });
+  registerAssistantChannelHistoryRoutes({ routes, history: assistantChannelHistory, requireClientScope, json: jsonResponse });
+  addRoute(routes, "GET", "/assistant/cloud", "client", async ctx => { requireClientScope(ctx, "viewer"); return jsonResponse(await cloudAssistantSetup.status()); });
+  addRoute(routes, "POST", "/assistant/cloud", "client", async ctx => { requireClientScope(ctx, "collaborator"); return jsonResponse(await cloudAssistantSetup.enable(), 202); });
+  addRoute(routes, "DELETE", "/assistant/cloud", "client", async ctx => { requireClientScope(ctx, "collaborator"); return jsonResponse(await cloudAssistantSetup.disable()); });
+  const channelRuntime = await registerChannelRuntimeRoutes({ config, routes, assistant: mainAssistant, delegations, schedules: scheduledTasks,
+    client: workspace => createWorkspaceOpencodeClient(config, workspace), workspace: id => resolveWorkspace(config, id),
+    json: jsonResponse, body: readJsonBodyLimited });
 
   let ready = false;
   const push = await AssistantPush.open(runtimeDbPath(config),
@@ -1298,9 +1327,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     }
   }
 
+  const stopAssistantChannelHistory = assistantChannelHistory.start();
   const stopPush = push.start();
-  const stopMainAssistant = config.readOnly ? () => {} : mainAssistant.start(() => ensureMorningBriefing(config, scheduledTasks, mainAssistant,
-    () => hasBriefingSessionThreshold(config, id => resolveWorkspace(config, id))));
+  const stopMainAssistant = config.readOnly ? () => {} : mainAssistant.start(() => {
+    if (config.cloudSync && !config.cloudSync.canExecute()) return Promise.resolve();
+    return ensureMorningBriefing(config, scheduledTasks, mainAssistant,
+      () => hasBriefingSessionThreshold(config, id => resolveWorkspace(config, id)));
+  });
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
   const stopDelegations = config.readOnly ? async () => {} : delegations.start();
   const stopSessionQueue = config.readOnly ? async () => {} : sessionQueue.start();
@@ -1310,6 +1343,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     stop: async () => {
       stopSandboxSettingsSync();
       agentSandbox.stop();
+      await stopAssistantChannelHistory();
+      await cloudAssistantSetup.close();
       await stopPush();
       approvals.dispose();
       stopMessageQueue(config);
@@ -1320,6 +1355,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       stopTaskSync();
       stopProjectSyncTimer();
       stopSyncEvents();
+      stopConnectorSync();
       stopOrgPolicy();
       stopFirmHub();
       stopTaskReminders();
@@ -1335,6 +1371,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       reloadBaselineRefreshers.delete(config);
       await wordAddinServer?.stop();
       await server.stop();
+      channelRuntime.close();
     },
   };
   try {
@@ -1390,7 +1427,7 @@ function createWorkspaceOpencodeClient(config: ServerConfig, workspace: Workspac
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
     ...(directory ? { directory } : {}),
-    ...(directoryFetch ? { fetch: directoryFetch } : {}),
+    fetch: cloudExecutionFetch(config, workspace, directoryFetch ?? fetch),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
   });
 }
@@ -1405,7 +1442,7 @@ function createDirectoryOpencodeClient(config: ServerConfig, workspace: Workspac
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
     directory,
-    fetch: createOpencodeDirectoryFetch(directory),
+    fetch: cloudExecutionFetch(config, workspace, createOpencodeDirectoryFetch(directory)),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
   });
 }
@@ -1549,6 +1586,9 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
   if (method === "POST" && session && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
     await grantWikiAgentSession(input.config, { sessionId: decodeURIComponent(session[1]), directory: sessionDirectory, scope: input.actor.scope });
   }
+  if (workspace && !["GET", "HEAD", "OPTIONS"].includes(method) && /^\/(session|permission)(\/|$)/.test(proxyPath)) {
+    await prepareCloudExecution(input.config, workspace.id);
+  }
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
@@ -1563,6 +1603,10 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     // connector continues in the background instead of holding the chat open.
     await prepareWorkspacePrompt(input.config, workspace, sessionDirectory);
   }
+  const execute = () => {
+    const run = () => fetch(targetUrl, { method, headers, body });
+    return input.config.cloudSync?.runEngineRequest ? input.config.cloudSync.runEngineRequest(run) : run();
+  };
   if (isSessionCommandProxyRequest(method, proxyPath)) {
     if (protectedExecution) {
       if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");
@@ -1576,20 +1620,12 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     // Keep the dispatch reservation after returning the command acknowledgement.
     const commandSession = normalizedPath.match(/^\/session\/([^/]+)\/command$/);
     if (!commandSession) throw new ApiError(400, "invalid_command", "A chat command is required.");
-    void withSessionExecution(input.config, decodeURIComponent(commandSession[1]), () => fetch(targetUrl, {
-      method,
-      headers,
-      body,
-    })).catch(() => {
+    void withSessionExecution(input.config, decodeURIComponent(commandSession[1]), execute).catch(() => {
       // Command failures are surfaced through the OpenCode event stream.
     });
     return jsonResponse({ ok: true, accepted: true });
   }
-  const response = await fetch(targetUrl, {
-    method,
-    headers,
-    body,
-  });
+  const response = await execute();
 
   if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "GET" && normalizedPath === "/mcp" && response.ok) {
     // The desktop already polls this endpoint. Repair only failed remote
@@ -1989,6 +2025,37 @@ function createRoutes(
   sessionAccess: AssistantSessionAccess,
 ): Route[] {
   const routes: Route[] = [];
+  addRoute(routes, "GET", "/cloud-sync/status", "client", async () => {
+    if (!config.cloudSync?.status) return jsonResponse({ enabled: false });
+    return jsonResponse({ enabled: true, status: await config.cloudSync.status() });
+  });
+  addRoute(routes, "POST", "/cloud-sync/checkpoint", "host-token", async () => {
+    if (!config.cloudSync?.checkpoint) throw new ApiError(409, "sync_disabled", "Cloud sync is not enabled.");
+    if (!config.cloudSync.canExecute()) throw new ApiError(409, "sync_execution_owner", "Only the execution owner can checkpoint sessions.");
+    const cancel = await config.cloudSync.beginCheckpoint?.();
+    try {
+      for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+        const statuses = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status(), "/session/status");
+        if (Object.values(statuses).some(status => status.type !== "idle")) throw new ApiError(409, "sync_assistant_busy", "Wait for the assistant to finish before pausing its VM.");
+      }
+      return jsonResponse(await config.cloudSync.checkpoint());
+    } catch (error) { cancel?.(); throw error; }
+  });
+  addRoute(routes, "POST", "/cloud-sync/resume", "host-token", async () => {
+    if (!config.cloudSync?.resume) throw new ApiError(409, "sync_disabled", "Cloud sync is not enabled.");
+    const status = await config.cloudSync.resume();
+    return jsonResponse({ ready: true, enabled: true, status });
+  });
+  addRoute(routes, "POST", "/cloud-sync/ready", "host-token", async () => {
+    if (!config.cloudSync?.ready) throw new ApiError(409, "sync_disabled", "Cloud sync is not enabled.");
+    const status = await config.cloudSync.ready();
+    return jsonResponse({ ready: true, enabled: true, status });
+  });
+  addRoute(routes, "POST", "/cloud-sync/projects/:id/prepare", "host-token", async ctx => {
+    await resolveWorkspace(config, ctx.params.id);
+    await prepareCloudExecution(config, ctx.params.id);
+    return jsonResponse({ ready: true });
+  });
   registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), requireApproval, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -3914,6 +3981,7 @@ function createRoutes(
 
   const projectContentSources = async (workspaceId: string): Promise<ProjectContentSources> => {
     const workspace = await resolveWorkspace(config, workspaceId);
+    if (config.cloudSync?.canExecute()) await prepareCloudExecution(config, workspaceId);
     const { orgId } = await localTaskConnection();
     return {
       workspace, orgId, tasks: await taskStore(config), recorder: config.recorder,
@@ -4466,7 +4534,11 @@ function createRoutes(
     ensureWritable,
     requireApproval,
     requireClientScope,
-    resolveWorkspace,
+    resolveWorkspace: async (serverConfig, id) => {
+      const workspace = await resolveWorkspace(serverConfig, id);
+      if (serverConfig.cloudSync?.canExecute()) await prepareCloudExecution(serverConfig, id);
+      return workspace;
+    },
     resolveInboxEnabled,
     resolveOutboxEnabled,
     resolveInboxMaxBytes,
@@ -5286,6 +5358,7 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
   const resolvedWorkspace = resolve(workspace.path);
+  if (config.cloudSync?.role === "executor" && await localWorkspaceUnavailable(workspace)) await prepareCloudExecution(config, workspace.id);
   // A disconnected/moved project must not be silently recreated by bootstrap.
   try {
     if (!(await stat(resolvedWorkspace)).isDirectory()) throw new Error("Not a directory");
@@ -5296,7 +5369,7 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
   if (!authorized) {
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
   }
-  if (!config.readOnly) {
+  if (!config.readOnly && (config.cloudSync?.role !== "executor" || config.cloudSync.shouldSyncFiles(workspace.id))) {
     let bootstraps = workspaceBootstrapPromises.get(config);
     if (!bootstraps) {
       bootstraps = new Map();
