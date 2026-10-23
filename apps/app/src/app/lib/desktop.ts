@@ -382,6 +382,12 @@ export async function openDesktopPath(target: string): Promise<void> {
   }
 }
 
+/** Open an existing directory in Finder, Explorer or the platform file manager. */
+export async function openDesktopFolder(target: string): Promise<void> {
+  const result = await invokeElectronHelper("__openFolder", target);
+  if (result.trim()) throw new Error(result);
+}
+
 export async function composeAppleMailDraft(draft: import("@legalwork/types/desktop-ipc").NativeMailDraftInput): Promise<void> {
   await invokeElectronHelper("composeAppleMailDraft", draft);
 }

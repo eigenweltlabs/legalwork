@@ -111,6 +111,12 @@ export const PROJECT_SYNC_SCHEMA = [
     org_id TEXT NOT NULL,
     removed_at INTEGER NOT NULL
   )`,
+  // Destructive deletion also suppresses tasks; merely disconnecting does not.
+  `CREATE TABLE IF NOT EXISTS project_tasks_removed (
+    project_id TEXT NOT NULL,
+    org_id TEXT NOT NULL,
+    PRIMARY KEY (project_id, org_id)
+  )`,
   // Projects their owner stopped syncing here: shared again, each is the same
   // project at the firm, so a colleague's held-back copy takes it up again.
   `CREATE TABLE IF NOT EXISTS project_stopped (
@@ -624,6 +630,15 @@ export class ProjectSyncStore {
 
   clearRemoved(projectId: string): void {
     this.db.run("DELETE FROM project_removed WHERE project_id = ?", [projectId]);
+    this.db.run("DELETE FROM project_tasks_removed WHERE project_id = ?", [projectId]);
+  }
+
+  markTasksRemoved(projectId: string, orgId: string): void {
+    this.db.run("INSERT OR IGNORE INTO project_tasks_removed (project_id, org_id) VALUES (?, ?)", [projectId, orgId]);
+  }
+
+  tasksRemoved(projectId: string, orgId: string): boolean {
+    return this.db.get("SELECT 1 FROM project_tasks_removed WHERE project_id = ? AND org_id = ?", [projectId, orgId]) !== undefined;
   }
 
   markStopped(workspaceId: string, projectId: string, orgId: string): void {
@@ -673,6 +688,7 @@ export class ProjectSyncStore {
   forgetOrg(orgId: string): void {
     this.db.run("DELETE FROM project_sync_state WHERE org_id = ?", [orgId]);
     this.db.run("DELETE FROM project_removed WHERE org_id = ?", [orgId]);
+    this.db.run("DELETE FROM project_tasks_removed WHERE org_id = ?", [orgId]);
     this.db.run("DELETE FROM project_offers WHERE org_id = ?", [orgId]);
   }
 }

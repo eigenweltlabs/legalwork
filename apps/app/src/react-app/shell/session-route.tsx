@@ -170,6 +170,7 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { RemoveProjectDialog } from "@/react-app/domains/workspace/remove-project-dialog";
 import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
 import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
 import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
@@ -203,7 +204,7 @@ import {
   publishInspectorSlice,
   recordInspectorEvent,
 } from "../../app/lib/app-inspector";
-import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
+import { saveSessionDraft, clearSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { useControlAction, type LegalworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
@@ -624,6 +625,7 @@ export function SessionRoute() {
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
+  const [removeProject, setRemoveProject] = useState<RouteWorkspace | null>(null);
   const [developerMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("legalwork.developerMode") === "1";
@@ -1847,33 +1849,31 @@ export function SessionRoute() {
       }
       forgetWorkspaceMemory(workspaceId);
       sessionManagementStore.getState().forgetWorkspace(workspaceId);
+      usePanelTabStore.getState().forgetWorkspace(workspaceId);
     },
     [navigate, selectedWorkspaceId],
   );
 
   const handleForgetWorkspace = useCallback(
-    async (workspaceId: string) => {
-      if (typeof window !== "undefined") {
-        const message =
-          t("workspace_list.remove_confirm") ||
-          "Remove this workspace from the sidebar?";
-        if (!window.confirm(message)) return;
-      }
+    async (workspaceId: string, sessionIds: string[]) => {
       try {
         const workspace = workspaces.find(item => item.id === workspaceId);
         if (workspace?.workspaceType !== "remote") {
-          if (!client) throw new Error(t("session_route.create_server_unavailable"));
-          await client.deleteWorkspace(workspaceId).catch(error => {
-            if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-          });
+          for (const sessionId of sessionIds) {
+            forgetSession(workspaceId, sessionId);
+            usePanelTabStore.getState().clearSession(sessionId);
+            clearSessionDraft(workspaceId, sessionId);
+          }
+          clearSessionDraft(workspaceId, null);
+          sessionManagementStore.getState().forgetWorkspace(workspaceId, sessionIds);
         }
         await forgetWorkspaceHere(workspaceId);
         await refreshRouteState();
       } catch (error) {
-        toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
+        throw new Error(describeRouteError(error));
       }
     },
-    [client, workspaces, forgetWorkspaceHere, refreshRouteState],
+    [workspaces, forgetWorkspaceHere, refreshRouteState, forgetSession],
   );
 
 
@@ -2931,7 +2931,7 @@ export function SessionRoute() {
         },
         onOpenRenameWorkspace: handleOpenRenameWorkspace,
         onRevealWorkspace: (id) => void handleRevealWorkspace(id),
-        onForgetWorkspace: (id) => void handleForgetWorkspace(id),
+        onForgetWorkspace: (id) => setRemoveProject(workspaces.find(workspace => workspace.id === id) ?? null),
         onOpenCreateWorkspace: () => {
           handleOpenCreateWorkspace();
         },
@@ -2995,6 +2995,15 @@ export function SessionRoute() {
       notFoundMessage={routeNotFoundMessage}
     />
     {viewDeleteRequest && <SessionViewDeleteDialog request={viewDeleteRequest} onClose={() => setViewDeleteRequest(null)} />}
+    {removeProject && <RemoveProjectDialog
+      key={removeProject.id}
+      name={workspaceLabel(removeProject)}
+      workspaceId={removeProject.id}
+      remote={removeProject.workspaceType === "remote"}
+      client={client}
+      onConfirm={sessionIds => handleForgetWorkspace(removeProject.id, sessionIds)}
+      onClose={() => setRemoveProject(null)}
+    />}
     {newChatOpen && <NewChatDialog
       groups={workspaceSessionGroups}
       disabled={!canCreateChat}

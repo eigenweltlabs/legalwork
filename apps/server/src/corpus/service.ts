@@ -54,7 +54,7 @@ export class CorpusService {
     selection: () => Promise<SystemOneSelection>;
     extract: (workspace: string, path: string, signal: AbortSignal) => Promise<CorpusText>;
     infer: (request: SystemOneRequest, selection: SystemOneSelection, signal: AbortSignal) => Promise<SystemOneResponse>;
-  }) {}
+  }, private runBackground: import("../project-deletion-gate.js").BackgroundTaskRunner = run => run()) {}
   async stop() {
     const running = [...this.jobs.values()].filter(job => job.status === "running");
     for (const job of running) job.controller.abort();
@@ -108,7 +108,7 @@ export class CorpusService {
           job.selection = await this.backend.selection(); job.total = sources.files.length; job.skipped = sources.skipped;
           await this.persist(job);
           const current = job;
-          job.done = this.run(current, input, sources.files);
+          job.done = this.runBackground(() => this.run(current, input, sources.files));
           // Report storage failures without leaving an unhandled detached promise.
           void job.done.catch(error => console.error("[jev-search] Could not save final state", error));
         } catch (error) { this.jobs.delete(job.id); throw error; }

@@ -18,6 +18,19 @@ async function until(check: () => Promise<boolean>) {
   for (let i = 0; i < 100; i++) { if (await check()) return; await new Promise(r => setTimeout(r, 5)); }
   expect(await check()).toBe(true);
 }
+test("project deletion removes persisted queues, including orphaned chats, but keeps other projects", async () => {
+  const transport = { idle: async () => false, send: async () => {} };
+  const { queue, dir } = await setup(transport);
+  await queue.act("deleted-project", "orphaned-chat", message());
+  await queue.act("kept-project", "kept-chat", message());
+  await queue.removeWorkspace("deleted-project");
+  queue.stop();
+  const reopened = new SessionMessageQueue(dir, transport);
+  try {
+    expect((await reopened.read("deleted-project", "orphaned-chat")).entries).toEqual([]);
+    expect((await reopened.read("kept-project", "kept-chat")).entries).toHaveLength(1);
+  } finally { reopened.stop(); }
+});
 test("an idle enqueue is acknowledged as sending without waiting for its reply", async () => {
   const sent: string[] = [];
   const { queue } = await setup({ idle: async () => true, send: async (_w, _s, entry) => { sent.push(entry.id); await new Promise(() => {}); } });

@@ -2709,6 +2709,16 @@ const desktopCommandHandlers = {
       if (!target) return "Path is required.";
       return safeOpen.openPath(target);
   },
+  "__openFolder": async (event, ...args) => {
+      const target = String(args[0] ?? "").trim();
+      if (!target || target.includes("\0")) return "Folder is required.";
+      try {
+        if (!(await stat(target)).isDirectory()) return "The folder is unavailable.";
+      } catch {
+        return "The folder is unavailable.";
+      }
+      return shell.openPath(target);
+  },
   "__revealItemInDir": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return undefined;

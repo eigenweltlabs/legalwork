@@ -57,6 +57,14 @@ export class ScheduledTaskStore {
   runs(taskId: string): ScheduledRun[] {
     return this.db.all("SELECT data FROM scheduled_task_runs WHERE task_id = ? ORDER BY rowid DESC LIMIT 50", [taskId]).map(row => ScheduledRunSchema.parse(JSON.parse(String(row.data))));
   }
+  removeWorkspace(workspaceId: string) {
+    this.transaction(() => {
+      this.db.run("DELETE FROM scheduled_task_runs WHERE task_id IN (SELECT id FROM scheduled_tasks WHERE workspace_id = ?)", [workspaceId]);
+      this.db.run("DELETE FROM scheduled_tasks WHERE workspace_id = ?", [workspaceId]);
+      this.db.run("DELETE FROM scheduled_sessions WHERE workspace_id = ?", [workspaceId]);
+    });
+    this.onChange?.();
+  }
   /** Advance and journal BEFORE dispatch. Another process cannot claim the same occurrence. */
   claim(snapshot: ScheduledTask, now: number): ScheduledRun | null {
     return this.transaction(() => {

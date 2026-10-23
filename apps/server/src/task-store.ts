@@ -1811,6 +1811,12 @@ export class TaskStore {
     this.db.run("UPDATE tasks SET sync_error = ? WHERE id = ?", [error ? error.slice(0, 500) : null, taskId]);
   }
 
+  async removeProject(projectId: string): Promise<void> {
+    const tasks = this.db.all("SELECT task_id FROM task_projects WHERE project_id = ?", [projectId]);
+    for (const row of tasks) await this.removeTask(text(row.task_id));
+    this.db.run("DELETE FROM task_projects WHERE project_id = ?", [projectId]);
+  }
+
   /** Forget a task entirely — the platform no longer shows it to this member. */
   async removeTask(id: string): Promise<void> {
     this.transaction(() => {

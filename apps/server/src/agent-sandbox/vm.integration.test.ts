@@ -308,6 +308,9 @@ node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes
       timeoutMs: 30_000, signal: new AbortController().signal,
       authorizeNetwork: async (request) => { requests.push(request.url); return true; },
     });
+    if (result.exitCode !== 0) {
+      throw new Error(`Approved HTTPS command exited ${result.exitCode}: ${result.output}`);
+    }
     expect(result.exitCode).toBe(0);
     expect(requests).toEqual(Array(3).fill("https://example.com/"));
     expect(result.output).toContain("Example Domain");

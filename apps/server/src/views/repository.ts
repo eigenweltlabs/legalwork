@@ -13,6 +13,20 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const isRecordPath = (path: string) => /\.view(?:\.conflict-[a-f0-9]{12})?\.json$/i.test(path);
 const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
+/** Independent files need independent IDs, even when several links share a source. */
+export function copyViewRecord(bytes: Uint8Array): Buffer {
+  if (bytes.length > MAX_BYTES) throw new ApiError(413, "view_too_large", "A saved view can contain up to 2 MB.");
+  try {
+    const { savedFrom: _legacySource, ...stored } = z.object({ savedFrom: z.unknown().optional() }).passthrough().parse(JSON.parse(Buffer.from(bytes).toString("utf8")));
+    const record = StoredViewSchema.parse(stored);
+    if (!isLocalOpenUIProgram(record.program)) throw new Error("Unsupported program");
+    const copy = Buffer.from(JSON.stringify({ ...record, id: randomUUID(), updatedAt: Date.now() }, null, 2) + "\n");
+    if (copy.length > MAX_BYTES) throw new Error("Record exceeds 2 MB");
+    return copy;
+  } catch {
+    throw new ApiError(409, "view_copy_failed", "A linked dashboard could not be copied. Repair the dashboard before deleting its project. The source has been kept.");
+  }
+}
 export type ViewFiles = {
   dashboardFolder?(): Promise<string>;
   list(): Promise<string[]>;

@@ -1,4 +1,5 @@
 import { syncProjectCalendar } from "./calendar/sync.js";
+import { withProjectMutation } from "./project-deletion-gate.js";
 import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
@@ -449,7 +450,8 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
       await setProjectSyncId(folderPath, remote.id);
       origin = "remote";
     }
-    workspace = (await registerLocalProject(config, { folderPath, name: remote.name, preset: "starter", position: "last" })).workspace;
+    workspace = (await registerLocalProject(config, { folderPath, name: remote.name, preset: "starter", position: "last",
+      folderOrigin: existing ? "selected_existing" : "created_by_app" })).workspace;
   }
   store.clearRemoved(remote.id);
   const link: ProjectLink = {
@@ -779,7 +781,7 @@ export function runProjectSync(
   const pending = pendingRounds.get(key);
   if (pending) clearTimeout(pending);
   pendingRounds.delete(key);
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
+  const round = withProjectMutation(config, () => runRound(config, options.platform ?? REAL_PLATFORM)).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
   rounds.set(key, round);

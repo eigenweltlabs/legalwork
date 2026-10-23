@@ -148,6 +148,7 @@ export type PanelTabStore = {
   keepTab: (scope: string, tabId: string) => void;
   readLayout: (value: unknown) => SessionPanelState | null;
   migrateWorkspace: (workspaceId: string) => void;
+  forgetWorkspace: (workspaceId: string) => void;
   adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout: boolean }) => void;
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
@@ -424,6 +425,14 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         return updateSession(state, scope, { ...session, panes: session.panes.map(pane => pane.previewTabId === tabId ? { ...pane, previewTabId: undefined } : pane) });
       }),
       transcriptArtifactTargets: {},
+      forgetWorkspace: workspaceId => set(state => {
+        const sessions = { ...state.sessions }, opening = { ...state.opening };
+        for (const key of [workspacePanelKey(workspaceId), `project:${workspaceId}`]) {
+          delete sessions[key]; delete opening[key];
+          workspaceWidths.delete(key); latestBrowserStates.delete(key);
+        }
+        return { sessions, opening };
+      }),
       readLayout: value => mergePersistedSessions({ sessions: { seed: value } }, get()).sessions.seed ?? null,
       migrateWorkspace: workspaceId => set(state => {
         const key = workspacePanelKey(workspaceId);

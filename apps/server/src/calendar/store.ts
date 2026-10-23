@@ -39,6 +39,18 @@ export class CalendarStore {
   list(projectId: string, deleted = false): CalendarItem[] {
     return this.db.all("SELECT data FROM calendar_items WHERE project_id = ?", [projectId]).map(row => CalendarItemSchema.parse(JSON.parse(String(row.data)))).filter(item => deleted || !item.deletedAt);
   }
+  removeProject(projectId: string) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.run("DELETE FROM calendar_reminders WHERE json_extract(data, '$.itemId') IN (SELECT id FROM calendar_items WHERE project_id = ?)", [projectId]);
+      this.db.run("DELETE FROM calendar_history WHERE item_id IN (SELECT id FROM calendar_items WHERE project_id = ?)", [projectId]);
+      this.db.run("DELETE FROM calendar_conflicts WHERE item_id IN (SELECT id FROM calendar_items WHERE project_id = ?)", [projectId]);
+      for (const table of ["calendar_items", "deadline_calculations", "calculation_runs", "calculation_presentations", "calendar_feeds"])
+        this.db.run(`DELETE FROM ${table} WHERE project_id = ?`, [projectId]);
+      this.db.run("DELETE FROM calendar_subscriptions WHERE scope = ?", [projectId]);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
   get(projectId: string, id: string): CalendarItem {
     const row = this.db.get("SELECT data FROM calendar_items WHERE project_id = ? AND id = ?", [projectId, id]);
     if (!row) throw new ApiError(404, "calendar_not_found", "Calendar entry not found.");

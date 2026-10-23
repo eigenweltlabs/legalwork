@@ -12,7 +12,6 @@ import { createClient } from "@/app/lib/opencode";
 import {
   createLegalworkServerClient,
   isLoopbackLegalworkServerUrl,
-  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerCapabilities,
   type LegalworkServerClient,
@@ -126,7 +125,6 @@ import {
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
-  workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
   desktopBridge,
@@ -1909,36 +1907,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     if (!path || !isDesktopRuntime()) return;
     await revealDesktopItemInDir(path).catch(() => undefined);
   }, [workspaces]);
-
-  const handleForgetWorkspace = useCallback(async (workspaceId: string) => {
-    if (typeof window !== "undefined") {
-      const message = t("workspace_list.remove_confirm") || t("workspace.remove_confirm");
-      if (!window.confirm(message)) return;
-    }
-    try {
-      const workspace = workspaces.find(item => item.id === workspaceId);
-      if (workspace?.workspaceType !== "remote") {
-        if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
-        await legalworkClient.deleteWorkspace(workspaceId).catch(error => {
-          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-        });
-      }
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId);
-      }
-      if (selectedWorkspaceId === workspaceId) {
-        const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
-        const nextId = nextWorkspace?.id ?? "";
-        setLegacySelectedWorkspaceId(nextId);
-        if (nextId) {
-          await workspaceSetSelected(nextId).catch(() => undefined);
-        }
-      }
-      await refreshRouteState();
-    } catch (error) {
-      toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
-    }
-  }, [legalworkClient, refreshRouteState, selectedWorkspaceId, workspaces]);
 
   const handleCreateWorkspace = async (preset: WorkspacePreset, folder: string | null) => {
     if (!folder) return;

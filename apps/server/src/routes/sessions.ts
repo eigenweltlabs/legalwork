@@ -1,5 +1,6 @@
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
+import { withProjectMutation } from "../project-deletion-gate.js";
 import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
 import { reviewSessionViews, savedSessionViews, sessionViewPreviews } from "../views/session-previews.js";
 import { retryStopReason } from "../session-retry-policy.js";
@@ -99,22 +100,22 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return client;
   }
   const messageQueue = registerMessageQueue(config, {
-    confirmed: async (workspaceId, sessionID, entry) => {
+    confirmed: (workspaceId, sessionID, entry) => withProjectMutation(config, async () => {
       if (entry.execution.kind !== "prompt") return false;
       const workspace = await resolveWorkspace(config, workspaceId);
       const client = await queueClient(workspace, sessionID);
       const messageID = `msg_${entry.id.replaceAll("-", "")}`;
       const result = await client.session.message({ sessionID, messageID }, { signal: AbortSignal.timeout(5000) });
       return result.data?.info.id === messageID && result.data.info.role === "user" && result.data.info.sessionID === sessionID;
-    },
-    idle: async (workspaceId, sessionId) => {
+    }),
+    idle: (workspaceId, sessionId) => withProjectMutation(config, async () => {
       if (config.readOnly) return false;
       const workspace = await resolveWorkspace(config, workspaceId);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
       return !statuses[sessionId] || statuses[sessionId].type === "idle";
-    },
-    send: (workspaceId, sessionID, entry) => withSessionExecution(config, sessionID, async () => {
+    }),
+    send: (workspaceId, sessionID, entry) => withProjectMutation(config, () => withSessionExecution(config, sessionID, async () => {
       ensureWritable(config);
       const client = await (async () => {
         try {
@@ -136,7 +137,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         return { pause: Boolean(result.info.error), reason: result.info.error?.name === "MessageAbortedError" ? "stop" : "error" };
       } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, ...execution }), "session/command");
       else unwrapOpencodeResult(await client.session.shell({ sessionID, command: execution.command }), "session/shell");
-    }, true),
+    }, true)),
   });
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
     const workspace = await resolveWorkspace(config, ctx.params.id);

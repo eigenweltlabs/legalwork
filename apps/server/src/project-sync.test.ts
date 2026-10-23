@@ -15,6 +15,7 @@ import { ApiError } from "./errors.js";
 import { checkCondition, conflict, entry, type StorageAdapter } from "./file-storage/common.js";
 import { readProjectDetails, updateProjectDetails, updateProjectPersonalization, updateProjectRemote } from "./project-store.js";
 import { projectSyncStore } from "./project-sync-store.js";
+import { projectFolderOrigin } from "./project-folder-origin.js";
 import {
   diffFields,
   noteProjectDetailsSaved,
@@ -907,6 +908,8 @@ describe("project sync between computers", () => {
     await runProjectSync(owner.config, { platform });
     await runProjectSync(member.config, { platform });
     const [copy] = projectsOf(member.config);
+    expect(await projectFolderOrigin(owner.config, akte)).toBe("selected_existing");
+    expect(await projectFolderOrigin(member.config, copy)).toBe("created_by_app");
 
     // Ben's computer loses its registry and sync state (a reinstall), but the folder stays.
     const fresh = { ...member.config, workspaces: [], authorizedRoots: [], configPath: join(member.dir, "fresh", "server.json") };
@@ -917,6 +920,7 @@ describe("project sync between computers", () => {
     await runProjectSync(fresh, { platform });
 
     expect(projectsOf(fresh).map((workspace) => workspace.path)).toEqual([copy.path]);
+    expect(await projectFolderOrigin(fresh, projectsOf(fresh)[0])).toBe("selected_existing");
     expect(await readdir(member.config.projectsDirectory ?? "")).toEqual(["Akte"]);
   });
 

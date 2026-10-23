@@ -169,7 +169,7 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
           <DropdownMenuItem onClick={() => openPersonalisation(id)}><WandSparkles className="size-4" />{t("personalisation.project_prompt_menu")}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => props.onReveal(id)}><FolderOpen className="size-4" />{t("sidebar.reveal_project")}</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => props.onForget(id)}><Trash2 className="size-4" />{t("sidebar.remove_project")}</DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={() => props.onForget(id)}><Trash2 className="size-4" />{t(group.workspace.workspaceType === "remote" ? "sidebar.remove_project" : "sidebar.delete_project")}</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>
       </div>
     </div>

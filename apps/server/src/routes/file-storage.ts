@@ -749,5 +749,9 @@ export function registerStorageRoutes({
     });
     return jsonResponse({ ok: true });
   });
-  return projectFolders;
+  return { ...projectFolders, readLinkedFile: async (ctx: RequestContext, source: { workspaceId: string; connectionId?: string; path: string }) => {
+    if (!source.connectionId) throw new ApiError(400, "storage_required", "A linked storage connection is required.");
+    const connection = await selected({ ...ctx, params: { ...ctx.params, id: source.workspaceId, storageId: source.connectionId } });
+    return withStorage(connection, async adapter => (await adapter.read(storagePath(source.path, false))).data);
+  } };
 }

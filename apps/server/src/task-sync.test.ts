@@ -578,3 +578,45 @@ describe("task-sync: the background timer", () => {
     expect(platform.calls()).toBe(before);
   });
 });
+
+
+test("deleted project tasks stay deleted across cursor replay and remote edits, but reassigned tasks return", async () => {
+  const { config, store } = await makeConfig();
+  await connect(config);
+  const projects = await projectSyncStore(config);
+  const task = { ...remoteTask({ id: "88888888-8888-4888-8888-888888888888", projectId: "deleted-project" }), notes: [], submission: null };
+  const pull = (tasks: typeof task[]) => {
+    const { platform, calls } = fakePlatform({ pages: [{ tasks, hidden: [], nextCursor: null }] });
+    return { result: runTaskSync(config, { platform }), calls };
+  };
+  expect((await pull([task]).result).pulled).toBe(1);
+  await store.removeTask(task.id);
+  projects.markTasksRemoved("deleted-project", ORG);
+  projects.markRemoved("deleted-project", ORG);
+  const replay = pull([task]);
+  expect(await replay.result).toMatchObject({ pulled: 0, error: null });
+  expect(store.getTask(task.id)).toBeNull();
+  const edited = { ...task, title: "Remote edit", updatedAt: "2026-09-17T09:00:00.000Z" };
+  const update = pull([edited]);
+  expect((await update.result).pulled).toBe(0);
+  expect(store.getTask(task.id)).toBeNull();
+  expect(store.getSyncState(ORG).pullCursor).toBe("2026-09-17T08:59:59.999Z");
+  expect([...replay.calls, ...update.calls].every(call => !["patch", "delete", "create"].includes(call.method))).toBe(true);
+  expect((await pull([{ ...edited, projectId: null }]).result).pulled).toBe(1);
+  expect(store.getTask(task.id)?.title).toBe("Remote edit");
+  // Explicitly restoring the project also restores its tasks on the next pull.
+  projects.clearRemoved("deleted-project");
+  expect((await pull([edited]).result).pulled).toBe(1);
+  expect(projects.tasksRemoved("deleted-project", ORG)).toBe(false);
+});
+
+test("merely disconnecting a project does not suppress its tasks, and suppression is firm scoped", async () => {
+  const { config, store } = await makeConfig(); await connect(config);
+  const projects = await projectSyncStore(config);
+  projects.markRemoved("disconnected", ORG);
+  projects.markTasksRemoved("disconnected", "another-firm");
+  const task = { ...remoteTask({ id: "99999999-9999-4999-8999-999999999999", projectId: "disconnected" }), notes: [], submission: null };
+  const { platform } = fakePlatform({ pages: [{ tasks: [task], hidden: [], nextCursor: null }] });
+  expect(await runTaskSync(config, { platform })).toMatchObject({ pulled: 1, error: null });
+  expect(store.getTask(task.id)).not.toBeNull();
+});

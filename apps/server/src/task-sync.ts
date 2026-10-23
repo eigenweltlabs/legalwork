@@ -1,4 +1,5 @@
 import { announceSyncChange } from "./app-sync-events.js";
+import { withProjectMutation } from "./project-deletion-gate.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
   intakeCreateTask,
@@ -317,6 +318,7 @@ async function pullChanges(
   platform: TaskSyncPlatform,
   client: IntakeClient,
   store: TaskStore,
+  projects: ProjectSyncStore,
   orgId: string,
   since: string | null,
   me: string | null,
@@ -338,13 +340,16 @@ async function pullChanges(
       ...(pageCursor === undefined ? {} : { cursor: pageCursor }),
     });
     for (const remote of page.tasks) {
+      if (newest === null || remote.updatedAt > newest) newest = remote.updatedAt;
+      // Keep the firm's original intact, but do not resurrect locally deleted
+      // project tasks as unrelated Inbox items on the overlapping delta cursor.
+      if (remote.projectId && projects.tasksRemoved(remote.projectId, orgId)) continue;
       const before = announce ? store.getTask(remote.id) : null;
       const after = store.applyRemoteTask(remote, orgId);
       const arrival = announce ? arrivalNotification(before, after, me) : null;
       // An assignment is one occasion per change, so a task reassigned back
       // to the member is announced again.
       if (arrival) noteArrival(store, after, arrival, arrival === "assigned" ? remote.updatedAt : "");
-      if (newest === null || remote.updatedAt > newest) newest = remote.updatedAt;
       pulled += 1;
     }
     for (const id of page.hidden) hiddenIds.add(id);
@@ -376,7 +381,7 @@ export function runTaskSync(
   const key = keyOf(config);
   const inFlight = rounds.get(key);
   if (inFlight) return inFlight;
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
+  const round = withProjectMutation(config, () => runRound(config, options.platform ?? REAL_PLATFORM)).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
   rounds.set(key, round);
@@ -414,7 +419,7 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
     state.lastPushAt = now;
     if (push.abort !== null) throw push.abort;
 
-    const pull = await pullChanges(platform, client, store, orgId, cursor, connection.account?.userId ?? null);
+    const pull = await pullChanges(platform, client, store, projects, orgId, cursor, connection.account?.userId ?? null);
     result.pulled = pull.pulled;
     result.hidden = pull.hidden;
     cursor = pull.cursor;

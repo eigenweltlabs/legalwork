@@ -1,6 +1,9 @@
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
-import { stopMessageQueue } from "./session-message-queue.js";
+import { stopMessageQueue, removeQueuedSession, removeWorkspaceQueue } from "./session-message-queue.js";
+import { assertNoProjectDeletion, withProjectMutation } from "./project-deletion-gate.js";
+import { deleteSessionUsageLimits } from "./session-usage-limits.js";
+import { calendarStore } from "./calendar/store.js";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
@@ -78,7 +81,7 @@ import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
-import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWikiAgentSession } from "./wiki/agent-access.js";
+import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWikiAgentSession, revokeWikiAgentSession } from "./wiki/agent-access.js";
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
@@ -855,7 +858,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
   const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), runtimeOptions.modelDownloadFetch);
-  const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
+  const runBackground = (run: () => Promise<void>) => withProjectMutation(config, run);
+  const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout, runBackground });
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -867,13 +871,14 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     },
     extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
-  });
+  }, runBackground);
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config), {
     settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
-  }));
+  }), undefined, runBackground);
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   const scheduledWorkspace = async (task: ScheduledTask) => {
+    assertNoProjectDeletion(config);
     const workspace = await resolveWorkspace(config, task.workspaceId);
     if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
     return workspace;
@@ -886,10 +891,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
       return !target || !status[target] || status[target].type === "idle";
     },
-    createSession: async task => {
+    createSession: task => withProjectMutation(config, async () => {
       const client = createWorkspaceOpencodeClient(config, await scheduledWorkspace(task));
       return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
-    },
+    }),
     send: (task, sessionId) => withSessionExecution(config, sessionId, async () => {
       const workspace = await scheduledWorkspace(task);
       const client = createWorkspaceOpencodeClient(config, workspace);
@@ -1002,10 +1007,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
           await guardWikiWorkspace(actor, mount.workspaceId, request.method);
           await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
+          assertNoProjectDeletion(config);
           const workspace = await resolveWorkspace(config, mount.workspaceId);
           proxyService = "opencode";
           proxyBaseUrl = workspace.baseUrl?.trim() || undefined;
-          const response = await proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath, actor });
+          const run = () => proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath, actor });
+          const response = await withProjectMutation(config, run);
           return finalize(response);
         } catch (error) {
           if (!(error instanceof ApiError)) {
@@ -1077,8 +1084,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
           if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method);
           await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, url.pathname);
+          assertNoProjectDeletion(config);
           proxyService = "opencode";
-          const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0], actor });
+          const run = () => proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0], actor });
+          const response = await withProjectMutation(config, run);
           return finalize(response);
         } catch (error) {
           if (!(error instanceof ApiError)) {
@@ -1112,7 +1121,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         const workspaceId = route.params.id ?? route.params.workspaceId;
         if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method);
         await guardWikiDirectory(actor, request, url);
-        let response = await route.handler({
+        const projectRoute = /^\/(workspace|workspaces|tasks|scheduled-tasks)(\/|$)/.test(url.pathname);
+        const deletingProject = request.method === "POST" && /^\/workspaces\/[^/]+\/delete-project$/.test(url.pathname);
+        if (projectRoute && !deletingProject) assertNoProjectDeletion(config);
+        const run = () => route.handler({
           request,
           url,
           params: route.params,
@@ -1122,6 +1134,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
           tokens,
           actor,
         });
+        let response = projectRoute && !deletingProject ? await withProjectMutation(config, run) : await run();
         const workspaceList = url.pathname === "/workspaces" ? { field: "items", identity: "id" }
           : url.pathname === "/scheduled-tasks/projects" ? { field: "projects", identity: "id" }
           : url.pathname === "/scheduled-tasks" ? { field: "tasks", identity: "workspaceId" }
@@ -2005,6 +2018,36 @@ function createRoutes(
   });
 
   registerWorkspaceRoutes({
+    createProjectEngine: workspace => {
+      if (!resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) throw new ApiError(503, "project_chats_unavailable", "Connect the chat engine before deleting a project.");
+      return createWorkspaceOpencodeClient(config, workspace);
+    },
+    projectDeletionEffects: async workspaceId => {
+      const [tasks, calendar] = await Promise.all([taskStore(config), calendarStore(config)]);
+      return {
+        // The confirmation describes the active project data a person can still see.
+        // Items already moved to trash are removed with the project, but should not
+        // look like a second pending deletion.
+        taskCount: tasks.listTasks({ projectId: workspaceId, limit: 10_000 }).tasks.length,
+        calendarEntryCount: calendar.list(workspaceId).length,
+        scheduledTaskCount: scheduledTasks.list(workspaceId).length,
+      };
+    },
+    cleanupProjectSession: async (workspaceId, sessionId) => {
+      await removeQueuedSession(config, workspaceId, sessionId);
+      await deleteSessionUsageLimits(config, workspaceId, sessionId);
+      revokeWikiAgentSession(config, sessionId);
+    },
+    cleanupProjectTasks: async workspaceId => {
+      const projects = await projectSyncStore(config);
+      const link = projects.linkByWorkspace(workspaceId);
+      if (link) projects.markTasksRemoved(link.projectId, link.orgId);
+      await removeWorkspaceQueue(config, workspaceId);
+      scheduledTasks.removeWorkspace(workspaceId);
+      (await calendarStore(config)).removeProject(workspaceId);
+      await (await taskStore(config)).removeProject(workspaceId);
+    },
+    readConnectedLink: (ctx, link) => projectFolders.readLinkedFile(ctx, link.source),
     projectFolders,
     routes,
     config,

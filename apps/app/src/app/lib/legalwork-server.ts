@@ -13,7 +13,7 @@ import type { UsageControlAction, UsageControlView } from "@legalwork/types/usag
 import type { OrgPolicyKey } from "@legalwork/types/org-policy";
 import type { OrgPolicyView } from "@legalwork/types/org-policy-view";
 import type { FirmHubSkillFile, FirmHubView } from "@legalwork/types/firm-hub";
-import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
+import type { RemoteFolderSelection, ProjectRemoteFolderStatus, ProjectDeletionReview } from "@legalwork/types/workspace";
 import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
 import type { ContentSearchResponse } from "@legalwork/types/search";
 import type { JevSearchProgress, JevSearchResults } from "@legalwork/types/corpus";
@@ -1997,6 +1997,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspaces/${encodeURIComponent(workspaceId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteWorkspace },
       ),
+    reviewProjectDeletion: (workspaceId: string) => requestJson<ProjectDeletionReview>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/deletion`, { token, hostToken, timeoutMs: 120_000 }),
+    deleteProject: (workspaceId: string, reviewToken: string, backupDirectory?: string) => requestJson<{ ok: boolean; sessionIds: string[]; copiedFiles: number; backupPath: string | null }>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/delete-project`, {
+      token, hostToken, method: "POST", body: { token: reviewToken, ...(backupDirectory ? { backupDirectory } : {}) }, timeoutMs: backupDirectory ? 0 : 300_000,
+    }),
     sessionViewReview: (workspaceId: string, sessionId: string) => requestJson<SessionViewReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/views`, { token, hostToken }),
     deleteSession: (workspaceId: string, sessionId: string, discardReview?: string) =>
       requestJson<{ ok: boolean }>(

@@ -258,6 +258,10 @@ export class SessionMessageQueue {
     const name = createHash("sha256").update(key).digest("hex") + ".json";
     await rm(join(this.directory, name), { force: true });
   }
+  async removeWorkspace(workspaceId: string) {
+    await this.ready;
+    for (const queue of [...this.states.values()]) if (queue.workspaceId === workspaceId) await this.removeSession(workspaceId, queue.sessionId);
+  }
   stop() { this.stopped = true; clearInterval(this.timer); }
 }
 
@@ -267,3 +271,9 @@ export function registerMessageQueue(config: ServerConfig, transport: QueueTrans
   const queue = new SessionMessageQueue(directory, transport); queues.set(config, queue); return queue;
 }
 export function stopMessageQueue(config: ServerConfig) { queues.get(config)?.stop(); queues.delete(config); }
+export async function removeQueuedSession(config: ServerConfig, workspaceId: string, sessionId: string) {
+  await queues.get(config)?.removeSession(workspaceId, sessionId);
+}
+export async function removeWorkspaceQueue(config: ServerConfig, workspaceId: string) {
+  await queues.get(config)?.removeWorkspace(workspaceId);
+}

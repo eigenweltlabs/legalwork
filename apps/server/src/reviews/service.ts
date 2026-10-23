@@ -40,7 +40,8 @@ export class ReviewService {
   private updates = new ReviewUpdates();
   private active = new Map<string, AbortController>();
   private runs = new Map<string, Promise<void>>();
-  constructor(private executor: Dependencies, private preparation: DocumentPreparation, private defaults: ReviewDefaults, private scheduler = new ReviewScheduler()) {}
+  constructor(private executor: Dependencies, private preparation: DocumentPreparation, private defaults: ReviewDefaults, private scheduler = new ReviewScheduler(),
+    private runBackground: import("../project-deletion-gate.js").BackgroundTaskRunner = run => run()) {}
   private key(workspace: WorkspaceInfo, id: string) { return `${workspace.path}\0${id}`; }
   async capabilities(workspace: WorkspaceInfo, id?: string): Promise<ReviewCapabilities> {
     const available = await this.executor.models(workspace);
@@ -286,10 +287,10 @@ export class ReviewService {
           }
         }, input.revision);
       } catch (error) { this.active.delete(key); runningHere.delete(key); throw error; }
-      const run = this.run(workspace, started, input, controller, blocked).catch(async () => {
+      const run = this.runBackground(() => this.run(workspace, started, input, controller, blocked).catch(async () => {
         if (controller.signal.aborted) return;
         await store.update(id, current => { current.status = "interrupted"; current.error = "The review could not save its progress. Retry to continue."; }).catch(() => undefined);
-      }).finally(() => { this.active.delete(key); runningHere.delete(key); this.runs.delete(key); });
+      })).finally(() => { this.active.delete(key); runningHere.delete(key); this.runs.delete(key); });
       this.runs.set(key, run);
       return started;
     });

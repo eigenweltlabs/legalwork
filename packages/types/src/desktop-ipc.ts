@@ -841,6 +841,8 @@ export type DesktopCommandMap = {
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };
+  /** Opens an existing directory in the system file manager. */
+  __openFolder: { args: [target: string]; result: string };
   __revealItemInDir: { args: [target: string]; result: unknown };
   __getFileIcon: { args: [target: string, size?: "small" | "normal" | "large"]; result: string | null };
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };

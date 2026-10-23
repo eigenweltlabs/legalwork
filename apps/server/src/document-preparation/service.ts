@@ -73,6 +73,7 @@ export class DocumentPreparation {
   private readonly layout: DocumentLayout;
   private pending: Promise<unknown> = Promise.resolve();
   constructor(private readonly ocr: OcrManager, private readonly options: {
+    runBackground?: import("../project-deletion-gate.js").BackgroundTaskRunner;
     layout?: DocumentLayout;
     snapshot?: () => Promise<Snapshot>;
     open?: (bytes: Uint8Array, kind: "pdf" | "image") => Promise<RenderedDocument>;
@@ -96,9 +97,14 @@ export class DocumentPreparation {
     if (!engine) throw new Error("Missing OCR engine");
     const job: Job = { id: randomUUID(), workspace: root, engine, status: "queued", documents: sources.map(source => ({ file: source.file, status: "queued", completedPages: 0, pageCount: 0 })), controller: new AbortController(), createdAt: Date.now() };
     this.jobs.set(job.id, job);
-    this.pending = this.pending.catch(() => undefined).then(() => this.run(job, root, sources, input, selected, engine))
+    const previous = this.pending;
+    const runBackground = this.options.runBackground ?? (run => run());
+    this.pending = runBackground(async () => {
+      await previous.catch(() => undefined);
+      try { await this.run(job, root, sources, input, selected, engine); }
       // Model processes stay loaded across the job's pages and documents, and stop with it.
-      .finally(() => { selected.service.close(); this.layout.close?.(); });
+      finally { selected.service.close(); this.layout.close?.(); }
+    });
     return this.status(root, job.id);
   }
 

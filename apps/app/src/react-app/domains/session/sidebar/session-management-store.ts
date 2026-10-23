@@ -71,7 +71,7 @@ type SessionManagementActions = {
   replaceWorkspaceGroups: (workspaceId: string, state: SessionGroupServerState) => void;
   /** Remove a group definition. Sessions assigned to it become ungrouped. */
   removeGroup: (workspaceId: string, groupId: string) => void;
-  forgetWorkspace: (workspaceId: string) => void;
+  forgetWorkspace: (workspaceId: string, sessionIds?: string[]) => void;
 };
 
 type SessionManagementStore = SessionManagementState & SessionManagementActions;
@@ -307,11 +307,11 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
         syncServerState(sessionGroupSyncHandler?.removeGroup(workspaceId, groupId), workspaceId);
       },
 
-      forgetWorkspace: (workspaceId) =>
+      forgetWorkspace: (workspaceId, sessionIds = []) =>
         set((state) => {
           const { [workspaceId]: _o, ...orderRest } = state.orderByWorkspace;
           const { [workspaceId]: _g, ...groupsRest } = state.groupsByWorkspace;
-          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest };
+          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest, pinnedIds: state.pinnedIds.filter(id => !sessionIds.includes(id)) };
         }),
     }),
     {

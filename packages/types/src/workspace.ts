@@ -241,3 +241,19 @@ export type ProjectContentSection = z.infer<typeof projectContentsSchema>["secti
 export type ProjectContents = z.infer<typeof projectContentsSchema>;
 
 export * from "./project-templates.js";
+/** Explicit project deletion, separate from forgetting a workspace registration. */
+export type ProjectDeletionReview = {
+  token: string;
+  name: string;
+  folder: string;
+  folderExists: boolean;
+  deleteFolder: boolean;
+  /** A short, non-path-based preview of the project folder shown before deletion. */
+  folderItems: { total: number; items: Array<{ name: string; kind: "file" | "folder" | "link" }> } | null;
+  chatCount: number;
+  taskCount: number;
+  calendarEntryCount: number;
+  scheduledTaskCount: number;
+  unsavedDashboardCount: number;
+  copies: Array<{ projectId: string; projectName: string; name: string; folder: string }>;
+};
