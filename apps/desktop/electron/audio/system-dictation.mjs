@@ -126,6 +126,7 @@ export class SystemDictationService {
     this.onStatus = options.onStatus ?? (() => {});
     /** @type {import("@legalwork/types/audio").AudioDictationAppearance} */
     this.appearance = "app";
+    this.miniBarEnabled = true;
     this.enabled = false;
     this.registered = false;
     this.registeredAccelerator = null;
@@ -156,6 +157,7 @@ export class SystemDictationService {
     try {
       const parsed = JSON.parse(await readFile(this.settingsPath, "utf8"));
       this.enabled = parsed?.enabled === true;
+      this.miniBarEnabled = parsed?.miniBarEnabled !== false;
       if (["app", "white", "black"].includes(parsed?.appearance)) this.appearance = parsed.appearance;
       if (typeof parsed?.accelerator === "string" && parsed.accelerator.trim()) {
         this.accelerator = parsed.accelerator.trim();
@@ -187,6 +189,7 @@ export class SystemDictationService {
   status() {
     return {
       appearance: this.appearance,
+      miniBarEnabled: this.miniBarEnabled,
       enabled: this.enabled,
       registered: this.registered,
       accelerator: this.accelerator,
@@ -229,6 +232,21 @@ export class SystemDictationService {
       }
     }
     this.error = "No system-wide dictation shortcut is available. Another app may be using it.";
+  }
+
+  /** @param {unknown} enabled */
+  async setMiniBarEnabled(enabled) {
+    if (typeof enabled !== "boolean") throw new Error("Invalid mini bar visibility.");
+    const previous = this.miniBarEnabled;
+    this.miniBarEnabled = enabled;
+    try {
+      await this.persist();
+    } catch (error) {
+      this.miniBarEnabled = previous;
+      throw error;
+    }
+    this.onStatus(this.status());
+    return this.status();
   }
 
   /** @param {unknown} appearance */
@@ -288,6 +306,7 @@ export class SystemDictationService {
       this.settingsPath,
       `${JSON.stringify({
         appearance: this.appearance,
+        miniBarEnabled: this.miniBarEnabled,
         enabled: this.enabled,
         accelerator: this.accelerator,
         customAccelerator: this.customAccelerator,

@@ -285,6 +285,8 @@ export type AudioDictationNativeInputs = {
 
 export type AudioSystemDictationStatus = {
   appearance: AudioDictationAppearance;
+  /** Visibility preference, independent of dictation and meeting capture. */
+  miniBarEnabled: boolean;
   enabled: boolean;
   registered: boolean;
   accelerator: string;

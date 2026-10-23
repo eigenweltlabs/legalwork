@@ -743,6 +743,10 @@ export type DesktopCommandMap = {
   audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
   audioOverlayGetVisible: { args: []; result: { visible: boolean } };
   audioSystemDictationGet: { args: []; result: AudioSystemDictationStatus };
+  audioMiniBarSetEnabled: {
+    args: [enabled: boolean];
+    result: AudioSystemDictationStatus;
+  };
   audioSystemDictationSetAppearance: {
     args: [appearance: AudioDictationAppearance];
     result: AudioSystemDictationStatus;

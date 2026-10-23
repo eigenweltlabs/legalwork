@@ -21,6 +21,7 @@ import {
   audioOverlaySetVisible,
   audioRecorderBootstrap,
   audioSystemDictationGet,
+  audioMiniBarSetEnabled,
   audioSystemDictationMicrophoneActive,
   audioSystemDictationMicrophoneSelect,
   audioSystemDictationOpenSettings,
@@ -233,6 +234,7 @@ type RecorderActions = {
   /** Reset the app's own stale TCC entries for one permission, then re-prompt. */
   repairDictationPermission: (kind: AudioDictationPermissionKind) => Promise<void>;
   setDictationAppearance: (appearance: AudioDictationAppearance) => Promise<void>;
+  setMiniBarEnabled: (enabled: boolean) => Promise<void>;
   setSystemDictationEnabled: (enabled: boolean) => Promise<void>;
   setSystemDictationShortcut: (accelerator: string) => Promise<boolean>;
   setSystemDictationShortcutCapture: (active: boolean) => Promise<void>;
@@ -971,6 +973,10 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       } catch {
         // Bridge unavailable — the wizard's settings links remain the manual path.
       }
+    },
+
+    setMiniBarEnabled: async (enabled) => {
+      set({ systemDictation: await audioMiniBarSetEnabled(enabled) });
     },
 
     setDictationAppearance: async (appearance) => {

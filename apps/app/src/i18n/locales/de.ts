@@ -4090,6 +4090,9 @@ const de = {
   "account.benefit_models":
     "Nutzen Sie die Eigenwelt-Modelle Ihrer Kanzlei, mit Guthaben der Organisation und ohne Speicherung von Eingaben.",
   "account.sign_in": "Mit Eigenwelt anmelden",
+  "account.mini_bar_show": "Mini-Bar anzeigen",
+  "account.mini_bar_hide": "Mini-Bar ausblenden",
+  "account.mini_bar_error": "Die Mini-Bar-Einstellung konnte nicht geändert werden. Bitte erneut versuchen.",
   "account.connecting": "Warten auf die Anmeldung…",
   "account.server_required":
     "Verbindung zum LegalWork-Server wird aufgebaut, die Anmeldung ist gleich verfügbar.",

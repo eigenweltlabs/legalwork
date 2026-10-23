@@ -23,8 +23,8 @@ export class DictationHud {
     this.meeting = null;
     /** @type {"en" | "de" | null} */
     this.locale = null;
-    /** @type {Pick<import("@legalwork/types/audio").AudioSystemDictationStatus, "enabled" | "registered" | "shortcutCaptureActive" | "mode" | "accelerator" | "platform" | "appearance">} */
-    this.status = { appearance: "app", enabled: false, registered: false, shortcutCaptureActive: false, mode: "tap", accelerator: "", platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux" };
+    /** @type {Pick<import("@legalwork/types/audio").AudioSystemDictationStatus, "miniBarEnabled" | "enabled" | "registered" | "shortcutCaptureActive" | "mode" | "accelerator" | "platform" | "appearance">} */
+    this.status = { miniBarEnabled: false, appearance: "app", enabled: false, registered: false, shortcutCaptureActive: false, mode: "tap", accelerator: "", platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux" };
     this.hideTimer = null;
     this.settleKey = "";
     this.updateVersion = 0;
@@ -53,6 +53,7 @@ export class DictationHud {
     this.onAction = (event, action) => {
       if (!this.window || event.sender !== this.window.webContents) return;
       if (action === "ready") this.sendState();
+      if (!this.status.miniBarEnabled) return;
       if (action === "meeting-start" && ["idle", "meeting-error"].includes(this.displayState)) this.actions.onMeetingStart?.();
       if (action === "meeting-stop" && this.displayState === "meeting-recording") this.actions.onMeetingStop?.();
       if (action === "meeting-dismiss") this.actions.onMeetingDismiss?.();
@@ -317,8 +318,7 @@ export class DictationHud {
   /** @param {import("@legalwork/types/audio").AudioSystemDictationStatus} status */
   async setStatus(status) {
     this.status = status;
-    if (this.state === "idle") await this.setState("idle");
-    else this.sendState();
+    await this.setState(this.state, this.message);
   }
 
   async setState(state, message = "", locale = this.locale) {
@@ -344,7 +344,8 @@ export class DictationHud {
     }
     const resting = state === "idle";
     const meetingVisible = this.meeting && (this.meeting.detectionEnabled || this.meeting.state !== "idle");
-    if (resting && !meetingVisible && (!this.status.enabled || !this.status.registered || this.status.shortcutCaptureActive)) {
+    if (!this.status.miniBarEnabled || (resting && !meetingVisible && this.status.shortcutCaptureActive)) {
+      if (this.drag) this.endDrag(false);
       if (this.window && !this.window.isDestroyed()) this.window.hide();
       return;
     }

@@ -19,6 +19,7 @@ const cloudBootstrap: AudioRecorderBootstrap = { ...bootstrap, cloud: { models: 
 ] } };
 let bootstrapResult = () => Promise.resolve(bootstrap);
 const status = {
+  miniBarEnabled: true,
   appearance: "app", enabled: true, registered: true, accelerator: "Control+D", defaultAccelerator: "Control+D", customAccelerator: false,
   mode: "hold", supportsHold: true, shortcutCaptureActive: false, platform: "darwin", accessibility: "granted", error: null,
 } satisfies NonNullable<ReturnType<typeof store.getState>["systemDictation"]>;
@@ -42,6 +43,7 @@ let liveShareStarts: string[] = [];
 let captureStops = 0;
 let captureStarts = 0;
 let pasteError: string | null = null;
+let miniBarError = false;
 let transcript = "A dictated sentence.";
 const capture: CaptureHandle = { readLevels: () => ({ microphone: 0.5 }), stop: async () => { captureStops += 1; } };
 let captureResult = Promise.resolve(capture);
@@ -67,6 +69,10 @@ mock.module("../src/react-app/domains/recorder/capture", () => ({
 mock.module("../src/react-app/domains/recorder/model-tiers", () => ({ MODEL_TIERS: [], isPremiumEntitled: () => true, isPremiumEntitlementKnown: () => true, tierForModelId: () => null }));
 mock.module("../src/app/lib/opencode", () => ({ unwrap: (value: unknown) => value }));
 mock.module("../src/app/lib/desktop", () => ({
+  audioMiniBarSetEnabled: async (enabled: boolean) => {
+    if (miniBarError) throw new Error("Could not save preference");
+    return { ...status, miniBarEnabled: enabled };
+  },
   audioRecordingSetProject: async () => retainedRecordings,
   audioSystemDictationSetState: async (state: string, message: string) => { feedback.push(message ? state + ":" + message : state); return status; },
   audioSystemDictationPaste: async (text: string) => { pasted.push(text); return { pasted: !pasteError, copied: true, error: pasteError }; },
@@ -110,6 +116,7 @@ beforeEach(async () => {
   transcript = "A dictated sentence.";
   captureResult = Promise.resolve(capture); stopResult = Promise.resolve(meta);
   bootstrapResult = () => Promise.resolve(bootstrap);
+  miniBarError = false;
   store.setState({ transcriptionSource: "local", cloudModelId: "gemini-transcribe-live-eu", liveTranscriptWorkspacePath: null, liveTranscriptSessionId: null, liveTranscriptNotifiedSessions: [], liveTranscriptDismissedPaths: [], initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
     recordingStartedAt: null, dictationRecordingId: null, dictationState: "idle", composerDictation: null, composerDictationLevel: 0, finalizing: false,
     permissions: { platform: "darwin", packaged: false, microphone: "granted", systemAudio: "granted" }, error: null, recordings: [], sources: ["microphone"],
@@ -117,6 +124,26 @@ beforeEach(async () => {
   await store.getState().init();
 });
 afterEach(async () => { if (store.getState().recording) await store.getState().cancelRecording(); });
+
+test("mini bar can be hidden and restored without stopping an active recording", async () => {
+  await store.getState().startSystemDictation();
+  const recording = store.getState().recording;
+  expect(recording).not.toBeNull();
+  for (const enabled of [false, true]) {
+    await store.getState().setMiniBarEnabled(enabled);
+    expect(store.getState().systemDictation?.miniBarEnabled).toBe(enabled);
+    expect(store.getState().recording).toBe(recording);
+    expect(store.getState().systemDictation?.enabled).toBe(true);
+    expect(captureStops).toBe(0);
+    expect(cancelled).toBe(0);
+  }
+});
+
+test("failed mini bar changes preserve the current state and report failure to the menu", async () => {
+  miniBarError = true;
+  await expect(store.getState().setMiniBarEnabled(false)).rejects.toThrow("Could not save preference");
+  expect(store.getState().systemDictation?.miniBarEnabled).toBe(true);
+});
 
 test("a navigation availability check can fail without adding a sticky recording error", async () => {
   store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap });
