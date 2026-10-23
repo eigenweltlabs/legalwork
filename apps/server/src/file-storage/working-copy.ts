@@ -62,6 +62,13 @@ export async function snapshotWorkspaceFile(root: string, path: string) {
 }
 
 export async function keepWorkspaceCopy(root: string, source: string, destination: string) {
+  const snapshot = await snapshotWorkspaceFile(root, source);
+  try { return await keepWorkspaceSnapshot(root, snapshot.path, destination); }
+  finally { await snapshot.remove(); }
+}
+
+/** Publish an already pinned internal snapshot into a project without overwriting anything. */
+export async function keepWorkspaceSnapshot(root: string, snapshotPath: string, destination: string) {
   storagePath(destination, false);
   const canonical = await realpath(root);
   const parts = destination.split("/");
@@ -73,11 +80,10 @@ export async function keepWorkspaceCopy(root: string, source: string, destinatio
     parent = await realpath(path);
     if (!within(canonical, parent)) throw outside();
   }
-  const snapshot = await snapshotWorkspaceFile(root, source);
   const target = join(parent, name);
   const staged = join(parent, `.legalwork-copy-${randomUUID()}.tmp`);
   try {
-    const result = await receiveFile(createReadStream(snapshot.path), staged);
+    const result = await receiveFile(createReadStream(snapshotPath), staged);
     // Publish the complete file exclusively; preserve an existing file or symlink.
     await link(staged, target);
     return { path: destination, bytes: result.size, updatedAt: (await stat(target)).mtimeMs };
@@ -85,6 +91,5 @@ export async function keepWorkspaceCopy(root: string, source: string, destinatio
     throw providerError(error);
   } finally {
     await rm(staged, { force: true });
-    await snapshot.remove();
   }
 }

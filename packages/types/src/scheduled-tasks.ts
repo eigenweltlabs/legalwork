@@ -41,5 +41,6 @@ export const ScheduledTaskMessageSchema = z.object({ taskId: z.uuid(), workspace
 /** Sidebar metadata only. Transcript contents never leave the engine through this endpoint. */
 export type SessionInboxEntry = {
   workspaceId: string; sessionId: string; updatedAt: number; assistantAt: number;
+  status?: "idle" | "busy" | "retry" | "unknown";
   automation?: { runId: string; at: number; pinRunId: string | null };
 };

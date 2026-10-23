@@ -1,7 +1,7 @@
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { Blocks, BookOpen, Bot, FilePenLine, FilePlus2, FolderSearch, Globe, Headphones, KeyRound, ListChecks, MessageCircleQuestionMark, Search, SquareTerminal, Table2, Wrench } from "lucide-react";
 import { isBashToolPart, isEditToolPart, isGlobToolPart, isGrepToolPart, isReadToolPart, isWriteToolPart } from "@/lib/build-in-tools";
-import { getToolActivityLabel, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
+import { getToolActivityLabel, isAppCapabilitiesToolPart, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
 import { t } from "@/i18n";
 import { parseFilename, truncateText } from "./path";
 
@@ -12,6 +12,7 @@ function nameOf(part: ToolPart) {
 }
 
 function categoryOf(part: ToolPart) {
+  if (isAppCapabilitiesToolPart(part)) return "read";
   const name = nameOf(part);
   if (name === "legalwork_recordings_list") return "recordings";
   if (name === "legalwork_recording_read") return "transcript";
@@ -73,6 +74,12 @@ export function getToolHistoryLabel(part: ToolPart): string {
   if (isToolPartInFlight(part)) return getToolActivityLabel(part);
   if (isToolPermissionDenied(part)) return t("tool_run.permission_denied");
   if (part.state === "output-error") return t("tool_run.action_failed");
+  if (isAppCapabilitiesToolPart(part)) return t("tool_run.checked_app_capabilities");
+  if (nameOf(part) === "legalwork_assistant_set_name") return t("assistant.name_saved");
+  if (nameOf(part) === "legalwork_assistant_attention") return t("assistant.attention_checked");
+  if (nameOf(part) === "legalwork_assistant_attention_present") return t("assistant.attention_presented");
+  if (nameOf(part) === "legalwork_assistant_attention_answer") return t("assistant.attention_answered");
+  if (nameOf(part) === "legalwork_assistant_follow_up") return t("assistant.attention_followed_up");
   if (isReadToolPart(part)) return t("tool_run.read_file", { file: parseFilename(part.input?.filePath) });
   if (isEditToolPart(part)) return t("tool_run.edited_file", { file: parseFilename(part.input?.filePath) });
   if (isWriteToolPart(part)) return t("tool_run.wrote_file", { file: parseFilename(part.input?.filePath) });

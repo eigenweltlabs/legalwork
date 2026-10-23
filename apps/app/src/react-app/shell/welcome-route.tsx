@@ -16,8 +16,6 @@ import { createLegalworkServerClient, type LegalworkServerClient } from "../../a
 import { writeActiveWorkspaceId } from "./session-memory";
 import { homeRoute } from "./workspace-routes";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
-import { markTranscriptionIntroSeen } from "./transcription-intro";
-import { markAllWhatsNewSeen } from "./whats-new";
 
 /** First launch creates a named project, then continues the in-app setup. */
 export function WelcomeRoute() {
@@ -90,8 +88,6 @@ export function WelcomeRoute() {
         hasCompletedOnboarding: true,
         onboardingStage: isDesktopRuntime() ? "office" : "ai",
       }));
-      markAllWhatsNewSeen();
-      markTranscriptionIntroSeen();
       navigate(homeRoute(createdId), { replace: true });
     } catch (error) {
       captureAppError("workspace_create", error);

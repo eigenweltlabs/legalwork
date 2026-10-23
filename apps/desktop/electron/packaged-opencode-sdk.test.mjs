@@ -4,9 +4,25 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { stageOpencodeSdk } from "../scripts/prepare-opencode-sdk.mjs";
 import { parse } from "yaml";
 import { assertPackagedOpencodeSdk } from "../scripts/packaged-opencode-sdk.cjs";
+
+test("the locked SDK can be staged for the configured desktop engine", async () => {
+  const constants = JSON.parse(await readFile(new URL("../../../constants.json", import.meta.url), "utf8"));
+  const root = await mkdtemp(join(tmpdir(), "opencode-sdk-locked-"));
+  try {
+    const destination = join(root, "opencode-sdk");
+    const result = await stageOpencodeSdk({
+      sourcePackage: fileURLToPath(new URL("../../server/node_modules/@opencode-ai/plugin", import.meta.url)),
+      destination,
+      expectedVersion: constants.opencodeVersion.replace(/^v/, ""),
+    });
+    assert.equal(result.version, constants.opencodeVersion.replace(/^v/, ""));
+    assert.equal(assertPackagedOpencodeSdk(root), destination);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("Electron Builder copies the staged SDK packages into the shipped resources", async () => {
   const require = createRequire(import.meta.url);

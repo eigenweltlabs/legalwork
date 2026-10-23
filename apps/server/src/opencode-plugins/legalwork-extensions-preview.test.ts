@@ -424,6 +424,43 @@ test("opens workspace and connected files in the engine session, then exposes li
   expect(output.system.join("\n")).toContain("inapp_md_*");
   expect(output.system.join("\n")).toContain("Source reading, extraction and wiki imports never require opening a viewer");
   expect(output.system.join("\n")).toContain("Document work is independent of the user's screen");
+  expect(output.system.join("\n")).toContain("Do not open or select sidebar files merely to read them");
+  expect(output.system.join("\n")).not.toContain("An empty inapp_documents_list means you need to open the file");
+});
+
+test("Assistant visible UI changes need an explicit user request; task drafts stay in the background", async () => {
+  const previousUrl = process.env.LEGALWORK_SERVER_URL;
+  const server = Bun.serve({ port: 0, fetch: () => Response.json({ workspace: { path: "/Assistant" } }) });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin;
+  const calls: unknown[] = [];
+  await withBridge({}, body => { calls.push(body); return { ok: true }; });
+  // The fake UI bridge fetch should delegate Assistant identity checks to the server.
+  const bridgeFetch = globalThis.fetch;
+  const nativeFetch = originalFetch;
+  if (!nativeFetch) throw new Error("Missing fetch fixture");
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = input instanceof Request ? input.url : input.toString();
+    return url.startsWith(server.url.origin) ? nativeFetch(input, init) : bridgeFetch(input, init);
+  }, { preconnect: nativeFetch.preconnect });
+  try {
+    const plugin = await LegalWorkExtensionsPreview();
+    const context = { sessionID: "assistant", directory: "/Assistant" };
+    await expect(plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", show: true }, context)).rejects.toThrow("only when the user explicitly asks");
+    await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId: "documents.open", args: { path: "agreement.pdf" } }, context)).rejects.toThrow("only when the user explicitly asks");
+    await expect(plugin.tool.legalwork_browser_open_url.execute({ url: "https://example.com", show: true }, context)).rejects.toThrow("only when the user explicitly asks");
+    expect(calls).toHaveLength(0);
+    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf" }, context);
+    await plugin.tool.inapp_documents_select.execute({ path: "agreement.pdf" }, context);
+    expect(calls).toEqual([
+      { actionId: "documents.open", args: { sessionId: "assistant", path: "agreement.pdf" } },
+      { actionId: "documents.select_open", args: { sessionId: "assistant", path: "agreement.pdf" } },
+    ]);
+    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", show: true, userRequested: true }, context);
+    expect(calls).toHaveLength(3);
+  } finally {
+    server.stop(true);
+    if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
+  }
 });
 
 test("opens local documents when models send unused optional arguments", async () => {

@@ -52,3 +52,5 @@ export const legalworkCalendarToolsPluginPath = () => legalworkPluginPath("legal
 
 export const legalworkScheduledTaskToolsPluginPath = () => legalworkPluginPath("legalwork-scheduled-task-tools");
 export const legalworkWikiToolsPluginPath = () => legalworkPluginPath("legalwork-wiki-tools");
+
+export const legalworkAssistantToolsPluginPath = () => legalworkPluginPath("legalwork-assistant-tools");

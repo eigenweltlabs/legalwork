@@ -139,6 +139,17 @@ test("source reads and result paging are distinguishable from new Jev inference"
   expect(getToolHistoryLabel({ ...bash, toolName: "legalwork_jev_corpus_question", input: { jobId: "saved", evidencePath: "room/a.pdf" } })).toBe("Read source: room/a.pdf");
 });
 
+test("capability help is labeled as a read, with failures still visible", () => {
+  const help: DynamicToolUIPart = { ...bash, toolName: "legalwork_ui_execute_action", input: { actionId: "help.capabilities" } };
+  expect(getToolHistoryLabel(help)).toBe("Checked app capabilities");
+  expect(getToolHistoryLabel({ ...help, state: "input-available" })).toBe("Checking app capabilities");
+  expect(getToolHistoryLabel({ type: "dynamic-tool", toolName: help.toolName, toolCallId: "failed-help", state: "output-error", input: help.input, errorText: "Unavailable" })).toBe("Action failed");
+  const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[help]} showDetails={false} renderTool={() => null} />);
+  expect(html).toContain("Checked app capabilities");
+  expect(html).not.toContain("Ui execute action");
+  expect(getToolHistoryLabel({ ...help, input: { actionId: "settings.panel.open" } })).not.toBe("Checked app capabilities");
+});
+
 
 test("file discovery is browsing and Jev qualification is search, never tabular review", () => {
   const files: DynamicToolUIPart = { ...bash, toolName: "legalwork_review_files", input: { path: "Contracts" } };

@@ -36,6 +36,7 @@ import {
   legalworkCalendarToolsPluginPath,
   legalworkDraftToolsPluginPath,
   legalworkScheduledTaskToolsPluginPath,
+  legalworkAssistantToolsPluginPath,
   legalworkProjectToolsPluginPath,
   legalworkToolOutputPluginPath,
   legalworkReviewToolsPluginPath,
@@ -137,7 +138,7 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 
 - Prefer standard output files for user-visible deliverables: Markdown (.md), Word documents (.docx), CSV (.csv), Excel workbooks (.xlsx), PowerPoint decks (.pptx), and browser previews (index.html or a local http://localhost:<port> URL). Legal deliverables — memos, redlined contracts, and document-review tables — are first-class.
 - After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/diligence-summary.md or reviews/nda-review.html.
-- For document, spreadsheet and presentation work, open the working file with inapp_documents_open before reading/editing it, then use the matching live inapp_* tools. For a new deliverable based on a template, use its copy_to option to create and open a separate workspace copy. An empty viewer means open the file, not switch to Python. Use a file pipeline only for an unsupported operation, an unavailable editor, or an explicit user request, and reopen the result for review.
+- Read and inspect documents through direct file/document tools without changing the user's UI. Do not open source files or navigate to chats just to read them. Use matching inapp_* tools for an already-open live draft, preserving unsaved edits. Open a working document only when explicitly requested or when a project chat needs the live editor for a requested edit. In the main Assistant, opening/selecting files or navigating is allowed only on the user's explicit request. Share a file card to offer a deliverable without opening it.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.
@@ -323,6 +324,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkCalendarToolsPluginPath(), config),
       bundledPluginSpec(legalworkDraftToolsPluginPath(), config),
       bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
+      bundledPluginSpec(legalworkAssistantToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkToolOutputPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
@@ -391,7 +393,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const content = await buildLegalworkRuntimeConfig(config, workspaceId);
     await mkdir(runtimeStorageDir(config), { recursive: true });
     const tmp = `${path}.${randomUUID()}.tmp`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
     await rename(tmp, path);
     // The firm's enforced layer is rewritten with it, before every reload.
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));

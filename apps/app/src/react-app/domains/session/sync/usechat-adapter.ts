@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import type { UIMessage } from "ai";
+import { textPartProviderMetadata } from "./assistant-message-sender";
 import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
 import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 
@@ -217,7 +218,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     const uiMessage = {
       id: message.info.id,
       role: message.info.role,
-      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}) } },
+      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}), ...(message.info.role === "assistant" && (message.info.time.completed || message.info.error) ? { completed: true } : {}) } },
       parts: message.parts.flatMap<UIMessage["parts"][number]>((part) => {
         if (part.type === "text") {
           if (part.synthetic || part.ignored) return [];
@@ -225,7 +226,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
             type: "text",
             text: getTextPartValue(part),
             state: "done" as const,
-            providerMetadata: scheduledTextMetadata(part),
+            providerMetadata: { opencode: { ...scheduledTextMetadata(part).opencode, ...textPartProviderMetadata(part).opencode } },
           }];
         }
         if (part.type === "reasoning") {

@@ -40,6 +40,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "plugin_create.kind", "plugin_create.name",
   "composer.plugin_pill", // Plugin is the same product term in both languages.
   "workspace.overview", // Home is the shared navigation label in both languages.
+  "assistant.name", "assistant.icon_panda", "assistant.icon_otter", // Identical German and English nouns.
   "scheduled.name", // Identical German and English noun.
   "projects.schema.priority_normal", "projects.schema.budget", // Identical German and English terms.
   "review.status", // Identical German and English noun.

@@ -4,15 +4,17 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
+import { DEFAULT_ASSISTANT_PROFILE, type AssistantOnboardingState, type AssistantProfile } from "@legalwork/types/main-assistant";
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { AssistantIntroModal } from "@/react-app/shell/assistant-intro";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
 
@@ -41,6 +43,7 @@ import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay"
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
 import { seedSessionState, snapshotKey, transcriptKey } from "@/react-app/domains/session/sync/session-sync";
 import { seedPermissionState, seedQuestionState } from "@/react-app/domains/session/sync/interaction-state";
+import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { eigenweltEntitlementsQueryKey } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
@@ -72,6 +75,9 @@ const subscriptionPreview = previewParams.get("subscription") === "ended";
 const trialPreview = previewParams.has("trial");
 const fundedTrialPreview = previewParams.get("trial") === "member-limit";
 const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : trialPreview ? "plus" : null);
+const assistantPreview = previewParams.has("assistant");
+const modelSettingsPreview = previewParams.has("model-settings");
+const assistantToday = "2026-10-07";
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? (trialPreview ? "eigenwelt" : "openai"), modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
 const requestTooLarge = previewParams.has("requestTooLarge");
@@ -150,8 +156,15 @@ async function previewCopyDelay() {
   if (!copyFailed) { copyFailed = true; throw new Error("Simulated interrupted copy. Retry to finish."); }
 }
 
+if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory: workspace.path }), {
+  connected: [model.providerID],
+  all: [{ id: model.providerID, name: "Preview provider", models: {
+    [model.modelID]: { name: model.modelID },
+    "Another preview model": { name: "Another preview model" },
+  } }],
+});
 
-function snapshot(id: string, title: string, prompt?: string): LegalworkSessionSnapshot {
+function snapshot(id: string, title: string, prompt?: string, response = reply): LegalworkSessionSnapshot {
   const turn = snapshots.get(id)?.messages.length ?? 0;
   const userId = `${id}-user-${turn}`;
   const assistantId = `${id}-assistant-${turn}`;
@@ -170,7 +183,7 @@ function snapshot(id: string, title: string, prompt?: string): LegalworkSessionS
           mode: "build", agent: "build", path: { cwd: workspace.path, root: workspace.path }, cost: 0,
           tokens: { input: 420, output: 180, reasoning: 0, cache: { read: 0, write: 0 } }, finish: "stop",
         },
-        parts: [{ id: `${assistantId}-text`, sessionID: id, messageID: assistantId, type: "text", text: reply }],
+        parts: [{ id: `${assistantId}-text`, sessionID: id, messageID: assistantId, type: "text", text: response }],
       },
     ] : [],
   };
@@ -180,6 +193,7 @@ function saveSnapshot(item: LegalworkSessionSnapshot) {
   snapshots.set(item.session.id, item);
   const projectId = item.session.directory === otherWorkspace.path ? otherWorkspace.id : workspace.id;
   queryClient.setQueryData(snapshotKey(projectId, item.session.id), item);
+  useSessionActivityStore.getState().setRunStatus(projectId, item.session.id, item.status);
   seedSessionState(projectId, item);
 }
 
@@ -187,7 +201,69 @@ saveSnapshot(snapshot(welcomeId, "New task"));
 // Open the same untouched chat in two preview windows to exercise list visibility.
 const emptyChatId = previewParams.has("empty-chat") ? `visual-empty-${previewParams.get("empty-chat")}` : null;
 if (emptyChatId) { registerEmptySession(emptyChatId); saveSnapshot(snapshot(emptyChatId, "New chat visibility check")); }
+if (assistantPreview) {
+  if (previewParams.has("messenger")) {
+    const item = snapshot(welcomeId, "Johann", "Please prepare my morning briefing.", "Your briefing is ready. The urgent items are at the top.");
+    const message = item.messages[1];
+    for (const [tool, output] of [
+      ["legalwork_assistant_react", { ok: true, reaction: { messageId: item.messages[0].info.id, emoji: "👍" } }],
+      ["read", "Read the matter files"],
+      ["legalwork_assistant_share_file", { ok: true, file: { path: "review-notes.md", title: "Morning briefing", description: "Today's priorities and next steps", size: 4820 } }],
+    ] satisfies [string, unknown][]) message.parts.push({ id: tool, sessionID: welcomeId, messageID: message.info.id, type: "tool", callID: tool, tool, state: { status: "completed", input: {}, output: JSON.stringify(output), title: tool, time: { start: now, end: now } } });
+    saveSnapshot(item);
+    if (previewParams.has("typing")) {
+      // ?typing=text|thinking|tools|waiting|complete exercises the same text
+      // start/end metadata as live transport, including a completed acknowledgement.
+      const phase = previewParams.get("typing") || "text";
+      const next = snapshot(welcomeId, "Johann", "And check the upcoming deadlines.", "I'll take care of this and let you know when it's done.");
+      for (const message of next.messages) {
+        message.info.time.created = now + (message.info.role === "assistant" ? 1 : 0);
+        if (message.info.role === "assistant") message.info.time.completed = now + 2;
+      }
+      const acknowledgement = next.messages[1];
+      if (acknowledgement.info.role === "assistant") {
+        const messageId = `${acknowledgement.info.id}-result`;
+        const base = { id: `${messageId}-part`, sessionID: welcomeId, messageID: messageId };
+        const part: Part = phase === "thinking" ? { ...base, type: "reasoning", text: "Checking the matter context", time: { start: now + 3 } }
+          : phase === "tools" || phase === "waiting" ? { ...base, type: "tool", callID: "check-deadlines", tool: "read", state: phase === "tools"
+            ? { status: "running", input: { filePath: "deadlines.md" }, time: { start: now + 3 } }
+            : { status: "completed", input: { filePath: "deadlines.md" }, output: "Waiting for delegated check", title: "Check deadlines", time: { start: now + 3, end: now + 4 } } }
+          : { ...base, type: "text", text: phase === "complete" ? "Your next deadline is Friday. The report is ready." : "An unfinished reply that must stay buffered", time: { start: now + 3, ...(phase === "complete" ? { end: now + 4 } : {}) } };
+        saveSnapshot({ ...item, status: { type: phase === "complete" ? "idle" : "busy" }, messages: [...item.messages, ...next.messages, {
+          info: { ...acknowledgement.info, id: messageId, time: { created: now + 3, ...(phase === "complete" ? { completed: now + 4 } : {}) }, finish: phase === "complete" ? "stop" : undefined }, parts: [part],
+        }] });
+      }
+    }
+  }
+  if (previewParams.has("returned")) {
+    const item = snapshot(welcomeId, "Today's assistant", "Review the subscription agreement from the provider's perspective.", "The [provider-side review](/workspace/visual-workspace/session/visual-review) is ready. It covers revenue protection, service commitments and liability. I've attached the review below.");
+    const message = item.messages[1];
+    message.parts.push({ id: "returned-file", sessionID: welcomeId, messageID: message.info.id, type: "tool", callID: "returned-file", tool: "legalwork_assistant_share_file", state: {
+      status: "completed", input: { projectId: otherWorkspace.id, path: "reports/review.md", title: "Provider-side review" }, title: "Share review", time: { start: now, end: now },
+      output: JSON.stringify({ ok: true, file: { path: "reports/review.md", title: "Provider-side review", size: 2400,
+        source: { workspaceId: otherWorkspace.id, workspaceRoot: otherWorkspace.path, projectName: "Project Aster" } } }),
+    } });
+    saveSnapshot(item);
+  }
+  for (const date of ["2026-10-04", "2026-10-05", "2026-10-06"]) saveSnapshot(snapshot(`assistant-${date}`, date, `Review my open projects for ${date}.`));
+  const prior = snapshots.get("assistant-2026-10-06");
+  const last = prior?.messages.at(-1);
+  if (prior && last) {
+    last.parts.push({ id: "delegation-part", sessionID: prior.session.id, messageID: last.info.id, type: "tool", callID: "delegate-fixture", tool: "legalwork_assistant_delegate", state: { status: "completed", input: {}, time: { start: now, end: now }, title: "Review supplier terms", output: JSON.stringify({ ok: true, delegation: { workspaceId: otherWorkspace.id, sessionId: "delegated-review", title: "Review supplier terms", projectName: "Northstar Legal", scope: "Review liability and termination against our playbook. Save a draft for partner review.", status: "started" } }) } });
+    saveSnapshot(prior);
+  }
+}
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
+if (previewParams.has("sent-by")) {
+  const delegated = snapshots.get("visual-review");
+  const prompt = delegated?.messages[0]?.parts[0];
+  if (delegated && prompt?.type === "text") {
+    prompt.metadata = { legalworkAssistantSender: { name: "Johannes", icon: "cat" }, legalworkSharedFiles: [
+      { name: "Subscription Agreement.pdf", path: "Files/Assistant/preview/1-Subscription Agreement.pdf", bytes: 80400 },
+    ] };
+    saveSnapshot(delegated);
+  }
+}
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
 
@@ -456,6 +532,7 @@ const fixtureClient: LegalworkServerClient = {
   calendarSubscription: async () => ({ available: false, url: null, lastSyncedAt: null }),
   sessionMessageQueue: async (workspaceId, sessionId) => ({ workspaceId, sessionId, revision: 0, paused: false, entries: [], completedIds: [] }),
 
+  assistantAttention: async () => ({ items: [], nextCursor: null, unavailable: [] }),
   eigenweltEntitlements: async () => limitFixture.entitlements,
   eigenweltUsage: async () => {
     if (failNextUsageRead) { failNextUsageRead = false; throw new Error("Simulated usage refresh failure"); }
@@ -550,12 +627,18 @@ const fixtureClient: LegalworkServerClient = {
     }
     throw new Error("Billing changes and payments are disabled in this visual preview.");
   },
+  mainAssistantHistory: async (before = assistantToday, limit = 14) => {
+    if (previewParams.has("onboarding")) return { days: [], nextBefore: null };
+    const days = ["2026-10-06", "2026-10-05", "2026-10-04"].filter(date => date < before).map(date => ({ date, sessionId: `assistant-${date}` }));
+    return { days: days.slice(0, limit), nextBefore: days.length > limit ? days[limit - 1].date : null };
+  },
   getSessionSnapshot: async (_workspaceId, sessionId) => {
     const item = snapshots.get(sessionId);
     if (!item) throw new Error("Unknown preview session");
     return { item };
   },
   getConfig: async () => ({ opencode: {}, legalwork: {} }),
+  sessionSandbox: async () => ({ enabled: false, supported: false, networkMode: "allow", source: "application", policy: null, application: { enabled: false, networkMode: "allow" } }),
   getVoiceRealtimeCapability: async () => ({ supported: false, providerId: null, model: null, reason: "Voice is unavailable in the visual fixture." }),
   getUserEnvStatus: async () => ({ runtimeKey: "visual-fixture", pendingChanges: false }),
   listUserEnv: async () => ({ items: [] }),
@@ -629,13 +712,32 @@ const fixtureClient: LegalworkServerClient = {
 };
 
 function SessionPreview() {
+  useEffect(() => {
+    if (!assistantPreview || !previewParams.has("unread")) return;
+    useSessionInboxStore.persist.setOptions({ name: "legalwork.preview.sessionInbox" });
+    useSessionInboxStore.setState({ entries: {}, trackingStartedAt: 0, readAt: {}, openSessionId: null, openWorkspaceId: null });
+    useSessionInboxStore.getState().receive([{ workspaceId: workspace.id, sessionId: welcomeId, updatedAt: Date.now(), assistantAt: 0,
+      automation: { runId: "briefing-preview", at: Date.now(), pinRunId: null } }]);
+  }, []);
+  const [announcementOpen, setAnnouncementOpen] = useState(previewParams.has("assistant-announcement"));
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(model);
+  const [modelVariant, setModelVariant] = useState<string | null>("balanced");
+  const [assistantProfile, setAssistantProfile] = useState<AssistantProfile>(previewParams.has("messenger") ? { name: "Johann", icon: "cat" } : DEFAULT_ASSISTANT_PROFILE);
+  const [onboarding, setOnboarding] = useState<AssistantOnboardingState | undefined>(assistantPreview && previewParams.has("onboarding") ? {
+    needed: true, greetingUnread: true, step: "name", sessionId: null, name: null, icon: "flower",
+  } : undefined);
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || previewParams.has("sent-by") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();
   const projectPage = projectViewFromPath(location.pathname);
+  useEffect(() => {
+    const id = /^\/workspace\/[^/]+\/session\/([^/]+)$/.exec(location.pathname)?.[1];
+    if (id && snapshots.has(id)) setSelectedSessionId(id);
+  }, [location.pathname]);
   const [revision, setRevision] = useState(0);
   const [projectOrder, setProjectOrder] = useState([workspace.id, otherWorkspace.id]);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
@@ -654,7 +756,7 @@ function SessionPreview() {
   const pendingHome = useRef<PendingHomeMessage>({ sessionId: null, uploads: new Map() });
   const failHome = useRef(previewParams.has("home-fail"));
   const groups: WorkspaceSessionGroup[] = [
-    { workspace, status: "ready", sessions: Array.from(snapshots.values()).map((item) => item.session).filter(session => session.directory !== otherWorkspace.path) },
+    { workspace, status: "ready", sessions: assistantPreview ? [] : Array.from(snapshots.values()).map((item) => item.session).filter(session => session.directory !== otherWorkspace.path) },
     { workspace: otherWorkspace, status: "ready", sessions: Array.from(snapshots.values()).map(item => item.session).filter(session => session.directory === otherWorkspace.path) },
   ];
   const newTask = (projectId = activeWorkspace.id) => {
@@ -671,18 +773,36 @@ function SessionPreview() {
   };
   const sendDraft = (draft: ComposerDraft, sessionId: string) => {
     const previous = snapshots.get(sessionId);
-    const next = snapshot(sessionId, draft.resolvedText.slice(0, 44) || "Sample review", draft.resolvedText);
+    const next = snapshot(sessionId, draft.resolvedText.slice(0, 44) || "Sample review", draft.resolvedText, previewParams.has("messenger") ? "I've checked. Your next steps are ready." : reply);
     next.session.directory = previous?.session.directory ?? activeWorkspace.path;
+    const sentAt = Date.now();
+    for (const message of next.messages) {
+      message.info.time.created = sentAt + (message.info.role === "assistant" ? 1 : 0);
+      if (message.info.role === "assistant") message.info.time.completed = sentAt + 3400;
+    }
+    if (previewParams.has("messenger")) {
+      const publish = (item: LegalworkSessionSnapshot) => { saveSnapshot(item); setRevision(value => value + 1); };
+      const history = previous?.messages ?? [];
+      publish({ ...next, status: { type: "busy" }, messages: [...history, next.messages[0]] });
+      window.setTimeout(() => publish({ ...next, status: { type: "busy" }, messages: [...history, ...next.messages.map(message => message.info.role === "assistant" ? {
+        ...message, info: { ...message.info, time: { created: Date.now() }, finish: undefined },
+        parts: message.parts.map(part => part.type === "text" ? { ...part, time: { start: Date.now() } } : part),
+      } : message)] }), 1500);
+      window.setTimeout(() => publish({ ...next, messages: [...history, ...next.messages] }), 3400);
+      return;
+    }
     saveSnapshot({ ...next, messages: [...(previous?.messages ?? []), ...next.messages] });
     setRevision((value) => value + 1);
   };
 
   return (
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
+      <AssistantIntroModal open={announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onOpenAssistant={() => { setAnnouncementOpen(false); setShowHome(false); setSelectedSessionId(welcomeId); setOnboarding(state => state && { ...state, greetingUnread: false }); }} />
       {platform === "windows" && <>
         {captionHeight === 64 && <style>{"html.legalwork-electron.legalwork-platform-windows .lw-window-frame { --lw-window-bar-height: 64px; }"}</style>}
         <div data-preview-caption-controls aria-hidden style={{ height: captionHeight }} className="fixed right-0 top-0 z-[2147483647] flex w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>
       </>}
+
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
         {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">
@@ -747,6 +867,10 @@ function SessionPreview() {
             setRevision((value) => value + 1);
           }}
           sidebar={{
+            assistantGreetingUnread: onboarding?.greetingUnread,
+            assistantProfile, onSaveAssistantProfile: async profile => setAssistantProfile(profile),
+            assistantWorkspaceId: assistantPreview ? workspace.id : undefined,
+            onOpenAssistant: assistantPreview ? () => { setOnboarding(state => state && { ...state, greetingUnread: false }); setSelectedSessionId(welcomeId); useSessionInboxStore.getState().open(welcomeId, workspace.id); } : undefined, assistantActive: assistantPreview && selectedSessionId === welcomeId,
             workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
             sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
@@ -761,6 +885,12 @@ function SessionPreview() {
             activeNav: showWorkflows ? "workflows" : null,
           }}
           surface={{
+            assistantOnboarding: onboarding ? {
+              state: onboarding,
+              onName: async name => { setAssistantProfile({ name, icon: "flower" }); setOnboarding({ ...onboarding, greetingUnread: false, name, step: "avatar", sessionId: welcomeId }); },
+              onIcon: async icon => { setAssistantProfile({ name: onboarding.name, icon }); setOnboarding({ ...onboarding, icon, needed: false, step: "complete" }); },
+            } : undefined,
+            assistantDate: assistantPreview && selectedSessionId === welcomeId ? assistantToday : undefined,
             workspaceRoot: activeWorkspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
             onChooseAiPlan: async plan => {
               if (!subscriptionPreview) { previewNotice(); return; }
@@ -771,10 +901,12 @@ function SessionPreview() {
               limitFixture.usage = updated.usage;
               queryClient.setQueryData(eigenweltEntitlementsQueryKey(), updated.entitlements);
             },
-            modelPickerOpen: false, modelSelectorLocked: !previewParams.has("composer-layout") && !previewParams.has("review-checks"), selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
+            modelPickerOpen, modelSelectorLocked: !modelSettingsPreview && !previewParams.has("composer-layout") && !previewParams.has("review-checks"), selectedModel, onModelPickerOpenChange: setModelPickerOpen,
+            onModelChange: next => { setSelectedModel(next); setModelPickerOpen(false); },
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
-            modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,
-            modelBehaviorOptions: previewParams.has("composer-layout") ? [{ value: null, label: "Reasoning effort", isDefault: true }, { value: "high", label: "High" }] : [],
+            modelVariantLabel: "Standard", modelVariant, onModelVariantChange: setModelVariant,
+            modelBehaviorOptions: modelSettingsPreview ? [{ value: "balanced", label: "Balanced" }, { value: "light", label: "Light" }] : previewParams.has("composer-layout") ? [{ value: null, label: "Reasoning effort", isDefault: true }, { value: "high", label: "High" }] : [],
+            agentLabel: "Assistant", selectedAgent: null,
             listAgents: async () => [], onSelectAgent: () => {}, listCommands: async () => [],
             recentFiles: files.map((file) => file.path), searchFiles: async (query) => files.filter((file) => file.name.toLowerCase().includes(query.toLowerCase())).map((file) => file.path),
             isRemoteWorkspace: false, isSandboxWorkspace: false, providerConnectedCount: 1,

@@ -836,9 +836,10 @@ function SidePanelContent({
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId]);
   const openFiles = React.useMemo(() => tabs.flatMap((tab) => {
     if (tab.type !== "artifact") return [];
-    const path = tab.sourceProject?.path ?? tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
+    const relativePath = tab.sourceProject?.path ?? tab.value ?? transcriptTargets?.find((target) => target.id === tab.id)?.value;
+    const path = relativePath && tab.source ? `${tab.source.workspaceRoot.replace(/[/\\]+$/, "")}/${relativePath}` : relativePath;
     const active = workspaceVisible && tab.id === controlDocumentId;
-    return path ? [{ id: tab.id, sessionId, name: tab.label, path, active, workspaceId: tab.sourceProject?.workspaceId ?? workspaceId ?? undefined, projectId: tab.sourceProject?.projectId ?? projectId }] : [];
+    return path ? [{ id: tab.id, sessionId, name: tab.label, path, active, workspaceId: tab.sourceProject?.workspaceId ?? tab.source?.workspaceId ?? workspaceId ?? undefined, projectId: tab.sourceProject?.projectId ?? tab.source?.workspaceId ?? projectId }] : [];
   }), [tabs, transcriptTargets, sessionId, controlDocumentId, workspaceVisible, workspaceId, projectId]);
   useControlOpenFiles(openFiles);
   const isBrowserAvailable = Boolean(getElectronBrowser());

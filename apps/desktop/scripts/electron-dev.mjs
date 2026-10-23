@@ -1,12 +1,21 @@
 import { spawn, spawnSync } from "node:child_process";
+import { existsSync, lstatSync } from "node:fs";
 import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { prepareElectronDev } from "./prepare-electron-dev.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
+const electronHelperDir = resolve(desktopRoot, "resources", "helpers");
+// Dev preparation must never write through a link into an installed app.
+for (const directory of [electronSidecarDir, electronHelperDir]) {
+  if (existsSync(directory) && lstatSync(directory).isSymbolicLink()) {
+    throw new Error(`Dev resources must be local to this checkout, not a symlink: ${directory}`);
+  }
+}
 const defaultDevDataDir = resolve(
   process.env.HOME ?? process.env.USERPROFILE ?? repoRoot,
   ".legalwork",
@@ -198,6 +207,7 @@ process.once("SIGTERM", () => void stopAll(143));
 
 if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
   runSync(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], { cwd: desktopRoot });
+  runSync(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], { cwd: desktopRoot });
 }
@@ -207,6 +217,7 @@ if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
 runSync(pnpmCmd, ["exec", "electron-builder", "install-app-deps"], { cwd: desktopRoot });
 
 // Build the server TS → JS so Electron can import it in-process
+runSync(nodeCmd, [resolve(__dirname, "build-notifications.mjs")], { cwd: desktopRoot });
 console.log("[electron-dev] Building legalwork-server (tsc)...");
 runSync(pnpmCmd, ["--filter", "legalwork-server", "build"], { cwd: repoRoot });
 
@@ -264,7 +275,7 @@ const resolvedStartUrl = await waitForVite(startUrl);
 const cdpPortRaw = process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
 const cdpPort = cdpPortRaw === "" || cdpPortRaw === "0" ? "" : cdpPortRaw;
 
-electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
+electronChild = run(prepareElectronDev(desktopRoot), ["./electron/main.mjs"], {
   cwd: desktopRoot,
   env: {
     ...process.env,

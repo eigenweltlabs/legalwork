@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { UIMessage } from "ai";
 import DOMPurify from "dompurify";
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { MessageList } from "../src/components/chat/message-list";
@@ -15,7 +16,7 @@ function textMessage(id: string, role: UIMessage["role"], text: string): UIMessa
 
 function renderMessages(messages: UIMessage[], status: ThreadStatus) {
   return renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={new QueryClient()}><MemoryRouter>
       <MessageListProvider
         workspaceId="copy-test"
         sessionId="session"
@@ -31,7 +32,7 @@ function renderMessages(messages: UIMessage[], status: ThreadStatus) {
       >
         <MessageList messages={messages} status={status} />
       </MessageListProvider>
-    </QueryClientProvider>,
+    </MemoryRouter></QueryClientProvider>,
   );
 }
 

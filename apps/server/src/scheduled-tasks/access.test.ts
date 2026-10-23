@@ -32,6 +32,7 @@ test("scheduled project tools reject cross-project reads by default and allow ex
   const projects = [{ id: "current", name: "Current", path: "/matters/current" }, { id: "other", name: "Other", path: "/matters/other" }];
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path === "/assistant") return Response.json({ workspace: null });
     if (path === "/workspaces") return Response.json({ items: projects });
     if (path === "/scheduled-tasks/projects") return Response.json({ projects });
     reads.push(path); queries.push(new URL(request.url).searchParams); return Response.json({ content: "Fixture source" });

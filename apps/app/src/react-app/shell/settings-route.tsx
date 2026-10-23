@@ -58,6 +58,7 @@ import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
 import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
+import { AssistantSettingsView } from "@/react-app/domains/settings/pages/assistant-view";
 import { HubDownloadSection } from "@/react-app/domains/settings/pages/hub-download-section";
 import { HubShareDialog } from "@/react-app/domains/settings/pages/hub-share-dialog";
 import { SharePresetSection } from "@/react-app/domains/settings/pages/share-preset-section";
@@ -211,6 +212,7 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "tabular-review":
     case "account":
+    case "assistant":
     case "personalisation":
     case "notifications":
     case "preferences":
@@ -2167,6 +2169,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
           </>
         );
+      case "assistant":
+        return <AssistantSettingsView client={legalworkClient} onModels={() => navigateSettingsPath("ai")} />;
       case "personalisation":
         return (
           <PersonalisationView

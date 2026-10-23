@@ -91,6 +91,7 @@ export function useSessionScrollController(
   const programmaticScrollResetRafARef = useRef<number | undefined>(undefined);
   const programmaticScrollResetRafBRef = useRef<number | undefined>(undefined);
   const observedContentHeightRef = useRef(0);
+  const observedViewportHeightRef = useRef(0);
   const lastGestureAtRef = useRef(0);
   const previousSessionIdRef = useRef<string | null>(null);
 
@@ -313,17 +314,22 @@ export function useSessionScrollController(
 
   useEffect(() => {
     const content = options.contentRef.current;
-    if (!content) return;
+    const container = options.containerRef.current;
+    if (!content || !container) return;
 
     observedContentHeightRef.current = content.offsetHeight;
+    observedViewportHeightRef.current = container.clientHeight;
     const observer = new ResizeObserver(() => {
       const nextContent = options.contentRef.current;
-      if (!nextContent) return;
+      const nextContainer = options.containerRef.current;
+      if (!nextContent || !nextContainer) return;
 
       const nextHeight = nextContent.offsetHeight;
       const previousContentHeight = observedContentHeightRef.current;
-      const heightChanged = Math.abs(nextHeight - previousContentHeight) > 1;
+      const nextViewportHeight = nextContainer.clientHeight;
+      const heightChanged = Math.abs(nextHeight - previousContentHeight) > 1 || Math.abs(nextViewportHeight - observedViewportHeightRef.current) > 1;
       observedContentHeightRef.current = nextHeight;
+      observedViewportHeightRef.current = nextViewportHeight;
 
       // Only re-anchor to the bottom when we're already in sticky bottom mode
       // AND the user isn't actively scrolling. If they've touched the wheel,
@@ -345,8 +351,11 @@ export function useSessionScrollController(
     });
 
     observer.observe(content);
+    // Banners, composer growth and pane resizing can clip the tail without
+    // changing transcript content height. Keep following those changes too.
+    observer.observe(container);
     return () => observer.disconnect();
-  }, [hasScrollGesture, options.contentRef, refreshTopClippedMessage, scrollToBottom, selectedSessionId]);
+  }, [hasScrollGesture, options.containerRef, options.contentRef, refreshTopClippedMessage, scrollToBottom, selectedSessionId]);
 
   useEffect(() => {
     if (selectedSessionId === previousSessionIdRef.current) return;

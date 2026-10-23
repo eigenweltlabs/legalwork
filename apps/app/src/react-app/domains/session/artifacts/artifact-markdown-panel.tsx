@@ -119,7 +119,10 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   const dirty = Boolean(draft && draft.content !== draft.baseline);
   useEffect(() => { if (dirty) usePanelTabStore.getState().keepTab(sessionId, target.id); }, [dirty, sessionId, target.id]);
   const onChange = useCallback((content: string) => {
-    if (!localReadOnly) update((current) => current ? { ...current, content } : current);
+    if (!localReadOnly) {
+      setSaveError(null);
+      update((current) => current ? { ...current, content } : current);
+    }
   }, [update, localReadOnly]);
 
   useEffect(() => registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name,

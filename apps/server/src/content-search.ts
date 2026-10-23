@@ -28,7 +28,7 @@ export async function searchSessionContents(config: ServerConfig, workspace: Wor
     const root = workspace.opencode?.directory || workspace.directory || workspace.path;
     const canonicalRoot = await realpath(root).catch(() => resolve(root));
     const sessions = db.all(`SELECT id, title, time_updated FROM session
-      WHERE directory IN (?, ?) AND time_archived IS NULL ORDER BY time_updated DESC`, [root, canonicalRoot]);
+      WHERE directory IN (?, ?) AND COALESCE(time_archived, 0) = 0 ORDER BY time_updated DESC`, [root, canonicalRoot]);
     const found = new Map<string, ContentSearchResult>();
     const add = (session: Record<string, unknown>, excerpt = "", messageId?: string) => {
       const id = String(session.id);

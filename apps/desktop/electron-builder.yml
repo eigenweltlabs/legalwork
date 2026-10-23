@@ -103,15 +103,19 @@ mac:
   sign: scripts/sign-macos.cjs
   binaries:
     - Contents/Resources/node/node
+    - Contents/Resources/helpers/LegalWorkNotifications.node
   icon: resources/icons/icon.icns
   category: public.app-category.developer-tools
   hardenedRuntime: true
   gatekeeperAssess: false
   notarize: false
+  # Only opt into assistant entitlements together with a matching provisioning profile.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     NSAppleEventsUsageDescription: LegalWork uses System Events to paste dictated text, and Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
+    NSUserActivityTypes:
+      - INSendMessageIntent
     NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
     NSAudioCaptureUsageDescription: LegalWork captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
     NSInputMonitoringUsageDescription: LegalWork uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.
@@ -133,6 +137,7 @@ mac:
       filter:
         - LegalWorkAudioTap
         - LegalWorkKeyMonitor
+        - LegalWorkNotifications.node
   target:
     - dmg
     - zip

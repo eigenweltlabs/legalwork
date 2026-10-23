@@ -25,6 +25,8 @@ import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
 import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
+import { AssistantSettingsEditor } from "@/react-app/domains/settings/pages/assistant-view";
+import type { AssistantProfile, AssistantSettings, AssistantSettingsCatalog } from "@legalwork/types/main-assistant";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -109,12 +111,40 @@ const ocrPreview = {
   },
 };
 
+const assistantCatalog: AssistantSettingsCatalog = {
+  unavailable: [],
+  projects: [
+    { id: "northstar", name: "Northstar Legal" },
+    { id: "diligence", name: "Acquisition diligence and shareholder correspondence" },
+    { id: "private", name: "Private matters" },
+  ],
+  resources: [
+    { id: "plugin:drive", kind: "plugin", name: "Google Drive", description: "Find and read documents in your connected Drive.", reference: "preview:drive", projectId: null, projectName: null },
+    { id: "workflow:briefing", kind: "workflow", name: "Morning briefing", description: "Review upcoming meetings and outstanding work.", reference: "preview:briefing", projectId: "northstar", projectName: "Northstar Legal" },
+    { id: "skill:diligence", kind: "skill", name: "Acquisition due diligence", description: "Review matter documents and prepare a source-backed report.", reference: "preview:diligence", projectId: "diligence", projectName: "Acquisition diligence and shareholder correspondence" },
+    { id: "skill:private", kind: "skill", name: "Private matter review", description: "Review confidential matter records.", reference: "preview:private", projectId: "private", projectName: "Private matters" },
+  ],
+};
+
+function AssistantSettingsPreview({ onModels }: { onModels: () => void }) {
+  const [profile, setProfile] = useState<AssistantProfile>({ name: "Johannes", icon: "bird" });
+  const [settings, setSettings] = useState<AssistantSettings>({
+    systemPromptAddition: "Keep replies concise. Tell me when you have the result.",
+    resourceIds: ["plugin:drive", "workflow:briefing", "skill:diligence"],
+    projectAccess: { mode: "include", projectIds: ["northstar", "diligence"] },
+  });
+  const [notifications, setNotifications] = useState(true);
+  return <AssistantSettingsEditor profile={profile} settings={settings} catalog={assistantCatalog} notifications={notifications} onModels={onModels} onSave={async value => {
+    setProfile(value.profile); setSettings(value.settings); setNotifications(value.notifications);
+  }} />;
+}
+
 function SettingsPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
     const requested = params.get("tab");
-    return requested === "preferences" || requested === "appearance" || requested === "ai" ? requested : "general";
+    return requested === "preferences" || requested === "appearance" || requested === "ai" || requested === "assistant" ? requested : "general";
   });
   const [compact, setCompact] = useState(params.has("compact"));
   const [selectedWorkspace, setSelectedWorkspace] = useState(workspaces[0]);
@@ -180,6 +210,8 @@ function SettingsPreview() {
               ocrView={<OcrSettingsSection client={ocrPreview} />}
               systemOneView={<SystemOneSettingsSection client={systemOnePreview} onManageSubscription={() => toast("Preview subscription")} />}
             />
+          ) : activeTab === "assistant" ? (
+            <AssistantSettingsPreview onModels={() => setActiveTab("ai")} />
           ) : activeTab === "shell" ? (
             <><AppearanceView busy={false} /><NewWindowPreference /></>
           ) : activeTab === "appearance" ? (

@@ -6,6 +6,13 @@ import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/
 import { ViewToolCard } from "@/react-app/domains/views/view-tool-card";
 import { useViewGenerations } from "@/react-app/domains/views/use-view-generations";
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
+import { AssistantFileCard, AssistantLinkedFileCards, AssistantSharedFileCard, AssistantTypingBubble } from "./assistant-chat-cards";
+import { assistantHandoffPresentation } from "./assistant-handoff-presentation";
+import { assistantChatMessages, assistantReactions } from "./assistant-chat-presentation";
+import { assistantTextIsStreaming } from "@/react-app/domains/session/surface/assistant-bubbles";
+import { DelegationCard } from "./delegation-card";
+import { AssistantNameCard } from "./assistant-name-card";
+import { ScheduledRunCard, scheduledRunOf } from "./scheduled-run-card";
 import { ScheduledTaskToolCard, ScheduledTaskRunCard } from "./scheduled-task-card";
 import { parseScheduledRunMessage } from "@/react-app/domains/scheduled-tasks/scheduled-message";
 import { CalculationToolCard } from "./calculation/calculation-card";
@@ -124,6 +131,8 @@ import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdo
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
 import { groupMessages, isMessageGroup, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
+import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
+import { assistantMessageSender } from "@/react-app/domains/session/sync/assistant-message-sender";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
@@ -411,6 +420,7 @@ const AssistantMessage = React.memo(
               return (
                 <MessageContent
                   key={`text-${index}`}
+                  data-assistant-message-bubble=""
                   className="text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0 [&>:last-child]:mb-0"
                   markdown
                 >
@@ -440,6 +450,9 @@ const AssistantMessage = React.memo(
 
             if (group.kind === "calendar-event-draft") return <CalendarEventDraftToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "email-draft") return <EmailDraftToolCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "delegation") return <DelegationCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "assistant-file") return <AssistantFileCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "assistant-name") return <AssistantNameCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
@@ -467,6 +480,7 @@ const AssistantMessage = React.memo(
 AssistantMessage.displayName = "AssistantMessage"
 
 type UserMessageProps = {
+  reaction?: string
   message: UIMessage
   isStreaming: boolean
 }
@@ -603,10 +617,13 @@ function renderUserTextWithReferenceChips(rawText: string) {
 }
 
 const UserMessage = React.memo(
-  ({ message, isStreaming }: UserMessageProps) => {
+  ({ message: sourceMessage, isStreaming, reaction }: UserMessageProps) => {
     const copyMessage = useCopyMessage();
-    const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage } = useMessageList()
+    const { message, files } = React.useMemo(() => assistantHandoffPresentation(sourceMessage), [sourceMessage])
+    const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, readOnly, assistantChat } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
+    const sender = assistantMessageSender(message)
+    const assistantScheduledRun = scheduledRunOf(message)
     const scheduledRun = React.useMemo(() => parseScheduledRunMessage(message), [message])
 
     return (
@@ -620,17 +637,24 @@ const UserMessage = React.memo(
             className="select-text"
             render={
               <div className="group flex w-full flex-col items-end gap-1">
+                {sender && <div className="mb-1 flex max-w-[85%] items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground sm:max-w-[75%]">
+                  <AssistantAvatar icon={sender.icon} className="size-4 text-[16px] text-blue-10" />
+                  <span className="min-w-0 break-words">{t("assistant.sent_by", { name: sender.name ?? t("assistant.title") })}</span>
+                </div>}
                 {message.parts.filter(isFileUIPart).map((part, index) => (
                   <FileMessage key={`${part.url}-${index}`} part={part} tone="user" />
                 ))}
-                {scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : message.parts.some((part) => part.type === "text" && part.text) ? (
+                {assistantChat && assistantScheduledRun && !scheduledRun?.taskId ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : message.parts.some((part) => part.type === "text" && part.text) ? (
                   <MessageContent
-                    layoutId={message.id}
-                    className="bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
+                    layoutId={assistantChat ? undefined : message.id}
+                    data-user-message-bubble=""
+                    className="relative bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
                   >
                     {renderUserTextWithReferenceChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""))}
+                    {reaction && <span role="img" aria-label={t("assistant.reaction", { emoji: reaction })} data-assistant-reaction="" className="absolute -top-3 -left-3 flex h-7 min-w-8 items-center justify-center rounded-full border-2 border-background bg-muted px-1.5 text-base shadow-sm">{reaction}</span>}
                   </MessageContent>
                 ) : null}
+                {files.map(file => <AssistantSharedFileCard key={file.path} file={{ path: file.path, title: file.name, filename: file.name, description: t("assistant.shared_with_project") }} />)}
                 <MessageActions
                   className={cn(
                     "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100"
@@ -638,49 +662,48 @@ const UserMessage = React.memo(
                 >
                   <MessageTimestamp message={message} className="mr-1.5" />
                   <CopyMessageButton messages={[message]} />
-                  {!isStreaming && (
-                    <>
-                      {messageText ? (
-                        <MessageAction tooltip={t("message_list.edit_message")}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={t("message_list.edit_message")}
-                            onClick={() => onEditUserMessage(message.id, messageText)}
-                          >
-                            <Pencil />
-                          </Button>
-                        </MessageAction>
-                      ) : null}
-                      <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t("message_list.branch_in_new_chat")}
-                          onClick={() => onForkAtMessage(message.id)}
-                        >
-                          <Split className="rotate-90" />
-                        </Button>
-                      </MessageAction>
-                      <MessageAction tooltip={t("message_list.revert")}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t("message_list.revert")}
-                          onClick={() => onRevertToUserMessage(message.id)}
-                        >
-                          <Undo2 />
-                        </Button>
-                      </MessageAction>
-                    </>
-                  )}
+                  {messageText && (assistantChat || !isStreaming) ? (
+                    <MessageAction tooltip={t("message_list.edit_message")}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("message_list.edit_message")}
+                        disabled={readOnly}
+                        onClick={() => onEditUserMessage(message.id, messageText)}
+                      >
+                        <Pencil />
+                      </Button>
+                    </MessageAction>
+                  ) : null}
+                  {!assistantChat && !isStreaming && <><MessageAction tooltip={t("message_list.branch_in_new_chat")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("message_list.branch_in_new_chat")}
+                      disabled={readOnly}
+                      onClick={() => onForkAtMessage(message.id)}
+                    >
+                      <Split className="rotate-90" />
+                    </Button>
+                  </MessageAction>
+                  <MessageAction tooltip={t("message_list.revert")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("message_list.revert")}
+                      disabled={readOnly}
+                      onClick={() => onRevertToUserMessage(message.id)}
+                    >
+                      <Undo2 />
+                    </Button>
+                  </MessageAction></>}
                 </MessageActions>
               </div>
             }
           />
           <ContextMenuContent className="w-56">
             {messageText ? (
-              <ContextMenuItem onClick={() => onEditUserMessage(message.id, messageText)}>
+              <ContextMenuItem disabled={readOnly} onClick={() => onEditUserMessage(message.id, messageText)}>
                 <Pencil className="size-4" />
                 {t("message_list.edit_message")}
               </ContextMenuItem>
@@ -691,14 +714,14 @@ const UserMessage = React.memo(
                 {t("common.copy")}
               </ContextMenuItem>
             ) : null}
-            <ContextMenuItem onClick={() => onForkAtMessage(message.id)}>
+            {!assistantChat && <><ContextMenuItem disabled={readOnly} onClick={() => onForkAtMessage(message.id)}>
               <Split className="size-4 rotate-90" />
               {t("message_list.branch_in_new_chat")}
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => onRevertToUserMessage(message.id)}>
+            <ContextMenuItem disabled={readOnly} onClick={() => onRevertToUserMessage(message.id)}>
               <Undo2 className="size-4" />
               {t("message_list.revert")}
-            </ContextMenuItem>
+            </ContextMenuItem></>}
           </ContextMenuContent>
         </ContextMenu>
       </Message>
@@ -709,6 +732,7 @@ const UserMessage = React.memo(
 UserMessage.displayName = "UserMessage"
 
 type MessageComponentProps = {
+  reaction?: string
   message: UIMessage
   isLastMessage: boolean
   isStreaming: boolean
@@ -716,7 +740,7 @@ type MessageComponentProps = {
 }
 
 const MessageComponent = React.memo(
-  ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
+  ({ message, isLastMessage, isStreaming, isLastStep, reaction }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
       const metadata = message.metadata;
       if (metadata && typeof metadata === "object" && "opencode" in metadata &&
@@ -742,6 +766,7 @@ const MessageComponent = React.memo(
 
     return (
       <UserMessage
+        reaction={reaction}
         message={message}
         isStreaming={isStreaming}
       />
@@ -897,6 +922,12 @@ function getRenderableMessage(message: UIMessage) {
   return parts.length > 0 ? { ...message, parts } : null;
 }
 
+function MessageArtifacts(props: { message: UIMessage }) {
+  const { assistantChat } = useMessageList();
+  if (assistantChat) return null;
+  return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
+}
+
 /** A stable empty list, so a tasks-only strip does not re-derive artifacts on every render. */
 const EMPTY_MESSAGES: UIMessage[] = []
 
@@ -904,21 +935,23 @@ interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
   isStreaming: boolean
+  showTyping?: boolean
 }
 
 function MessageGroup({
   items,
   messages,
   isStreaming,
+  showTyping = false,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly, assistantChat } = useMessageList()
   const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
   const lastItem = items[items.length - 1]
   const isLiveGroup = isStreaming && lastItem?.index === messages.length - 1
   // Every document this turn's LegalMemory calls returned, read from the tool
   // results rather than from anything the model wrote.
   const legalMemoryDocuments = React.useMemo(
-    () =>
+    () => assistantChat ? [] :
       collectLegalMemoryDocuments(
         items.flatMap((item) =>
           item.message.parts
@@ -926,15 +959,15 @@ function MessageGroup({
             .map((part) => (part as { output?: unknown }).output),
         ),
       ),
-    [items],
+    [items, assistantChat],
   )
   // The tasks this turn filed, likewise read off the tool results and shown
   // once, under the finished answer — the tool call and the prose that
   // follows it are separate messages, so a per-message strip would put the
   // task under the step that ran the tool rather than at the end.
   const filedTasks = React.useMemo(
-    () => filedTasksOf(items.flatMap((item) => item.message.parts)),
-    [items],
+    () => assistantChat ? [] : filedTasksOf(items.flatMap((item) => item.message.parts)),
+    [items, assistantChat],
   )
   // Branch/revert must target a real server-side message id. Synthetic
   // client-side messages (e.g. session errors) don't exist on the server and
@@ -963,6 +996,7 @@ function MessageGroup({
   return (
       <div className="flex flex-col gap-2 group/message-group">
       {displayItems.map(renderItem)}
+      {assistantChat && <AssistantLinkedFileCards messages={items.map(item => item.message)} />}
       {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since
@@ -979,17 +1013,19 @@ function MessageGroup({
           streaming={isStreaming}
         />
       </div> : null}
-      {hasText && !isLiveGroup && (
+      {showTyping && <AssistantTypingBubble />}
+      {hasText && !showTyping && (assistantChat || !isLiveGroup) && (
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 focus-within:opacity-100">
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
-            {lastRealItem && !isStreaming ? (
+            {lastRealItem && !assistantChat && !isStreaming ? (
               <>
                 <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                   <Button
                     variant="ghost"
                     size="icon"
                     aria-label={t("message_list.branch_in_new_chat")}
+                    disabled={readOnly}
                     onClick={() => onForkAtMessage(lastRealItem.message.id)}
                   >
                     <Split className="rotate-90" />
@@ -1000,6 +1036,7 @@ function MessageGroup({
                     variant="ghost"
                     size="icon"
                     aria-label={t("message_list.revert")}
+                    disabled={readOnly}
                     onClick={() => onRevertToUserMessage(lastRealItem.message.id)}
                   >
                     <Undo2 />
@@ -1017,15 +1054,21 @@ function MessageGroup({
 }
 
 interface MessageListProps {
+  showWelcome?: boolean
   renderUsageLimit?: (error: string, messageId?: string) => React.ReactNode
 
   eigenweltPlan?: EigenweltBudgetPlan
   messages: UIMessage[]
   status: ThreadStatus
   retryStatus?: RetryStatus | null
+  /** Streaming state from the raw transcript, before complete-bubble buffering. */
+  assistantTextStreaming?: boolean
 }
 
-export function MessageList({ eigenweltPlan = null, messages, status, retryStatus, renderUsageLimit }: MessageListProps) {
+export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, retryStatus, renderUsageLimit, assistantTextStreaming }: MessageListProps) {
+  const { assistantChat } = useMessageList();
+  const messages = React.useMemo(() => assistantChat ? assistantChatMessages(rawMessages) : rawMessages, [assistantChat, rawMessages]);
+  const reactions = React.useMemo(() => assistantChat ? assistantReactions(rawMessages) : new Map<string, string>(), [assistantChat, rawMessages]);
   useViewGenerations(messages, status);
   useWikiSuggestions(messages, status !== "ready");
   const isStreaming = status === "streaming" || status === "retrying"
@@ -1033,12 +1076,15 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
   const hasLiveTool = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
+  const showAssistantTyping = assistantChat && status === "streaming" && !error && (assistantTextStreaming ?? assistantTextIsStreaming(rawMessages))
+  const lastItem = items.at(-1)
+  const typingInGroup = lastItem !== undefined && isMessageGroup(lastItem)
 
   return (
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
-      {messages.length === 0 && <SessionWelcome />}
+      {showWelcome && messages.length === 0 && <SessionWelcome />}
 
       {items.map((item) => {
         if (isMessageGroup(item)) {
@@ -1049,6 +1095,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
               items={item.messages}
               messages={messages}
               isStreaming={isStreaming}
+              showTyping={showAssistantTyping && item === lastItem}
             />
           )
         }
@@ -1061,6 +1108,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
           <div key={item.message.id}>
             <MessageComponent
               message={item.message}
+              reaction={reactions.get(item.message.id)}
               isLastMessage={isLastMessage}
               isStreaming={isLastMessage && isStreaming}
               isLastStep={isLastStep}
@@ -1069,7 +1117,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
         )
       })}
 
-      {status === "streaming" && !hasLiveTool && <LoadingMessage />}
+      {assistantChat ? (showAssistantTyping && !typingInGroup && <AssistantTypingBubble />) : status === "streaming" && !hasLiveTool && <LoadingMessage />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>

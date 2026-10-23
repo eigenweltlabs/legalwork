@@ -36,6 +36,7 @@ run(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "build-notifications.mjs")], desktopRoot);
 // Build the server TS → JS so Electron can import it in-process
 run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);
 // LEGALWORK_ELECTRON_BUILD tells Vite to emit relative asset paths so

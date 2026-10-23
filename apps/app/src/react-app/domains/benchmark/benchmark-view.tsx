@@ -8,7 +8,6 @@ import type { ProviderListItem } from "../../../app/types";
 import { HubTabs, type HubTab } from "../settings/segmented-tabs";
 import { attachBenchmarkContext, useBenchmarkStore } from "./store";
 import { AnalyticsView } from "./analytics-view";
-import { BenchmarkOnboardingModal } from "./onboarding-modal";
 import { ImportTasksModal } from "./import-tasks-modal";
 import { ItemDetailScreen } from "./item-detail-screen";
 import { RunDetail } from "./run-detail";
@@ -108,7 +107,6 @@ export function BenchmarkView(props: BenchmarkViewProps) {
         </div>
       </div>
 
-      <BenchmarkOnboardingModal onImport={() => setImportOpen(true)} />
       <ImportTasksModal open={importOpen} onOpenChange={setImportOpen} />
       <TaskFormModal open={taskFormOpen} onOpenChange={setTaskFormOpen} />
       <StartRunModal

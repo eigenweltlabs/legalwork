@@ -64,7 +64,8 @@ export async function restoreWorkspaceWindow(workspaceId: string) {
     const id = (value: string | null) => value ? replacements.get(value) ?? value : null;
     const next: SessionPanelState = normalizeSession({ ...layout, tabs, panes: layout.panes.map(pane => ({ ...pane, tabIds: pane.tabIds.map(value => replacements.get(value) ?? value), activeTabId: id(pane.activeTabId) })) });
     usePanelTabStore.setState(state => {
-      const sessions = { ...state.sessions, [workspacePanelKey(workspaceId)]: next };
+      const scope = workspacePanelKey(workspaceId);
+      const sessions = { ...state.sessions, [scope]: normalizeSession({ ...next, assistant: state.sessions[scope]?.assistant || next.assistant }) };
       // A deliberate window seed replaces this window's inherited legacy layout.
       delete sessions[`project:${workspaceId}`];
       return { sessions };

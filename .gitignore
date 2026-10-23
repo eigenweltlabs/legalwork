@@ -71,6 +71,9 @@ apps/desktop/resources/node/
 
 # Built, checksum-verified sandbox runtime
 apps/server/resources/agent-sandbox/runtime/
+# APNs provider credentials stay in private server configuration.
+*.p8
+apns.json
 
 # Locked plugin SDK staged at build time for offline engine startup.
 apps/desktop/resources/opencode-sdk/

@@ -113,7 +113,8 @@ function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
-export function ArtifactPanel(props: ArtifactPanelProps) {
+export function ArtifactPanel(input: ArtifactPanelProps) {
+  const props = input.tab.source ? { ...input, workspaceId: input.tab.source.workspaceId, workspaceRoot: input.tab.source.workspaceRoot, isRemoteWorkspace: false } : input;
   if (props.tab.pendingImportId || props.tab.sourceProject || props.tab.searchSources || props.tab.reviewCitation || props.tab.reviewRecognition || !props.client || !props.workspaceId) return <ArtifactPanelContent {...props} />;
   return <PersistentArtifactPanel {...props} />;
 }

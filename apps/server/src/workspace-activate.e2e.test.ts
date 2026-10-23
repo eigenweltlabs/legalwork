@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 
 type Served = {
   port: number;
@@ -181,7 +182,7 @@ async function startLegalworkServerWithWorkspaces(input: {
 }
 
 describe("workspace activation", () => {
-  test("reloads the bound OpenCode engine on activate", async () => {
+  test("activates a workspace without disposing its running engine", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();
     const legalwork = await startLegalworkServer({
@@ -199,16 +200,10 @@ describe("workspace activation", () => {
     const body = await response.json();
     expect(body.activeId).toBe("ws_1");
 
-    const reloadRequest = mock.requests.find(
-      (request) => request.pathname === "/instance/dispose",
-    );
-    expect(reloadRequest).toBeDefined();
-    expect(reloadRequest?.search).toContain(
-      `directory=${encodeURIComponent(workspaceRoot)}`,
-    );
+    expect(mock.requests).toEqual([]);
   });
 
-  test("retries activation while the engine listener is starting", async () => {
+  test("retries an explicit reload while the engine listener is starting", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
     const port = probe.port;
@@ -229,15 +224,15 @@ describe("workspace activation", () => {
       }, 250);
     });
 
-    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/engine/reload`, {
       method: "POST",
-      headers: hostAuth(legalwork.hostToken),
+      headers: { Authorization: "Bearer owt_test_token" },
     });
     await mockReady;
     expect(response.status).toBe(200);
   });
 
-  test("reports an engine that stays unreachable as unavailable", async () => {
+  test("allows navigation with an unreachable engine but reports an explicit reload as unavailable", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
     const port = probe.port;
@@ -247,9 +242,12 @@ describe("workspace activation", () => {
       opencodeBaseUrl: `http://127.0.0.1:${port}`,
     });
 
-    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+    const base = `http://127.0.0.1:${legalwork.server.port}`;
+    const activated = await fetch(`${base}/workspaces/ws_1/activate`, { method: "POST", headers: hostAuth(legalwork.hostToken) });
+    expect(activated.status).toBe(200);
+    const response = await fetch(`${base}/workspace/ws_1/engine/reload`, {
       method: "POST",
-      headers: hostAuth(legalwork.hostToken),
+      headers: { Authorization: "Bearer owt_test_token" },
     });
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({ code: "opencode_unavailable" });
@@ -273,9 +271,9 @@ describe("workspace activation", () => {
       opencodeBaseUrl: `http://127.0.0.1:${address.port}`,
     });
 
-    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/engine/reload`, {
       method: "POST",
-      headers: hostAuth(legalwork.hostToken),
+      headers: { Authorization: "Bearer owt_test_token" },
     });
     expect(response.status).toBe(503);
     expect(attempts).toBe(1);
@@ -345,6 +343,65 @@ describe("workspace activation", () => {
     expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_1", "ws_2"]);
   });
 });
+
+// Hold a real engine's model response open while the UI's activation and
+// snapshot requests run. No live model, user project or account is used.
+test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("opening a background chat preserves its running turn through completion", async () => {
+  const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
+  if (!binary) return;
+  const root = await realpath(await createWorkspaceRoot());
+  let release = () => {};
+  let requested = false;
+  const responseGate = new Promise<void>(resolve => { release = resolve; });
+  const provider = Bun.serve({ port: 0, async fetch(request) {
+    await request.json(); requested = true;
+    await responseGate;
+    const chunk = (delta: object, finish: string | null) => `data: ${JSON.stringify({ id: "navigation-fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+    return new Response(chunk({ role: "assistant", content: "Navigation check completed." }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  } });
+  const reservation = Bun.serve({ port: 0, fetch: () => new Response() });
+  const port = reservation.port; reservation.stop(true);
+  const configPath = join(root, "engine.json");
+  await writeFile(configPath, JSON.stringify({
+    enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
+    provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: provider.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
+  }));
+  const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: root, env: {
+    ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
+    OPENCODE_CONFIG: configPath, OPENCODE_DB: join(root, "engine.db"), OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
+  }, stdout: "ignore", stderr: "pipe" });
+  const logs = new Response(engine.stderr).text();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const until = async (check: () => Promise<boolean>) => {
+    for (let i = 0; i < 200; i++) { if (await check()) return; await Bun.sleep(50); }
+    throw new Error("Timed out waiting for engine fixture");
+  };
+  try {
+    await until(async () => {
+      if (engine.exitCode !== null) throw new Error("Engine failed to start: " + await logs);
+      try { return (await fetch(baseUrl + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { return false; }
+    });
+    const legalwork = await startLegalworkServer({ workspaceRoot: root, opencodeBaseUrl: baseUrl });
+    const client = createOpencodeClient({ baseUrl, directory: root });
+    const { data: session } = await client.session.create({ title: "Background work" }, { throwOnError: true });
+    await client.session.promptAsync({ sessionID: session.id, agent: "build", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Run the navigation fixture." }] }, { throwOnError: true });
+    await until(async () => requested);
+    expect((await client.session.status({}, { throwOnError: true })).data[session.id]?.type).toBe("busy");
+    const serverUrl = `http://127.0.0.1:${legalwork.server.port}`;
+    for (let i = 0; i < 2; i++) {
+      const activate = await fetch(`${serverUrl}/workspaces/ws_1/activate`, { method: "POST", headers: hostAuth(legalwork.hostToken) });
+      expect(activate.status).toBe(200);
+      const snapshot = await fetch(`${serverUrl}/workspace/ws_1/sessions/${session.id}/snapshot`, { headers: { Authorization: "Bearer owt_test_token" } });
+      expect(snapshot.status).toBe(200);
+      expect((await client.session.status({}, { throwOnError: true })).data[session.id]?.type).toBe("busy");
+    }
+    release();
+    await until(async () => (await client.session.status({}, { throwOnError: true })).data[session.id]?.type !== "busy");
+    const { data: messages } = await client.session.messages({ sessionID: session.id }, { throwOnError: true });
+    expect(messages.some(message => message.info.role === "assistant" && message.info.error)).toBe(false);
+    expect(messages.flatMap(message => message.parts.flatMap(part => part.type === "text" ? [part.text] : [])).join("\n")).toContain("Navigation check completed.");
+  } finally { release(); engine.kill("SIGKILL"); await engine.exited; await logs; provider.stop(true); }
+}, 30000);
 
 describe("workspace lifecycle registry", () => {
   test("creates server config file when adding a local workspace", async () => {

@@ -75,6 +75,7 @@ import { currentLocale, t } from "@/i18n";
 import { MODEL_TIERS, isPremiumEntitled, isPremiumEntitlementKnown, tierForModelId } from "./model-tiers";
 
 import { decodeAudioFileToPcm16k, startCapture, type CaptureHandle, type CaptureLevels } from "./capture";
+import { controlRecorder, type RecorderCommand } from "./assistant-recorder-control";
 import { refreshDictationMicrophones } from "./dictation-microphone";
 import { formatDictationShortcut } from "./dictation-shortcut";
 
@@ -526,6 +527,11 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   const handleEvent = (event: AudioRecorderEvent) => {
     const state = get();
     switch (event.type) {
+      case "recordings-changed": {
+        void get().refreshRecordings();
+        if (state.openedRecording) void get().openRecording(state.openedRecording.meta.id);
+        break;
+      }
       case "model-download-progress": {
         // Patch the one model in place — a full bootstrap round-trip per
         // progress tick would hammer IPC + fs during large downloads.
@@ -1752,6 +1758,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 });
 
 // Expose the reveal helper here so the pane stays free of dunder commands.
+declare global {
+  interface Window { __legalworkRecorder?: (input: RecorderCommand) => Promise<unknown>; }
+}
+if (typeof window !== "undefined") {
+  window.__legalworkRecorder = input => controlRecorder(useRecorderStore.getState, input);
+}
+
 export async function revealRecording(meta: AudioRecordingMeta) {
   await desktopBridge.__revealItemInDir(meta.folderPath);
 }

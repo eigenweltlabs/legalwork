@@ -3,7 +3,7 @@ import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, FileText, Paperclip, Plus, Plug, Square, Terminal, X } from "lucide-react";
+import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Phone, Plug, Plus, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { IconTile } from "@/react-app/design-system/surface";
@@ -58,6 +58,7 @@ type PastedTextChip = {
 };
 
 type ComposerProps = {
+  assistantName?: string;
   active?: boolean;
   draft: string;
   mentions: Record<string, ComposerMentionKind>;
@@ -317,7 +318,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [props.uploading, props.disabled, props.draft, props.attachments, props.onSend, dictation.active]);
 
   const slashCommandQuery = getSlashCommandQuery(props.draft);
-  const slashOpenNext = slashCommandQuery !== null;
+  const slashOpenNext = !props.assistantName && slashCommandQuery !== null;
   const slashQuery = slashCommandQuery ?? "";
   const mentionMatch = props.draft.match(/@([^\s@]*)$/);
   const mentionOpenNext = Boolean(mentionMatch);
@@ -901,7 +902,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             </div>
           ) : null}
 
-          <div className="px-4 pt-4 pb-3 sm:px-5">
+          <div className={props.assistantName ? "flex items-end gap-1.5 p-2" : "px-4 pt-4 pb-3 sm:px-5"} data-assistant-composer={props.assistantName ? "" : undefined}>
             {/* Editor */}
             <LexicalPromptEditor
               ref={editorRef}
@@ -910,7 +911,9 @@ export function ReactSessionComposer(props: ComposerProps) {
               pastedText={pastedTextTokens}
               disabled={Boolean(props.inputDisabled) || dictation.active}
               submitDisabled={props.disabled || dictation.active}
-              placeholder={t("composer.placeholder")}
+              compact={Boolean(props.assistantName)}
+              placeholder={props.assistantName ? t("assistant.message_placeholder", { name: props.assistantName }) : t("composer.placeholder")}
+              ariaLabel={props.assistantName ? t("assistant.message_placeholder", { name: props.assistantName }) : undefined}
               onChange={props.onDraftChange}
               onSubmit={handleEditorSubmit}
               onExpandPastedText={handleExpandPastedText}
@@ -1040,8 +1043,8 @@ export function ReactSessionComposer(props: ComposerProps) {
 
             {/* Action row — attachments, quick actions, model controls, and send */}
             {dictation.active ? <ComposerDictationBar dictation={dictation} sendDisabled={props.disabled || props.inputDisabled || props.uploading || !props.onSendDictation} /> : (
-            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--lw-border-subtle)] pt-2">
-              <div className="contents">
+            <div className={props.assistantName ? "contents" : "mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-[var(--lw-border-subtle)] pt-2"}>
+              <div className={props.assistantName ? "contents" : "flex min-w-0 flex-1 flex-wrap items-center gap-1.5"}>
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;
@@ -1064,7 +1067,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 </DropdownMenu> : <>
                 <button
                   type="button"
-                  className={`lw-composer-control inline-flex h-9 max-h-9 w-9 items-center justify-center text-gray-10 hover:bg-gray-3 ${
+                  className={`lw-composer-control ${props.assistantName ? "order-first shrink-0" : ""} inline-flex h-9 max-h-9 w-9 items-center justify-center text-gray-10 hover:bg-gray-3 ${
                     !props.attachmentsEnabled ? "cursor-not-allowed opacity-60" : ""
                   }`}
                   onClick={() => {
@@ -1077,7 +1080,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <Paperclip size={16} />
                 </button>
-                </>}
+                </>}{!props.assistantName && <>
                 <Popover open={toolMenuOpen} onOpenChange={setToolMenuOpen}>
                   <PopoverTrigger
                     type="button"
@@ -1210,6 +1213,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                     <span>{props.liveTranscriptActive ? t("composer.live_transcript_on") : t("composer.live_transcript_off")}</span>
                   </button>
                 ) : null}
+                </>}
               </div>
 
               {/* Busy-session sends enter the queue; Stop pauses pending messages. */}
@@ -1219,13 +1223,13 @@ export function ReactSessionComposer(props: ComposerProps) {
                   <button
                     type="button"
                     onClick={props.onToggleRealtimeVoice}
-                    className="grid size-9 place-items-center rounded-full bg-gray-12 text-gray-1 shadow-sm transition-transform hover:scale-[1.04] hover:bg-black"
-                    title={props.realtimeVoiceActive ? t("composer.close_voice_mode") : t("composer.start_voice_mode")}
-                    aria-label={props.realtimeVoiceActive ? t("composer.close_voice_mode") : t("composer.start_voice_mode")}
+                    className={props.assistantName ? "grid size-9 shrink-0 place-items-center rounded-full text-gray-11 transition-colors hover:bg-gray-3" : "grid size-9 place-items-center rounded-full bg-gray-12 text-gray-1 shadow-sm transition-transform hover:scale-[1.04] hover:bg-black"}
+                    title={props.realtimeVoiceActive ? t("composer.close_voice_mode") : props.assistantName ? t("assistant.talk_to", { name: props.assistantName }) : t("composer.start_voice_mode")}
+                    aria-label={props.realtimeVoiceActive ? t("composer.close_voice_mode") : props.assistantName ? t("assistant.talk_to", { name: props.assistantName }) : t("composer.start_voice_mode")}
                     aria-pressed={props.realtimeVoiceActive}
                     data-testid="voice-mode-toggle"
                   >
-                    {props.realtimeVoiceActive ? <X size={16} /> : <AudioLines size={17} />}
+                    {props.realtimeVoiceActive ? <X size={16} /> : props.assistantName ? <Phone size={15} className="shrink-0" /> : <AudioLines size={17} />}
                   </button>
                 ) : null}
                 {props.busy ? (
@@ -1238,23 +1242,25 @@ export function ReactSessionComposer(props: ComposerProps) {
                     <button
                       type="button"
                       onClick={props.onStop}
-                      className="mr-2 inline-flex h-9 max-h-9 items-center gap-2 rounded-full border border-dls-border bg-transparent px-4 text-[13px] font-medium text-gray-11 transition-colors hover:bg-gray-3"
+                      className={props.assistantName ? "lw-composer-control flex size-9 items-center justify-center text-gray-11 hover:bg-gray-3" : "mr-2 inline-flex h-9 max-h-9 items-center gap-2 rounded-full border border-dls-border bg-transparent px-4 text-[13px] font-medium text-gray-11 transition-colors hover:bg-gray-3"}
                       title={t("composer.stop")}
+                      aria-label={t("composer.stop")}
                     >
                       <Square size={12} fill="currentColor" />
-                      <span>{t("composer.stop")}</span>
+                      {!props.assistantName && <span>{t("composer.stop")}</span>}
                     </button>
                     <button
                       type="button"
                       onClick={canSend ? props.onSend : undefined}
                       disabled={!canSend || props.disabled}
-                      className={`lw-composer-send inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[13px] font-medium ${
+                      className={`lw-composer-send inline-flex h-9 items-center justify-center gap-2 ${props.assistantName ? "w-9 rounded-full" : "rounded-xl px-4"} text-[13px] font-medium ${
                         canSend ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]" : "bg-gray-4 text-gray-10"
                       }`}
                       title={t("composer.queue_hint")}
+                      aria-label={t("composer.add_to_queue")}
                     >
                       <ArrowUp size={15} />
-                      <span>{t("composer.add_to_queue")}</span>
+                      {!props.assistantName && <span>{t("composer.add_to_queue")}</span>}
                     </button>
                   </>
                 ) : (
@@ -1262,15 +1268,16 @@ export function ReactSessionComposer(props: ComposerProps) {
                     type="button"
                     onClick={canSend ? props.onSend : undefined}
                     disabled={props.disabled || !canSend}
-                    className={`lw-composer-send inline-flex h-9 max-h-9 items-center gap-2 rounded-xl px-4 text-[13px] font-medium ${
+                    className={`lw-composer-send inline-flex h-9 max-h-9 items-center justify-center gap-2 ${props.assistantName ? "w-9 rounded-full" : "rounded-xl px-4"} text-[13px] font-medium ${
                       !canSend || props.disabled
                         ? "bg-gray-4 text-gray-10"
                         : "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
                     }`}
-                    title={t("composer.run_task")}
+                    title={t(props.assistantName ? "assistant.send_message" : "composer.run_task")}
+                    aria-label={t(props.assistantName ? "assistant.send_message" : "composer.run_task")}
                   >
                     <ArrowUp size={15} />
-                    <span>{t("composer.run_task")}</span>
+                    {!props.assistantName && <span>{t("composer.run_task")}</span>}
                   </button>
                 )}
               </div>

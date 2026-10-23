@@ -8,6 +8,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Marked, type Tokens } from "marked";
 import { markedEmoji } from "marked-emoji";
+import { useNavigate } from "react-router-dom";
 import markedShiki from "marked-shiki";
 import emojiKeywords from "emojilib";
 import {
@@ -39,6 +40,7 @@ import {
 } from "./legalmemory-ref";
 import { t } from "@/i18n";
 import { parseTaskLink } from "@/react-app/domains/tasks/task-reference";
+import { parseWorkspaceSessionLink } from "@/react-app/shell/workspace-routes";
 
 function escapeHtml(value: string) {
   return value
@@ -211,13 +213,16 @@ const baseMarkedOptions = {
       const originalHref = escapeAttribute(href);
       const titleAttr = title ? ` title="${escapeAttribute(title)}"` : "";
 
+      const chatRoute = parseWorkspaceSessionLink(href);
+      if (chatRoute) return `<a href="${escapeAttribute(chatRoute)}" data-legalwork-link-href="${originalHref}"${titleAttr} class="text-indigo-10 underline underline-offset-2 transition-colors hover:text-indigo-8">${this.parser.parseInline(tokens)}</a>`;
+
       // LegalMemory reference chip: a sibling of the file-mention chip for
       // legalmemory://document/<id> and legalmemory://matter/<id> links. The
       // click handler turns it into an agent prompt (export into workspace /
       // matter preview) — the app itself holds no appliance credentials.
       if (parseLegalMemoryRef(href)) {
         const memoryIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-indigo-10"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>`;
-        return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-indigo-6/60 bg-indigo-2/40 text-xs font-medium text-foreground align-middle"><a href="#" data-legalwork-legalmemory-ref="${originalHref}"${titleAttr} class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-indigo-3/50">${memoryIcon}${this.parser.parseInline(tokens)}</a></span>`;
+        return `<span data-legalwork-file-badge="" class="inline-flex items-stretch overflow-hidden rounded-md border border-indigo-6/60 bg-indigo-2/40 text-xs font-medium text-foreground align-middle"><a href="#" data-legalwork-legalmemory-ref="${originalHref}"${titleAttr} class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-indigo-3/50">${memoryIcon}${this.parser.parseInline(tokens)}</a></span>`;
       }
 
       // A task chip: the agent links a task it filed or worked on the way it
@@ -228,7 +233,7 @@ const baseMarkedOptions = {
       if (taskLink) {
         const inboxIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
         const openTaskLabel = escapeAttribute(t("message_list.open_task"));
-        return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-blue-6/35 bg-blue-3/20 text-xs font-medium text-blue-11 align-middle"><a href="#" data-legalwork-task-ref="${escapeAttribute(taskLink.taskId)}" title="${openTaskLabel}" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-blue-3/40">${inboxIcon}${this.parser.parseInline(tokens)}</a></span>`;
+        return `<span data-legalwork-file-badge="" class="inline-flex items-stretch overflow-hidden rounded-md border border-blue-6/35 bg-blue-3/20 text-xs font-medium text-blue-11 align-middle"><a href="#" data-legalwork-task-ref="${escapeAttribute(taskLink.taskId)}" title="${openTaskLabel}" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-blue-3/40">${inboxIcon}${this.parser.parseInline(tokens)}</a></span>`;
       }
 
       const isFilePath = !/^(https?|wss?|ftp|mailto|tel|file):/i.test(href);
@@ -240,7 +245,7 @@ const baseMarkedOptions = {
         const openWithLabel = escapeAttribute(t("markdown.open_with"));
         const chevron = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground"><path d="m6 9 6 6 6-6"/></svg>`;
 
-        return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-border/60 bg-muted/40 text-xs font-medium text-foreground align-middle"><a href="${safe}" data-legalwork-link-href="${originalHref}"${titleAttr} target="_blank" rel="noreferrer noopener" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-muted">${fileIcon}${this.parser.parseInline(tokens)}</a><button type="button" data-legalwork-link-chevron="${originalHref}" class="inline-flex items-center border-l border-border/60 px-1 transition-colors hover:bg-muted" aria-label="${openWithLabel}">${chevron}</button></span>`;
+        return `<span data-legalwork-file-badge="" class="inline-flex items-stretch overflow-hidden rounded-md border border-border/60 bg-muted/40 text-xs font-medium text-foreground align-middle"><a href="${safe}" data-legalwork-link-href="${originalHref}"${titleAttr} target="_blank" rel="noreferrer noopener" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-muted">${fileIcon}${this.parser.parseInline(tokens)}</a><button type="button" data-legalwork-link-chevron="${originalHref}" class="inline-flex items-center border-l border-border/60 px-1 transition-colors hover:bg-muted" aria-label="${openWithLabel}">${chevron}</button></span>`;
       }
 
       return `<a href="${safe}" data-legalwork-link-href="${originalHref}"${titleAttr} target="_blank" rel="noreferrer noopener" class="text-indigo-10 underline underline-offset-2 transition-colors hover:text-indigo-8">${this.parser.parseInline(tokens)}</a>`;
@@ -354,6 +359,7 @@ function MarkdownBlockInner({
   const requestOpenTask = useRequestOpenTask();
   const requestViewTab = useRequestPanelTab();
   const viewHost = useViewHost();
+  const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
   const { openTargets, onOpenTarget } = useOpenTargets();
   const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; anchor: HTMLElement } | null>(null);
@@ -483,6 +489,12 @@ function MarkdownBlockInner({
       const link = event.target.closest("a[data-legalwork-link-href]");
       if (link instanceof HTMLAnchorElement) {
         const href = link.dataset.legalworkLinkHref ?? link.getAttribute("href") ?? "";
+        const chatRoute = parseWorkspaceSessionLink(href);
+        if (chatRoute) {
+          event.preventDefault();
+          navigate(chatRoute);
+          return;
+        }
         const target = resolveHrefOpenTarget(href, openTargets);
 
         if (target && onOpenTarget) {
@@ -535,7 +547,7 @@ function MarkdownBlockInner({
       root.removeEventListener("click", handleClick);
       root.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [html, onOpenTarget, openTargets, requestViewTab, viewHost]);
+  }, [html, onOpenTarget, openTargets, requestViewTab, viewHost, navigate]);
 
   if (!html) {
     return null;

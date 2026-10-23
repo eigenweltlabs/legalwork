@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import type { ComponentType } from "react";
 import {
   ArrowRight,
   Bell,
@@ -14,20 +15,21 @@ import {
   TableProperties,
   UserCircle,
   Zap,
-  type LucideIcon,
 } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
+import { AssistantFlowerIcon } from "../../session/sidebar/assistant-appearance";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
   developerMode: boolean;
 };
 
-type SettingsItem = { tab: SettingsTab; icon: LucideIcon; title: string; desc: string };
+type SettingsIcon = ComponentType<{ size?: number; className?: string }>;
+type SettingsItem = { tab: SettingsTab; icon: SettingsIcon; title: string; desc: string };
 
 const workspaceItems = (): SettingsItem[] => [
   { tab: "permissions", icon: FolderLock, title: t("settings.tab_permissions"), desc: `${t("settings.tab_description_permissions")}.` },
@@ -41,7 +43,9 @@ const globalItems = (): SettingsItem[] => [
     title: t("settings.tab_account"),
     desc: t("settings.tab_description_account"),
   },
-  { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: `${t("settings.tab_description_ai")}.` },
+  { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: t("settings.tab_description_ai") },
+  { tab: "assistant", icon: AssistantFlowerIcon, title: t("assistant.title"), desc: t("assistant.settings_description") },
+  { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: TableProperties, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
@@ -49,12 +53,6 @@ const globalItems = (): SettingsItem[] => [
     icon: Sparkles,
     title: t("settings.tab_personalisation"),
     desc: `${t("settings.tab_description_personalisation")}.`,
-  },
-  {
-    tab: "notifications",
-    icon: Bell,
-    title: t("settings.tab_notifications"),
-    desc: `${t("settings.tab_description_notifications")}.`,
   },
   { tab: "safety", icon: ShieldCheck, title: t("settings.tab_safety"), desc: `${t("settings.tab_description_safety")}.` },
   { tab: "shell", icon: Layout, title: t("settings.tab_shell"), desc: `${t("settings.tab_description_shell")}.` },
@@ -82,11 +80,11 @@ function resolveGlobalItems(): SettingsItem[] {
     // omits it because the settings-page tab header uses no trailing period.
     desc: `${t("office_addins.tab_description")}.`,
   };
-  // After Account and AI Providers, mirroring getGlobalSettingsTabs.
-  return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
+  // After Account, AI Providers and Assistant, mirroring getGlobalSettingsTabs.
+  return [...items.slice(0, 3), recorderItem, officeAddinsItem, ...items.slice(3)];
 }
 
-function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
+function SettingsRow(props: { icon: SettingsIcon; title: string; desc: string; onClick: () => void }) {
   return (
     <button
       type="button"

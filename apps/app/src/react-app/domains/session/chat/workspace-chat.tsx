@@ -25,7 +25,8 @@ export function WorkspaceChat(props: SessionSurfaceProps) {
   const interactions = useSessionInteractions({ client, serverClient: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, workspaceRoot: props.workspaceRoot });
   const key = chatModelKey(props.opencodeBaseUrl, props.workspaceId, props.sessionId);
   const stored = useSessionModelStore(state => state.selections[key]);
-  const selection = stored ?? { model: props.selectedModel, variant: props.modelVariant };
+  // Assistant settings are controlled by its identity dialog outside the chat pane.
+  const selection = props.assistantDate || !stored ? { model: props.selectedModel, variant: props.modelVariant } : stored;
   useEffect(() => {
     if (props.selectedModel.providerID && props.selectedModel.modelID) useSessionModelStore.getState().initialize(key, { model: props.selectedModel, variant: props.modelVariant });
   }, [key, props.selectedModel, props.modelVariant]);

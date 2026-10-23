@@ -105,6 +105,14 @@ export interface RecorderLiveTranscriptStatus {
 }
 
 export interface RecorderBridge {
+  library?: {
+    list: () => Promise<AudioRecordingMeta[]>;
+    read: (id: string) => Promise<AudioRecordingDetail | null>;
+    rename: (id: string, title: string) => Promise<void>;
+    link: (id: string, projectId: string, linked: boolean) => Promise<void>;
+    trash: (id: string) => Promise<void>;
+    control: (input: { action: "status" | "start" | "stop"; title?: string; projectId?: string; recordingId?: string; sources?: ("microphone" | "system")[] }) => Promise<unknown>;
+  };
   /** The local profile's retained recordings. Library routes require owner access. */
   listRecordings?: () => Promise<AudioRecordingMeta[]>;
   readRecording?: (id: string) => Promise<AudioRecordingDetail | null>;
