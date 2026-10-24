@@ -394,6 +394,7 @@ let dictationCancelled = false;
 let dictationShortPress = false;
 let dictationHoldStopPending = false;
 let dictationCancelPending = false;
+let dictationStartController: AbortController | null = null;
 let meetingStartPending = false;
 let recordingStartPending = false;
 // When the last dictation settled (stopped or canceled). A brand-new dictation
@@ -672,7 +673,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         void (async () => {
           try {
             await get().init();
-            if (dictationCancelled || pressEpoch !== suspendEpoch) {
+            if (dictationCancelled || dictationHoldReleased || pressEpoch !== suspendEpoch) {
               await cancelledDictationFeedback().catch(() => {});
               return;
             }
@@ -686,12 +687,20 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
       case "system-dictation-release": {
         dictationHoldReleased = true;
-        // A genuine hold release (or hands-free finish) can arrive while
-        // capture opens. Finish once startup completes instead of losing it.
+        // There is no usable capture to finish yet. Repeated taps must not
+        // queue an empty transcription behind a slow microphone request.
+        if (state.dictationState === "starting") {
+          void get().cancelRecording();
+          break;
+        }
         if (!dictationHoldStartPending && !dictationTogglePending && !state.finalizing) void finishReleasedDictation();
         break;
       }
       case "system-dictation-stop": {
+        if (state.dictationState === "starting") {
+          void get().cancelRecording();
+          break;
+        }
         // The explicit finish button always inserts, including a short phrase.
         if (state.dictationRecordingId && !state.finalizing && !dictationHoldStopPending) {
           dictationHoldStopPending = true;
@@ -1249,6 +1258,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     startRecording: async (title, options) => {
       if (recordingStartPending || get().starting || get().importing || get().finalizing) return;
       recordingStartPending = true;
+      const startController = options?.systemDictation ? new AbortController() : null;
+      dictationStartController = startController;
       set({ starting: true });
       try {
         const { language, recording, bootstrap } = get();
@@ -1296,6 +1307,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         try {
           if (!isTranscriptionReady(get())) throw new Error(t("recorder.transcription_not_ready"));
           const status = await audioTranscriberStart({ modelId, language });
+          startController?.signal.throwIfAborted();
           if (status.state === "error") throw new Error(status.error ?? t("recorder.transcriber_start_failed"));
 
           const meta = await audioRecordingStart({
@@ -1309,6 +1321,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             diarize,
           });
           startedMetaId = meta.id;
+          startController?.signal.throwIfAborted();
           const audio = window.__LEGALWORK_ELECTRON__?.audio;
           captureHandle = await startCapture(
             sources,
@@ -1326,7 +1339,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
                 if (get().recording?.id === meta.id) void get().stopRecording();
               },
             },
-            { dictation: options?.systemDictation === true },
+            { dictation: options?.systemDictation === true, signal: startController?.signal },
           );
           if (get().transcriptionSource === "cloud" && get().error) throw new Error(get().error ?? t("recorder.transcription_not_ready"));
           // Suspended or canceled while we were starting: abandon
@@ -1375,7 +1388,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           // Permission-shaped runtime failures (status looked fine but the OS
           // still refused) get the guided panel, not a raw error banner.
           const permissionKinds = permissionKindsFromCaptureError(message, sources);
-          const cancelled = options?.systemDictation && dictationCancelled;
+          const cancelled = options?.systemDictation && (dictationCancelled || suspendEpoch !== startEpoch);
           set({
             recording: null,
             recordingStartedAt: null,
@@ -1391,6 +1404,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           }
         }
       } finally {
+        dictationStartController = null;
         recordingStartPending = false;
         set({ starting: false });
       }
@@ -1521,6 +1535,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (get().dictationState === "inserting") return;
       if (isSystemDictation || get().dictationState === "starting") {
         dictationCancelled = true;
+        dictationStartController?.abort();
         if (get().finalizing || get().dictationState === "starting") {
           await setDictationFeedback(get().dictationState, t("recorder.dictation_cancelling")).catch(() => {});
           return;

@@ -155,6 +155,34 @@ app.whenReady().then(async () => {
         await Promise.all([extra.stop(), extra.stop()]);
         shortPcmFrames.push(frames);
       }
+      // The OS can deliver a microphone after a quick third tap canceled
+      // startup. Release the UI immediately and dispose that late stream.
+      const pendingContext = contexts.length;
+      const controller = new AbortController();
+      const openMicrophone = navigator.mediaDevices.getUserMedia;
+      let releaseMicrophone;
+      const microphoneGate = new Promise(resolve => { releaseMicrophone = resolve; });
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        await microphoneGate;
+        return openMicrophone(constraints);
+      };
+      const canceledStart = startCapture(['microphone'], {
+        onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {},
+      }, { dictation: true, signal: controller.signal });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      controller.abort();
+      const cancellation = await Promise.race([
+        canceledStart.then(handle => { void handle.stop(); return 'started'; }, error => error.name),
+        new Promise(resolve => setTimeout(() => resolve('pending'), 200)),
+      ]);
+      const canceledContextClosed = contexts[pendingContext].state === 'closed';
+      releaseMicrophone();
+      const lateStreamDeadline = performance.now() + 2000;
+      while ((streams.length < 4 || streams.at(-1).getTracks().some(track => track.readyState !== 'ended')) && performance.now() < lateStreamDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      const lateStreamReleased = streams.length === 4 && streams.at(-1).getTracks().every(track => track.readyState === 'ended');
+      navigator.mediaDevices.getUserMedia = openMicrophone;
       window.testMicrophones.selection = 'missing';
       let missingError;
       try {
@@ -190,6 +218,7 @@ app.whenReady().then(async () => {
         requestedInputs, microphoneNames, missingError, flushError,
         meetingFrames, meetingMeterPackets, meetingSink: { type: meetingSink.type },
         pcmDuringMicrophoneLookup, shortPcmFrames,
+        cancellation, canceledContextClosed, lateStreamReleased,
         closed: contexts.every(context => context.state === 'closed'),
         released: streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended')),
         pcmFrames: samples.length,
@@ -207,7 +236,10 @@ app.whenReady().then(async () => {
     assert.ok(result.dashboardLevels[3] > result.dashboardLevels[2] && result.dashboardLevels[4] > result.dashboardLevels[3], "the dashboard level increases with input strength");
     assert.ok(result.dashboardLevels.every(level => level >= 0 && level <= 1), "display levels stay normalized");
     assert.ok(result.preferredInput, "the preferred input is available before capture opens a microphone");
-    assert.deepEqual(result.requestedInputs, [result.preferredInput, null, result.preferredInput, null, result.preferredInput], "Automatic and explicit selections target a device; meetings follow the system default");
+    assert.deepEqual(result.requestedInputs, [result.preferredInput, null, result.preferredInput, result.preferredInput, null, result.preferredInput], "Automatic and explicit selections target a device; meetings follow the system default");
+    assert.equal(result.cancellation, "AbortError", "canceling startup does not wait for the OS microphone request");
+    assert.equal(result.canceledContextClosed, true, "canceled startup closes its audio context immediately");
+    assert.equal(result.lateStreamReleased, true, "a microphone delivered after cancellation is released");
     assert.deepEqual(result.meetingSink, { type: "none" }, "meeting capture also avoids opening playback");
     assert.ok(result.meetingFrames > 0 && result.meetingMeterPackets > 0, "retained capture delivers transcription audio and the live microphone meter");
     assert.equal(result.missingError, "recorder.dictation_mic_missing", "a missing explicit input never opens another microphone");
@@ -221,7 +253,7 @@ app.whenReady().then(async () => {
     assert.ok(result.duration > 1 && result.recordingEnergy > 0, "the final WebM chunk flushes and decodes");
     assert.equal(result.closed, true, "capture closes its audio context");
     assert.equal(result.released, true, "capture releases every microphone track");
-    console.log("PASS: dashboard levels show quiet input; capture preserves final PCM samples, flushes WebM, and releases input without opening playback");
+    console.log("PASS: capture cancels pending startup and releases late input; dashboard levels, final PCM, WebM, and silent playback remain correct");
   } finally {
     window?.destroy();
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

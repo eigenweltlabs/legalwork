@@ -245,8 +245,9 @@ async function requestSystemStream(): Promise<MediaStream> {
 export async function startCapture(
   sources: AudioCaptureSourceKind[],
   callbacks: CaptureCallbacks,
-  options: { dictation?: boolean } = {},
+  options: { dictation?: boolean; signal?: AbortSignal } = {},
 ): Promise<CaptureHandle> {
+  options.signal?.throwIfAborted();
   // Recording processes input without opening the playback device. A silent
   // sink still clocks the worklet, and avoids disturbing Bluetooth playback.
   // Chromium supports sinkId; our DOM typings do not include it yet.
@@ -301,13 +302,30 @@ export async function startCapture(
     const hasOtherSources = sources.includes("system");
     const openMicrophone = async () => {
       if (sources.includes("microphone")) {
-        streams.set("microphone", await requestMicStream(hasOtherSources, options.dictation === true));
+        const stream = await requestMicStream(hasOtherSources, options.dictation === true);
+        // getUserMedia cannot be aborted. Cancellation may have already
+        // closed this graph while the OS was still opening the device.
+        if (stopped) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        streams.set("microphone", stream);
       }
     };
     if (options.dictation) {
-      // Open input while the worklet loads. Wait for both to settle so a
-      // failure cannot leave a late-arriving microphone stream running.
-      const results = await Promise.allSettled([loadWorklet(), openMicrophone()]);
+      // Cancel startup without waiting for an OS microphone request. A late
+      // stream is released above, and both preparation failures are observed.
+      const preparation = Promise.allSettled([loadWorklet(), openMicrophone()]);
+      const signal = options.signal;
+      const results = signal ? await new Promise<Awaited<typeof preparation>>((resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+        void preparation.then(results => {
+          signal.removeEventListener("abort", abort);
+          resolve(results);
+        });
+      }) : await preparation;
       for (const result of results) {
         if (result.status === "rejected") throw result.reason;
       }
@@ -402,6 +420,7 @@ export async function startCapture(
       transcribeAudio(bus);
     }
     await context.resume();
+    options.signal?.throwIfAborted();
 
     const onMicrophone = callbacks.onMicrophone;
     if (options.dictation && onMicrophone) {

@@ -35,7 +35,7 @@ let captureSources: AudioCaptureSourceKind[] = [];
 let meetingOpens = 0;
 let meetingStatus: AudioMeetingStatus = { detectionEnabled: true, detectionSupported: true, detected: null, state: "idle", recordingId: null, startedAt: null, error: null };
 let captureCallbacks: CaptureCallbacks | null = null;
-let captureOptions: { dictation?: boolean } | undefined;
+let captureOptions: { dictation?: boolean; signal?: AbortSignal } | undefined;
 let cancelled = 0;
 let deleted = 0;
 let liveShareStarts: string[] = [];
@@ -57,7 +57,7 @@ Object.defineProperty(globalThis, "window", { configurable: true, value: {
   } },
 } });
 mock.module("../src/react-app/domains/recorder/capture", () => ({
-  startCapture: (sources: AudioCaptureSourceKind[], callbacks: CaptureCallbacks, options?: { dictation?: boolean }) => {
+  startCapture: (sources: AudioCaptureSourceKind[], callbacks: CaptureCallbacks, options?: { dictation?: boolean; signal?: AbortSignal }) => {
     captureStarts += 1;
     captureSources = sources;
     captureCallbacks = callbacks; captureOptions = options; return captureResult;
@@ -453,13 +453,13 @@ test("cancel during transcription waits for the flush and suppresses insertion",
   expect(store.getState().error).toBeNull(); expect(store.getState().finalizing).toBe(false);
 });
 
-test("a hold release during startup finishes once capture is ready", async () => {
+test("a hold release during startup cancels instead of finalizing an unopened microphone", async () => {
   const pending = deferred<CaptureHandle>(); captureResult = pending.promise;
   handleEvent({ type: "system-dictation-press" }); await delay(10);
   handleEvent({ type: "system-dictation-release" }); await delay(10);
   pending.resolve(capture); await delay(20);
-  expect(pasted).toEqual(["A dictated sentence."]); expect(feedback.at(-1)).toBe("success");
-  expect(captureStops).toBe(1); expect(cancelled).toBe(0);
+  expect(pasted).toEqual([]); expect(feedback.at(-1)).toBe("cancelled");
+  expect(captureStops).toBe(1); expect(cancelled).toBe(1);
   expect(store.getState().recording).toBeNull();
 });
 
@@ -473,6 +473,22 @@ test("double-tap keeps startup running and one press finishes hands-free capture
   expect(captureStarts).toBe(1); expect(captureStops).toBe(0);
   handleEvent({ type: "system-dictation-release" }); await delay(20);
   expect(pasted).toEqual(["A dictated sentence."]); expect(captureStops).toBe(1);
+});
+
+test("a third tap before capture is ready cancels instead of transcribing an unopened microphone", async () => {
+  const pending = deferred<CaptureHandle>(); captureResult = pending.promise;
+  handleEvent({ type: "system-dictation-press" }); await delay(10);
+  handleEvent({ type: "system-dictation-status", status: { ...status, mode: "tap" } });
+  handleEvent({ type: "system-dictation-release" });
+  handleEvent({ type: "system-dictation-release" });
+  expect(captureOptions?.signal?.aborted).toBe(true);
+  pending.resolve(capture); await delay(20);
+  expect(store.getState().dictationState).toBe("idle");
+  expect(store.getState().error).toBeNull();
+  expect(feedback).not.toContain("transcribing");
+  expect(pasted).toEqual([]);
+  expect(cancelled).toBe(1);
+  expect(captureStops).toBe(1);
 });
 
 test("an isolated quick tap cancels capture startup without inserting", async () => {
@@ -518,12 +534,19 @@ test("blank decoded text is also a quiet no-op", async () => {
   expect(store.getState().error).toBeNull();
 });
 
-test("one press can finish hands-free dictation while the microphone opens", async () => {
+test("one press cancels hands-free startup and a later dictation can finish normally", async () => {
   const pending = deferred<CaptureHandle>(); captureResult = pending.promise;
   handleEvent({ type: "system-dictation-toggle" }); await delay(10);
   handleEvent({ type: "system-dictation-release" });
   pending.resolve(capture); await delay(20);
-  expect(pasted).toEqual(["A dictated sentence."]); expect(captureStops).toBe(1);
+  expect(pasted).toEqual([]); expect(captureStops).toBe(1);
+  expect(feedback.at(-1)).toBe("cancelled");
+  await delay(210);
+  captureResult = Promise.resolve(capture);
+  handleEvent({ type: "system-dictation-press" }); await delay(20);
+  handleEvent({ type: "system-dictation-release" }); await delay(20);
+  expect(pasted).toEqual(["A dictated sentence."]);
+  expect(feedback.at(-1)).toBe("success");
 });
 
 test("paste failure shows the recovery message and clears the dictation", async () => {

@@ -121,3 +121,31 @@ test("single microphone retains the dictation protocol and one recording file", 
   await capture.stop();
   expect(sources).toEqual([undefined]);
 });
+
+test("canceling a pending microphone request releases startup and stops a late stream", async () => {
+  let resolveMicrophone: (stream: Stream) => void = () => {};
+  const microphone = new Promise<Stream>(resolve => { resolveMicrophone = resolve; });
+  Object.assign(navigator.mediaDevices, { getUserMedia: () => microphone });
+  const controller = new AbortController();
+  const stream = new Stream("late microphone");
+  const start = startCapture(["microphone"], {
+    onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {},
+  }, { dictation: true, signal: controller.signal });
+  const outcome = start.then(() => "started", error => error.name);
+  let next: Awaited<ReturnType<typeof startCapture>> | null = null;
+  try {
+    controller.abort();
+    expect(await Promise.race([outcome, new Promise(resolve => setTimeout(() => resolve("pending"), 30))])).toBe("AbortError");
+    expect(contexts[0].state).toBe("closed");
+    Object.assign(navigator.mediaDevices, { getUserMedia: async () => new Stream("next microphone") });
+    next = await startCapture(["microphone"], { onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {} });
+  } finally {
+    resolveMicrophone(stream);
+    const handle = await start.catch(() => null);
+    await handle?.stop();
+  }
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(stream.track.readyState).toBe("ended");
+  expect(contexts[1].state).toBe("running");
+  await next?.stop();
+});
