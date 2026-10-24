@@ -65,6 +65,7 @@ export type ConnectorOAuthClientInput = z.input<typeof connectorOAuthClientInput
 
 export const connectorOAuthClientSchema = z.object({
   configured: z.boolean(),
+  builtIn: z.boolean().default(false),
   clientId: z.string(),
   tenantId: z.string(),
   hasClientSecret: z.boolean(),

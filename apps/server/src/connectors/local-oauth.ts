@@ -8,11 +8,12 @@ import { OAuthVault, oauthVaultPath, vaultLock } from "../file-storage/oauth/vau
 import { connectionProvider } from "./definition.js";
 import { clearConnectorActivation, connectorOAuthWriteIds } from "./settings.js";
 import { connectorDefinition } from "./definition.js";
-import { connectorOAuthProvider } from "./oauth-providers.js";
+import { connectorOAuthProvider, defaultConnectorOAuthClient } from "./oauth-providers.js";
 import { requireConnectorConnectSlot } from "./single-connection.js";
 
 const stateSchema = z.object({
   client: connectorOAuthClientInputSchema,
+  builtIn: z.boolean().optional(),
   revision: z.string(),
   connections: z.array(connectorConnectionSchema.extend({ readOnly: z.boolean(), authorizedWrites: z.array(z.string()).optional(), authorizedSends: z.boolean().optional(), grantKey: z.string().optional() })),
 });
@@ -53,10 +54,11 @@ async function cancelPending(config: ServerConfig, id: string) {
 
 export async function localOAuthClient(config: ServerConfig, id: string) {
   const saved = await state(config, id);
-  const client = saved?.client ?? { clientId: "", tenantId: "" };
+  const defaultClient = defaultConnectorOAuthClient(id);
+  const client = saved?.client ?? defaultClient ?? { clientId: "", tenantId: "" };
   const writeIds = await connectorOAuthWriteIds(config, id);
   const provider = connectorOAuthProvider(id, client, writeIds);
-  return connectorOAuthClientSchema.parse({ configured: Boolean(saved), clientId: client.clientId, tenantId: client.tenantId,
+  return connectorOAuthClientSchema.parse({ configured: Boolean(saved || defaultClient), builtIn: saved ? saved.builtIn === true : Boolean(defaultClient), clientId: client.clientId, tenantId: client.tenantId,
     hasClientSecret: Boolean(client.clientSecret), supportsClientSecret: provider.supportsClientSecret,
     family: provider.family, redirectUri: provider.redirectUri, scopes: provider.application.scopes(writeIds.length === 0) });
 }
@@ -158,8 +160,14 @@ export function createLocalOAuthFlows(config: ServerConfig) {
       await session(config).vault.ready();
       for (const [key, flow] of flows) if (Date.now() >= flow.expiresAt) await cancel(key);
       if (flows.size >= 20) throw new ApiError(429, "connector_too_many_flows", "Finish or cancel an existing connection before starting another.");
-      const saved = await state(config, id);
-      if (!saved) throw new ApiError(409, "connector_oauth_client_required", "Enter and save your OAuth app details before connecting.");
+      const saved = await mutate(config, id, async (current, vault) => {
+        if (current) return current;
+        const client = defaultConnectorOAuthClient(id);
+        if (!client) throw new ApiError(409, "connector_oauth_client_required", "Enter and save your OAuth app details before connecting.");
+        const initial = stateSchema.parse({ client, builtIn: true, revision: randomUUID(), connections: [] });
+        await vault.setEntry(stateKey(id), stateSchema, initial);
+        return initial;
+      });
       requireConnectorConnectSlot(saved.connections, connectionId, "custom");
       if (connectionId && !saved.connections.some((item) => item.id === connectionId)) throw new ApiError(404, "connector_connection_not_found", "Connection not found.");
       const handle = connectionId ?? randomUUID();
@@ -183,7 +191,12 @@ export function createLocalOAuthFlows(config: ServerConfig) {
       if (!flow) throw new ApiError(404, "connector_flow_not_found", "Connection flow not found. Start again.");
       if (Date.now() >= flow.expiresAt) { await cancel(flowId); return { status: "expired", connection: null }; }
       const oauth = await session(config).status(flow.key);
-      if (oauth.error) throw new ApiError(409, "connector_oauth_failed", "Sign-in did not complete. Check your OAuth app details and try again.");
+      if (oauth.error) {
+        const saved = await state(config, flow.id);
+        throw new ApiError(409, "connector_oauth_failed", saved?.builtIn
+          ? "Microsoft sign-in did not complete. Try again, or ask your Microsoft administrator whether approval is required."
+          : "Sign-in did not complete. Check your OAuth app details and try again.");
+      }
       if (!oauth.connected || oauth.pending) return { status: "pending", connection: null };
       const activated = await mutate(config, flow.id, async (current, vault) => {
         if (flows.get(flowId) !== flow || !current || current.revision !== flow.revision || (flow.reconnect && !current.connections.some((item) => item.id === flow.connectionId))) {
