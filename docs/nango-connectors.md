@@ -1,6 +1,8 @@
 # Nango authentication and direct connectors
 
-LegalWork offers Eigenwelt-managed sign-in through Nango, or direct authorization using the user's own OAuth app. Email, calendar and file requests run in the LegalWork server and go directly to Google or Microsoft. With managed sign-in, the Eigenwelt platform is a narrow credential broker: it never accepts email bodies, events, documents, attachments, arbitrary provider requests, Nango proxy calls, syncs or actions. Dropbox uses LegalWork's existing integration; it is not duplicated in this connector registry.
+Microsoft connectors default to [direct sign-in using LegalWork's public desktop app](microsoft-oauth.md). Outlook Email/Calendar, OneDrive and SharePoint need no client ID entry, client secret or Eigenwelt sign-in. Saved own-app configurations and existing managed connections remain usable; reconnecting an existing connection retains its original method. The Nango setup below applies to managed connections, not the default Microsoft path.
+
+LegalWork also offers Eigenwelt-managed sign-in through Nango, or direct authorization using the user's own OAuth app. Email, calendar and file requests run in the LegalWork server and go directly to Google or Microsoft. With managed sign-in, the Eigenwelt platform is a narrow credential broker: it never accepts email bodies, events, documents, attachments, arbitrary provider requests, Nango proxy calls, syncs or actions. Dropbox uses LegalWork's existing integration; it is not duplicated in this connector registry.
 
 ```mermaid
 sequenceDiagram

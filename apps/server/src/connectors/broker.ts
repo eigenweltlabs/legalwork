@@ -15,6 +15,7 @@ import { connectorDefinition, connectionProvider } from "./definition.js";
 import { createLocalOAuthFlows, disconnectLocalOAuth, localOAuthAccessToken, localOAuthClient, localOAuthConnections } from "./local-oauth.js";
 import { requireConnectorConnectSlot, reserveConnectorConnectSlot, withConnectorConnectLock } from "./single-connection.js";
 import { clearConnectorActivation, connectorIsActivated, recordConnectorActivation, requireConnectorActivated } from "./settings.js";
+import { defaultConnectorOAuthClient } from "./oauth-providers.js";
 export { connectorDefinition } from "./definition.js";
 
 const statusSchema = z.object({ connection: connectorConnectionSchema });
@@ -166,6 +167,10 @@ export async function savedConnectorStatus(config: ServerConfig, connectorId?: s
 
 export async function connectorStatus(config: ServerConfig, connectorId?: string, forceRefresh = false) {
   const definitions = connectorId ? [connectorDefinition(connectorId)] : connectorDefinitions;
+  if (definitions.every(({ id }) => defaultConnectorOAuthClient(id))) {
+    const saved = await savedConnectorStatus(config, connectorId);
+    if (saved.connectors.every(({ connections }) => connections.every(({ source }) => source === "custom"))) return saved;
+  }
   const connection = await readEigenweltConnection(config);
   if ((!connection.platformToken && !connection.refreshToken) || !connection.account) {
     const connectors = await Promise.all(definitions.map(async ({ id, name }) => {
@@ -225,7 +230,7 @@ export async function disconnectConnector(config: ServerConfig, id: string, conn
   connectorDefinition(id);
   if (await disconnectLocalOAuth(config, id, connectionId)) {
     await clearConnectorActivation(config, id, connectionId);
-    return connectorStatus(config);
+    return savedConnectorStatus(config);
   }
   const { owner } = await brokerIdentity(config);
   const provider = connectionProvider(id);
@@ -294,15 +299,18 @@ export function createConnectorFlows(config: ServerConfig, authorize = createNan
     },
   };
   return {
-    async start(id: string, connectionId?: string, method: "nango" | "custom" = "nango") {
+    async start(id: string, connectionId?: string, method?: "nango" | "custom") {
       return withConnectorConnectLock(config, id, async () => {
         await connectorVault(config).ready();
-        requireConnectorConnectSlot(await savedConnectorConnections(config, id), connectionId, method);
+        const connections = await savedConnectorConnections(config, id);
+        const existing = connections.find((connection) => connection.id === connectionId);
+        const selectedMethod = method ?? (existing ? existing.source ?? "nango" : defaultConnectorOAuthClient(id) ? "custom" : "nango");
+        requireConnectorConnectSlot(connections, connectionId, selectedMethod);
         const reservation = reserveConnectorConnectSlot(config, id);
         try {
-          const result = await implementation.start(id, connectionId, method);
+          const result = await implementation.start(id, connectionId, selectedMethod);
           reservation.expiresAt(result.expiresAt);
-          admissions.set(result.flowId, { id, method, connectionId, expiresAt: result.expiresAt, release: reservation.release });
+          admissions.set(result.flowId, { id, method: selectedMethod, connectionId, expiresAt: result.expiresAt, release: reservation.release });
           return result;
         } catch (error) { reservation.release(); throw error; }
       });

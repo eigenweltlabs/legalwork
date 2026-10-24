@@ -5,6 +5,16 @@ import { connectionProvider } from "./definition.js";
 
 export const connectorOAuthPort = 53683;
 
+// Public desktop application ID. Microsoft native clients use PKCE, not a secret.
+export const legalworkMicrosoftClientId = "d3a9a5d6-889f-4ee2-a0f0-781ddf14d0b7";
+
+export function defaultConnectorOAuthClient(id: string): ConnectorOAuthClientInput | undefined {
+  const provider = connectionProvider(id);
+  if (!["outlook", "onedrive", "onedrive-personal", "sharepoint-files"].includes(provider)) return;
+  return { clientId: legalworkMicrosoftClientId,
+    tenantId: provider === "onedrive-personal" ? "consumers" : provider === "outlook" ? "common" : "organizations" };
+}
+
 export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientInput, writeIds: string[]) {
   const provider = connectionProvider(id);
   const readOnly = !writeIds.includes(provider);

@@ -227,7 +227,7 @@ test("Nango consent and reconnect activate only the selected Outlook connector i
     const sibling = id === "outlook" ? "outlook-calendar" : "outlook";
     await writeConnectorConnections(config, localOwner, "outlook", []);
     const flows = createConnectorFlows(config, async () => ({ connectUrl: "https://auth.test/consent", connectionId: () => connection.id, cancel: () => {} }));
-    const flow = await flows.start(id);
+    const flow = await flows.start(id, undefined, "nango");
     stops.push(async () => { await flows.cancel(flow.flowId); });
     const result = await flows.status(flow.flowId);
     if (!result.connection) throw new Error("Expected Outlook account");
