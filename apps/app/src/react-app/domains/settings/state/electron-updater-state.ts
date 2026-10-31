@@ -104,31 +104,36 @@ export async function applyFirmReleaseChannel(channel: ReleaseChannel): Promise<
   if ((await bridge.getChannel()).channel !== channel) await bridge.setChannel(channel);
 }
 
-let backgroundUpdateCheckStarted = false;
+export const BACKGROUND_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1_000;
+let backgroundUpdateCheckPending = false;
+let lastBackgroundCheckAt = 0;
 
 /**
- * One-shot, silent startup check driven by the sidebar update badge, so an
+ * Silent startup and periodic checks driven by the sidebar update badge, so an
  * available update is surfaced without ever visiting the settings page.
  * Uses the channel persisted in the Electron main process, never
  * auto-downloads, and resets the status on failure instead of surfacing
  * errors (the settings page runs its own, louder checks).
  */
 export async function checkForUpdatesInBackground(): Promise<void> {
-  if (backgroundUpdateCheckStarted) return;
-  backgroundUpdateCheckStarted = true;
-  if (!isElectronRuntime() || !(await readAutoCheckEnabled())) return;
-  const bridge = electronUpdaterBridge();
-  if (!bridge?.check) return;
-  const store = useUpdateStatusStore.getState();
-  // The settings updater state is already mounted and checking (or has
-  // checked); don't race it.
-  if (store.status != null) return;
-  store.setStatus({ state: "checking" });
+  if (backgroundUpdateCheckPending || !isElectronRuntime()) return;
+  backgroundUpdateCheckPending = true;
+  let previous: SettingsUpdateStatus = null;
   try {
+    if (!(await readAutoCheckEnabled())) return;
+    const bridge = electronUpdaterBridge();
+    if (!bridge?.check) return;
+    const store = useUpdateStatusStore.getState();
+    previous = store.status;
+    if (previous?.state === "checking" || previous?.state === "downloading" || previous?.state === "ready") return;
+    const lastCheck = Math.max(lastBackgroundCheckAt, previous?.lastCheckedAt ?? 0);
+    if (Date.now() - lastCheck < BACKGROUND_UPDATE_CHECK_INTERVAL_MS) return;
+    lastBackgroundCheckAt = Date.now();
+    store.setStatus({ state: "checking" });
     const channel = bridge.getChannel ? (await bridge.getChannel()).channel : undefined;
     const result = await bridge.check(channel);
     if (result.reason) {
-      store.setStatus(null);
+      store.setStatus(previous);
       return;
     }
     const checkedChannel = result.channel ?? channel ?? "stable";
@@ -145,7 +150,9 @@ export async function checkForUpdatesInBackground(): Promise<void> {
       notes: releaseNotesToText(result.releaseNotes),
     });
   } catch {
-    store.setStatus((current) => (current?.state === "checking" ? null : current));
+    useUpdateStatusStore.getState().setStatus((current) => (current?.state === "checking" ? previous : current));
+  } finally {
+    backgroundUpdateCheckPending = false;
   }
 }
 

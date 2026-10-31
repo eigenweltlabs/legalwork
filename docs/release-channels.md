@@ -15,6 +15,25 @@ them as prereleases. GitHub's Latest badge, API order, and publication date do
 not decide version precedence. A selected feed is pinned to that release for
 both the update check and download. Channel changes never permit downgrades.
 
+After selecting the release from GitHub metadata, the app checks
+`https://eigenweltlabs.com/legalwork/update/releases/<tag>/<manifest>`.
+The website redirects to that exact GitHub release; it never substitutes
+Latest. If the website fails or returns a manifest for another version, the
+app retries the same selected release directly on GitHub. The answering feed
+remains applied for downloads. Deploy the website route before releasing this
+client; older websites safely trigger the direct GitHub fallback.
+
+For gradual updates, electron-updater creates a random installation ID on the
+first update check, stores it locally as `.updaterId`, and reuses it to keep an
+installation in a consistent rollout group. Update-check requests include this
+ID as `x-user-staging-id`, along with the current app version and selected
+channel. The updater uses the manifest's staging percentage to decide whether
+an installation is eligible for that release.
+
+Automatic checks run at startup and at most hourly while the main app is visible,
+including a due check after focus/resume. They honor automatic-update settings
+and firm policy, and leave downloading or ready-to-install updates alone.
+
 For example, Pre-release users receive v4.0.0 when v3.0.0 remains marked
 Pre-release and v4.0.0 is a regular release. Publishing v5.0.0 as Pre-release
 offers it to Pre-release and Alpha users. Removing the flag later offers the

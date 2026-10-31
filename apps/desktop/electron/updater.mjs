@@ -112,6 +112,11 @@ export function isVersionNewer(candidate, current) {
   return comparison !== null && comparison > 0;
 }
 
+export function isEligibleUpdate(result, currentVersion) {
+  const version = result?.updateInfo?.version;
+  return Boolean(result?.isUpdateAvailable && version && isVersionNewer(version, currentVersion));
+}
+
 function updaterChannelState(app, channel) {
   const normalized = normalizeElectronUpdaterChannel(channel);
   return {
@@ -133,10 +138,15 @@ async function applyElectronUpdaterFeed(app, updater) {
   return state;
 }
 
-// Resolve labels and versions first, then pin both the manifest and installer
-// to that release. The website's Latest redirect remains an outage fallback.
+// Resolve channel eligibility first, then check the website's exact-release
+// redirect. Outages and stale manifests retry the SAME release on GitHub.
 export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFeed = resolveReleaseFeed } = {}) {
   const channelState = await applyElectronUpdaterFeed(app, updater);
+  updater.requestHeaders = {
+    ...updater.requestHeaders,
+    "x-legalwork-update-channel": channelState.channel,
+    "x-legalwork-version": resolveAppVersion(app),
+  };
   let selected;
   try {
     selected = await resolveFeed(channelState.channel);
@@ -148,18 +158,24 @@ export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFee
   // GitHub metadata already determined channel eligibility, including a
   // manually promoted release whose version still has a prerelease suffix.
   updater.allowPrerelease = true;
-  updater.setFeedURL(electronUpdaterFeedConfig(selected.feedUrl));
-  try {
-    const result = await updater.checkForUpdates();
-    if (compareVersions(result?.updateInfo?.version, selected.version) !== 0) {
-      throw new Error("The release manifest does not match the selected version.");
+  const websiteFeed = `https://eigenweltlabs.com/legalwork/update/releases/${encodeURIComponent(selected.tag)}`;
+  for (const feedUrl of [websiteFeed, selected.feedUrl]) {
+    updater.setFeedURL(electronUpdaterFeedConfig(feedUrl));
+    try {
+      const result = await updater.checkForUpdates();
+      if (compareVersions(result?.updateInfo?.version, selected.version) !== 0) {
+        throw new Error("The release manifest does not match the selected version.");
+      }
+      return { channelState: { ...channelState, feedUrl, feedFallback: feedUrl !== websiteFeed }, result };
+    } catch (error) {
+      if (feedUrl === websiteFeed) {
+        console.warn("[updater] website feed unavailable, retrying selected release on GitHub", error?.message ?? error);
+        continue;
+      }
+      // Never replace an authoritative selection with another version/channel.
+      if (error && typeof error === "object") error.githubFallbackAttempted = true;
+      throw error;
     }
-    return { channelState: { ...channelState, feedUrl: selected.feedUrl, feedFallback: false }, result };
-  } catch (error) {
-    // An authoritative selection must not be replaced by a different version
-    // merely because its manifest is broken or unavailable.
-    if (error && typeof error === "object") error.githubFallbackAttempted = true;
-    throw error;
   }
 }
 
@@ -420,9 +436,10 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       const channelState = updaterChannelState(app, await readElectronUpdaterChannel(app));
       return { available: false, reason: "unavailable", ...channelState };
     }
-    const shapeCheckResult = (info, channelState) => {
+    const shapeCheckResult = (result, channelState) => {
+      const info = result?.updateInfo;
       const currentVersion = resolveAppVersion(app);
-      const available = Boolean(info?.version && isVersionNewer(info.version, currentVersion));
+      const available = isEligibleUpdate(result, currentVersion);
       checkedUpdateVersion = available ? info.version : null;
       return {
         available,
@@ -435,7 +452,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     };
     try {
       const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater);
-      return shapeCheckResult(result?.updateInfo ?? null, channelState);
+      return shapeCheckResult(result, channelState);
     } catch (error) {
       /* Last-ditch recovery, deliberately dumb: if anything above threw before
          GitHub could be tried — e.g. a bug in our own feed/channel plumbing —
@@ -451,7 +468,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         try {
           updater.setFeedURL(electronUpdaterFeedConfig(ELECTRON_UPDATER_FALLBACK_FEEDS.stable));
           const result = await updater.checkForUpdates();
-          return shapeCheckResult(result?.updateInfo ?? null, {
+          return shapeCheckResult(result, {
             channel: "stable",
             feedUrl: ELECTRON_UPDATER_FALLBACK_FEEDS.stable,
             currentVersion: resolveAppVersion(app),
@@ -478,7 +495,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       if (!checkedUpdateVersion || !isVersionNewer(checkedUpdateVersion, currentVersion)) {
         const { result } = await checkForUpdatesWithFeedFallback(app, updater);
         const info = result?.updateInfo ?? null;
-        checkedUpdateVersion = info?.version && isVersionNewer(info.version, currentVersion)
+        checkedUpdateVersion = isEligibleUpdate(result, currentVersion)
           ? info.version
           : null;
       }
@@ -506,7 +523,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         updater.setFeedURL(electronUpdaterFeedConfig(ELECTRON_UPDATER_FALLBACK_FEEDS.stable));
         const result = await updater.checkForUpdates();
         const info = result?.updateInfo ?? null;
-        if (!info?.version || !isVersionNewer(info.version, resolveAppVersion(app))) {
+        if (!isEligibleUpdate(result, resolveAppVersion(app))) {
           return { ok: false, reason: String(error?.message ?? error) };
         }
         checkedUpdateVersion = info.version;
