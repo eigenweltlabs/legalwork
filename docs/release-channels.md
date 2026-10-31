@@ -20,8 +20,11 @@ After selecting the release from GitHub metadata, the app checks
 The website redirects to that exact GitHub release; it never substitutes
 Latest. If the website fails or returns a manifest for another version, the
 app retries the same selected release directly on GitHub. The answering feed
-remains applied for downloads. Deploy the website route before releasing this
-client; older websites safely trigger the direct GitHub fallback.
+remains applied for downloads. If the website fails during a later installer
+request, all channels retry that exact GitHub release after checking its version
+and rollout eligibility again. An authoritative selection never falls back to
+GitHub Latest. Deploy the website route before releasing this client; older
+websites safely trigger the direct GitHub fallback.
 
 For gradual updates, electron-updater creates a random installation ID on the
 first update check, stores it locally as `.updaterId`, and reuses it to keep an
@@ -76,7 +79,7 @@ receive the newest eligible regular release or pre-release.
 ## Focused validation
 
 ```sh
-node --test apps/desktop/electron/release-feeds.test.mjs apps/desktop/electron/updater.test.mjs scripts/release/release-channels.test.mjs
+node --test apps/desktop/electron/release-feeds.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/updater-download.test.mjs scripts/release/release-channels.test.mjs
 bun test apps/app/tests/release-channels.test.ts apps/app/tests/update-preferences.test.ts
 pnpm --filter @legalwork/app typecheck
 pnpm --filter @legalwork/desktop typecheck:electron

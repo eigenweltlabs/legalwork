@@ -152,9 +152,9 @@ export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFee
     selected = await resolveFeed(channelState.channel);
   } catch (error) {
     console.warn("[updater] release metadata unavailable, trying existing feeds", error?.message ?? error);
-    return checkLegacyFeeds(app, updater, channelState);
+    return { ...await checkLegacyFeeds(app, updater, channelState), selectedRelease: null };
   }
-  if (!selected) return { channelState, result: null };
+  if (!selected) return { channelState, result: null, selectedRelease: null };
   // GitHub metadata already determined channel eligibility, including a
   // manually promoted release whose version still has a prerelease suffix.
   updater.allowPrerelease = true;
@@ -166,7 +166,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFee
       if (compareVersions(result?.updateInfo?.version, selected.version) !== 0) {
         throw new Error("The release manifest does not match the selected version.");
       }
-      return { channelState: { ...channelState, feedUrl, feedFallback: feedUrl !== websiteFeed }, result };
+      return { channelState: { ...channelState, feedUrl, feedFallback: feedUrl !== websiteFeed }, result, selectedRelease: selected };
     } catch (error) {
       if (feedUrl === websiteFeed) {
         console.warn("[updater] website feed unavailable, retrying selected release on GitHub", error?.message ?? error);
@@ -339,7 +339,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   ipcMain.handle("legalwork:updater:setPreferences", (_event, patch) => preferences.write(patch));
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
-  let checkedUpdateVersion = null;
+  let checkedUpdate = null;
   let nativeMacUpdater = null;
   let updateReady = false;
   const runTask = serializeUpdaterTasks();
@@ -348,7 +348,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     const previous = await readElectronUpdaterChannel(app);
     const channel = await writeElectronUpdaterChannel(app, rawChannel);
     if (channel !== previous) {
-      checkedUpdateVersion = null;
+      checkedUpdate = null;
       updateReady = false;
       if (autoUpdaterInstance) autoUpdaterInstance.autoInstallOnAppQuit = false;
     }
@@ -417,7 +417,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
 
   handleUpdater("legalwork:updater:setChannel", async (_event, rawChannel) => {
     const channel = await changeChannel(rawChannel);
-    checkedUpdateVersion = null;
+    checkedUpdate = null;
     updateReady = false;
     const updater = await ensureAutoUpdater();
     if (updater) {
@@ -436,11 +436,11 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       const channelState = updaterChannelState(app, await readElectronUpdaterChannel(app));
       return { available: false, reason: "unavailable", ...channelState };
     }
-    const shapeCheckResult = (result, channelState) => {
+    const shapeCheckResult = (result, channelState, selectedRelease = null) => {
       const info = result?.updateInfo;
       const currentVersion = resolveAppVersion(app);
       const available = isEligibleUpdate(result, currentVersion);
-      checkedUpdateVersion = available ? info.version : null;
+      checkedUpdate = available ? { version: info.version, release: selectedRelease, feedUrl: channelState.feedUrl } : null;
       return {
         available,
         currentVersion,
@@ -451,8 +451,8 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       };
     };
     try {
-      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater);
-      return shapeCheckResult(result, channelState);
+      const { channelState, result, selectedRelease } = await checkForUpdatesWithFeedFallback(app, updater);
+      return shapeCheckResult(result, channelState, selectedRelease);
     } catch (error) {
       /* Last-ditch recovery, deliberately dumb: if anything above threw before
          GitHub could be tried — e.g. a bug in our own feed/channel plumbing —
@@ -478,7 +478,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
           // Fall through to the error result below.
         }
       }
-      checkedUpdateVersion = null;
+      checkedUpdate = null;
       return { available: false, reason: String(error?.message ?? error), ...updaterChannelState(app, channel) };
     }
   });
@@ -492,14 +492,14 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       // successful check (primary or GitHub fallback) is the one the cached
       // update info came from, and channel switches clear the cache below.
       const currentVersion = resolveAppVersion(app);
-      if (!checkedUpdateVersion || !isVersionNewer(checkedUpdateVersion, currentVersion)) {
-        const { result } = await checkForUpdatesWithFeedFallback(app, updater);
+      if (!checkedUpdate || !isVersionNewer(checkedUpdate.version, currentVersion)) {
+        const { channelState, result, selectedRelease } = await checkForUpdatesWithFeedFallback(app, updater);
         const info = result?.updateInfo ?? null;
-        checkedUpdateVersion = isEligibleUpdate(result, currentVersion)
-          ? info.version
+        checkedUpdate = isEligibleUpdate(result, currentVersion)
+          ? { version: info.version, release: selectedRelease, feedUrl: channelState.feedUrl }
           : null;
       }
-      if (!checkedUpdateVersion) {
+      if (!checkedUpdate) {
         return { ok: false, reason: "No update available." };
       }
       // Clear any stuck ShipIt state from a prior aborted install so this
@@ -510,23 +510,24 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       updater.autoInstallOnAppQuit = true;
       return { ok: true };
     } catch (error) {
-      /* Last-ditch mirror of the check path: one raw GitHub check + download
-         with no helpers, so a bug in our plumbing can't block updates. Same
-         guards as the check path: stable channel only (a transient alpha
-         download failure must not silently install a stable build), and
-         skipped when the fallback chain already failed against GitHub. */
+      // Website downloads recover against the authoritative release on every
+      // channel. Latest is only a last resort when no release was selected.
+      const selected = checkedUpdate?.release;
+      const checkedFeedUrl = checkedUpdate?.feedUrl;
+      checkedUpdate = null;
       try {
         const channel = await readElectronUpdaterChannel(app);
-        if (channel !== "stable" || error?.githubFallbackAttempted) {
+        if (error?.githubFallbackAttempted || (selected ? checkedFeedUrl === selected.feedUrl : channel !== "stable")) {
           return { ok: false, reason: String(error?.message ?? error) };
         }
-        updater.setFeedURL(electronUpdaterFeedConfig(ELECTRON_UPDATER_FALLBACK_FEEDS.stable));
+        const feedUrl = selected ? selected.feedUrl : ELECTRON_UPDATER_FALLBACK_FEEDS.stable;
+        updater.setFeedURL(electronUpdaterFeedConfig(feedUrl));
         const result = await updater.checkForUpdates();
         const info = result?.updateInfo ?? null;
-        if (!isEligibleUpdate(result, resolveAppVersion(app))) {
+        if ((selected && compareVersions(info?.version, selected.version) !== 0) || !isEligibleUpdate(result, resolveAppVersion(app))) {
           return { ok: false, reason: String(error?.message ?? error) };
         }
-        checkedUpdateVersion = info.version;
+        checkedUpdate = { version: info.version, release: selected, feedUrl };
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
         // have happened before that cleanStaleUpdaterState() ran.
         await cleanStaleUpdaterState(app);
