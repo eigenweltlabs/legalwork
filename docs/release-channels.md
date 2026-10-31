@@ -25,31 +25,14 @@ client; older websites safely trigger the direct GitHub fallback.
 
 For gradual updates, electron-updater creates a random installation ID on the
 first update check, stores it locally as `.updaterId`, and reuses it to keep an
-installation in a consistent rollout group. The updater includes this ID as
-`x-user-staging-id` in update-check requests, including when usage analytics is
-disabled. This existing update behavior is unchanged.
-
-When usage analytics is enabled, the website additionally records update checks
-and downloads under a SHA-256 hash of that installation ID. It does not
-send the raw installation ID to PostHog or link this ID to an account or the
-app's per-launch event identity. The app forwards its current analytics choice
-on checks and downloads; pending, disabled, and firm-disabled analytics suppress
-website capture. Legacy requests without that choice retain request-only IDs.
-The app adds the ID to installer-download requests only when usage analytics is
-enabled; update-check requests continue to carry the updater's rollout ID.
+installation in a consistent rollout group. Update-check requests include this
+ID as `x-user-staging-id`, along with the current app version and selected
+channel. The updater uses the manifest's staging percentage to decide whether
+an installation is eligible for that release.
 
 Automatic checks run at startup and at most hourly while the main app is visible,
 including a due check after focus/resume. They honor automatic-update settings
 and firm policy, and leave downloading or ready-to-install updates alone.
-These events measure installations that check for updates, rather than named
-people or completed tasks. Offline use, disabled checks/analytics, hidden apps,
-and direct GitHub fallback are not represented in website activity counts.
-
-For installation DAU/WAU, filter `update_check` by
-`source = website-update-feed` and `identity_type = installation`. Use unique
-IDs per day for DAU and unique IDs over the rolling last seven days for WAU;
-do not sum daily uniques. Filter `channel` if stable and alpha populations
-should be separate. Historical random request IDs cannot be backfilled.
 
 For example, Pre-release users receive v4.0.0 when v3.0.0 remains marked
 Pre-release and v4.0.0 is a regular release. Publishing v5.0.0 as Pre-release

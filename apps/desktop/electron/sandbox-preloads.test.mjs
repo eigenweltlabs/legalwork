@@ -72,18 +72,6 @@ test("main preload runs with sandbox APIs and preserves native invocation and ev
   assert.equal(calls, 1);
 });
 
-test("update checks and cached downloads forward the current analytics choice", async () => {
-  const { bridge, messages } = loadPreload("./preload.cjs", "__LEGALWORK_ELECTRON__");
-  await bridge.updater.check("prerelease", true);
-  await bridge.updater.check("alpha", false);
-  await bridge.updater.download(false);
-  assert.deepEqual(messages, [
-    ["legalwork:updater:check", "prerelease", true],
-    ["legalwork:updater:check", "alpha", false],
-    ["legalwork:updater:download", false],
-  ]);
-});
-
 test("menu and call preloads preserve their sandboxed IPC bridges", () => {
   const menu = loadPreload("./menu-overlay-preload.cjs", "__LEGALWORK_MENU_OVERLAY__");
   menu.bridge.ready();

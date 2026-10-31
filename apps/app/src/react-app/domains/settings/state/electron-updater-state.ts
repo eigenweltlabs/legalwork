@@ -12,7 +12,6 @@ import {
 } from "./update-status-store";
 import { t } from "@/i18n";
 import { loadUpdatePreferences } from "./update-preferences";
-import { isAnalyticsEnabled } from "../../../../app/lib/analytics";
 
 export type { SettingsUpdateStatus } from "./update-status-store";
 
@@ -132,7 +131,7 @@ export async function checkForUpdatesInBackground(): Promise<void> {
     lastBackgroundCheckAt = Date.now();
     store.setStatus({ state: "checking" });
     const channel = bridge.getChannel ? (await bridge.getChannel()).channel : undefined;
-    const result = await bridge.check(channel, isAnalyticsEnabled());
+    const result = await bridge.check(channel);
     if (result.reason) {
       store.setStatus(previous);
       return;
@@ -230,7 +229,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
       totalBytes: current?.totalBytes ?? null,
     }));
     try {
-      const result = await bridge.download(isAnalyticsEnabled());
+      const result = await bridge.download();
       if (!result?.ok) {
         setUpdateStatus({ state: "error", message: result?.reason ?? t("updater.download_failed") });
         return;
@@ -262,7 +261,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
 
     setUpdateStatus({ state: "checking" });
     try {
-      const result = await bridge.check(activeReleaseChannel, isAnalyticsEnabled());
+      const result = await bridge.check(activeReleaseChannel);
       dispatchEnvState({ type: "app-version", appVersion: result.currentVersion ?? null });
       if (result.channel && result.channel !== releaseChannel) {
         onReleaseChannelChange(result.channel);

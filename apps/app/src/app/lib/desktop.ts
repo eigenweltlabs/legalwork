@@ -109,7 +109,7 @@ declare global {
           feedUrl: string;
           currentVersion: string;
         }>;
-        check?: (channel?: "stable" | "prerelease" | "alpha", analyticsEnabled?: boolean) => Promise<{
+        check?: (channel?: "stable" | "prerelease" | "alpha") => Promise<{
           available: boolean;
           currentVersion?: string;
           latestVersion?: string | null;
@@ -119,7 +119,7 @@ declare global {
           feedUrl?: string;
           reason?: string;
         }>;
-        download?: (analyticsEnabled?: boolean) => Promise<{ ok: boolean; reason?: string }>;
+        download?: () => Promise<{ ok: boolean; reason?: string }>;
         installAndRestart?: () => Promise<{ ok: boolean; reason?: string }>;
       };
       browser?: {

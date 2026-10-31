@@ -85,17 +85,17 @@ Change the display language in **Customization**. Use the appearance selector to
 
 **Projects** offers defaults for matter fields and a new-window preference to ask, open empty or copy the current context. Project defaults apply when creating a project; they do not overwrite every existing matter.
 
+## App updates
+
+Under **Settings > Updates**, automatic checks run at startup and periodically while the app is visible. They can check again after you return to a long-running app. Turning automatic checks off stops these periodic checks. A download in progress or an update ready to install is left alone. Website outages fall back to GitHub for the same selected release.
+
+To support gradual updates, the updater creates a random installation ID at the first update check and stores it locally. It uses this ID to keep your installation in a consistent rollout group. The ID is included in requests to the update feed, together with the selected update channel and app version.
+
 ## Privacy and data flow
 
 Workspace files and local processing remain on the selected worker, but provider requests and connector actions can transmit task data to the chosen service. Local transcription runs on-device; cloud transcription and Voice Mode transmit audio to their selected services. Shared projects, wiki sharing and published calendar feeds also copy the chosen data to the firm's service. Ordinary connected storage is not automatically ingested into a knowledge index.
 
 Official builds can send content-free usage telemetry when enabled. **Settings > Privacy** controls the analytics preference; development builds do not send it. Where offered, online model-catalog updates control refreshing provider/model metadata, not downloading a local transcription model. These settings are separate from network access needed for a provider or connector. App-hiding controls live under Recorder > Meetings. They affect visibility, not provider data handling.
-
-To support gradual updates, the updater creates a random installation ID at the first update check and stores it locally. It uses this ID to keep your installation in a consistent rollout group. The ID is included in requests to the update feed, including when usage analytics is turned off.
-
-When usage analytics is enabled, update checks and downloads also help count active installations across days and weeks. Their events use a hash of the updater's installation ID, without your account details or work content. Other app usage events continue to use an identifier that changes at each app start. Turning off usage analytics stops collection of update analytics; the updater continues using its installation ID for gradual updates.
-
-Under **Settings > Updates**, automatic checks run at startup and periodically while the app is visible. They can check again after you return to a long-running app. Turning automatic checks off also stops these periodic checks. A download in progress or an update ready to install is left alone. Website outages fall back to GitHub for the same selected release.
 
 Related: [Localization](localization.md), [Audio](audio.md), [Troubleshooting](troubleshooting.md).
 
