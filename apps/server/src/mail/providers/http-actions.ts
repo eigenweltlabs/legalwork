@@ -1,3 +1,4 @@
+import { mailProviderFetch } from "./integration-fetch.js";
 import { z } from 'zod';
 import { mailMutationSchema, type MailMutation } from '../local-view.js';
 import { gmailMutationPrecondition, graphMutationPrecondition, folderMutationPrecondition } from '../storage/mutation-precondition.js';
@@ -25,7 +26,7 @@ export class MailHttpActions {
     const address = options.mailboxAddress ? z.string().email().max(320).parse(options.mailboxAddress) : null;
     if (address && options.provider !== 'graph') throw new MailMutationHttpError(400);
     this.base = options.provider === 'gmail' ? 'https://gmail.googleapis.com/gmail/v1/users/me' : 'https://graph.microsoft.com/v1.0' + (address ? '/users/' + encodeURIComponent(address) : '/me');
-    this.fetch = options.fetch ?? fetch;
+    this.fetch = options.fetch ?? mailProviderFetch;
   }
   private async request(path: string, signal: AbortSignal, method = 'GET', body?: object): Promise<unknown> {
     const bounded = AbortSignal.any([signal, AbortSignal.timeout(15000)]);

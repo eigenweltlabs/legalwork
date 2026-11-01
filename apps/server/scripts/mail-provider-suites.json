@@ -38,5 +38,7 @@
   "storage/retention",
   "storage/search",
   "mime/project",
-  "storage/extraction"
+  "storage/extraction",
+  "runtime/integrations",
+  "storage/integrations"
 ]

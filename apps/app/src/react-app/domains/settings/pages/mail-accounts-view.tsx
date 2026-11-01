@@ -19,7 +19,7 @@ import {MailSettingsSection} from './mail-settings-controls';
 
 /** Resolve the host independently of the selected workspace. Repeated desktop
  * announcements retain active sign-in; a different resolved identity retires it. */
-export function MailAccountsView() {
+export function MailAccountsView({ standardsOnly = false, onAccountsChanged }: { standardsOnly?: boolean; onAccountsChanged?: () => void } = {}) {
   const [client, setClient] = useState<MailClient>();
   const identity = useRef('');
   const [clientVersion, setClientVersion] = useState(0);
@@ -54,15 +54,20 @@ export function MailAccountsView() {
     return () => controller.abort();
   }, [revision]);
   return <SettingsStack>
-    {client ? <MailAccountControls key={clientVersion} client={client} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
+    {client ? <MailAccountControls key={clientVersion} client={client} standardsOnly={standardsOnly} onAccountsChanged={onAccountsChanged} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
   </SettingsStack>;
 }
 
-export function MailAccountControls({ client }: { client: MailClient }) {
+export function MailAccountControls({ client, standardsOnly = false, onAccountsChanged }: { client: MailClient; standardsOnly?: boolean; onAccountsChanged?: () => void }) {
   const [contactRequest,setContactRequest]=useState<{account:MailAccountView;key:number}>();
   const [accounts, setAccounts] = useState<MailAccountView[]>([]);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController(); let previous: number | undefined;
+    const poll = async () => { try { const status=await client.status(controller.signal); if(controller.signal.aborted)return; if(status.accountRevision!==undefined&&status.accountRevision!==previous){previous=status.accountRevision;setRevision(value=>value+1);} } catch { /* Keep local account controls available during a reconnect. */ } };
+    const timer=setInterval(()=>void poll(),3000); return()=>{controller.abort();clearInterval(timer);};
+  },[client]);
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
@@ -80,6 +85,11 @@ export function MailAccountControls({ client }: { client: MailClient }) {
     })();
     return () => controller.abort();
   }, [client, revision]);
+  if (standardsOnly) return <>
+    {error && <SettingsNotice tone="error"><span role="alert">{error}</span></SettingsNotice>}
+    <MailOnboarding standardSetup client={client} accounts={accounts.filter(account=>account.provider==='imap')} onChanged={()=>{setRevision(value=>value+1);onAccountsChanged?.();}} />
+    <MailSmtpView client={client} accounts={accounts.filter(account=>account.provider==='imap')} />
+  </>;
   return <Tabs defaultValue="accounts" className="gap-6">
     <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
     {error && <SettingsNotice tone="error"><span role="alert">{error}</span><Button size="sm" variant="ghost" onClick={()=>setRevision(value=>value+1)}>Retry</Button></SettingsNotice>}

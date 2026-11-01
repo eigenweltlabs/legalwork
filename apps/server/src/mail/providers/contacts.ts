@@ -1,3 +1,4 @@
+import { mailProviderFetch } from "./integration-fetch.js";
 import { z } from "zod";
 import { mailAddressSchema } from "../local-view.js";
 export type ContactChange = {
@@ -76,7 +77,7 @@ export async function fetchContactSnapshot(input: {
   fetch?: typeof fetch;
 }): Promise<ContactSnapshot> {
   const request = async (url: string): Promise<unknown> => {
-    const response = await (input.fetch ?? fetch)(url, {
+    const response = await (input.fetch ?? mailProviderFetch)(url, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${input.accessToken}`,

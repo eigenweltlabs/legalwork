@@ -20,6 +20,12 @@ Reusable instructions live under **Workflows > Skills**. The Workflows page also
 
 Removing a connection can take a moment. **Removing…** and a spinner remain visible until it finishes; the removal and cancel buttons are disabled to prevent repeated requests. If removal fails, the connection remains available and an error is shown.
 
+## Email accounts
+
+Connect **Gmail** or **Outlook Email** under **Communication** to use the same account in the global **Email** reader and with the assistant. The reader does not require a second sign-in. Account activation, reconnecting, disconnecting and **Allow write access** stay in the provider's connection panel. Select **Open Email** to open the local mailbox. Only Outlook Email activation enables mail; Outlook Calendar activation alone does not.
+
+For iCloud or another provider, choose **Communication > iCloud / IMAP / SMTP**. Add an account with its IMAP credentials, then configure SMTP for sending on that page. The same accounts appear in Email and in **Settings > Mail accounts**, where you manage notification preferences, local data and agent access. Follow [Email](email.md) for the complete setup and recovery steps.
+
 ## SharePoint and Dropbox connection methods
 
 SharePoint and Dropbox each have one provider entry in **Files & storage**. Use **+** or open the provider and choose **Connect**. In **Connection method**, keep **Connect with LegalWork** to use the app's standard sign-in. Choose **Custom SharePoint** or **Custom Dropbox** to configure the separate connection with your own app details. Existing custom connections remain in **Installed** with those names.

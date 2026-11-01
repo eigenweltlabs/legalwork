@@ -8,7 +8,21 @@ Select **Email** in the narrow global sidebar, beside Calendar. Email stays avai
 
 The desktop reader provides a unified Inbox, account folders, conversations, search, Drafts and Outbox. Use **Settings** in Email to open **Mail accounts**. This desktop service keeps an encrypted local copy, including downloaded attachments. Mail that has finished downloading remains available offline; pending content and sync errors remain visible. Reading an item can mark it read on its provider.
 
-In **Mail accounts**, use **Accounts** to connect or reconnect a mailbox and inspect sync progress. Other providers use the IMAP setup and the **Sending** section's SMTP settings. Use the server addresses and credentials supplied by your provider. Availability depends on provider permissions and the configured sign-in application. The reader and the Gmail/Outlook assistant connector connection paths are being integrated; an assistant connection alone does not yet establish the local reader's account.
+Connect accounts in **Settings > Integrations > Communication**. Gmail and Outlook Email use the same sign-in, account activation and **Allow write access** setting for Email and the assistant. After the mailbox identity is verified, the local reader downloads mail automatically. You can also choose **Open Email** on the provider's Integrations page. Connecting Outlook Calendar alone requires **Activate Outlook Email** before its mailbox appears.
+
+In **Mail accounts > Accounts**, inspect sync progress, resume a paused account or choose **Manage in Integrations**. New account setup opens Integrations. Reading remains available with write access off. Sending, provider drafts and mailbox organization require the corresponding permissions; enabling writes does not add provider consent. The reader keeps local drafts while offline. If you reconnect as a different person, their mailbox appears separately. Previous local data is retained and is never attached to another account just because its address looks similar.
+
+Accounts created by an earlier development build retain their existing data and reconnect controls. They are not automatically merged into a new Integrations account. If you see both, keep the retained account until you have reviewed or exported its data. This compatibility path is separate from adding a new account.
+
+## Connect iCloud or another mail service
+
+1. Open **Settings > Integrations > Communication** and select **iCloud / IMAP / SMTP**. You can search the catalogue for IMAP or iCloud.
+2. Under **Connected accounts**, select **Add account**, then choose **iCloud Mail** or **Other IMAP account**. The form is already open when no account is stored.
+3. For iCloud, enter the mail username and an app-specific password from your Apple Account. For another service, enter the provider's IMAP server, direct TLS port, username and password. Folder selection is optional. Insecure connections and STARTTLS are not supported.
+4. Select **Connect securely**. When connected, the account appears in Email and begins downloading unless you previously paused it.
+5. In the same integration, configure its SMTP sending details. Use the provider's server addresses and credentials. Mail accounts' **Sending** section also provides these per-account controls.
+
+Use **Mail accounts** for notification preferences, sender signatures, agent access, local retention, backup and archive import or export. Disconnecting an account and deleting local copies are separate operations.
 
 Use **New message**, **Reply**, **Reply all** or **Forward** to compose. Review the account, sender, recipients, body and attachments before sending. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
 
@@ -80,9 +94,9 @@ If a saved draft changes in Gmail or Outlook, LegalWork can require you to revie
 | Can read but cannot save or send | Enable **Allow write access**, reconnect if scopes are missing, and check organization policy. |
 | Assistant reports invalid draft details | Ask it to correct the listed fields and retry with the same connected account. This error occurs before a mailbox write and does not require reconnecting. Previously created local drafts stay local; request a new draft using the named connection. |
 | Organization blocks consent | Give the administrator the provider's error and application details. |
-| Connection needs refreshing | Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. |
+| Connection needs refreshing | Open the provider in Integrations. Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. Email reuses the renewed connection. |
 | Attachment cannot be downloaded | Open a chat in an authorized project and check available disk space and the returned error. If an older chat reports a missing attachment, ask the assistant to read the email again and retry. Retry an interrupted download; incomplete copies are removed. Outlook cloud links and other non-file attachment types are not supported by this download action. |
-| Remove access | Select **Disconnect**. For Outlook this disconnects the shared Email and Calendar account. Review provider-side app permissions separately if you also want to revoke consent. |
+| Remove access | Use **Manage in Integrations**, then **Disconnect** for Gmail or Outlook Email. For IMAP, use the account's **Disconnect** action. For Outlook this disconnects the shared Email and Calendar account. Review provider-side app permissions separately if you also want to revoke consent. |
 
 Disconnecting does not delete mailbox messages, previously downloaded attachments or chat history. Mail read into an assistant task is included in that task's model context. With **Microsoft sign-in** or your own OAuth app, LegalWork authenticates and renews tokens directly with the provider. With **Connect with Eigenwelt**, Nango manages sign-in and token renewal; LegalWork retrieves mail content directly from the provider.
 

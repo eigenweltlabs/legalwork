@@ -1,3 +1,4 @@
+import {removeLaterMailSchema} from '../testing/legacy-schema.mjs';
 import {test} from 'node:test';import assert from 'node:assert/strict';import {randomBytes} from 'node:crypto';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {setTimeout as delay} from 'node:timers/promises';
 import {openEncryptedMailDatabase} from './database.js';import {migrateMailSchema,MAIL_SCHEMA_VERSION} from './schema.js';import {MailRepository} from './repository.js';import {MailContentStore} from './content-store.js';import {MimeProjectionStore} from './mime-projection-store.js';import {MailExtractionStore} from './extraction.js';import {MailExtractionRunner} from '../runtime/extraction-runner.js';import {MailSearchStore} from './search.js';import {MailSearchIndexer} from '../runtime/search-indexer.js';import {MailCredentialRepository} from './credentials.js';
 const locator={provider:'gmail',messageId:'one'},metadata={subject:'Original subject',from:'sender@example.test',to:'recipient@example.test',cc:null,bcc:null,replyTo:null,date:null,messageId:null};
@@ -45,7 +46,7 @@ test('schema29 repairs historical replay triggers atomically and retains complet
  const before=f.db.all('SELECT * FROM mail_attachment_extractions ORDER BY account_id');
  // Recreate the exact deployed v28 UPDATE trigger, not a fresh-schema approximation.
  f.db.exec("DROP TRIGGER mail_extraction_manifest_update; CREATE TRIGGER mail_extraction_manifest_update AFTER UPDATE ON mail_content_manifests WHEN NEW.kind='attachment' AND NEW.state='stored' AND NEW.ref_id IS NOT NULL BEGIN INSERT OR IGNORE INTO mail_attachment_extractions(account_id,message_key,part_id,ref_id,extractor,state) VALUES(NEW.account_id,NEW.message_key,NEW.part_id,NEW.ref_id,'local-text-v1','queued'); END;");
- f.db.run('UPDATE mail_schema_version SET version=28');
+ removeLaterMailSchema(f.db,28);f.db.run('UPDATE mail_schema_version SET version=28');
  const repository=new MailRepository(f.db,'owner'),publish=()=>repository.putContent('a',locator,{kind:'attachment',partId:'p',state:'stored',reference:complete.attachment});
  assert.throws(publish,/UNIQUE constraint failed/);
  const broken={...f.db,exec(sql){f.db.exec(sql);if(sql.includes('DROP TRIGGER mail_extraction_manifest_insert'))throw Error('interrupted trigger migration');}};

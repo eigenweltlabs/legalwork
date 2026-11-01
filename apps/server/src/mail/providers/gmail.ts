@@ -1,3 +1,4 @@
+import { mailProviderFetch } from "./integration-fetch.js";
 import type { OAuthFetch } from "./oauth.js";
 
 export type GmailTransportErrorCode = "invalid_input" | "invalid_response" | "response_too_large" | "raw_too_large"
@@ -87,7 +88,7 @@ export class GmailReadTransport {
     if (typeof options.accessToken !== "string" || !/^[\x21-\x7e]{1,16384}$/.test(options.accessToken)
       || !Number.isInteger(this.timeoutMs) || this.timeoutMs < 10 || this.timeoutMs > 120000
       || !Number.isInteger(this.maxRawBytes) || this.maxRawBytes < 1 || this.maxRawBytes > 128 * MiB) throw new GmailTransportError("invalid_input");
-    this.accessToken = options.accessToken; this.fetch = options.fetch ?? fetch;
+    this.accessToken = options.accessToken; this.fetch = options.fetch ?? mailProviderFetch;
   }
   private async run<T>(signal: AbortSignal | undefined, work: (signal: AbortSignal, checkpoint: () => void) => Promise<T>): Promise<T> {
     if (signal?.aborted) return reject("cancelled");

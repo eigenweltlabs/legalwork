@@ -17,11 +17,12 @@ import type {MailExtractionRequest,MailExtractionRead,MailExtractionStatus,MailE
 import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailActionPageInput, MailMutation, MailSubmission } from "./local-view.js";
 import type { MailSearchInput, MailSearchResult, MailSearchRebuildInput, MailSearchRebuildResult } from "./search-view.js";
 export type MailPageInput = { limit?: number; after?: string };
-export type MailAccountView = { id: string; provider: "gmail" | "graph" | "imap" | "archive"; displayName: string; personal?: boolean; identity?: GraphMailboxIdentity };
+export type MailAccountView = { id: string; provider: "gmail" | "graph" | "imap" | "archive"; displayName: string; personal?: boolean; integration?: "gmail" | "outlook"; identity?: GraphMailboxIdentity };
 export type MailFolderView = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type MailPage<T> = { items: T[]; nextCursor: string | null };
 export type MailServiceStatus = {
   protocolVersion: 1;
+  accountRevision?: number;
   state: "locked" | "unlocking" | "ready" | "unavailable" | "locking" | "stopped";
   syncSupported: boolean;
 };
@@ -31,6 +32,9 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  /** Host-only transport registration. Never accepts renderer configuration. */
+  configureIntegrations?(load: () => Promise<import("./integration-view.js").MailIntegrationSnapshot>): void;
+  refreshIntegrations?(force?: boolean): Promise<void>;
   contacts(accountId:string,input:ContactsInput):Promise<ContactsResult>;
   /** Synchronous cancellation fence before custody closes. */
   onLock?(listener:()=>void):()=>void;

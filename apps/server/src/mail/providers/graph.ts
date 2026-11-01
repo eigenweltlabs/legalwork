@@ -1,3 +1,4 @@
+import { mailProviderFetch } from "./integration-fetch.js";
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
 import type { OAuthFetch } from "./oauth.js";
@@ -63,7 +64,7 @@ export class GraphReadTransport {
     }) {
         if (typeof options.accessToken !== "string" || !/^[\x21-\x7e]{1,16384}$/.test(options.accessToken) || !Number.isSafeInteger(options.timeoutMs ?? 30000) || (options.timeoutMs ?? 30000) < 10 || (options.timeoutMs ?? 30000) > 120000)
             fail("invalid_input");
-        this.fetch = options.fetch ?? fetch;
+        this.fetch = options.fetch ?? mailProviderFetch;
         this.scope = "/v1.0" + graphMailboxBasePath(options.mailboxAddress ?? null);
         this.base = "https://graph.microsoft.com" + this.scope;
     }

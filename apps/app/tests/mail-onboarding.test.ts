@@ -13,7 +13,7 @@ test('authorization links cannot escape fixed provider/account-type endpoints',(
  for(const url of ['https://evil.test/authorize','https://login.microsoftonline.com@evil.test/consumers/oauth2/v2.0/authorize','https://login.microsoftonline.com/common/oauth2/v2.0/authorize','https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize#fragment'])expect(()=>authorizationUrl(url+query,'outlook')).toThrow();
  expect(()=>authorizationUrl('https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize'+query,'microsoft-work')).toThrow();
 });
-test('actual renderer completes browser onboarding and confines iCloud passwords to the local request',async()=>{
+test('actual renderer opens Integrations for account setup and confines iCloud passwords to the local request',async()=>{
  const root=await mkdtemp(join(tmpdir(),'mail-onboarding-')),app=resolve(import.meta.dir,'..');const calls:{path:string;body:Record<string,unknown>}[]=[];let release:()=>void=()=>{};
  const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:async request=>{
   const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'X-LegalWork-Host-Token,Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'};
@@ -29,11 +29,13 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
   await linkTestModules(join(app,'node_modules'),join(root,'node_modules'));
   const entry=join(root,'entry.tsx');await writeFile(entry,`
     import React from ${JSON.stringify(join(app,'node_modules/react/index.js'))};
+    import {MemoryRouter,useLocation} from ${JSON.stringify(join(app,'node_modules/react-router-dom/dist/index.mjs'))};
     import {createRoot} from ${JSON.stringify(join(app,'node_modules/react-dom/client.js'))};
     import {MailOnboarding} from ${JSON.stringify(join(app,'src/react-app/domains/mail/mail-onboarding.tsx'))};
     import {MailClient} from ${JSON.stringify(join(app,'src/react-app/domains/mail/mail-client.ts'))};
     window.__opened=[];window.__changed=0;window.__LEGALWORK_ELECTRON__={shell:{openExternal:async url=>window.__opened.push(url)}};
-    createRoot(document.getElementById('root')).render(<MailOnboarding client={new MailClient('http://127.0.0.1:${server.port}','synthetic')} accounts={[]} onChanged={()=>window.__changed++} onClose={()=>{}}/>);
+    function Location(){const location=useLocation();window.__route=location.pathname;return null;}
+    const root=createRoot(document.getElementById('root'));function render(standardSetup=false){root.render(<MemoryRouter><Location/><MailOnboarding standardSetup={standardSetup} client={new MailClient('http://127.0.0.1:${server.port}','synthetic')} accounts={[]} onChanged={()=>window.__changed++} onClose={()=>{}}/></MemoryRouter>);}window.__standards=()=>render(true);render();
   `);
   await buildBrowserFixture({entrypoints:[entry],outdir:root,alias:{'@':join(app,'src')},minify:true});
   await writeFile(join(root,'index.html'),'<meta charset="utf-8"><div id="root"></div><script src="entry.js"></script>');
@@ -44,9 +46,11 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
       const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
       await win.loadFile(${JSON.stringify(join(root,'index.html'))});const run=code=>win.webContents.executeJavaScript(code);
       const until=async code=>{for(let i=0;i<200;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+code)};
-      await until("!!document.querySelector('form')");
-      await run("document.querySelector('form').requestSubmit()");await until('window.__changed===1');
-      assert.equal(await run('window.__opened.length'),1);
+      await until("document.body.textContent.includes('Open Integrations')");
+      assert.equal(await run("document.querySelector('form')"),null);
+      await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Open Integrations').click()");await until("window.__route==='/settings/extensions'");
+      await run("window.__standards()");await until("!!document.querySelector('form')");
+      assert.equal(await run('window.__opened.length'),0);
       await run("document.querySelector('[aria-label=Provider]').click()");await until("!!document.querySelector('[role=option]')");await run("(()=>{const option=Array.from(document.querySelectorAll('[role=option]')).find(e=>e.textContent==='iCloud Mail'&&e.getBoundingClientRect().height>0);option.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));option.click();})()");
       await until("document.querySelector('[aria-label=Provider]').textContent.includes('iCloud Mail')");
       await until("!!document.querySelector('input[type=password]')");
@@ -57,7 +61,7 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
       await new Promise(r=>setTimeout(r,100));
       await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Cancel').click()");
       await until("document.body.textContent.includes('Cancellation requested.')");
-      assert.equal(await run('window.__changed'),1);console.log('ONBOARDING_PASS');win.destroy();app.quit();
+      assert.equal(await run('window.__changed'),0);console.log('ONBOARDING_PASS');win.destroy();app.quit();
     }).catch(error=>{console.error(error);app.exit(1)});
   `);
   const require=createRequire(resolve(app,'../desktop/package.json'));
@@ -66,6 +70,7 @@ test('actual renderer completes browser onboarding and confines iCloud passwords
    const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},15000);
    child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});
   });if(result.code!==0)throw Error(result.output);expect(result.output).toContain('ONBOARDING_PASS');
+  expect(calls.some(call=>call.path==='/mail/v1/connections')).toBe(false);
   const imap=calls.find(call=>call.path==='/mail/v1/imap/connections');expect(imap?.body.host).toBe('imap.mail.me.com');expect(imap?.body.port).toBe(993);expect(imap?.body.password).toBe('synthetic-app-password');expect(calls.some(call=>call.path===`/mail/v1/imap/connections/${imap?.body.requestId}/cancel`)).toBe(true);
  } finally {release();server.stop(true);await rm(root,{recursive:true,force:true});}
 },20000);

@@ -114,6 +114,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     useEffect(()=>{setFilingOpen(false);setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);},[client]);
     const [busy, setBusy] = useState(false);
     const [revision, setRevision] = useState(0);
+    const accountRevision = useRef<number | undefined>(undefined);
     const [connectionRevision, setConnectionRevision] = useState(0);
     const connectionIdentity = useRef('');
     const [more, setMore] = useState(false);
@@ -147,6 +148,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
         let status = await client.status(controller.signal);
         if (status.state !== 'ready') status = await client.unlock(controller.signal);
         if (status.state !== 'ready') throw Error('Mail could not be opened. Please retry.');
+        accountRevision.current = status.accountRevision;
         if (controller.signal.aborted) return;
         let next: string | null = null;
         const result: MailAccountView[] = [];
@@ -165,7 +167,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
         if (!controller.signal.aborted)
             { setLocked(true); setError(textError(error)); }
     } })(); return () => controller.abort(); }, [client, revision]);
-    useEffect(()=>{if(!client)return;const controller=new AbortController();let busy=false;const poll=setInterval(()=>{if(busy)return;busy=true;void client.status(controller.signal).then(status=>{if(controller.signal.aborted)return;if(status.state==='ready'&&locked){setError('');setRevision(value=>value+1);}else if(status.state!=='ready'&&!locked){purge();setLocked(true);setAccounts([]);setError('Mail is reconnecting. Local drafts remain saved.');}}).catch(error=>{if(!controller.signal.aborted&&!locked){if(error instanceof MailRequestError&&[401,403,404,423].includes(error.status)){purge();setLocked(true);}setError('Mail connection is unavailable. Retrying the local server connection.');}}).finally(()=>{busy=false;});},3000);return()=>{clearInterval(poll);controller.abort();};},[client,locked]);
+    useEffect(()=>{if(!client)return;const controller=new AbortController();let busy=false;const poll=setInterval(()=>{if(busy)return;busy=true;void client.status(controller.signal).then(status=>{if(controller.signal.aborted)return;if(status.state==='ready'&&status.accountRevision!==undefined&&status.accountRevision!==accountRevision.current){accountRevision.current=status.accountRevision;setRevision(value=>value+1);}if(status.state==='ready'&&locked){setError('');setRevision(value=>value+1);}else if(status.state!=='ready'&&!locked){purge();setLocked(true);setAccounts([]);setError('Mail is reconnecting. Local drafts remain saved.');}}).catch(error=>{if(!controller.signal.aborted&&!locked){if(error instanceof MailRequestError&&[401,403,404,423].includes(error.status)){purge();setLocked(true);}setError('Mail connection is unavailable. Retrying the local server connection.');}}).finally(()=>{busy=false;});},3000);return()=>{clearInterval(poll);controller.abort();};},[client,locked]);
     useEffect(() => { purge(); setFolder(''); setFolders([]); if (!client || !account)
         return; const controller = new AbortController(); void (async () => { try {
         const result: MailFolderView[] = [];
