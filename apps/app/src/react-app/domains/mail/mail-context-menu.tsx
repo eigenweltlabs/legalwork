@@ -3,7 +3,7 @@ import {mailActionControls} from './mail-action-controls';
 import {mailShortcut,type MailCommand} from './mail-keyboard';
 /** @jsxImportSource react */
 import type {MailMessageView} from './mail-client';
-import {useEffect,useRef,useState,type ReactNode} from 'react';
+import {useEffect,useLayoutEffect,useRef,useState,type ReactNode} from 'react';
 import {ContextMenu,ContextMenuTrigger,ContextMenuContent,ContextMenuItem,ContextMenuSeparator,ContextMenuSub,ContextMenuSubTrigger} from '@/components/ui/context-menu';
 export type MailReaderAction='reply'|'reply-all'|'forward';
 export type MailMenuSelection={count:number;archive:boolean;mixed:boolean;signature:string};
@@ -21,7 +21,8 @@ export function MailRowMenu({children,prepare,onOpen,className}:{children:ReactN
   const state=()=>{const controls=mailActionControls(element);return JSON.stringify([[...element.querySelectorAll<HTMLButtonElement>('[data-mail-command]')].map(button=>[button.dataset.mailCommand,button.disabled,button.getAttribute('aria-label')]),controls&&[controls.disabled,controls.moveDisabled,controls.label,controls.destinations]]);};
   let previous=state();const observer=new MutationObserver(()=>{if(prepared.current!==null&&signature(element)!==prepared.current){epoch.current++;setOpen(false);prepared.current=null;}else{const next=state();if(next!==previous){previous=next;update(value=>value+1);}}});observer.observe(element,{subtree:true,childList:true,attributes:true,attributeFilter:['disabled','aria-label','aria-keyshortcuts','data-mail-selection','data-mail-reader']});return()=>observer.disconnect();},[open]);
  useEffect(()=>()=>{epoch.current++;},[]);
- const change=(next:boolean)=>{setOpen(next);const version=++epoch.current;prepared.current=null;if(!next)return;returnFocus.current=trigger.current?.querySelector<HTMLElement>('.mail-message-row,.mail-search-subject')??trigger.current;setSelection(undefined);setError('');void Promise.resolve().then(prepare).then(value=>{requestAnimationFrame(()=>{if(version===epoch.current){if(root()?.dataset.mailSelection!==value.signature){setOpen(false);return;}prepared.current=signature(root());setSelection(value);}});}).catch(()=>{if(version===epoch.current)setError('This selection is unavailable. Refresh the list and retry.');});};
+ const change=(next:boolean)=>{setOpen(next);const version=++epoch.current;prepared.current=null;if(!next)return;returnFocus.current=trigger.current?.querySelector<HTMLElement>('.mail-message-row,.mail-search-subject')??trigger.current;setSelection(undefined);setError('');void Promise.resolve().then(prepare).then(value=>{if(version===epoch.current)setSelection(value);}).catch(()=>{if(version===epoch.current)setError('This selection is unavailable. Refresh the list and retry.');});};
+ useLayoutEffect(()=>{if(!open||!selection)return;const element=root();if(!element||element.dataset.mailSelection!==selection.signature){setOpen(false);return;}prepared.current=signature(element);update(value=>value+1);},[open,selection]);
  const invoke=(control:HTMLButtonElement|null)=>{if(prepared.current===signature(root())&&control&&!control.disabled&&control.isConnected)control.click();else setOpen(false);};
  const element=root(),commands=element&&selection?mailActionCommands(element,selection):[];
  const move=mailActionControls(element);

@@ -97,8 +97,10 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
       finally {opening.current.delete(id);}
     },[client,accounts]);
     const openGeneration=useRef(0);
+    const readerFocus=useRef<{generation:number;accountId:string;key:string;signal:AbortSignal}|null>(null);
     const [readerAction,setReaderAction]=useState<{generation:number;item:MailMessageView;action:MailReaderAction;client:MailClient|undefined}>();
-    const openMessage=(item:MailMessageView|undefined,action?:MailReaderAction)=>{const generation=++openGeneration.current;setReaderAction(item&&action?{generation,item,action,client}:undefined);if(!item){setSelected(undefined);return;}setSelected(item);void markOpened(item);setCompose(undefined);setFilingOpen(false);setDraftsOpen(false);setOutboxOpen(false);};
+    const openMessage=(item:MailMessageView|undefined,action?:MailReaderAction)=>{const generation=++openGeneration.current;readerFocus.current=null;setReaderAction(item&&action?{generation,item,action,client}:undefined);if(!item){setSelected(undefined);return;}setSelected(item);void markOpened(item);setCompose(undefined);setFilingOpen(false);setDraftsOpen(false);setOutboxOpen(false);};
+    const focusOpenedReader=(element:HTMLElement,item:MailMessageView,active:boolean)=>{const pending=readerFocus.current;if(!pending||!active||pending.signal.aborted||pending.generation!==openGeneration.current||pending.accountId!==item.accountId||pending.key!==item.key)return;readerFocus.current=null;element.focus();};
 
     const [error, setError] = useState('');
     const [locked, setLocked] = useState(true);
@@ -114,7 +116,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
         const message=await client.readLocator(target.accountId,target.locator,controller.signal);if(message.removed)throw Error('Source removed');
         if(source.success){let after:string|undefined,found=false;for(let page=0;page<20;page++){const parts=await client.parts(message,controller.signal,after);if(parts.items.some(part=>part.kind==='attachment'&&part.referenceId===source.data.referenceId&&part.sha256===source.data.sha256&&part.bytesAvailable)){found=true;break;}after=parts.nextCursor??undefined;if(!after)break;}if(!found)throw Error('Source changed');}
         if(controller.signal.aborted)return;notificationOpened.current=raw;openMessage(message);setError('');setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);
-        requestAnimationFrame(()=>{if(!controller.signal.aborted)document.getElementById('mail-print-root')?.focus();});
+        readerFocus.current={generation:openGeneration.current,accountId:message.accountId,key:message.key,signal:controller.signal};
       })().catch(()=>{if(!controller.signal.aborted)setError('The source email is unavailable or changed. The copied workspace file remains available. Review the account connection in Settings.');});return()=>controller.abort();
     },[client,locked,location.state]);
     useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);}},[locked]);
@@ -130,7 +132,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const messageRequest = useRef(0);
     const pager = useRef<UnifiedMailPages | undefined>(undefined);
     const request = useRef(new AbortController());
-    const purge = () => { openGeneration.current++;setReaderAction(undefined); setEnqueued([]);messageRequest.current++; request.current.abort(); request.current = new AbortController(); pager.current = undefined; listWindow.current.reset();setNewerAvailable(false);setItems([]); setSelected(undefined); setSync(undefined); setMore(false); };
+    const purge = () => { readerFocus.current=null;openGeneration.current++;setReaderAction(undefined); setEnqueued([]);messageRequest.current++; request.current.abort(); request.current = new AbortController(); pager.current = undefined; listWindow.current.reset();setNewerAvailable(false);setItems([]); setSelected(undefined); setSync(undefined); setMore(false); };
     useEffect(() => {
         const controller = new AbortController();
         void resolveLegalworkConnection().then(connection => {
@@ -308,7 +310,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const openCompose=(value:ComposeSelection)=>{if(!compose)composeOrigin.current=draftsOpen?'drafts':outboxOpen?'outbox':null;openGeneration.current++;setReaderAction(undefined);if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
     const workView=draftsOpen||outboxOpen||!!compose&&composeOrigin.current!==null;
     const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer returnTo={composeOrigin.current??undefined} key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox onOpen={openCompose} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailConversation grouped={!searching} key={conversationId(selected)+String(searching)} client={client} item={selected} onOpen={openMessage} onInitialOpen={markOpened} entries={actionEntries} render={(message,active,onRemoved)=><MailReader onRemoved={onRemoved} client={client} item={message} active={active} chatBridge={chatBridge}
-      onCompose={value=>{if(openGeneration.current===renderGeneration&&(!readerAction||matchesReaderTarget(readerAction.item)))openCompose(value);}} account={accounts.find(value=>value.id===message.accountId)?.displayName??message.accountId}
+      onReady={element=>focusOpenedReader(element,message,active)} onCompose={value=>{if(openGeneration.current===renderGeneration&&(!readerAction||matchesReaderTarget(readerAction.item)))openCompose(value);}} account={accounts.find(value=>value.id===message.accountId)?.displayName??message.accountId}
       onUnavailable={()=>{purge();setError('Mail access changed. Please refresh.');}}
       onThread={()=>{setSearching(false);setAccount(message.accountId);setThread(message.threadId??undefined);}}/>}/>
       : <PanelEmptyState icon={<Mail/>} title="Select a message"/>;
@@ -376,7 +378,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     );
 }
 
-function MailReader({ active=true, chatBridge, client, item:observedItem, account, onThread, onUnavailable, onRemoved, onCompose }: {
+function MailReader({ active=true, chatBridge, client, item:observedItem, account, onThread, onUnavailable, onRemoved, onCompose, onReady }: {
     active?:boolean;
     chatBridge?:MailChatBridge;
     client: MailClient;
@@ -386,6 +388,7 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
     onUnavailable: () => void;
     onRemoved: () => void;
     onCompose:(value:ComposeSelection)=>void;
+    onReady:(element:HTMLElement)=>void;
 }) {
     const [contentItem,setContentItem]=useState(observedItem),[contentRevision,setContentRevision]=useState(0);
     const item:MailMessageView={...observedItem,rawReferenceId:contentItem.rawReferenceId,contentState:contentItem.contentState};
@@ -516,7 +519,7 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
       if(!signal.aborted)onCompose({account:item.accountId,id:crypto.randomUUID(),version:null,content});
     }catch(error){setError(textError(error));}finally{setBusy(false);}}
     return (
-      <article id={active?"mail-print-root":undefined} className="mail-message" data-mail-identity={JSON.stringify([item.accountId,item.locator])} tabIndex={-1}>
+      <article ref={element=>{if(element)onReady(element);}} id={active?"mail-print-root":undefined} className="mail-message" data-mail-identity={JSON.stringify([item.accountId,item.locator])} tabIndex={-1}>
         <style>{`@media print{body *{visibility:hidden}#mail-print-root,#mail-print-root *{visibility:visible}#mail-print-root{position:absolute;inset:0;overflow:visible}#mail-print-root button,#mail-print-root iframe,#mail-print-root .mail-message-actions,#mail-print-root .mail-attachments,#mail-print-root>section,#mail-print-content>:not(.mail-print-copy){display:none}#mail-print-root .mail-print-copy{display:block!important;white-space:pre-wrap}}`}</style>
         {active&&<div className="mail-message-actions">
           <Button variant="ghost" size="icon-sm" {...mailShortcutProps('reply','Reply')} aria-label="Reply" disabled={busy||!bodies.length||item.locator.provider==='archive'} onClick={()=>void composeMessage('reply')}><Reply size={15}/></Button>

@@ -12,7 +12,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Question | Read |
 | --- | --- |
 | Personal Assistant, proactive updates, scratchpad, morning briefings, daily chats or custom instructions | [assistant.md](references/assistant.md) |
-| Email reader, Mail keyboard shortcuts or search from Drafts/Outbox, meeting invitations, ICS previews or reviewed invitation replies, shared Integrations accounts, retained local copies or account migration, Inbox, Drafts, Outbox, iCloud or IMAP/SMTP, Gmail or Outlook, direct Microsoft sign-in, or an OAuth app override | [email.md](references/email.md) |
+| Email reader, desktop mail notifications, Mail keyboard shortcuts or search from Drafts/Outbox, meeting invitations, ICS previews or reviewed invitation replies, shared Integrations accounts, retained local copies or account migration, Inbox, Drafts, Outbox, iCloud or IMAP/SMTP, Gmail or Outlook, direct Microsoft sign-in, or an OAuth app override | [email.md](references/email.md) |
 | S/MIME, signed or encrypted email, signature/certificate verification, unavailable decryption keys, RPMSG or Microsoft protected-mail limitations | [email.md](references/email.md) |
 | Fastmail, native JMAP availability, on-premises Exchange, EWS or IMAP/SMTP protocol limitations | [email.md](references/email.md) |
 | Proton Mail Bridge availability, paid-plan or installed-Bridge prerequisites, local certificates or Bridge qualification limits | [email.md](references/email.md) |
