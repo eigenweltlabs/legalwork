@@ -1,3 +1,4 @@
+import { MailProjectError, mailProjectErrorSchema } from '../../../../../server/src/mail/project-association-view';
 import {mailTimeSchema} from '../../../../../server/src/mail/scheduling-view';
 import { mailDiagnosticsSchema } from '../../../../../server/src/mail/diagnostics-view';
 import {MailSnoozeError,mailSnoozeErrorSchema} from '../../../../../server/src/mail/snooze-view';
@@ -44,6 +45,7 @@ export class MailClient {
         if (!response.ok) {
             const failure = z.object({ error: z.object({ code: z.string() }).optional(), code: z.string().optional() }).safeParse(await response.clone().json().catch(() => null));
             const code = failure.success ? failure.data.error?.code ?? failure.data.code : undefined;
+            if(code?.startsWith('mail_project_')){const parsed=mailProjectErrorSchema.safeParse(code.slice('mail_project_'.length));if(parsed.success)throw new MailProjectError(parsed.data);}
             if(code?.startsWith('mail_snooze_')){const parsed=mailSnoozeErrorSchema.safeParse(code.slice('mail_snooze_'.length));if(parsed.success)throw new MailSnoozeError(parsed.data);}
             if (code?.startsWith('mail_invitation_')) { const parsed = invitationReplyErrorSchema.safeParse(code.slice('mail_invitation_'.length)); if (parsed.success) throw new MailRequestError(response.status, 'Invitation reply unavailable.', parsed.data); }
             if(response.status===409){const value=await response.clone().json().catch(()=>null);const parsed=outboxErrorSchema.safeParse(typeof value?.error?.code==='string'?value.error.code.replace(/^mail_outbox_/,''):typeof value?.code==='string'?value.code.replace(/^mail_outbox_/,''):'');if(parsed.success)throw Error(outboxErrors[parsed.data]);}
@@ -52,7 +54,7 @@ export class MailClient {
         return schema.parse(await response.json());
     }
     changeCursor(accountId:string,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/events/query`,z.object({stream:z.string(),nextCursor:z.number()}),signal,{cursorOnly:true});}
-    status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal); }
+    status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string(), projectAssociations: z.boolean().optional(), accountRevision: z.number().int().nonnegative().optional() }), signal); }
     diagnostics(signal: AbortSignal) { return this.request('/diagnostics', mailDiagnosticsSchema, signal); }
     unlock(signal: AbortSignal) { return this.request('/unlock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }
     lock(signal: AbortSignal) { return this.request('/lock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }

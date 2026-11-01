@@ -1,3 +1,5 @@
+import { MailProjectAssociations } from '../storage/project-associations.js';
+import { MailProjectError } from '../project-association-view.js';
 import {MailRulesStore} from '../storage/rules.js';
 import { collectMailDiagnostics } from '../storage/diagnostics.js';
 import {MailRulesRunner} from './rules-runner.js';
@@ -292,6 +294,9 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.rules.read':result={rules:new MailRulesStore(database,ownerId).read(command.accountId)};break;
       case 'mail.rules.save':result={rules:new MailRulesStore(database,ownerId).save(command.accountId,command.input)};break;
       case 'mail.rules.delete':result={rules:new MailRulesStore(database,ownerId).delete(command.accountId,command.input)};break;
+      case 'mail.project.read':result={projectAssociation:new MailProjectAssociations(database,ownerId).read(command.accountId,command.input.locator)};break;
+      case 'mail.project.set':result={projectAssociation:new MailProjectAssociations(database,ownerId).set(command.accountId,command.input)};break;
+      case 'mail.project.history':result={projectHistory:new MailProjectAssociations(database,ownerId).history(command.accountId,command.input)};break;
       case 'mail.snooze.read':result={snooze:new MailSnoozeStore(database,ownerId).read(command.accountId,command.input.locator)};break;
       case 'mail.snooze.set':result={snooze:new MailSnoozeStore(database,ownerId).set(command.accountId,command.input)};break;
       case "mail.agent.control":{
@@ -551,6 +556,13 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         }
       }
     }
+    if(result&&'projectHistory' in result){
+      const page=result.projectHistory;
+      while(page.items.length&&Buffer.byteLength(JSON.stringify({kind:'response',id:message.id,ok:true,result}))>MAX_WORKER_MESSAGE_BYTES){
+        page.items.pop();page.nextRevision=page.items.at(-1)?.version.revision??null;
+        if(!page.items.length){result=undefined;break;}
+      }
+    }
     if (isClosing()) return;
     if (!result || Buffer.byteLength(JSON.stringify({ kind: "response", id: message.id, ok: true, result })) > MAX_WORKER_MESSAGE_BYTES) {
       write({ kind: "response", id: message.id, ok: false, code: "response_too_large" }); return;
@@ -559,6 +571,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   } catch (error) {
     if(error instanceof MailRetentionError&&!isClosing()){write({kind:'response',id:message.id,ok:true,result:{retentionFailure:error.code}});return;}
     if(error instanceof MailRulesError&&!isClosing()&&command.operation.startsWith('mail.rules.')){write({kind:'response',id:message.id,ok:true,result:{rulesFailure:error.code}});return;}
+    if(error instanceof MailProjectError&&!isClosing()&&command.operation.startsWith('mail.project.')){write({kind:'response',id:message.id,ok:true,result:{projectFailure:error.code}});return;}
     if(error instanceof MailSnoozeError&&!isClosing()&&command.operation.startsWith('mail.snooze.')){write({kind:'response',id:message.id,ok:true,result:{snoozeFailure:error.code}});return;}
     if(error instanceof OutboxError&&!isClosing()&&(command.operation.startsWith('mail.outbox.')||command.operation.startsWith('mail.smtp.'))){write({kind:'response',id:message.id,ok:true,result:{outboxFailure:error.code}});return;}
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.

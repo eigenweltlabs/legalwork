@@ -28,6 +28,18 @@ Old queued submissions are not sent automatically after migration. Review a fail
 
 If the old account cannot be verified, its data and reconnect controls remain available. Reconnect that retained account to prove its identity, and connect the same mailbox in Integrations. Different identities remain separate. Provider discovery and verification run in the background; retained local mail can open while they are unavailable.
 
+## Assign an email to a project
+
+Open a message in **Email** and select **Project** below its sender. Choose a project, then **Save**. Use **More projects** to continue through the project list. The selected project name appears on the message. Each message has its own assignment, including messages within the same conversation.
+
+To correct an assignment, select its project name, choose another project or **No project**, then **Save**. **Assignment history** lists saved changes; use **Earlier changes** for older entries. If the project changed while you were editing, reopen **Email project** and review the current assignment before saving again.
+
+This assignment stays in your encrypted local Email store. It does not copy the email or attachments into the project, share mailbox access with project members, change provider folders, or file a copy into a connected LegalMemory matter. Imported and retained mail can have a local assignment too. A read-only LegalWork server cannot change assignments.
+
+Only available project folders within this server's authorized roots can be selected. Shared projects also require the signed-in account's current locally known membership. Removed, replaced or inaccessible projects appear as **Project unavailable**, including in history. You can clear the assignment or choose another available project. A backup restore preserves assignments and invalidates edits opened before the restore.
+
+Automatic incoming-email classification and project-scoped Email search are not available yet. Project assignment does not run a model. Global search's **Email** tab continues to use its mail-account scope.
+
 ## Download status and local privacy
 
 In **Settings > Mail accounts > Accounts**, inspect the account's sync progress and errors. Message discovery, saved original bytes, readable bodies, attachments and search indexing are separate steps. A message header or attachment filename alone does not mean its content is saved. Mail you have never opened still needs its accessible original and attachment bytes downloaded for complete offline use. Pending work, unavailable originals, protected content and excluded provider scopes must be accounted for; a search index is not proof of a complete mailbox.

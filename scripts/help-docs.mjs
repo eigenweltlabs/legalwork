@@ -111,6 +111,7 @@ export function generateHelpScreens(root = repoRoot) {
       { id: "global-search", guide: "workspaces-chats.md", source: "apps/app/src/react-app/shell/command-palette.tsx" },
       { id: "global-search-email", guide: "email.md", source: "apps/app/src/react-app/shell/command-palette.tsx" },
       { id: "mail-insert-link", guide: "email.md", source: "apps/app/src/react-app/domains/mail/mail-formatting-toolbar.tsx" },
+      { id: "mail-project", guide: "email.md", source: "apps/app/src/react-app/domains/mail/mail-project.tsx" },
     ],
     routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({

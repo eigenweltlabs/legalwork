@@ -29,6 +29,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Search: Email tab | Search downloaded email by account and open the matching message from the global app search | [Global Email search](email.md#search-from-anywhere-in-the-app) |
 | Email: Schedule send / Reschedule send | Choose an instant and time zone, resolve repeated clock times, review local execution and change a queued send | [Scheduled email](email.md#schedule-a-message) |
 | Email: Text formatting / Insert link | Format document-style messages, add a safe web link or switch to plain text | [Email](email.md) |
+| Email: Email project | Assign an individual message to a local project, correct or clear its assignment and read assignment history | [Email project assignments](email.md#assign-an-email-to-a-project) |
 | Email: Snoozed / Snooze | Hide a conversation from this client's Inbox and unread count until a chosen time, inspect return dates or end a snooze | [Snoozed email](email.md#snooze-a-conversation) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 

@@ -1,3 +1,4 @@
+import type { MailProjectCommand, MailProjectAssociation, MailProjectHistory } from './project-association-view.js';
 import type {MailRules,MailRuleSave,MailRuleDelete} from './rules-view.js';
 import type {MailSnooze,MailSnoozeSet} from './snooze-view.js';
 import {type ContactsInput,type ContactsResult} from './contacts-view.js';
@@ -34,6 +35,7 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  projectAssociation?(command:MailProjectCommand):Promise<{projectAssociation:MailProjectAssociation}|{projectHistory:MailProjectHistory}>;
   diagnostics?(): Promise<import('./diagnostics-view.js').MailDiagnostics>;
   /** Host-only RSVP dispatch journal. Never exposed as a general HTTP operation. */
   invitationJournal?(accountId: string, input: import('./invitation-reply-view.js').InvitationReplyJournalInput): Promise<import('./invitation-reply-view.js').InvitationReplyJournalResult>;

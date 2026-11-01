@@ -1,3 +1,5 @@
+import { registerMailProjectRoutes } from './routes/mail-projects.js';
+import { mailProjectDestinations } from './mail/project-destinations.js';
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { browserPasswords } from "./browser-passwords.js";
@@ -978,6 +980,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
   registerMailRoutes(routes, config.host, runtimeOptions.mail);
+  registerMailProjectRoutes({ routes, host: config.host, mail: runtimeOptions.mail, ensureWritable: () => ensureWritable(config), ...mailProjectDestinations(config) });
   const mailInvitationReplies = registerMailInvitationReplyRoutes(routes, config, runtimeOptions.mail);
   const mailIntegrations = runtimeOptions.mail?.configureIntegrations && (config.host === "127.0.0.1" || config.host === "::1") ? new MailIntegrationProxy(config) : undefined;
   if (mailIntegrations) addRoute(routes, "POST", "/mail/internal/integrations/request", "none", ctx => mailIntegrations.handle(ctx.request));

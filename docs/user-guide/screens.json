@@ -27,6 +27,11 @@
       "id": "mail-insert-link",
       "guide": "email.md",
       "source": "apps/app/src/react-app/domains/mail/mail-formatting-toolbar.tsx"
+    },
+    {
+      "id": "mail-project",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/mail/mail-project.tsx"
     }
   ],
   "routes": [

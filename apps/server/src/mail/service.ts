@@ -1,3 +1,4 @@
+import { MailProjectError, type MailProjectCommand } from './project-association-view.js';
 import {MailRulesError,type MailRuleSave,type MailRuleDelete} from './rules-view.js';
 import { mailDiagnosticsSchema, type MailDiagnostics, type MailDiagnosticSnapshot } from './diagnostics-view.js';
 import {MailSnoozeError,type MailSnooze,type MailSnoozeSet} from './snooze-view.js';
@@ -132,6 +133,7 @@ export class LocalMailService implements MailService {
   readRules(accountId:string){return this.rulesRequest({operation:'mail.rules.read',accountId,input:{}});}
   saveRule(accountId:string,input:MailRuleSave){return this.rulesRequest({operation:'mail.rules.save',accountId,input});}
   deleteRule(accountId:string,input:MailRuleDelete){return this.rulesRequest({operation:'mail.rules.delete',accountId,input});}
+  async projectAssociation(command:MailProjectCommand){const result=await this.request(command);if('projectFailure' in result)throw new MailProjectError(result.projectFailure);if(!('projectAssociation' in result)&&!('projectHistory' in result))throw new MailServiceError('unavailable');return result;}
   async readSnooze(accountId:string,locator:ProviderMessageLocator){if(locator.provider==='archive')throw new MailSnoozeError('unavailable');const result=await this.request({operation:'mail.snooze.read',accountId,input:{locator}});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
   async setSnooze(accountId:string,input:MailSnoozeSet){const result=await this.request({operation:'mail.snooze.set',accountId,input});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
   async outboxRead(accountId:string,input:{actionId:string}){const result=await this.request({operation:'mail.outbox.read',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxDetail' in result))throw new MailServiceError('unavailable');return result.outboxDetail;}

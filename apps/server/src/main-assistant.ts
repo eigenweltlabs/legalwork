@@ -9,8 +9,8 @@ import { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, AssistantResourceSch
 import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantResource } from "@legalwork/types/main-assistant";
 import { hasAssistantInteraction } from "./assistant-onboarding.js";
 
-export const MAIN_ASSISTANT_PRESET = "main-assistant";
-export const isMainAssistant = (workspace: { preset?: string }) => workspace.preset === MAIN_ASSISTANT_PRESET;
+import { MAIN_ASSISTANT_PRESET, isMainAssistant } from './main-assistant-identity.js';
+export { MAIN_ASSISTANT_PRESET, isMainAssistant } from './main-assistant-identity.js';
 
 /** Calendar days follow the device, including DST and changes to its time zone. */
 export function assistantDate(now = new Date()) {

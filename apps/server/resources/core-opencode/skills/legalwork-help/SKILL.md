@@ -18,6 +18,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Proton Mail Bridge availability, paid-plan or installed-Bridge prerequisites, local certificates or Bridge qualification limits | [email.md](references/email.md) |
 | Global Search Email tab, Cmd/Ctrl+K email results, lexical versus semantic email search, embedding availability, cross-matter retrieval or account/matter search permissions | [email.md](references/email.md) |
 | Email document editing, text formatting, bulleted or numbered lists, quotes, Insert link, Remove link, Undo or plain-text drafts | [email.md](references/email.md) |
+| Email project assignments, No project, Assignment history, inaccessible destinations or automatic email classification availability | [email.md](references/email.md) |
 | Mail diagnostics, safe mail support export, queued/uncertain action counts or local download incident reports | [email.md](references/email.md) |
 | Workflows, Review prompts, Skills tab, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
 | Calendar, shared Outlook calendar consent or delegate permissions, Calendar write access, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |

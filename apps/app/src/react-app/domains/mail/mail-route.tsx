@@ -24,6 +24,7 @@ import {uploadComposeFile} from "./mail-compose-client";
 import { mailDocxText } from "../session/artifacts/mail-docx-source";
 import { mailPreviewType, openMailPreview } from "../session/artifacts/mail-preview-source";
 import {MailSearch} from './mail-search';
+import { MailProjectControl } from './mail-project';
 /** @jsxImportSource react */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SendHorizontal, Flag, Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, FolderPlus, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward, Clock } from 'lucide-react';
@@ -69,6 +70,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const searching = Boolean(searchQuery.trim() || savedSearchName);
     const setSearching = (value: boolean) => { if (!value) { setSearchQuery(''); setSavedSearchName(''); } };
     const [client, setClient] = useState<MailClient>();
+    const [projectAssociations,setProjectAssociations]=useState(false);
     const [accounts, setAccounts] = useState<MailAccountView[]>([]);
     const [account, setAccount] = useState('');
     const [folders, setFolders] = useState<MailFolderView[]>([]);
@@ -157,6 +159,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     useEffect(() => { if (!client)
         return; const controller = new AbortController(); void (async () => { try {
         let status = await client.status(controller.signal);
+        const projectsAvailable=status.projectAssociations===true;
         if (status.state !== 'ready') status = await client.unlock(controller.signal);
         if (status.state !== 'ready') throw Error('Mail could not be opened. Please retry.');
         accountRevision.current = status.accountRevision;
@@ -171,7 +174,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
                 throw Error('Too many accounts for this reader.');
         } while (next);
         if (!controller.signal.aborted) {
-            setAccounts(result); setLocked(false);
+            setAccounts(result); setProjectAssociations(projectsAvailable); setLocked(false);
         }
     }
     catch (error) {
@@ -320,7 +323,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const closeCompose=()=>{const origin=composeOrigin.current;pendingComposeFocus.current={origin,target:composeReturn.current};setCompose(undefined);if(origin==='drafts')setDraftsOpen(true);if(origin==='outbox')setOutboxOpen(true);};
     const openCompose=(value:ComposeSelection)=>{pendingComposeFocus.current=null;if(!compose)composeOrigin.current=draftsOpen?'drafts':outboxOpen?'outbox':null;openGeneration.current++;setReaderAction(undefined);if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
     const workView=draftsOpen||outboxOpen||!!compose&&composeOrigin.current!==null;
-    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer returnTo={composeOrigin.current??undefined} key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox onOpen={openCompose} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailConversation grouped={!searching} key={conversationId(selected)+String(searching)} client={client} item={selected} onOpen={openMessage} onInitialOpen={markOpened} entries={actionEntries} render={(message,active,onRemoved)=><MailReader onRemoved={onRemoved} client={client} item={message} active={active} chatBridge={chatBridge}
+    const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer returnTo={composeOrigin.current??undefined} key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox onOpen={openCompose} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailConversation grouped={!searching} key={conversationId(selected)+String(searching)} client={client} item={selected} onOpen={openMessage} onInitialOpen={markOpened} entries={actionEntries} render={(message,active,onRemoved)=><MailReader projectAssociations={projectAssociations} onRemoved={onRemoved} client={client} item={message} active={active} chatBridge={chatBridge}
       onReady={element=>focusOpenedReader(element,message,active)} onCompose={value=>{if(openGeneration.current===renderGeneration&&(!readerAction||matchesReaderTarget(readerAction.item)))openCompose(value);}} account={accounts.find(value=>value.id===message.accountId)?.displayName??message.accountId}
       onUnavailable={()=>{purge();setError('Mail access changed. Please refresh.');}}
       onThread={()=>{setSearching(false);setAccount(message.accountId);setThread(message.threadId??undefined);}}/>}/>
@@ -389,8 +392,9 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     );
 }
 
-function MailReader({ active=true, chatBridge, client, item:observedItem, account, onThread, onUnavailable, onRemoved, onCompose, onReady }: {
+function MailReader({ active=true, projectAssociations=false, chatBridge, client, item:observedItem, account, onThread, onUnavailable, onRemoved, onCompose, onReady }: {
     active?:boolean;
+    projectAssociations?:boolean;
     chatBridge?:MailChatBridge;
     client: MailClient;
     item: MailMessageView;
@@ -546,6 +550,7 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
         <header className="mail-message-header" title={`Account: ${account}`}>
           <h2>{item.subject || '(No subject)'}</h2>
           <div className="mail-correspondent"><span className="mail-avatar">{senderName(item.metadata?.from).slice(0, 1).toUpperCase()}</span><div><p>{item.metadata?.from ?? 'Sender not downloaded'}</p><small>To: {item.metadata?.to ?? 'Not downloaded'}</small></div><time>{shortDate(item.receivedAt)}</time></div>
+          {active&&projectAssociations&&<MailProjectControl key={JSON.stringify([item.accountId,item.locator])} client={client} item={item}/>}
           {item.contentState !== 'complete' && <p className="mail-content-warning"><CircleAlert size={13}/>Download incomplete</p>}
         </header>
         {validationError&&<p role="status" className="mail-validation-notice">{validationError}</p>}{error && <Alert variant="destructive" role="alert" className="my-3">{error}</Alert>}{busy && <p role="status" className="mail-loading">Opening message…</p>}
