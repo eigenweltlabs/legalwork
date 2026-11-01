@@ -336,6 +336,10 @@ jobs:
 
       - name: Run app unit tests
         if: needs.changes.outputs.app == 'true'
+        env:
+          MAIL_OUTBOX_EVIDENCE: ${{ runner.temp }}/mail-ui/outbox
+          MAIL_JOURNEY_EVIDENCE: ${{ runner.temp }}/mail-ui/attachments
+          MAIL_CONTEXT_EVIDENCE: ${{ runner.temp }}/mail-ui/context
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
@@ -343,6 +347,15 @@ jobs:
           else
             pnpm --filter @legalwork/app test
           fi
+
+      - name: Upload synthetic mail UI evidence
+        if: always() && needs.changes.outputs.app == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-ui-${{ runner.os }}
+          path: ${{ runner.temp }}/mail-ui
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Build UI for unsaved-change Electron checks
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
