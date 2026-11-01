@@ -1,79 +1,180 @@
-name: Mail final platform qualification (non-release)
+name: EIG-141 single Windows reference benchmark
 on:
-  # Run after all mail tickets are complete; ticket work uses feature-specific tests.
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact PR source commit with successful CI
+        required: true
+        type: string
+      source_run_id:
+        description: Completed successful LegalWork Tests run for that source
+        required: true
+        type: string
+      engine_manifest_sha256:
+        description: Independent engine digest from the verified source CI consumers
+        required: true
+        type: string
 permissions:
   contents: read
+  actions: read
 concurrency:
-  group: mail-platform-${{ github.ref }}
-  cancel-in-progress: true
+  group: eig141-reference-single
+  cancel-in-progress: false
 jobs:
-  qualify:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            arch: arm64
-            application: apps/desktop/dist-electron/mac-arm64/LegalWork.app
-          - os: macos-15-intel
-            arch: x64
-            application: apps/desktop/dist-electron/mac/LegalWork.app
-          - os: windows-2022
-            arch: x64
-            application: apps/desktop/dist-electron/win-unpacked
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+  reference:
+    runs-on: windows-2022
+    timeout-minutes: 350
     env:
-      MAIL_EXPECT_ARCH: ${{ matrix.arch }}
+      NODE_OPTIONS: --max-old-space-size=6144
+      MAIL_REFERENCE_SOURCE_COMMIT: ${{ inputs.source_commit }}
+      MAIL_REFERENCE_SOURCE_RUN: ${{ inputs.source_run_id }}
+      MAIL_REFERENCE_ENGINE_SHA256: ${{ inputs.engine_manifest_sha256 }}
+      LEGALWORK_MAIL_BENCH_KEEP_PROFILE: '1'
+      LEGALWORK_MAIL_BENCH_OWNER: desktop-local
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_commit }}
+      - name: Verify completed source CI before qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {execFileSync} from 'node:child_process';
+          import {mkdir,writeFile} from 'node:fs/promises';
+          const commit=process.env.MAIL_REFERENCE_SOURCE_COMMIT, run=process.env.MAIL_REFERENCE_SOURCE_RUN, digest=process.env.MAIL_REFERENCE_ENGINE_SHA256;
+          assert.match(commit,/^[a-f0-9]{40}$/);assert.match(run,/^[0-9]+$/);assert.match(digest,/^[a-f0-9]{64}$/);
+          assert.equal(execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),commit);
+          const response=await fetch('https://api.github.com/repos/eigenweltlabs/legalwork/actions/runs/'+run,{headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'}});
+          assert(response.ok,'Source CI lookup failed: '+response.status);const result=await response.json();
+          assert.equal(result.head_sha,commit);assert.equal(result.head_repository.full_name,'eigenweltlabs/legalwork');
+          assert.equal(result.path,'.github/workflows/ci-tests.yml');assert.equal(result.event,'pull_request');
+          assert.equal(result.status,'completed');assert.equal(result.conclusion,'success');
+          await mkdir('benchmark-evidence',{recursive:true});
+          await writeFile('benchmark-evidence/source-identity.json',JSON.stringify({productCommit:commit,sourceRunId:run,engineManifestSha256:digest,workflowCommit:process.env.GITHUB_SHA,syntheticOnly:true,rendererCommitField:'The raw renderer report commit field records the workflow event commit; product checkout is pinned above.'},null,2));
+          NODE
+      - name: Record actual reference candidate and disk headroom
+        shell: pwsh
+        run: |
+          $mailMachine = Get-CimInstance Win32_ComputerSystem
+          $mailProcessors = Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors
+          $mailVolume = Get-Volume -DriveLetter ([IO.Path]::GetPathRoot($env:RUNNER_TEMP).Substring(0,1))
+          $mailRam = [uint64]$mailMachine.TotalPhysicalMemory
+          if ($mailRam -lt 15GB -or $mailRam -gt 17GB) { throw "Reference candidate RAM outside 16GiB tolerance: $mailRam" }
+          if ($mailVolume.SizeRemaining -lt 10GB) { throw 'Need at least 10GiB free on corpus volume' }
+          @{ ramBytes=$mailRam; cpu=$mailProcessors; filesystem=$mailVolume.FileSystem; freeBytes=$mailVolume.SizeRemaining; disk=(Get-PhysicalDisk | Select-Object FriendlyName,MediaType,BusType,Size); runner='windows-2022'; sourceCommit=$env:MAIL_REFERENCE_SOURCE_COMMIT; workflowCommit=$env:GITHUB_SHA; cache='OS filesystem cache retained; no OS-cold qualification'; syntheticOnly=$true } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8NoBOM benchmark-evidence/hardware.json
       - uses: actions/setup-node@v6
         with:
-          node-version: '24.11.0'
-          architecture: ${{ matrix.arch }}
+          node-version: 24.22.1
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.3.9'
+          bun-version: 1.4.4
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Actual Electron vault, ACL, cipher and recovery
-        run: node scripts/mail/qualification-step.mjs vault node scripts/mail/platform-qualification.mjs
-      - name: Actual Node mail acceptance
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs native node apps/server/scripts/mail-acceptance.mjs
-      - name: Actual loopback HTTP mail APIs
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs http bun test apps/server/src/mail/routes.e2e.test.ts apps/server/src/mail/search.e2e.test.ts apps/server/src/mail/local.e2e.test.ts
-      - name: Normal shared app tests
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs app pnpm --filter @legalwork/app test
-      - name: Normal desktop tests
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs desktop pnpm --filter @legalwork/desktop test
-      - name: Additional mail desktop boundaries
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs desktop-mail node scripts/mail/desktop-qualification-tests.mjs
-      - name: Build complete desktop package without publication
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs build pnpm --dir apps/desktop run package:electron:dir --publish never
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - uses: ./.github/actions/setup-opencode
+        with:
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ inputs.engine_manifest_sha256 }}
+          build-mode: development
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          name: sandbox-runtime-win32-x64
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack and verify tested protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          mail_runtime_archive="$(cygpath -u "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz")"
+          tar -xzf "$mail_runtime_archive" -C apps/server/resources/agent-sandbox/runtime
+          node scripts/sandbox/verify-runtime.mjs
+      - name: Build actual desktop main, embedded server and complete React application
         env:
-          NODE_OPTIONS: '--max-old-space-size=4096'
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          MACOS_NOTARIZE: 'false'
-          LEGALWORK_COMPUTER_USE_SIGN_IDENTITY: '-'
-          LEGALWORK_COMPUTER_USE_CODESIGN_IDENTITY: '-'
-      - name: Verify mail from the built application
-        if: ${{ !cancelled() }}
-        run: node scripts/mail/qualification-step.mjs packaged node scripts/mail/verify-built-application.mjs "${{ matrix.application }}"
-      - name: Archive bounded source-stamped qualification evidence
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm --filter @legalwork/desktop build:electron
+      - name: Validate dependency-link harness
+        run: node --test scripts/mail/link-test-modules.test.mjs
+      - name: Tiny synthetic harness and full app smoke before expensive generation
+        timeout-minutes: 12
+        shell: pwsh
+        run: |
+          node apps/server/scripts/mail-benchmark.mjs 100 "$PWD/benchmark-evidence/smoke.json" 2>&1 | Tee-Object benchmark-evidence/smoke.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --input-type=module -e "import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';const report=JSON.parse(await readFile('benchmark-evidence/smoke.json','utf8'));assert.equal(report.corpus.count,100);assert(report.memory.workerPeakRssBytes>0);assert(report.coldProcessQueries.length>0);assert(report.quality.every(item=>Number.isFinite(item.latencyMs.p95)&&item.expected===item.actual&&item.pending===0));"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $mailSmokeLine = Select-String -Path benchmark-evidence/smoke.log -Pattern '^Retained isolated synthetic profile: ' | Select-Object -Last 1
+          if (!$mailSmokeLine) { throw 'Missing synthetic smoke profile' }
+          $mailSmokeProfile = $mailSmokeLine.Line.Substring('Retained isolated synthetic profile: '.Length)
+          node scripts/mail/run-renderer-benchmark.mjs "$mailSmokeProfile" "$PWD/benchmark-evidence/smoke-renderer.json"
+          $mailSmokeResult = $LASTEXITCODE
+          Remove-Item -LiteralPath $mailSmokeProfile -Recurse -Force
+          if ($mailSmokeResult -ne 0) { exit $mailSmokeResult }
+      - name: Exactly one fresh deterministic 100000-message baseline
+        timeout-minutes: 300
+        shell: pwsh
+        run: |
+          $mailCorpusVolume = Get-Volume -DriveLetter ([IO.Path]::GetPathRoot($env:RUNNER_TEMP).Substring(0,1))
+          if ($mailCorpusVolume.SizeRemaining -lt 10GB) { throw 'Need at least 10GiB free before generating the corpus' }
+          node apps/server/scripts/mail-benchmark.mjs 100000 "$PWD/benchmark-evidence/baseline.json" 2>&1 | Tee-Object benchmark-evidence/baseline.log
+          $mailBaselineResult = $LASTEXITCODE
+          $mailBaselineLine = Select-String -Path benchmark-evidence/baseline.log -Pattern '^Retained isolated synthetic profile: ' | Select-Object -Last 1
+          if ($mailBaselineLine) { "EIG141_PROFILE=$($mailBaselineLine.Line.Substring('Retained isolated synthetic profile: '.Length))" >> $env:GITHUB_ENV }
+          if ($mailBaselineResult -ne 0) { exit $mailBaselineResult }
+          if (!$mailBaselineLine) { throw 'Successful baseline did not retain its synthetic profile' }
+      - name: Full built app with the same corpus, steady and background reindex
+        timeout-minutes: 22
+        run: node scripts/mail/run-renderer-benchmark.mjs "$env:EIG141_PROFILE" "$PWD/benchmark-evidence/renderer.json"
+      - name: Verify every original and export reusable synthetic corpus
+        if: ${{ !cancelled() && env.EIG141_PROFILE != '' }}
+        timeout-minutes: 10
+        run: node apps/server/scripts/mail-benchmark.mjs --export "$env:EIG141_PROFILE" "$PWD/benchmark-corpus"
+      - name: Evaluate measured reference targets
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFile,writeFile} from 'node:fs/promises';
+          import {createHash} from 'node:crypto';
+          const baselineBytes=await readFile('benchmark-evidence/baseline.json'), rendererBytes=await readFile('benchmark-evidence/renderer.json');
+          const baseline=JSON.parse(baselineBytes),renderer=JSON.parse(rendererBytes);
+          assert.equal(baseline.corpus.count,100000);assert.equal(renderer.count,100000);
+          assert.equal(renderer.corpusSha256,baseline.corpus.sha256);assert.equal(renderer.sourceSha256,baseline.sourceSha256);
+          assert(baseline.quality.every(query=>query.expected===query.actual&&query.pending===0));
+          const warm=baseline.warmQueryMs.p95,cold=Math.max(...baseline.coldProcessQueries.map(query=>query.ms)),rss=baseline.memory.workerPeakRssBytes;
+          for(const metric of [warm,cold,rss])assert(Number.isFinite(metric)&&metric>0,'Missing measured target');
+          const summary={productCommit:process.env.MAIL_REFERENCE_SOURCE_COMMIT,sourceRunId:process.env.MAIL_REFERENCE_SOURCE_RUN,baselineSha256:createHash('sha256').update(baselineBytes).digest('hex'),rendererSha256:createHash('sha256').update(rendererBytes).digest('hex'),targets:{warmP95Ms:300,processColdAfterReadyMs:2000,mailWorkerPeakRssBytes:512*1024*1024},measured:{warmP95Ms:warm,processColdMaximumMs:cold,mailWorkerPeakRssBytes:rss},perQueryWarm:baseline.quality.map(query=>({name:query.name,...query.latencyMs})),coldDefinition:baseline.coldDefinition,osColdQualified:false,meetsMeasuredTargets:warm<=300&&cold<=2000&&rss<=512*1024*1024};
+          await writeFile('benchmark-evidence/qualification.json',JSON.stringify(summary,null,2));
+          assert(summary.meetsMeasuredTargets,'Measured reference targets missed; preserve reports and corpus for diagnosis');
+          NODE
+      - name: Retain bounded measurement evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mail-qualification-${{ matrix.os }}-${{ matrix.arch }}-${{ github.sha }}
-          path: mail-qualification-evidence/
+          name: eig141-windows-reference-${{ inputs.source_commit }}
+          path: benchmark-evidence/
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Retain generator-verified corpus and disposable test key
+        if: ${{ !cancelled() && hashFiles('benchmark-corpus/benchmark-profile.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eig141-synthetic-100k-${{ inputs.source_commit }}
+          path: |
+            benchmark-corpus/mail.sqlite
+            benchmark-corpus/benchmark-profile.json
+            benchmark-corpus/baseline.json
+          retention-days: 7
+          compression-level: 0
           if-no-files-found: error
-          retention-days: 14
