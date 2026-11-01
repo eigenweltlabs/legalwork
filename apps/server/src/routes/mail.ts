@@ -4,7 +4,7 @@ import { readMailInvitations } from '../mail/invitations/read.js';
 import {qualificationInputSchema} from '../mail/qualification-view.js';
 import {mailMaintenanceReportSchema} from '../mail/maintenance-view.js';
 import {retentionScopeSchema,retentionApplySchema,retentionSettingsSchema,MailRetentionError} from '../mail/retention-view.js';
-import {OutboxError,outboxReadSchema,outboxActionSchema,smtpConfigureSchema} from '../mail/outbox-view.js';
+import {OutboxError,outboxReadSchema,outboxActionSchema,outboxSubmissionSchema,outboxRescheduleSchema,smtpConfigureSchema} from '../mail/outbox-view.js';
 import {draftSyncRequestSchema,draftSyncReadSchema} from "../mail/draft-sync-view.js";
 import {senderSettingsSchema,senderConfigureSchema} from '../mail/sender-view.js';
 import {mailUploadSchema} from "../mail/local-view.js";
@@ -110,8 +110,9 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   route('POST','/accounts/:accountId/smtp/remove',false,ctx=>service.removeSmtp(ctx.params.accountId));
   query('smtp/configure',smtpConfigureSchema,(accountId,input)=>service.configureSmtp(accountId,input));
   if(service.retention){route('GET','/accounts/:accountId/retention/settings',false,ctx=>service.retention!({operation:'mail.retention.read',accountId:ctx.params.accountId}));query('retention/preview',retentionScopeSchema,(accountId,input)=>service.retention!({operation:'mail.retention.preview',accountId,input}));query('retention/apply',retentionApplySchema,(accountId,input)=>service.retention!({operation:'mail.retention.apply',accountId,input}));query('retention/settings',retentionSettingsSchema,(accountId,input)=>service.retention!({operation:'mail.retention.settings',accountId,input}));}
-  query('outbox/queue',mailSubmissionSchema,(accountId,input)=>service.queueOutbox(accountId,input));
+  query('outbox/queue',outboxSubmissionSchema,(accountId,input)=>service.queueOutbox(accountId,input));
   query('outbox/read',outboxReadSchema,(accountId,input)=>service.outboxRead(accountId,input));
+  query('outbox/reschedule',outboxRescheduleSchema,(accountId,input)=>service.rescheduleOutbox(accountId,input));
   query('outbox/action',outboxActionSchema,(accountId,input)=>service.outboxAction(accountId,input));
   route('GET','/accounts/:accountId/senders',false,ctx=>service.senders(ctx.params.accountId));
   route('POST','/accounts/:accountId/senders/refresh',false,ctx=>service.refreshSenders(ctx.params.accountId));

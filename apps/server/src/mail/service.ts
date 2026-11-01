@@ -7,7 +7,7 @@ import type {FilingInput,FilingResult} from './filing-view.js';
 import type {MailMaintenanceReport} from './maintenance-view.js';
 import {MailRetentionError,type RetentionCommand} from './retention-view.js';
 import type {MailNotificationPoll} from './notification-view.js';
-import {OutboxError,type SmtpConfigure} from './outbox-view.js';
+import {OutboxError,type SmtpConfigure,type OutboxSubmission,type OutboxReschedule} from './outbox-view.js';
 import type {PortabilityCommand} from "./portability-view.js";
 import type {SenderSettings,SenderConfigure} from './sender-view.js';
 import type {DraftSyncRequest} from "./draft-sync-view.js";
@@ -127,7 +127,8 @@ export class LocalMailService implements MailService {
   }
   async outboxRead(accountId:string,input:{actionId:string}){const result=await this.request({operation:'mail.outbox.read',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxDetail' in result))throw new MailServiceError('unavailable');return result.outboxDetail;}
   async outbox(accountId:string){const result=await this.request({operation:'mail.outbox.list',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outbox' in result))throw new MailServiceError('unavailable');return result.outbox;}
-  async queueOutbox(accountId:string,input:MailSubmission){await this.startSync(accountId,true);const result=await this.request({operation:'mail.outbox.queue',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxItem' in result))throw new MailServiceError('unavailable');return result.outboxItem;}
+  async queueOutbox(accountId:string,input:OutboxSubmission){if(input.schedule)void this.startSync(accountId,true).catch(()=>{});else await this.startSync(accountId,true);const result=await this.request({operation:'mail.outbox.queue',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxItem' in result))throw new MailServiceError('unavailable');return result.outboxItem;}
+  async rescheduleOutbox(accountId:string,input:OutboxReschedule){const result=await this.request({operation:'mail.outbox.reschedule',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxItem' in result))throw new MailServiceError('unavailable');return result.outboxItem;}
   async outboxAction(accountId:string,input:{actionId:string;action:'cancel'|'retry'|'reconcile'}){const result=await this.request({operation:'mail.outbox.action',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxItem' in result))throw new MailServiceError('unavailable');return result.outboxItem;}
   async smtpStatus(accountId:string){const result=await this.request({operation:'mail.smtp.status',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}
   async configureSmtp(accountId:string,input:SmtpConfigure){const result=await this.request({operation:'mail.smtp.configure',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('smtp' in result))throw new MailServiceError('unavailable');return result.smtp;}

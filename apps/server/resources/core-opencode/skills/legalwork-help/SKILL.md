@@ -21,6 +21,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Chats, history, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
 | Tabular Review or review prompt sets | [reviews.md](references/reviews.md) |
+| Scheduled email, Send later, scheduled Outbox items, rescheduling, daylight-saving time or local send guarantees | [email.md](references/email.md) |
 | Schedules that run the assistant | [scheduled-tasks.md](references/scheduled-tasks.md) |
 | Tasks, inbox or notifications | [tasks-intake.md](references/tasks-intake.md) |
 | Files, document editors or saving outputs | [files-documents.md](references/files-documents.md) |
