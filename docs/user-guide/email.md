@@ -32,7 +32,7 @@ The Email store is encrypted on this computer. Reading, local lexical search and
 
 1. Open **Settings > Integrations > Communication** and select **iCloud / IMAP / SMTP**. You can search the catalogue for IMAP or iCloud.
 2. Under **Connected accounts**, select **Add account**, then choose **iCloud Mail** or **Other IMAP account**. The form is already open when no account is stored.
-3. For iCloud, enter the mail username and an app-specific password from your Apple Account. For another service, enter the provider's IMAP server, direct TLS port, username and password. Folder selection is optional. Insecure connections and STARTTLS are not supported.
+3. For iCloud, enter the mail username and an app-specific password from your Apple Account. For another service, enter the provider's IMAP server, direct TLS port, username and password. Folder selection is optional. IMAP requires direct TLS; insecure IMAP and IMAP STARTTLS are not supported. SMTP is configured separately and supports direct TLS or required STARTTLS.
 4. Select **Connect securely**. When connected, the account appears in Email and begins downloading unless you previously paused it.
 5. In the same integration, configure its SMTP sending details. Use the provider's server addresses and credentials. Mail accounts' **Sending** section also provides these per-account controls.
 
@@ -45,6 +45,10 @@ Use **New mail**, **Reply**, **Reply all** or **Forward** to compose. The compos
 Under **Mail accounts > Data & access**, review the per-account agent policy. Connecting an account does not approve sending or deleting mail for the assistant. The same section contains local retention, backup, restore and archive import/export controls. Disconnecting and deleting local data are separate actions; review each dialog's scope.
 
 Open **Settings > Integrations > Communication**. Search for **Gmail** or **Outlook Email** and press its **+** button to connect. Select an installed account and choose **Manage** to open its settings. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
+
+## Proton Mail Bridge
+
+Proton Mail Bridge is not currently supported or qualified in LegalWork. Proton's [desktop access requirements](https://proton.me/support/imap-smtp-and-pop3-setup) include a paid Mail plan and an installed, configured Bridge. These prerequisites alone do not enable a LegalWork connection. Bridge uses a locally generated certificate; LegalWork has no reviewed Bridge-specific certificate import/pinning flow. Do not disable certificate verification to bypass a connection failure. No direct Proton API connection is available.
 
 ## Schedule a message
 
