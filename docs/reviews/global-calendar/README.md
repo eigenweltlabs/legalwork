@@ -27,13 +27,3 @@ The browser flow also verified forward/backward horizontal scrolling, preserved 
 5. Open a recurring event with a description, attendees, reminders and meeting information. Inspect **Repeats**, expand attendees and use the meeting/source links. Open a minimal all-day event and check the compact layout.
 6. Change or delete an event, then refresh. The timetable and any open preview should update. Temporarily make the provider unavailable and refresh: cached events should remain visible with an alert.
 7. Disconnect or change the calendar account. Events from the old connection must disappear. Sign-out clears the calendar cache. Restarting the app starts a new memory cache.
-
-## Screenshots
-
-The screenshots use synthetic events and accounts, with no private calendar data.
-
-![Scrollable week](calendar-week.png)
-
-![Event details and recurrence UI](event-details.png)
-
-![Compact event without optional details](event-simple.png)
