@@ -38,7 +38,19 @@ This assignment stays in your encrypted local Email store. It does not copy the 
 
 Only available project folders within this server's authorized roots can be selected. Shared projects also require the signed-in account's current locally known membership. Removed, replaced or inaccessible projects appear as **Project unavailable**, including in history. You can clear the assignment or choose another available project. A backup restore preserves assignments and invalidates edits opened before the restore.
 
-Automatic incoming-email classification and project-scoped Email search are not available yet. Project assignment does not run a model. Global search's **Email** tab continues to use its mail-account scope.
+Project-scoped Email search is not available yet. Project assignment does not run a model. Global search's **Email** tab continues to use its mail-account scope.
+
+### Configure project suggestions
+
+1. Open **Settings > Mail accounts > Projects**, or select **Project rules** in the message's **Email project** dialog. Choose the mail account. Rules and exclusions belong to that account on this computer, including an imported or retained account.
+2. Leave **Mode** at **Off** while setting up. Select **Add project rule**, enter its **Name** and **Order**, choose a **Project**, and enter at least one condition: **From address equals**, **Sender domain**, **Project reference** or **Subject contains (and)**. Turn on **Enabled** and select **Save**. Each account supports up to 20 rules.
+3. All conditions in a rule must match. Addresses use the actual sender address, not its display name. Domains match exactly, without automatically including subdomains. Subject phrases match literal text without case differences. A project reference matches a whole subject token, so `MAT-123` does not match `MAT-1234` or `MAT-123/4`. Order controls presentation; conflicting project matches remain ambiguous.
+4. Select **Exclusions** to enter up to 20 senders, domains and subject phrases in each field, one per line, then **Save**. Exclusions take precedence over matching rules.
+5. Set **Mode** to **Suggestions**. Open a message, select **Project > Suggest project**, and review the result and its evidence. Selecting a suggested project fills the project selector; **Save** makes the manual assignment. No assignment changes until you save. An existing manual assignment, including a cleared earlier assignment, takes precedence.
+
+Suggestions check only the selected message's stored sender and subject when you choose **Suggest project**. Missing, invalid or multiple sender addresses make a suggestion unavailable. They do not scan your mailbox in the background, change provider folders, process attachments, use a model or share content with the project. Multiple destinations stay marked **Multiple project matches**, including when a conflicting destination is inaccessible. Inaccessible projects are hidden. Refresh changed rules before retrying an edit.
+
+Set **Mode** to **Off** to stop suggestions for that account. Restoring a backup keeps its rules but turns suggestions off and invalidates earlier settings edits. Automatic classification of future incoming mail, historical batch classification and model-assisted classification are not available yet.
 
 ## Download status and local privacy
 

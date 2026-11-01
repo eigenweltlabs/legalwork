@@ -152,7 +152,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
     const input=savedSearchInputSchema.safeParse(value);if(!input.success)throw new ApiError(400,'mail_invalid_request','Invalid mail request');
     try{return Response.json(await service.savedSearch(input.data),{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
   });
-  route("GET", "/status", false, () => ({ ...service.status(), ...(service.projectAssociation ? { projectAssociations: true } : {}) }));
+  route("GET", "/status", false, () => ({ ...service.status(), ...(service.projectAssociation ? { projectAssociations: true } : {}), ...(service.classifier ? { projectClassification: true } : {}) }));
   const diagnostics = service.diagnostics?.bind(service);
   if (diagnostics) route('GET', '/diagnostics', false, async () => mailDiagnosticsSchema.parse(await diagnostics()));
   route("POST", "/unlock", false, async () => { await service.unlock(); return service.status(); });

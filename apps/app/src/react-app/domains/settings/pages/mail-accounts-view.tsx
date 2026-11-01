@@ -1,4 +1,7 @@
 import {MailRulesView} from './mail-rules-view';
+import { MailClassifierView } from './mail-classifier-view';
+import { useLocation } from 'react-router-dom';
+import { z } from 'zod';
 import { MailDiagnosticsView } from './mail-diagnostics-view';
 import {t} from '@/i18n';
 import {MailContactsView} from './mail-contacts-view';
@@ -23,6 +26,7 @@ import {MailSettingsSection} from './mail-settings-controls';
 /** Resolve the host independently of the selected workspace. Repeated desktop
  * announcements retain active sign-in; a different resolved identity retires it. */
 export function MailAccountsView({ standardsOnly = false, onAccountsChanged }: { standardsOnly?: boolean; onAccountsChanged?: () => void } = {}) {
+  const location=useLocation(),navigation=z.object({mailSection:z.literal('projects').optional(),mailAccount:z.string().optional()}).safeParse(location.state);
   const [client, setClient] = useState<MailClient>();
   const identity = useRef('');
   const [clientVersion, setClientVersion] = useState(0);
@@ -57,18 +61,22 @@ export function MailAccountsView({ standardsOnly = false, onAccountsChanged }: {
     return () => controller.abort();
   }, [revision]);
   return <SettingsStack>
-    {client ? <MailAccountControls key={clientVersion} client={client} standardsOnly={standardsOnly} onAccountsChanged={onAccountsChanged} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
+    {client ? <MailAccountControls key={clientVersion} client={client} standardsOnly={standardsOnly} initialSection={navigation.success?navigation.data.mailSection:undefined} initialAccount={navigation.success?navigation.data.mailAccount:undefined} onAccountsChanged={onAccountsChanged} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
   </SettingsStack>;
 }
 
-export function MailAccountControls({ client, standardsOnly = false, onAccountsChanged }: { client: MailClient; standardsOnly?: boolean; onAccountsChanged?: () => void }) {
+export function MailAccountControls({ client, standardsOnly = false, initialSection='accounts',initialAccount,onAccountsChanged }: { client: MailClient; standardsOnly?: boolean;initialSection?:string;initialAccount?:string;onAccountsChanged?: () => void }) {
+  const [classification,setClassification]=useState(false);
+  const [section,setSection]=useState(initialSection),pendingProjectSection=useRef(initialSection==='projects');
+  useEffect(()=>{if(classification&&pendingProjectSection.current){pendingProjectSection.current=false;setSection('projects');}},[classification]);
   const [contactRequest,setContactRequest]=useState<{account:MailAccountView;key:number}>();
   const [accounts, setAccounts] = useState<MailAccountView[]>([]);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController(); let previous: number | undefined;
-    const poll = async () => { try { const status=await client.status(controller.signal); if(controller.signal.aborted)return; if(status.accountRevision!==undefined&&status.accountRevision!==previous){previous=status.accountRevision;setRevision(value=>value+1);} } catch { /* Keep local account controls available during a reconnect. */ } };
+    const poll = async () => { try { const status=await client.status(controller.signal); if(controller.signal.aborted)return;setClassification(status.projectClassification===true); if(status.accountRevision!==undefined&&status.accountRevision!==previous){previous=status.accountRevision;setRevision(value=>value+1);} } catch { /* Keep local account controls available during a reconnect. */ } };
+    void poll();
     const timer=setInterval(()=>void poll(),3000); return()=>{controller.abort();clearInterval(timer);};
   },[client]);
   useEffect(() => {
@@ -93,8 +101,8 @@ export function MailAccountControls({ client, standardsOnly = false, onAccountsC
     <MailOnboarding standardSetup client={client} accounts={accounts.filter(account=>account.provider==='imap')} onChanged={()=>{setRevision(value=>value+1);onAccountsChanged?.();}} />
     <MailSmtpView client={client} accounts={accounts.filter(account=>account.provider==='imap')} />
   </>;
-  return <Tabs defaultValue="accounts" className="gap-6">
-    <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="rules">{t('mail.rules_tab')}</TabsTrigger><TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
+  return <Tabs value={section} onValueChange={value=>{if(typeof value==='string')setSection(value);}} className="gap-6">
+    <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="rules">{t('mail.rules_tab')}</TabsTrigger>{classification&&<TabsTrigger value="projects">{t('mail.classifier_tab')}</TabsTrigger>}<TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
     {error && <SettingsNotice tone="error"><span role="alert">{error}</span><Button size="sm" variant="ghost" onClick={()=>setRevision(value=>value+1)}>Retry</Button></SettingsNotice>}
     <TabsContent value="accounts" keepMounted className="space-y-6">
       <MailOnboarding client={client} contactRequest={contactRequest} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
@@ -104,6 +112,7 @@ export function MailAccountControls({ client, standardsOnly = false, onAccountsC
     <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon"><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
     <TabsContent value="sending" keepMounted className="space-y-6"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></TabsContent>
     <TabsContent value="rules" keepMounted><MailRulesView client={client} accounts={accounts} /></TabsContent>
+    {classification&&<TabsContent value="projects" keepMounted><MailClassifierView client={client} accounts={accounts} initialAccount={initialAccount}/></TabsContent>}
     <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailDiagnosticsView client={client} /></TabsContent>
   </Tabs>;
 

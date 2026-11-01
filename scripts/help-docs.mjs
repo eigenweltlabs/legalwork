@@ -112,6 +112,8 @@ export function generateHelpScreens(root = repoRoot) {
       { id: "global-search-email", guide: "email.md", source: "apps/app/src/react-app/shell/command-palette.tsx" },
       { id: "mail-insert-link", guide: "email.md", source: "apps/app/src/react-app/domains/mail/mail-formatting-toolbar.tsx" },
       { id: "mail-project", guide: "email.md", source: "apps/app/src/react-app/domains/mail/mail-project.tsx" },
+      { id: "mail-project-rule", guide: "email.md", source: "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx" },
+      { id: "mail-project-exclusions", guide: "email.md", source: "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx" },
     ],
     routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({

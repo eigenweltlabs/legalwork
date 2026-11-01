@@ -1,6 +1,8 @@
 import { MailProjectAssociations } from '../storage/project-associations.js';
 import { MailProjectError } from '../project-association-view.js';
 import {MailRulesStore} from '../storage/rules.js';
+import { MailClassifierStore } from '../storage/classifier.js';
+import { MailClassifierError } from '../classifier-view.js';
 import { collectMailDiagnostics } from '../storage/diagnostics.js';
 import {MailRulesRunner} from './rules-runner.js';
 import {MailRulesError} from '../rules-view.js';
@@ -297,6 +299,9 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.project.read':result={projectAssociation:new MailProjectAssociations(database,ownerId).read(command.accountId,command.input.locator)};break;
       case 'mail.project.set':result={projectAssociation:new MailProjectAssociations(database,ownerId).set(command.accountId,command.input)};break;
       case 'mail.project.history':result={projectHistory:new MailProjectAssociations(database,ownerId).history(command.accountId,command.input)};break;
+      case 'mail.classifier.read':result={classifier:new MailClassifierStore(database,ownerId).read(command.accountId)};break;
+      case 'mail.classifier.save':result={classifier:new MailClassifierStore(database,ownerId).save(command.accountId,command.input)};break;
+      case 'mail.classifier.preview':result={classification:new MailClassifierStore(database,ownerId).preview(command.accountId,command.input)};break;
       case 'mail.snooze.read':result={snooze:new MailSnoozeStore(database,ownerId).read(command.accountId,command.input.locator)};break;
       case 'mail.snooze.set':result={snooze:new MailSnoozeStore(database,ownerId).set(command.accountId,command.input)};break;
       case "mail.agent.control":{
@@ -569,6 +574,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     }
     if (!write({ kind: "response", id: message.id, ok: true, result })) write({ kind: "response", id: message.id, ok: false, code: "operation_failed" });
   } catch (error) {
+    if(error instanceof MailClassifierError&&!isClosing()&&command.operation.startsWith('mail.classifier.')){write({kind:'response',id:message.id,ok:true,result:{classifierFailure:error.code}});return;}
     if(error instanceof MailRetentionError&&!isClosing()){write({kind:'response',id:message.id,ok:true,result:{retentionFailure:error.code}});return;}
     if(error instanceof MailRulesError&&!isClosing()&&command.operation.startsWith('mail.rules.')){write({kind:'response',id:message.id,ok:true,result:{rulesFailure:error.code}});return;}
     if(error instanceof MailProjectError&&!isClosing()&&command.operation.startsWith('mail.project.')){write({kind:'response',id:message.id,ok:true,result:{projectFailure:error.code}});return;}

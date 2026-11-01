@@ -35,6 +35,7 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  classifier?(command:import('./classifier-view.js').MailClassifierCommand):Promise<Exclude<import('./classifier-view.js').MailClassifierResult,{classifierFailure:unknown}>>;
   projectAssociation?(command:MailProjectCommand):Promise<{projectAssociation:MailProjectAssociation}|{projectHistory:MailProjectHistory}>;
   diagnostics?(): Promise<import('./diagnostics-view.js').MailDiagnostics>;
   /** Host-only RSVP dispatch journal. Never exposed as a general HTTP operation. */

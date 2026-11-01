@@ -36,6 +36,7 @@
   "storage/scheduling",
   "storage/snoozes",
   "storage/project-associations",
+  "storage/classifier",
   "storage/rules",
   "storage/historical-upgrades",
   "storage/maintenance",

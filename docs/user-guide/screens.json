@@ -32,6 +32,16 @@
       "id": "mail-project",
       "guide": "email.md",
       "source": "apps/app/src/react-app/domains/mail/mail-project.tsx"
+    },
+    {
+      "id": "mail-project-rule",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx"
+    },
+    {
+      "id": "mail-project-exclusions",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx"
     }
   ],
   "routes": [

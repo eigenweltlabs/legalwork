@@ -30,6 +30,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Email: Schedule send / Reschedule send | Choose an instant and time zone, resolve repeated clock times, review local execution and change a queued send | [Scheduled email](email.md#schedule-a-message) |
 | Email: Text formatting / Insert link | Format document-style messages, add a safe web link or switch to plain text | [Email](email.md) |
 | Email: Email project | Assign an individual message to a local project, correct or clear its assignment and read assignment history | [Email project assignments](email.md#assign-an-email-to-a-project) |
+| Email: Suggest project / Project rules | Preview configured sender/subject matches for the selected message and review conflicting projects before manual assignment | [Project suggestions](email.md#configure-project-suggestions) |
 | Email: Snoozed / Snooze | Hide a conversation from this client's Inbox and unread count until a chosen time, inspect return dates or end a snooze | [Snoozed email](email.md#snooze-a-conversation) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 
@@ -44,6 +45,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | AI Providers | How do I connect a chat model, set up Fusion, OCR or JEV? | [Models](models-fusion.md) |
 | Tabular Review | Which inference mode, models and probability threshold apply to new reviews? | [Tabular Review](reviews.md) |
 | Mail accounts: Rules | Add, order, enable, edit or delete account-local rules and inspect readiness and recent activity | [Local mail rules](email.md#local-rules-for-new-inbox-mail) |
+| Mail accounts: Projects / Project rule / Exclusions | Configure account-scoped project rules, exact sender/domain and subject conditions, exclusions and Off/Suggestions mode | [Project suggestions](email.md#configure-project-suggestions) |
 | Mail accounts: Data & access, Diagnostics | Export local aggregate mail counts and fixed states without email contents or identities | [Mail diagnostics](email.md#export-mail-diagnostics) |
 | Mail accounts | Inspect sync, move proven older accounts to Integrations, review retained copies, and configure sending, notifications, agent access and local retention | [Email](email.md) |
 | Recorder: Models | Which transcription source, language and downloaded model should I use? | [Recorder settings](recorder-settings.md) |
