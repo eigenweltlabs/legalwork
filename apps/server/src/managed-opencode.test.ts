@@ -3,11 +3,13 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
+import { ChildProcess } from "node:child_process";
+import { PassThrough } from "node:stream";
 
 import { createConfiguredManagedEngine } from "./managed-engine-lifecycle.js";
 import type { ServerConfig } from "./types.js";
 
-import { createManagedOpencodeServer } from "./managed-opencode.js";
+import { createManagedOpencodeServer, waitForServerReady } from "./managed-opencode.js";
 import { verifiedTestEngine } from "./opencode-candidate.test-support.js";
 
 // Real process identity/readiness checks must not inherit another unit test's
@@ -23,7 +25,7 @@ if (process.env.LEGALWORK_MANAGED_EXECUTABLE_FIXTURE !== "1") {
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       const output = stdout + stderr;
       expect(code, output).toBe(0);
-      expect(output).toContain("15 pass");
+      expect(output).toContain("16 pass");
       expect(output).toContain("0 fail");
     } finally {
       clearTimeout(timeout);
@@ -31,6 +33,27 @@ if (process.env.LEGALWORK_MANAGED_EXECUTABLE_FIXTURE !== "1") {
     }
   }, 60_000);
 } else {
+
+test("startup waits for stdio closure to retain late failure diagnostics and cannot publish an exited listener", async () => {
+  for (const diagnostic of ["Error: config parse failed", "SQLITE_BUSY: database is locked"]) {
+    const child = new ChildProcess(), stdout = new PassThrough(), stderr = new PassThrough();
+    Object.defineProperties(child, { stdout: { value: stdout }, stderr: { value: stderr } });
+    const ready = waitForServerReady(child, 1000);
+    let settled = false;
+    void ready.then(() => { settled = true; }, () => { settled = true; });
+    child.emit("exit", 1, null);
+    stdout.emit("data", Buffer.from("server listening on http://127.0.0.1:43111\n"));
+    stderr.emit("data", Buffer.from(diagnostic + "\n"));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    child.emit("close", 1, null);
+    await expect(ready).rejects.toThrow(diagnostic);
+    expect(child.listenerCount("exit")).toBe(0);
+    expect(child.listenerCount("close")).toBe(0);
+    expect(stdout.listenerCount("data")).toBe(0);
+    expect(stderr.listenerCount("data")).toBe(0);
+  }
+});
 
 // A stand-in for the opencode binary: it fails the first
 // FAKE_OPENCODE_FAIL_UNTIL starts with the same "database is locked" message a

@@ -112,16 +112,18 @@ async function findFreePort(hostname: string, excludedPorts: number[] = []): Pro
  * or reject if it exits / errors / times out first. The reject
  * message carries the child's captured output so callers can detect a
  * transient "database is locked" start failure. */
-function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease = false): Promise<string> {
+export function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease = false): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     let output = "";
     let settled = false;
+    let exited = false;
     const cleanup = () => {
       clearTimeout(timeout);
       child.stdout?.off("data", onStdout);
       child.stderr?.off("data", onStderr);
       child.off("error", fail);
       child.off("exit", onExit);
+      child.off("close", onClose);
     };
     const done = (value: string) => {
       if (settled) return;
@@ -137,6 +139,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     };
     const onStdout = (chunk: Buffer) => {
       output += chunk.toString();
+      if (exited) return;
       for (const line of output.split("\n")) {
         if (parentLease) {
           let info: unknown;
@@ -155,7 +158,10 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     const onStderr = (chunk: Buffer) => {
       output += chunk.toString();
     };
-    const onExit = (code: number | null) =>
+    const onExit = () => { exited = true; };
+    // Exit can precede the last pipe data. Close means stdio has drained, so
+    // the failure and DB-lock retry decision retain the child's diagnostics.
+    const onClose = (code: number | null) =>
       fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`));
     const timeout = setTimeout(
       () => fail(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms${output.trim() ? `\n${output}` : ""}`)),
@@ -165,6 +171,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     child.stderr?.on("data", onStderr);
     child.once("error", fail);
     child.once("exit", onExit);
+    child.once("close", onClose);
   });
 }
 
