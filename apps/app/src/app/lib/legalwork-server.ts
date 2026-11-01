@@ -2,7 +2,7 @@ import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity"
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
-import type { ConnectorWriteSetting, ConnectorMailAccess } from "@legalwork/types/connectors";
+import type { ConnectorWriteSetting, ConnectorMailAccess, ConnectorCalendarAccess } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
 import type { ResearchDatabaseSetup } from "@legalwork/types/legal-research";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
@@ -1849,6 +1849,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     connectorSavedStatus: (id?: string) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}/saved` : "/connectors/saved", { token, hostToken, timeoutMs: timeouts.status }),
     setConnectorSettings: (id: string, writeAccess: boolean) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { writeAccess }, timeoutMs: timeouts.config }),
     setConnectorMailAccess: (id: string, mailAccess: ConnectorMailAccess) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { mailAccess }, timeoutMs: timeouts.config }),
+    setConnectorCalendarAccess: (id: string, calendarAccess: ConnectorCalendarAccess) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { calendarAccess }, timeoutMs: timeouts.config }),
     connectorStatus: (id?: string, forceRefresh = false) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}${forceRefresh ? "?refresh=true" : ""}` : "/connectors", { token, hostToken, timeoutMs: 120_000 }),
     connectorStorageLocations: (id: string, connectionId: string, kind: "sites" | "drives", options?: { siteId?: string; pageToken?: string; query?: string }) => requestJson<{ sites?: { id: string; displayName?: string; webUrl?: string }[]; drives?: { id: string; name?: string; webUrl?: string }[]; nextPageToken?: string | null }>(baseUrl, `/connectors/${encodeURIComponent(id)}/storage-locations?${new URLSearchParams({ connectionId, kind, ...options })}`, { token, hostToken, timeoutMs: timeouts.status }),
     connectorActivation: (id: string, connectionId: string, active: boolean) => requestJson<{ active: boolean }>(baseUrl, `/connectors/${encodeURIComponent(id)}/activation`, { token, hostToken, method: "PUT", body: { connectionId, active } }),

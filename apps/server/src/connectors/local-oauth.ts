@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { connectorConnectionSchema, connectorMailAccessSchema, connectorOAuthClientInputSchema, connectorOAuthClientSchema, type ConnectorOAuthClientInput } from "./schema.js";
+import { connectorConnectionSchema, connectorMailAccessSchema, connectorCalendarAccessSchema, connectorOAuthClientInputSchema, connectorOAuthClientSchema, type ConnectorOAuthClientInput } from "./schema.js";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { StorageOAuth } from "../file-storage/oauth/session.js";
 import { OAuthVault, oauthVaultPath, vaultLock } from "../file-storage/oauth/vault.js";
 import { connectionProvider } from "./definition.js";
-import { clearConnectorActivation, connectorOAuthWriteIds, connectorMailAccess } from "./settings.js";
+import { clearConnectorActivation, connectorOAuthWriteIds, connectorMailAccess, connectorCalendarAccess } from "./settings.js";
 import { connectorDefinition } from "./definition.js";
 import { connectorOAuthProvider, defaultConnectorOAuthClient } from "./oauth-providers.js";
 import { requireConnectorConnectSlot } from "./single-connection.js";
@@ -15,10 +15,10 @@ const stateSchema = z.object({
   client: connectorOAuthClientInputSchema,
   builtIn: z.boolean().optional(),
   revision: z.string(),
-  connections: z.array(connectorConnectionSchema.extend({ readOnly: z.boolean(), authorizedWrites: z.array(z.string()).optional(), authorizedSends: z.boolean().optional(), authorizedOrganization: z.boolean().optional(), grantKey: z.string().optional(), mailAccess: connectorMailAccessSchema.optional() })),
+  connections: z.array(connectorConnectionSchema.extend({ readOnly: z.boolean(), authorizedWrites: z.array(z.string()).optional(), authorizedSends: z.boolean().optional(), authorizedOrganization: z.boolean().optional(), grantKey: z.string().optional(), mailAccess: connectorMailAccessSchema.optional(), calendarAccess: connectorCalendarAccessSchema.optional() })),
 });
 type LocalState = z.infer<typeof stateSchema>;
-type LocalFlow = { id: string; connectionId: string; key: string; revision: string; expiresAt: number; reconnect: boolean; activated: boolean; readOnly: boolean; authorizedWrites: string[]; mailAccess: z.infer<typeof connectorMailAccessSchema> };
+type LocalFlow = { id: string; connectionId: string; key: string; revision: string; expiresAt: number; reconnect: boolean; activated: boolean; readOnly: boolean; authorizedWrites: string[]; mailAccess: z.infer<typeof connectorMailAccessSchema>; calendarAccess: z.infer<typeof connectorCalendarAccessSchema> };
 const sessions = new WeakMap<ServerConfig, StorageOAuth>();
 const activeFlows = new WeakMap<ServerConfig, Map<string, LocalFlow>>();
 function session(config: ServerConfig) {
@@ -57,7 +57,7 @@ export async function localOAuthClient(config: ServerConfig, id: string) {
   const defaultClient = defaultConnectorOAuthClient(id);
   const client = saved?.client ?? defaultClient ?? { clientId: "", tenantId: "" };
   const writeIds = await connectorOAuthWriteIds(config, id);
-  const provider = connectorOAuthProvider(id, client, writeIds, await connectorMailAccess(config,id));
+  const provider = connectorOAuthProvider(id, client, writeIds, await connectorMailAccess(config,id), await connectorCalendarAccess(config,id));
   return connectorOAuthClientSchema.parse({ configured: Boolean(saved || defaultClient), builtIn: saved ? saved.builtIn === true : Boolean(defaultClient), clientId: client.clientId, tenantId: client.tenantId,
     hasClientSecret: Boolean(client.clientSecret), supportsClientSecret: provider.supportsClientSecret,
     family: provider.family, redirectUri: provider.redirectUri, scopes: provider.application.scopes(writeIds.length === 0) });
@@ -101,7 +101,7 @@ export async function localOAuthAccessToken(config: ServerConfig, id: string, co
   if (!saved || !connection) return undefined;
   if (connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", "Reconnect this account in Integrations to restore access.");
   try {
-    const token = await session(config).access(grantKey(id, saved.revision, connection), connectorOAuthProvider(id, saved.client, authorizedWrites(id, connection), connection.mailAccess).application, forceRefresh);
+    const token = await session(config).access(grantKey(id, saved.revision, connection), connectorOAuthProvider(id, saved.client, authorizedWrites(id, connection), connection.mailAccess, connection.calendarAccess).application, forceRefresh);
     const current = await state(config, id);
     if (current?.revision !== saved.revision || !current.connections.some((item) => item.id === connectionId && !item.needsReconnect && grantKey(id, current.revision, item) === grantKey(id, saved.revision, connection))) {
       throw new ApiError(409, "connector_not_connected", "Connect this account in Integrations before using it.");
@@ -117,6 +117,12 @@ export async function localOAuthAccessToken(config: ServerConfig, id: string, co
     }
     throw error;
   }
+}
+
+/** Private consent generation, never part of a public connection or token response. */
+export async function localOAuthConnectionVersion(config: ServerConfig, id: string, connectionId: string) {
+  const saved=await state(config,id), connection=saved?.connections.find(value=>value.id===connectionId);
+  return saved&&connection&&!connection.needsReconnect?JSON.stringify([saved.revision,grantKey(id,saved.revision,connection)]):undefined;
 }
 
 export async function disconnectLocalOAuth(config: ServerConfig, id: string, connectionId: string) {
@@ -183,12 +189,13 @@ export function createLocalOAuthFlows(config: ServerConfig) {
       const writeIds = await connectorOAuthWriteIds(config, id);
       const readOnly = writeIds.length === 0;
       const mailAccess=await connectorMailAccess(config,id);
+      const calendarAccess=await connectorCalendarAccess(config,id);
       const key = JSON.stringify(["connector-oauth-pending-grant", connectionProvider(id), saved.revision, handle, flowId]);
       for (const [previousId, previous] of flows) if (connectionProvider(previous.id) === connectionProvider(id) && previous.connectionId === handle) await cancel(previousId);
-      const flow = { id, connectionId: handle, key, revision: saved.revision, expiresAt: Date.now() + 5 * 60_000, reconnect: Boolean(connectionId), activated: false, readOnly, authorizedWrites: writeIds, mailAccess };
+      const flow = { id, connectionId: handle, key, revision: saved.revision, expiresAt: Date.now() + 5 * 60_000, reconnect: Boolean(connectionId), activated: false, readOnly, authorizedWrites: writeIds, mailAccess, calendarAccess };
       flows.set(flowId, flow);
       try {
-        const result = await session(config).startProvider(key, connectorOAuthProvider(id, saved.client, writeIds, mailAccess).application, readOnly, async () => {
+        const result = await session(config).startProvider(key, connectorOAuthProvider(id, saved.client, writeIds, mailAccess, calendarAccess).application, readOnly, async () => {
           const current = await state(config, id);
           return flows.get(flowId) === flow && current?.revision === saved.revision && (!flow.reconnect || current.connections.some((item) => item.id === handle));
         });
@@ -213,7 +220,7 @@ export function createLocalOAuthFlows(config: ServerConfig) {
         }
         const previous = current.connections.find((item) => item.id === flow.connectionId);
         requireConnectorConnectSlot(current.connections, flow.reconnect || flow.activated ? flow.connectionId : undefined, "custom");
-        const connection = { id: flow.connectionId, createdAt: current.connections.find((item) => item.id === flow.connectionId)?.createdAt ?? new Date().toISOString(), needsReconnect: false, source: "custom", readOnly: flow.readOnly, authorizedWrites: flow.authorizedWrites, authorizedSends: flow.authorizedWrites.includes("outlook"), authorizedOrganization: flow.authorizedWrites.includes(connectionProvider(flow.id)), grantKey: flow.key, mailAccess: flow.mailAccess };
+        const connection = { id: flow.connectionId, createdAt: current.connections.find((item) => item.id === flow.connectionId)?.createdAt ?? new Date().toISOString(), needsReconnect: false, source: "custom", readOnly: flow.readOnly, authorizedWrites: flow.authorizedWrites, authorizedSends: flow.authorizedWrites.includes("outlook"), authorizedOrganization: flow.authorizedWrites.includes(connectionProvider(flow.id)), grantKey: flow.key, mailAccess: flow.mailAccess, calendarAccess: flow.calendarAccess };
         if (!await vault.setEntry(stateKey(flow.id), stateSchema, { ...current, connections: [...current.connections.filter((item) => item.id !== flow.connectionId), connection] }, () => flows.get(flowId) === flow)) {
           throw new ApiError(409, "connector_state_changed", "Your connected accounts changed. Start again.");
         }
@@ -248,4 +255,12 @@ export async function localOAuthMailAccess(config:ServerConfig,id:string,connect
     sharedWrite:shared&&authorizedWrites('outlook',connection).includes('outlook')&&has('Mail.ReadWrite.Shared'),
     sharedSend:shared&&connection.authorizedSends===true&&has('Mail.Send.Shared'),
   };
+}
+
+export async function localOAuthCalendarAccess(config: ServerConfig, id: string, connectionId: string) {
+  const saved=await state(config,id), connection=saved?.connections.find(value=>value.id===connectionId);
+  if(connectionProvider(id)!=='outlook'||!saved||!connection||connection.needsReconnect||!connection.calendarAccess?.sharedCalendars||!(await connectorCalendarAccess(config,id)).sharedCalendars)return {read:false,write:false};
+  const token=await session(config).vault.get(grantKey(id,saved.revision,connection));
+  const has=(scope:string)=>!!token&&(token.grantedScopes===undefined||token.grantedScopes.some(value=>value===scope||value==='https://graph.microsoft.com/'+scope));
+  return {read:has('Calendars.Read.Shared')||has('Calendars.ReadWrite.Shared'),write:authorizedWrites(id,connection).includes('outlook-calendar')&&has('Calendars.ReadWrite.Shared')};
 }

@@ -25,6 +25,7 @@ const de = {
   "shutdown.save_restart": "Speichern und neu starten",
   "shutdown.save_close": "Speichern und schließen",
 
+  "connectors.calendar_shared": "Geteilte Kalender",
   "mail.invitation": "Einladung",
   "mail.invitation_reply": "Antworten",
   "mail.invitation_reply_accept": "Zusagen",
@@ -51,7 +52,7 @@ const de = {
   "mail.invitation_reply_not_invited": "Dieser Kalender ist kein eingeladener Teilnehmer",
   "mail.invitation_reply_not_found": "Kein passender Kalendertermin",
   "mail.invitation_reply_ambiguous": "Mehrere passende Kalendertermine",
-  "mail.invitation_reply_permission": "Schreibberechtigung für den Kalender erforderlich",
+  "mail.invitation_reply_permission": "Kalenderberechtigung erforderlich",
   "mail.invitation_reply_account_changed": "Kalenderkonto geändert",
   "mail.invitation_reply_time": "Antwort für diese Terminzeit nicht verfügbar",
   "mail.invitation_reply_expired": "Antwortprüfung abgelaufen",

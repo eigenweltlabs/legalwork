@@ -18,6 +18,17 @@ From an [email invitation](email.md#meeting-invitations), select **Calendar** to
 
 Email's **Reply** action can review and submit an invitation response through these same Google Calendar or Outlook Calendar integrations. The review names the selected calendar and invited participant, including a delegated participant when permitted. See [meeting invitation replies](email.md#meeting-invitations) for the steps and recurrence limits.
 
+## Shared Outlook calendars
+
+1. Accept the owner's calendar sharing invitation or add their shared calendar in Outlook. The owner must grant the access you need. Replying on their behalf can require delegate permissions beyond permission to edit events. See [Microsoft's sharing and delegation guide](https://learn.microsoft.com/en-us/exchange/sharing/manage-calendar-delegate-access).
+2. Open **Settings > Integrations > Communication > Outlook Calendar**. Select the installed account and choose **Manage**.
+3. Turn on **Shared calendars** and complete Microsoft consent for the same account. For editing or invitation replies, also turn on **Allow write access** and complete its reconnect. Calendar write access is separate from Outlook Email write access.
+4. Return to Calendar and select the calendar under **Connected calendars**. For an invitation response, choose it under **Reply calendar** in Email and review **Reply as** before sending.
+
+The option is available with direct Microsoft sign-in and **Use your own OAuth app**. Older managed connections keep their existing fixed permissions. A cancelled consent or a grant without the requested permissions does not enable shared access. If a shared calendar is missing, check that it was added in Outlook and that the owner and your administrator allow access.
+
+Turning off **Shared calendars** blocks new shared-calendar reads and writes in Calendar, Email replies and assistant actions. It does not revoke Microsoft-side consent or erase previously loaded events. Calendar can retain those events in its session cache until refreshed or closed. Turning off **Allow write access** leaves permitted reads available.
+
 ## Add a deadline
 
 1. Open the intended project's Calendar and choose the new-deadline action. In the combined calendar, choose the project in the dialog.

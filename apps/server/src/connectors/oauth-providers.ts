@@ -1,4 +1,4 @@
-import type { ConnectorOAuthClientInput, ConnectorMailAccess } from "./schema.js";
+import type { ConnectorOAuthClientInput, ConnectorMailAccess, ConnectorCalendarAccess } from "./schema.js";
 import type { OAuthApplication } from "../file-storage/oauth/providers.js";
 import { ApiError } from "../errors.js";
 import { connectionProvider } from "./definition.js";
@@ -15,7 +15,7 @@ export function defaultConnectorOAuthClient(id: string): ConnectorOAuthClientInp
     tenantId: provider === "onedrive-personal" ? "consumers" : provider === "outlook" ? "common" : "organizations" };
 }
 
-export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientInput, writeIds: string[], mailAccess: ConnectorMailAccess = {contacts:false,sharedMailboxes:false}) {
+export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientInput, writeIds: string[], mailAccess: ConnectorMailAccess = {contacts:false,sharedMailboxes:false}, calendarAccess: ConnectorCalendarAccess = {sharedCalendars:false}) {
   const provider = connectionProvider(id);
   const readOnly = !writeIds.includes(provider);
   const googleScopes: Record<string, string[]> = {
@@ -43,6 +43,7 @@ export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientI
   };
   const permissions = microsoftScopes[provider];
   if(provider==='outlook'){
+    if(calendarAccess.sharedCalendars)permissions.push(writeIds.includes('outlook-calendar')?'Calendars.ReadWrite.Shared':'Calendars.Read.Shared');
     if(mailAccess.contacts)permissions.push('Contacts.Read');
     if(mailAccess.sharedMailboxes){permissions.push(readOnly?'Mail.Read.Shared':'Mail.ReadWrite.Shared');if(!readOnly)permissions.push('Mail.Send.Shared');}
   }

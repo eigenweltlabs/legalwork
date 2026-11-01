@@ -15,6 +15,7 @@ export default {
   "shutdown.save_restart": "Save and restart",
   "shutdown.save_close": "Save and close",
 
+  "connectors.calendar_shared": "Shared calendars",
   "mail.invitation": "Invitation",
   "mail.invitation_reply": "Reply",
   "mail.invitation_reply_accept": "Accept",
@@ -41,7 +42,7 @@ export default {
   "mail.invitation_reply_not_invited": "This calendar is not an invited participant",
   "mail.invitation_reply_not_found": "No matching calendar event",
   "mail.invitation_reply_ambiguous": "Multiple matching calendar events",
-  "mail.invitation_reply_permission": "Calendar write permission required",
+  "mail.invitation_reply_permission": "Calendar permission required",
   "mail.invitation_reply_account_changed": "Calendar account changed",
   "mail.invitation_reply_time": "Reply unavailable for this occurrence time",
   "mail.invitation_reply_expired": "Reply review expired",

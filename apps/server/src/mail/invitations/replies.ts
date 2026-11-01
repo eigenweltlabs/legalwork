@@ -11,6 +11,7 @@ type Open = (selection: InvitationReplySelection, signal: AbortSignal, identity?
 type Review = { accountId: string; input: InvitationReplyPreviewInput; identity: InvitationCalendarIdentity; event: InvitationCalendarEvent; calendar: InvitationCalendarAccess["calendar"]; expiresAt: number };
 const TTL = 5 * 60000;
 const sameEmail = (first: string, second: string) => first.toLowerCase() === second.toLowerCase();
+const refusedBeforeDispatch = (error: unknown) => error instanceof InvitationReplyError && (error.code==='account_changed'||error.code==='permission') || error instanceof ApiError && ['connector_permission_required','connector_calendar_permission_required','connector_inactive','connector_account_changed','connector_write_reconnect_required','connector_writes_disabled','connector_reconnect_required','connector_not_connected','connector_invalid_endpoint','read_only'].includes(error.code);
 const key = (calendar: InvitationCalendarAccess, event: InvitationCalendarEvent) => createHash("sha256").update(JSON.stringify([calendar.calendar.connectorId, calendar.calendar.calendarId, event.view.id, event.view.replyAs.toLowerCase()])).digest("hex");
 
 export function invitationReplyFailure(error: unknown): Error {
@@ -105,6 +106,7 @@ export class MailInvitationReplies {
       if (!claim.claimed) throw new InvitationReplyError("pending");
       let outcome: InvitationReplyResult["outcome"] = "uncertain";
       let dispatchStarted = false;
+      let providerReturned = false;
       try {
         this.ready(signal);
         // The durable claim can wait on another database writer. Read Calendar
@@ -116,6 +118,7 @@ export class MailInvitationReplies {
         }
         dispatchStarted = true;
         const result = await calendar.respond(final, review.input.response);
+        providerReturned = true;
         const status = result.status; await result.body?.cancel();
         // A provider refusal has not applied the response. Transport loss and
         // asynchronous success stay uncertain until a matching provider read.
@@ -130,10 +133,10 @@ export class MailInvitationReplies {
             outcome = "confirmed";
           }
         }
-      } catch {
+      } catch (error) {
         // A failed preflight has not dispatched. Once the provider method starts,
         // transport failure remains uncertain. Never turn that into a retry.
-        if (!dispatchStarted) {
+        if (!dispatchStarted || !providerReturned && refusedBeforeDispatch(error)) {
           try { await this.journal(accountId, { action: "finish", key: journalKey, attemptId, state: "rejected" }); outcome = "rejected"; }
           catch { /* Locked storage retains its conservative claim. */ }
         }
