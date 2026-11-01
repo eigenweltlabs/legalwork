@@ -28,6 +28,8 @@ Counts refer to local provider identities. Gmail labels can contain the same mes
 
 The Email store is encrypted on this computer. Reading, local lexical search and composing a local draft do not themselves require a remote model. Mail supplied to an assistant task enters that task's model context, and remote processing follows the selected provider and the permissions granted for that task. Matter filing, connected storage and exports create separate copies at their chosen destinations. Disconnecting an integration does not recall those copies or remove past chat content.
 
+Email search is currently lexical. An embedding index, semantic mail search and automatic cross-matter retrieval are not available. Connecting LegalMemory or choosing an assistant model does not enable them. A matter-identifier search term filters text; it does not grant access to another matter or account.
+
 ## Connect iCloud or another mail service
 
 1. Open **Settings > Integrations > Communication** and select **iCloud / IMAP / SMTP**. You can search the catalogue for IMAP or iCloud.
