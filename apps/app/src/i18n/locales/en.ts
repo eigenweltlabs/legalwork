@@ -239,6 +239,8 @@ export default {
   "connectors.connected": "Connected",
   "connectors.account": "Connected account {count}",
   "connectors.reconnect_needed": "Sign-in needs to be renewed",
+  "connectors.mail_contacts": "Personal contacts",
+  "connectors.mail_shared_mailboxes": "Shared mailboxes",
   "connectors.reconnect": "Reconnect",
   "connectors.test": "Test connection",
   "connectors.test_passed": "Access verified directly with your provider.",

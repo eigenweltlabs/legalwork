@@ -49,6 +49,16 @@ One account is supported per connector. Outlook Email and Outlook Calendar share
 
 Existing connections created with **Connect with Eigenwelt** keep that sign-in method when reconnected. To switch an existing Outlook connection to direct Microsoft sign-in, disconnect it, then select **Connect Outlook Email** again.
 
+## Personal contacts and shared mailboxes
+
+1. Open **Settings > Integrations > Communication** and select Gmail or Outlook Email.
+2. For direct Microsoft sign-in or **Use your own OAuth app**, turn on **Personal contacts**. For an existing connection this starts **Reconnect**. Complete provider consent with the same account. A new connection requests the selected permission during sign-in.
+3. Return to **Mail accounts > Accounts > Address books** and select **Connect contacts** to download recipient suggestions. Use **Sync now** to refresh them and **Remove local contacts** to clear the downloaded address book. Turning off **Personal contacts** in Integrations stops provider access; downloaded suggestions remain until you remove them locally.
+
+Google's shared-app connection has fixed permissions. The optional controls appear with **Use your own OAuth app**; its Google project must have People API enabled, as described in [Google's setup guide](https://developers.google.com/people/v1/getting-started). Existing broker connections continue to work for email. See [OAuth app details](#use-your-own-oauth-app) before changing connection methods, and export needed local mail before disconnecting its original account.
+
+For a Microsoft work account, turn on **Shared mailboxes** in Outlook Email's Integrations settings and complete the same account's provider consent. Leave **Allow write access** off for reading. To request shared-mailbox writes and sending, enable it before connecting or reconnecting. Then open **Mail accounts > Accounts > Microsoft shared and delegated mailboxes > Add shared mailbox**, enter the mailbox address and choose **Verify mailbox access**. Select only the write and sender rights your administrator has granted. The Microsoft consent and Exchange mailbox permissions are both required, as described in [Microsoft's shared-mailbox guide](https://learn.microsoft.com/en-us/graph/outlook-share-messages-folders). Shared mailboxes use the signed-in account's existing connection.
+
 ## Connect Gmail with Eigenwelt
 
 1. Sign in under **Settings > Account**.

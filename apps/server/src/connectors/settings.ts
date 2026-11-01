@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { connectorDefinitions, connectorSettingsSchema } from "./schema.js";
+import { connectorDefinitions, connectorSettingsSchema, connectorMailAccessSchema } from "./schema.js";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { oauthVaultPath, vaultLock } from "../file-storage/oauth/vault.js";
@@ -71,16 +71,17 @@ export async function connectorWriteSetting(config: ServerConfig, id: string) {
   if (!connectorDefinitions.some((item) => item.id === id)) throw new ApiError(404, "connector_not_found", "Connector not found.");
   const settings = await connectorSettings(config);
   const entry = Object.entries(settings.writeAccess).find(([key]) => key === id);
-  return { writeAccess: entry?.[1] === true, readOnly: config.readOnly };
+  return { writeAccess: entry?.[1] === true, readOnly: config.readOnly, ...((id==='gmail'||id==='outlook')?{mailAccess:settings.mailAccess[id]??{contacts:false,sharedMailboxes:false}}:{}) };
 }
 export async function saveConnectorWriteSetting(config: ServerConfig, id: string, input: unknown) {
-  const parsed = z.object({ writeAccess: z.boolean() }).strict().safeParse(input);
+  const parsed = z.object({ writeAccess: z.boolean().optional(), mailAccess: connectorMailAccessSchema.optional() }).strict().refine(value=>value.writeAccess!==undefined||value.mailAccess!==undefined).safeParse(input);
   if (!parsed.success) throw new ApiError(400, "invalid_payload", "Connector write access must be enabled or disabled.");
   await connectorWriteSetting(config, id);
+  if(parsed.data.mailAccess&&(id!=='gmail'&&id!=='outlook'||id==='gmail'&&parsed.data.mailAccess.sharedMailboxes))throw new ApiError(400,'invalid_payload','Choose a supported email permission.');
   // Serialize read-modify-write across connector toggles on this profile.
   await vaultLock(`${connectorSettingsPath(config)}:update`, async () => {
     const previous = await connectorSettings(config);
-    await saveConnectorSettings(config, { ...previous, writeAccess: { ...previous.writeAccess, [id]: parsed.data.writeAccess } });
+    await saveConnectorSettings(config, { ...previous, ...(parsed.data.writeAccess===undefined?{}:{writeAccess:{...previous.writeAccess,[id]:parsed.data.writeAccess}}), ...(parsed.data.mailAccess?{mailAccess:{...previous.mailAccess,[id]:parsed.data.mailAccess}}:{}) });
   });
   return connectorWriteSetting(config, id);
 }
@@ -119,4 +120,10 @@ export async function clearConnectorActivation(config: ServerConfig, id: string,
     if (activeAccounts["outlook-calendar"] === connectionId) delete activeAccounts["outlook-calendar"];
     if (JSON.stringify(previous.activeAccounts) !== JSON.stringify(activeAccounts)) await saveConnectorSettings(config, { ...previous, activeAccounts });
   });
+}
+
+export async function connectorMailAccess(config:ServerConfig,id:string){
+  const provider=id==='outlook-calendar'?'outlook':id;
+  const settings=await connectorSettings(config);
+  return provider==='gmail'||provider==='outlook'?settings.mailAccess[provider]??{contacts:false,sharedMailboxes:false}:{contacts:false,sharedMailboxes:false};
 }

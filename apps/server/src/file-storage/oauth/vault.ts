@@ -6,7 +6,7 @@ import { ApiError } from "../../errors.js";
 import { StorageStore } from "../store.js";
 import type { ServerConfig } from "../../types.js";
 
-const credential = z.object({ accessToken: z.string(), refreshToken: z.string(), expiresAt: z.number() });
+const credential = z.object({ accessToken: z.string(), refreshToken: z.string(), expiresAt: z.number(), grantedScopes: z.array(z.string().min(1).max(2048)).max(256).optional() });
 export type Credential = z.infer<typeof credential>;
 // Keep each entry's schema at its consumer so OAuth grants and Nango
 // connection capabilities share encryption without overwriting one another.

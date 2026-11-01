@@ -31,7 +31,7 @@ export function MailContactsView({
     >
       <div className="divide-y divide-subtle">
         {accounts
-          .filter((account) => account.provider !== "archive")
+          .filter((account) => account.provider !== "archive" && !account.integrationArchive)
           .map((account) => (
             <ContactBook
               key={account.id}
@@ -135,7 +135,7 @@ function ContactBook({
                 size="sm"
                 variant="outline"
                 disabled={busy}
-                onClick={onAuthorize}
+                onClick={account.contactsAllowed ? () => void action("sync") : onAuthorize}
               >
                 Connect contacts
               </Button>

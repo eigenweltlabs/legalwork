@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { connectorConnectSchema, connectorDefinitions, connectorOAuthClientInputSchema } from "@legalwork/types/connectors";
 import type { ServerConfig } from "../types.js";
 import { connectorStatus, createConnectorFlows, connectorAccessToken, disconnectConnector, setConnectorActivation } from "./broker.js";
-import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "./local-oauth.js";
+import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess, localOAuthMailAccess } from "./local-oauth.js";
 import { connectorOAuthProvider } from "./oauth-providers.js";
 import { connectorSettings, connectorSettingsPath, saveConnectorWriteSetting } from "./settings.js";
 import { callConnectorExtensionAction, CONNECTOR_EXTENSION_ACTIONS } from "./index.js";
@@ -719,9 +719,9 @@ test("connector preference API needs owner authorization, rejects invalid input 
   expect((await nativeFetch(path)).status).toBe(401);
   expect((await nativeFetch(path, { headers: { Authorization: "Bearer client" } })).status).toBe(401);
   const headers = { "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
-  expect(await (await nativeFetch(path, { headers })).json()).toEqual({ writeAccess: false, readOnly: false });
+  expect(await (await nativeFetch(path, { headers })).json()).toEqual({ writeAccess: false, readOnly: false, mailAccess:{contacts:false,sharedMailboxes:false} });
   expect((await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: "true" }) })).status).toBe(400);
-  expect(await (await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: true }) })).json()).toEqual({ writeAccess: true, readOnly: false });
+  expect(await (await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: true }) })).json()).toEqual({ writeAccess: true, readOnly: false, mailAccess:{contacts:false,sharedMailboxes:false} });
   config.readOnly = true;
   expect((await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: false }) })).status).toBe(403);
   expect(requests).toHaveLength(0);
@@ -779,4 +779,93 @@ test("late invalid_grant from an obsolete refresh cannot poison a successfully u
     expect((await localOAuthConnections(config, "outlook"))[0].needsReconnect).toBe(false);
     expect(await connectorAccessToken(config, "outlook-calendar", account.connection.id)).toBe(access);
   } finally { release.resolve(); await Promise.allSettled([refreshing, activating]); }
+});
+
+
+test("optional mail permissions require explicit settings and a renewed grant on the same account",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ const first=await connected();
+ expect(first.authorization.searchParams.get('scope')).not.toContain('contacts');
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ expect(await localOAuthMailAccess(config,'gmail',first.connection.id)).toMatchObject({contacts:false,sharedMailboxes:false});
+ const next=await start('gmail',first.connection.id);
+ expect(next.authorization.searchParams.get('scope')).toContain('https://www.googleapis.com/auth/contacts.readonly');
+ expect(next.authorization.searchParams.get('client_id')).toBe('mail-client');
+ expect((await callback(next.authorization)).status).toBe(200);
+ const result=await next.flows.status(next.flow.flowId);
+ expect(result.connection?.id).toBe(first.connection.id);expect(result.connection?.createdAt).toBe(first.connection.createdAt);
+ expect(await localOAuthMailAccess(config,'gmail',first.connection.id)).toMatchObject({contacts:true,sharedMailboxes:false});
+ const request=await createConnectorRequest(config,'gmail',first.connection.id);
+ await request.response('/v1/people/me/connections?personFields=names,emailAddresses',{mailAccess:'contacts'});
+ expect(requests.at(-1)?.url.origin).toBe('https://people.googleapis.com');
+ expect(requests.at(-1)?.headers.get('authorization')).toBe('Bearer '+access);
+ const dispatched=requests.length;
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:false,sharedMailboxes:false}});
+ await expect(request.response('/v1/people/me/connections',{mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_permission_required'});
+ expect(requests).toHaveLength(dispatched);
+ expect((await localOAuthClient(config,'gmail')).scopes).not.toContain('https://www.googleapis.com/auth/contacts.readonly');
+});
+
+test("optional mail gates are rechecked after credential identity verification",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ const account=await connected();
+ const request=await createConnectorRequest(config,'gmail',account.connection.id,{verifyAccess:async()=>{await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:false,sharedMailboxes:false}});return true;}});
+ const dispatched=requests.length;
+ await expect(request.response('/v1/people/me/connections',{mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_permission_required'});
+ expect(requests).toHaveLength(dispatched);
+});
+
+test("contacts transport is restricted to read-only personal endpoints",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ const account=await connected(),request=await createConnectorRequest(config,'gmail',account.connection.id);
+ const dispatched=requests.length;
+ await expect(request.response('/v1/people:batchGet',{mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_invalid_endpoint'});
+ await expect(request.response('/v1/people/me/connections',{method:'POST',mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_invalid_endpoint'});
+ expect(requests).toHaveLength(dispatched);
+ await expect(saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:false,sharedMailboxes:true}})).rejects.toMatchObject({code:'invalid_payload'});
+ await expect(saveConnectorWriteSetting(config,'google-drive',{mailAccess:{contacts:true,sharedMailboxes:false}})).rejects.toMatchObject({code:'invalid_payload'});
+});
+
+test("shared Microsoft sign-in carries explicit optional mail scopes without changing Calendar write access",async()=>{
+ expect((await localOAuthClient(config,'outlook')).scopes).not.toContain('https://graph.microsoft.com/Contacts.Read');
+ await saveConnectorWriteSetting(config,'outlook',{mailAccess:{contacts:true,sharedMailboxes:true}});
+ const account=await connected('outlook-calendar');
+ const scopes=account.authorization.searchParams.get('scope');
+ expect(scopes).toContain('https://graph.microsoft.com/Contacts.Read');expect(scopes).toContain('https://graph.microsoft.com/Mail.Read.Shared');
+ expect(scopes).not.toContain('Mail.ReadWrite.Shared');expect(scopes).not.toContain('Mail.Send.Shared');expect(scopes).not.toContain('Calendars.ReadWrite');
+ expect(await localOAuthMailAccess(config,'outlook',account.connection.id)).toMatchObject({contacts:true,sharedMailboxes:true});
+ await saveConnectorWriteSetting(config,'outlook',{writeAccess:true});
+ const desired=(await localOAuthClient(config,'outlook')).scopes;
+ expect(desired).toContain('https://graph.microsoft.com/Mail.ReadWrite.Shared');expect(desired).toContain('https://graph.microsoft.com/Mail.Send.Shared');expect(desired).not.toContain('https://graph.microsoft.com/Calendars.ReadWrite');
+ await saveConnectorWriteSetting(config,'outlook',{mailAccess:{contacts:false,sharedMailboxes:false}});
+ expect(await localOAuthMailAccess(config,'outlook-calendar',account.connection.id)).toMatchObject({contacts:false,sharedMailboxes:false});
+});
+
+
+test("a narrower provider grant never acquires requested optional permissions and refresh preserves stated scope",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'https://www.googleapis.com/auth/gmail.readonly'}):Response.json({emailAddress:'local@example.com'});
+ const account=await connected();
+ expect(await localOAuthMailAccess(config,'gmail',account.connection.id)).toMatchObject({contacts:false});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:'renewed-token',expires_in:3600}):Response.json({emailAddress:'local@example.com'});
+ await connectorAccessToken(config,'gmail',account.connection.id,true);
+ expect(await localOAuthMailAccess(config,'gmail',account.connection.id)).toMatchObject({contacts:false});
+});
+
+test("shared scope downshifts on refresh block writes without removing permitted reads",async()=>{
+ await saveConnectorWriteSetting(config,'outlook',{writeAccess:true,mailAccess:{contacts:true,sharedMailboxes:true}});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'User.Read Mail.ReadWrite Mail.Send Contacts.Read Mail.ReadWrite.Shared Mail.Send.Shared'}):Response.json({id:'owner'});
+ const account=await connected('outlook');
+ expect(await localOAuthMailAccess(config,'outlook',account.connection.id)).toMatchObject({contacts:true,sharedMailboxes:true,sharedWrite:true,sharedSend:true});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:'narrow-token',expires_in:3600,scope:'User.Read Mail.ReadWrite Mail.Read.Shared'}):Response.json({value:[]});
+ await connectorAccessToken(config,'outlook',account.connection.id,true);
+ expect(await localOAuthMailAccess(config,'outlook',account.connection.id)).toMatchObject({contacts:false,sharedMailboxes:true,sharedWrite:false,sharedSend:false});
+ const request=await createConnectorRequest(config,'outlook',account.connection.id),count=requests.length;
+ await expect(request.response('/v1.0/users/team%40example.test/messages',{method:'POST',body:{},mailAccess:'sharedMailboxes'})).rejects.toMatchObject({code:'connector_permission_required'});
+ await expect(request.response('/v1.0/users/team%40example.test/sendMail',{method:'POST',body:{},mailAccess:'sharedMailboxes',send:true})).rejects.toMatchObject({code:'connector_permission_required'});
+ expect(requests).toHaveLength(count);
+ await request.response('/v1.0/users/team%40example.test/messages',{mailAccess:'sharedMailboxes'});expect(requests).toHaveLength(count+1);
 });
