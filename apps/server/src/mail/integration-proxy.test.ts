@@ -8,14 +8,14 @@ import { ApiError } from "../errors.js";
 
 const config: ServerConfig = { host: "127.0.0.1", port: 12345, token: "fixture", hostToken: "fixture", approval: {mode:"auto", timeoutMs:1000}, corsOrigins:[], workspaces:[], authorizedRoots:[], readOnly:false, startedAt:0, tokenSource:"cli", hostTokenSource:"cli", logFormat:"pretty", logRequests:false };
 function fixture() {
-  let principal = "owner@example.test", token = "first-token", connected = true, active = true, writes = true, available = true, createdAt = "2026-11-01T00:00:00Z";
+  let principal = "owner@example.test", token = "first-token", connected = true, active = true, writes = true, available = true, contacts = false, createdAt = "2026-11-01T00:00:00Z";
   const dispatches: {path:string; options: ConnectorRequestOptions}[] = [], identityTokens: string[] = [];
   const profile = () => ({emailAddress:principal});
   const assertCurrent = () => { if (!connected || !active) throw new ApiError(409,"changed","Changed"); };
   const proxy = new MailIntegrationProxy(config, {
     source: {
       connections: async id => connected && id === "gmail" ? [{id:"connection", createdAt, needsReconnect:false}] : [],
-      activated: async () => active, send: async () => {}, organize: async () => {},
+      optionalAccess:async()=>({contacts,sharedMailboxes:false}), activated: async () => active, send: async () => {}, organize: async () => {},
     },
     fetch: Object.assign(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       identityTokens.push(new Headers(init?.headers).get("authorization") ?? "");
@@ -35,7 +35,7 @@ function fixture() {
       return request;
     },
   });
-  return { proxy, dispatches, identityTokens, principal: (value:string) => {principal=value;token+="-changed";}, connected:(value:boolean)=>{connected=value;}, active:(value:boolean)=>{active=value;}, writes:(value:boolean)=>{writes=value;}, available:(value:boolean)=>{available=value;}, recreated:()=>{createdAt="2026-11-02T00:00:00Z";} };
+  return { proxy, dispatches, identityTokens, contacts:(value:boolean)=>{contacts=value;}, principal: (value:string) => {principal=value;token+="-changed";}, connected:(value:boolean)=>{connected=value;}, active:(value:boolean)=>{active=value;}, writes:(value:boolean)=>{writes=value;}, available:(value:boolean)=>{available=value;}, recreated:()=>{createdAt="2026-11-02T00:00:00Z";} };
 }
 async function client(f: ReturnType<typeof fixture>) {
   const snapshot = await f.proxy.snapshot(), account = snapshot.accounts[0];
@@ -92,9 +92,9 @@ test("ordinary provider requests retain their original arguments and use the cur
 });
 test("Outlook attachment uploads are bound to the issuing account and never receive provider credentials", async () => {
   const uploadUrl="https://outlook.office.com/api/upload?session=signed-fixture", profile={id:"stable-graph-id",mail:"owner@example.test",displayName:"Owner"};
-  let connected=true, uploaded=0;
+  let connected=true, uploaded=0, sharedWrite=true;
   const proxy=new MailIntegrationProxy(config,{
-    source:{connections:async id=>connected&&id==='outlook'?[{id:'graph',createdAt:'2026-11-01',needsReconnect:false}]:[],activated:async()=>true,send:async()=>{},organize:async()=>{}},
+    source:{connections:async id=>connected&&id==='outlook'?[{id:'graph',createdAt:'2026-11-01',needsReconnect:false}]:[],activated:async()=>true,send:async()=>{},organize:async()=>{},optionalAccess:async()=>({contacts:false,sharedMailboxes:true,sharedWrite,sharedSend:true})},
     fetch:Object.assign(async(input:Parameters<typeof fetch>[0],init?:RequestInit)=>{
       if(new URL(input instanceof Request?input.url:input).origin==='https://outlook.office.com'){
         expect(new Headers(init?.headers).has('authorization')).toBe(false);expect(await new Response(init?.body).text()).toBe('abc');uploaded++;return new Response(null,{status:201});
@@ -114,9 +114,46 @@ test("Outlook attachment uploads are bound to the issuing account and never rece
   const transport=createMailIntegrationFetch(()=>snapshot.configuration,Object.assign(async(input:Parameters<typeof fetch>[0],init?:RequestInit)=>proxy.handle(new Request(input,init)),{preconnect:fetch.preconnect}));
   const headers={Authorization:'Bearer '+mailIntegrationReference(account.accountId),'Content-Type':'application/octet-stream','Content-Range':'bytes 0-2/3'};
   expect((await transport(uploadUrl,{method:'PUT',headers,body:'abc'})).status).toBe(403);
-  expect((await transport('https://graph.microsoft.com/v1.0/me/messages/draft/attachments/createUploadSession',{method:'POST',headers,body:'{}'})).status).toBe(201);
+  expect((await transport('https://graph.microsoft.com/v1.0/users/shared%40example.test/messages/draft/attachments/createUploadSession',{method:'POST',headers,body:'{}'})).status).toBe(201);
   expect((await transport(uploadUrl,{method:'PUT',headers,body:'abc'})).status).toBe(201);expect(uploaded).toBe(1);
   expect((await transport('https://graph.microsoft.com/v1.0/me/messages/id/replyAll',{method:'POST',headers,body:'{}'})).status).toBe(403);
+  sharedWrite=false;expect((await transport(uploadUrl,{method:'PUT',headers,body:'abc'})).status).toBe(403);expect(uploaded).toBe(1);
   connected=false;expect((await transport(uploadUrl,{method:'PUT',headers,body:'abc'})).status).toBe(401);expect(uploaded).toBe(1);
   proxy.close();
+});
+
+
+test("optional contacts use only personal read endpoints and are fenced immediately when disabled",async()=>{
+ const f=fixture(),c=await client(f),url='https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses';
+ expect(c.account.scopes).not.toContain('https://www.googleapis.com/auth/contacts.readonly');
+ expect((await c.request(url)).status).toBe(403);
+ f.contacts(true);const next=await f.proxy.snapshot();
+ expect(next.accounts[0].accountId).toBe(c.account.accountId);expect(next.accounts[0].scopes).toContain('https://www.googleapis.com/auth/contacts.readonly');
+ expect((await c.request(url)).status).toBe(410);expect(f.dispatches.at(-1)?.options.mailAccess).toBe('contacts');
+ const count=f.dispatches.length;f.contacts(false);
+ expect((await c.request(url)).status).toBe(403);expect(f.dispatches).toHaveLength(count);
+ f.contacts(true);expect((await c.request(url,'POST')).status).toBe(403);expect((await c.request('https://people.googleapis.com/v1/people/me')).status).toBe(403);
+ expect((await c.request('https://people.googleapis.com/v1/people/me/connections?personFields=photos')).status).toBe(403);expect((await c.request(url+'&key=unexpected')).status).toBe(403);expect((await c.request(url+'&personFields=photos')).status).toBe(403);expect(f.dispatches).toHaveLength(count);f.proxy.close();
+});
+
+test("Microsoft personal contacts and shared mailbox routing require their current explicit grants",async()=>{
+ let contacts=true,sharedMailboxes=true;
+ const dispatched:ConnectorRequestOptions[]=[];
+ const profile={id:'owner-stable-id',mail:'owner@example.test',displayName:'Owner'};
+ const proxy=new MailIntegrationProxy(config,{
+  source:{connections:async id=>id==='outlook'?[{id:'outlook',createdAt:'2026-11-01',needsReconnect:false}]:[],activated:async()=>true,send:async()=>{},organize:async()=>{},optionalAccess:async()=>({contacts,sharedMailboxes,sharedWrite:sharedMailboxes,sharedSend:sharedMailboxes})},
+  fetch:Object.assign(async()=>Response.json(profile),{preconnect:fetch.preconnect}),
+  request:async(_id,_connection,verify)=>{const response=async(path:string,options:ConnectorRequestOptions={})=>{if(verify&&!await verify('graph-token'))return new Response(null,{status:401});dispatched.push(options);return Response.json(path==='/v1.0/me?$select=id,displayName,mail,userPrincipalName'?profile:{value:[]});};return Object.assign(async(path:string,options?:ConnectorRequestOptions)=>(await response(path,options)).json(),{response,assertWrite:async()=>{}});},
+ });
+ const snapshot=await proxy.snapshot(),account=snapshot.accounts[0];
+ expect(account.scopes).toContain('Contacts.Read');expect(account.scopes).toContain('Mail.ReadWrite.Shared');expect(account.scopes).toContain('Mail.Send.Shared');
+ const request=(endpoint:string,method='GET')=>proxy.handle(new Request('http://127.0.0.1/mail/internal/integrations/request',{method:'POST',headers:{'x-legalwork-mail-capability':snapshot.configuration.capability,'x-legalwork-mail-account':account.accountId,'x-legalwork-mail-method':method,'x-legalwork-mail-endpoint':endpoint}}));
+ expect((await request('https://graph.microsoft.com/v1.0/me/contactFolders/default/contacts/delta')).status).toBe(200);expect(dispatched.at(-1)?.mailAccess).toBe('contacts');
+ expect((await request('https://graph.microsoft.com/v1.0/users/team%40example.test/messages')).status).toBe(200);expect(dispatched.at(-1)?.mailAccess).toBe('sharedMailboxes');
+ const count=dispatched.length;contacts=false;sharedMailboxes=false;
+ expect((await request('https://graph.microsoft.com/v1.0/me/contacts')).status).toBe(403);expect((await request('https://graph.microsoft.com/v1.0/users/team%40example.test/sendMail','POST')).status).toBe(403);
+ expect(dispatched).toHaveLength(count);
+ contacts=true;sharedMailboxes=true;
+ expect((await request('https://graph.microsoft.com/v1.0/me/contacts?$select=mobilePhone')).status).toBe(403);expect((await request('https://graph.microsoft.com/v1.0/me/contacts?$expand=photo')).status).toBe(403);
+ expect((await request('https://graph.microsoft.com/v1.0/users/team%40example.test/contacts')).status).toBe(403);expect((await request('https://graph.microsoft.com/v1.0/me/contacts','POST')).status).toBe(403);expect((await request('https://graph.microsoft.com/v1.0/me/contacts?$select=id&$SELECT=mobilePhone')).status).toBe(403);expect(dispatched).toHaveLength(count);proxy.close();
 });

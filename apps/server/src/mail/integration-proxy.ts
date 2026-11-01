@@ -4,7 +4,7 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
 import { savedConnectorConnections } from "../connectors/broker.js";
 import { connectorIsActivated } from "../connectors/settings.js";
-import { requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "../connectors/local-oauth.js";
+import { requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess, localOAuthMailAccess } from "../connectors/local-oauth.js";
 import { createConnectorRequest, type StreamingConnectorRequest, type ConnectorRequestOptions } from "../connectors/request.js";
 import { mailIntegrationAccountSchema, type MailIntegrationAccount, type MailIntegrationSnapshot } from "./integration-view.js";
 
@@ -21,6 +21,7 @@ type IntegrationSource = {
   activated: (id: ConnectorId, connectionId: string) => Promise<boolean>;
   send: (id: ConnectorId, connectionId: string) => Promise<void>;
   organize: (id: ConnectorId, connectionId: string) => Promise<void>;
+  optionalAccess?: (id: ConnectorId, connectionId: string) => ReturnType<typeof localOAuthMailAccess>;
 };
 const handleOf = (id: ConnectorId, connection: { id: string; createdAt: string | null }) => digest(JSON.stringify([id, connection.id, connection.createdAt]));
 
@@ -63,7 +64,7 @@ export class MailIntegrationProxy {
   private readonly capability = randomBytes(32).toString("hex");
   private readonly accounts = new Map<string, MailIntegrationAccount>();
   private readonly verified = new Map<string, Promise<boolean>>();
-  private readonly uploads = new Map<string, { accountId: string; expiresAt: number }>();
+  private readonly uploads = new Map<string, { accountId: string; expiresAt: number; mailAccess?: ConnectorRequestOptions["mailAccess"] }>();
   private closed = false;
   private readonly request: RequestFactory;
   private readonly transport: typeof fetch;
@@ -75,6 +76,7 @@ export class MailIntegrationProxy {
     this.source = options.source ?? {
       connections: id => savedConnectorConnections(config, id), activated: (id, connectionId) => connectorIsActivated(config, id, connectionId),
       send: (id, connectionId) => requireLocalOAuthSendAccess(config, id, connectionId), organize: (id, connectionId) => requireLocalOAuthOrganizeAccess(config, id, connectionId),
+      optionalAccess: (id,connectionId)=>localOAuthMailAccess(config,id,connectionId),
     };
   }
 
@@ -104,6 +106,9 @@ export class MailIntegrationProxy {
           try { await this.source.organize(id, connection.id); } catch { organize = false; }
           const scopes = id === "gmail" ? ["https://www.googleapis.com/auth/gmail.readonly", ...(write && organize ? ["https://www.googleapis.com/auth/gmail.modify"] : []), ...(write && send ? ["https://www.googleapis.com/auth/gmail.send"] : [])]
             : ["User.Read", write ? "Mail.ReadWrite" : "Mail.Read", "MailboxSettings.Read", ...(write && send ? ["Mail.Send"] : [])];
+          const optional=await this.source.optionalAccess?.(id,connection.id);
+          if(optional?.contacts)scopes.push(id==='gmail'?'https://www.googleapis.com/auth/contacts.readonly':'Contacts.Read');
+          if(id==='outlook'&&optional?.sharedMailboxes){scopes.push(write&&optional.sharedWrite?'Mail.ReadWrite.Shared':'Mail.Read.Shared');if(write&&send&&optional.sharedSend)scopes.push('Mail.Send.Shared');}
           const account = mailIntegrationAccountSchema.parse({
             accountId: `mail_${digest(JSON.stringify(["integrations", handle, profile.identity]))}`,
             handle, connectorId: id, connectionId: connection.id, ...profile, scopes,
@@ -151,12 +156,24 @@ export class MailIntegrationProxy {
     if (url.origin === "https://outlook.office.com") {
       const upload = this.uploads.get(url.href);
       if (account.connectorId !== "outlook" || method !== "PUT" || upload?.accountId !== account.accountId || upload.expiresAt <= Date.now()) throw new ApiError(403, "mail_integration_upload", "This attachment upload is no longer authorized.");
-      return { url, upload: true, send: false, organize: false };
+      return { url, upload: true, send: false, organize: false, mailAccess: upload.mailAccess };
     }
     const path = url.pathname;
-    const allowed = account.connectorId === "gmail"
+    const contacts=method==='GET'&&(account.connectorId==='gmail'?url.origin==='https://people.googleapis.com'&&path==='/v1/people/me/connections':url.origin==='https://graph.microsoft.com'&&/^\/v1\.0\/me\/(?:contacts|contactFolders\/[^/]+\/contacts\/delta)(?:$|\/[^/]+$)/.test(path));
+    if(contacts){
+      const google=account.connectorId==='gmail';
+      const keys=new Set(google?['personFields','sources','pageSize','requestSyncToken','syncToken','pageToken','sortOrder']:['$select','$top','$skip','$skiptoken','$deltatoken']);
+      const seen=new Set<string>();
+      if([...url.searchParams.keys()].some(key=>{const name=google?key:key.toLowerCase();if(!keys.has(name)||seen.has(name))return true;seen.add(name);return false;}))throw new ApiError(403,'mail_integration_endpoint','Unsupported contacts query.');
+      const fields=[...url.searchParams].find(([key])=>(google?key:key.toLowerCase())===(google?'personFields':'$select'))?.[1];
+      if(google&&url.searchParams.has('sources')&&url.searchParams.get('sources')!=='READ_SOURCE_TYPE_CONTACT')throw new ApiError(403,'mail_integration_endpoint','Only personal contacts are supported.');
+      const allowedFields=new Set(google?['names','emailAddresses','metadata']:['id','displayName','emailAddresses','parentFolderId']);
+      if(fields?.split(',').some(field=>!allowedFields.has(field)))throw new ApiError(403,'mail_integration_endpoint','Unsupported contacts fields.');
+    }
+    const mailAccess:ConnectorRequestOptions['mailAccess']=contacts?'contacts':account.connectorId==='outlook'&&/^\/v1\.0\/users\//.test(path)?'sharedMailboxes':undefined;
+    const allowed = contacts || (account.connectorId === "gmail"
       ? url.origin === "https://gmail.googleapis.com" && /^\/(?:upload\/)?gmail\/v1\/users\/me\/(?:profile|history|messages|threads|labels|drafts|settings\/sendAs)(?:\/|$)/.test(path)
-      : url.origin === "https://graph.microsoft.com" && (/^\/v1\.0\/(?:me|organization)$/.test(path) || /^\/v1\.0\/(?:me|users\/[^/]+)\/(?:messages|mailFolders|mailboxSettings|contacts|sendMail)(?:\/|$)/.test(path));
+      : url.origin === "https://graph.microsoft.com" && (/^\/v1\.0\/(?:me|organization)$/.test(path) || /^\/v1\.0\/(?:me|users\/[^/]+)\/(?:messages|mailFolders|mailboxSettings|sendMail)(?:\/|$)/.test(path)));
     if (!allowed) throw new ApiError(403, "mail_integration_endpoint", "This account only authorizes mail endpoints.");
     if (method !== "GET") {
       const writing = account.connectorId === "gmail"
@@ -166,7 +183,7 @@ export class MailIntegrationProxy {
     }
     const send = method !== "GET" && /\/(?:sendMail|send)$/.test(path);
     const draftWrite = /\/(?:drafts|attachments)(?:\/|$)/.test(path) || account.connectorId === "outlook" && method === "POST" && /\/messages$/.test(path);
-    return { url, upload: false, send, organize: method !== "GET" && !send && !draftWrite };
+    return { url, upload: false, send, organize: method !== "GET" && !send && !draftWrite, mailAccess };
   }
 
   async handle(request: Request): Promise<Response> {
@@ -180,6 +197,8 @@ export class MailIntegrationProxy {
       if (connections.length !== 1 || !connections.some(connection => connection.id === account.connectionId && handleOf(account.connectorId, connection) === account.handle && !connection.needsReconnect) || !await this.source.activated(account.connectorId, account.connectionId)) return new Response(null, {status: 401});
       const method = methods.parse(request.headers.get("x-legalwork-mail-method"));
       const target = this.endpoint(account, request.headers.get("x-legalwork-mail-endpoint") ?? "", method);
+      const assertOptional=async()=>{if(!target.mailAccess)return;const access=await this.source.optionalAccess?.(account.connectorId,account.connectionId);if(!access?.[target.mailAccess]||target.mailAccess==='sharedMailboxes'&&method!=='GET'&&(target.send?!access.sharedSend:!access.sharedWrite))throw new ApiError(403,'connector_permission_required','Optional email permission is not enabled for this account.');};
+      await assertOptional();
       const connector = await this.request(account.connectorId, account.connectionId, token => this.verify(account, token, request.signal));
       const headers = Object.fromEntries(forwardedHeaders.flatMap(name => { const value = request.headers.get(name); return value === null ? [] : [[name, value]]; }));
       const rawBody = request.body ? await boundedBody(request) : undefined;
@@ -189,9 +208,10 @@ export class MailIntegrationProxy {
         // Recheck identity through a harmless provider read before every signed
         // upload chunk. Upload URLs themselves never receive an OAuth token.
         await connector(account.connectorId === "gmail" ? gmailProfile : graphProfile);
+        await connector.assertWrite();await assertOptional();
         response = await this.transport(target.url, { method, headers, body: rawBody, redirect: "error", signal: request.signal });
       } else {
-        const options: ConnectorRequestOptions = { method, headers, rawBody, bytes: true, send: target.send, organize: target.organize, signal: request.signal, providerStatus: true };
+        const options: ConnectorRequestOptions = { method, headers, rawBody, bytes: true, send: target.send, organize: target.organize, signal: request.signal, providerStatus: true, mailAccess: target.mailAccess };
         response = await connector.response(target.url.pathname + target.url.search, options);
         if (account.connectorId === "outlook" && method === "POST" && target.url.pathname.endsWith("/createUploadSession") && response.ok) {
           const upload = z.object({ uploadUrl: z.url(), expirationDateTime: z.iso.datetime({ offset: true }).optional() }).parse(await json(response.clone()));
@@ -199,7 +219,7 @@ export class MailIntegrationProxy {
           if (url.origin !== "https://outlook.office.com" || !url.pathname.startsWith("/api/") || url.username || url.password || url.hash) throw new ApiError(502, "mail_integration_upload", "The mail provider returned an invalid upload session.");
           if (this.uploads.size >= 128) for (const [key, value] of this.uploads) if (value.expiresAt <= Date.now()) this.uploads.delete(key);
           if (this.uploads.size >= 128) throw new ApiError(429, "mail_integration_upload", "Finish an existing attachment upload before starting another.");
-          this.uploads.set(url.href, {accountId, expiresAt: Math.min(Date.now() + 60 * 60_000, upload.expirationDateTime ? Date.parse(upload.expirationDateTime) : Infinity)});
+          this.uploads.set(url.href, {accountId, mailAccess:target.mailAccess, expiresAt: Math.min(Date.now() + 60 * 60_000, upload.expirationDateTime ? Date.parse(upload.expirationDateTime) : Infinity)});
         }
       }
       if (this.closed || this.accounts.get(accountId)?.handle !== account.handle || this.accounts.get(accountId)?.identity !== account.identity) {

@@ -28,6 +28,10 @@ Older local mail accounts can move onto these same connections after authenticat
 
 For iCloud or another provider, choose **Communication > iCloud / IMAP / SMTP**. Add an account with its IMAP credentials, then configure SMTP for sending on that page. The same accounts appear in Email and in **Settings > Mail accounts**, where you manage notification preferences, local data and agent access. Follow [Email](email.md) for the complete setup and recovery steps.
 
+### Optional email permissions
+
+For direct Microsoft sign-in or a Gmail OAuth app override, Email connection settings include **Personal contacts**. Outlook Email also offers **Shared mailboxes**. Enabling a choice on an existing connection starts the same account's reconnect flow. Reading mail continues to use the existing connection; these options do not add another email account. Setup and account prerequisites are in [Email](email.md#personal-contacts-and-shared-mailboxes).
+
 ## SharePoint and Dropbox connection methods
 
 SharePoint and Dropbox each have one provider entry in **Files & storage**. Use **+** or open the provider and choose **Connect**. In **Connection method**, keep **Connect with LegalWork** to use the app's standard sign-in. Choose **Custom SharePoint** or **Custom Dropbox** to configure the separate connection with your own app details. Existing custom connections remain in **Installed** with those names.

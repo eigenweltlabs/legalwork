@@ -3,7 +3,7 @@ import { ApiError } from "../errors.js";
 import { connectorAccessToken, connectorDefinition, listConnectorConnections, savedConnectorConnections } from "./broker.js";
 import { boundedDownload } from "./native.js";
 import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
-import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "./local-oauth.js";
+import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess, localOAuthMailAccess } from "./local-oauth.js";
 import { requireSingleConnectorAccount } from "./single-connection.js";
 
 export type ConnectorRequestOptions = {
@@ -13,6 +13,7 @@ export type ConnectorRequestOptions = {
   signal?: AbortSignal;
   /** Internal provider adapters interpret status codes such as history expiry. */
   providerStatus?: boolean;
+  mailAccess?: "contacts" | "sharedMailboxes";
 };
 export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions) => Promise<unknown>) & { apiOrigin?: string };
 export type StreamingConnectorRequest = ConnectorRequest & {
@@ -55,6 +56,7 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
     apiOrigin, token: (force) => connectorAccessToken(config, id, connection.id, force), assertCurrent,
     assertSend: () => requireLocalOAuthSendAccess(config, id, connection.id),
     verifyAccess: options.verifyAccess,
+    assertMailAccess: async (feature,writing,sending)=>{const access=await localOAuthMailAccess(config,id,connection.id);if(!access[feature]||feature==='sharedMailboxes'&&(sending?!access.sharedSend:writing&&!access.sharedWrite))throw new ApiError(403,"connector_permission_required","Reconnect this account with the selected email permission.");},
   });
 }
 
@@ -64,6 +66,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
   token: (forceRefresh: boolean) => Promise<string>;
   assertCurrent: (writing: boolean, organize?: boolean) => Promise<void>;
   assertSend?: () => Promise<void>;
+  assertMailAccess?: (feature: "contacts" | "sharedMailboxes", writing:boolean, sending:boolean) => Promise<void>;
   verifyAccess?: (accessToken: string) => Promise<boolean>;
   apiOrigin?: string;
 }): Promise<StreamingConnectorRequest> {
@@ -79,12 +82,15 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
   const responseRequest = async (path: string, options: ConnectorRequestOptions = {}) => {
     // Reject relative-path escapes and cross-origin URLs even if a future adapter passes one.
     if (!path.startsWith("/") || path.startsWith("//")) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
-    const origin = options.content ? definition.contentOrigin : apiOrigin;
+    if(options.mailAccess==='contacts'&&options.method&&options.method!=='GET')throw new ApiError(403,'connector_invalid_endpoint','Contacts access is read-only.');
+    if(options.mailAccess==='contacts'&&id==='gmail'&&(path.split('?')[0]!=='/v1/people/me/connections'||options.content))throw new ApiError(400,'connector_invalid_endpoint','Invalid contacts endpoint.');
+    const origin = options.mailAccess==='contacts'&&id==='gmail'?'https://people.googleapis.com':options.content ? definition.contentOrigin : apiOrigin;
     if (!origin) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     const url = new URL(path, origin);
     if (url.origin !== origin || url.username || url.password || url.hash) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     const request = async () => {
       await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
+      if(options.mailAccess){if(!authorization.assertMailAccess)throw new ApiError(403,'connector_permission_required','This connection does not authorize optional mail access.');await authorization.assertMailAccess(options.mailAccess,Boolean(options.method&&options.method!=="GET"),options.send===true);}
       if (options.method && options.method !== "GET") {
         if (options.send) {
           if (!authorization.assertSend) throw new ApiError(403, "forbidden", "This connection only authorizes storage.");
@@ -96,6 +102,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
       if (authorization.verifyAccess && !await authorization.verifyAccess(accessToken)) return new Response(null, { status: 401 });
       if (authorization.verifyAccess) {
         await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
+        if(options.mailAccess){if(!authorization.assertMailAccess)throw new ApiError(403,'connector_permission_required','This connection does not authorize optional mail access.');await authorization.assertMailAccess(options.mailAccess,Boolean(options.method&&options.method!=="GET"),options.send===true);}
         if (options.send) await authorization.assertSend?.();
       }
       try {

@@ -6,7 +6,7 @@ import { ApiError } from "../../errors.js";
 import { oauthProvider, type OAuthApplication, type AccessToken } from "./providers.js";
 import { OAuthVault, vaultLock, type Credential } from "./vault.js";
 
-const tokenResult = z.object({ access_token: z.string().min(1), refresh_token: z.string().optional(), expires_in: z.number().positive().default(3600) });
+const tokenResult = z.object({ access_token: z.string().min(1), refresh_token: z.string().optional(), expires_in: z.number().positive().default(3600), scope: z.string().max(65536).optional() });
 const signinRequired = () => new ApiError(401, "storage_signin_required", "Sign in to this connection in File storage settings.");
 export const tokenBindings = new WeakMap<StorageInput, AccessToken>();
 export class StorageOAuth {
@@ -38,7 +38,9 @@ export class StorageOAuth {
     const token = result.data;
     const refreshToken = token.refresh_token ?? previous?.refreshToken;
     if (!refreshToken) throw signinRequired();
-    return { accessToken: token.access_token, refreshToken, expiresAt: Date.now() + token.expires_in * 1000 };
+    // Refresh may omit unchanged scope; retain the provider's last stated grant.
+    const grantedScopes=token.scope===undefined?previous?.grantedScopes:[...new Set(token.scope.split(/\s+/).filter(Boolean))];
+    return { accessToken: token.access_token, refreshToken, expiresAt: Date.now() + token.expires_in * 1000, ...(grantedScopes===undefined?{}:{grantedScopes}) };
   }
   async access(key: string, provider: OAuthApplication, forceRefresh = false) {
     return vaultLock(`${this.vault.path}:${key}`, async () => {

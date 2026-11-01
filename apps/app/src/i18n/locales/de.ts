@@ -259,6 +259,8 @@ const de = {
   "connectors.connected": "Verbunden",
   "connectors.account": "Verbundenes Konto {count}",
   "connectors.reconnect_needed": "Anmeldung muss erneuert werden",
+  "connectors.mail_contacts": "Persönliche Kontakte",
+  "connectors.mail_shared_mailboxes": "Freigegebene Postfächer",
   "connectors.reconnect": "Erneut verbinden",
   "connectors.test": "Verbindung testen",
   "connectors.test_passed": "Zugriff direkt beim Anbieter geprüft.",

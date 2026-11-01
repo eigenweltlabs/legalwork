@@ -27,8 +27,9 @@ async function fixture(fn){
  try{await fn({make,seed,path,key,calls,proofs,account,requestSnapshot:(service,selected)=>service.worker.request({operation:'mail.integrations.reconcile',snapshot:{configuration:{origin:'http://127.0.0.1:'+address.port,capability},handles:selected.map(account=>account.handle),accounts:selected}}),holdProof:()=>writeFile(gate,'hold'),disconnect:()=>{accounts=[];}});}finally{for(const service of services)await service.stop();await new Promise(resolve=>gateway.close(resolve));key.fill(0);await rm(directory,{recursive:true,force:true});}
 }
 test('worker adopts an existing account in place, keeps original data and routes sync through the sole shared connection',async()=>fixture(async f=>{
+ f.account.scopes.push('https://www.googleapis.com/auth/contacts.readonly');
  const retained=await f.seed(),service=await f.make();await until(async()=>(await service.listAccounts({})).items.some(account=>account.id==='retained'&&account.integration==='gmail'));
- assert.equal((await service.listAccounts({})).items.length,1);assert.equal((await service.readDraft('retained',{draftId:retained.draft.id})).content.subject,'Retained draft');
+ assert.equal((await service.listAccounts({})).items.length,1);assert.equal((await service.listAccounts({})).items[0].contactsAllowed,true);assert.equal((await service.readDraft('retained',{draftId:retained.draft.id})).content.subject,'Retained draft');
  const chunk=await service.readContent('retained',retained.locator,{kind:'raw',referenceId:retained.reference.id,offset:0,limit:100});assert.match(Buffer.from(chunk.data,'base64').toString(),/Original body/);
  await service.setLifecycleSuspended(false);await until(async()=>(await service.syncStatus('retained')).state==='complete');await until(async()=>(await service.outbox('retained'))[0].state==='failed');
  assert.ok(f.calls.some(path=>path.endsWith('/messages')));assert.equal(await readFile(f.proofs,'utf8'),'proof\n');
@@ -37,7 +38,7 @@ test('worker adopts an existing account in place, keeps original data and routes
 test('worker retains a late-migrated duplicate as read-only while preserving drafts, local originals and cancellable outbox history',async()=>fixture(async f=>{
  const initial=await f.make();await initial.stop();const retained=await f.seed(),service=await f.make();
  await until(async()=>(await service.listAccounts({})).items.some(account=>account.id==='retained'&&account.integrationArchive));
- assert.equal((await service.listAccounts({})).items.length,2);assert.equal((await service.readMessage('retained',retained.locator)).subject,'Original retained mail');
+ assert.equal((await service.listAccounts({})).items.length,2);assert.equal((await service.listAccounts({})).items.find(account=>account.id==='retained').contactsAllowed,false);assert.equal((await service.readMessage('retained',retained.locator)).subject,'Original retained mail');
  await assert.rejects(service.startSync('retained'),{message:'mail_unsupported'});await assert.rejects(service.enqueueMutation('retained',{replayKey:randomUUID(),locator:retained.locator,precondition:'old-version',change:{kind:'read',read:true}}),{message:'mail_unsupported'});await assert.rejects(service.requestDraftSync('retained',{draftId:retained.draft.id,expected:retained.draft.version,action:'sync'}),{message:'mail_unsupported'});await assert.rejects(service.queueOutbox('retained',{draftId:retained.draft.id,version:retained.draft.version,replayKey:randomUUID()}),{message:'mail_unsupported'});
  await service.setLifecycleSuspended(false);await new Promise(resolve=>setTimeout(resolve,100));assert.equal((await service.outbox('retained'))[0].attempts,0);assert.equal((await service.outbox('retained'))[0].state,'queued');
  await service.outboxAction('retained',{actionId:retained.item.id,action:'cancel'});assert.equal((await service.outbox('retained'))[0].state,'cancelled');
