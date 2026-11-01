@@ -116,7 +116,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
   if (!definition) return null;
   const Icon = definition.kind === "calendar" ? CalendarDays : definition.kind === "files" ? Folder : Mail;
   const iconSrc = resolveBrandIconSrc(undefined, definition.icon);
-  const reconnectForMailOptions=connections.length===1?()=>run("connect",()=>connect(connections[0].id,"custom")):undefined;
+  const reconnectForPermissions=connections.length===1?()=>run("connect",()=>connect(connections[0].id,"custom")):undefined;
   const oauthFields = oauthClient && <div className="space-y-3">
     {definition.kind!=="mail"&&<p className="text-sm text-muted-foreground">{t(oauthClient.family === "google" ? "connectors.google_setup" : "connectors.microsoft_setup")}</p>}
     <Field>
@@ -208,7 +208,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
               <SelectContent><SelectItem value="nango">{t("connectors.method_nango")}</SelectItem><SelectItem value="custom">{t("connectors.method_custom")}</SelectItem></SelectContent>
             </Select>
           </Field>}
-          {client && <div className="border-t border-border py-3"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} mailOptions={method==="custom"} onReconnect={reconnectForMailOptions} /></div>}
+          {client && <div className="border-t border-border py-3"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} mailOptions={method==="custom"} calendarOptions={method==="custom"} onReconnect={reconnectForPermissions} /></div>}
           {method === "custom" && !builtIn && oauthFields}
           {method === "nango" && status?.requiresSignIn && <Alert><AlertDescription>{t("connectors.signin_hint")}</AlertDescription></Alert>}
           {method === "nango" && status && !status.requiresSignIn && !connector?.configured && <Alert><AlertDescription>{t("connectors.unavailable")}</AlertDescription></Alert>}
@@ -225,7 +225,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
         </div>}
       </section>
 
-      {client && connections.length > 0 && <div className="border-t border-border pt-5"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} mailOptions={method==="custom"} onReconnect={reconnectForMailOptions} /></div>}
+      {client && connections.length > 0 && <div className="border-t border-border pt-5"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} mailOptions={method==="custom"} calendarOptions={method==="custom"} onReconnect={reconnectForPermissions} /></div>}
 
       <details className="group border-t border-border pt-4">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">

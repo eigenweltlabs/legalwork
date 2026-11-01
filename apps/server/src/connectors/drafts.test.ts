@@ -81,6 +81,7 @@ beforeEach(async () => {
       return Response.json(googleEvent);
     }
     if (url.hostname === "graph.microsoft.com") {
+      if (method === "GET" && url.pathname === "/v1.0/me/calendars/chosen-calendar") return Response.json({ id: "chosen-calendar", owner: { address: "fixture@example.com" } });
       if (url.pathname.endsWith("/send")) return failSend ? new Response(null, { status: 500 }) : new Response(null, { status: 202 });
       if (url.pathname.endsWith("/events")) return Response.json({ ...JSON.parse(body), id: "outlook-event", webLink: "https://outlook.office.com/calendar/item/fixture" });
       if (method === "GET") {

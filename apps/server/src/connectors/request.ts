@@ -3,8 +3,9 @@ import { ApiError } from "../errors.js";
 import { connectorAccessToken, connectorDefinition, listConnectorConnections, savedConnectorConnections } from "./broker.js";
 import { boundedDownload } from "./native.js";
 import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
-import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess, localOAuthMailAccess } from "./local-oauth.js";
+import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess, localOAuthMailAccess, localOAuthConnectionVersion } from "./local-oauth.js";
 import { requireSingleConnectorAccount } from "./single-connection.js";
+import { calendarAccessGuard, type CalendarAccessGuard } from './calendar-access.js';
 
 export type ConnectorRequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown; rawBody?: Blob; content?: boolean; bytes?: boolean;
@@ -14,8 +15,10 @@ export type ConnectorRequestOptions = {
   /** Internal provider adapters interpret status codes such as history expiry. */
   providerStatus?: boolean;
   mailAccess?: "contacts" | "sharedMailboxes";
+  /** Provider-proven owner of a selected Outlook calendar, never caller routing. */
+  calendarOwner?: string;
 };
-export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions) => Promise<unknown>) & { apiOrigin?: string };
+export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions) => Promise<unknown>) & { apiOrigin?: string; calendarAccess?: (owner: string, writing?: boolean, signal?: AbortSignal) => Promise<boolean> };
 export type StreamingConnectorRequest = ConnectorRequest & {
   response: (path: string, options?: ConnectorRequestOptions) => Promise<Response>;
   assertWrite: () => Promise<void>;
@@ -40,10 +43,11 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
   }
   if (connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
   const apiOrigin = connection.source === "custom" && id === "onedrive-personal" ? "https://graph.microsoft.com" : definition.apiOrigin;
+  const version = connection.source === 'custom' ? await localOAuthConnectionVersion(config,id,connection.id) : undefined;
   const assertCurrent = async (writing: boolean, organize = false) => {
     const current = await savedConnectorConnections(config, id);
     requireSingleConnectorAccount(current);
-    if (!current.some((item) => item.id === connection.id && !item.needsReconnect)) throw new ApiError(409, "connector_account_changed", "This account changed. Refresh the connection before continuing.");
+    if (!current.some((item) => item.id === connection.id && item.createdAt === connection.createdAt && !item.needsReconnect) || connection.source === 'custom' && (!version || await localOAuthConnectionVersion(config,id,connection.id) !== version)) throw new ApiError(409, "connector_account_changed", "This account changed. Refresh the connection before continuing.");
     await requireConnectorActivated(config, id, connection.id);
     if (writing) {
       if (connection.source === "custom") {
@@ -56,6 +60,7 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
     apiOrigin, token: (force) => connectorAccessToken(config, id, connection.id, force), assertCurrent,
     assertSend: () => requireLocalOAuthSendAccess(config, id, connection.id),
     verifyAccess: options.verifyAccess,
+    assertCalendarAccess: calendarAccessGuard(config,id,connection.id,connection.source==='custom'),
     assertMailAccess: async (feature,writing,sending)=>{const access=await localOAuthMailAccess(config,id,connection.id);if(!access[feature]||feature==='sharedMailboxes'&&(sending?!access.sharedSend:writing&&!access.sharedWrite))throw new ApiError(403,"connector_permission_required","Reconnect this account with the selected email permission.");},
   });
 }
@@ -67,6 +72,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
   assertCurrent: (writing: boolean, organize?: boolean) => Promise<void>;
   assertSend?: () => Promise<void>;
   assertMailAccess?: (feature: "contacts" | "sharedMailboxes", writing:boolean, sending:boolean) => Promise<void>;
+  assertCalendarAccess?: CalendarAccessGuard;
   verifyAccess?: (accessToken: string) => Promise<boolean>;
   apiOrigin?: string;
 }): Promise<StreamingConnectorRequest> {
@@ -84,6 +90,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     if (!path.startsWith("/") || path.startsWith("//")) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     if(options.mailAccess==='contacts'&&options.method&&options.method!=='GET')throw new ApiError(403,'connector_invalid_endpoint','Contacts access is read-only.');
     if(options.mailAccess==='contacts'&&id==='gmail'&&(path.split('?')[0]!=='/v1/people/me/connections'||options.content))throw new ApiError(400,'connector_invalid_endpoint','Invalid contacts endpoint.');
+    if(options.calendarOwner!==undefined&&(id!=='outlook-calendar'||options.content||!authorization.assertCalendarAccess))throw new ApiError(403,'connector_permission_required','This connection does not authorize calendar ownership checks.');
     const origin = options.mailAccess==='contacts'&&id==='gmail'?'https://people.googleapis.com':options.content ? definition.contentOrigin : apiOrigin;
     if (!origin) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     const url = new URL(path, origin);
@@ -100,10 +107,12 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
       // An expired credential has not dispatched the provider operation. The
       // existing single refresh path retries verification before sending it.
       if (authorization.verifyAccess && !await authorization.verifyAccess(accessToken)) return new Response(null, { status: 401 });
-      if (authorization.verifyAccess) {
+      if (options.calendarOwner!==undefined && authorization.assertCalendarAccess && !await authorization.assertCalendarAccess(options.calendarOwner,accessToken,Boolean(options.method&&options.method!=='GET'),options.signal)) return new Response(null,{status:401});
+      if (authorization.verifyAccess || options.calendarOwner!==undefined) {
         await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
         if(options.mailAccess){if(!authorization.assertMailAccess)throw new ApiError(403,'connector_permission_required','This connection does not authorize optional mail access.');await authorization.assertMailAccess(options.mailAccess,Boolean(options.method&&options.method!=="GET"),options.send===true);}
         if (options.send) await authorization.assertSend?.();
+        if(options.calendarOwner!==undefined&&authorization.assertCalendarAccess&&!await authorization.assertCalendarAccess(options.calendarOwner,accessToken,Boolean(options.method&&options.method!=='GET'),options.signal))return new Response(null,{status:401});
       }
       try {
         const timeout = AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000);
@@ -141,5 +150,17 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     catch { throw new ApiError(502, "connector_api_invalid", `${definition.name} returned an invalid response.`); }
   }, { response: responseRequest, assertWrite: () => assertCurrent(true) });
   connectorRequest.apiOrigin = apiOrigin;
+  if(id==='outlook-calendar')connectorRequest.calendarAccess=async(owner,writing=false,signal)=>{
+    try{
+      await assertCurrent(writing);
+      if(!authorization.assertCalendarAccess)throw new ApiError(403,'connector_permission_required','This connection does not authorize calendar ownership checks.');
+      if(!await authorization.assertCalendarAccess(owner,accessToken,writing,signal)){
+        refresh??=authorization.token(true);accessToken=await refresh;
+        if(!await authorization.assertCalendarAccess(owner,accessToken,writing,signal))throw new ApiError(409,'connector_reconnect_required','Reconnect this calendar account.');
+      }
+      await assertCurrent(writing);
+      return true;
+    }catch(error){if(error instanceof ApiError&&(error.status===403||writing&&error.code==='connector_write_reconnect_required'))return false;throw error;}
+  };
   return connectorRequest;
 }

@@ -15,3 +15,21 @@ test("host identity verification covers refreshed credentials before dispatch an
   await expect(changed.response('/gmail/v1/users/me/messages')).rejects.toMatchObject({code:'identity_changed'});expect(dispatched).toEqual([]);
  }finally{globalThis.fetch=original;}
 });
+
+test('calendar-owner operations cannot bypass the native guard or dispatch after permission revocation',async()=>{
+ const original=globalThis.fetch;
+ let dispatched=0;
+ globalThis.fetch=Object.assign(async()=>{dispatched++;return Response.json({});},{preconnect:original.preconnect});
+ try{
+  const authorization={token:async()=> 'fixture-token',assertCurrent:async()=>{}};
+  const unguarded=await createAuthorizedConnectorRequest(config,'outlook-calendar',authorization);
+  await expect(unguarded.response('/v1.0/me/calendars/team/events',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_permission_required'});
+  const wrongService=await createAuthorizedConnectorRequest(config,'outlook',{...authorization,assertCalendarAccess:async()=>true});
+  await expect(wrongService.response('/v1.0/me/messages',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_permission_required'});
+  let checks=0;
+  const guarded=await createAuthorizedConnectorRequest(config,'outlook-calendar',{...authorization,assertCalendarAccess:async()=>{if(++checks===2)throw new ApiError(403,'connector_calendar_permission_required','Calendar permission required.');return true;}});
+  await expect(guarded.response('/v1.0/me/calendars/team/events',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_calendar_permission_required'});
+  expect(checks).toBe(2);
+  expect(dispatched).toBe(0);
+ }finally{globalThis.fetch=original;}
+});

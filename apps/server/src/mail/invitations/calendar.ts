@@ -59,7 +59,10 @@ export type InvitationCalendarDependencies = {
   permission: typeof connectorWriteSetting;
 };
 function scopedRequest(native: StreamingConnectorRequest, signal: AbortSignal): StreamingConnectorRequest {
-  return Object.assign((path: string, options: ConnectorRequestOptions = {}) => native(path, { ...options, signal }), { response: (path: string, options: ConnectorRequestOptions = {}) => native.response(path, { ...options, signal }), assertWrite: native.assertWrite });
+  const request:StreamingConnectorRequest=Object.assign((path: string, options: ConnectorRequestOptions = {}) => native(path, { ...options, signal }), { response: (path: string, options: ConnectorRequestOptions = {}) => native.response(path, { ...options, signal }), assertWrite: native.assertWrite });
+  const calendarAccess=native.calendarAccess;
+  if(calendarAccess)request.calendarAccess=(owner,writing)=>calendarAccess(owner,writing,signal);
+  return request;
 }
 export type InvitationCalendarEvent = { view: InvitationReplyEvent; etag: string | null };
 export interface InvitationCalendarAccess {
@@ -92,7 +95,7 @@ export function invitationCalendarAccess(request: StreamingConnectorRequest, cal
     if (event.isAllDay && (!/T00:00:00(?:\.0+)?Z?$/.test(start.dateTime) || !/T00:00:00(?:\.0+)?Z?$/.test(end.dateTime))) {
       const zone = event.originalStartTimeZone;
       if (!zone || /["\r\n]/.test(zone)) throw new InvitationReplyError("unsupported_time");
-      const original = graphEvent.parse(await request(eventPath(event.id), { headers: { Prefer: `outlook.timezone="${zone}", outlook.body-content-type="text", IdType="ImmutableId"` } }));
+      const original = graphEvent.parse(await request(eventPath(event.id), { calendarOwner:owner, headers: { Prefer: `outlook.timezone="${zone}", outlook.body-content-type="text", IdType="ImmutableId"` } }));
       if (original.changeKey !== event.changeKey || !original.start || !original.end) throw new InvitationReplyError("changed");
       start = original.start; end = original.end;
     }
@@ -105,18 +108,18 @@ export function invitationCalendarAccess(request: StreamingConnectorRequest, cal
     return { view, etag: etag && !/[\r\n]/.test(etag) ? etag : null };
   }
   async function get(eventId: string) {
-    const raw = await request(eventPath(eventId), google ? {} : { headers: graphHeaders });
+    const raw = await request(eventPath(eventId), google ? {} : { headers: graphHeaders, calendarOwner:owner });
     const event = google ? normalizeGoogle(googleEvent.parse(raw)) : await normalizeGraph(graphEvent.parse(raw));
     if (event.view.id !== eventId) throw new InvitationReplyError("changed");
     return event;
   }
   return {
     identity, calendar, get,
-    async assertWrite() { if (!calendar.canWrite) throw new InvitationReplyError("permission"); await request.assertWrite(); },
+    async assertWrite() { if (!calendar.canWrite) throw new InvitationReplyError("permission"); await request.assertWrite(); if(!google&&request.calendarAccess&&!await request.calendarAccess(owner,true))throw new InvitationReplyError('permission'); },
     async find(invitation) {
       const query = new URLSearchParams(google ? { iCalUID: invitation.uid, showDeleted: "true", singleEvents: "false", maxResults: "100" } : { "$filter": `iCalUId eq '${invitation.uid.replaceAll("'", "''")}'`, "$top": "100", "$select": graphSelect });
       const rootPath = google ? googlePath(calendar.calendarId) : `${graphPath(calendar.calendarId)}/events`;
-      const raw = await request(`${rootPath}?${query}`, google ? {} : { headers: graphHeaders });
+      const raw = await request(`${rootPath}?${query}`, google ? {} : { headers: graphHeaders, calendarOwner:owner });
       const candidates = google ? (() => { const page = z.object({ items: z.array(googleEvent).max(100).default([]), nextPageToken: z.string().optional() }).parse(raw); if (page.nextPageToken) throw new InvitationReplyError("ambiguous"); return page.items.filter(event => event.iCalUID === invitation.uid && !event.recurringEventId); })()
         : (() => { const page = z.object({ value: z.array(graphEvent).max(100), "@odata.nextLink": z.string().optional() }).parse(raw); if (page["@odata.nextLink"]) throw new InvitationReplyError("ambiguous"); return page.value.filter(event => event.iCalUId === invitation.uid); })();
       if (!candidates.length) throw new InvitationReplyError("not_found");
@@ -136,7 +139,7 @@ export function invitationCalendarAccess(request: StreamingConnectorRequest, cal
       let next: string | undefined, found: string | undefined;
       for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
         const path = google ? `${instancesPath}?${parameters}${next ? `&pageToken=${encodeURIComponent(next)}` : ""}` : next ? nativePagePath(next, "https://graph.microsoft.com", instancesPath) : `${instancesPath}?${parameters}`;
-        const page = await request(path, google ? {} : { headers: graphHeaders });
+        const page = await request(path, google ? {} : { headers: graphHeaders, calendarOwner:owner });
         const matches: string[] = [];
         if (google) {
           const result = z.object({ items: z.array(googleEvent).max(100).default([]), nextPageToken: z.string().max(8192).optional() }).parse(page);
@@ -153,7 +156,7 @@ export function invitationCalendarAccess(request: StreamingConnectorRequest, cal
     async respond(event, desired) {
       if (google) return request.response(`${eventPath(event.view.id)}?sendUpdates=all`, { method: "PATCH", headers: { "If-Match": event.etag ?? "" }, body: { attendeesOmitted: true, attendees: [{ email: event.view.replyAs, responseStatus: desired }] }, providerStatus: true });
       const action = desired === "accepted" ? "accept" : desired === "tentative" ? "tentativelyAccept" : "decline";
-      return request.response(`${eventPath(event.view.id)}/${action}`, { method: "POST", headers: graphHeaders, body: { sendResponse: true }, providerStatus: true });
+      return request.response(`${eventPath(event.view.id)}/${action}`, { method: "POST", calendarOwner:owner, headers: graphHeaders, body: { sendResponse: true }, providerStatus: true });
     },
   };
 }
@@ -188,6 +191,7 @@ export async function openInvitationCalendar(config: ServerConfig, selection: In
     if (item.id !== selection.calendarId && selection.calendarId !== "primary") throw new InvitationReplyError("changed");
     name = item.name; owner = item.owner?.address ?? (item.isDefaultCalendar ? identity.email : ""); canWrite = item.canEdit; calendarId = item.id;
     if (!owner) throw new InvitationReplyError("not_invitation");
+    if(request.calendarAccess){if(!await request.calendarAccess(owner,false))throw new InvitationReplyError('permission');canWrite=canWrite&&await request.calendarAccess(owner,true);}
   }
   return invitationCalendarAccess(request, { ...selection, calendarId, name, account: identity.email, canWrite: canWrite && writing.writeAccess && !writing.readOnly }, identity, owner);
 }

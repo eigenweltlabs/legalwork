@@ -45,6 +45,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: category catalogue and connector details | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
 | Integrations: Communication, iCloud / IMAP / SMTP | Connect Email and the assistant to the same Gmail or Outlook account, choose optional contacts/shared-mailbox consent, or configure another email service | [Email](email.md) |
+| Integrations: Outlook Calendar | Choose shared-calendar consent and Calendar write access for Calendar, assistant actions and delegated Email invitation replies | [Calendar](calendar.md#shared-outlook-calendars) |
 | Integrations: Files & storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Workflows: Skills | How do I install, inspect or share reusable instructions? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |

@@ -1,6 +1,7 @@
 import { afterEach, test, expect } from "bun:test";
 import { createHash } from "node:crypto";
 import { MailInvitationReplies } from "./replies.js";
+import { ApiError } from '../../errors.js';
 import type { MailService, MailServiceStatus } from "../service-interface.js";
 import type { MailMessageView, MailPartView } from "../read-view.js";
 import type { InvitationCalendarAccess, InvitationCalendarIdentity } from "./calendar.js";
@@ -114,6 +115,14 @@ test('a Calendar change while the durable claim is being written cannot dispatch
   if (!journal) throw Error('missing journal');
   f.mail.invitationJournal = async (...args) => { const result = await journal(...args); if (args[1].action === 'begin') f.change({ revision: 'e'.repeat(64), title: 'New organizer update' }); return result; };
   expect((await service.respond('mail', review)).outcome).toBe('rejected'); expect(f.writes()).toBe(0); expect([...f.entries.values()][0].state).toBe('rejected');
+});
+
+test('a known native permission refusal before the provider write does not strand an uncertain reply', async () => {
+  const f=fixture(),service=f.make(),review=await token(service,f.input),respond=f.access.respond;
+  f.access.respond=async()=>{throw new ApiError(403,'connector_calendar_permission_required','Revoked shared consent');};
+  expect((await service.respond('mail',review)).outcome).toBe('rejected');expect(f.writes()).toBe(0);expect([...f.entries.values()][0].state).toBe('rejected');
+  f.access.respond=respond;
+  const fresh=await token(service,f.input);expect((await service.respond('mail',fresh)).outcome).toBe('confirmed');expect(f.writes()).toBe(1);
 });
 
 test('lock/unlock and expiration clear review authority without creating a provider operation', async () => {
