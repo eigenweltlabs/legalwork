@@ -253,6 +253,33 @@ jobs:
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
       - name: Test Windows signing verification
         run: node --test scripts/release/windows-signing.test.mjs
+      - name: Setup Bun for Windows Email views
+        if: needs.changes.outputs.app == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Test Email views on Windows
+        if: needs.changes.outputs.app == 'true'
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          MAIL_OUTBOX_EVIDENCE: ${{ runner.temp }}/mail-ui/outbox
+          MAIL_JOURNEY_EVIDENCE: ${{ runner.temp }}/mail-ui/attachments
+          MAIL_CONTEXT_EVIDENCE: ${{ runner.temp }}/mail-ui/context
+        run: >-
+          bun test apps/app/tests/mail-outbox.test.ts
+          apps/app/tests/mail-compose.test.ts
+          apps/app/tests/mail-keyboard-workflow.test.ts
+          apps/app/tests/mail-context-render.test.ts
+          apps/app/tests/mail-journey-render.test.ts
+          apps/app/tests/mail-notification-open-render.test.ts
+      - name: Upload synthetic Windows Email UI evidence
+        if: always() && needs.changes.outputs.app == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-ui-Windows
+          path: ${{ runner.temp }}/mail-ui
+          if-no-files-found: warn
+          retention-days: 7
 
   documentation:
     needs: changes
