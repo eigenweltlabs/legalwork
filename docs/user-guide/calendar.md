@@ -16,6 +16,8 @@ Open a connected event to read its full description, dates and times, time zone,
 
 From an [email invitation](email.md#meeting-invitations), select **Calendar** to open this view at the invitation date. Connected calendar overlays use their existing Integrations accounts and visibility settings. This opens a date without importing the attachment or changing an event.
 
+Email's **Reply** action can review and submit an invitation response through these same Google Calendar or Outlook Calendar integrations. The review names the selected calendar and invited participant, including a delegated participant when permitted. See [meeting invitation replies](email.md#meeting-invitations) for the steps and recurrence limits.
+
 ## Add a deadline
 
 1. Open the intended project's Calendar and choose the new-deadline action. In the combined calendar, choose the project in the dialog.

@@ -44,6 +44,11 @@ test("delegation is descriptive and non-mail participant URIs never become links
   expect(invitation).not.toHaveProperty("url");
 });
 
+test('calendar mailto addresses decode URI escapes without accepting query strings or encoded controls', () => {
+  const invitation = parse([...base.filter(line => !line.startsWith('ATTENDEE')), 'ATTENDEE:mailto:self%2Bcalendar@example.test', 'ATTENDEE:mailto:other@example.test?subject=track', 'ATTENDEE:mailto:bad%0D%0Aaddress@example.test']);
+  expect(invitation.attendees).toEqual(['self+calendar@example.test']);
+});
+
 test("supports duration ends and different source zones without changing the event", () => {
   expect(parse(["UID:a", "DTSTART:20261103T100000Z", "DURATION:PT90M"]).end?.instant).toBe("2026-11-03T11:30:00.000Z");
   expect(parse(["UID:a", "DTSTART;VALUE=DATE:20261103", "DURATION:P2D"]).end?.value).toBe("2026-11-05");

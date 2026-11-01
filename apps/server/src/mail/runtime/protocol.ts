@@ -1,4 +1,5 @@
 import {contactsInputSchema,contactsResultSchema,type ContactsInput,type ContactsResult} from '../contacts-view.js';
+import { invitationReplyJournalCommandSchema, invitationReplyJournalResultSchema, type InvitationReplyJournalCommand, type InvitationReplyJournalResult } from '../invitation-reply-view.js';
 import {qualificationInputSchema,qualificationReportSchema,type QualificationInput,type QualificationReport} from '../qualification-view.js';
 import {agentControlResultMatches,agentControlSchema,agentControlResultSchema,type AgentControl,type AgentControlResult} from '../agent-view.js';
 import {storageSaveResultMatches,storageSaveInputSchema,storageSaveResultSchema,type StorageSaveInput,type StorageSaveResult} from '../storage-save-view.js';
@@ -48,6 +49,7 @@ export type WorkerInitialization = {
 };
 type Page = { limit?: number; after?: string };
 export type WorkerCommand = {operation:"mail.qualification";input:QualificationInput} | {operation:"mail.agent.control";input:AgentControl} | {operation:"mail.storage.save";input:StorageSaveInput} | {operation:"mail.filing";input:FilingInput} | MailDesktopCommand
+  | InvitationReplyJournalCommand
   | { operation: "mail.integrations.reconcile"; snapshot: MailIntegrationSnapshot }
   | RetentionCommand
   | OutboxCommand
@@ -89,6 +91,7 @@ export type WorkerCommand = {operation:"mail.qualification";input:QualificationI
 export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap" | "archive"; displayName: string; personal?: boolean; integration?: "gmail" | "outlook"; integrationArchive?: boolean; contactsAllowed?: boolean; identity?: GraphMailboxIdentity };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type WorkerResult = {qualification:QualificationReport} | {agent:AgentControlResult}| {storageSave:StorageSaveResult}|{filing:FilingResult}| {notifications:MailNotificationBatch}|{lifecycle:{state:"running"|"suspended"}}
+  | { invitationJournal: InvitationReplyJournalResult }
   | {retention:RetentionPreview|z.infer<typeof retentionResultSchema>|z.infer<typeof retentionSettingsSchema>} | {retentionFailure:'conflict'|'locked'|'not_found'|'invalid_input'}
   | {portability:PortabilityStatus[]}
   | {contacts:ContactsResult}
@@ -202,6 +205,7 @@ function folder(value: unknown): value is WorkerFolder {
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
+  if (record(value) && exact(value, ['invitationJournal'])) return invitationReplyJournalResultSchema.safeParse(value.invitationJournal).success;
   return record(value) && ((exact(value,["qualification"])&&qualificationReportSchema.safeParse(value.qualification).success) || (exact(value,["agent"])&&agentControlResultSchema.safeParse(value.agent).success) || (exact(value,["storageSave"])&&storageSaveResultSchema.safeParse(value.storageSave).success) || (exact(value,["filing"])&&filingResultSchema.safeParse(value.filing).success) || (exact(value,['retention'])&&(retentionPreviewSchema.safeParse(value.retention).success||retentionResultSchema.safeParse(value.retention).success||retentionSettingsSchema.safeParse(value.retention).success))||(exact(value,['retentionFailure'])&&['conflict','locked','not_found','invalid_input'].includes(String(value.retentionFailure))) || (exact(value,["portability"])&&Array.isArray(value.portability)&&value.portability.length<=100&&value.portability.every(item=>portabilityStatusSchema.safeParse(item).success)) || (exact(value,["outbox"])&&Array.isArray(value.outbox)&&value.outbox.length<=100&&value.outbox.every(item=>outboxItemSchema.safeParse(item).success)) || (exact(value,["outboxDetail"])&&outboxDetailSchema.safeParse(value.outboxDetail).success) || (exact(value,["outboxItem"])&&outboxItemSchema.safeParse(value.outboxItem).success) || (exact(value,["smtp"])&&smtpStatusSchema.safeParse(value.smtp).success) || (exact(value,["outboxFailure"])&&outboxErrorSchema.safeParse(value.outboxFailure).success) || (exact(value,["savedSearch"])&&savedSearchResultSchema.safeParse(value.savedSearch).success)||(exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
     || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
@@ -253,6 +257,14 @@ export function parseWorkerMessage(line: string): WorkerMessage | undefined {
 }
 export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult): boolean {
   switch (command.operation) {
+    case 'mail.invitation.journal': {
+      if (!('invitationJournal' in value)) return false;
+      const result = value.invitationJournal, entry = result.entry;
+      if (result.accountId !== command.accountId || entry !== null && entry.key !== command.input.key) return false;
+      if (command.input.action === 'read') return !result.claimed;
+      if (command.input.action === 'finish') return !result.claimed && entry !== null && entry.attemptId === command.input.attemptId && entry.state === command.input.state;
+      return !result.claimed || entry !== null && entry.attemptId === command.input.attemptId && entry.response === command.input.response && entry.state === 'uncertain';
+    }
     case "mail.notifications.poll":return "notifications" in value;
     case 'mail.retention.read':case 'mail.retention.settings':return 'retentionFailure' in value||'retention' in value&&retentionSettingsSchema.safeParse(value.retention).success;
     case 'mail.retention.preview':return 'retentionFailure' in value||'retention' in value&&'accountId' in value.retention&&value.retention.accountId===command.accountId&&retentionPreviewSchema.safeParse(value.retention).success;
@@ -330,6 +342,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.notifications.")||value.operation.startsWith("mail.lifecycle.")))return mailDesktopCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.outbox.")||value.operation.startsWith("mail.smtp.")))return outboxCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.retention."))return retentionCommandSchema.safeParse(value).success;
+  if(value.operation==='mail.invitation.journal')return invitationReplyJournalCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.portability."))return portabilityCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.draft.sync."))return draftSyncCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.extraction."))return extractionCommandSchema.safeParse(value).success;

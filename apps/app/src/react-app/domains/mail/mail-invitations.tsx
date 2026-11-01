@@ -10,6 +10,7 @@ import type { MailClient, MailMessageView, MailPartView } from './mail-client';
 import { invitationDay, invitationRange, invitationTime } from './mail-invitation-model';
 import { calendarRecurrence } from '../calendar/calendar-recurrence';
 import { formatCalendarDay } from '../calendar/calendar-format';
+import { MailInvitationReply } from './mail-invitation-reply';
 
 export function MailInvitations({ client, item, part }: { client: MailClient; item: MailMessageView; part: MailPartView }) {
   const [invitations, setInvitations] = useState<MailInvitation[]>([]);
@@ -24,10 +25,10 @@ export function MailInvitations({ client, item, part }: { client: MailClient; it
   }, [client, item.accountId, item.key, item.rawReferenceId, part.partId, part.referenceId, attempt]);
   if (loading) return <p role="status" className="py-3 text-sm text-muted-foreground">{t('mail.invitation_loading')}</p>;
   if (error) return <Alert variant="destructive" className="my-3 flex items-center justify-between gap-2">{t('mail.invitation_failed')}<Button variant="ghost" size="sm" onClick={() => setAttempt(value => value + 1)}>{t('common.retry')}</Button></Alert>;
-  return <div className="divide-y divide-border">{invitations.map((invitation, index) => <Invitation key={index} invitation={invitation} />)}</div>;
+  return <div className="divide-y divide-border">{invitations.map((invitation, index) => <Invitation key={index} invitation={invitation} client={client} item={item} part={part} index={index} />)}</div>;
 }
 
-function Invitation({ invitation }: { invitation: MailInvitation }) {
+function Invitation({ invitation, client, item, part, index }: { invitation: MailInvitation; client: MailClient; item: MailMessageView; part: MailPartView; index: number }) {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const day = invitationDay(invitation.start), range = invitationRange(invitation, currentLocale());
@@ -45,6 +46,7 @@ function Invitation({ invitation }: { invitation: MailInvitation }) {
       {invitation.organizer && <><dt className="text-muted-foreground">{t('mail.invitation_organizer')}</dt><dd className="break-words">{invitation.organizer}</dd></>}
       {invitation.location && <><dt className="text-muted-foreground">{t('mail.invitation_location')}</dt><dd className="whitespace-pre-wrap break-words">{invitation.location}</dd></>}
     </dl>
+    {invitation.method === 'REQUEST' && invitation.status !== 'cancelled' && <MailInvitationReply client={client} item={item} part={part} index={index} />}
     <Button size="sm" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{t('mail.invitation_details')}</Button>
     {expanded && <div className="space-y-3 text-sm">
       {invitation.description && <p className="whitespace-pre-wrap break-words">{invitation.description}</p>}

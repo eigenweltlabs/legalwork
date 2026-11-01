@@ -25,7 +25,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Wiki, Settings > Agent access, source file tabs | Maintain reusable knowledge; control agent approval; open source documents in separate viewer tabs | [Wiki](wiki.md) |
 | Wiki: Legal Research / Rechtliche Recherche, starter picker, area and jurisdiction indexes | Create a research wiki automatically or through Add wiki; automatically prepare legal findings and sources; review drafts or allow background filing | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
-| Email | Read the unified Inbox and invitation attachments, open Calendar at an invitation date, search downloaded mail, compose, manage Drafts and Outbox | [Email](email.md) |
+| Email | Read the unified Inbox and invitation attachments, review replies through existing Calendar integrations, search downloaded mail, compose, manage Drafts and Outbox | [Email](email.md) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 
 Opening a project or changing a filter can reveal items hidden in an aggregate list.

@@ -1,5 +1,6 @@
 import {outboxErrors} from './mail-outbox-errors';
 import { mailInvitationsSchema } from '../../../../../server/src/mail/invitation-view';
+import { invitationReplyErrorSchema } from '../../../../../server/src/mail/invitation-reply-view';
 import {outboxErrorSchema} from '../../../../../server/src/mail/outbox-view';
 import {senderListSchema,type SenderSettings,type SenderConfigure} from '../../../../../server/src/mail/sender-view';
 import { graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput } from '../../../../../server/src/mail/graph-mailbox-view';
@@ -28,7 +29,7 @@ export function mailOrigin(value: string): string {
     return url.origin;
 }
 export class MailRequestError extends Error {
-    constructor(readonly status: number, message: string) { super(message); }
+    constructor(readonly status: number, message: string, readonly invitationCode?: z.infer<typeof invitationReplyErrorSchema>) { super(message); }
 }
 export class MailClient {
     private readonly origin: string;
@@ -38,6 +39,9 @@ export class MailClient {
     async request<T>(path: string, schema: {parse(value:unknown):T}, signal: AbortSignal, body?: unknown, post = false, timeoutMs: number|null = 15000): Promise<T> {
         const response = await this.transport(this.origin + '/mail/v1' + path, { method: body !== undefined || post ? 'POST' : 'GET', headers: { 'X-LegalWork-Host-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: timeoutMs===null?signal:AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), redirect: 'error', cache: 'no-store', credentials: 'omit' });
         if (!response.ok) {
+            const failure = z.object({ error: z.object({ code: z.string() }).optional(), code: z.string().optional() }).safeParse(await response.clone().json().catch(() => null));
+            const code = failure.success ? failure.data.error?.code ?? failure.data.code : undefined;
+            if (code?.startsWith('mail_invitation_')) { const parsed = invitationReplyErrorSchema.safeParse(code.slice('mail_invitation_'.length)); if (parsed.success) throw new MailRequestError(response.status, 'Invitation reply unavailable.', parsed.data); }
             if(response.status===409){const value=await response.clone().json().catch(()=>null);const parsed=outboxErrorSchema.safeParse(typeof value?.error?.code==='string'?value.error.code.replace(/^mail_outbox_/,''):typeof value?.code==='string'?value.code.replace(/^mail_outbox_/,''):'');if(parsed.success)throw Error(outboxErrors[parsed.data]);}
             throw new MailRequestError(response.status, response.status === 423 ? 'Mail is temporarily unavailable. Please retry.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
         }

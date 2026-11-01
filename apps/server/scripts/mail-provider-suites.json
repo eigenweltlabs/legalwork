@@ -43,5 +43,6 @@
   "storage/integrations",
   "storage/integration-adoption",
   "runtime/integration-adoption",
-  "runtime/contacts"
+  "runtime/contacts",
+  "storage/invitation-replies"
 ]
