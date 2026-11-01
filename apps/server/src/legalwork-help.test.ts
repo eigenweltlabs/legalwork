@@ -124,9 +124,19 @@ describe("bundled LegalWork help", () => {
       expect(skill?.path).toBe(join(root, skillRoot, "SKILL.md"));
       expect(skill?.scope).toBe("project");
       if (!skill) throw new Error("Help skill is missing");
-      const email = await readSkillPackageFile(skill.path, await skillPackageDirectory(skill.path), "references/email.md");
-      expect(email.content).toBe(bundled("references/email.md"));
-      expect(email.nextOffset).toBeUndefined();
+      const directory = await skillPackageDirectory(skill.path), expectedEmail = bundled("references/email.md");
+      let offset = 0, email = "";
+      for (;;) {
+        const page = await readSkillPackageFile(skill.path, directory, "references/email.md", offset);
+        expect(page.totalCharacters).toBe(expectedEmail.length);
+        expect(page.content.length).toBeLessThanOrEqual(24000);
+        email += page.content;
+        if (page.nextOffset === undefined) break;
+        expect(page.nextOffset).toBeGreaterThan(offset);
+        expect(page.nextOffset).toBeLessThan(expectedEmail.length);
+        offset = page.nextOffset;
+      }
+      expect(email).toBe(expectedEmail);
       for (const file of helpFiles) {
         expect(await readFile(join(root, file.path), "utf8")).toBe(file.content);
       }
