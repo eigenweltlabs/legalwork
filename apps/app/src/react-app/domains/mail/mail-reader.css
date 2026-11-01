@@ -157,9 +157,9 @@
 
 @container (max-width:850px){.mail-background-status{display:none}}
 .mail-composer>fieldset{display:flex;flex-direction:column;gap:0;flex:1}
-.mail-composer>fieldset>label{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:center;gap:var(--lw-space-3);font-size:13px;min-height:var(--lw-control-lg);border-bottom:1px solid var(--lw-border-subtle)}
+.mail-composer>fieldset>label{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:center;gap:var(--lw-space-3);font-size:13px;min-height:var(--lw-control-md);border-bottom:1px solid var(--lw-border-subtle)}
 .mail-composer>fieldset>label:focus-within{border-bottom-color:var(--lw-border-strong)}
-.mail-composer>fieldset>footer{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.mail-composer>fieldset>footer{display:flex;align-items:center;gap:12px;flex-shrink:0;position:sticky;bottom:0;z-index:1;min-height:var(--lw-control-lg);background:var(--background)}
 .mail-image-controls span,.mail-link-controls span{flex:1;overflow-wrap:anywhere}
 .mail-html-view{min-width:0}
 .mail-html-view iframe{display:block;width:100%;border:0;background:#fff;color-scheme:light;border-radius:var(--lw-radius-xs)}
