@@ -18,7 +18,7 @@ This manual is bundled with the app. Ask the assistant a question about LegalWor
 | How do I connect cloud storage or a network share? | [Connected storage](connected-storage.md) |
 | How do I create, import, edit or share a reusable workflow? | [Skills and workflows](skills-workflows.md) |
 | How do connectors, plugins, browser tools and Computer Use work? | [Integrations](integrations.md) |
-| How do I add Gmail or Outlook email? | [Email setup](email.md) |
+| How do I add Gmail, Outlook, iCloud or another email service? | [Email setup](email.md) |
 | Where is my work list or intake submission? | [Tasks and intake](tasks-intake.md) |
 | How do Calendar, deadlines, reminders and subscriptions work? | [Calendar](calendar.md) |
 | How do I run the assistant later or repeatedly? | [Scheduled tasks](scheduled-tasks.md) |

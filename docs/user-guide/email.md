@@ -30,6 +30,8 @@ If the old account cannot be verified, its data and reconnect controls remain av
 
 Use **Mail accounts** for notification preferences, sender signatures, agent access, local retention, backup and archive import or export. Disconnecting an account and deleting local copies are separate operations.
 
+Native JMAP and Exchange Web Services (EWS) connections are not available. For Fastmail, use provider-supplied IMAP/SMTP settings through the integration above; live Fastmail certification is still pending. For an on-premises Exchange mailbox, ask its administrator whether direct TLS IMAP and SMTP are permitted. The Outlook Email integration connects cloud mailboxes through Microsoft Graph; it does not connect an on-premises mailbox merely because the organization uses Microsoft sign-in.
+
 Use **New mail**, **Reply**, **Reply all** or **Forward** to compose. The composer has compact recipient and subject rows above a document-style writing area. Use **Toggle rich text** for formatting and the attachment controls to add files or inline images. Review the account, sender, recipients, body and attachments before sending. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
 
 Under **Mail accounts > Data & access**, review the per-account agent policy. Connecting an account does not approve sending or deleting mail for the assistant. The same section contains local retention, backup, restore and archive import/export controls. Disconnecting and deleting local data are separate actions; review each dialog's scope.
