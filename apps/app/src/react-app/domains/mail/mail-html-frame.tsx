@@ -1,3 +1,4 @@
+import {Button} from '@/components/ui/button';
 import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {z} from 'zod';
 import {mailReaderKeyAllowed} from './mail-reader-keys';
@@ -10,7 +11,7 @@ type FrameProps={html:string;inline:ReadonlyMap<string,string>;item:MailMessageV
 /** Legacy envelopes lack MIME ancestry: retain every section rather than guessing away text. */
 export function MailHtmlParts({bodies,...props}:{bodies:{text:string;presentation?:boolean}[]}&Omit<FrameProps,'html'>){
  const [page,setPage]=useState(0),visible=bodies.filter(body=>body.presentation!==false),shown=visible.slice(page*10,page*10+10);
- return <>{shown.map((body,index)=><section key={page*10+index}>{visible.length>1&&<p className="mail-html-part-label">Message part {page*10+index+1} of {visible.length}</p>}<MailHtmlFrame {...props} imageBudget={Math.floor(16*1024*1024/shown.length)} html={body.text}/></section>)}{visible.length>10&&<nav aria-label="Message parts"><button disabled={!page} onClick={()=>setPage(value=>value-1)}>Previous parts</button><button disabled={(page+1)*10>=visible.length} onClick={()=>setPage(value=>value+1)}>Next parts</button></nav>}</>;
+ return <>{shown.map((body,index)=><section key={page*10+index}>{visible.length>1&&<p className="mail-html-part-label">Message part {page*10+index+1} of {visible.length}</p>}<MailHtmlFrame {...props} imageBudget={Math.floor(16*1024*1024/shown.length)} html={body.text}/></section>)}{visible.length>10&&<nav aria-label="Message parts"><Button variant="ghost" size="sm" disabled={!page} onClick={()=>setPage(value=>value-1)}>Previous parts</Button><Button variant="ghost" size="sm" disabled={(page+1)*10>=visible.length} onClick={()=>setPage(value=>value+1)}>Next parts</Button></nav>}</>;
 }
 /** Opaque origin, no sender script. Only the nonce-bearing sizing/link/reader-key bridge runs. */
 export function MailHtmlFrame({html,inline,item,bodyPart,signal,imageBudget}:FrameProps){
@@ -30,10 +31,10 @@ export function MailHtmlFrame({html,inline,item,bodyPart,signal,imageBudget}:Fra
   if(!signal.aborted){setImages(new Map(result.items.map(value=>[value.url,value.data])));if(result.failed)setError(`${result.failed} images could not be loaded safely.`);}
  }catch{if(!signal.aborted)setError('Images could not be loaded. Try again or keep them blocked.');}finally{if(!signal.aborted)setLoading(false);}}
  return <div className="mail-html-view">
-  {rendered.remote.length>0&&<div className="mail-image-controls"><span>{images.size?'External images loaded for this message.':'Images are blocked. Loading them may notify the sender.'}</span>{window.__LEGALWORK_ELECTRON__?.mailImages&&<button disabled={loading||signal.aborted} onClick={()=>{if(images.size){setImages(new Map());setError('');}else void load();}}>{loading?'Loading images…':images.size?'Hide external images':'Load images'}</button>}</div>}
+  {rendered.remote.length>0&&<div className="mail-image-controls"><span>{images.size?'External images loaded':'External images blocked'}</span>{window.__LEGALWORK_ELECTRON__?.mailImages&&<Button variant="ghost" size="sm" disabled={loading||signal.aborted} onClick={()=>{if(images.size){setImages(new Map());setError('');}else void load();}}>{loading?'Loading images…':images.size?'Hide external images':'Load images'}</Button>}</div>}
   {error&&<p role="status">{error}</p>}
-  {link&&<div className="mail-link-controls" role="dialog" aria-label="Open message link"><span>{link}</span><button onClick={()=>{const url=mailLink(link);if(url)void window.__LEGALWORK_ELECTRON__?.shell?.openExternal?.(url);setLink(null);}}>Open link</button><button onClick={()=>setLink(null)}>Cancel</button></div>}
-  {height>=20000&&<p>Long message: scroll within the message to read the remaining content.</p>}
+  {link&&<div className="mail-link-controls" role="dialog" aria-label="Open message link"><span>{link}</span><Button variant="ghost" size="sm" onClick={()=>{const url=mailLink(link);if(url)void window.__LEGALWORK_ELECTRON__?.shell?.openExternal?.(url);setLink(null);}}>Open link</Button><Button variant="ghost" size="sm" onClick={()=>setLink(null)}>Cancel</Button></div>}
+
   <iframe onLoad={()=>frame.current?.contentWindow?.postMessage({type:'mail-measure',token:nonce},'*')} ref={frame} title="Message HTML" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={rendered.html} style={{height,minHeight:80}}/>
  </div>;
 }

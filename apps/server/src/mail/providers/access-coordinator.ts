@@ -129,6 +129,7 @@ export class MailAccessCoordinator {
     const binding = this.credentials.getBinding(accountId);
     if (binding.authority === mailIntegrationAuthority) {
       if (this.options.integrationReady?.() === false) throw new MailAccessError("transient");
+      if (this.options.database.get("SELECT read_only FROM mail_integration_accounts WHERE account_id=?",[accountId])?.read_only===1) throw new MailAccessError("locked");
       return this.credentials.readAccess(accountId, binding);
     }
     const check = () => { if (signal.aborted) throw new MailAccessError(this.closed ? "closed" : "timeout"); this.fence(accountId, expected); if (performance.now() >= deadline) throw new MailAccessError("timeout"); };

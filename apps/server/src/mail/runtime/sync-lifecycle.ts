@@ -35,7 +35,7 @@ export class MailSyncLifecycle {
     const run = this.database.get(`SELECT state FROM ${table} WHERE account_id=?`, [accountId]);
     const engine = this.engine(accountId);
     const credential=new MailCredentialRepository(this.database,this.ownerId).status(accountId);
-    if (this.suspended || run?.state === 'paused' || credential.state !== 'connected' || credential.archiveLocked) return engine.status(accountId);
+    if (this.suspended || this.database.get('SELECT read_only FROM mail_integration_accounts WHERE account_id=?',[accountId])?.read_only===1 || run?.state === 'paused' || credential.state !== 'connected' || credential.archiveLocked) return engine.status(accountId);
     return engine.start(accountId);
   }
   async suspendAll(){this.suspended=true;const engines=[...this.engines.values()];this.engines.clear();await Promise.all(engines.map(engine=>engine.close()));}

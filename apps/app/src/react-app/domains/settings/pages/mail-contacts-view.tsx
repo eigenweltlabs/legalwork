@@ -28,7 +28,6 @@ export function MailContactsView({
   return (
     <MailSettingsSection
       title="Address books"
-      description="Use personal contacts when choosing recipients. Changes made at your provider appear after synchronization."
     >
       <div className="divide-y divide-subtle">
         {accounts
@@ -41,11 +40,7 @@ export function MailContactsView({
               onAuthorize={() => onAuthorize(account)}
             />
           ))}
-        <p className="py-3 text-xs text-muted-foreground">
-          Organization directories and shared address books have separate
-          permissions and are not connected. CardDAV / iCloud contacts are not
-          supported; IMAP mail access does not grant address book access.
-        </p>
+
       </div>
     </MailSettingsSection>
   );
@@ -174,8 +169,7 @@ function ContactBook({
           {status.lastSyncAt
             ? `Updated ${new Date(status.lastSyncAt).toLocaleString()}`
             : "First sync pending"}
-          . Refreshes every 15 minutes while Mail is running. Edit contacts at
-          your provider.
+
         </p>
       )}
       {(error || status?.error) && (

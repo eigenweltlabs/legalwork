@@ -24,6 +24,8 @@ Removing a connection can take a moment. **Removing…** and a spinner remain vi
 
 Connect **Gmail** or **Outlook Email** under **Communication** to use the same account in the global **Email** reader and with the assistant. The reader does not require a second sign-in. Account activation, reconnecting, disconnecting and **Allow write access** stay in the provider's connection panel. Select **Open Email** to open the local mailbox. Only Outlook Email activation enables mail; Outlook Calendar activation alone does not.
 
+Older local mail accounts can move onto these same connections after authenticated identity verification. Local originals, drafts and history are preserved. If a separate current store already exists, the older account becomes a **Retained local copy** with sending and sync disabled. Follow [Email](email.md) to continue a saved draft or check an uncertain send.
+
 For iCloud or another provider, choose **Communication > iCloud / IMAP / SMTP**. Add an account with its IMAP credentials, then configure SMTP for sending on that page. The same accounts appear in Email and in **Settings > Mail accounts**, where you manage notification preferences, local data and agent access. Follow [Email](email.md) for the complete setup and recovery steps.
 
 ## SharePoint and Dropbox connection methods

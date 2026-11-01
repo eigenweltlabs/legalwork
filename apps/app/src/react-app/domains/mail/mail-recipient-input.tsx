@@ -1,3 +1,4 @@
+import {Input} from '@/components/ui/input';
 import { useEffect, useId, useState } from "react";
 import {
   contactsResultSchema,
@@ -77,7 +78,8 @@ export function MailRecipientInput({
   }, [client, account, query]);
   return (
     <>
-      <input
+      <Input
+        className="rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
         aria-label={label}
         list={list}
         autoComplete="off"

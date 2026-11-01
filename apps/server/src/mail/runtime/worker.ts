@@ -15,6 +15,8 @@ import {SmtpCustody} from '../storage/smtp-custody.js';
 import {OutboxRunner} from './outbox-runner.js';
 import {OutboxError} from '../outbox-view.js';
 import {SenderIdentityRepository} from '../storage/sender-identities.js';
+import { adoptMailIntegrations } from "../providers/integration-adoption.js";
+import type { MailIntegrationSnapshot } from "../integration-view.js";
 import { MailIntegrationAccounts } from "../storage/integrations.js";
 import { configureMailIntegrationFetch } from "../providers/integration-fetch.js";
 import {discoverMailIdentity} from '../providers/identity.js';
@@ -81,6 +83,38 @@ let closingSync: Promise<void> | undefined;
 let imapConnectId: string | undefined;
 const imapRequests = new Map<string, number>();
 let integrationsReady = false;
+let integrationSnapshot: MailIntegrationSnapshot | undefined;
+let integrationRevision=0;
+let integrationReconciliation: Promise<void> | undefined;
+let integrationPendingKey: string | undefined;
+let integrationProofAbort: AbortController | undefined;
+function reconcileIntegrations(snapshot: MailIntegrationSnapshot): Promise<void> {
+  const key=JSON.stringify(snapshot);
+  if(integrationReconciliation&&integrationPendingKey===key)return integrationReconciliation;
+  if(integrationReconciliation)integrationProofAbort?.abort();
+  const previous=integrationReconciliation;
+  integrationPendingKey=key;
+  const attempt=(async()=>{
+    await previous?.catch(()=>{});
+    if(!database||!credentials||!syncLifecycle||isClosing()||integrationPendingKey!==key)return;
+    integrationSnapshot=snapshot;
+    configureMailIntegrationFetch(snapshot.configuration);
+    const proofAbort=new AbortController();integrationProofAbort=proofAbort;
+    const migrated=await adoptMailIntegrations(database,ownerId,snapshot,{access,signal:proofAbort.signal});
+    if(integrationProofAbort===proofAbort)integrationProofAbort=undefined;
+    if(isClosing()||proofAbort.signal.aborted||integrationPendingKey!==key)return;
+    const changes=new MailIntegrationAccounts(database,ownerId).reconcile(snapshot);
+    integrationsReady=true;
+    if(migrated.length||changes.changed.length||changes.disconnected.length)integrationRevision++;
+    for(const id of new Set([...migrated,...changes.disconnected,...changes.changed])){
+      contacts?.cancel(id);qualification?.cancel(id);await syncLifecycle.suspend(id);
+    }
+    for(const id of new Set([...migrated,...changes.changed]))syncLifecycle.resume(id);
+  })();
+  integrationReconciliation=attempt;
+  void attempt.finally(()=>{if(integrationReconciliation===attempt){integrationReconciliation=undefined;integrationPendingKey=undefined;}}).catch(()=>{});
+  return attempt;
+}
 const providerSettings = new Map<string, MailOAuthSettings>();
 const requests = new Set<Promise<void>>();
 const locked = new Error("mail_archive_locked");
@@ -131,6 +165,7 @@ function shutdown(code = 0): void {
   exitCode = Math.max(exitCode, code);
   if (phase === "closing") return;
   phase = "closing";
+  integrationProofAbort?.abort();
   qualification?.cancel();
   // Stop every network runner before awaiting any individual teardown.
   clearInterval(contactsTimer);closingContacts=contacts?.close();
@@ -180,10 +215,17 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     searchIndexer = new MailSearchIndexer(database,value.ownerId);
     extraction=new MailExtractionStore(database,value.ownerId);extractionRunner=new MailExtractionRunner(database,value.ownerId);
     credentials = new MailCredentialRepository(database, value.ownerId);
-    if (value.integrations) { integrationsReady = true; configureMailIntegrationFetch(value.integrations.configuration); new MailIntegrationAccounts(database, value.ownerId).reconcile(value.integrations); }
+    if (value.integrations) {
+      integrationsReady=true;integrationSnapshot=value.integrations;configureMailIntegrationFetch(value.integrations.configuration);
+      const links=new MailIntegrationAccounts(database,value.ownerId);
+      // Local unlock never waits for provider identity proof. Defer new links
+      // that may adopt an existing archive until the normal background refresh.
+      links.reconcile({...value.integrations,accounts:value.integrations.accounts.filter(account=>links.primary(account.accountId)||!links.legacyAccounts(account.connectorId==='gmail'?'gmail':'graph').length)});
+    }
     controller = new MailConnectionController({ database, ownerId: value.ownerId, onConnected: async (accountId, settings) => {
       const binding = credentials!.getBinding(accountId);
       providerSettings.set(`${binding.provider}:${binding.clientId}:${binding.authority}`, settings);
+      if(integrationSnapshot)await reconcileIntegrations(integrationSnapshot);
       await syncLifecycle!.connected(accountId);
       for(const child of mailboxes?.children(accountId)??[])if(credentials!.status(child).state==='connected')await syncLifecycle!.connected(child);
     } });
@@ -252,6 +294,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
        if(command.input.action!=='approve'){result={agent:grants.execute(command.input)};break;}
        if(!local||!outboxStore)throw locked;
        const proposalId=command.input.id,proposal=grants.execute({action:'proposal',id:proposalId}).proposal;if(!proposal)throw locked;
+       if(new MailIntegrationAccounts(database,ownerId).get(proposal.accountId)?.readOnly)throw unsupported;
        const payload=proposal.payload;
        const check=()=>{const current=grants.execute({action:'proposal',id:proposalId}).proposal;if(!current||current.state!=='pending'||current.expiresAt<=Date.now())throw locked;const grant=grants.check(current.grantId,current.grantRevision,payload.kind==='send'?'propose_send':'propose_delete');if(grant.matterId){const locator=payload.kind==='send'?payload.source:payload.locator;if(!locator||!payload.sourceVersion)throw locked;new MailFilingStore(agentDatabase,ownerId).execute({action:'source-version',accountId:grant.accountId,locator,expected:payload.sourceVersion});}
         if(payload.kind==='trash'&&agentHash(JSON.stringify(agentReads.read(proposal.accountId,payload.locator)))!==payload.contentHash)throw locked;
@@ -277,9 +320,9 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.smtp.remove':new SmtpCustody(database,ownerId).remove(command.accountId);result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
       case 'mail.outbox.read':if(!outboxStore)throw locked;result={outboxDetail:outboxStore.read(command.accountId,command.input.actionId)};break;
       case 'mail.outbox.list':if(!outboxStore)throw locked;result={outbox:outboxStore.list(command.accountId)};break;
-      case 'mail.outbox.queue':if(!outboxStore)throw locked;result={outboxItem:await outboxStore.queue(command.accountId,command.input)};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});break;
+      case 'mail.outbox.queue':if(new MailIntegrationAccounts(database,ownerId).get(command.accountId)?.readOnly)throw unsupported;if(!outboxStore)throw locked;result={outboxItem:await outboxStore.queue(command.accountId,command.input)};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});break;
       case 'mail.qualification':if(!qualification||command.input.action==='start'&&lifecycleSuspended)throw locked;result={qualification:qualification.execute(command.input)};break;
-      case 'mail.outbox.action':if(!outboxStore||!outboxRunner)throw locked;result={outboxItem:command.input.action==='reconcile'?await outboxRunner.reconcile(command.accountId,command.input.actionId):command.input.action==='retry'?outboxStore.retry(command.accountId,command.input.actionId):outboxStore.cancel(command.accountId,command.input.actionId)};if(!lifecycleSuspended)void outboxRunner.run().catch(()=>{});break;
+      case 'mail.outbox.action':if(!outboxStore||!outboxRunner)throw locked;result={outboxItem:command.input.action==='reconcile'?await outboxRunner.reconcile(command.accountId,command.input.actionId):command.input.action==='retry'?(()=>{if(new MailIntegrationAccounts(database,ownerId).get(command.accountId)?.readOnly)throw unsupported;return outboxStore.retry(command.accountId,command.input.actionId);})():outboxStore.cancel(command.accountId,command.input.actionId)};if(!lifecycleSuspended)void outboxRunner.run().catch(()=>{});break;
       case 'mail.retention.read':if(!retention)throw locked;result={retention:retention.settings(command.accountId)};break;
       case 'mail.retention.preview':if(!retention)throw locked;result={retention:retention.preview(command.accountId,command.input)};break;
       case 'mail.retention.settings':if(!retention)throw locked;result={retention:retention.settings(command.accountId,command.input)};break;
@@ -346,15 +389,15 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.search": if (!search) throw locked; result = {search:search.search(command.input)}; break;
       case "mail.search.rebuild": if (!search) throw locked; result = {rebuilt:search.rebuild(command.input)}; break;
       case "mail.draft.sync.read":if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.status(command.accountId,command.input.draftId)};break;
-      case "mail.draft.sync.request":if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.request(command.accountId,command.input)};if(!lifecycleSuspended)draftSyncRunner?.wake();break;
+      case "mail.draft.sync.request": if(new MailIntegrationAccounts(database,ownerId).get(command.accountId)?.readOnly)throw unsupported;if(!draftSyncStore)throw locked;result={draftSync:draftSyncStore.request(command.accountId,command.input)};if(!lifecycleSuspended)draftSyncRunner?.wake();break;
       case "mail.local.draft.upload": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.uploadDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.save": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.saveDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.delete": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.deleteDraft(command.accountId,command.input)}};break;
       case "mail.local.draft.attachment": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readDraftAttachment(command.accountId,command.input)}};break;
       case "mail.local.draft.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listDrafts(command.accountId,command.input)}};break;
-      case "mail.local.action.submission": if(!local||!outboxStore)throw locked;{const item=await outboxStore.queue(command.accountId,command.input);result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,item.id)}};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});}break;
-      case "mail.local.action.mutation": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};if(!lifecycleSuspended)syncLifecycle.engine(command.accountId).wake(command.accountId);break;
+      case "mail.local.action.submission": if(new MailIntegrationAccounts(database,ownerId).get(command.accountId)?.readOnly)throw unsupported; if(!local||!outboxStore)throw locked;{const item=await outboxStore.queue(command.accountId,command.input);result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,item.id)}};if(!lifecycleSuspended)void outboxRunner?.run().catch(()=>{});}break;
+      case "mail.local.action.mutation": if(new MailIntegrationAccounts(database,ownerId).get(command.accountId)?.readOnly)throw unsupported; if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.enqueueMutation(command.accountId,command.input)}};if(!lifecycleSuspended)syncLifecycle.engine(command.accountId).wake(command.accountId);break;
       case "mail.local.action.read": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.readAction(command.accountId,command.input.actionId)}};break;
       case "mail.local.action.list": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.listActions(command.accountId,command.input)}};break;
       case "mail.local.action.cancel": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.cancelAction(command.accountId,command.input)}};break;
@@ -381,15 +424,8 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         break;
       }
       case "mail.integrations.reconcile": {
-        configureMailIntegrationFetch(command.snapshot.configuration);
-        const changes = new MailIntegrationAccounts(database, ownerId).reconcile(command.snapshot);
-        integrationsReady = true;
-        for (const id of [...changes.disconnected, ...changes.changed]) {
-          contacts?.cancel(id); qualification?.cancel(id);
-          await syncLifecycle.suspend(id);
-        }
-        for (const id of changes.changed) syncLifecycle.resume(id);
-        result = { updated: true }; break;
+        await reconcileIntegrations(command.snapshot);
+        result = { integrationsRevision: integrationRevision }; break;
       }
       case "mail.connection.begin":
         result = { connectionStarted: await controller.begin(command.settings, { reconnectAccountId: command.reconnectAccountId }) }; break;
@@ -413,7 +449,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.accounts.list": {
         const page = repository.listAccountsPage({ limit: command.limit, after: command.after });
         const integrations = new MailIntegrationAccounts(database, ownerId);
-        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name, ...(integrations.get(account.id) ? { integration: account.provider === "gmail" ? "gmail" : "outlook" } : {}), ...(account.provider === 'graph' && mailboxes?.identity(account.id) ? {identity:mailboxes.identity(account.id)} : {}), ...(account.provider === "graph" && credentials!.status(account.id).version ? {personal: credentials!.getBinding(account.id).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) })), page.hasMore);
+        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name, ...(integrations.get(account.id)?.readOnly ? {integrationArchive:true} : {}), ...(integrations.get(account.id) ? { integration: account.provider === "gmail" ? "gmail" : "outlook" } : {}), ...(account.provider === 'graph' && mailboxes?.identity(account.id) ? {identity:mailboxes.identity(account.id)} : {}), ...(account.provider === "graph" && credentials!.status(account.id).version ? {personal: credentials!.getBinding(account.id).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) })), page.hasMore);
         break;
       }
       case "mail.folders.list": {
@@ -440,6 +476,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if (credentialStatus.state === 'disconnected') throw locked;
         if(command.operation==='mail.sync.stop')qualification?.cancel(command.accountId);
         const engine = syncLifecycle.engine(command.accountId);
+        if(new MailIntegrationAccounts(database,ownerId).get(command.accountId)?.readOnly){if(command.operation==='mail.sync.start')throw unsupported;result={sync:engine.status(command.accountId)};break;}
         if(lifecycleSuspended&&command.operation==='mail.sync.start'){result={sync:engine.status(command.accountId)};break;}
         if(provider==='imap' || new MailIntegrationAccounts(database, ownerId).get(command.accountId)){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}
 

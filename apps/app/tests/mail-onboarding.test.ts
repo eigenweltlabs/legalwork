@@ -46,9 +46,9 @@ test('actual renderer opens Integrations for account setup and confines iCloud p
       const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
       await win.loadFile(${JSON.stringify(join(root,'index.html'))});const run=code=>win.webContents.executeJavaScript(code);
       const until=async code=>{for(let i=0;i<200;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+code)};
-      await until("document.body.textContent.includes('Open Integrations')");
+      await until("document.body.textContent.includes('Add account')");
       assert.equal(await run("document.querySelector('form')"),null);
-      await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Open Integrations').click()");await until("window.__route==='/settings/extensions'");
+      await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Add account').click()");await until("window.__route==='/settings/extensions'");
       await run("window.__standards()");await until("!!document.querySelector('form')");
       assert.equal(await run('window.__opened.length'),0);
       await run("document.querySelector('[aria-label=Provider]').click()");await until("!!document.querySelector('[role=option]')");await run("(()=>{const option=Array.from(document.querySelectorAll('[role=option]')).find(e=>e.textContent==='iCloud Mail'&&e.getBoundingClientRect().height>0);option.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));option.click();})()");
@@ -60,7 +60,7 @@ test('actual renderer opens Integrations for account setup and confines iCloud p
       assert.equal(await run("JSON.stringify(localStorage).includes('synthetic-app-password')"),false);
       await new Promise(r=>setTimeout(r,100));
       await run("[...document.querySelectorAll('button')].find(b=>b.textContent==='Cancel').click()");
-      await until("document.body.textContent.includes('Cancellation requested.')");
+      await until("document.body.textContent.includes('Cancellation requested')");
       assert.equal(await run('window.__changed'),0);console.log('ONBOARDING_PASS');win.destroy();app.quit();
     }).catch(error=>{console.error(error);app.exit(1)});
   `);

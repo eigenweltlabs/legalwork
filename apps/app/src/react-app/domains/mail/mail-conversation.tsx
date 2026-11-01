@@ -1,3 +1,4 @@
+import {Button} from '@/components/ui/button';
 /** @jsxImportSource react */
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {MailClient,type MailMessageView} from './mail-client';
@@ -29,7 +30,7 @@ export function MailConversation({grouped=true,client,item,entries,onOpen,onInit
  useEffect(()=>{setMessages(previous=>previous.some(value=>value.key===item.key)?previous.map(value=>value.key===item.key?item:value):[...previous,item]);},[item]);
  const ordered=[...messages].sort((a,b)=>(a.receivedAt??0)-(b.receivedAt??0)||a.key.localeCompare(b.key));
  return <div className="mail-conversation" aria-label="Conversation">
-  {after&&<button disabled={busy} onClick={()=>void load(after)}>Load earlier messages</button>}
+  {after&&<Button variant="ghost" size="sm" disabled={busy} onClick={()=>void load(after)}>Load earlier messages</Button>}
   {error&&<p role="status">{error}</p>}
   {ordered.map(observed=>{const value=optimisticMail(observed,entries),active=value.key===item.key,shown=expanded.has(value.key);return <section key={mailItemId(value)} className="mail-conversation-message" data-active={active}>
    {messages.length>1&&<button className="mail-conversation-toggle" aria-expanded={shown} onClick={()=>{if(shown&&active)setExpanded(previous=>{const next=new Set(previous);next.delete(value.key);return next;});else{setExpanded(previous=>new Set([...previous,value.key]));onOpen(value);}}}>

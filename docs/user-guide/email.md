@@ -12,7 +12,13 @@ Connect accounts in **Settings > Integrations > Communication**. Gmail and Outlo
 
 In **Mail accounts > Accounts**, inspect sync progress, resume a paused account or choose **Manage in Integrations**. New account setup opens Integrations. Reading remains available with write access off. Sending, provider drafts and mailbox organization require the corresponding permissions; enabling writes does not add provider consent. The reader keeps local drafts while offline. If you reconnect as a different person, their mailbox appears separately. Previous local data is retained and is never attached to another account just because its address looks similar.
 
-Accounts created by an earlier development build retain their existing data and reconnect controls. They are not automatically merged into a new Integrations account. If you see both, keep the retained account until you have reviewed or exported its data. This compatibility path is separate from adding a new account.
+Accounts created by an earlier development build move to Integrations after LegalWork verifies that the old authenticated account and the connected account identify the same mailbox. Saved names and addresses alone are not enough. The old OAuth credentials are removed after that proof. Existing local account IDs, originals, drafts and action history stay in place.
+
+If the current Integrations mailbox already has its own local store, the older one is labeled **Retained local copy**. Open it in Email to read its saved mail, inspect drafts or review Outbox history. It does not sync, send or publish drafts, and does not add duplicate messages to the unified Inbox, unread badge or notifications. To continue a retained draft, open it and choose the current **Account** in the composer. LegalWork copies the draft and its attachments and keeps the original. Review the copied message before sending.
+
+Old queued submissions are not sent automatically after migration. Review a failed submission before retrying it from the current account. An uncertain result stays uncertain until **Check Sent for acceptance** finds the exact message or you verify its outcome yourself. Checking Sent never resubmits a message. In a retained copy, you can cancel a queued item or edit and copy its draft to the current account; retrying from that copy is disabled.
+
+If the old account cannot be verified, its data and reconnect controls remain available. Reconnect that retained account to prove its identity, and connect the same mailbox in Integrations. Different identities remain separate. Provider discovery and verification run in the background; retained local mail can open while they are unavailable.
 
 ## Connect iCloud or another mail service
 
@@ -24,7 +30,7 @@ Accounts created by an earlier development build retain their existing data and 
 
 Use **Mail accounts** for notification preferences, sender signatures, agent access, local retention, backup and archive import or export. Disconnecting an account and deleting local copies are separate operations.
 
-Use **New message**, **Reply**, **Reply all** or **Forward** to compose. Review the account, sender, recipients, body and attachments before sending. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
+Use **New mail**, **Reply**, **Reply all** or **Forward** to compose. The composer has compact recipient and subject rows above a document-style writing area. Use **Toggle rich text** for formatting and the attachment controls to add files or inline images. Review the account, sender, recipients, body and attachments before sending. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
 
 Under **Mail accounts > Data & access**, review the per-account agent policy. Connecting an account does not approve sending or deleting mail for the assistant. The same section contains local retention, backup, restore and archive import/export controls. Disconnecting and deleting local data are separate actions; review each dialog's scope.
 
