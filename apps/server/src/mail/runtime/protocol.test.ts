@@ -8,6 +8,11 @@ const response = (result: unknown) => parseWorkerMessage(JSON.stringify({ kind: 
 test("integration configuration is private, loopback-only and cannot contain provider credentials", () => {
   const snapshot = {configuration:{origin:"http://127.0.0.1:12345",capability:"a".repeat(64)},handles:[],accounts:[]};
   expect(parent({operation:"mail.integrations.reconcile",snapshot})).toBeDefined();
+  expect(response({integrationsRevision:1})).toBeDefined();
+  expect(response({integrationsRevision:-1})).toBeUndefined();
+  expect(resultMatchesCommand({operation:"mail.integrations.reconcile",snapshot},{integrationsRevision:1})).toBe(true);
+  expect(resultMatchesCommand({operation:"mail.integrations.reconcile",snapshot},{updated:true})).toBe(false);
+  expect(response({accounts:[{id:"retained",provider:"gmail",displayName:"Retained",integration:"gmail",integrationArchive:true}],nextCursor:null})).toBeDefined();
   for (const configuration of [{...snapshot.configuration,origin:"https://attacker.test"},{...snapshot.configuration,accessToken:"secret"},{...snapshot.configuration,origin:"http://127.0.0.1:65536"}]) expect(parent({operation:"mail.integrations.reconcile",snapshot:{...snapshot,configuration}})).toBeUndefined();
   expect(response({accounts:[{id:"a",provider:"gmail",displayName:"Mailbox",integration:"outlook"}],nextCursor:null})).toBeUndefined();
   expect(response({accounts:[{id:"a",provider:"gmail",displayName:"Mailbox",integration:"gmail",refreshToken:"secret"}],nextCursor:null})).toBeUndefined();

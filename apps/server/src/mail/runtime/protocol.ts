@@ -86,7 +86,7 @@ export type WorkerCommand = {operation:"mail.qualification";input:QualificationI
   | { operation: "mail.sync.stop"; accountId: string }
   | { operation: "credentials.update"; credentials: WorkerCredentials };
 
-export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap" | "archive"; displayName: string; personal?: boolean; integration?: "gmail" | "outlook"; identity?: GraphMailboxIdentity };
+export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap" | "archive"; displayName: string; personal?: boolean; integration?: "gmail" | "outlook"; integrationArchive?: boolean; identity?: GraphMailboxIdentity };
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type WorkerResult = {qualification:QualificationReport} | {agent:AgentControlResult}| {storageSave:StorageSaveResult}|{filing:FilingResult}| {notifications:MailNotificationBatch}|{lifecycle:{state:"running"|"suspended"}}
   | {retention:RetentionPreview|z.infer<typeof retentionResultSchema>|z.infer<typeof retentionSettingsSchema>} | {retentionFailure:'conflict'|'locked'|'not_found'|'invalid_input'}
@@ -121,6 +121,7 @@ export type WorkerResult = {qualification:QualificationReport} | {agent:AgentCon
   | { parts: { accountId: string; locator: ProviderMessageLocator; items: MailPartView[]; nextCursor: string | null } }
   | { content: MailContentChunk }
   | { accepted: true }
+  | { integrationsRevision: number }
   | { updated: true };
 export type WorkerErrorCode = "conflict" | "invalid_input" | "locked" | "not_ready" | "unsupported" | "operation_failed" | "not_found" | "response_too_large";
 export type ParentMessage =
@@ -193,7 +194,7 @@ function started(value: unknown): boolean {
   return record(value) && exact(value, ["connectionId", "authorizationUrl", "expiresAt"]) && uuid(value.connectionId) && time(value.expiresAt) && authorizationUrl(value.authorizationUrl);
 }
 function account(value: unknown): value is WorkerAccount {
-  return record(value) && exact(value, ["id", "provider", "displayName", ...(value.personal === undefined ? [] : ["personal"]), ...(value.identity === undefined ? [] : ["identity"]), ...(value.integration === undefined ? [] : ["integration"])]) && (value.integration === undefined || value.provider === "gmail" && value.integration === "gmail" || value.provider === "graph" && value.integration === "outlook") && (value.identity === undefined || value.provider === "graph" && graphMailboxIdentitySchema.safeParse(value.identity).success) && (value.personal === undefined || value.provider === "graph" && typeof value.personal === "boolean") && id(value.id)
+  return record(value) && exact(value, ["id", "provider", "displayName", ...(value.personal === undefined ? [] : ["personal"]), ...(value.identity === undefined ? [] : ["identity"]), ...(value.integration === undefined ? [] : ["integration"]), ...(value.integrationArchive === undefined ? [] : ["integrationArchive"])]) && (value.integrationArchive === undefined || value.integration !== undefined && typeof value.integrationArchive === "boolean") && (value.integration === undefined || value.provider === "gmail" && value.integration === "gmail" || value.provider === "graph" && value.integration === "outlook") && (value.identity === undefined || value.provider === "graph" && graphMailboxIdentitySchema.safeParse(value.identity).success) && (value.personal === undefined || value.provider === "graph" && typeof value.personal === "boolean") && id(value.id)
     && (value.provider === "gmail" || value.provider === "graph" || value.provider === "imap" || value.provider === "archive") && typeof value.displayName === "string";
 }
 function folder(value: unknown): value is WorkerFolder {
@@ -229,6 +230,7 @@ function result(value: unknown): value is WorkerResult {
     || (exact(value, ["accounts", "nextCursor"]) && Array.isArray(value.accounts) && value.accounts.length <= MAX_WORKER_PAGE_SIZE && value.accounts.every(account) && cursor(value.nextCursor))
     || (exact(value, ["folders", "nextCursor"]) && Array.isArray(value.folders) && value.folders.length <= MAX_WORKER_PAGE_SIZE && value.folders.every(folder) && cursor(value.nextCursor))
     || (exact(value, ["accepted"]) && value.accepted === true)
+    || (exact(value,["integrationsRevision"]) && typeof value.integrationsRevision==="number" && Number.isSafeInteger(value.integrationsRevision) && value.integrationsRevision>=0)
     || (exact(value, ["updated"]) && value.updated === true));
 }
 export function parseWorkerMessage(line: string): WorkerMessage | undefined {
@@ -310,7 +312,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
       && value.content.offset + Buffer.from(value.content.data, "base64").byteLength === (value.content.nextOffset ?? value.content.totalBytes);
     case "mail.sync.provider": return "syncProvider" in value;
     case "mail.status": return "sync" in value && value.sync.accountId === command.accountId;
-    case "mail.integrations.reconcile":
+    case "mail.integrations.reconcile": return "integrationsRevision" in value;
     case "credentials.update": return "updated" in value;
     case "mail.sync.resume":
     case "mail.sync.start":

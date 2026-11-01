@@ -98,7 +98,7 @@ export function MailAccountControls({ client, standardsOnly = false, onAccountsC
       <MailContactsView client={client} accounts={accounts} onAuthorize={account=>setContactRequest({account,key:Date.now()})}/>
       <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
     </TabsContent>
-    <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon" description="Keep your unread count in view."><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
+    <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon"><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
     <TabsContent value="sending" keepMounted className="space-y-6"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></TabsContent>
     <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></TabsContent>
   </Tabs>;
@@ -123,7 +123,7 @@ function MailBadgePreference() {
       catch { setError('The app icon badge setting could not be saved. Try again.'); }
       finally { setBusy(false); }
     }} /></div>
-    <p className="text-xs text-muted-foreground">Unread Inbox messages across connected accounts. Notification banners and sounds are controlled separately.</p>
+
     {error && <p role="alert">{error}</p>}
   </div>;
 }

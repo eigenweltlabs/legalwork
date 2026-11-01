@@ -40,5 +40,8 @@
   "mime/project",
   "storage/extraction",
   "runtime/integrations",
-  "storage/integrations"
+  "storage/integrations",
+  "storage/integration-adoption",
+  "runtime/integration-adoption",
+  "runtime/contacts"
 ]

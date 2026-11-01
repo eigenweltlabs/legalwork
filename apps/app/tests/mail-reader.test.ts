@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {MailClient,UnifiedMailPages,compareMail,mailOrigin,type MailMessageView,type MailPartView} from '../src/react-app/domains/mail/mail-client';
+import {MailClient,UnifiedMailPages,compareMail,mailOrigin,type MailMessageView,type MailPartView,type MailAccountView} from '../src/react-app/domains/mail/mail-client';
 import {safeFilename,rasterType} from '../src/react-app/domains/mail/mail-html';
 import {createHash} from 'node:crypto';
 const make=(accountId:string,index:number):MailMessageView=>({accountId,key:String(index).padStart(3,'0'),locator:{provider:'gmail',messageId:String(index)},subject:'Synthetic',threadId:null,rfcMessageId:null,removed:false,memberships:['INBOX'],contentState:'complete',metadata:null,receivedAt:index===60?null:1000-Math.floor(index/2)});
@@ -12,6 +12,14 @@ test('unified merge replenishes exhausted heads before choosing a page; tied and
  const source={a:Array.from({length:61},(_,i)=>make('a',i)),b:Array.from({length:61},(_,i)=>make('b',i))};let calls=0;
  const client=new MailClient('http://127.0.0.1:8787','synthetic',async(url,init)=>{calls++;expect(init?.redirect).toBe('error');expect(init?.headers).toMatchObject({'X-LegalWork-Host-Token':'synthetic'});const accountId=String(url).includes('/accounts/a/')?'a':'b';const input=JSON.parse(String(init?.body));expect(input.order).toBe('received');expect(input.inboxOnly).toBe(true);const offset=Number(input.after??0);return Response.json({items:source[accountId].slice(offset,offset+7),nextCursor:offset+7<61?String(offset+7):null});});
  const pager=new UnifiedMailPages(client,[{id:'a',provider:'gmail',displayName:'A'},{id:'b',provider:'gmail',displayName:'B'}],undefined,undefined,true);const found:MailMessageView[]=[];while(pager.hasMore)found.push(...await pager.next(new AbortController().signal));expect(found).toEqual([...source.a,...source.b].sort(compareMail));expect(new Set(found.map(item=>item.accountId+item.key)).size).toBe(122);expect(calls).toBe(18);
+});
+test('retained account copies stay out of the unified inbox but remain individually readable',async()=>{
+ const requested:string[]=[];
+ const client=new MailClient('http://127.0.0.1:8787','synthetic',async url=>{const accountId=String(url).includes('/accounts/retained/')?'retained':'current';requested.push(accountId);return Response.json({items:[make(accountId,1)],nextCursor:null});});
+ const current:MailAccountView={id:'current',provider:'gmail',integration:'gmail',displayName:'Current'},retained:MailAccountView={id:'retained',provider:'gmail',integration:'gmail',displayName:'Retained',integrationArchive:true};
+ const inbox=new UnifiedMailPages(client,[current,retained]);
+ expect((await inbox.next(new AbortController().signal)).map(item=>item.accountId)).toEqual(['current']);expect(requested).toEqual(['current']);
+ const archive=new UnifiedMailPages(client,[retained]);expect((await archive.next(new AbortController().signal))[0].accountId).toBe('retained');
 });
 test('never-opened stored content is fetched in bounded verified chunks and rejects swapped references',async()=>{
  const bytes=Buffer.alloc(65001,97),sha256=createHash('sha256').update(bytes).digest('hex');const part:MailPartView={key:'p',kind:'attachment',partId:'p',state:'stored',referenceId:'sha256:'+sha256,bytes:bytes.length,sha256,bytesAvailable:true,filename:'file.txt',contentType:'text/plain',contentId:null};let swapped=false,calls=0;

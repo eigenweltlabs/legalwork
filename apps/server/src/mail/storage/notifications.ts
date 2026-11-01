@@ -15,7 +15,7 @@ export class MailNotificationStore {
         let suppressed = 0, remainingEvents = 1000;
         return this.db.transaction(() => {
             const credentials = new MailCredentialRepository(this.db, this.ownerId), reads = new MailReadStore(this.db, this.ownerId);
-            const accounts = this.db.all("SELECT id,provider FROM mail_accounts WHERE owner_id=? AND provider IN ('gmail','graph','imap') ORDER BY id LIMIT 200", [this.ownerId]).map(account => ({ account, status: credentials.status(text.parse(account.id)) })).filter(({ status }) => status.state === 'connected' && !status.archiveLocked);
+            const accounts = this.db.all("SELECT id,provider FROM mail_accounts WHERE owner_id=? AND NOT EXISTS(SELECT 1 FROM mail_integration_accounts i WHERE i.account_id=mail_accounts.id AND i.read_only=1) AND provider IN ('gmail','graph','imap') ORDER BY id LIMIT 200", [this.ownerId]).map(account => ({ account, status: credentials.status(text.parse(account.id)) })).filter(({ status }) => status.state === 'connected' && !status.archiveLocked);
             const perAccount = Math.max(1, Math.floor(1000 / Math.max(1, accounts.length)));
             for (const { account, status } of accounts) {
                 if (!status.version)

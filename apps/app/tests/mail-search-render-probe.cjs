@@ -14,7 +14,7 @@ app.whenReady().then(async()=>{
  await contains('Search local mail');
  await act(()=>[...document.querySelectorAll('summary')].find(e=>e.textContent==='Structured filters').click());
  await fill('sender','sender@example.test');await fill('recipient','recipient@example.test');await fill('filename','Änderung.pdf');await fill('afterDate','2026-01-01');
- await act(()=>{for(const [label,value]of [['Search accounts','a'],['unread','true'],['hasAttachment','true']]){const select=[...document.querySelectorAll('select')].find(e=>e.getAttribute('aria-label')===label);Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,value);select.dispatchEvent(new Event('change',{bubbles:true}));}});
+ for(const [label,text]of [['Search accounts','Firm account'],['unread','Unread'],['hasAttachment','Has attachments']]){await click(label);await until(()=>!!document.querySelector('[role=option]'));await act(text=>{const option=[...document.querySelectorAll('[role=option]')].find(e=>e.textContent===text);option.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));option.click();},text);if(label==='Search accounts')await click(label);}
  await fill('Keywords','two ');assert.equal(await act(()=>document.querySelector('[aria-label="Keywords"]').value),'two ');await fill('Keywords','two words');
  await fill('Literal text','AZ-12/34.5');await click('Search');await contains('21 matches');
  assert.equal(await act(()=>document.body.textContent.includes('Some content is not searchable.')),true);
@@ -22,7 +22,7 @@ app.whenReady().then(async()=>{
  assert.equal(await act(()=>document.activeElement.querySelector('.mail-row-subject')?.textContent),'Second keyboard result');
  await click('Matching attachment: page:3');await contains('Kündigung attachment page three');
  await act(async origin=>{await fetch(origin+'/revoke',{method:'POST',headers:{'X-LegalWork-Host-Token':'synthetic','Content-Type':'application/json'},body:'{}'});},process.argv[3]);
- await contains('No local matches');assert.equal(await act(()=>document.body.textContent.includes('Kündigung attachment page three')),false);
+ await contains('No matches');assert.equal(await act(()=>document.body.textContent.includes('Kündigung attachment page three')),false);
  await act(async origin=>{await fetch(origin+'/restore',{method:'POST',headers:{'X-LegalWork-Host-Token':'synthetic','Content-Type':'application/json'},body:'{}'});},process.argv[3]);
  await click('Search');await contains('21 matches');await click('Matching attachment: page:3');await contains('Kündigung attachment page three');
  await click('Open source message');await until(()=>document.getElementById('opened').textContent==='Opened source message');
@@ -32,7 +32,7 @@ app.whenReady().then(async()=>{
  assert.equal(await act(()=>localStorage.length),0);
  await fill('Literal text','slow');await click('Search');await contains('Searching…');await click('Cancel');await contains('Search cancelled.');await new Promise(r=>setTimeout(r,300));assert.equal(await act(()=>document.body.textContent.includes('STALE RESULT')),false);
  await fill('Literal text','slow');await click('Search');await contains('Searching…');
- await fill('Literal text','empty');await click('Search');await contains('No local matches');
+ await fill('Literal text','empty');await click('Search');await contains('No matches');
  await new Promise(r=>setTimeout(r,300));assert.equal(await act(()=>document.body.textContent.includes('STALE RESULT')),false);
  console.log('MAIL_SEARCH_RENDER_PASS');win.destroy();app.quit();
 }).catch(error=>{console.error(error);app.exit(1);});

@@ -89,8 +89,9 @@ export class LocalMailService implements MailService {
     const refresh = (async () => {
       const snapshot = await this.loadIntegrations();
       if (!snapshot || epoch !== this.epoch || this.phase !== "open") return;
-      await this.request({operation: "mail.integrations.reconcile", snapshot});
-      const revision = JSON.stringify([snapshot.handles, snapshot.accounts]);
+      const result=await this.request({operation: "mail.integrations.reconcile", snapshot});
+      if(!("integrationsRevision" in result))throw new MailServiceError("unavailable");
+      const revision = JSON.stringify([snapshot.handles, snapshot.accounts, result.integrationsRevision]);
       if (revision !== this.appliedIntegrations) { this.appliedIntegrations = revision; this.integrationRevision++; }
       this.integrationRefreshAt = Date.now();
     })();
@@ -373,7 +374,7 @@ export class LocalMailService implements MailService {
       settings = await this.loadProviderSettings(provider.syncProvider, provider.personal);
       if (settings.provider !== provider.syncProvider) throw new MailServiceError("unavailable");
     }
-    catch { throw new MailServiceError("unavailable"); }
+    catch (error) { throw serviceError(error); }
     if (epoch !== this.epoch) throw new MailServiceError("locked");
     const result = await this.request({ operation, accountId, settings });
     if (!("sync" in result)) throw new MailServiceError("unavailable");

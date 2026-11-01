@@ -59,7 +59,7 @@ test('settings preserves badge preferences and retained-account reconnect cancel
       await until("[...document.querySelectorAll('[role=menuitem]')].some(e=>e.textContent==='Reconnect')");
       await run("[...document.querySelectorAll('[role=menuitem]')].find(e=>e.textContent==='Reconnect').click()");
       await until("!!document.querySelector('form')");
-      await run("document.querySelector('form').requestSubmit()");await until("document.body.textContent.includes('Connected.')");assert.equal(await run("document.body.textContent.includes('Close setup')"),false);
+      await run("document.querySelector('form').requestSubmit()");await until("document.body.textContent.includes('Connected')");assert.equal(await run("document.body.textContent.includes('Close setup')"),false);
       assert.equal(await run('window.__opened.length'),2);
       await run('window.__standards()');await until("!!document.querySelector('form')");
       await run("document.querySelector('[aria-label=Provider]').click()");await until("!!document.querySelector('[role=option]')");await run("(()=>{const option=Array.from(document.querySelectorAll('[role=option]')).find(e=>e.textContent==='iCloud Mail'&&e.getBoundingClientRect().height>0);option.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));option.click();})()");

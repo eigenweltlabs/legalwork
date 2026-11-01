@@ -1,3 +1,4 @@
+import {removeLaterMailSchema} from '../testing/legacy-schema.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
@@ -216,7 +217,7 @@ test("new runner reads cached contacts without network and migration31 rolls bac
         .address,
       "offline@example.test",
     );
-    f.db.exec("DROP TABLE mail_contact_entries; DROP TABLE mail_contact_books");
+    removeLaterMailSchema(f.db,30);
     f.db.run("UPDATE mail_schema_version SET version=30");
     const failing = {
       ...f.db,
