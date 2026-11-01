@@ -125,7 +125,7 @@ test("actual Electron starts built encrypted worker inside ASAR and resolves unp
     assert.equal(JSON.parse(await readFile(join(nativeSource, "package.json"), "utf8")).version, "13.0.3");
     await cp(nativeSource, join(source, nativeRelative), { recursive: true, filter: (path) => !path.startsWith(join(nativeSource, "node_modules")) });
     await cp(dirname(require.resolve("zod/package.json")), join(source, "node_modules/zod"), { recursive: true });
-    for (const dependency of ["@zone-eu/mailsplit", "iconv-lite", "libmime", "entities", "imapflow", "nodemailer", "fflate"]) {
+    for (const dependency of ["@zone-eu/mailsplit", "postal-mime", "iconv-lite", "libmime", "entities", "imapflow", "nodemailer", "fflate"]) {
       await copyRuntimePackage(dependency, require, source);
     }
     const archive = join(root, `${layout}.asar`);
