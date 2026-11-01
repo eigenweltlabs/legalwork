@@ -11,7 +11,9 @@ export function calendarClientScope(client: Pick<LegalworkServerClient, "baseUrl
   return [client?.baseUrl, credentials.get(client?.token)];
 }
 
-export const calendarCachePolicy = { staleTime: 60_000, gcTime: 30 * 60_000, refetchInterval: 60_000 };
+// Keep the last successful result for the session, including across failed
+// refreshes. Freshness drives background fetching, never time-based eviction.
+export const calendarCachePolicy = { staleTime: 60_000, gcTime: Infinity, refetchInterval: 60_000 };
 
 // Stable Monday-based pages are shared by day, week and month views. Moving
 // one week only loads the new edge instead of fetching every visible day again.

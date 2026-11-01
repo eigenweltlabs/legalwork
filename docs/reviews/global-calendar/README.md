@@ -1,6 +1,6 @@
 # Global calendar verification
 
-The calendar now retains loaded pages in memory for 30 minutes after they become inactive, shares Monday-based pages between views, and refreshes in the background. The week timetable uses a rolling three-week strip with a pinned time gutter. Scrolling rebases the strip without resetting the vertical time position.
+The calendar retains loaded pages in memory for the app session without time-based eviction, shares Monday-based pages between views, and refreshes in the background. The last successful data stays visible until a successful refresh or sync replaces it, including after failed refreshes. Account changes and sign-out clear private cached data. The week timetable uses a rolling three-week strip with a pinned time gutter. Scrolling rebases the strip without resetting the vertical time position.
 
 Connected-event previews use compact date and time rows, a content-dependent width, expandable attendees, and a recurrence card with a readable interval, selected weekdays and end condition. Empty events have no empty body or redundant footer. Instance responses that do not supply a recurrence rule point to the source calendar for the full schedule. Outlook attachment contents remain in Outlook; supplied Google attachment links are exposed directly.
 
