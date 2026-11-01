@@ -1,3 +1,4 @@
+import { captureMailRuleArrival } from '../storage/rules.js';
 import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
 import { randomUUID } from "node:crypto";
 import { MailHttpActionRunner } from './http-action-runner.js';
@@ -326,11 +327,12 @@ export class GraphBackfill {
         }
     }
     /** A page's continuation and every current-message check become durable together. */
-    private commitDelta(session: Session, ids: string[], mutate: () => void, terminal = false) {
+    private commitDelta(session: Session, ids: string[], mutate: () => void, terminal = false, arrivals: string[] = []) {
         const db = this.options.database, accountId = session.run.account_id, scope = this.scope(session.run), checkpoint = this.journal.status(scope).checkpoint;
         const unique = [...new Set(ids)];
         this.journal.commitPage({ ...scope, expectedCursor: checkpoint.cursor, expectedRevision: checkpoint.revision, nextCursor: terminal ? null : randomUUID(), discoveryComplete: terminal, jobs: unique.map(messageId => ({ kind: 'raw', locator: { provider: 'graph', messageId } })) }, () => {
             this.assert(session);
+            for (const messageId of arrivals) captureMailRuleArrival(db, this.options.ownerId, accountId, { provider: 'graph', messageId });
             for (const messageId of unique) {
                 const locator = { provider: 'graph', messageId } satisfies import('../model.js').ProviderMessageLocator, key = providerMessageKey(locator);
                 if (!db.get('SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?', [accountId, key]))
@@ -465,7 +467,7 @@ export class GraphBackfill {
                     if (!item['@removed'])
                         db.run('INSERT INTO mail_graph_delta_seen(account_id,folder_id,message_key,generation) VALUES(?,?,?,?) ON CONFLICT(account_id,folder_id,message_key) DO UPDATE SET generation=excluded.generation', [accountId, folder.folder_id, providerMessageKey({ provider: 'graph', messageId: item.id }), session.run.generation]);
                 db.run('UPDATE mail_graph_delta SET next_link=?,delta_link=?,phase=? WHERE account_id=? AND folder_id=?', [page.nextLink, page.deltaLink ?? folder.delta_link, page.nextLink ? 'paging' : folder.baseline ? 'sweep' : 'done', accountId, folder.folder_id]);
-            });
+            }, false, folder.baseline === 0 ? page.items.filter(item => !item['@removed']).map(item => item.id) : []);
         }
         catch (error) {
             if (error instanceof GraphTransportError && error.code === 'delta_expired' && folder.reset_count < 2) {

@@ -1,3 +1,4 @@
+import {MailRulesError,type MailRuleSave,type MailRuleDelete} from './rules-view.js';
 import {MailSnoozeError,type MailSnooze,type MailSnoozeSet} from './snooze-view.js';
 import type { MailIntegrationSnapshot } from "./integration-view.js";
 import {CONTACT_SCOPES,type ContactsInput} from './contacts-view.js';
@@ -126,6 +127,10 @@ export class LocalMailService implements MailService {
     if(input.action==='sync'){const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');if(provider.syncProvider!=='imap' && !provider.integrated)settings=await this.loadProviderSettings?.(provider.syncProvider,provider.personal);if(epoch!==this.epoch)throw new MailServiceError('locked');}
     const result=await this.request({operation:'mail.contacts',accountId,input,...(settings?{settings}:{})});if(!('contacts' in result))throw new MailServiceError('unavailable');return result.contacts;
   }
+  private async rulesRequest(command:import('./rules-view.js').MailRulesCommand){const result=await this.request(command);if('rulesFailure' in result)throw new MailRulesError(result.rulesFailure);if(!('rules' in result))throw new MailServiceError('unavailable');return result.rules;}
+  readRules(accountId:string){return this.rulesRequest({operation:'mail.rules.read',accountId,input:{}});}
+  saveRule(accountId:string,input:MailRuleSave){return this.rulesRequest({operation:'mail.rules.save',accountId,input});}
+  deleteRule(accountId:string,input:MailRuleDelete){return this.rulesRequest({operation:'mail.rules.delete',accountId,input});}
   async readSnooze(accountId:string,locator:ProviderMessageLocator){if(locator.provider==='archive')throw new MailSnoozeError('unavailable');const result=await this.request({operation:'mail.snooze.read',accountId,input:{locator}});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
   async setSnooze(accountId:string,input:MailSnoozeSet){const result=await this.request({operation:'mail.snooze.set',accountId,input});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
   async outboxRead(accountId:string,input:{actionId:string}){const result=await this.request({operation:'mail.outbox.read',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxDetail' in result))throw new MailServiceError('unavailable');return result.outboxDetail;}

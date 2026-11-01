@@ -1,3 +1,5 @@
+import {MailRulesStore} from '../storage/rules.js';
+import {randomUUID} from 'node:crypto';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {ImapFlow} from 'imapflow';
@@ -17,6 +19,18 @@ import {MailContentStore} from '../storage/content-store.js';
 import {MailSearchStore} from '../storage/search.js';
 import {LocalMailService} from '../service.js';
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+
+test('local rules establish a UID floor and exclude UIDVALIDITY replacement backfills',()=>fixture(async f=>{
+ const e=f.make(),{accountId}=await e.connect({...f.input,folders:['INBOX']});
+ new MailRulesStore(f.db,'owner').save(accountId,{id:randomUUID(),expected:null,definition:{name:'Live',enabled:true,order:1,sender:'',subject:'invoice',action:{kind:'read'}}});
+ e.start(accountId);await until(()=>e.status(accountId).state==='complete');assert.equal(f.db.get('SELECT count(*) AS n FROM mail_rule_arrivals').n,0);
+ e.pause(accountId);await delay(20);f.server.state.messages.INBOX.push(1003);e.start(accountId);await until(()=>e.status(accountId).state==='complete');
+ assert.deepEqual(f.db.all('SELECT message_key FROM mail_rule_arrivals').map(row=>row.message_key),[JSON.stringify(['imap','INBOX',7,1003])]);
+ e.pause(accountId);await delay(20);f.server.state.validity=8;e.start(accountId);await until(()=>e.status(accountId).state==='complete');
+ assert.equal(f.db.get('SELECT count(*) AS n FROM mail_rule_arrivals').n,1);
+ e.pause(accountId);await delay(20);f.server.state.messages.INBOX.push(1004);e.start(accountId);await until(()=>e.status(accountId).state==='complete');
+ assert.deepEqual(f.db.all('SELECT message_key FROM mail_rule_arrivals ORDER BY id').map(row=>row.message_key),[JSON.stringify(['imap','INBOX',7,1003]),JSON.stringify(['imap','INBOX',8,1004])]);
+}));
 const until=async fn=>{for(let i=0;i<600;i++){if(await fn())return;await delay(10);}throw Error('IMAP fixture deadline');};
 async function fixture(body){const server=await imapServer(),dir=await mkdtemp(join(tmpdir(),'imap-native-')),path=join(dir,'mail.sqlite'),key=randomBytes(32);let db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);const engines=[];const input={host:'localhost',port:server.port,username:'synthetic@example.test',password:'SYNTHETIC_PRIVATE_PASSWORD'};const transport=(settings,password)=>new ImapReadTransport(settings,password,options=>new ImapFlow({...options,host:'127.0.0.1',servername:'localhost',tls:{...options.tls,ca:server.cert}}));
  const f={server,dir,path,key,input,transport,get db(){return db;},make(){const engine=new ImapBackfill({database:db,ownerId:'owner',transport});engines.push(engine);return engine;},async reopen(){for(const engine of engines)await engine.close();db.close();db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);}};

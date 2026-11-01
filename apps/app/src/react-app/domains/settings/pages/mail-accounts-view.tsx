@@ -1,3 +1,5 @@
+import {MailRulesView} from './mail-rules-view';
+import {t} from '@/i18n';
 import {MailContactsView} from './mail-contacts-view';
 import {MailAgentAccessView} from './mail-agent-access-view';
 import {MailRetentionView} from './mail-retention-view';
@@ -91,7 +93,7 @@ export function MailAccountControls({ client, standardsOnly = false, onAccountsC
     <MailSmtpView client={client} accounts={accounts.filter(account=>account.provider==='imap')} />
   </>;
   return <Tabs defaultValue="accounts" className="gap-6">
-    <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
+    <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="rules">{t('mail.rules_tab')}</TabsTrigger><TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
     {error && <SettingsNotice tone="error"><span role="alert">{error}</span><Button size="sm" variant="ghost" onClick={()=>setRevision(value=>value+1)}>Retry</Button></SettingsNotice>}
     <TabsContent value="accounts" keepMounted className="space-y-6">
       <MailOnboarding client={client} contactRequest={contactRequest} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
@@ -100,6 +102,7 @@ export function MailAccountControls({ client, standardsOnly = false, onAccountsC
     </TabsContent>
     <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon"><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
     <TabsContent value="sending" keepMounted className="space-y-6"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></TabsContent>
+    <TabsContent value="rules" keepMounted><MailRulesView client={client} accounts={accounts} /></TabsContent>
     <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></TabsContent>
   </Tabs>;
 

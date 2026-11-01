@@ -59,6 +59,22 @@ This is local to LegalWork. It does not move provider folders, change read flags
 
 The chosen instant and zone survive restarting or locking Email. Due conversations return to the top of this client's Inbox when Email is available, including offline with downloaded mail. Their original email dates remain unchanged. Closing the app or locking Email delays the refresh until it is available again; LegalWork does not wake the computer. Newly downloaded messages, or messages moved into Inbox, bring their snoozed conversation back early. Historical mail discovered later can also count as a new local Inbox message. Notifications keep the existing opt-in and at-most-once policy.
 
+## Local rules for new Inbox mail
+
+Open **Settings > Mail accounts > Rules**, select an account and choose **Add rule**. Enter a **Name** and **Order (first match only)**. Set **From address equals**, **Subject contains (and)**, or both. The sender condition matches one parsed email address, not a display name. Subjects use a literal, case-insensitive match. Both conditions must match when both are filled in.
+
+Choose **Mark as read**, **Flag**, **Archive** or **Snooze conversation**. Snooze also requires **Snooze minutes** and **Time zone**; it uses an elapsed duration from local processing, not a wall-clock appointment. It covers the current Inbox conversation and preserves a snooze you already set. Switch **Enabled** on, then **Save**. New rules start disabled. Up to 20 rules are allowed per account. Lower order numbers run first; equal numbers follow the displayed order. Only the first matching rule acts on a message.
+
+These rules belong to this LegalWork installation. They are separate from Gmail filters, Outlook server rules and provider-side snooze. They reuse the account connected in Integrations, or the configured IMAP account. They cannot send mail, delete messages, run scripts, invoke an assistant or file material into a matter or another account. Provider changes require the account's existing write permission. Snooze is local and needs only read access.
+
+Rules apply only to new Inbox messages identified through an established provider sync stream after the rule was saved and enabled. Initial downloads, historical imports, a reset Outlook delta baseline and an IMAP UIDVALIDITY replacement are excluded. Provider receipt dates must also be at or after activation. Sent, Spam and Trash are excluded. There is no **Run on existing mail** action. Editing, changing order or enabling a rule applies its new version to future arrivals. Disabling or deleting it prevents unclaimed work; a provider action already queued stays in **Mail activity**, where it can be reviewed or cancelled before dispatch.
+
+The desktop app and mail service must be running, awake, unlocked and not paused. LegalWork does not wake the computer or install provider rules. Provider sync needs a connection. Catch-up processes verified new arrivals when sync resumes, rather than promising an exact execution time. Captured arrivals awaiting downloaded content or permission are retried for up to seven days, then skipped. Rules do not provide guaranteed delivery or cross-device automation.
+
+Use **Refresh** to update readiness and **Recent activity**. **Waiting for first sync**, **Sync paused**, **Write permission required** and **Account unavailable** identify what is blocking execution. **Connection changed: review rule** requires opening **Edit rule**, checking the conditions and choosing **Save** after reconnecting. That review does not replay earlier arrivals. Ordinary restarts preserve rules; restoring an encrypted backup disables them.
+
+**Queued** means an action has entered the existing mail action queue. **Confirmed** means the provider action was confirmed. **Uncertain: review Mail activity** is never retried automatically. Review uncertain or failed work in Email's **Mail activity** controls. Changing a read flag, archiving, snoozing, waking a conversation or replaying a provider page cannot trigger the rule again for the same provider message identity.
+
 ## Meeting invitations
 
 Downloaded `text/calendar` and `.ics` attachments appear above the message body. The preview shows the title, organizer, location and dates. **Details** shows the description, attendees and standard recurrence settings. **Updated invitation**, **Cancelled**, **Repeats**, **Occurrence** and **Delegated** describe the attached calendar data. They do not verify the sender or prove that a connected calendar has applied an update.

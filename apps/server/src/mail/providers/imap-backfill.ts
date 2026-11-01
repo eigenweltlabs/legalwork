@@ -1,3 +1,4 @@
+import { captureMailRuleArrival } from '../storage/rules.js';
 import { ImapActions } from './imap-actions.js';
 import { removeImapMessage } from '../storage/imap-incremental.js';
 import { randomUUID } from 'node:crypto';
@@ -340,7 +341,7 @@ export class ImapBackfill {
             }
             const row = db.get('SELECT * FROM mail_imap_folders WHERE account_id=? AND generation=? AND selected=1 AND done=0 ORDER BY path LIMIT 1', [accountId, session.run.generation]);
             if (row) {
-                const folder = z.object({ path: z.string(), uid_validity: z.number().nullable(), uid_next: z.number().nullable(), after_uid: z.number(), uid_span: z.number(), highest_modseq: z.string().nullable(), scan_modseq: z.string().nullable() }).parse(row);
+                const folder = z.object({ path: z.string(), uid_validity: z.number().nullable(), uid_next: z.number().nullable(), after_uid: z.number(), uid_span: z.number(), highest_modseq: z.string().nullable(), scan_modseq: z.string().nullable(), rules_uid_floor: z.number().nullable(), rules_uid_validity: z.number().nullable() }).parse(row);
                 if (folder.uid_validity === null || folder.uid_next === null) {
                     let opened: Awaited<ReturnType<Transport['open']>>;
                     try {
@@ -387,6 +388,8 @@ export class ImapBackfill {
                     this.assert(session);
                     for (const item of page.items) {
                         const locator = { provider: 'imap', mailboxId: folder.path, uidValidity: validity, uid: item.uid } satisfies import('../model.js').ProviderMessageLocator, key = providerMessageKey(locator);
+                        if (folder.rules_uid_floor !== null && folder.rules_uid_validity === validity && item.uid >= folder.rules_uid_floor)
+                            captureMailRuleArrival(db, this.options.ownerId, accountId, locator);
                         if (!db.get('SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?', [accountId, key]))
                             this.repo.ingestMessage(accountId, { locator, subject: '', rfcMessageId: null, threadId: null, memberships: [folder.path] });
                         if (item.flags !== null)
@@ -394,6 +397,7 @@ export class ImapBackfill {
                         db.run("DELETE FROM mail_tombstones WHERE account_id=? AND message_key=? AND reason='imap_removed'", [accountId, key]);
                         db.run('INSERT INTO mail_imap_messages(account_id,message_key,internal_date,flags_json,modseq,seen_generation) VALUES(?,?,?,?,?,?) ON CONFLICT(account_id,message_key) DO UPDATE SET internal_date=excluded.internal_date,flags_json=CASE WHEN ? THEN mail_imap_messages.flags_json ELSE excluded.flags_json END,modseq=CASE WHEN ? THEN mail_imap_messages.modseq ELSE excluded.modseq END,seen_generation=excluded.seen_generation', [accountId, key, item.internalDate, JSON.stringify(item.flags ?? []), item.modseq, session.run.generation, item.flags === null ? 1 : 0, item.flags === null ? 1 : 0]);
                     }
+                    if (page.done) db.run('UPDATE mail_imap_folders SET rules_uid_floor=?,rules_uid_validity=? WHERE account_id=? AND path=?', [folder.uid_next, validity, accountId, folder.path]);
                     db.run('UPDATE mail_imap_folders SET after_uid=?,uid_span=?,done=?,highest_modseq=CASE WHEN ? THEN scan_modseq ELSE highest_modseq END WHERE account_id=? AND path=?', [page.after, page.nextSpan, page.done ? 1 : 0, page.done ? 1 : 0, accountId, folder.path]);
                 });
                 this.change(session, () => { db.run('UPDATE mail_imap_runs SET error=NULL,failures=0,retry_at=NULL WHERE account_id=?', [accountId]); });

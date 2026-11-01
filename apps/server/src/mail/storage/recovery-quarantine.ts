@@ -4,6 +4,8 @@ import type {MailDatabase} from './database-interface.js';
 /** Trusted offline restore fence. Evidence remains immutable; old work never gains fresh authority. */
 export function quarantineRestoredMail(db:MailDatabase){
  const at=Date.now();
+ db.run("UPDATE mail_local_rules SET definition_json=json_set(definition_json,'$.enabled',json('false')),revision=revision+1 WHERE deleted=0");
+ db.run("UPDATE mail_rule_arrivals SET state='done' WHERE state='pending'");
  // Restoring mail must not revive all-chat access, including an archive account.
  db.run("INSERT INTO mail_agent_account_policies(account_id,actions_json,revision) SELECT id,?,1 FROM mail_accounts WHERE true ON CONFLICT(account_id) DO UPDATE SET actions_json=excluded.actions_json,revision=mail_agent_account_policies.revision+1",[JSON.stringify(deniedMailAccountActions)]);
  db.run("UPDATE mail_agent_grants SET state='revoked',revision=revision+1");

@@ -1,3 +1,4 @@
+import {MailRulesError,mailRulesReadSchema,mailRuleSaveSchema,mailRuleDeleteSchema} from '../mail/rules-view.js';
 import {MailSnoozeError,mailSnoozeReadSchema,mailSnoozeSetSchema} from '../mail/snooze-view.js';
 import {contactsInputSchema} from '../mail/contacts-view.js';
 import { mailInvitationInputSchema } from '../mail/invitation-view.js';
@@ -40,6 +41,7 @@ function pageInput(ctx: RequestContext, paginated: boolean): MailPageInput {
   return page;
 }
 function safeError(error: unknown): ApiError {
+  if(error instanceof MailRulesError)return new ApiError(error.code==='not_found'?404:409,'mail_rules_'+error.code,'Rule change failed.');
   if(error instanceof MailSnoozeError)return new ApiError(error.code==='not_found'?404:409,'mail_snooze_'+error.code,'Refresh the snooze before changing it.');
   if(error instanceof MailRetentionError)return new ApiError(error.code==='not_found'?404:409,'mail_retention_'+error.code,'Review a fresh local deletion preview; pause Mail and resolve blockers first');
   if(error instanceof OutboxError)return new ApiError(409,'mail_outbox_'+error.code,'Submission needs attention');
@@ -222,6 +224,9 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   query('attachments/extraction/status',extractionRequestSchema,(accountId,input)=>service.extractionStatus(accountId,input));
   query('attachments/extraction/read',extractionReadSchema,(accountId,input)=>service.extractionRead(accountId,input));
   query('attachments/extraction/reset',extractionRequestSchema,(accountId,input)=>service.extractionReset(accountId,input));
+  query('rules/read',mailRulesReadSchema,(accountId)=>service.readRules(accountId));
+  query('rules/save',mailRuleSaveSchema,(accountId,input)=>service.saveRule(accountId,input));
+  query('rules/delete',mailRuleDeleteSchema,(accountId,input)=>service.deleteRule(accountId,input));
   query('messages/snooze/read',mailSnoozeReadSchema,(accountId,input)=>service.readSnooze(accountId,input.locator));
   query('messages/snooze/set',mailSnoozeSetSchema,(accountId,input)=>service.setSnooze(accountId,input));
   query("messages/query", mailMessagePageSchema, (accountId, input) => service.listMessages(accountId, input));
