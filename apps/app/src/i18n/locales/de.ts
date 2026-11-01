@@ -15,6 +15,21 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "mail.invitation": "Einladung",
+  "mail.invitation_updated": "Aktualisierte Einladung",
+  "mail.invitation_cancelled": "Abgesagt",
+  "mail.invitation_loading": "Einladung wird geöffnet…",
+  "mail.invitation_failed": "Einladung konnte nicht geöffnet werden.",
+  "mail.invitation_repeats": "Wiederholt sich",
+  "mail.invitation_occurrence": "Einzeltermin",
+  "mail.invitation_delegated": "Delegiert",
+  "mail.invitation_calendar": "Kalender",
+  "mail.invitation_when": "Wann",
+  "mail.invitation_organizer": "Organisator",
+  "mail.invitation_location": "Ort",
+  "mail.invitation_floating": "Keine Zeitzone",
+  "mail.invitation_details": "Details",
+  "mail.invitation_attendees": "Teilnehmer",
   "composer.integrations_load_failed": "Einige Integrationen konnten nicht geladen werden. Öffnen Sie dieses Menü erneut, um es noch einmal zu versuchen.",
   "catalog.removing": "Wird entfernt…",
   "catalog.examples": "Beispielanfragen",

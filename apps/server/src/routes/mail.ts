@@ -1,4 +1,6 @@
 import {contactsInputSchema} from '../mail/contacts-view.js';
+import { mailInvitationInputSchema } from '../mail/invitation-view.js';
+import { readMailInvitations } from '../mail/invitations/read.js';
 import {qualificationInputSchema} from '../mail/qualification-view.js';
 import {mailMaintenanceReportSchema} from '../mail/maintenance-view.js';
 import {retentionScopeSchema,retentionApplySchema,retentionSettingsSchema,MailRetentionError} from '../mail/retention-view.js';
@@ -219,6 +221,7 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
   query('attachments/extraction/reset',extractionRequestSchema,(accountId,input)=>service.extractionReset(accountId,input));
   query("messages/query", mailMessagePageSchema, (accountId, input) => service.listMessages(accountId, input));
   query("messages/read", z.object({ locator: providerMessageLocatorSchema }).strict(), (accountId, input) => service.readMessage(accountId, input.locator));
+  query("messages/invitations", mailInvitationInputSchema, (accountId, input) => readMailInvitations(service, accountId, input));
   query("messages/parts", z.object({ locator: providerMessageLocatorSchema, page: mailPartPageSchema.default({ limit: 50 }) }).strict(), (accountId, input) => service.listParts(accountId, input.locator, input.page));
   query("messages/content", z.object({ locator: providerMessageLocatorSchema, request: mailContentReadSchema }).strict(), (accountId, input) => service.readContent(accountId, input.locator, input.request));
   query("contacts",contactsInputSchema,(accountId,input)=>service.contacts(accountId,input));

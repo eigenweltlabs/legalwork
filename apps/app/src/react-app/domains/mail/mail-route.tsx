@@ -1,4 +1,5 @@
 import {Alert} from '@/components/ui/alert';
+import { MailInvitations } from './mail-invitations';
 import {PanelEmptyState} from '../../design-system/panel-chrome';
 import {Input} from '@/components/ui/input';
 import {MailConversation,conversationId} from './mail-conversation';
@@ -530,6 +531,7 @@ function MailReader({ active=true, chatBridge, client, item:observedItem, accoun
           {item.contentState !== 'complete' && <p className="mail-content-warning"><CircleAlert size={13}/>Download incomplete</p>}
         </header>
         {validationError&&<p role="status" className="mail-validation-notice">{validationError}</p>}{error && <Alert variant="destructive" role="alert" className="my-3">{error}</Alert>}{busy && <p role="status" className="mail-loading">Opening message…</p>}
+        {parts.filter(part => part.kind === 'attachment' && part.bytesAvailable && (part.contentType?.toLowerCase() === 'text/calendar' || part.filename?.toLowerCase().endsWith('.ics'))).slice(0, 20).map(part => <MailInvitations key={`${item.key}:${item.rawReferenceId}:${part.partId}:${part.referenceId}`} client={client} item={item} part={part} />)}
         <div id={active?"mail-print-content":undefined} className="mail-message-body">
           <pre className="mail-print-copy" style={{display:'none'}}>{(texts.length ? texts.map(body => body.text) : html.map(body => new DOMParser().parseFromString(mailHtml(body.text), 'text/html').body.textContent)).join('\n\n')}</pre>
           {html.length > 0 && <div className="mail-body-options"><Button variant="ghost" size="sm" onClick={() => setPlain(value => !value)}>{plain ? 'Formatted view' : 'Plain text'}</Button></div>}

@@ -5,6 +5,21 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "mail.invitation": "Invitation",
+  "mail.invitation_updated": "Updated invitation",
+  "mail.invitation_cancelled": "Cancelled",
+  "mail.invitation_loading": "Opening invitation…",
+  "mail.invitation_failed": "Could not open invitation.",
+  "mail.invitation_repeats": "Repeats",
+  "mail.invitation_occurrence": "Occurrence",
+  "mail.invitation_delegated": "Delegated",
+  "mail.invitation_calendar": "Calendar",
+  "mail.invitation_when": "When",
+  "mail.invitation_organizer": "Organizer",
+  "mail.invitation_location": "Location",
+  "mail.invitation_floating": "No time zone",
+  "mail.invitation_details": "Details",
+  "mail.invitation_attendees": "Attendees",
   "composer.integrations_load_failed": "Some integrations could not be loaded. Reopen this menu to retry.",
   "catalog.removing": "Removing…",
   "catalog.examples": "Example requests",
