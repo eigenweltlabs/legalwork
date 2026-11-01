@@ -1,3 +1,4 @@
+import {electronDisplayEnvironment} from './fixtures/build-browser';
 import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -54,6 +55,6 @@ await run("document.querySelector('[aria-label^=Sender]').click()");await until(
 await until("window.__draft.senderIdentityId==='self'");
 assert.equal(await run("window.__draft.html.includes('User-edited signature')"),true);
 console.log('SENDER_IDENTITY_PASS');win.destroy();app.quit();}).catch(error=>{console.error(error);app.exit(1)});`);
- const require=createRequire(resolve(app,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{...process.env},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},15000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('SENDER_IDENTITY_PASS');
+ const require=createRequire(resolve(app,'../desktop/package.json'));const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[probe],{env:{...process.env,...electronDisplayEnvironment()},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output+' renderer timeout'));},15000);child.stdout.on('data',value=>output+=value);child.stderr.on('data',value=>output+=value);child.on('error',reject);child.on('close',code=>{clearTimeout(timer);done({code,output});});});if(result.code!==0)throw Error(result.output);expect(result.output).toContain('SENDER_IDENTITY_PASS');
  }finally{await rm(dir,{recursive:true,force:true});}
 },20000);

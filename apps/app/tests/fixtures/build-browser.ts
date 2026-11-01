@@ -16,5 +16,6 @@ export async function buildBrowserFixture(options:{entrypoints:string[];outdir:s
 
 /** Keep Xvfb access when a fixture deliberately strips the parent environment. */
 export function electronDisplayEnvironment(environment:NodeJS.ProcessEnv=process.env,platform:NodeJS.Platform=process.platform):NodeJS.ProcessEnv {
+ if(platform==='darwin'&&environment.GITHUB_ACTIONS!=='true')throw Error('Local macOS Mail browser tests are disabled. Use hosted CI.');
  return platform==='linux'?{DISPLAY:environment.DISPLAY,XAUTHORITY:environment.XAUTHORITY}:{};
 }
