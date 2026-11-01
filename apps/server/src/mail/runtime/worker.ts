@@ -1,3 +1,6 @@
+import {MailRulesStore} from '../storage/rules.js';
+import {MailRulesRunner} from './rules-runner.js';
+import {MailRulesError} from '../rules-view.js';
 import {MailSnoozeStore} from '../storage/snoozes.js';
 import {MailSnoozeError} from '../snooze-view.js';
 import {MailContacts} from './contacts.js';
@@ -122,6 +125,7 @@ const providerSettings = new Map<string, MailOAuthSettings>();
 const requests = new Set<Promise<void>>();
 const locked = new Error("mail_archive_locked");
 const unsupported = new Error("mail_provider_unsupported");
+let rulesRunner:MailRulesRunner|undefined;
 let lifecycleSuspended=false;
 let lifecycleChange:Promise<void>=Promise.resolve();
 let phase: "waiting" | "opening" | "ready" | "closing" = "waiting";
@@ -164,6 +168,7 @@ async function finish(): Promise<void> {
   process.stdout.end(() => { clearTimeout(exitTimer); process.exit(exitCode); });
 }
 function shutdown(code = 0): void {
+  rulesRunner?.suspend();
   searchIndexer?.close();
   exitCode = Math.max(exitCode, code);
   if (phase === "closing") return;
@@ -249,6 +254,7 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     if(!lifecycleSuspended)draftSyncRunner.start();else await draftSyncRunner.suspend();
     qualification=new MailQualification({database,ownerId:value.ownerId,access});
     outboxStore=new OutboxStore(database,value.ownerId);outboxRunner=new OutboxRunner({database,ownerId:value.ownerId,access});outboxRunner.recover();if(!lifecycleSuspended)outboxRunner.resume();else await outboxRunner.suspend();
+    rulesRunner=new MailRulesRunner(database,value.ownerId,id=>syncLifecycle?.engine(id).wake(id),()=>!lifecycleSuspended&&phase==='ready');if(!lifecycleSuspended)rulesRunner.resume();
     searchIndexer?.start();extractionRunner?.start();
     write({ kind: "ready", protocol: 1, runtime: "node", nodeVersion: process.versions.node });
   } catch {
@@ -282,6 +288,9 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     let result: WorkerResult | undefined;
     if(['mail.messages.list','mail.messages.read','mail.badge.count','mail.notifications.poll','mail.local.events','mail.snooze.read','mail.snooze.set'].includes(command.operation))new MailSnoozeStore(database,ownerId).refresh();
     switch (command.operation) {
+      case 'mail.rules.read':result={rules:new MailRulesStore(database,ownerId).read(command.accountId)};break;
+      case 'mail.rules.save':result={rules:new MailRulesStore(database,ownerId).save(command.accountId,command.input)};break;
+      case 'mail.rules.delete':result={rules:new MailRulesStore(database,ownerId).delete(command.accountId,command.input)};break;
       case 'mail.snooze.read':result={snooze:new MailSnoozeStore(database,ownerId).read(command.accountId,command.input.locator)};break;
       case 'mail.snooze.set':result={snooze:new MailSnoozeStore(database,ownerId).set(command.accountId,command.input)};break;
       case "mail.agent.control":{
@@ -319,7 +328,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.lifecycle.set':{
         lifecycleSuspended=command.input.suspended;
         const suspended=command.input.suspended;
-        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){qualification?.cancel();await Promise.all([contacts?.suspend(),syncLifecycle?.suspendAll(),draftSyncRunner?.suspend(),outboxRunner?.suspend()]);}else{contacts?.resume();syncLifecycle?.resumeAll();draftSyncRunner?.resume();outboxRunner?.resume();}});
+        lifecycleChange=lifecycleChange.catch(()=>{}).then(async()=>{if(phase==='closing')return;if(suspended){rulesRunner?.suspend();qualification?.cancel();await Promise.all([contacts?.suspend(),syncLifecycle?.suspendAll(),draftSyncRunner?.suspend(),outboxRunner?.suspend()]);}else{contacts?.resume();syncLifecycle?.resumeAll();draftSyncRunner?.resume();outboxRunner?.resume();rulesRunner?.resume();}});
         await lifecycleChange;result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
       }
       case 'mail.smtp.status':result={smtp:new SmtpCustody(database,ownerId).status(command.accountId)};break;
@@ -547,6 +556,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     if (!write({ kind: "response", id: message.id, ok: true, result })) write({ kind: "response", id: message.id, ok: false, code: "operation_failed" });
   } catch (error) {
     if(error instanceof MailRetentionError&&!isClosing()){write({kind:'response',id:message.id,ok:true,result:{retentionFailure:error.code}});return;}
+    if(error instanceof MailRulesError&&!isClosing()&&command.operation.startsWith('mail.rules.')){write({kind:'response',id:message.id,ok:true,result:{rulesFailure:error.code}});return;}
     if(error instanceof MailSnoozeError&&!isClosing()&&command.operation.startsWith('mail.snooze.')){write({kind:'response',id:message.id,ok:true,result:{snoozeFailure:error.code}});return;}
     if(error instanceof OutboxError&&!isClosing()&&(command.operation.startsWith('mail.outbox.')||command.operation.startsWith('mail.smtp.'))){write({kind:'response',id:message.id,ok:true,result:{outboxFailure:error.code}});return;}
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.

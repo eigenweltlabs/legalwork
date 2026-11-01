@@ -1,6 +1,7 @@
 import {MAIL_CONTACTS_SCHEMA_SQL} from './contacts-schema.js';
 import { MAIL_INVITATION_REPLIES_SQL } from './invitation-replies-schema.js';
 import { MAIL_SCHEDULING_SQL } from './scheduling-schema.js';
+import { MAIL_RULES_SQL } from './rules-schema.js';
 import { MAIL_SNOOZE_SQL } from './snooze-schema.js';
 import {MAIL_INTEGRATIONS_SCHEMA_SQL,MAIL_INTEGRATION_ADOPTION_SQL} from './integrations.js';
 import {MAIL_AGENT_SCHEMA_SQL} from './agent-schema.js';
@@ -24,7 +25,7 @@ import { MAIL_LOCAL_SCHEMA_SQL } from "./local-schema.js";
 import { GRAPH_SCHEMA_SQL } from "./graph-state.js";
 import type { MailDatabase } from "./database-interface.js";
 
-export const MAIL_SCHEMA_VERSION = 36;
+export const MAIL_SCHEMA_VERSION = 37;
 
 /** Dedicated mail database only. Every DDL/version write shares one transaction. */
 export function migrateMailSchema(database: MailDatabase): void {
@@ -313,6 +314,7 @@ export function migrateMailSchema(database: MailDatabase): void {
     if(version<34)database.exec(MAIL_INVITATION_REPLIES_SQL);
     if(version<35)database.exec(MAIL_SCHEDULING_SQL);
     if(version<36)database.exec(MAIL_SNOOZE_SQL);
+    if(version<37)database.exec(MAIL_RULES_SQL);
     database.run("INSERT INTO mail_schema_version(singleton,version) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version", [MAIL_SCHEMA_VERSION]);
   }); } finally { if(rebuild)database.exec("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON"); }
   if(database.get("PRAGMA foreign_keys")?.foreign_keys!==1)throw new Error("Mail foreign keys were not restored");

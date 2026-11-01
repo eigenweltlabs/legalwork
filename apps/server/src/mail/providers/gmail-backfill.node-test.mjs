@@ -1,3 +1,5 @@
+import {MailRulesStore} from '../storage/rules.js';
+import {randomUUID} from 'node:crypto';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
@@ -65,8 +67,10 @@ test('raw-handler acquisition timeout fences the next queued job and retains ori
  f.db.run("UPDATE mail_sync_jobs SET available_at=0 WHERE state='retry'");e.start('a');await until(()=>e.status('a').state==='complete');
 }));
 test('history pages durably add mail, apply unread deltas and retain remotely deleted originals',()=>fixture(async f=>{
+ new MailRulesStore(f.db,'owner').save('a',{id:randomUUID(),expected:null,definition:{name:'Live arrivals',enabled:true,order:1,sender:'',subject:'invoice',action:{kind:'read'}}});
  const requests=[];const e=f.make({transport:()=>({...f.transport,async listHistory(i){requests.push(i);return i.pageToken?{historyId:'30',nextPageToken:null,records:[{id:'25',changes:[{kind:'labelsRemoved',messageId:'recent',threadId:'thread',labelIds:['UNREAD']},{kind:'deleted',messageId:'middle',threadId:'thread',labelIds:[]}]}]}:{historyId:'30',nextPageToken:'page2',records:[{id:'20',changes:[{kind:'added',messageId:'new',threadId:'thread',labelIds:[]},{kind:'labelsAdded',messageId:'recent',threadId:'thread',labelIds:['UNREAD']}]}]};}})});
  e.start('a');await until(()=>e.status('a').state==='complete');assert.equal(requests.length,2);assert.equal(requests[0].startHistoryId,'1');assert.equal(requests[1].startHistoryId,'1');assert.equal(requests[1].pageToken,'page2');assert.equal(f.db.get('SELECT history_id FROM mail_gmail_runs').history_id,'30');assert.equal(e.status('a').removed,1);assert.equal(e.status('a').retained,1);assert.equal(e.status('a').downloaded,3);assert.equal(f.db.get("SELECT count(*) AS n FROM mail_memberships WHERE folder_id='UNREAD'").n,0);assert.equal(f.db.get("SELECT count(*) AS n FROM mail_content_manifests WHERE kind='raw'").n,4);assert.equal(f.db.get('SELECT internal_date FROM mail_gmail_metadata WHERE account_id=? AND message_key=?',['a',JSON.stringify(['gmail','new'])]).internal_date,1000);assert.equal(f.db.get('SELECT count(*) AS n FROM mail_memberships WHERE account_id=? AND message_key=? AND folder_id=?',['a',JSON.stringify(['gmail','new']),'INBOX']).n,1);
+ assert.deepEqual(f.db.all('SELECT message_key FROM mail_rule_arrivals').map(row=>row.message_key),[JSON.stringify(['gmail','new'])]);
 }));
 test('pause/reopen between history pages retains original anchor and continuation',()=>fixture(async f=>{
  const gate=defer(),entered=defer();let resumed=false;const requests=[];

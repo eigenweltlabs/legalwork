@@ -1,3 +1,4 @@
+import { captureMailRuleArrival } from '../storage/rules.js';
 import { setTimeout as wait } from 'node:timers/promises';
 import { performance } from "node:perf_hooks";
 import { MailHttpActionRunner } from './http-action-runner.js';
@@ -356,6 +357,8 @@ export class GmailBackfill {
       this.assert(session, access.version);
       this.journal.commitPage({ ...scope, expectedCursor: status.checkpoint.cursor, expectedRevision: status.checkpoint.revision, nextCursor: page.nextPageToken, discoveryComplete: false, jobs }, writer => {
         this.assert(session, access.version);
+        for (const record of page.records) for (const change of record.changes) if (change.kind === 'added')
+          captureMailRuleArrival(this.options.database, this.options.ownerId, scope.accountId, { provider: 'gmail', messageId: change.messageId });
         for (const record of page.records) for (const change of record.changes) {
           if (change.kind === "changed") continue;
           const locator: ProviderMessageLocator = { provider: "gmail", messageId: change.messageId };

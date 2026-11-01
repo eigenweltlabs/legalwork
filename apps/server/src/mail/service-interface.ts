@@ -1,3 +1,4 @@
+import type {MailRules,MailRuleSave,MailRuleDelete} from './rules-view.js';
 import type {MailSnooze,MailSnoozeSet} from './snooze-view.js';
 import {type ContactsInput,type ContactsResult} from './contacts-view.js';
 import type {QualificationInput,QualificationReport} from './qualification-view.js';
@@ -50,6 +51,9 @@ export interface MailService {
   retention?(command:RetentionCommand):Promise<RetentionPreview|{removedDays:number|null}|{accountId:string;removedAccount:boolean;messages:number;references:number;bytes:number;protectedReferences:number}>;
   outbox(accountId:string):Promise<OutboxItem[]>;
   queueOutbox(accountId:string,input:OutboxSubmission):Promise<OutboxItem>;
+  readRules(accountId:string):Promise<MailRules>;
+  saveRule(accountId:string,input:MailRuleSave):Promise<MailRules>;
+  deleteRule(accountId:string,input:MailRuleDelete):Promise<MailRules>;
   readSnooze(accountId:string,locator:ProviderMessageLocator):Promise<MailSnooze>;
   setSnooze(accountId:string,input:MailSnoozeSet):Promise<MailSnooze>;
   outboxRead(accountId:string,input:{actionId:string}):Promise<OutboxDetail>;

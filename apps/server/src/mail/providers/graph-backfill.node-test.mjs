@@ -1,3 +1,5 @@
+import {MailRulesStore} from '../storage/rules.js';
+import {randomUUID} from 'node:crypto';
 import {removeLaterMailSchema} from '../testing/legacy-schema.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,6 +36,18 @@ function fakeTransport(log=[]){return {
  async *messageBytes(id){log.push(['raw',id]);yield mime;},
  async *attachmentBytes(id){log.push(['attachment',id]);yield Buffer.from([1,2,3]);}
 };}
+
+test('local rules capture only new immutable IDs from established delta streams, including no baseline or removed references',()=>fixture(async f=>{
+ new MailRulesStore(f.db,'owner').save('a',{id:randomUUID(),expected:null,definition:{name:'Live',enabled:true,order:1,sender:'',subject:'invoice',action:{kind:'read'}}});
+ let round=0;const t=fakeTransport();
+ const e=f.make({transport:()=>({...t,async messageDelta(folder){return {items:folder==='archive'?(round?[{id:'one'},{id:'new-arrival'},{id:'removed-only','@removed':{reason:'deleted'}}]:[{id:'baseline-only'}]):[],nextLink:null,deltaLink:'synthetic-'+folder};},async getMessage(id){return metadata(id,id==='two'?'nested':'archive');}})});
+ e.start('a');await until(()=>e.status('a').state==='complete');assert.equal(f.db.get('SELECT count(*) AS n FROM mail_rule_arrivals').n,0);
+ e.pause('a');await delay(20);round=1;f.db.run('UPDATE mail_graph_poll SET poll_at=0');e.start('a');
+ await until(()=>e.status('a').state==='complete'&&f.db.get('SELECT count(*) AS n FROM mail_rule_arrivals').n===1);
+ assert.deepEqual(f.db.all('SELECT message_key FROM mail_rule_arrivals').map(row=>row.message_key),[JSON.stringify(['graph','new-arrival'])]);
+ e.pause('a');await delay(20);f.db.run("UPDATE mail_graph_delta SET next_link=NULL,delta_link=NULL,baseline=1,phase='pending'");f.db.run('UPDATE mail_graph_poll SET poll_at=0');e.start('a');await until(()=>e.status('a').state==='complete');
+ assert.equal(f.db.get('SELECT count(*) AS n FROM mail_rule_arrivals').n,1);
+}));
 async function fixture(body){const dir=await mkdtemp(join(tmpdir(),'graph-encrypted-')),path=join(dir,'mail.sqlite'),key=randomBytes(32);let db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);const engines=[];const repo=new MailRepository(db,'owner');repo.createAccount({id:'a',provider:'graph',displayName:'Synthetic'});new MailRepository(db,'other').createAccount({id:'foreign',provider:'graph',displayName:'Foreign'});const credentials=()=>new MailCredentialRepository(db,'owner');credentials().connect('a',binding,null,{accessToken:'synthetic-token',expiresAt:Date.now()+3600000,grantedScopes:['Mail.ReadWrite'],refreshToken:{action:'clear'}});
  const f={path,key,dir,get db(){return db;},credentials,make(options={}){const e=new GraphBackfill({database:db,ownerId:'owner',access:{acquire:async()=>credentials().readAccess('a',binding)},transport:()=>fakeTransport(),...options});engines.push(e);return e;},async reopen(){for(const e of engines)await e.close();db.close();db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);}};
  try{await body(f);}finally{for(const e of engines)await e.close();db.close();key.fill(0);await rm(dir,{recursive:true,force:true});}}

@@ -26,6 +26,8 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
+  mail_local_rules: ['account_id','id','generation','revision','definition_json','credential_generation','activated_at','after_arrival','deleted'],
+  mail_rule_arrivals: ['id','account_id','message_key','credential_generation','observed_at','available_at','state','rule_name','action','outcome','action_id'],
   mail_snoozes: ['account_id','scope_key','anchor_key','thread_id','generation','revision','until_at','time_zone','woke_at'],
   mail_snooze_members: ['account_id','message_key','scope_key'],
   mail_outbox_schedules: ['account_id','action_id','scheduled_at','time_zone'],
@@ -98,7 +100,7 @@ const requiredColumns: Record<string, string[]> = {
   mail_blob_publications: ["account_id", "ref_id", "object_id"],
   mail_imap_credentials:["account_id","generation","revision","state","archive_locked","settings_json","password"],
   mail_imap_runs:["account_id","generation","revision","state","retry_at","error","failures","discovered","capabilities_json","poll_at","epoch_resets"],
-  mail_imap_folders:["account_id","path","delimiter","special_use","selectable","selected","uid_validity","uid_next","after_uid","uid_span","done","generation","highest_modseq","scan_modseq"],
+  mail_imap_folders:["account_id","path","delimiter","special_use","selectable","selected","uid_validity","uid_next","after_uid","uid_span","done","generation","highest_modseq","scan_modseq","rules_uid_floor","rules_uid_validity"],
   mail_imap_action_results:["account_id","id","result"],
   mail_imap_messages:["account_id","message_key","internal_date","flags_json","modseq","seen_generation"],
   mail_account_credentials: ["account_id", "provider", "client_id", "authority", "provider_subject", "generation", "revision", "state", "archive_locked", "access_token", "refresh_token", "expires_at", "granted_scopes_json"],
