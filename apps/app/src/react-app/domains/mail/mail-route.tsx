@@ -25,7 +25,7 @@ import { mailDocxText } from "../session/artifacts/mail-docx-source";
 import { mailPreviewType, openMailPreview } from "../session/artifacts/mail-preview-source";
 import {MailSearch} from './mail-search';
 /** @jsxImportSource react */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SendHorizontal, Flag, Inbox, Archive, ChevronLeft, ChevronRight, Folder, Mail, Search, RefreshCw, Settings2, FolderPlus, Paperclip, Download, FileText, Printer, MessagesSquare, X, PanelLeft, CircleAlert, Check, Pause, Play, SquarePen, Reply, ReplyAll, Forward, Clock } from 'lucide-react';
 import './mail-reader.css';
 import { Button } from '@/components/ui/button';
@@ -291,6 +291,15 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
     const refreshLabel = waitingAccounts.length ? 'Waiting to retry · Retry sync' : downloading ? 'Downloading mail · Refresh mail' : 'Refresh mail';
     const actionTargets=(searching&&(searchTargets.length||searchPending)?searchTargets:checked.size?items.filter(item=>checked.has(mailItemId(item))):selected?[selected]:[]).map(item=>optimisticMail(item,actionEntries));
     const composeReturn=useRef<HTMLElement|null>(null),mailRoot=useRef<HTMLElement|null>(null);
+    const pendingComposeFocus=useRef<{origin:'drafts'|'outbox'|null;target:HTMLElement|null}|null>(null);
+    useLayoutEffect(()=>{
+      const pending=pendingComposeFocus.current;if(!pending||compose)return;
+      if(locked){pendingComposeFocus.current=null;return;}
+      if(pending.origin==='drafts'&&!draftsOpen||pending.origin==='outbox'&&!outboxOpen)return;
+      const root=mailRoot.current;if(!root)return;
+      const target=pending.target?.isConnected?pending.target:root.querySelector<HTMLElement>(pending.origin?`[aria-label="Filter ${pending.origin}"]`:'.mail-message-row[aria-pressed="true"],.mail-message-row')??root;
+      pendingComposeFocus.current=null;target.focus();
+    },[compose,draftsOpen,outboxOpen,client,locked]);
     const currentTargets=useRef(actionTargets);currentTargets.current=actionTargets;
     const matchesReaderTarget=(item:MailMessageView)=>currentTargets.current.length===1&&currentTargets.current[0].accountId===item.accountId&&JSON.stringify(currentTargets.current[0].locator)===JSON.stringify(item.locator);
     useEffect(()=>{
@@ -308,8 +317,8 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
       const observer=new MutationObserver(attempt);observer.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['disabled','data-mail-identity']});attempt();return()=>observer.disconnect();
     },[readerAction,selected,client,locked,checked,searchTargets,compose,filingOpen,draftsOpen,outboxOpen]);
     const renderGeneration=openGeneration.current;
-    const closeCompose=()=>{const origin=composeOrigin.current;setCompose(undefined);if(origin==='drafts')setDraftsOpen(true);if(origin==='outbox')setOutboxOpen(true);requestAnimationFrame(()=>{const target=composeReturn.current;if(target?.isConnected)target.focus();else mailRoot.current?.querySelector<HTMLElement>(origin?`[aria-label="Filter ${origin}"]`:'.mail-message-row[aria-pressed="true"],.mail-message-row')?.focus();});};
-    const openCompose=(value:ComposeSelection)=>{if(!compose)composeOrigin.current=draftsOpen?'drafts':outboxOpen?'outbox':null;openGeneration.current++;setReaderAction(undefined);if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
+    const closeCompose=()=>{const origin=composeOrigin.current;pendingComposeFocus.current={origin,target:composeReturn.current};setCompose(undefined);if(origin==='drafts')setDraftsOpen(true);if(origin==='outbox')setOutboxOpen(true);};
+    const openCompose=(value:ComposeSelection)=>{pendingComposeFocus.current=null;if(!compose)composeOrigin.current=draftsOpen?'drafts':outboxOpen?'outbox':null;openGeneration.current++;setReaderAction(undefined);if(!compose&&document.activeElement instanceof HTMLElement)composeReturn.current=document.activeElement;setCompose(value);setDraftsOpen(false);setOutboxOpen(false);};
     const workView=draftsOpen||outboxOpen||!!compose&&composeOrigin.current!==null;
     const reader = filingOpen&&client ? (matterFiling?<MailFilingPanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)}/>:<MailStorageSavePanel client={client} accountIds={account?[account]:accounts.map(value=>value.id)} message={actionTargets.length===1?actionTargets[0]:selected} onClose={()=>setFilingOpen(false)} onMatter={()=>setMatterFiling(true)}/>) : compose&&client ? <MailComposer returnTo={composeOrigin.current??undefined} key={compose.account+compose.id} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} initial={compose} onClose={closeCompose} onSwitch={openCompose} onQueued={()=>{setCompose(undefined);setOutboxOpen(true);}}/> : outboxOpen&&client ? <MailOutbox onOpen={openCompose} client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onClose={()=>setOutboxOpen(false)}/> : draftsOpen&&client ? <MailDrafts client={client} accounts={accounts.filter(value=>value.provider!=='archive')} onOpen={openCompose} onClose={()=>setDraftsOpen(false)}/> : selected && client ? <MailConversation grouped={!searching} key={conversationId(selected)+String(searching)} client={client} item={selected} onOpen={openMessage} onInitialOpen={markOpened} entries={actionEntries} render={(message,active,onRemoved)=><MailReader onRemoved={onRemoved} client={client} item={message} active={active} chatBridge={chatBridge}
       onReady={element=>focusOpenedReader(element,message,active)} onCompose={value=>{if(openGeneration.current===renderGeneration&&(!readerAction||matchesReaderTarget(readerAction.item)))openCompose(value);}} account={accounts.find(value=>value.id===message.accountId)?.displayName??message.accountId}
