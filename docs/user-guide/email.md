@@ -46,6 +46,8 @@ Use **New mail**, **Reply**, **Reply all** or **Forward** to compose. The compos
 
 When Email has focus, press **/** to focus search. Windows also supports **Ctrl+E** and **F3**; macOS supports **Command+Option+F**. From Drafts or Outbox, these shortcuts return to the mailbox and focus search. They do not interrupt typing in a message or another text field. Open **Mail keyboard shortcuts** in the toolbar for the other commands.
 
+Enable **Desktop notifications** under **Settings > Mail accounts > Notifications** to receive alerts. Selecting an alert opens its message in Email. Use **Message preview** to choose whether alerts show no message details, the sender, or the sender and subject.
+
 Under **Mail accounts > Data & access**, review the per-account agent policy. Connecting an account does not approve sending or deleting mail for the assistant. The same section contains local retention, backup, restore and archive import/export controls. Disconnecting and deleting local data are separate actions; review each dialog's scope.
 
 Open **Settings > Integrations > Communication**. Search for **Gmail** or **Outlook Email** and press its **+** button to connect. Select an installed account and choose **Manage** to open its settings. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
