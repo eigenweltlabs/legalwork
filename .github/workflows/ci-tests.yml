@@ -275,6 +275,7 @@ jobs:
     env:
       LEGALWORK_TEST_OPENCODE_BIN: ''
       LEGALWORK_TEST_OPENCODE_CACHE: ''
+      NODE_OPTIONS: --max-old-space-size=6144
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
@@ -312,7 +313,11 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
+          if ! command -v xvfb-run >/dev/null || ! command -v xauth >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends xvfb xauth
+          fi
           sandbox_path="$(pnpm --filter @legalwork/desktop exec node -p "require('node:path').join(require('node:path').dirname(require('electron')), 'chrome-sandbox')")"
           test -f "$sandbox_path"
           sudo chown root:root "$sandbox_path"
