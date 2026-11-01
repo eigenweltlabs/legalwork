@@ -11,6 +11,8 @@ export type ConnectorRequestOptions = {
   headers?: Record<string, string>; onResponseHeaders?: (headers: Headers) => void;
   send?: boolean; organize?: boolean; empty?: boolean; incomplete?: boolean;
   signal?: AbortSignal;
+  /** Internal provider adapters interpret status codes such as history expiry. */
+  providerStatus?: boolean;
 };
 export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions) => Promise<unknown>) & { apiOrigin?: string };
 export type StreamingConnectorRequest = ConnectorRequest & {
@@ -19,7 +21,10 @@ export type StreamingConnectorRequest = ConnectorRequest & {
 };
 
 /** Only provider adapters call this. Agents cannot supply arbitrary URLs or headers. */
-export async function createConnectorRequest(config: ServerConfig, id: string, requestedConnectionId?: string): Promise<StreamingConnectorRequest> {
+export async function createConnectorRequest(config: ServerConfig, id: string, requestedConnectionId?: string, options: {
+  /** Host-owned identity fence, including credentials rotated by the broker. */
+  verifyAccess?: (accessToken: string) => Promise<boolean>;
+} = {}): Promise<StreamingConnectorRequest> {
   const definition = connectorDefinition(id);
   const saved = await savedConnectorConnections(config, id);
   requireSingleConnectorAccount(saved);
@@ -49,6 +54,7 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
   return createAuthorizedConnectorRequest(config, id, {
     apiOrigin, token: (force) => connectorAccessToken(config, id, connection.id, force), assertCurrent,
     assertSend: () => requireLocalOAuthSendAccess(config, id, connection.id),
+    verifyAccess: options.verifyAccess,
   });
 }
 
@@ -58,6 +64,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
   token: (forceRefresh: boolean) => Promise<string>;
   assertCurrent: (writing: boolean, organize?: boolean) => Promise<void>;
   assertSend?: () => Promise<void>;
+  verifyAccess?: (accessToken: string) => Promise<boolean>;
   apiOrigin?: string;
 }): Promise<StreamingConnectorRequest> {
   const definition = connectorDefinition(id);
@@ -84,6 +91,13 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
           await authorization.assertSend();
         }
       }
+      // An expired credential has not dispatched the provider operation. The
+      // existing single refresh path retries verification before sending it.
+      if (authorization.verifyAccess && !await authorization.verifyAccess(accessToken)) return new Response(null, { status: 401 });
+      if (authorization.verifyAccess) {
+        await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
+        if (options.send) await authorization.assertSend?.();
+      }
       try {
         const timeout = AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000);
         return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
@@ -99,7 +113,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
       accessToken = await refresh;
       response = await request();
     }
-    if (!response.ok && !(options.incomplete && response.status === 308)) {
+    if (!options.providerStatus && !response.ok && !(options.incomplete && response.status === 308)) {
       await response.body?.cancel();
       if (response.status === 401) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
       if (response.status === 403) throw new ApiError(403, "connector_permission_required", `This ${definition.name} account has not granted the permissions required for this action. Reconnect using an OAuth app with the required permissions. Shared Nango apps have fixed permissions; use your own OAuth app if necessary.`);

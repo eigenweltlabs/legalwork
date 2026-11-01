@@ -192,6 +192,7 @@ import { isInternalSession } from "./native-shared-values.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { prepareConnectorStorage } from "./connectors/store.js";
 import { registerMailRoutes } from "./routes/mail.js";
+import { MailIntegrationProxy } from "./mail/integration-proxy.js";
 import type { MailService } from "./mail/service-interface.js";
 import {
   applyGlobalToolPermissions,
@@ -976,6 +977,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
   registerMailRoutes(routes, config.host, runtimeOptions.mail);
+  const mailIntegrations = runtimeOptions.mail?.configureIntegrations && (config.host === "127.0.0.1" || config.host === "::1") ? new MailIntegrationProxy(config) : undefined;
+  if (mailIntegrations) addRoute(routes, "POST", "/mail/internal/integrations/request", "none", ctx => mailIntegrations.handle(ctx.request));
   const mailStorageSaves=registerMailStorageSaveRoutes({routes,host:config.host,mail:runtimeOptions.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
     const origin=`http://${config.host==='::1'?'[::1]':config.host}:${config.port}`;
     const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:input?.signal?AbortSignal.any([input.signal,AbortSignal.timeout(900000)]):AbortSignal.timeout(900000)};
@@ -1273,6 +1276,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   });
 
   config.port = server.port;
+  if (mailIntegrations) runtimeOptions.mail?.configureIntegrations?.(() => mailIntegrations.snapshot());
+  const mailIntegrationRefresh = mailIntegrations ? setInterval(() => { void runtimeOptions.mail?.refreshIntegrations?.().catch(() => {}); }, 15_000) : undefined;
+  mailIntegrationRefresh?.unref?.();
 
   if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();
 
@@ -1342,6 +1348,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       await wikiStore.close();
       benchmarkRunner.dispose();
       await mailStorageSaves?.close();
+      clearInterval(mailIntegrationRefresh);
+      mailIntegrations?.close();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);

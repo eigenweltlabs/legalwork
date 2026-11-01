@@ -15,6 +15,8 @@ import {SmtpCustody} from '../storage/smtp-custody.js';
 import {OutboxRunner} from './outbox-runner.js';
 import {OutboxError} from '../outbox-view.js';
 import {SenderIdentityRepository} from '../storage/sender-identities.js';
+import { MailIntegrationAccounts } from "../storage/integrations.js";
+import { configureMailIntegrationFetch } from "../providers/integration-fetch.js";
 import {discoverMailIdentity} from '../providers/identity.js';
 import {GmailReadTransport} from '../providers/gmail.js';
 import { MailSyncLifecycle } from "./sync-lifecycle.js";
@@ -78,6 +80,7 @@ let access: MailAccessCoordinator | undefined;
 let closingSync: Promise<void> | undefined;
 let imapConnectId: string | undefined;
 const imapRequests = new Map<string, number>();
+let integrationsReady = false;
 const providerSettings = new Map<string, MailOAuthSettings>();
 const requests = new Set<Promise<void>>();
 const locked = new Error("mail_archive_locked");
@@ -177,13 +180,14 @@ async function initialize(value: WorkerInitialization): Promise<void> {
     searchIndexer = new MailSearchIndexer(database,value.ownerId);
     extraction=new MailExtractionStore(database,value.ownerId);extractionRunner=new MailExtractionRunner(database,value.ownerId);
     credentials = new MailCredentialRepository(database, value.ownerId);
+    if (value.integrations) { integrationsReady = true; configureMailIntegrationFetch(value.integrations.configuration); new MailIntegrationAccounts(database, value.ownerId).reconcile(value.integrations); }
     controller = new MailConnectionController({ database, ownerId: value.ownerId, onConnected: async (accountId, settings) => {
       const binding = credentials!.getBinding(accountId);
       providerSettings.set(`${binding.provider}:${binding.clientId}:${binding.authority}`, settings);
       await syncLifecycle!.connected(accountId);
       for(const child of mailboxes?.children(accountId)??[])if(credentials!.status(child).state==='connected')await syncLifecycle!.connected(child);
     } });
-    access = new MailAccessCoordinator({ database, ownerId: value.ownerId, loadProviderSettings: async binding => {
+    access = new MailAccessCoordinator({ database, ownerId: value.ownerId, integrationReady: () => integrationsReady, loadProviderSettings: async binding => {
       const selected = providerSettings.get(`${binding.provider}:${binding.clientId}:${binding.authority}`);
       if (!selected) throw new Error("mail_configuration_unavailable");
       return selected;
@@ -300,6 +304,13 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if(provider==='imap'||provider==='graph'&&mailboxes?.read(command.accountId)){result={senders:senders.list(command.accountId)};break;}
         if(!access)throw locked;
         senders.invalidate(command.accountId);
+        const integrated = new MailIntegrationAccounts(database, ownerId).get(command.accountId);
+        if (integrated) {
+          const granted = await access.acquire(command.accountId);
+          const found = provider === 'gmail' ? await new GmailReadTransport({accessToken: granted.accessToken}).listSendAs() : [{address: integrated.email, displayName: integrated.displayName, primary:true, default:true}];
+          if (!found.some(value => value.primary && value.address.toLowerCase() === integrated.email.toLowerCase())) throw locked;
+          result = {senders: senders.replace(command.accountId, granted.version.generation, found)}; break;
+        }
         const binding=credentials.getBinding(command.accountId);
         if(command.settings){if(command.settings.provider!==provider||binding.clientId!==command.settings.clientId||binding.authority!==(command.settings.provider==='gmail'?'https://accounts.google.com':`https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`))throw unsupported;providerSettings.set(`${binding.provider}:${binding.clientId}:${binding.authority}`,command.settings);}
         const granted=await access.acquire(command.accountId);
@@ -369,11 +380,23 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         finally {imapConnectId=undefined;}
         break;
       }
+      case "mail.integrations.reconcile": {
+        configureMailIntegrationFetch(command.snapshot.configuration);
+        const changes = new MailIntegrationAccounts(database, ownerId).reconcile(command.snapshot);
+        integrationsReady = true;
+        for (const id of [...changes.disconnected, ...changes.changed]) {
+          contacts?.cancel(id); qualification?.cancel(id);
+          await syncLifecycle.suspend(id);
+        }
+        for (const id of changes.changed) syncLifecycle.resume(id);
+        result = { updated: true }; break;
+      }
       case "mail.connection.begin":
         result = { connectionStarted: await controller.begin(command.settings, { reconnectAccountId: command.reconnectAccountId }) }; break;
       case "mail.connection.poll": result = { connection: controller.poll(command.connectionId) }; break;
       case "mail.connection.cancel": await controller.cancel(command.connectionId); result = { cancelled: true }; break;
       case "mail.account.disconnect": {
+        if (new MailIntegrationAccounts(database, ownerId).get(command.accountId)) throw unsupported;
         qualification?.cancel(command.accountId);contacts?.cancel(command.accountId);
         const current = credentials.status(command.accountId); // Owner gate before provider lookup or cancellation.
         extractionRunner?.cancelAccount(command.accountId);
@@ -389,7 +412,8 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       }
       case "mail.accounts.list": {
         const page = repository.listAccountsPage({ limit: command.limit, after: command.after });
-        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name, ...(account.provider === 'graph' && mailboxes?.identity(account.id) ? {identity:mailboxes.identity(account.id)} : {}), ...(account.provider === "graph" && credentials!.status(account.id).version ? {personal: credentials!.getBinding(account.id).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) })), page.hasMore);
+        const integrations = new MailIntegrationAccounts(database, ownerId);
+        result = pageResult(message.id, page.items.map((account) => ({ id: account.id, provider: account.provider, displayName: account.display_name, ...(integrations.get(account.id) ? { integration: account.provider === "gmail" ? "gmail" : "outlook" } : {}), ...(account.provider === 'graph' && mailboxes?.identity(account.id) ? {identity:mailboxes.identity(account.id)} : {}), ...(account.provider === "graph" && credentials!.status(account.id).version ? {personal: credentials!.getBinding(account.id).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) })), page.hasMore);
         break;
       }
       case "mail.folders.list": {
@@ -412,12 +436,12 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
           result={sync:{accountId:command.accountId,provider:'archive',state:job?.state==='running'?'syncing':job?.state==='paused'||job?.state==='interrupted'?'paused':job?.state==='attention'?'attention':'complete',enumerated:count,downloaded:count,projected:Math.max(0,count-failed),removed:0,retained:count,failed,pending:0,nextRetryAt:null,error:failed?'content_incomplete':null}};break;
         }
         if (provider !== "gmail" && provider !== "graph" && provider !== "imap") throw unsupported;
-        if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, connected: credentialStatus.state === "connected", ...(provider === "graph" && credentialStatus.version ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
+        if (command.operation === "mail.sync.provider") { result = { syncProvider: provider, integrated: !!new MailIntegrationAccounts(database, ownerId).get(command.accountId), connected: credentialStatus.state === "connected", ...(provider === "graph" && credentialStatus.version ? {personal: credentials.getBinding(command.accountId).authority === "https://login.microsoftonline.com/consumers/v2.0"} : {}) }; break; }
         if (credentialStatus.state === 'disconnected') throw locked;
         if(command.operation==='mail.sync.stop')qualification?.cancel(command.accountId);
         const engine = syncLifecycle.engine(command.accountId);
         if(lifecycleSuspended&&command.operation==='mail.sync.start'){result={sync:engine.status(command.accountId)};break;}
-        if(provider==='imap'){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}
+        if(provider==='imap' || new MailIntegrationAccounts(database, ownerId).get(command.accountId)){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}
 
         if (command.operation === "mail.sync.start" || command.operation === "mail.sync.resume") {
           if(!command.settings)throw unsupported;

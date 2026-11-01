@@ -10,7 +10,7 @@ const metadata = z.object({ subject: z.string().nullable(), from: z.string().nul
 export const locator = z.discriminatedUnion('provider', [z.object({provider:z.literal('archive'),namespace:id,entryId:id}), z.object({ provider: z.literal('gmail'), messageId: id }), z.object({ provider: z.literal('graph'), messageId: id }), z.object({ provider: z.literal('imap'), mailboxId: id, uidValidity: z.number().int().positive(), uid: z.number().int().positive() })]);
 const message = z.object({ accountId: id, key: id, locator, subject: z.string(), preview: z.string().max(480).optional(), rawReferenceId: id.nullable().optional(), receivedAt: z.number().nullable().optional(), isRead: z.boolean().nullable().optional(), isFlagged:z.boolean().nullable().optional(), mutationPrecondition:z.string().nullable().optional(), threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(), conversation:z.object({count:z.number().int().positive(),unreadCount:z.number().int().nonnegative()}).optional(), memberships: z.array(id), contentState: z.enum(['complete', 'downloading', 'attention']), metadata: metadata.nullable() });
 const part = z.object({ key: id, kind: z.enum(['raw', 'body', 'attachment']), partId: z.string(), state: z.enum(['stored', 'pending', 'unavailable']), referenceId: id.nullable(), bytes: z.number().int().nonnegative().nullable(), sha256: id.nullable(), bytesAvailable: z.boolean(), filename: z.string().nullable(), contentType: z.string().nullable(), contentId: z.string().nullable() });
-const account = z.object({ id, provider: z.enum(['gmail', 'graph', 'imap', 'archive']), displayName: z.string(), personal: z.boolean().optional(), identity: graphMailboxIdentitySchema.optional() });
+const account = z.object({ id, provider: z.enum(['gmail', 'graph', 'imap', 'archive']), displayName: z.string(), personal: z.boolean().optional(), integration: z.enum(["gmail", "outlook"]).optional(), identity: graphMailboxIdentitySchema.optional() });
 const folder = z.object({ id, name: z.string(), kind: z.enum(['folder', 'label']), parentId: id.nullable(), mutationPrecondition:z.string().nullable().optional(), role: z.literal("inbox").optional() });
 const page = <T extends z.ZodType>(item: T) => z.object({ items: z.array(item), nextCursor: id.nullable() });
 export const bodyEnvelope = z.object({ version: z.literal(1), bodies: z.array(z.object({ partId: z.string(), contentType: z.enum(['text/plain', 'text/html']), text: z.string(), presentation:z.boolean().optional() })).max(2000) });
@@ -43,9 +43,9 @@ export class MailClient {
         return schema.parse(await response.json());
     }
     changeCursor(accountId:string,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/events/query`,z.object({stream:z.string(),nextCursor:z.number()}),signal,{cursorOnly:true});}
-    status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string() }), signal); }
-    unlock(signal: AbortSignal) { return this.request('/unlock', z.object({ state: z.string() }), signal, undefined, true); }
-    lock(signal: AbortSignal) { return this.request('/lock', z.object({ state: z.string() }), signal, undefined, true); }
+    status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal); }
+    unlock(signal: AbortSignal) { return this.request('/unlock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }
+    lock(signal: AbortSignal) { return this.request('/lock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }
     senders(accountId:string,signal:AbortSignal,refresh=false){return this.request(`/accounts/${encodeURIComponent(accountId)}/senders${refresh?'/refresh':''}`,senderListSchema,signal,undefined,refresh,90000);}
     senderSettings(accountId:string,input:SenderSettings,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/senders/settings`,senderListSchema,signal,input);}
     configureSender(accountId:string,input:SenderConfigure,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/senders/configure`,senderListSchema,signal,input);}

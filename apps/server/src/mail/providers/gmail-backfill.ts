@@ -195,7 +195,7 @@ export class GmailBackfill {
   }
   private async access(session: Session) {
     const access = await this.boundedOperation(session, () => this.options.access.acquire(session.run.accountId)); this.assert(session, access.version);
-    if (!access.grantedScopes?.some(scope => scope === "https://www.googleapis.com/auth/gmail.modify" || scope === "https://mail.google.com/")) throw new MailAccessError("reconsent_required");
+    if (!access.grantedScopes?.some(scope => scope === "https://www.googleapis.com/auth/gmail.modify" || scope === "https://www.googleapis.com/auth/gmail.readonly" || scope === "https://mail.google.com/")) throw new MailAccessError("reconsent_required");
     return { access, transport: this.options.transport?.(access.accessToken) ?? new GmailReadTransport({ accessToken: access.accessToken, timeoutMs: this.operationTimeout }) };
   }
   private async turn(session: Session): Promise<void> {

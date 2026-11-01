@@ -5,14 +5,14 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
-test('settings persists the app badge toggle and preserves same-host OAuth, cancels replaced hosts, refreshes accounts and cancels IMAP on exit',async()=>{
+test('settings preserves badge preferences and retained-account reconnect cancellation across host changes',async()=>{
  const root=await mkdtemp(join(tmpdir(),'mail-onboarding-')),app=resolve(import.meta.dir,'..');const calls:{path:string;body:Record<string,unknown>}[]=[];let release:()=>void=()=>{};let begins=0;
  const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:async request=>{
   const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'X-LegalWork-Host-Token,Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'};
   if(request.method==='OPTIONS')return new Response(null,{headers});expect(['synthetic','replacement']).toContain(request.headers.get('X-LegalWork-Host-Token'));
   const path=new URL(request.url).pathname,body=request.method==='POST'?await request.json().catch(()=>({})):{};calls.push({path,body});let value:unknown;
   if(path==='/mail/v1/status')value={state:'ready'};
-  else if(path==='/mail/v1/accounts')value={items:[],nextCursor:null};
+  else if(path==='/mail/v1/accounts')value={items:[{id:'legacy-gmail',provider:'gmail',displayName:'Retained account'}],nextCursor:null};
   else if(path==='/mail/v1/connections'){begins++;value={connectionId:'oauth-one',authorizationUrl:'https://accounts.google.com/o/oauth2/v2/auth?response_type=code&code_challenge_method=S256',expiresAt:Date.now()+60000};}
   else if(path==='/mail/v1/connections/oauth-one')value=begins===1?{state:'pending',connectionId:'oauth-one',expiresAt:Date.now()+60000}:{state:'connected',connectionId:'oauth-one',expiresAt:Date.now()+60000,accountId:'gmail-one',renewable:true};
   else if(path==='/mail/v1/imap/connections'){await new Promise<void>(resolve=>{release=resolve;});value={accountId:'imap-one',provider:'imap'};}
@@ -22,10 +22,11 @@ test('settings persists the app badge toggle and preserves same-host OAuth, canc
  try {
   const entry=join(root,'entry.tsx');await writeFile(entry,`
     import React from ${JSON.stringify(join(app,'node_modules/react/index.js'))};
+    import {MemoryRouter} from ${JSON.stringify(join(app,'node_modules/react-router-dom/dist/index.mjs'))};
     import {createRoot} from ${JSON.stringify(join(app,'node_modules/react-dom/client.js'))};
     import {MailAccountsView} from ${JSON.stringify(join(app,'src/react-app/domains/settings/pages/mail-accounts-view.tsx'))};
     window.__host='synthetic';window.__opened=[];window.__changed=0;window.__badge=false;window.__LEGALWORK_ELECTRON__={invokeDesktop:async(command,value)=>{if(command==='setMailBadgeEnabled')window.__badge=value;return window.__badge;},shell:{openExternal:async url=>window.__opened.push(url)}};
-    const root=createRoot(document.getElementById('root'));window.__leave=()=>root.unmount();root.render(React.createElement(MailAccountsView));
+    const root=createRoot(document.getElementById('root'));window.__leave=()=>root.unmount();root.render(React.createElement(MemoryRouter,null,React.createElement(MailAccountsView)));window.__standards=()=>root.render(React.createElement(MemoryRouter,{key:'standards'},React.createElement(MailAccountsView,{standardsOnly:true})));
   `);
   const resolver=join(root,'connection.ts');await writeFile(resolver,`export async function resolveLegalworkConnection(){return {normalizedBaseUrl:'http://127.0.0.1:${server.port}',resolvedHostToken:window.__host}}`);
   const buildScript=join(root,'build.mjs');await writeFile(buildScript,`const options=${JSON.stringify({entrypoints:[entry],outdir:root,target:'browser',alias:{'@/react-app/shell/legalwork-connection':resolver,'@':join(app,'src')},minify:true})};options.plugins=[{name:'fixture-host',setup(build){build.onResolve({filter:/legalwork-connection/},()=>({path:${JSON.stringify(resolver)}}))}}];const result=await Bun.build(options);if(!result.success)throw Error(result.logs.map(String).join('\\n'));`);
@@ -45,12 +46,22 @@ test('settings persists the app badge toggle and preserves same-host OAuth, canc
       await until("window.__badge===true&&!document.querySelector('[role=switch]').disabled");
       assert.equal(await run("document.querySelector('[role=switch]').getAttribute('aria-checked')"),'true');
       await run("Array.from(document.querySelectorAll('[role=tab]')).find(e=>e.textContent==='Accounts').click()");
+      await until("!!document.querySelector('[aria-label^=Account]')");
+      await run("document.querySelector('[aria-label^=Account]').click()");
+      await until("[...document.querySelectorAll('[role=menuitem]')].some(e=>e.textContent==='Reconnect')");
+      await run("[...document.querySelectorAll('[role=menuitem]')].find(e=>e.textContent==='Reconnect').click()");
       await until("!!document.querySelector('form')");
       await run("document.querySelector('form').requestSubmit()");await until("document.body.textContent.includes('Finish sign-in')");
       await run("window.dispatchEvent(new Event('legalwork-server-settings-changed'))");await new Promise(r=>setTimeout(r,150));assert.equal(await run("document.body.textContent.includes('Connecting…')"),true);
-      await run("window.__host='replacement';window.dispatchEvent(new Event('legalwork-server-settings-changed'))");await until("!!document.querySelector('form')&&!document.body.textContent.includes('Connecting…')");
+      await run("window.__host='replacement';window.dispatchEvent(new Event('legalwork-server-settings-changed'))");await until("!document.body.textContent.includes('Connecting…')&&!!document.querySelector('[aria-label^=Account]')");
+      await until("!!document.querySelector('[aria-label^=Account]')");
+      await run("document.querySelector('[aria-label^=Account]').click()");
+      await until("[...document.querySelectorAll('[role=menuitem]')].some(e=>e.textContent==='Reconnect')");
+      await run("[...document.querySelectorAll('[role=menuitem]')].find(e=>e.textContent==='Reconnect').click()");
+      await until("!!document.querySelector('form')");
       await run("document.querySelector('form').requestSubmit()");await until("document.body.textContent.includes('Connected.')");assert.equal(await run("document.body.textContent.includes('Close setup')"),false);
       assert.equal(await run('window.__opened.length'),2);
+      await run('window.__standards()');await until("!!document.querySelector('form')");
       await run("document.querySelector('[aria-label=Provider]').click()");await until("!!document.querySelector('[role=option]')");await run("(()=>{const option=Array.from(document.querySelectorAll('[role=option]')).find(e=>e.textContent==='iCloud Mail'&&e.getBoundingClientRect().height>0);option.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));option.click();})()");
       await until("!!document.querySelector('form input[type=password]')");
       await run("(()=>{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;for(const [selector,value] of [['form input[autocomplete=username]','demo@icloud.com'],['form input[type=password]','synthetic-app-password']]){const el=document.querySelector(selector);setter.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));}})()");

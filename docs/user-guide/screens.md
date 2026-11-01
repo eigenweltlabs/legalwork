@@ -38,12 +38,13 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Account | Which firm am I signed into? What plan, models and usage are available? | [Settings](settings-privacy.md) |
 | AI Providers | How do I connect a chat model, set up Fusion, OCR or JEV? | [Models](models-fusion.md) |
 | Tabular Review | Which inference mode, models and probability threshold apply to new reviews? | [Tabular Review](reviews.md) |
-| Mail accounts | Connect mailboxes, inspect sync, configure SMTP, notifications, agent access and local retention | [Email](email.md) |
+| Mail accounts | Inspect sync and retained accounts; configure sending, notifications, agent access and local retention | [Email](email.md) |
 | Recorder: Models | Which transcription source, language and downloaded model should I use? | [Recorder settings](recorder-settings.md) |
 | Recorder: Dictate anywhere | How do I set the shortcut, microphone, activation mode and startup behavior? | [Recorder settings](recorder-settings.md) |
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: category catalogue and connector details | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
+| Integrations: Communication, iCloud / IMAP / SMTP | Connect Email and the assistant to the same Gmail or Outlook account, or configure another email service | [Email](email.md) |
 | Integrations: Files & storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Workflows: Skills | How do I install, inspect or share reusable instructions? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |

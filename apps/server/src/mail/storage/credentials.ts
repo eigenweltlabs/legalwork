@@ -2,6 +2,7 @@ import { GraphMailboxRepository } from './graph-mailboxes.js';
 import {ImapCustody} from './imap-custody.js';
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { mailIntegrationAuthority } from "../integration-view.js";
 import type { MailDatabase } from "./database-interface.js";
 import { assertMailSchema } from "./consistency.js";
 
@@ -10,7 +11,7 @@ const printable = z.string().regex(/^[\x21-\x7e]{1,16384}$/);
 const subject = z.string().regex(/^[\x21-\x7e]{1,4096}$/);
 const integer = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
 const guid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const bindingInput = z.discriminatedUnion("provider", [
+const legacyBindingInput = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("gmail"), clientId: z.string().max(4096).regex(/^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/),
     authority: z.literal("https://accounts.google.com"), providerSubject: subject }).strict(),
   z.object({ provider: z.literal("graph"), clientId: z.string().regex(new RegExp(`^${guid}$`, "i")).toLowerCase(),
@@ -18,6 +19,10 @@ const bindingInput = z.discriminatedUnion("provider", [
     if (!value.authority.endsWith("/consumers/v2.0") && !new RegExp(`^${guid}$`, "i").test(value.providerSubject)) ctx.addIssue({code:"custom",message:"Invalid organizational identity"});
   }).transform(value => ({...value, providerSubject:value.authority.endsWith("/consumers/v2.0") ? value.providerSubject : value.providerSubject.toLowerCase()})),
 ]);
+const bindingInput = z.union([legacyBindingInput, z.object({
+  provider: z.enum(["gmail", "graph"]), clientId: z.literal(mailIntegrationAuthority),
+  authority: z.literal(mailIntegrationAuthority), providerSubject: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict()]);
 const versionInput = z.object({ generation: z.string().uuid(), revision: integer }).strict();
 const grantsInput = z.array(z.string().regex(/^[\x21-\x7e]{1,512}$/)).max(32).nullable();
 const refreshInput = z.discriminatedUnion("action", [z.object({ action: z.literal("preserve") }).strict(),

@@ -5,6 +5,13 @@ const settings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S
 const connectionId = "11111111-1111-4111-8111-111111111111";
 const parent = (command: unknown) => parseParentMessage(JSON.stringify({ kind: "request", id: "1:1", command }));
 const response = (result: unknown) => parseWorkerMessage(JSON.stringify({ kind: "response", id: "1:1", ok: true, result }));
+test("integration configuration is private, loopback-only and cannot contain provider credentials", () => {
+  const snapshot = {configuration:{origin:"http://127.0.0.1:12345",capability:"a".repeat(64)},handles:[],accounts:[]};
+  expect(parent({operation:"mail.integrations.reconcile",snapshot})).toBeDefined();
+  for (const configuration of [{...snapshot.configuration,origin:"https://attacker.test"},{...snapshot.configuration,accessToken:"secret"},{...snapshot.configuration,origin:"http://127.0.0.1:65536"}]) expect(parent({operation:"mail.integrations.reconcile",snapshot:{...snapshot,configuration}})).toBeUndefined();
+  expect(response({accounts:[{id:"a",provider:"gmail",displayName:"Mailbox",integration:"outlook"}],nextCursor:null})).toBeUndefined();
+  expect(response({accounts:[{id:"a",provider:"gmail",displayName:"Mailbox",integration:"gmail",refreshToken:"secret"}],nextCursor:null})).toBeUndefined();
+});
 test("sync protocol validates optional trusted settings and bounded, account-correlated progress", () => {
   expect(parent({ operation: "mail.sync.start", accountId: "a", settings })).toBeDefined();
   // IMAP uses its stored configuration. OAuth providers are checked in the worker.

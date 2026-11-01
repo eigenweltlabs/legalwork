@@ -1,3 +1,4 @@
+import type { MailIntegrationSnapshot } from "./integration-view.js";
 import {CONTACT_SCOPES,type ContactsInput} from './contacts-view.js';
 import type {QualificationInput} from './qualification-view.js';
 import type {AgentControl,AgentControlResult} from './agent-view.js';
@@ -61,6 +62,41 @@ export class LocalMailService implements MailService {
   private closing?: Promise<void>;
   private readonly loadProviderSettings?: LocalMailServiceOptions["loadProviderSettings"];
 
+  private integrationLoader?: () => Promise<MailIntegrationSnapshot>;
+  private integrationSnapshot?: MailIntegrationSnapshot;
+  private integrationRefresh?: Promise<void>;
+  private integrationRefreshAt = 0;
+  private integrationRevision = 0;
+  private appliedIntegrations = "";
+  private integrationLoading?: Promise<MailIntegrationSnapshot | undefined>;
+  configureIntegrations(load: () => Promise<MailIntegrationSnapshot>) {
+    this.integrationLoader = load;
+    if (this.phase === "open") void this.refreshIntegrations(true).catch(() => {});
+    else void this.loadIntegrations().then(() => this.refreshIntegrations(true)).catch(() => {});
+  }
+  private async loadIntegrations() {
+    if (!this.integrationLoader) return undefined;
+    if (this.integrationLoading) return this.integrationLoading;
+    const load = this.integrationLoader().then(snapshot => this.integrationSnapshot = snapshot).catch(() => this.integrationSnapshot);
+    this.integrationLoading = load;
+    try { return await load; } finally { if (this.integrationLoading === load) this.integrationLoading = undefined; }
+  }
+  async refreshIntegrations(force = false): Promise<void> {
+    if (!this.integrationLoader || this.phase !== "open" || this.stopped) return;
+    if (this.integrationRefresh) return this.integrationRefresh;
+    if (!force && Date.now() - this.integrationRefreshAt < 10_000) return;
+    const epoch = this.epoch;
+    const refresh = (async () => {
+      const snapshot = await this.loadIntegrations();
+      if (!snapshot || epoch !== this.epoch || this.phase !== "open") return;
+      await this.request({operation: "mail.integrations.reconcile", snapshot});
+      const revision = JSON.stringify([snapshot.handles, snapshot.accounts]);
+      if (revision !== this.appliedIntegrations) { this.appliedIntegrations = revision; this.integrationRevision++; }
+      this.integrationRefreshAt = Date.now();
+    })();
+    this.integrationRefresh = refresh;
+    try { await refresh; } finally { if (this.integrationRefresh === refresh) this.integrationRefresh = undefined; }
+  }
   constructor(options: LocalMailServiceOptions) {
     this.loadProviderSettings = options.loadProviderSettings;
     this.maintenanceHandler = options.maintain;
@@ -72,14 +108,15 @@ export class LocalMailService implements MailService {
         const key = store.key;
         try {
           if (!(key instanceof Uint8Array) || key.byteLength !== 32) throw new MailServiceError("unavailable");
-          return { lifecycleSuspended:this.lifecycleSuspended,ownerId: options.ownerId, databasePath: store.databasePath, encryptionKey: Buffer.from(key.buffer, key.byteOffset, key.byteLength).toString("base64") };
+          const integrations = this.integrationSnapshot;
+          return { ...(integrations ? {integrations} : {}), lifecycleSuspended:this.lifecycleSuspended,ownerId: options.ownerId, databasePath: store.databasePath, encryptionKey: Buffer.from(key.buffer, key.byteOffset, key.byteLength).toString("base64") };
         } finally { if (key instanceof Uint8Array) key.fill(0); }
       },
     });
   }
   async contacts(accountId:string,input:ContactsInput){
     let settings:MailOAuthSettings|undefined;
-    if(input.action==='sync'){const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');if(provider.syncProvider!=='imap')settings=await this.loadProviderSettings?.(provider.syncProvider,provider.personal);if(epoch!==this.epoch)throw new MailServiceError('locked');}
+    if(input.action==='sync'){const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');if(provider.syncProvider!=='imap' && !provider.integrated)settings=await this.loadProviderSettings?.(provider.syncProvider,provider.personal);if(epoch!==this.epoch)throw new MailServiceError('locked');}
     const result=await this.request({operation:'mail.contacts',accountId,input,...(settings?{settings}:{})});if(!('contacts' in result))throw new MailServiceError('unavailable');return result.contacts;
   }
   async outboxRead(accountId:string,input:{actionId:string}){const result=await this.request({operation:'mail.outbox.read',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxDetail' in result))throw new MailServiceError('unavailable');return result.outboxDetail;}
@@ -99,7 +136,7 @@ export class LocalMailService implements MailService {
   async senders(accountId:string){const result=await this.request({operation:'mail.senders.list',accountId});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders.length?result.senders:this.refreshSenders(accountId);}
   async refreshSenders(accountId:string){
     const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');
-    const settings=provider.syncProvider==='imap'?undefined:await this.loadProviderSettings?.(provider.syncProvider,provider.personal);
+    const settings=provider.syncProvider==='imap'||provider.integrated?undefined:await this.loadProviderSettings?.(provider.syncProvider,provider.personal);
     if(epoch!==this.epoch)throw new MailServiceError('locked');
     const result=await this.request({operation:'mail.senders.refresh',accountId,...(settings?{settings}:{})});if(!('senders' in result))throw new MailServiceError('unavailable');return result.senders;
   }
@@ -125,7 +162,7 @@ export class LocalMailService implements MailService {
     if (this.stopped) state = "stopped";
     else if (this.phase === "open") state = this.worker.status().state === "ready" ? "ready" : "unavailable";
     else state = this.phase;
-    return { protocolVersion: 1, state, syncSupported: true };
+    return { protocolVersion: 1, state, syncSupported: true, ...(this.integrationLoader ? {accountRevision:this.integrationRevision} : {}) };
   }
   unlock(): Promise<void> {
     if (this.stopped) return Promise.reject(new MailServiceError("unavailable"));
@@ -250,6 +287,7 @@ export class LocalMailService implements MailService {
     return result.rebuilt;
   }
   async listAccounts(page: MailPageInput) {
+    void this.refreshIntegrations().catch(() => {});
     const result = await this.request({ operation: "mail.accounts.list", ...page });
     if (!("accounts" in result)) throw new MailServiceError("unavailable");
     return { items: result.accounts, nextCursor: result.nextCursor };
@@ -260,6 +298,7 @@ export class LocalMailService implements MailService {
     return { items: result.folders, nextCursor: result.nextCursor };
   }
   async beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal = false, contacts = false) {
+    if (this.integrationLoader && !reconnectAccountId) throw new MailServiceError("unsupported");
     if (this.stopped || !this.loadProviderSettings) throw new MailServiceError("unavailable");
     if (this.phase !== "open") throw new MailServiceError("locked");
     const epoch = this.epoch;
@@ -267,7 +306,7 @@ export class LocalMailService implements MailService {
     try {
       if (reconnectAccountId !== undefined) {
         const stored = await this.request({operation:"mail.sync.provider",accountId:reconnectAccountId});
-        if (!("syncProvider" in stored) || stored.syncProvider !== provider) throw new MailServiceError("unavailable");
+        if (!("syncProvider" in stored) || stored.syncProvider !== provider || stored.integrated) throw new MailServiceError("unavailable");
         personal = stored.personal === true;
       }
       settings = await this.loadProviderSettings(provider, personal);
@@ -329,7 +368,7 @@ export class LocalMailService implements MailService {
       const provider = await this.request({ operation: "mail.sync.provider", accountId });
       if (!("syncProvider" in provider)) throw new MailServiceError("unavailable");
       if (automatic && provider.connected === false) return this.syncStatus(accountId);
-      if(provider.syncProvider==='imap'){if(epoch!==this.epoch)throw new MailServiceError('locked');const result=await this.request({operation,accountId});if(!('sync' in result))throw new MailServiceError('unavailable');return result.sync;}
+      if(provider.syncProvider==='imap'||provider.integrated){if(epoch!==this.epoch)throw new MailServiceError('locked');const result=await this.request({operation,accountId});if(!('sync' in result))throw new MailServiceError('unavailable');return result.sync;}
       if(!this.loadProviderSettings)throw new MailServiceError('unavailable');
       settings = await this.loadProviderSettings(provider.syncProvider, provider.personal);
       if (settings.provider !== provider.syncProvider) throw new MailServiceError("unavailable");

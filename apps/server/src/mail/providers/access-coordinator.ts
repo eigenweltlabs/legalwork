@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
+import { mailIntegrationAuthority } from "../integration-view.js";
 import { MailCredentialRepository, MailCredentialError, type MailCredentialBinding, type MailCredentialVersion } from "../storage/credentials.js";
 import type { MailDatabase } from "../storage/database-interface.js";
 import { checkMailProviderReadiness } from "../provider-config.js";
@@ -22,6 +23,7 @@ export type MailAccessCoordinatorOptions = {
   database: MailDatabase; ownerId: string;
   loadProviderSettings: (binding: Readonly<MailCredentialBinding>) => Promise<MailOAuthSettings>;
   refresh?: typeof refreshMailOAuth;
+  integrationReady?: () => boolean;
   now?: () => number;
   expiryMarginMs?: number;
   timeoutMs?: number;
@@ -125,6 +127,10 @@ export class MailAccessCoordinator {
     if (current.state !== "connected" || current.archiveLocked) throw new MailAccessError("locked");
     const expected = current.version;
     const binding = this.credentials.getBinding(accountId);
+    if (binding.authority === mailIntegrationAuthority) {
+      if (this.options.integrationReady?.() === false) throw new MailAccessError("transient");
+      return this.credentials.readAccess(accountId, binding);
+    }
     const check = () => { if (signal.aborted) throw new MailAccessError(this.closed ? "closed" : "timeout"); this.fence(accountId, expected); if (performance.now() >= deadline) throw new MailAccessError("timeout"); };
     let supplied: MailOAuthSettings;
     try { supplied = await this.options.loadProviderSettings(Object.freeze({ ...binding })); }

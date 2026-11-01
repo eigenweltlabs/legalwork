@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import {contactsResultSchema} from '../../../../../server/src/mail/contacts-view';
 import {DropdownMenu,DropdownMenuTrigger,DropdownMenuContent,DropdownMenuItem} from '@/components/ui/dropdown-menu';
 import {Mail,Plus,MoreHorizontal} from 'lucide-react';
@@ -27,9 +28,10 @@ const errors: Record<string, string> = {
   cancelled: 'Connection cancelled.', expired: 'Sign-in expired. Start again.',
 };
 function errorText(code: string) { return errors[code] ?? 'The account could not be connected. Check the provider settings and try again.'; }
-export function MailOnboarding({ client, accounts, onChanged, onClose, contactRequest }: {
-  client: MailClient; accounts: MailAccountView[]; onChanged: () => void; onClose?: () => void; contactRequest?:{account:MailAccountView;key:number};
+export function MailOnboarding({ client, accounts, onChanged, onClose, contactRequest, standardSetup = false }: {
+  client: MailClient; accounts: MailAccountView[]; standardSetup?: boolean; onChanged: () => void; onClose?: () => void; contactRequest?:{account:MailAccountView;key:number};
 }) {
+  const navigate = useNavigate();
   const [formOpen,setFormOpen]=useState(false),[contactConsent,setContactConsent]=useState(false);
   useEffect(()=>{if(contactRequest)void selectReconnect(contactRequest.account,true);},[contactRequest]);
   const [progress, setProgress] = useState<Record<string, SyncStatus>>({});
@@ -53,7 +55,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose, contactRe
     catch { setFailure('Sync could not be started. Check your connection or reconnect the account.'); }
   }
   const api = useRef(new MailOnboardingClient(client)).current;
-  const [choice, setChoice] = useState<AccountChoice>('gmail');
+  const [choice, setChoice] = useState<AccountChoice>('manual');
   const [reconnect, setReconnect] = useState('');
   const [username, setUsername] = useState('');
   const [host, setHost] = useState('');
@@ -118,6 +120,7 @@ export function MailOnboarding({ client, accounts, onChanged, onClose, contactRe
     } finally { if (!signal.aborted) { setBusy(false); setPassword(''); } }
   }
   async function selectReconnect(account: MailAccountView, contacts=false) {
+    if (account.integration) { navigate(`/settings/extensions?connection=native:${account.integration}`); return; }
     setContactConsent(contacts);
     reset(); setFormOpen(true); setReconnect(account.id); setFailure(''); setNotice('Reconnect must use the same mailbox identity.');
     setChoice(account.provider === 'gmail' ? 'gmail' : account.provider === 'graph' ? (account.personal ? 'outlook' : 'microsoft-work') : 'manual');
@@ -136,15 +139,16 @@ export function MailOnboarding({ client, accounts, onChanged, onClose, contactRe
   return (
     <SettingsSection>
       {onClose&&<SettingsSectionHeader><SettingsSectionHeaderContent><SettingsSectionHeaderTitle>Mail accounts</SettingsSectionHeaderTitle></SettingsSectionHeaderContent><Button variant="ghost" onClick={()=>{reset();onClose();}}>Close setup</Button></SettingsSectionHeader>}
+      {!standardSetup && <SettingsNotice><span>Connect Gmail, Outlook, iCloud or another email service in Integrations. Connected Gmail and Outlook accounts appear here automatically.</span><Button size="sm" variant="outline" onClick={()=>navigate('/settings/extensions')}>Open Integrations</Button></SettingsNotice>}
       <section aria-label="Mail account setup" className="overflow-hidden rounded-2xl border border-subtle bg-surface">
-        <div className="flex items-center justify-between gap-3 border-b border-subtle bg-sunken/40 px-5 py-3"><div className="flex items-center gap-2 text-sm font-medium"><Mail size={16}/><span>Connected accounts</span><SettingsStatusBadge tone={accounts.length?'ready':'neutral'} label={`${accounts.length} ${accounts.length===1?'account':'accounts'}`}/></div><Button size="sm" variant="outline" onClick={()=>{reset();setReconnect('');setContactConsent(false);setFormOpen(true);}}><Plus size={14}/>Add account</Button></div>
-        {accounts.length>0?<ul className="divide-y divide-subtle">{accounts.map(account=>{const status=progress[account.id],match=account.displayName.match(/^(.*?)\s*<([^>]+)>$/),name=match?.[1]?.trim()||account.displayName,address=match?.[2];return <li key={account.id} className="flex flex-wrap items-center gap-3 px-5 py-4"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-subtle bg-sunken text-muted-foreground"><Mail size={18}/></div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium" title={account.displayName}>{name}</div>{address&&<div className="truncate text-xs text-muted-foreground" title={address}>{address}</div>}<div className="mt-0.5 text-xs text-muted-foreground">{account.provider==='gmail'?'Google':account.provider==='graph'?'Microsoft':'IMAP'}{status&&<span role="status"> · {status.state==='complete'?'Up to date':status.state==='syncing'?'Syncing':status.state==='paused'?'Paused':status.state==='waiting'?'Waiting to retry':'Needs attention'}</span>}</div></div><div className="flex items-center gap-1">{status&&['paused','waiting','attention','idle'].includes(status.state)&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void retrySync(account.id)}>{status.state==='paused'?'Resume':'Retry sync'}</Button>}<DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={busy} aria-label={`Account options for ${name}`}><MoreHorizontal size={16}/></Button>}/><DropdownMenuContent align="end">{!account.identity&&<DropdownMenuItem onClick={()=>void selectReconnect(account)}>Reconnect</DropdownMenuItem>}<DropdownMenuItem onClick={()=>void disconnect(account)}>Disconnect</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div></li>;})}</ul>:<div className="px-5 py-6 text-sm text-muted-foreground">Connect an account to start reading and writing mail.</div>}
+        <div className="flex items-center justify-between gap-3 border-b border-subtle bg-sunken/40 px-5 py-3"><div className="flex items-center gap-2 text-sm font-medium"><Mail size={16}/><span>Connected accounts</span><SettingsStatusBadge tone={accounts.length?'ready':'neutral'} label={`${accounts.length} ${accounts.length===1?'account':'accounts'}`}/></div><Button size="sm" variant="outline" onClick={()=>{if(!standardSetup){navigate('/settings/extensions');return;}reset();setReconnect('');setContactConsent(false);setFormOpen(true);}}><Plus size={14}/>Add account</Button></div>
+        {accounts.length>0?<ul className="divide-y divide-subtle">{accounts.map(account=>{const status=progress[account.id],match=account.displayName.match(/^(.*?)\s*<([^>]+)>$/),name=match?.[1]?.trim()||account.displayName,address=match?.[2];return <li key={account.id} className="flex flex-wrap items-center gap-3 px-5 py-4"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-subtle bg-sunken text-muted-foreground"><Mail size={18}/></div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium" title={account.displayName}>{name}</div>{address&&<div className="truncate text-xs text-muted-foreground" title={address}>{address}</div>}<div className="mt-0.5 text-xs text-muted-foreground">{account.provider==='gmail'?'Google':account.provider==='graph'?'Microsoft':'IMAP'}{status&&<span role="status"> · {status.state==='complete'?'Up to date':status.state==='syncing'?'Syncing':status.state==='paused'?'Paused':status.state==='waiting'?'Waiting to retry':'Needs attention'}</span>}</div></div><div className="flex items-center gap-1">{status&&['paused','waiting','attention','idle'].includes(status.state)&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void retrySync(account.id)}>{status.state==='paused'?'Resume':'Retry sync'}</Button>}<DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={busy} aria-label={`Account options for ${name}`}><MoreHorizontal size={16}/></Button>}/><DropdownMenuContent align="end">{account.integration ? <DropdownMenuItem onClick={()=>navigate(`/settings/extensions?connection=native:${account.integration}`)}>Manage in Integrations</DropdownMenuItem> : <>{!account.identity&&<DropdownMenuItem onClick={()=>void selectReconnect(account)}>Reconnect</DropdownMenuItem>}<DropdownMenuItem onClick={()=>void disconnect(account)}>Disconnect</DropdownMenuItem></>}</DropdownMenuContent></DropdownMenu></div></li>;})}</ul>:<div className="px-5 py-6 text-sm text-muted-foreground">Connect an account to start reading and writing mail.</div>}
       </section>
-      {(formOpen||!accounts.length)&&<div className="rounded-2xl border border-subtle bg-surface p-5"><div className="mb-4 flex items-center justify-between"><h3 className="text-sm font-medium">{reconnect?'Reconnect account':'Add a mail account'}</h3>{accounts.length>0&&<Button size="sm" variant="ghost" onClick={()=>{reset();setFormOpen(false);}}>Cancel setup</Button>}</div>
+      {((standardSetup&&(formOpen||!accounts.length))||reconnect)&&<div className="rounded-2xl border border-subtle bg-surface p-5"><div className="mb-4 flex items-center justify-between"><h3 className="text-sm font-medium">{reconnect?'Reconnect account':'Add a mail account'}</h3>{accounts.length>0&&<Button size="sm" variant="ghost" onClick={()=>{reset();setFormOpen(false);}}>Cancel setup</Button>}</div>
       <form className="space-y-4" onSubmit={event => { event.preventDefault(); void connect(); }}>
         <label className="block text-sm font-medium">Provider
           <MailSettingsSelect aria-label="Provider" className="mt-1 block w-full rounded border bg-background p-2" value={choice} disabled={busy} onChange={value => { const selected = choices.find(item => item.id === value); if (selected) { setChoice(selected.id); setPassword(''); } }}>
-            {choices.map(value => <option key={value.id} value={value.id}>{value.label}</option>)}
+            {choices.filter(value=>!reconnect||accounts.find(account=>account.id===reconnect)?.provider==='imap' ? value.id==='icloud'||value.id==='manual' : value.id===choice).map(value => <option key={value.id} value={value.id}>{value.label}</option>)}
           </MailSettingsSelect>
         </label>
         {reconnect && <p className="text-sm">Reconnecting {accounts.find(account => account.id === reconnect)?.displayName}. <button type="button" className="underline" disabled={busy} onClick={() => setReconnect('')}>Add a different account</button></p>}
