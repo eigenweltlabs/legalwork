@@ -1349,6 +1349,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           ...(options?.force ? { force: true } : {}),
         });
         invalidateEigenweltEntitlements();
+        getReactQueryClient().removeQueries({ queryKey: ["calendar"] });
       }
       // The firm's tasks left this machine: so do the announcements naming them.
       useNotificationStore.getState().removeKind("tasks");

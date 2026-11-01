@@ -131,3 +131,30 @@ test("calendar visibility survives reloads independently for the global calendar
   await useCalendarVisibility.persist.rehydrate();
   expect(useCalendarVisibility.getState().hidden).toEqual({ "project-a": [], global: [outlook.key] });
 });
+
+test("discovery failures keep cached calendars, while disconnection and account replacement clear the old account", async () => {
+  const previous = [{ ...google, connectionId: "google" }];
+  const unavailable = reader(() => { throw new Error("Offline"); });
+  expect((await connectedCalendars(unavailable, previous)).calendars).toEqual(previous);
+  const disconnected = structuredClone(status);
+  disconnected.connectors[0].connections = [];
+  expect((await connectedCalendars(reader(() => ({ calendars: [] }), disconnected), previous)).calendars).toEqual([]);
+  const replaced = structuredClone(status);
+  replaced.connectors[0].connections[0].id = "replacement";
+  expect((await connectedCalendars(reader(() => { throw new Error("Offline"); }, replaced), previous)).calendars).toEqual([]);
+});
+
+test("rich event details survive parsing and projection onto the viewer's clock", async () => {
+  const details = {
+    description: "<p>Full context</p>", descriptionType: "html", timeZone: "America/New_York", location: "Boardroom",
+    organizer: { displayName: "Partner", email: "partner@example.invalid" },
+    attendees: [{ displayName: "Client", email: "client@example.invalid", responseStatus: "accepted", optional: true }],
+    conference: { url: "https://meet.google.com/example" }, recurrence: ["RRULE:FREQ=WEEKLY"], recurringEventId: "series",
+    reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 15 }] },
+    attachments: [{ title: "Agenda", fileUrl: "https://docs.google.com/example" }], source: { title: "Matter", url: "https://example.invalid/matter" },
+  };
+  const [item] = await connectedCalendarEvents(reader(() => ({ events: [{ ...event, ...details }] })), google, "2026-10-26", "2026-11-02", "Europe/Berlin");
+  expect(item.connectedEvent).toMatchObject(details);
+  expect(item.timeZone).toBe("Europe/Berlin");
+  expect(item.recurring).toBe(true);
+});

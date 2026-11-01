@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { calendarEventsInput, outlookCalendarAdapter } from "./calendar.js";
+import { calendarEventsInput, googleCalendarAdapter, outlookCalendarAdapter } from "./calendar.js";
 import type { ConnectorRequest } from "./request.js";
 
 const input = calendarEventsInput.parse({ calendarId: "personal", timeMin: "2026-10-26T00:00:00Z", timeMax: "2026-11-02T00:00:00Z" });
@@ -28,4 +28,31 @@ test("UTC-midnight all-day events need no additional fetch when their original z
   const request: ConnectorRequest = async () => { calls++; return { value: [{ id: "holiday", isAllDay: true, originalStartTimeZone: "GMT Standard Time", start: { dateTime: "2026-12-25T00:00:00.0000000", timeZone: "UTC" }, end: { dateTime: "2026-12-26T00:00:00.0000000", timeZone: "UTC" } }] }; };
   expect((await outlookCalendarAdapter.events(request, input)).events[0]).toMatchObject({ start: "2026-12-25T00:00:00.0000000", allDay: true });
   expect(calls).toBe(1);
+});
+
+test("Outlook event summaries preserve meeting, attendee, reminder and attachment metadata", async () => {
+  const request: ConnectorRequest = async () => ({ value: [{
+    id: "rich", subject: "Client meeting", body: { content: "Full description", contentType: "text" },
+    start: { dateTime: "2026-10-27T09:00:00", timeZone: "UTC" }, end: { dateTime: "2026-10-27T10:00:00", timeZone: "UTC" },
+    organizer: { emailAddress: { name: "Partner", address: "partner@example.invalid" } },
+    attendees: [{ emailAddress: { name: "Client", address: "client@example.invalid" }, type: "optional", status: { response: "tentativelyAccepted" } }],
+    onlineMeeting: { joinUrl: "https://teams.microsoft.com/example" }, isReminderOn: true, reminderMinutesBeforeStart: 15, hasAttachments: true,
+  }] });
+  expect((await outlookCalendarAdapter.events(request, input)).events[0]).toMatchObject({
+    organizer: { displayName: "Partner", email: "partner@example.invalid" },
+    attendees: [{ displayName: "Client", email: "client@example.invalid", optional: true, responseStatus: "tentativelyAccepted" }],
+    conference: { url: "https://teams.microsoft.com/example" }, reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 15 }] }, hasAttachments: true,
+  });
+});
+
+
+test("Google event summaries preserve supplied attachments and source links", async () => {
+  const request: ConnectorRequest = async () => ({ id: "rich", summary: "Review", description: "<p>Context</p>", start: { dateTime: "2026-10-27T09:00:00Z", timeZone: "Europe/Berlin" },
+    recurrence: ["RRULE:FREQ=WEEKLY"], attendees: [{ email: "client@example.invalid", responseStatus: "accepted", optional: true }],
+    attachments: [{ title: "Agenda", fileUrl: "https://docs.google.com/example" }], source: { title: "Matter", url: "https://example.invalid/matter" } });
+  expect(await googleCalendarAdapter.get(request, { calendarId: "personal", eventId: "rich" })).toMatchObject({
+    description: "<p>Context</p>", descriptionType: "html", timeZone: "Europe/Berlin", recurrence: ["RRULE:FREQ=WEEKLY"],
+    attendees: [{ email: "client@example.invalid", responseStatus: "accepted", optional: true }],
+    attachments: [{ title: "Agenda", fileUrl: "https://docs.google.com/example" }], source: { title: "Matter", url: "https://example.invalid/matter" },
+  });
 });

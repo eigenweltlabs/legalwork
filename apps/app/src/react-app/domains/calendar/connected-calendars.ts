@@ -1,5 +1,5 @@
 import type { CalendarOccurrence } from "@legalwork/types/calendar";
-import { connectorIsConnected, connectorCalendarListSchema, connectorCalendarEventsSchema } from "@legalwork/types/connectors";
+import { connectorIsConnected, connectorCalendarListSchema, connectorCalendarEventsSchema, type ConnectorCalendarEvent } from "@legalwork/types/connectors";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 
@@ -8,7 +8,7 @@ export type ConnectedCalendar = {
   providerName: string; name: string; color?: string | null;
 };
 export type CalendarDisplayOccurrence = CalendarOccurrence & {
-  connectedEvent?: { calendar: ConnectedCalendar; description: string; location: string; webUrl: string | null };
+  connectedEvent?: ConnectorCalendarEvent & { calendar: ConnectedCalendar };
 };
 type CalendarReader = Pick<LegalworkServerClient, "connectorSavedStatus" | "callExtensionAction">;
 
@@ -25,7 +25,7 @@ async function pages<T>(read: (pageToken?: string) => Promise<{ items: T[]; next
   return items;
 }
 
-export async function connectedCalendars(client: CalendarReader) {
+export async function connectedCalendars(client: CalendarReader, previous: ConnectedCalendar[] = []) {
   const sources: { id: ConnectedCalendar["connectorId"]; name: string }[] = [{ id: "google-calendar", name: "Google Calendar" }, { id: "outlook-calendar", name: "Outlook Calendar" }];
   // Avoid discovering unrelated integrations or letting one account block the other.
   const statuses = await Promise.allSettled(sources.map(source => client.connectorSavedStatus(source.id)));
@@ -53,6 +53,14 @@ export async function connectedCalendars(client: CalendarReader) {
     const provider = providers[index];
     if (provider.active !== false && provider.connections.some(connection => connection.needsReconnect)) unavailable.push(provider.name);
   });
+  // A transient discovery failure must not unmount cached event queries. A
+  // successful empty response (disconnect or account change) remains authoritative.
+  calendars.push(...previous.filter(calendar => {
+    if (!unavailable.includes(calendar.providerName)) return false;
+    const provider = providers.find(provider => provider.id === calendar.connectorId);
+    return provider ? connectorIsConnected(provider) && provider.connections[0].id === calendar.connectionId
+      : statuses[sources.findIndex(source => source.id === calendar.connectorId)].status === "rejected";
+  }));
   return { calendars: [...new Map(calendars.map(calendar => [calendar.key, calendar])).values()], unavailable: [...new Set(unavailable)] };
 }
 
@@ -87,8 +95,8 @@ export async function connectedCalendarEvents(client: CalendarReader, calendar: 
     occurrences.push({ id, itemId: event.id, uid: id, projectId: null, projectName: calendar.name, kind: "event", title: event.title,
       start, end, allDay: event.allDay, timeZone,
       status: event.status === "cancelled" ? "cancelled" : "active", assigneeUserId: null, provenance: null, verified: true,
-      recurring: Boolean(event.recurringEventId || event.recurring),
-      connectedEvent: { calendar, description: event.description, location: event.location, webUrl: safeCalendarUrl(event.webUrl) },
+      recurring: Boolean(event.recurringEventId || event.recurring || event.recurrence.length),
+      connectedEvent: { ...event, calendar, webUrl: safeCalendarUrl(event.webUrl) },
     });
   }
   return [...new Map(occurrences.map(occurrence => [occurrence.id, occurrence])).values()];
