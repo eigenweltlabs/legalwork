@@ -85,7 +85,6 @@ export function MailRecipientInput({
         autoComplete="off"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Name or email address"
       />
       <datalist id={list}>
         {recipientOptions(value, contacts, history).map((option) => (
