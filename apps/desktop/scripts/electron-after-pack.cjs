@@ -1,5 +1,4 @@
 const fs = require("node:fs");
-const { Arch } = require("electron-builder");
 const path = require("node:path");
 const { Arch } = require("electron-builder");
 const { pruneOcrRuntime } = require("./packaged-ocr.cjs");
