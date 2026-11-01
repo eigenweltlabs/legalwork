@@ -41,6 +41,11 @@
       "source": "apps/app/src/react-app/shell/app-root.tsx"
     },
     {
+      "path": "/mail",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
       "path": "/projects",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/shell/app-root.tsx"
@@ -198,6 +203,12 @@
       "id": "general",
       "scope": "global",
       "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "mail-accounts",
+      "scope": "global",
+      "guide": "email.md",
       "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
     },
     {

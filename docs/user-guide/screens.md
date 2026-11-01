@@ -25,6 +25,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Wiki, Settings > Agent access, source file tabs | Maintain reusable knowledge; control agent approval; open source documents in separate viewer tabs | [Wiki](wiki.md) |
 | Wiki: Legal Research / Rechtliche Recherche, starter picker, area and jurisdiction indexes | Create a research wiki automatically or through Add wiki; automatically prepare legal findings and sources; review drafts or allow background filing | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
+| Email | Read the unified Inbox, search downloaded mail, compose, manage Drafts and Outbox | [Email](email.md) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 
 Opening a project or changing a filter can reveal items hidden in an aggregate list.
@@ -37,6 +38,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Account | Which firm am I signed into? What plan, models and usage are available? | [Settings](settings-privacy.md) |
 | AI Providers | How do I connect a chat model, set up Fusion, OCR or JEV? | [Models](models-fusion.md) |
 | Tabular Review | Which inference mode, models and probability threshold apply to new reviews? | [Tabular Review](reviews.md) |
+| Mail accounts | Connect mailboxes, inspect sync, configure SMTP, notifications, agent access and local retention | [Email](email.md) |
 | Recorder: Models | Which transcription source, language and downloaded model should I use? | [Recorder settings](recorder-settings.md) |
 | Recorder: Dictate anywhere | How do I set the shortcut, microphone, activation mode and startup behavior? | [Recorder settings](recorder-settings.md) |
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |

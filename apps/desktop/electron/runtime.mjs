@@ -1496,7 +1496,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...(officeAddinManager.serverConfig() ?? {}),
-    }).catch((error) => {
+    }).catch(async (error) => {
       legalworkServerState.inProcess = false;
       await mail?.stop();
       throw error;

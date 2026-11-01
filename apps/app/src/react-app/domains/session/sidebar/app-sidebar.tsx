@@ -781,6 +781,7 @@ function AppSidebarContent(props: AppSidebarProps) {
   const actions: Record<ShellNavKey, { onClick: () => void; active: boolean; available?: boolean }> = {
     navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: location.pathname === "/home" },
     navScheduled: { onClick: () => navigate("/scheduled"), active: location.pathname === "/scheduled" },
+    navMail: { onClick: () => navigate("/mail"), active: props.activeNav === "mail" },
     navCalendar: { onClick: () => navigate("/calendar"), active: location.pathname === "/calendar" },
     navProjects: { onClick: () => props.onShowProjects?.(), active: projectsPage },
     navTasks: { onClick: () => props.onShowTasks?.(), active: props.activeNav === "tasks", available: !!props.onShowTasks },

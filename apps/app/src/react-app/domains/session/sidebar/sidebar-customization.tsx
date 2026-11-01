@@ -1,6 +1,6 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { AssistantFlowerIcon } from "./assistant-appearance";
-import { BookOpen, CalendarDays, Check, Clock, Files, FlaskConical, FolderOpen, GripVertical, House, Inbox, LayoutGrid, ListTodo, Loader2, MessageSquare, Mic, PenLine, Pin, SquarePen, Table2, TableProperties, Upload, Users, Workflow, X } from "lucide-react";
+import { BookOpen, CalendarDays, Check, Clock, Files, FlaskConical, FolderOpen, GripVertical, House, Inbox, LayoutGrid, ListTodo, Loader2, Mail, MessageSquare, Mic, PenLine, Pin, SquarePen, Table2, TableProperties, Upload, Users, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-poli
 export const SIDEBAR_ITEMS = {
   navHome: { label: "home.nav_label", icon: House },
   navScheduled: { label: "scheduled.title", icon: Clock },
+  navMail: { label: "sidebar.email", icon: Mail },
   navCalendar: { label: "calendar.title", icon: CalendarDays },
   navProjects: { label: "projects.plural", icon: LayoutGrid },
   sectionPinned: { label: "sidebar.pinned_sessions", icon: Pin },

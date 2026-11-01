@@ -96,6 +96,7 @@ export function sessionMainPage(pathname: string) {
     case "/tasks": return "tasks";
     case "/scheduled": return "scheduled";
     case "/calendar": return "calendar";
+    case "/mail": return "mail";
     case "/workflows": return "workflows";
     case "/recorder": return "recorder";
     case "/wikis": return "wikis";

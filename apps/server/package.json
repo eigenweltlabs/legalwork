@@ -94,7 +94,6 @@
     "tldts": "7.0.30",
     "undici-transport": "npm:undici@8.12.3",
     "webdav": "^5.10.0",
-    "pdfjs-dist": "6.3.289",
     "saxes": "6.0.0",
     "tesseract.js": "7.0.0",
     "yaml": "^2.6.1",

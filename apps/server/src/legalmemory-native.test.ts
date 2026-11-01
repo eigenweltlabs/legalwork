@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { fetchLegalMemoryDocument, fetchLegalMemoryTreeRoots, fetchLegalMemoryTreeSearch, resolveLegalMemoryServer, type LegalMemoryClient } from "./legalmemory-fetch.js";
-import { LegalMemoryAccessError, legalMemoryRequestSchema } from "./legalmemory-rpc.js";
+import { assertLegalMemoryFilingCapability, LegalMemoryAccessError, legalMemoryRequestSchema } from "./legalmemory-rpc.js";
 
 test("native LegalMemory interface preserves full binary filename, MIME and graph/index payloads", async () => {
   const bytes = Buffer.from("Original binary\u0000".repeat(25_000));
@@ -31,4 +31,16 @@ test("LegalMemory RPC has no arbitrary URL, tool name, credential or chat identi
   expect(legalMemoryRequestSchema.safeParse({ ...input, operation: { type: "tool", name: "delete_document", args: {} } }).success).toBe(false);
   expect(resolveLegalMemoryServer([{ name: "legalmemory", config: { url: "https://firm.example/mcp", disabled: true } }])).toBeNull();
   expect(resolveLegalMemoryServer([{ name: "legalmemory", config: { url: "https://firm.example/mcp", enabled: false } }])).toBeNull();
+});
+
+
+test("mail filing RPC is restricted to named filing operations and the private host capability", () => {
+  const capability = "a".repeat(64);
+  const request = legalMemoryRequestSchema.parse({serverName:"legalmemory", operation:{type:"mail-filing", name:"commit_mail_filing", args:{filing_id:"fixture"}, capability}});
+  expect(() => assertLegalMemoryFilingCapability(request.operation, capability)).not.toThrow();
+  for (const expected of [undefined, "b".repeat(64), "short"]) expect(() => assertLegalMemoryFilingCapability(request.operation, expected)).toThrow("local host capability");
+  for (const type of ["tool", "tree"]) expect(legalMemoryRequestSchema.safeParse({serverName:"legalmemory",operation:{...request.operation,type}}).success).toBe(false);
+  expect(legalMemoryRequestSchema.safeParse({serverName:"legalmemory",operation:{...request.operation,name:"delete_document"}}).success).toBe(false);
+  const read = legalMemoryRequestSchema.parse({serverName:"legalmemory",operation:{type:"tool",name:"list_matters",args:{}}});
+  expect(() => assertLegalMemoryFilingCapability(read.operation, undefined)).not.toThrow();
 });

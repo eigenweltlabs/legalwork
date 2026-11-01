@@ -1,6 +1,18 @@
-# Add Gmail or Outlook email
+# Email
 
-Open in LegalWork: [Integrations](legalwork://app/settings/extensions/mcp), [Account](legalwork://app/settings/account).
+Open in LegalWork: [Email](legalwork://app/mail), [Mail accounts](legalwork://app/settings/mail-accounts), [Integrations](legalwork://app/settings/extensions/mcp), [Account](legalwork://app/settings/account).
+
+## Read email in LegalWork
+
+Select **Email** in the narrow global sidebar, beside Calendar. Email stays available when you switch projects or open Settings. Double-click its icon to open a separate window. Use **Settings > Customization > Sidebar** to move or hide the icon.
+
+The desktop reader provides a unified Inbox, account folders, conversations, search, Drafts and Outbox. Use **Settings** in Email to open **Mail accounts**. This desktop service keeps an encrypted local copy, including downloaded attachments. Mail that has finished downloading remains available offline; pending content and sync errors remain visible. Reading an item can mark it read on its provider.
+
+In **Mail accounts**, use **Accounts** to connect or reconnect a mailbox and inspect sync progress. Other providers use the IMAP setup and the **Sending** section's SMTP settings. Use the server addresses and credentials supplied by your provider. Availability depends on provider permissions and the configured sign-in application. The reader and the Gmail/Outlook assistant connector connection paths are being integrated; an assistant connection alone does not yet establish the local reader's account.
+
+Use **New message**, **Reply**, **Reply all** or **Forward** to compose. Review the account, sender, recipients, body and attachments before sending. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
+
+Under **Mail accounts > Data & access**, review the per-account agent policy. Connecting an account does not approve sending or deleting mail for the assistant. The same section contains local retention, backup, restore and archive import/export controls. Disconnecting and deleting local data are separate actions; review each dialog's scope.
 
 Open **Settings > Integrations > Communication**. Search for **Gmail** or **Outlook Email** and press its **+** button to connect. Select an installed account and choose **Manage** to open its settings. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
 

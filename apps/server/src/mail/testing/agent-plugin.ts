@@ -1,2 +1,2 @@
-/** Acceptance-only entry: compile the actual bundled plugin for native composition. */
-export {default} from '../../opencode-plugins/legalwork-mail-tools.js';
+/** Native worker acceptance exercises the same account tools as the registered plugin. */
+export {createMailTools as default} from '../agent-tools.js';

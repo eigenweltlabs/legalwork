@@ -318,14 +318,14 @@ function legalMemorySession(server: LegalMemoryServer, bearer?: string): Session
   return {
     url: server.url,
     headers: {
-      ...JSON_RPC_HEADERS,
+      "Content-Type": "application/json", Accept: "application/json, text/event-stream",
       ...(server.headers ?? {}),
       ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
     },
   };
 }
 
-function legalMemoryToolPayload(value: unknown): unknown {
+export function legalMemoryToolPayload(value: unknown): unknown {
   const envelope = asRecord(value);
   const result = asRecord(envelope?.result ?? envelope);
   if (!result || result.isError === true || envelope?.error) throw new Error("LegalMemory tool call failed");

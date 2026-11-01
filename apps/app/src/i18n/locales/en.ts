@@ -6845,6 +6845,7 @@ export default {
   "budget.exceeded_body": "It renews on your subscription’s monthly anniversary. Your firm's billing shows your usage in detail.",
   "budget.upgrade_label": "Open Billing",
   // Tasks — the firm's shared intake inbox (Eigenwelt "intake" feature).
+  "sidebar.email": "Email",
   "sidebar.tasks": "Tasks",
   "sidebar.tasks_unread_one": "({count} new)",
   "sidebar.tasks_unread_other": "({count} new)",

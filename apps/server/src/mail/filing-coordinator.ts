@@ -10,7 +10,8 @@ const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 const destinationPage=z.object({version:z.literal(1),principal_key:z.string().regex(/^[a-f0-9]{64}$/),results:z.array(z.object({id:z.string(),title:z.string(),project_id:z.string()})),next_offset:z.number().int().nonnegative().nullable()});
 const progressSchema=z.object({id:z.string().uuid(),state:z.literal('uploading'),offsets:z.array(z.number().int().nonnegative()).max(101)});
 const scopesSchema=z.object({receipts:z.array(z.object({id:z.string().uuid(),matter_id:z.string(),project_id:z.string(),manifest_hash:z.string()})).max(200)});
-export type FilingBinding={server:LegalMemoryServer;bearer?:string};
+export type FilingBinding={server:LegalMemoryServer;bearer?:string;callTool?:(name:string,args:Record<string,unknown>,signal?:AbortSignal)=>Promise<unknown>};
+function callFilingTool(binding:FilingBinding,name:string,args:Record<string,unknown>,signal?:AbortSignal){return binding.callTool ? binding.callTool(name,args,signal) : callLegalMemoryTool(binding.server,name,args,binding.bearer,signal);}
 export function filingBackendKey(binding:FilingBinding){return hash(canonicalFilingJson({name:binding.server.name,url:binding.server.url}));}
 function bindingFence(binding:FilingBinding){return hash(canonicalFilingJson({name:binding.server.name,url:binding.server.url,headers:binding.server.headers??{},bearer:binding.bearer??null}));}
 function readSignal(signal?:AbortSignal){return signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000);}
@@ -19,11 +20,11 @@ function unavailable(){return new ApiError(409,'mail_filing_attention','Filing n
 export class MailFilingCoordinator {
  private readonly running=new Set<string>();
  constructor(private readonly mail:MailService){}
- async destinations(resolve:()=>Promise<FilingBinding>,offset=0){const binding=await resolve();return destinationPage.parse(await callLegalMemoryTool(binding.server,'list_mail_filing_destinations',{offset,limit:100},binding.bearer,AbortSignal.timeout(30000)));}
+ async destinations(resolve:()=>Promise<FilingBinding>,offset=0){const binding=await resolve();return destinationPage.parse(await callFilingTool(binding,'list_mail_filing_destinations',{offset,limit:100},AbortSignal.timeout(30000)));}
  private async assertDestination(binding:FilingBinding,matterId:string){
   let offset:number|null=0,principal='';
   for(let pages=0;offset!==null&&pages<100;pages++){
-   const page=destinationPage.parse(await callLegalMemoryTool(binding.server,'list_mail_filing_destinations',{offset,limit:100},binding.bearer,AbortSignal.timeout(30000)));
+   const page=destinationPage.parse(await callFilingTool(binding,'list_mail_filing_destinations',{offset,limit:100},AbortSignal.timeout(30000)));
    if(principal&&principal!==page.principal_key)throw unavailable();principal=page.principal_key;
    const matter=page.results.find(item=>item.id===matterId);if(matter)return{principal,matter};offset=page.next_offset;
   }
@@ -52,7 +53,7 @@ export class MailFilingCoordinator {
    if(bindingFence(await resolve())!==bindingFence(binding))throw unavailable();
    // This durable preflight checks current account custody/generation before every mutation.
    await update('uploading');
-   return callLegalMemoryTool(binding.server,name,args,binding.bearer,AbortSignal.timeout(30000));
+   return callFilingTool(binding,name,args,AbortSignal.timeout(30000));
   };
   try{
    const read=await this.mail.filing({action:'snapshot',accountId:item.accountId,snapshotId:item.snapshotId});if(read.action!=='snapshot')throw unavailable();
@@ -89,7 +90,7 @@ export class MailFilingCoordinator {
   do{
    signal?.throwIfAborted();const result=await this.mail.filing({action:'list',accountIds:[accountId],workspaceId,backendKey,locator,after,limit:100});if(result.action!=='list')throw unavailable();
    signal?.throwIfAborted();const group=result.items.filter(item=>item.matterId===matterId&&item.state==='filed'&&item.receipt!==null);
-   if(group.length){const scopes=scopesSchema.parse(await callLegalMemoryTool(binding.server,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},binding.bearer,readSignal(signal)));
+   if(group.length){const scopes=scopesSchema.parse(await callFilingTool(binding,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},readSignal(signal)));
     for(const item of group){if(!scopes.receipts.some(scope=>item.remoteId===scope.id&&item.matterId===scope.matter_id&&item.receipt?.project_id===scope.project_id&&item.receipt.manifest_hash===scope.manifest_hash))continue;
      if(bindingFence(await resolve())!==bindingFence(binding))throw unavailable();
      const version=await this.mail.filing({action:'source-version',accountId,locator,snapshotId:item.snapshotId}).catch(()=>null);signal?.throwIfAborted();if(version?.action==='source-version')return version.version;
@@ -113,7 +114,7 @@ export class MailFilingCoordinator {
   const opened=await this.mail.filing({action:'scope-open',accountIds,binding:scopeBinding});if(opened.action!=='scope-open')throw unavailable();
   try{
    for(let offset=0;offset<items.length;offset+=200){
-    signal?.throwIfAborted();const group=items.slice(offset,offset+200),scopes=scopesSchema.parse(await callLegalMemoryTool(binding.server,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},binding.bearer,readSignal(signal)));
+    signal?.throwIfAborted();const group=items.slice(offset,offset+200),scopes=scopesSchema.parse(await callFilingTool(binding,'authorized_mail_filings',{filing_ids:group.map(item=>item.remoteId)},readSignal(signal)));
     signal?.throwIfAborted();const allowed:string[]=[];
     for(const scope of scopes.receipts){const item=group.find(candidate=>candidate.remoteId===scope.id);if(item&&item.matterId===scope.matter_id&&item.projectId===scope.project_id&&item.manifestHash===scope.manifest_hash)allowed.push(item.id);}
     await this.mail.filing({action:'scope-add',scopeId:opened.scopeId,filingIds:allowed});
