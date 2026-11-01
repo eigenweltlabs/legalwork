@@ -36,6 +36,16 @@ Under **Mail accounts > Data & access**, review the per-account agent policy. Co
 
 Open **Settings > Integrations > Communication**. Search for **Gmail** or **Outlook Email** and press its **+** button to connect. Select an installed account and choose **Manage** to open its settings. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
 
+## Meeting invitations
+
+Downloaded `text/calendar` and `.ics` attachments appear above the message body. The preview shows the title, organizer, location and dates. **Details** shows the description, attendees and standard recurrence settings. **Updated invitation**, **Cancelled**, **Repeats**, **Occurrence** and **Delegated** describe the attached calendar data. They do not verify the sender or prove that a connected calendar has applied an update.
+
+Timed invitations with a resolved time zone display in your computer's time zone. Floating times show **No time zone**. Ambiguous daylight-saving times retain their original wall time and source zone. All-day ranges show the last included day, rather than the exclusive end date used by iCalendar. A cancellation without dates can still be read.
+
+Select **Calendar** to open LegalWork's existing Calendar at the invitation date. Connected Google Calendar and Outlook Calendar accounts keep their existing Integrations sign-in and visibility settings. This opens the date, without importing, matching or changing an event. To respond, open the matching event in Calendar and choose **Open in Google Calendar** or **Open in Outlook Calendar** if the provider supplies a link. Check the organizer and current event details there before accepting or declining.
+
+Invitations can be read offline after download. This preview supports UTF-8 iCalendar attachments up to 256 KB with at most 20 events. It displays recurrence and delegated participants without expanding a series or applying organizer changes. Inline RSVP, reply-email transport, automatic import and calendar compatibility beyond this preview are not available yet. Other email services can supply invitation attachments without a separate calendar sign-in.
+
 ## Connect Outlook directly with Microsoft
 
 1. Open **Settings > Integrations**, open **Communication**, then press **+** next to **Outlook Email**.

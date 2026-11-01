@@ -1,4 +1,5 @@
 import {outboxErrors} from './mail-outbox-errors';
+import { mailInvitationsSchema } from '../../../../../server/src/mail/invitation-view';
 import {outboxErrorSchema} from '../../../../../server/src/mail/outbox-view';
 import {senderListSchema,type SenderSettings,type SenderConfigure} from '../../../../../server/src/mail/sender-view';
 import { graphMailboxIdentitySchema, graphMailboxResultSchema, type GraphMailboxInput } from '../../../../../server/src/mail/graph-mailbox-view';
@@ -62,6 +63,7 @@ export class MailClient {
     readLocator(accountId:string, locator:MailMessageView["locator"], signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/messages/read`,message,signal,{locator});}
     check(item: MailMessageView, signal: AbortSignal) { return this.request(`/accounts/${encodeURIComponent(item.accountId)}/messages/read`, message, signal, { locator: item.locator }); }
     parts(item: MailMessageView, signal: AbortSignal, after?: string) { return this.request(`/accounts/${encodeURIComponent(item.accountId)}/messages/parts`, page(part), signal, { locator: item.locator, page: { limit: 100, ...(after ? { after } : {}) } }); }
+    invitations(item: MailMessageView, part: MailPartView, signal: AbortSignal) { return this.request(`/accounts/${encodeURIComponent(item.accountId)}/messages/invitations`, mailInvitationsSchema, signal, { locator: item.locator, partId: part.partId, referenceId: part.referenceId, rawReferenceId: item.rawReferenceId }); }
     sync(accountId: string, signal: AbortSignal, operation?: 'start' | 'pause') { return this.request(`/accounts/${encodeURIComponent(accountId)}/sync${operation ? '/' + operation : ''}`, syncSchema, signal, undefined, Boolean(operation)); }
     async bytes(item: MailMessageView, part: MailPartView, signal: AbortSignal, maxBytes = 64 * 1024 * 1024): Promise<Uint8Array<ArrayBuffer>> {
         if (!part.bytesAvailable || part.bytes === null || part.bytes > maxBytes || !part.referenceId || !part.sha256)

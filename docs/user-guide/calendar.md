@@ -14,6 +14,8 @@ Loaded date ranges stay cached in memory for the app session without a time limi
 
 Open a connected event to read its full description, dates and times, time zone, location, organizer, attendees and responses, recurrence and reminders when provided. Meeting links, description links and supplied attachment links are clickable. Outlook attachments that are only identified as present can be viewed with **Open in Outlook Calendar**. The preview groups the schedule, location, organizer, reminders and files alongside the description. **Repeats** shows the interval, selected weekdays and end condition when the source supplies the rule. For rules not supplied with an occurrence, use the source calendar to inspect the full schedule. Choose **Show all** to expand a long attendee list. The preview scrolls to keep every detail accessible. Personal calendar events remain associated with their connected account and calendar.
 
+From an [email invitation](email.md#meeting-invitations), select **Calendar** to open this view at the invitation date. Connected calendar overlays use their existing Integrations accounts and visibility settings. This opens a date without importing the attachment or changing an event.
+
 ## Add a deadline
 
 1. Open the intended project's Calendar and choose the new-deadline action. In the combined calendar, choose the project in the dialog.

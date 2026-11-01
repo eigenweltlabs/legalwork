@@ -15,6 +15,7 @@ import { MailServiceError, type MailService, type MailServiceStatus } from "./se
 import type { MailSyncView } from "./sync-view.js";
 import { LocalMailService } from "./service.js";
 import { mailContentChunkSchema, mailMessageViewSchema, mailPartViewSchema } from "./read-view.js";
+import { mailInvitationsSchema } from "./invitation-view.js";
 
 const auth = { "x-legalwork-host-token": "synthetic-mail-host" };
 let directory = "";
@@ -121,7 +122,8 @@ test("local HTTP reads complete encrypted originals and attachments offline with
   const privateDir = join(directory, "private"); await mkdir(privateDir, { mode: 0o700 });
   const databasePath = join(privateDir, "mail.sqlite"), key = randomBytes(32), locator = { provider: "gmail", messageId: "m1" } satisfies import("./model.js").ProviderMessageLocator;
   const attachment = Buffer.alloc(100003, 0xa7);
-  const raw = Buffer.from(`Subject: Offline ÄÖÜ case 12 O 123/26\r\nContent-Type: multipart/mixed; boundary=fixture\r\n\r\n--fixture\r\nContent-Type: text/plain\r\n\r\nOffline body\r\n--fixture\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=case.bin\r\nContent-Transfer-Encoding: base64\r\n\r\n${attachment.toString("base64")}\r\n--fixture--\r\n`);
+  const invitation = Buffer.from('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:meeting@example.test\r\nSUMMARY:Offline meeting\r\nDTSTART:20261103T100000Z\r\nDTEND:20261103T110000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n');
+  const raw = Buffer.from(`Subject: Offline ÄÖÜ case 12 O 123/26\r\nContent-Type: multipart/mixed; boundary=fixture\r\n\r\n--fixture\r\nContent-Type: text/plain\r\n\r\nOffline body\r\n--fixture\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=case.bin\r\nContent-Transfer-Encoding: base64\r\n\r\n${attachment.toString("base64")}\r\n--fixture\r\nContent-Type: text/calendar; charset=utf-8\r\nContent-Disposition: attachment; filename=invite.ics\r\nContent-Transfer-Encoding: base64\r\n\r\n${invitation.toString("base64")}\r\n--fixture--\r\n`);
   const moduleUrl = (name: string) => JSON.stringify(pathToFileURL(join(runtime, "build/mail/storage", name)).href);
   const seed = `import {readFileSync} from 'node:fs';
     import {openEncryptedMailDatabase} from ${moduleUrl("database.js")}; import {migrateMailSchema} from ${moduleUrl("schema.js")};
@@ -134,15 +136,16 @@ test("local HTTP reads complete encrypted originals and attachments offline with
       repo.putFolder('a',{id:'INBOX',name:'Inbox',kind:'label'}); repo.putFolder('a',{id:'UNREAD',name:'Unread',kind:'label'});
       for(const id of ['m1','m2','m3']) repo.ingestMessage('a',{locator:{provider:'gmail',messageId:id},rfcMessageId:null,subject:id==='m3'?'x'.repeat(70000):'Offline ÄÖÜ case 12 O 123/26',threadId:'thread',memberships:['INBOX','UNREAD']});
       function* chunks(bytes){for(let at=0;at<bytes.length;at+=65536)yield bytes.subarray(at,at+65536);}
-      const rawBytes=Buffer.from(input.raw,'base64'),attachmentBytes=Buffer.from(input.attachment,'base64'),bodyBytes=Buffer.from(JSON.stringify({version:1,bodies:[{partId:'text',contentType:'text/plain',text:'Offline body'}]}));
+      const rawBytes=Buffer.from(input.raw,'base64'),attachmentBytes=Buffer.from(input.attachment,'base64'),invitationBytes=Buffer.from(input.invitation,'base64'),bodyBytes=Buffer.from(JSON.stringify({version:1,bodies:[{partId:'text',contentType:'text/plain',text:'Offline body'}]}));
       const loc={provider:'gmail',messageId:'m1'};
       const rawRef=await content.writePart('a',loc,{kind:'raw',maxBytes:rawBytes.length},chunks(rawBytes));
       const body=await content.writePart('a',loc,{kind:'body',maxBytes:bodyBytes.length},chunks(bodyBytes));
       const part=await content.writePart('a',loc,{kind:'attachment',partId:'part',maxBytes:attachmentBytes.length},chunks(attachmentBytes));
-      projections.complete('a',loc,rawRef.id,{metadata:{subject:'Offline ÄÖÜ case 12 O 123/26',from:'sender@example.test',to:'owner@example.test',cc:null,bcc:null,replyTo:null,date:'2026-01-01T00:00:00.000Z',messageId:null},bodies:[{partId:'text',contentType:'text/plain'}],body,attachments:[{partId:'part',filename:'case.bin',contentType:'application/octet-stream',disposition:'attachment',contentId:null,reference:part}]}); repo.setAttachmentsEnumerated('a',loc,true);
+      const invitation=await content.writePart('a',loc,{kind:'attachment',partId:'invite',maxBytes:invitationBytes.length},chunks(invitationBytes));
+      projections.complete('a',loc,rawRef.id,{metadata:{subject:'Offline ÄÖÜ case 12 O 123/26',from:'sender@example.test',to:'owner@example.test',cc:null,bcc:null,replyTo:null,date:'2026-01-01T00:00:00.000Z',messageId:null},bodies:[{partId:'text',contentType:'text/plain'}],body,attachments:[{partId:'part',filename:'case.bin',contentType:'application/octet-stream',disposition:'attachment',contentId:null,reference:part},{partId:'invite',filename:'invite.ics',contentType:'text/calendar',disposition:'attachment',contentId:null,reference:invitation}]}); repo.setAttachmentsEnumerated('a',loc,true);
       db.run("INSERT INTO mail_tombstones VALUES('a',?,'gmail-removed','2026-01-01')",[JSON.stringify(['gmail','m2'])]);
     } finally {db.close();}`;
-  execFileSync(executable, ["--input-type=module", "--eval", seed], { input: JSON.stringify({ path: databasePath, key: key.toString("base64"), raw: raw.toString("base64"), attachment: attachment.toString("base64") }), stdio: ["pipe", "pipe", "pipe"], timeout: 10000 });
+  execFileSync(executable, ["--input-type=module", "--eval", seed], { input: JSON.stringify({ path: databasePath, key: key.toString("base64"), raw: raw.toString("base64"), attachment: attachment.toString("base64"), invitation: invitation.toString('base64') }), stdio: ["pipe", "pipe", "pipe"], timeout: 10000 });
   const service = new LocalMailService({ executable: { kind: "node", path: executable }, entryPoint: join(runtime, "build/mail/runtime/worker.js"), databasePath, ownerId: "owner", loadKey: async () => Buffer.from(key) });
   const { base } = await boot(service);
   const post = (operation: string, value: unknown, accountId = "a", headers: Record<string,string> = auth) => fetch(`${base}/accounts/${accountId}/messages/${operation}`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(value) });
@@ -164,9 +167,20 @@ test("local HTTP reads complete encrypted originals and attachments offline with
     const message = mailMessageViewSchema.parse(await (await post("read", { locator })).json());
     expect(message.metadata?.from).toBe("sender@example.test"); expect(message.contentState).toBe("complete");
     const parts = z.object({ items: z.array(mailPartViewSchema), nextCursor: z.string().nullable() }).parse(await (await post("parts", { locator })).json());
-    expect(parts.items).toHaveLength(3);
+    expect(parts.items).toHaveLength(4);
+    const invite = parts.items.find(item => item.filename === 'invite.ics');
+    if (!invite?.referenceId) throw Error('missing invitation');
+    const invitationInput = { locator, partId: invite.partId, referenceId: invite.referenceId, rawReferenceId: message.rawReferenceId };
+    const preview = await post('invitations', invitationInput);
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get('cache-control')).toBe('no-store');
+    expect(mailInvitationsSchema.parse(await preview.json()).invitations[0]).toMatchObject({ title: 'Offline meeting', start: { instant: '2026-11-03T10:00:00.000Z' } });
+    expect((await post('invitations', invitationInput, 'a', {})).status).toBe(401);
+    expect((await post('invitations', { ...invitationInput, accessToken: 'forbidden' })).status).toBe(400);
+    expect((await post('invitations', { ...invitationInput, rawReferenceId: `sha256:${'b'.repeat(64)}` })).status).toBe(409);
+    expect((await post('invitations', invitationInput, 'foreign')).status).toBe(404);
     for (const kind of ["raw", "attachment"]) {
-      const part = parts.items.find(item => item.kind === kind); if (!part?.referenceId || !part.sha256) throw new Error("missing fixture part");
+      const part = parts.items.find(item => item.kind === kind && (kind === 'raw' || item.filename === 'case.bin')); if (!part?.referenceId || !part.sha256) throw new Error("missing fixture part");
       const chunks: Buffer[] = []; let offset = 0;
       while (true) {
         const response = await post("content", { locator, request: { kind, partId: part.partId, referenceId: part.referenceId, offset, limit: 16387 } });
@@ -180,7 +194,9 @@ test("local HTTP reads complete encrypted originals and attachments offline with
     const part = parts.items.find(item => item.kind === "raw"); if (!part?.referenceId) throw new Error("missing raw");
     expect((await post("content", { locator: { provider: "gmail", messageId: "m2" }, request: { kind: "raw", referenceId: part.referenceId } })).status).toBe(404);
     expect((await post("content", { locator, request: { kind: "raw", referenceId: part.referenceId, limit: 24577 } })).status).toBe(400);
-    await service.lock(); await service.unlock(); expect((await post("read", { locator })).status).toBe(200);
+    await service.lock();
+    expect((await post('invitations', invitationInput)).status).toBe(423);
+    await service.unlock(); expect((await post("read", { locator })).status).toBe(200);
     await service.disconnectAccount("a"); expect((await post("read", { locator })).status).toBe(423);
     expect((await post("content", { locator, request: { kind: "raw", referenceId: part.referenceId } })).status).toBe(423);
   } finally { await service.stop(); key.fill(0); }
