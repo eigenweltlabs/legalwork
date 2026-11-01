@@ -26,7 +26,8 @@ test('restricted Electron fixture environments preserve only Linux display acces
  const source={DISPLAY:':91',XAUTHORITY:'/synthetic/xauth',LEGALWORK_HOST_TOKEN:'must-not-inherit',ELECTRON_RUN_AS_NODE:'must-not-inherit'};
  const environment=electronDisplayEnvironment(source,'linux');
  expect(environment).toEqual({DISPLAY:source.DISPLAY,XAUTHORITY:source.XAUTHORITY});
- expect(electronDisplayEnvironment(source,'darwin')).toEqual({});
+ expect(()=>electronDisplayEnvironment(source,'darwin')).toThrow('Local macOS Mail browser tests are disabled');
+ expect(electronDisplayEnvironment({...source,GITHUB_ACTIONS:'true'},'darwin')).toEqual({});
  expect(electronDisplayEnvironment(source,'win32')).toEqual({});
  const node=Bun.which('node');if(!node)throw Error('Node required for child environment regression');
  const child=spawnSync(node,['-e','process.stdout.write(JSON.stringify(process.env))'],{env:environment,encoding:'utf8',timeout:5000});

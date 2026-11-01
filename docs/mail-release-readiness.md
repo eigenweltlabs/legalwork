@@ -26,6 +26,8 @@ Current local validation is headless macOS arm64 development evidence. MAIL-152 
 
 The hosted unit workflow uploads captured synthetic Email UI files as `mail-ui-Linux` and `mail-ui-macOS` artifacts for seven days, including files produced before a failing test. Outbox captures use the current shared stylesheet and include a manifest with the actual platform and viewport sizes. Inspect the images before recording a visual PASS. Linux captures do not qualify Windows rendering. No local desktop automation is required to retrieve or review these artifacts.
 
+Mail browser fixtures reject macOS launches outside GitHub Actions before spawning Electron. Run local checks only from inspected headless files. Bun's test-listing flags must not be used to inspect a renderer fixture; read the source instead.
+
 MAIL-141's 100,000-message/reference-machine qualification remains deferred until the build/fix work is complete and its actual hardware/platform gates can run. The diagnostic counts added here are not that benchmark.
 
 ## Staged rollout control
