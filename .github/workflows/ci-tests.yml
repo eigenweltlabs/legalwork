@@ -429,6 +429,8 @@ jobs:
 
   legalwork-tests:
     needs: [changes, unit-tests, opencode-derivative]
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
@@ -559,6 +561,8 @@ jobs:
 
   sandbox-engine:
     needs: [sandbox-runtime, opencode-derivative]
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     if: >-
       always() && !cancelled() && needs.sandbox-runtime.result == 'success' &&
       needs.opencode-derivative.result == 'success'
