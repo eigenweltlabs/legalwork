@@ -1347,7 +1347,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   async function credentialVault() {
     // Match the local server's profile, environment overrides, module instance and write lock.
     const env = await buildChildEnv({});
-    Object.assign(process.env, env);
+    applyEmbeddedServerEnvironment(process.env, env);
     const directory = path.dirname(locateEmbeddedServerPath());
     const { OAuthVault, oauthVaultPath, vaultLock } = await import(pathToFileURL(path.join(directory, "file-storage/oauth/vault.js")).href);
     const { BrowserPasswordStore } = await import(pathToFileURL(path.join(directory, "browser-passwords.js")).href);
