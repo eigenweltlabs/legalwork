@@ -15,6 +15,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Email reader, meeting invitations, ICS previews or reviewed invitation replies, shared Integrations accounts, retained local copies or account migration, Inbox, Drafts, Outbox, iCloud or IMAP/SMTP, Gmail or Outlook, direct Microsoft sign-in, or an OAuth app override | [email.md](references/email.md) |
 | S/MIME, signed or encrypted email, signature/certificate verification, unavailable decryption keys, RPMSG or Microsoft protected-mail limitations | [email.md](references/email.md) |
 | Fastmail, native JMAP availability, on-premises Exchange, EWS or IMAP/SMTP protocol limitations | [email.md](references/email.md) |
+| Proton Mail Bridge availability, paid-plan or installed-Bridge prerequisites, local certificates or Bridge qualification limits | [email.md](references/email.md) |
 | Mail diagnostics, safe mail support export, queued/uncertain action counts or local download incident reports | [email.md](references/email.md) |
 | Workflows, Review prompts, Skills tab, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
 | Calendar, shared Outlook calendar consent or delegate permissions, Calendar write access, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
