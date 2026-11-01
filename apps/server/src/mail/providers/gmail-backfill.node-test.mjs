@@ -33,6 +33,14 @@ test('recent then paginated all history deduplicates originals and completes enc
  assert.equal(status.enumerated,3);assert.equal(status.downloaded,3);assert.equal(status.projected,3);assert.equal(status.failed,0);assert.equal(f.maxRaw,1);assert.ok(f.calls[0].recentAfterSeconds);assert.equal(f.calls[1].recentAfterSeconds,undefined);assert.equal(f.calls[2].pageToken,'next');
  assert.equal(f.db.get("SELECT count(*) AS n FROM mail_memberships").n,3);await f.reopen();assert.equal(f.make().status('a').state,'paused');
 }));
+test('new-project Gmail raw reads reserve triple metadata cost and stay below the per-user minute budget',()=>fixture(async f=>{
+ const starts=[];
+ const e=f.make({transport:()=>({...f.transport,async consumeRaw(...args){starts.push(performance.now());return f.transport.consumeRaw(...args);}})});
+ e.start('a');await until(()=>e.status('a').state==='complete');
+ assert.equal(starts.length,3);
+ for(let i=1;i<starts.length;i++)assert.ok(starts[i]-starts[i-1]>=700,'raw requests must reserve 60 units rather than the 20-unit metadata interval');
+ assert.ok((60000/750+1)*60<6000);
+}));
 test('pause fences late discovery; reopen explicitly resumes same generation',()=>fixture(async f=>{
  const gate=defer(),entered=defer();const e=f.make({transport:()=>({...f.transport,async listMessages(i){entered.resolve();await gate.promise;return f.transport.listMessages(i);}})});e.start('a');await entered.promise;const gen=f.db.get('SELECT generation FROM mail_gmail_runs').generation;e.pause('a');gate.resolve();await delay(30);assert.equal(e.status('a').enumerated,0);await f.reopen();const next=f.make();assert.equal(next.status('a').state,'paused');next.start('a');await until(()=>next.status('a').state==='complete');assert.equal(f.db.get('SELECT generation FROM mail_gmail_runs').generation,gen);
 }));
