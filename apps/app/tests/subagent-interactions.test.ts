@@ -38,6 +38,7 @@ const session = (id:string,parentID?:string)=>projectSession(nativeSession(id,pa
 const pendingPermissions = (id = "child") => queryClient.getQueryData<PendingPermission[]>(permissionKey(workspaceId, id)) ?? [];
 const pendingQuestions = (id = "child") => queryClient.getQueryData<PendingQuestion[]>(questionKey(workspaceId, id)) ?? [];
 const cleanups: Array<() => void> = [];
+type FixtureHandler = (request: Request) => Response | Promise<Response> | undefined;
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
@@ -45,8 +46,8 @@ afterEach(() => {
   useSessionActivityStore.setState({ recordsByWorkspaceId: {}, statusesByWorkspaceId: {} });
 });
 
-function testSync() {
-  const {client}=testClient();
+function testSync(handler?: FixtureHandler) {
+  const {client}=testClient(handler);
   cleanups.push(__createWorkspaceSessionSyncForTest(syncInput,client));
   cleanups.push(trackWorkspaceSessionSync(syncInput, "parent"));
   return (type: string, data: unknown) => __applySessionSyncEventForTest(syncInput, { type, data });
@@ -60,7 +61,7 @@ async function waitUntil(check: () => boolean, timeout = 3000) {
   }
 }
 
-function testClient(handler?: (request: Request) => Response | Promise<Response> | undefined) {
+function testClient(handler?: FixtureHandler) {
   const calls: Array<{ path: string; body: unknown }> = [];
   const server = Bun.serve({
     port: 0,
@@ -97,13 +98,21 @@ describe("subagent request scope", () => {
   });
 
   test("discovers descendants live, forwards new-child metadata, and isolates unrelated chats", async () => {
-    const emit = testSync();
+    let releaseChild = () => {};
+    const childReady = new Promise<void>(resolve => { releaseChild = resolve; });
+    cleanups.push(() => releaseChild());
+    const emit = testSync(request => new URL(request.url).pathname === "/api/session/child"
+      ? childReady.then(() => Response.json({ data: nativeSession("child", "parent") })) : undefined);
     const updates: string[] = [];
     cleanups.push(ensureWorkspaceSessionSync({ ...syncInput, onSessionUpdated: (update) => updates.push(update.sessionId) }));
     for (const info of [session("parent"), session("child", "parent"), session("grandchild", "child"), session("other")]) {
       emit("session.created", {sessionID:info.id});
     }
     await waitUntil(()=>Boolean(queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.grandchild));
+    const partial = queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))!;
+    expect(interactionSessionIds("parent", partial)).not.toContain("grandchild");
+    releaseChild();
+    await waitUntil(() => ["parent", "child", "grandchild", "other"].every(id => queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.[id]));
     const sessions = queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))!;
     expect(interactionSessionIds("parent", sessions)).toEqual(["parent", "child", "grandchild"]);
     expect(interactionSessionIds("child", sessions)).toEqual(["child", "grandchild"]);
@@ -159,7 +168,7 @@ describe("subagent request scope", () => {
     emit("permission.asked", permission());
     emit("form.created", {form:question("nested-question", "grandchild")});
     emit("permission.asked", permission("other-approval", "other"));
-    await waitUntil(()=>Boolean(queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.grandchild));
+    await waitUntil(() => ["child", "grandchild"].every(id => queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.[id]));
     emit("session.deleted", {sessionID:"child"});
     emit("permission.asked", permission("late"));
     emit("session.renamed", {sessionID:"child",title:"Late rename"});
