@@ -20,6 +20,14 @@ Old queued submissions are not sent automatically after migration. Review a fail
 
 If the old account cannot be verified, its data and reconnect controls remain available. Reconnect that retained account to prove its identity, and connect the same mailbox in Integrations. Different identities remain separate. Provider discovery and verification run in the background; retained local mail can open while they are unavailable.
 
+## Download status and local privacy
+
+In **Settings > Mail accounts > Accounts**, inspect the account's sync progress and errors. Message discovery, saved original bytes, readable bodies, attachments and search indexing are separate steps. A message header or attachment filename alone does not mean its content is saved. Mail you have never opened still needs its accessible original and attachment bytes downloaded for complete offline use. Pending work, unavailable originals, protected content and excluded provider scopes must be accounted for; a search index is not proof of a complete mailbox.
+
+Counts refer to local provider identities. Gmail labels can contain the same message, and IMAP copies in different folders can have different identities. Do not compare a unified conversation count directly with a provider's folder count. A provider may withhold protected messages, cloud-reference attachments, inaccessible shared folders or other content. Those limitations do not disappear when a sync pass ends. Downloaded content remains readable offline; missing content needs the provider or a supported authorized application.
+
+The Email store is encrypted on this computer. Reading, local lexical search and composing a local draft do not themselves require a remote model. Mail supplied to an assistant task enters that task's model context, and remote processing follows the selected provider and the permissions granted for that task. Matter filing, connected storage and exports create separate copies at their chosen destinations. Disconnecting an integration does not recall those copies or remove past chat content.
+
 ## Connect iCloud or another mail service
 
 1. Open **Settings > Integrations > Communication** and select **iCloud / IMAP / SMTP**. You can search the catalogue for IMAP or iCloud.
@@ -178,7 +186,44 @@ Downloaded mail, local drafts, Outbox, snoozes and rules belong to this computer
 
 Open **Settings > Mail accounts > Data & access** for backup and export controls. Restoring an encrypted mail backup does not restore provider credentials or resume old pending work. Review the account connection in Integrations before creating fresh provider actions. Restoring a backup does not resume old sends or enable its rules.
 
+## Back up, restore and remove local copies
+
+### Create an encrypted backup
+
+1. Open **Settings > Mail accounts > Data & access > Retention and encrypted recovery**.
+2. Under **Encrypted backup and restore**, enter a **Recovery passphrase (16+ characters)** and repeat it in **Confirm passphrase for new backup**. Keep the passphrase separately from the backup.
+3. Select **Choose backup destination…** and choose a folder. LegalWork creates a new encrypted backup, verifies it and reports its inventory. Let verification finish; **Cancel recovery operation** stops a pending operation.
+4. After success, Email is closed. Reopen **Email** when ready. Preserve the backup and recovery passphrase. A backup can contain incomplete local parts, so check the reported incomplete-part count; it cannot add content the provider never supplied.
+
+### Restore an encrypted backup
+
+1. Keep a separate backup of the current store if you need its newer local work. A restore replaces the active mail store.
+2. Open the same **Encrypted backup and restore** controls, enter the backup's recovery passphrase and select **Replace current mail with this backup**.
+3. Select **Choose backup to restore…**, choose the encrypted backup folder and wait for verification. If it fails or is cancelled, keep the source backup and passphrase and reopen Email to inspect the active state before retrying.
+4. After success, reopen **Email** to inspect restored local data. Provider credentials are removed; old sends, provider-draft mappings and file/filing jobs are quarantined. Rules are disabled. Review Integrations and reconnect explicitly before creating fresh provider actions. Restoring cannot undo a send already accepted by a provider.
+
+### Review local retention or remove an account's local data
+
+1. Open **Settings > Mail accounts > Data & access > Retention and encrypted recovery**, then find the account. Leave **Keep provider-deleted copies for days** blank for indefinite retention, or enter the desired number of days.
+2. Choose **Deletion scope**: **Provider-deleted copies past this age**, **All local mirror messages**, or **Disconnected account and local history**. Disconnect the provider first for account removal. Outlook's shared Email/Calendar account disconnect affects both integrations; it does not delete local mail by itself.
+3. Select **Save retention and review deletion**. Review the counts and blockers. Retained originals and matter-filed records have separate lifecycles; resolve the displayed blockers rather than assuming every reference can be deleted. Offline archives require **Include this offline archive explicitly**.
+4. If you intend that exact local deletion, enter `DELETE LOCAL COPIES` and select **Delete selected local copies**. This action pauses background mail. To resume afterward, open **Mail accounts > Notifications > Background mail** and select **Resume mail** when ready.
+
+Deleting local copies does not delete provider mail, exported files, filed matter records or existing chat history. Leaving an account connected allows subsequent sync to download accessible provider content again.
+
 ## Disconnect and troubleshoot
+
+### Export mail diagnostics
+
+1. Open **Settings > Mail accounts > Data & access**.
+2. Under **Diagnostics**, select **Export diagnostics**. Your browser or desktop download location receives `legalwork-mail-diagnostics-YYYY-MM-DD.json`.
+3. Review the file before sharing it with support. It contains the local storage state, schema version and aggregate counts for messages, originals, attachments, sync jobs, drafts, queued actions, schedules, search and invitation replies. It excludes account and message identifiers, addresses, subjects, message/attachment contents, credentials, file paths and provider response text.
+
+The report reads saved local observations. It does not contact the provider, compare mailbox counts, verify content hashes, send mail or retry work. **Stored** counts describe local manifests; missing or unenumerated attachments are not implied complete. Scheduled counts include only queued/retrying scheduled submissions; **due** means their earliest attempt time has passed, not that they were sent. Collection never unlocks Email. A report collected while storage is locked or unavailable contains that state without storage counts.
+
+This mail report is different from **Settings > Updates > Support logs** and technical diagnostics, which can include tool arguments, results and logs. Use the mail report first for mail incidents. Counts can still reveal mailbox volume, so share them only with the agreed recipient. Export does not upload the file.
+
+### Common problems
 
 | Situation | What to do |
 | --- | --- |

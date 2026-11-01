@@ -41,6 +41,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | AI Providers | How do I connect a chat model, set up Fusion, OCR or JEV? | [Models](models-fusion.md) |
 | Tabular Review | Which inference mode, models and probability threshold apply to new reviews? | [Tabular Review](reviews.md) |
 | Mail accounts: Rules | Add, order, enable, edit or delete account-local rules and inspect readiness and recent activity | [Local mail rules](email.md#local-rules-for-new-inbox-mail) |
+| Mail accounts: Data & access, Diagnostics | Export local aggregate mail counts and fixed states without email contents or identities | [Mail diagnostics](email.md#export-mail-diagnostics) |
 | Mail accounts | Inspect sync, move proven older accounts to Integrations, review retained copies, and configure sending, notifications, agent access and local retention | [Email](email.md) |
 | Recorder: Models | Which transcription source, language and downloaded model should I use? | [Recorder settings](recorder-settings.md) |
 | Recorder: Dictate anywhere | How do I set the shortcut, microphone, activation mode and startup behavior? | [Recorder settings](recorder-settings.md) |

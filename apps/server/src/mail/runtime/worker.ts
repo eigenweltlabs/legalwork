@@ -1,4 +1,5 @@
 import {MailRulesStore} from '../storage/rules.js';
+import { collectMailDiagnostics } from '../storage/diagnostics.js';
 import {MailRulesRunner} from './rules-runner.js';
 import {MailRulesError} from '../rules-view.js';
 import {MailSnoozeStore} from '../storage/snoozes.js';
@@ -421,6 +422,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case "mail.local.events": if(!local)throw locked;result={local:{operation:command.operation,accountId:command.accountId,value:local.events(command.accountId,command.input)}};break;
       case "ping": result = { pong: true }; break;
       case "mail.storage.status": result = { encrypted: true, schemaVersion: MAIL_SCHEMA_VERSION, syncSupported: true }; break;
+      case "mail.diagnostics": result = { diagnostics: collectMailDiagnostics(database, ownerId, lifecycleSuspended) }; break;
       case "mail.imap.discovery":result={imapDiscovery:imap.discovery(command.accountId,command.after)};break;
       case "mail.imap.cancel": {
         for (const [id, expiry] of imapRequests) if (expiry < Date.now()) imapRequests.delete(id);

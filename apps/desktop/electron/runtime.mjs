@@ -1401,7 +1401,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const embeddedPath = locateEmbeddedServerPath();
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
     let mail;
-    if (!options.remoteAccessEnabled) {
+    // Host startup control for staged Email-client rollout. Never remove or downgrade its stored data.
+    const mailClientEnabled = process.env.LEGALWORK_EMAIL_CLIENT_ENABLED === undefined || process.env.LEGALWORK_EMAIL_CLIENT_ENABLED === '1';
+    if (!options.remoteAccessEnabled && mailClientEnabled) {
       const { safeStorage, nativeImage, BrowserWindow, Notification, powerMonitor } = await import("electron");
       mail = await createDesktopMailService({ app, embeddedPath, safeStorage });
       configureMailPortability(mail);

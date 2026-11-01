@@ -16,6 +16,7 @@ import type { MailSyncView } from "./sync-view.js";
 import { LocalMailService } from "./service.js";
 import { mailContentChunkSchema, mailMessageViewSchema, mailPartViewSchema } from "./read-view.js";
 import { mailInvitationsSchema } from "./invitation-view.js";
+import type { MailDiagnostics } from './diagnostics-view.js';
 
 const auth = { "x-legalwork-host-token": "synthetic-mail-host" };
 let directory = "";
@@ -212,6 +213,26 @@ test("mail routes are absent by default and when sharing binds all interfaces", 
   expect((await fetch(`${shared.base}/status`, { headers: auth })).status).toBe(404);
   expect(mock.calls()).toBe(0);
 });
+test('aggregate mail diagnostics require a loopback host token and reject unapproved output', async () => {
+  const mock = mockService(); let reads = 0;
+  const report = { format: 'legalwork-mail-diagnostics', version: 1, generatedAt: '2026-11-01T10:00:00.000Z', state: 'locked', snapshot: null } satisfies MailDiagnostics;
+  mock.service.diagnostics = async () => { reads++; return report; };
+  const { base } = await boot(mock.service);
+  for (const headers of [new Headers(), new Headers({ authorization: 'Bearer synthetic-mail-collaborator' })]) expect((await fetch(base + '/diagnostics', { headers })).status).toBe(401);
+  expect((await fetch(base + '/diagnostics?ownerId=other', { headers: auth })).status).toBe(400);
+  expect(reads).toBe(0);
+  const result = await fetch(base + '/diagnostics', { headers: auth });
+  expect(result.status).toBe(200); expect(result.headers.get('cache-control')).toBe('no-store'); expect(await result.json()).toEqual(report);
+  expect(mock.calls()).toBe(0);
+  const remote = await boot(mock.service, '0.0.0.0');
+  expect((await fetch(remote.base + '/diagnostics', { headers: auth })).status).toBe(404); expect(reads).toBe(1);
+  mock.service.diagnostics = async () => ({ ...report, privateBody: 'PRIVATE_DIAGNOSTIC_MARKER' });
+  // Registration captures the service method. Use a fresh server to verify its output boundary.
+  const unsafe = await boot(mock.service);
+  const rejected = await fetch(unsafe.base + '/diagnostics', { headers: auth });
+  expect(rejected.status).toBe(503); expect(await rejected.text()).not.toContain('PRIVATE_DIAGNOSTIC_MARKER');
+});
+
 test("sync controls require a local host token and reject settings in bodies or query strings", async () => {
   const mock = mockService();
   const { base } = await boot(mock.service);

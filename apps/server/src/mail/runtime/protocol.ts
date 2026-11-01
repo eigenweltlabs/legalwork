@@ -1,6 +1,7 @@
 import {mailRuleDefinitionSchema,mailRulesCommandSchema,mailRulesSchema,mailRulesErrorSchema,type MailRulesCommand,type MailRules} from '../rules-view.js';
 import {mailSnoozeCommandSchema,mailSnoozeSchema,mailSnoozeErrorSchema,type MailSnoozeCommand,type MailSnooze} from '../snooze-view.js';
 import {contactsInputSchema,contactsResultSchema,type ContactsInput,type ContactsResult} from '../contacts-view.js';
+import { mailDiagnosticSnapshotSchema, type MailDiagnosticSnapshot } from '../diagnostics-view.js';
 import { invitationReplyJournalCommandSchema, invitationReplyJournalResultSchema, type InvitationReplyJournalCommand, type InvitationReplyJournalResult } from '../invitation-reply-view.js';
 import {qualificationInputSchema,qualificationReportSchema,type QualificationInput,type QualificationReport} from '../qualification-view.js';
 import {agentControlResultMatches,agentControlSchema,agentControlResultSchema,type AgentControl,type AgentControlResult} from '../agent-view.js';
@@ -73,6 +74,7 @@ export type WorkerCommand = {operation:"mail.qualification";input:QualificationI
   | { operation: "mail.badge.count" }
   | { operation: "ping" }
   | { operation: "mail.storage.status" }
+  | { operation: "mail.diagnostics" }
   | {operation:"mail.imap.discovery";accountId:string;after?:string}
   | {operation:"mail.imap.connect";input:ImapConnection;requestId?:string}
   | {operation:"mail.imap.cancel";requestId:string}
@@ -96,6 +98,7 @@ export type WorkerAccount = { id: string; provider: "gmail" | "graph" | "imap" |
 export type WorkerFolder = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
 export type WorkerResult = {qualification:QualificationReport} | {agent:AgentControlResult}| {storageSave:StorageSaveResult}|{filing:FilingResult}| {notifications:MailNotificationBatch}|{lifecycle:{state:"running"|"suspended"}}
   | { invitationJournal: InvitationReplyJournalResult }
+  | { diagnostics: MailDiagnosticSnapshot }
   | {retention:RetentionPreview|z.infer<typeof retentionResultSchema>|z.infer<typeof retentionSettingsSchema>} | {retentionFailure:'conflict'|'locked'|'not_found'|'invalid_input'}
   | {portability:PortabilityStatus[]}
   | {contacts:ContactsResult}
@@ -211,6 +214,7 @@ function folder(value: unknown): value is WorkerFolder {
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
+  if (record(value) && exact(value, ['diagnostics'])) return mailDiagnosticSnapshotSchema.safeParse(value.diagnostics).success;
   if (record(value) && exact(value, ['invitationJournal'])) return invitationReplyJournalResultSchema.safeParse(value.invitationJournal).success;
   return record(value) && ((exact(value,['rules'])&&mailRulesSchema.safeParse(value.rules).success)||(exact(value,['rulesFailure'])&&mailRulesErrorSchema.safeParse(value.rulesFailure).success)||(exact(value,['snooze'])&&mailSnoozeSchema.safeParse(value.snooze).success)||(exact(value,['snoozeFailure'])&&mailSnoozeErrorSchema.safeParse(value.snoozeFailure).success)||(exact(value,["qualification"])&&qualificationReportSchema.safeParse(value.qualification).success) || (exact(value,["agent"])&&agentControlResultSchema.safeParse(value.agent).success) || (exact(value,["storageSave"])&&storageSaveResultSchema.safeParse(value.storageSave).success) || (exact(value,["filing"])&&filingResultSchema.safeParse(value.filing).success) || (exact(value,['retention'])&&(retentionPreviewSchema.safeParse(value.retention).success||retentionResultSchema.safeParse(value.retention).success||retentionSettingsSchema.safeParse(value.retention).success))||(exact(value,['retentionFailure'])&&['conflict','locked','not_found','invalid_input'].includes(String(value.retentionFailure))) || (exact(value,["portability"])&&Array.isArray(value.portability)&&value.portability.length<=100&&value.portability.every(item=>portabilityStatusSchema.safeParse(item).success)) || (exact(value,["outbox"])&&Array.isArray(value.outbox)&&value.outbox.length<=100&&value.outbox.every(item=>outboxItemSchema.safeParse(item).success)) || (exact(value,["outboxDetail"])&&outboxDetailSchema.safeParse(value.outboxDetail).success) || (exact(value,["outboxItem"])&&outboxItemSchema.safeParse(value.outboxItem).success) || (exact(value,["smtp"])&&smtpStatusSchema.safeParse(value.smtp).success) || (exact(value,["outboxFailure"])&&outboxErrorSchema.safeParse(value.outboxFailure).success) || (exact(value,["savedSearch"])&&savedSearchResultSchema.safeParse(value.savedSearch).success)||(exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
     || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
@@ -333,6 +337,7 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case "mail.connection.cancel": return "cancelled" in value;
     case "mail.account.disconnect": return "disconnected" in value;
     case "mail.storage.status": return "encrypted" in value;
+    case "mail.diagnostics": return "diagnostics" in value;
     case "mail.accounts.list": return "accounts" in value;
     case "mail.folders.list": return "folders" in value;
     case "mail.messages.list": return "messages" in value && value.messages.accountId === command.accountId && value.messages.items.every(item => item.accountId === command.accountId);
@@ -388,7 +393,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if (value.operation === 'mail.senders.list') return exact(value,['operation','accountId']) && id(value.accountId);
   if (value.operation === 'mail.senders.settings' || value.operation === 'mail.senders.configure') return exact(value,['operation','accountId','input']) && id(value.accountId) && (value.operation==='mail.senders.settings'?senderSettingsSchema:senderConfigureSchema).safeParse(value.input).success;
   if (value.operation === "mail.graph.mailbox.configure") return exact(value,["operation","input"]) && graphMailboxInputSchema.safeParse(value.input).success;
-  if (value.operation === "mail.badge.count" || value.operation === "ping" || value.operation === "mail.storage.status") return exact(value, ["operation"]);
+  if (value.operation === "mail.badge.count" || value.operation === "ping" || value.operation === "mail.storage.status" || value.operation === "mail.diagnostics") return exact(value, ["operation"]);
   if (value.operation === "credentials.update") {
     const credentials = value.credentials;
     return exact(value, ["operation", "credentials"]) && record(credentials)

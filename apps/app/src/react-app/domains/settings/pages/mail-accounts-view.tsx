@@ -1,4 +1,5 @@
 import {MailRulesView} from './mail-rules-view';
+import { MailDiagnosticsView } from './mail-diagnostics-view';
 import {t} from '@/i18n';
 import {MailContactsView} from './mail-contacts-view';
 import {MailAgentAccessView} from './mail-agent-access-view';
@@ -103,7 +104,7 @@ export function MailAccountControls({ client, standardsOnly = false, onAccountsC
     <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon"><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
     <TabsContent value="sending" keepMounted className="space-y-6"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></TabsContent>
     <TabsContent value="rules" keepMounted><MailRulesView client={client} accounts={accounts} /></TabsContent>
-    <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /></TabsContent>
+    <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailDiagnosticsView client={client} /></TabsContent>
   </Tabs>;
 
 }

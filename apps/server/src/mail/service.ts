@@ -1,4 +1,5 @@
 import {MailRulesError,type MailRuleSave,type MailRuleDelete} from './rules-view.js';
+import { mailDiagnosticsSchema, type MailDiagnostics, type MailDiagnosticSnapshot } from './diagnostics-view.js';
 import {MailSnoozeError,type MailSnooze,type MailSnoozeSet} from './snooze-view.js';
 import type { MailIntegrationSnapshot } from "./integration-view.js";
 import {CONTACT_SCOPES,type ContactsInput} from './contacts-view.js';
@@ -178,6 +179,17 @@ export class LocalMailService implements MailService {
     else if (this.phase === "open") state = this.worker.status().state === "ready" ? "ready" : "unavailable";
     else state = this.phase;
     return { protocolVersion: 1, state, syncSupported: true, ...(this.integrationLoader ? {accountRevision:this.integrationRevision} : {}) };
+  }
+  async diagnostics(): Promise<MailDiagnostics> {
+    const state = this.status().state;
+    let snapshot: MailDiagnosticSnapshot | null = null;
+    if (state === 'ready') {
+      const result = await this.request({ operation: 'mail.diagnostics' });
+      if (!('diagnostics' in result)) throw new MailServiceError('unavailable');
+      snapshot = result.diagnostics;
+    }
+    return mailDiagnosticsSchema.parse({ format: 'legalwork-mail-diagnostics', version: 1,
+      generatedAt: new Date().toISOString(), state, snapshot });
   }
   unlock(): Promise<void> {
     if (this.stopped) return Promise.reject(new MailServiceError("unavailable"));
