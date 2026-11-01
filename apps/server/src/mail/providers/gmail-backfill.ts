@@ -89,16 +89,16 @@ export class GmailBackfill {
     this.executor = new MailSyncExecutor({ journal: this.journal, handler: work => this.handle(work), maxConcurrentAccounts: 1,
       maxJobsPerRun: bounded(options.jobsPerTurn, 5, 1, 25), jobTimeoutMs: this.operationTimeout });
   }
-  /** messages.get costs 20 units on new-project quotas; leave headroom below 6000/minute. */
-  private async paceMessageRead(session: Session, signal: AbortSignal): Promise<void> {
+  /** New-project metadata/raw reads cost 20/60 units; reserve 80 units/second for downloads. */
+  private async paceMessageRead(session: Session, signal: AbortSignal, format: 'metadata' | 'raw' = 'metadata'): Promise<void> {
     signal.throwIfAborted();
     this.assert(session);
     const now = performance.now();
     const due = Math.max(now, this.nextMessageReadAt);
-    this.nextMessageReadAt = due + 250;
     if (due > now) await wait(due - now, undefined, { signal });
     signal.throwIfAborted();
     this.assert(session);
+    this.nextMessageReadAt = performance.now() + (format === 'raw' ? 750 : 250);
   }
   private stamp(run: GmailRun) { return { generation: run.generation, revision: run.revision }; }
   private account(accountId: string): void {
@@ -418,7 +418,7 @@ export class GmailBackfill {
         }
         let metadata: GmailRawMetadata | undefined;
         const source = chunks(async consume => {
-          await this.paceMessageRead(session, work.signal);
+          await this.paceMessageRead(session, work.signal, 'raw');
           metadata = await transport.consumeRaw(locator.messageId, async chunk => { assertCurrent(); await consume(chunk); }, { signal: work.signal });
           assertCurrent(); const known = this.runs.readMessageHistoryId(work.job.account_id, locator);
           if (known !== null && BigInt(metadata.historyId) < BigInt(known)) {
