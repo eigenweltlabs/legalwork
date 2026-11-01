@@ -1,3 +1,4 @@
+import type {MailSnooze,MailSnoozeSet} from './snooze-view.js';
 import {type ContactsInput,type ContactsResult} from './contacts-view.js';
 import type {QualificationInput,QualificationReport} from './qualification-view.js';
 import type {AgentControl,AgentControlResult} from './agent-view.js';
@@ -49,6 +50,8 @@ export interface MailService {
   retention?(command:RetentionCommand):Promise<RetentionPreview|{removedDays:number|null}|{accountId:string;removedAccount:boolean;messages:number;references:number;bytes:number;protectedReferences:number}>;
   outbox(accountId:string):Promise<OutboxItem[]>;
   queueOutbox(accountId:string,input:OutboxSubmission):Promise<OutboxItem>;
+  readSnooze(accountId:string,locator:ProviderMessageLocator):Promise<MailSnooze>;
+  setSnooze(accountId:string,input:MailSnoozeSet):Promise<MailSnooze>;
   outboxRead(accountId:string,input:{actionId:string}):Promise<OutboxDetail>;
   rescheduleOutbox(accountId:string,input:OutboxReschedule):Promise<OutboxItem>;
   outboxAction(accountId:string,input:{actionId:string;action:'cancel'|'retry'|'reconcile'}):Promise<OutboxItem>;

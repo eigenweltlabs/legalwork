@@ -26,6 +26,8 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
+  mail_snoozes: ['account_id','scope_key','anchor_key','thread_id','generation','revision','until_at','time_zone','woke_at'],
+  mail_snooze_members: ['account_id','message_key','scope_key'],
   mail_outbox_schedules: ['account_id','action_id','scheduled_at','time_zone'],
   mail_invitation_replies: ['owner_id','event_key','attempt_id','response','state','updated_at'],
   mail_integration_accounts: ['account_id', 'handle', 'account_json', 'source_account_id', 'read_only', 'previous_binding_json'],

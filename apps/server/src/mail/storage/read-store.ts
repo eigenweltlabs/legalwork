@@ -1,3 +1,4 @@
+import {MAIL_ACTIVE_SNOOZE_SQL,MAIL_INBOX_SQL} from './snooze-sql.js';
 import {storedMutationPrecondition} from './mutation-precondition.js';
 import { z } from "zod";
 import { providerMessageLocatorSchema, type ProviderMessageLocator } from "../model.js";
@@ -13,7 +14,7 @@ import type { MailDatabase } from "./database-interface.js";
 export class MailReadStore {
   private readonly repository: MailRepository;
   private readonly content: MailContentStore;
-  constructor(private readonly database: MailDatabase, private readonly ownerId: string) {
+  constructor(private readonly database: MailDatabase, private readonly ownerId: string, private readonly now:()=>number=Date.now) {
     this.repository = new MailRepository(database, ownerId);
     this.content = new MailContentStore(database, ownerId);
   }
@@ -25,13 +26,14 @@ export class MailReadStore {
       AND ((a.provider IN ('gmail','graph') AND EXISTS(SELECT 1 FROM mail_account_access c WHERE c.account_id=a.id AND c.state='connected' AND c.archive_locked=0))
         OR (a.provider='imap' AND EXISTS(SELECT 1 FROM mail_imap_credentials c WHERE c.account_id=a.id AND c.state='connected' AND c.archive_locked=0)))
       AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key)
+      AND NOT ${MAIL_ACTIVE_SNOOZE_SQL}
       AND EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id
         WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox')
       AND NOT EXISTS(SELECT 1 FROM mail_memberships f LEFT JOIN mail_imap_folders i ON i.account_id=f.account_id AND i.path=f.folder_id
         WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND
         ((a.provider='gmail' AND f.folder_id IN ('SPAM','TRASH')) OR (a.provider='imap' AND i.special_use IN ('\\Junk','\\Trash'))))
       AND ((a.provider='gmail' AND EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id='UNREAD'))
-        OR (a.provider!='gmail' AND m.is_read=0))`, [this.ownerId]);
+        OR (a.provider!='gmail' AND m.is_read=0))`, [this.ownerId,this.now()]);
     return z.number().int().nonnegative().parse(row?.count);
   }
   private message(accountId: string, locator: ProviderMessageLocator) {
@@ -62,8 +64,9 @@ export class MailReadStore {
       LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key
       LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
       LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=? AND m.message_key=?`,[accountId,message.message_key]);
+    const snooze=this.database.get('SELECT until_at,time_zone FROM mail_snoozes WHERE account_id=? AND scope_key=? AND until_at>?',[accountId,JSON.stringify(message.thread_id===null?['message',message.message_key]:['thread',message.thread_id]),this.now()]);
     const mutationPrecondition=storedMutationPrecondition(this.database,accountId,locator);
-    return mailMessageViewSchema.parse({ accountId, preview:typeof row?.preview==='string'?row.preview.replace(/\s+/g,' ').trim():undefined, key: message.message_key, locator: message.locator, subject: message.subject,
+    return mailMessageViewSchema.parse({ accountId,snoozedUntil:snooze?{at:snooze.until_at,timeZone:snooze.time_zone}:undefined, preview:typeof row?.preview==='string'?row.preview.replace(/\s+/g,' ').trim():undefined, key: message.message_key, locator: message.locator, subject: message.subject,
       rfcMessageId: message.rfc_message_id, threadId: message.thread_id, memberships: message.memberships, removed, contentState: message.contentState, rawReferenceId: message.content.find(part=>part.kind==='raw')?.ref_id??null, metadata, isFlagged,
       isRead: locator.provider === 'gmail' ? (mutationPrecondition === null ? null : !message.memberships.includes('UNREAD')) : observed?.is_read == null ? null : observed.is_read === 1,
       receivedAt:typeof received?.received_at==='number'&&received.received_at>=0?received.received_at:null, mutationPrecondition });
@@ -72,6 +75,9 @@ export class MailReadStore {
     // This bounded owner check precedes cursor/filter handling and every result query.
     this.repository.listFoldersPage(accountId, { limit: 1 });
     const page = mailMessagePageSchema.parse(supplied);
+    if(page.inboxOnly&&page.snoozedOnly)throw Error('Invalid mailbox filter');
+    const hideSnoozed=page.inboxOnly||!!(page.folderId&&this.database.get("SELECT 1 FROM mail_folders WHERE account_id=? AND id=? AND role='inbox'",[accountId,page.folderId]));
+    const now=this.now();
     if (page.conversations && !page.threadId && page.order === 'received') {
       const cursor = page.after ? z.tuple([z.number().int().nonnegative().nullable(),z.string().min(1).max(32768)]).parse(JSON.parse(page.after)) : null;
       const rows=this.database.all(`WITH pending_read AS (
@@ -84,11 +90,12 @@ export class MailReadStore {
       ), source AS (
         SELECT m.message_key,m.locator_json,coalesce(ar.received_at,im.internal_date,gm.internal_date,
           CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER)) received_at,
+          CASE WHEN ?=1 THEN w.woke_at END woke_at,
           CASE WHEN m.thread_id IS NULL THEN json_array('message',m.message_key) ELSE json_array('thread',m.thread_id) END conversation_key,
           CASE WHEN pending.read IS NOT NULL THEN NOT pending.read WHEN m.provider='gmail' THEN EXISTS(SELECT 1 FROM mail_memberships u WHERE u.account_id=m.account_id AND u.message_key=m.message_key AND u.folder_id='UNREAD') ELSE m.is_read=0 END unread,
           ((? IS NULL OR EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id=?))
-          AND (?=0 OR EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox'))) in_scope
-        FROM mail_messages m LEFT JOIN pending_read pending ON pending.locator=m.locator_json AND pending.latest=1
+          AND (?=0 OR ${MAIL_INBOX_SQL}) AND (?=0 OR NOT ${MAIL_ACTIVE_SNOOZE_SQL}) AND (?=0 OR ${MAIL_ACTIVE_SNOOZE_SQL})) in_scope
+        FROM mail_messages m LEFT JOIN mail_snoozes w ON w.account_id=m.account_id AND w.scope_key=CASE WHEN m.thread_id IS NULL THEN json_array('message',m.message_key) ELSE json_array('thread',m.thread_id) END LEFT JOIN pending_read pending ON pending.locator=m.locator_json AND pending.latest=1
           LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key
           LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key
           LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
@@ -98,49 +105,52 @@ export class MailReadStore {
         SELECT *,row_number() OVER conversation position,
           count(*) OVER conversation conversation_count,
           sum(coalesce(unread,0)) OVER conversation unread_count,
+          max(max(coalesce(received_at,-1),coalesce(woke_at,-1))) OVER conversation sort_at,
           max(in_scope) OVER conversation scope_match FROM source
         WINDOW conversation AS (PARTITION BY conversation_key ORDER BY coalesce(received_at,-1) DESC,message_key
           ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
-      ) SELECT locator_json,received_at,conversation_count,unread_count FROM ranked
-        WHERE position=1 AND scope_match=1 AND (? IS NULL OR coalesce(received_at,-1)<? OR (coalesce(received_at,-1)=? AND message_key>?))
-        ORDER BY coalesce(received_at,-1) DESC,message_key LIMIT ?`,
-        [accountId,page.folderId??null,page.folderId??null,page.inboxOnly?1:0,accountId,page.includeRemoved?1:0,cursor?1:null,cursor?.[0]??-1,cursor?.[0]??-1,cursor?.[1]??'',page.limit+1]);
+      ) SELECT locator_json,received_at,sort_at,conversation_count,unread_count FROM ranked
+        WHERE position=1 AND scope_match=1 AND (? IS NULL OR sort_at<? OR (sort_at=? AND message_key>?))
+        ORDER BY sort_at DESC,message_key LIMIT ?`,
+        [accountId,hideSnoozed?1:0,page.folderId??null,page.folderId??null,hideSnoozed?1:0,hideSnoozed?1:0,now,page.snoozedOnly?1:0,now,accountId,page.includeRemoved?1:0,cursor?1:null,cursor?.[0]??-1,cursor?.[0]??-1,cursor?.[1]??'',page.limit+1]);
       const items=rows.slice(0,page.limit).map(row=>{
         if(typeof row.locator_json!=='string')throw Error('Invalid stored locator');
         return mailMessageViewSchema.parse({...this.read(accountId,providerMessageLocatorSchema.parse(JSON.parse(row.locator_json))),
-          receivedAt:row.received_at??null,conversation:{count:row.conversation_count,unreadCount:row.unread_count}});
+          receivedAt:row.received_at??null,sortAt:typeof row.sort_at==='number'&&row.sort_at>=0?row.sort_at:null,conversation:{count:row.conversation_count,unreadCount:row.unread_count}});
       });
       const last=items.at(-1);
-      return {accountId,items,nextCursor:rows.length>page.limit&&last?JSON.stringify([last.receivedAt,last.key]):null};
+      return {accountId,items,nextCursor:rows.length>page.limit&&last?JSON.stringify([last.sortAt??last.receivedAt,last.key]):null};
     }
     if (page.order === "received") {
       const cursor = page.after ? z.tuple([z.number().int().nonnegative().nullable(), z.string().min(1).max(32768)]).parse(JSON.parse(page.after)) : null;
       const rows = this.database.all(`WITH received AS (
-        SELECT m.*, CASE WHEN ar.received_at >= 0 THEN ar.received_at WHEN im.internal_date >= 0 THEN im.internal_date WHEN gm.internal_date >= 0 THEN gm.internal_date
+        SELECT m.*, w.woke_at AS local_woke_at, CASE WHEN ar.received_at >= 0 THEN ar.received_at WHEN im.internal_date >= 0 THEN im.internal_date WHEN gm.internal_date >= 0 THEN gm.internal_date
           WHEN unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')>=0 THEN CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER) ELSE NULL END AS received_at
-        FROM mail_messages m LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
+        FROM mail_messages m LEFT JOIN mail_snoozes w ON w.account_id=m.account_id AND w.scope_key=CASE WHEN m.thread_id IS NULL THEN json_array('message',m.message_key) ELSE json_array('thread',m.thread_id) END LEFT JOIN mail_archive_messages ar ON ar.account_id=m.account_id AND ar.message_key=m.message_key LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key
         LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key
         LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key WHERE m.account_id=?
-      ) SELECT m.message_key,m.locator_json,m.received_at,m.is_read FROM received m
-      WHERE (? IS NULL OR coalesce(m.received_at,-1)<? OR (coalesce(m.received_at,-1)=? AND m.message_key>?))
+      ), ordered AS (SELECT *,max(coalesce(received_at,-1),CASE WHEN ?=1 THEN coalesce(local_woke_at,-1) ELSE -1 END) sort_at FROM received) SELECT m.message_key,m.locator_json,m.received_at,m.sort_at,m.is_read FROM ordered m
+      WHERE (? IS NULL OR m.sort_at<? OR (m.sort_at=? AND m.message_key>?))
       AND (?=1 OR NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key))
       AND (? IS NULL OR m.thread_id=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id=?))
-      AND (?=0 OR EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox'))
-      ORDER BY coalesce(m.received_at,-1) DESC,m.message_key LIMIT ?`, [accountId, cursor ? 1 : null, cursor?.[0] ?? -1,cursor?.[0] ?? -1,cursor?.[1] ?? "",page.includeRemoved?1:0,page.threadId??null,page.threadId??null,page.folderId??null,page.folderId??null,page.inboxOnly?1:0,page.limit+1]);
+      AND (?=0 OR ${MAIL_INBOX_SQL})
+      AND (?=0 OR NOT ${MAIL_ACTIVE_SNOOZE_SQL}) AND (?=0 OR ${MAIL_ACTIVE_SNOOZE_SQL})
+      ORDER BY m.sort_at DESC,m.message_key LIMIT ?`, [accountId,hideSnoozed?1:0, cursor ? 1 : null, cursor?.[0] ?? -1,cursor?.[0] ?? -1,cursor?.[1] ?? "",page.includeRemoved?1:0,page.threadId??null,page.threadId??null,page.folderId??null,page.folderId??null,hideSnoozed?1:0,hideSnoozed?1:0,now,page.snoozedOnly?1:0,now,page.limit+1]);
       const items=rows.slice(0,page.limit).map(row=>{
         if(typeof row.locator_json!=="string")throw Error("Invalid stored locator");
         const result=this.read(accountId,providerMessageLocatorSchema.parse(JSON.parse(row.locator_json)));
         const unread=this.database.get("SELECT 1 FROM mail_memberships WHERE account_id=? AND message_key=? AND folder_id='UNREAD'",[accountId,result.key]);
-        return mailMessageViewSchema.parse({...result,receivedAt:row.received_at??null,isRead:result.locator.provider==='gmail'?(row.received_at===null?null:!unread):row.is_read===null?null:row.is_read===1});
+        return mailMessageViewSchema.parse({...result,receivedAt:row.received_at??null,sortAt:typeof row.sort_at==='number'&&row.sort_at>=0?row.sort_at:null,isRead:result.locator.provider==='gmail'?(row.received_at===null?null:!unread):row.is_read===null?null:row.is_read===1});
       });
       const last=items.at(-1);
-      return {accountId,items,nextCursor:rows.length>page.limit&&last?JSON.stringify([last.receivedAt,last.key]):null};
+      return {accountId,items,nextCursor:rows.length>page.limit&&last?JSON.stringify([last.sortAt??last.receivedAt,last.key]):null};
     }
     const rows = this.database.all(`SELECT m.message_key,m.locator_json FROM mail_messages m
       WHERE m.account_id=? AND m.message_key>? AND (?=1 OR NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key))
       AND (? IS NULL OR m.thread_id=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM mail_memberships f WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND f.folder_id=?))
-      AND (?=0 OR EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox'))
-      ORDER BY m.message_key LIMIT ?`, [accountId, page.after ?? "", page.includeRemoved ? 1 : 0, page.threadId ?? null, page.threadId ?? null, page.folderId ?? null, page.folderId ?? null, page.inboxOnly ? 1 : 0, page.limit + 1]);
+      AND (?=0 OR ${MAIL_INBOX_SQL})
+      AND (?=0 OR NOT ${MAIL_ACTIVE_SNOOZE_SQL}) AND (?=0 OR ${MAIL_ACTIVE_SNOOZE_SQL})
+      ORDER BY m.message_key LIMIT ?`, [accountId, page.after ?? "", page.includeRemoved ? 1 : 0, page.threadId ?? null, page.threadId ?? null, page.folderId ?? null, page.folderId ?? null, hideSnoozed ? 1 : 0,hideSnoozed?1:0,now,page.snoozedOnly?1:0,now, page.limit + 1]);
     const items = rows.slice(0, page.limit).map(row => {
       if (typeof row.locator_json !== "string") throw new Error("Invalid stored locator");
       return this.read(accountId, providerMessageLocatorSchema.parse(JSON.parse(row.locator_json)));

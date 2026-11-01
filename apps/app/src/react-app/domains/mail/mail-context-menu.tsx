@@ -1,3 +1,4 @@
+import {t} from '@/i18n';
 import {mailActionControls} from './mail-action-controls';
 import {mailShortcut,type MailCommand} from './mail-keyboard';
 /** @jsxImportSource react */
@@ -31,6 +32,7 @@ export function MailRowMenu({children,prepare,onOpen,className}:{children:ReactN
  <div className="mail-menu-caption">{selection.count} {selection.count===1?'message':'messages'}{selection.mixed?' · multiple accounts':''}</div>
  {selection.count===1&&<><ContextMenuItem onClick={()=>{if(prepared.current===signature(root()))onOpen();}}>Open</ContextMenuItem>{reader.map(([label,action,command])=><ContextMenuItem key={label} disabled={selection.archive} onClick={()=>{if(prepared.current===signature(root()))onOpen(action);}}>{label}<span className="mail-menu-shortcut">{mailShortcut(command).hint}</span></ContextMenuItem>)}<ContextMenuSeparator/></>}
  {selection.archive&&<div className="mail-menu-caption">Read-only archive</div>}
+ {selection.count===1&&!selection.archive&&<ContextMenuItem onClick={()=>invoke(element?.querySelector<HTMLButtonElement>('[data-mail-command="snooze"]')??null)}>{t('mail.snooze_action')}</ContextMenuItem>}
  {commands.filter(command=>command.id!=='delete').map(command=><ContextMenuItem key={command.id} disabled={command.disabled} onClick={()=>invoke(command.control)}>{command.label}<span className="mail-menu-shortcut">{command.shortcut}</span></ContextMenuItem>)}
  <ContextMenuSub><ContextMenuSubTrigger disabled={selection.archive||selection.mixed||!move||move.moveDisabled}>{move?.label??'Move or label'}…</ContextMenuSubTrigger><ContextMenuContent className="mail-row-context-menu">{move?.destinations.map(option=><ContextMenuItem key={option.id} onClick={()=>{if(prepared.current!==signature(root()))return;const current=mailActionControls(root());if(current&&!current.moveDisabled)current.move(option.id);}}>{option.name}</ContextMenuItem>)}</ContextMenuContent></ContextMenuSub>
  {selection.mixed&&<div className="mail-menu-caption">Select one account</div>}

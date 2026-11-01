@@ -1,3 +1,4 @@
+import {MailSnoozeError,type MailSnooze,type MailSnoozeSet} from './snooze-view.js';
 import type { MailIntegrationSnapshot } from "./integration-view.js";
 import {CONTACT_SCOPES,type ContactsInput} from './contacts-view.js';
 import type {QualificationInput} from './qualification-view.js';
@@ -125,6 +126,8 @@ export class LocalMailService implements MailService {
     if(input.action==='sync'){const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');if(provider.syncProvider!=='imap' && !provider.integrated)settings=await this.loadProviderSettings?.(provider.syncProvider,provider.personal);if(epoch!==this.epoch)throw new MailServiceError('locked');}
     const result=await this.request({operation:'mail.contacts',accountId,input,...(settings?{settings}:{})});if(!('contacts' in result))throw new MailServiceError('unavailable');return result.contacts;
   }
+  async readSnooze(accountId:string,locator:ProviderMessageLocator){if(locator.provider==='archive')throw new MailSnoozeError('unavailable');const result=await this.request({operation:'mail.snooze.read',accountId,input:{locator}});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
+  async setSnooze(accountId:string,input:MailSnoozeSet){const result=await this.request({operation:'mail.snooze.set',accountId,input});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
   async outboxRead(accountId:string,input:{actionId:string}){const result=await this.request({operation:'mail.outbox.read',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxDetail' in result))throw new MailServiceError('unavailable');return result.outboxDetail;}
   async outbox(accountId:string){const result=await this.request({operation:'mail.outbox.list',accountId});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outbox' in result))throw new MailServiceError('unavailable');return result.outbox;}
   async queueOutbox(accountId:string,input:OutboxSubmission){if(input.schedule)void this.startSync(accountId,true).catch(()=>{});else await this.startSync(accountId,true);const result=await this.request({operation:'mail.outbox.queue',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxItem' in result))throw new MailServiceError('unavailable');return result.outboxItem;}

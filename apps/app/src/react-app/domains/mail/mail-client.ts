@@ -1,3 +1,5 @@
+import {mailTimeSchema} from '../../../../../server/src/mail/scheduling-view';
+import {MailSnoozeError,mailSnoozeErrorSchema} from '../../../../../server/src/mail/snooze-view';
 import {outboxErrors} from './mail-outbox-errors';
 import { mailInvitationsSchema } from '../../../../../server/src/mail/invitation-view';
 import { invitationReplyErrorSchema } from '../../../../../server/src/mail/invitation-reply-view';
@@ -10,7 +12,7 @@ import type { MailAccountView, MailFolderView, MailPage } from '../../../../../s
 const id = z.string().min(1).max(32768);
 const metadata = z.object({ subject: z.string().nullable(), from: z.string().nullable(), to: z.string().nullable(), cc: z.string().nullable(), bcc: z.string().nullable(), replyTo: z.string().nullable(), date: z.string().nullable(), messageId: z.string().nullable() });
 export const locator = z.discriminatedUnion('provider', [z.object({provider:z.literal('archive'),namespace:id,entryId:id}), z.object({ provider: z.literal('gmail'), messageId: id }), z.object({ provider: z.literal('graph'), messageId: id }), z.object({ provider: z.literal('imap'), mailboxId: id, uidValidity: z.number().int().positive(), uid: z.number().int().positive() })]);
-const message = z.object({ accountId: id, key: id, locator, subject: z.string(), preview: z.string().max(480).optional(), rawReferenceId: id.nullable().optional(), receivedAt: z.number().nullable().optional(), isRead: z.boolean().nullable().optional(), isFlagged:z.boolean().nullable().optional(), mutationPrecondition:z.string().nullable().optional(), threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(), conversation:z.object({count:z.number().int().positive(),unreadCount:z.number().int().nonnegative()}).optional(), memberships: z.array(id), contentState: z.enum(['complete', 'downloading', 'attention']), metadata: metadata.nullable() });
+const message = z.object({ sortAt:z.number().int().nonnegative().nullable().optional(),snoozedUntil:mailTimeSchema.optional(),accountId: id, key: id, locator, subject: z.string(), preview: z.string().max(480).optional(), rawReferenceId: id.nullable().optional(), receivedAt: z.number().nullable().optional(), isRead: z.boolean().nullable().optional(), isFlagged:z.boolean().nullable().optional(), mutationPrecondition:z.string().nullable().optional(), threadId: id.nullable(), rfcMessageId: z.string().nullable(), removed: z.boolean(), conversation:z.object({count:z.number().int().positive(),unreadCount:z.number().int().nonnegative()}).optional(), memberships: z.array(id), contentState: z.enum(['complete', 'downloading', 'attention']), metadata: metadata.nullable() });
 const part = z.object({ key: id, kind: z.enum(['raw', 'body', 'attachment']), partId: z.string(), state: z.enum(['stored', 'pending', 'unavailable']), referenceId: id.nullable(), bytes: z.number().int().nonnegative().nullable(), sha256: id.nullable(), bytesAvailable: z.boolean(), filename: z.string().nullable(), contentType: z.string().nullable(), contentId: z.string().nullable() });
 const account = z.object({ id, provider: z.enum(['gmail', 'graph', 'imap', 'archive']), displayName: z.string(), personal: z.boolean().optional(), integration: z.enum(["gmail", "outlook"]).optional(), integrationArchive: z.boolean().optional(), contactsAllowed: z.boolean().optional(), identity: graphMailboxIdentitySchema.optional() });
 const folder = z.object({ id, name: z.string(), kind: z.enum(['folder', 'label']), parentId: id.nullable(), mutationPrecondition:z.string().nullable().optional(), role: z.literal("inbox").optional() });
@@ -41,6 +43,7 @@ export class MailClient {
         if (!response.ok) {
             const failure = z.object({ error: z.object({ code: z.string() }).optional(), code: z.string().optional() }).safeParse(await response.clone().json().catch(() => null));
             const code = failure.success ? failure.data.error?.code ?? failure.data.code : undefined;
+            if(code?.startsWith('mail_snooze_')){const parsed=mailSnoozeErrorSchema.safeParse(code.slice('mail_snooze_'.length));if(parsed.success)throw new MailSnoozeError(parsed.data);}
             if (code?.startsWith('mail_invitation_')) { const parsed = invitationReplyErrorSchema.safeParse(code.slice('mail_invitation_'.length)); if (parsed.success) throw new MailRequestError(response.status, 'Invitation reply unavailable.', parsed.data); }
             if(response.status===409){const value=await response.clone().json().catch(()=>null);const parsed=outboxErrorSchema.safeParse(typeof value?.error?.code==='string'?value.error.code.replace(/^mail_outbox_/,''):typeof value?.code==='string'?value.code.replace(/^mail_outbox_/,''):'');if(parsed.success)throw Error(outboxErrors[parsed.data]);}
             throw new MailRequestError(response.status, response.status === 423 ? 'Mail is temporarily unavailable. Please retry.' : response.status === 404 ? 'This account or message is unavailable.' : response.status === 401 ? 'Local host authentication expired.' : `Mail request failed (${response.status}).`);
@@ -62,6 +65,7 @@ export class MailClient {
         folderId?: string;
         threadId?: string;
         inboxOnly?: boolean;
+        snoozedOnly?:boolean;
         conversations?: boolean;
     }, signal: AbortSignal) { return this.request(`/accounts/${encodeURIComponent(accountId)}/messages/query`, page(message), signal, { ...input, limit: 25, order: 'received' }); }
     readLocator(accountId:string, locator:MailMessageView["locator"], signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/messages/read`,message,signal,{locator});}
@@ -112,7 +116,7 @@ export class UnifiedMailPages {
         cursor: string | null;
         started: boolean;
     }[];
-    constructor(private client: MailClient, accounts: MailAccountView[], private folderId?: string, private threadId?: string, private inboxOnly = false) { this.streams = accounts.filter(account=>!account.integrationArchive||accounts.length===1).map(account => ({ accountId: account.id, buffer: [], cursor: null, started: false })); }
+    constructor(private client: MailClient, accounts: MailAccountView[], private folderId?: string, private threadId?: string, private inboxOnly = false,private snoozedOnly=false) { this.streams = accounts.filter(account=>!account.integrationArchive||accounts.length===1).map(account => ({ accountId: account.id, buffer: [], cursor: null, started: false })); }
     get hasMore() { return this.streams.some(stream => !stream.started || stream.buffer.length > 0 || stream.cursor !== null); }
     async next(signal: AbortSignal): Promise<MailMessageView[]> {
         const output: MailMessageView[] = [];
@@ -120,7 +124,7 @@ export class UnifiedMailPages {
             for (const stream of this.streams)
                 if (!stream.buffer.length && (!stream.started || stream.cursor !== null)) {
                     try {
-                        const response = await this.client.messages(stream.accountId, { ...(stream.cursor ? { after: stream.cursor } : {}), ...(this.folderId ? { folderId: this.folderId } : {}), ...(this.threadId ? { threadId: this.threadId } : {}), inboxOnly: this.inboxOnly,conversations:!this.threadId }, signal);
+                        const response = await this.client.messages(stream.accountId, { ...(stream.cursor ? { after: stream.cursor } : {}), ...(this.folderId ? { folderId: this.folderId } : {}), ...(this.threadId ? { threadId: this.threadId } : {}), inboxOnly: this.inboxOnly,snoozedOnly:this.snoozedOnly,conversations:!this.threadId }, signal);
                         stream.buffer = response.items;
                         stream.cursor = response.nextCursor;
                         stream.started = true;
@@ -144,7 +148,7 @@ export class UnifiedMailPages {
     }
 }
 export function compareMail(a: MailMessageView, b: MailMessageView): number {
-    const time = (b.receivedAt ?? -1) - (a.receivedAt ?? -1);
+    const time = (b.sortAt ?? b.receivedAt ?? -1) - (a.sortAt ?? a.receivedAt ?? -1);
     if (time)
         return time;
     return a.accountId < b.accountId ? -1 : a.accountId > b.accountId ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0;

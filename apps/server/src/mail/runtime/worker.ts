@@ -1,3 +1,5 @@
+import {MailSnoozeStore} from '../storage/snoozes.js';
+import {MailSnoozeError} from '../snooze-view.js';
 import {MailContacts} from './contacts.js';
 import { MailInvitationRepliesStore } from '../storage/invitation-replies.js';
 import {MailQualification} from './qualification.js';
@@ -278,7 +280,10 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
   const command = message.command;
   try {
     let result: WorkerResult | undefined;
+    if(['mail.messages.list','mail.messages.read','mail.badge.count','mail.notifications.poll','mail.local.events','mail.snooze.read','mail.snooze.set'].includes(command.operation))new MailSnoozeStore(database,ownerId).refresh();
     switch (command.operation) {
+      case 'mail.snooze.read':result={snooze:new MailSnoozeStore(database,ownerId).read(command.accountId,command.input.locator)};break;
+      case 'mail.snooze.set':result={snooze:new MailSnoozeStore(database,ownerId).set(command.accountId,command.input)};break;
       case "mail.agent.control":{
        const agentDatabase=database,agentReads=reads,grants=new MailAgentGrants(agentDatabase,ownerId);
        if(command.input.action==='save-draft'){
@@ -509,7 +514,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
           while (collection.items.length && Buffer.byteLength(JSON.stringify({ kind: "response", id: message.id, ok: true, result: page })) > MAX_WORKER_MESSAGE_BYTES) {
             collection.items.pop();
             if(command.operation === "mail.messages.list" && command.page.order === "received" && "messages" in page){
-              const last=page.messages.items.at(-1);page.messages.nextCursor=last?JSON.stringify([last.receivedAt??null,last.key]):null;
+              const last=page.messages.items.at(-1);page.messages.nextCursor=last?JSON.stringify([last.sortAt??last.receivedAt??null,last.key]):null;
             }else collection.nextCursor = collection.items.at(-1)?.key ?? null;
           }
           result = hadItems && collection.items.length === 0 ? undefined : page;
@@ -542,6 +547,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
     if (!write({ kind: "response", id: message.id, ok: true, result })) write({ kind: "response", id: message.id, ok: false, code: "operation_failed" });
   } catch (error) {
     if(error instanceof MailRetentionError&&!isClosing()){write({kind:'response',id:message.id,ok:true,result:{retentionFailure:error.code}});return;}
+    if(error instanceof MailSnoozeError&&!isClosing()&&command.operation.startsWith('mail.snooze.')){write({kind:'response',id:message.id,ok:true,result:{snoozeFailure:error.code}});return;}
     if(error instanceof OutboxError&&!isClosing()&&(command.operation.startsWith('mail.outbox.')||command.operation.startsWith('mail.smtp.'))){write({kind:'response',id:message.id,ok:true,result:{outboxFailure:error.code}});return;}
     // Do not echo SQLite/provider errors, row contents, supplied IDs, paths or key material.
     if (isClosing()) return;

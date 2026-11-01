@@ -1,0 +1,5 @@
+/** Static predicates for the mail_messages alias m. Values are bound by callers. */
+export const MAIL_ACTIVE_SNOOZE_SQL = `EXISTS(SELECT 1 FROM mail_snooze_members sm JOIN mail_snoozes s ON s.account_id=sm.account_id AND s.scope_key=sm.scope_key WHERE sm.account_id=m.account_id AND sm.message_key=m.message_key AND s.until_at>?)`;
+export const MAIL_INBOX_SQL = `EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox')
+ AND NOT EXISTS(SELECT 1 FROM mail_memberships f LEFT JOIN mail_imap_folders i ON i.account_id=f.account_id AND i.path=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ((m.provider='gmail' AND f.folder_id IN ('SPAM','TRASH')) OR i.special_use IN ('\\Junk','\\Trash')))`;
+export const MAIL_LIVE_INBOX_SQL = `NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key) AND ${MAIL_INBOX_SQL}`;
