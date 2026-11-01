@@ -13,6 +13,7 @@ Use this page to distinguish core, optional and account-dependent surfaces. The 
 | Project Home, Files, Chats and sharing | Firm sharing also needs service support, membership, subscription and sharing scope. See [Projects](projects-sharing.md). |
 | Native Calendar and legal deadlines | Calculated deadlines require the appropriate installed, supported skill. Sharing/subscription links require firm-service support. See [Calendar](calendar.md). |
 | Scheduled assistant runs | Local computer awake and LegalWork running. A task due date alone never schedules a run. See [Scheduled tasks](scheduled-tasks.md). |
+| Scheduled email | Local Email runtime running, awake, unlocked, online and not paused. Overdue messages wait for availability; unknown dispatch outcomes are never replayed automatically. See [scheduled email](email.md#schedule-a-message). |
 | Native Tabular Review and prompt library | Available configured review/OCR models. See [Reviews](reviews.md). |
 | Wiki and saved dashboards/reports | Shared content needs appropriate access and service support. See [Wiki](wiki.md) and [Dashboards](dashboards.md). |
 | Evaluations | Connected tested models and judge, benchmark tasks, and LegalWork remaining available. |

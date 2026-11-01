@@ -6,19 +6,18 @@ const preferenceSchema = z.object({ enabled: z.boolean(), preview: z.enum(['none
 const defaults = { enabled: false, preview: 'none', sound: false, paused: false };
 /** Owns only Mail banners and power hooks; badges and other notifications stay separate. */
 export function createMailDesktopController({ service, Notification, powerMonitor, onOpen, preferences = defaults, intervalMs = 5000 }) {
-    let settings = preferenceSchema.parse(preferences), stopped = false, busy = false, sleeping = false, screenLocked = false, sessionId = randomUUID(), revision = 0, lifecycleError = false, appliedLifecycle;
+    let settings = preferenceSchema.parse(preferences), stopped = false, busy = false, sleeping = false, screenLocked = powerMonitor.getSystemIdleState?.(1) === 'locked', sessionId = randomUUID(), revision = 0, lifecycleError = false, appliedLifecycle, lifecycleRevision = 0;
     const active = new Set();
     const clear = () => { for (const notice of active)
         notice.close(); active.clear(); };
     const reset = () => { revision++; sessionId = randomUUID(); clear(); };
-    const lifecycle = async () => { const desired = sleeping || settings.paused; if (appliedLifecycle === desired && !lifecycleError)
-        return; try {
+    const lifecycle = async () => { const desired = sleeping || screenLocked || settings.paused; if (appliedLifecycle === desired && !lifecycleError)
+        return; appliedLifecycle = desired; const attempt = ++lifecycleRevision; try {
         await service.setLifecycleSuspended(desired);
-        appliedLifecycle = desired;
-        lifecycleError = false;
+        if (attempt === lifecycleRevision) lifecycleError = false;
     }
     catch {
-        lifecycleError = true;
+        if (attempt === lifecycleRevision) lifecycleError = true;
     } };
     async function refresh() {
         if (stopped || busy)
@@ -54,7 +53,7 @@ export function createMailDesktopController({ service, Notification, powerMonito
             busy = false;
         }
     }
-    const suspend = () => { sleeping = true; reset(); void lifecycle(); }, resume = () => { sleeping = false; reset(); void refresh(); }, lock = () => { screenLocked = true; reset(); }, unlock = () => { screenLocked = false; reset(); void refresh(); };
+    const suspend = () => { sleeping = true; reset(); void lifecycle(); }, resume = () => { sleeping = false; reset(); void refresh(); }, lock = () => { screenLocked = true; reset(); void lifecycle(); }, unlock = () => { screenLocked = false; reset(); void refresh(); };
     const listeners = { suspend, resume, 'lock-screen': lock, 'unlock-screen': unlock };
     for (const [event, callback] of Object.entries(listeners))
         powerMonitor.on(event, callback);
@@ -62,7 +61,7 @@ export function createMailDesktopController({ service, Notification, powerMonito
     timer.unref?.();
     void lifecycle();
     void refresh();
-    return { refresh, settings() { return { ...settings }; }, status() { return { supported: Notification.isSupported(), state: lifecycleError ? 'unavailable' : sleeping ? 'suspended' : settings.paused ? 'paused' : service.status().state === 'ready' ? 'running' : 'unavailable' }; }, async configure(value) { settings = preferenceSchema.parse(value); reset(); await lifecycle(); void refresh(); return { ...settings }; }, stop() { stopped = true; reset(); clearInterval(timer); for (const [event, callback] of Object.entries(listeners))
+    return { refresh, settings() { return { ...settings }; }, status() { return { supported: Notification.isSupported(), state: lifecycleError ? 'unavailable' : sleeping || screenLocked ? 'suspended' : settings.paused ? 'paused' : service.status().state === 'ready' ? 'running' : 'unavailable' }; }, async configure(value) { settings = preferenceSchema.parse(value); reset(); await lifecycle(); void refresh(); return { ...settings }; }, stop() { stopped = true; reset(); clearInterval(timer); for (const [event, callback] of Object.entries(listeners))
             powerMonitor.off(event, callback); } };
 }
 let controller, path;
@@ -76,7 +75,7 @@ export async function configureMailDesktop({ app, service, Notification, powerMo
         preferences = { ...defaults };
     }
     controller?.stop();
-    await service.setLifecycleSuspended(preferences.paused);
+    await service.setLifecycleSuspended(preferences.paused || powerMonitor.getSystemIdleState?.(1) === 'locked');
     controller = createMailDesktopController({ service, Notification, powerMonitor, preferences, onOpen: target => app.emit('legalwork-mail-open', target) });
     const active = controller, stop = service.stop.bind(service);
     service.stop = async () => { active.stop(); if (controller === active)

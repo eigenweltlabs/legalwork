@@ -36,6 +36,19 @@ Under **Mail accounts > Data & access**, review the per-account agent policy. Co
 
 Open **Settings > Integrations > Communication**. Search for **Gmail** or **Outlook Email** and press its **+** button to connect. Select an installed account and choose **Manage** to open its settings. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
 
+## Schedule a message
+
+1. Prepare the message in Email and wait for **Saved locally**. Choose **Schedule send** beside **Send**.
+2. Enter **Date and time** and check **Time zone**. Choose a future time within one year. If the clock repeats during a daylight-saving change, select the intended **Occurrence** by its UTC offset. A time skipped by a clock change cannot be selected.
+3. Review the subject, sender, recipients and **Send at**. **Execution** is **On this device**. Confirm with **Schedule send**. The message appears in **Outbox**, with **Scheduled** shown before its due time.
+4. To change the time, select the message in Outbox and choose **Reschedule send**, then **Save schedule**. This is available only while the send is still queued. Use **Cancel queued send** to cancel before dispatch. **Continue editing** cancels the queued send before reopening its draft; schedule the edited message again when ready.
+
+The schedule stores a fixed instant and its chosen display zone. Changing your computer's time zone does not move it. The queued recipients, body and attachments form a saved snapshot; later draft edits do not change that snapshot.
+
+This is a local schedule for Gmail, Outlook Email and configured SMTP accounts. LegalWork does not upload a timed send to the provider or keep this computer awake. The desktop app must be running, awake, with the screen and Email unlocked, connected to the mail service and not paused. Closing the app, locking Email, sleep or a paused mail runtime delays execution. On macOS and Windows, screen lock also suspends mail. A due message stays on this device and is picked up when the runtime becomes available. Temporary connection failures before dispatch keep the message queued for another attempt. Permanent account, sender or permission errors need attention in Outbox. The selected time is an earliest attempt time, not a guaranteed delivery time.
+
+Once dispatch starts, a cancellation cannot guarantee that the message was stopped. An uncertain result is never sent again automatically. Use **Check Sent for acceptance** to look for matching provider evidence. Rescheduling cannot restart an uncertain send.
+
 ## Meeting invitations
 
 Downloaded `text/calendar` and `.ics` attachments appear above the message body. The preview shows the title, organizer, location and dates. **Details** shows the description, attendees and standard recurrence settings. **Updated invitation**, **Cancelled**, **Repeats**, **Occurrence** and **Delegated** describe the attached calendar data. They do not verify the sender or prove that a connected calendar has applied an update.
