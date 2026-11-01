@@ -27,6 +27,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
 | Email | Read the unified Inbox and invitation attachments, review replies through existing Calendar integrations, search downloaded mail, compose, schedule sends and manage Drafts and Outbox | [Email](email.md) |
 | Email: Schedule send / Reschedule send | Choose an instant and time zone, resolve repeated clock times, review local execution and change a queued send | [Scheduled email](email.md#schedule-a-message) |
+| Email: Snoozed / Snooze | Hide a conversation from this client's Inbox and unread count until a chosen time, inspect return dates or end a snooze | [Snoozed email](email.md#snooze-a-conversation) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 
 Opening a project or changing a filter can reveal items hidden in an aggregate list.

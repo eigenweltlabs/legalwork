@@ -33,6 +33,7 @@
   "storage/draft-sync",
   "storage/outbox",
   "storage/scheduling",
+  "storage/snoozes",
   "storage/historical-upgrades",
   "storage/maintenance",
   "storage/recovery",

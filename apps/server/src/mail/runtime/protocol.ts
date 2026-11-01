@@ -1,3 +1,4 @@
+import {mailSnoozeCommandSchema,mailSnoozeSchema,mailSnoozeErrorSchema,type MailSnoozeCommand,type MailSnooze} from '../snooze-view.js';
 import {contactsInputSchema,contactsResultSchema,type ContactsInput,type ContactsResult} from '../contacts-view.js';
 import { invitationReplyJournalCommandSchema, invitationReplyJournalResultSchema, type InvitationReplyJournalCommand, type InvitationReplyJournalResult } from '../invitation-reply-view.js';
 import {qualificationInputSchema,qualificationReportSchema,type QualificationInput,type QualificationReport} from '../qualification-view.js';
@@ -52,6 +53,7 @@ export type WorkerCommand = {operation:"mail.qualification";input:QualificationI
   | InvitationReplyJournalCommand
   | { operation: "mail.integrations.reconcile"; snapshot: MailIntegrationSnapshot }
   | RetentionCommand
+  | MailSnoozeCommand
   | OutboxCommand
   | PortabilityCommand
   | {operation:'mail.contacts';accountId:string;input:ContactsInput;settings?:MailOAuthSettings}
@@ -96,6 +98,7 @@ export type WorkerResult = {qualification:QualificationReport} | {agent:AgentCon
   | {portability:PortabilityStatus[]}
   | {contacts:ContactsResult}
   | {draftSync:DraftSyncStatus}
+  | {snooze:MailSnooze} | {snoozeFailure:import('../snooze-view.js').MailSnoozeError['code']}
   | {outboxDetail:OutboxDetail} | {outbox:OutboxItem[]} | {outboxItem:OutboxItem} | {smtp:SmtpStatus} | {outboxFailure:OutboxErrorCode}
   | {senders:SenderIdentity[]}
   | {savedSearch:SavedSearchResult}
@@ -206,7 +209,7 @@ function folder(value: unknown): value is WorkerFolder {
 }
 function result(value: unknown): value is WorkerResult {
   if (record(value) && exact(value, ['invitationJournal'])) return invitationReplyJournalResultSchema.safeParse(value.invitationJournal).success;
-  return record(value) && ((exact(value,["qualification"])&&qualificationReportSchema.safeParse(value.qualification).success) || (exact(value,["agent"])&&agentControlResultSchema.safeParse(value.agent).success) || (exact(value,["storageSave"])&&storageSaveResultSchema.safeParse(value.storageSave).success) || (exact(value,["filing"])&&filingResultSchema.safeParse(value.filing).success) || (exact(value,['retention'])&&(retentionPreviewSchema.safeParse(value.retention).success||retentionResultSchema.safeParse(value.retention).success||retentionSettingsSchema.safeParse(value.retention).success))||(exact(value,['retentionFailure'])&&['conflict','locked','not_found','invalid_input'].includes(String(value.retentionFailure))) || (exact(value,["portability"])&&Array.isArray(value.portability)&&value.portability.length<=100&&value.portability.every(item=>portabilityStatusSchema.safeParse(item).success)) || (exact(value,["outbox"])&&Array.isArray(value.outbox)&&value.outbox.length<=100&&value.outbox.every(item=>outboxItemSchema.safeParse(item).success)) || (exact(value,["outboxDetail"])&&outboxDetailSchema.safeParse(value.outboxDetail).success) || (exact(value,["outboxItem"])&&outboxItemSchema.safeParse(value.outboxItem).success) || (exact(value,["smtp"])&&smtpStatusSchema.safeParse(value.smtp).success) || (exact(value,["outboxFailure"])&&outboxErrorSchema.safeParse(value.outboxFailure).success) || (exact(value,["savedSearch"])&&savedSearchResultSchema.safeParse(value.savedSearch).success)||(exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
+  return record(value) && ((exact(value,['snooze'])&&mailSnoozeSchema.safeParse(value.snooze).success)||(exact(value,['snoozeFailure'])&&mailSnoozeErrorSchema.safeParse(value.snoozeFailure).success)||(exact(value,["qualification"])&&qualificationReportSchema.safeParse(value.qualification).success) || (exact(value,["agent"])&&agentControlResultSchema.safeParse(value.agent).success) || (exact(value,["storageSave"])&&storageSaveResultSchema.safeParse(value.storageSave).success) || (exact(value,["filing"])&&filingResultSchema.safeParse(value.filing).success) || (exact(value,['retention'])&&(retentionPreviewSchema.safeParse(value.retention).success||retentionResultSchema.safeParse(value.retention).success||retentionSettingsSchema.safeParse(value.retention).success))||(exact(value,['retentionFailure'])&&['conflict','locked','not_found','invalid_input'].includes(String(value.retentionFailure))) || (exact(value,["portability"])&&Array.isArray(value.portability)&&value.portability.length<=100&&value.portability.every(item=>portabilityStatusSchema.safeParse(item).success)) || (exact(value,["outbox"])&&Array.isArray(value.outbox)&&value.outbox.length<=100&&value.outbox.every(item=>outboxItemSchema.safeParse(item).success)) || (exact(value,["outboxDetail"])&&outboxDetailSchema.safeParse(value.outboxDetail).success) || (exact(value,["outboxItem"])&&outboxItemSchema.safeParse(value.outboxItem).success) || (exact(value,["smtp"])&&smtpStatusSchema.safeParse(value.smtp).success) || (exact(value,["outboxFailure"])&&outboxErrorSchema.safeParse(value.outboxFailure).success) || (exact(value,["savedSearch"])&&savedSearchResultSchema.safeParse(value.savedSearch).success)||(exact(value,["extraction"])&&extractionStatusSchema.safeParse(value.extraction).success)||(exact(value,["extractionText"])&&extractionTextSchema.safeParse(value.extractionText).success)||(exact(value,["local"]) && mailLocalResultSchema.safeParse(value.local).success)
     || (exact(value, ["search"]) && mailSearchResultSchema.safeParse(value.search).success)
     || (exact(value, ["rebuilt"]) && mailSearchRebuildResultSchema.safeParse(value.rebuilt).success)
     || (exact(value,["imapDiscovery"])&&imapDiscoverySchema.safeParse(value.imapDiscovery).success)
@@ -270,6 +273,11 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     case 'mail.retention.preview':return 'retentionFailure' in value||'retention' in value&&'accountId' in value.retention&&value.retention.accountId===command.accountId&&retentionPreviewSchema.safeParse(value.retention).success;
     case 'mail.retention.apply':return 'retentionFailure' in value||'retention' in value&&'accountId' in value.retention&&value.retention.accountId===command.accountId&&retentionResultSchema.safeParse(value.retention).success;
     case "mail.lifecycle.set":case "mail.lifecycle.status":return "lifecycle" in value;
+    case 'mail.snooze.read':case 'mail.snooze.set':{
+      if('snoozeFailure' in value)return true;
+      if(!('snooze' in value)||value.snooze.accountId!==command.accountId||providerMessageKey(value.snooze.locator)!==providerMessageKey(command.input.locator))return false;
+      return command.operation==='mail.snooze.read'||value.snooze.time?.at===command.input.time?.at&&value.snooze.time?.timeZone===command.input.time?.timeZone&&!!value.snooze.version&&value.snooze.version.revision===(command.input.expected?.revision??0)+1&&(!command.input.expected||value.snooze.version.generation===command.input.expected.generation);
+    }
     case 'mail.outbox.queue':return 'outboxFailure' in value || 'outboxItem' in value&&value.outboxItem.accountId===command.accountId&&value.outboxItem.draftId===command.input.draftId&&value.outboxItem.schedule?.at===command.input.schedule?.at&&value.outboxItem.schedule?.timeZone===command.input.schedule?.timeZone;
     case 'mail.outbox.read':return 'outboxFailure' in value || 'outboxDetail' in value&&value.outboxDetail.accountId===command.accountId&&value.outboxDetail.actionId===command.input.actionId;
     case 'mail.outbox.reschedule':return 'outboxFailure' in value || 'outboxItem' in value&&value.outboxItem.accountId===command.accountId&&value.outboxItem.id===command.input.actionId&&value.outboxItem.schedule?.at===command.input.time.at&&value.outboxItem.schedule?.timeZone===command.input.time.timeZone&&value.outboxItem.version.generation===command.input.expected.generation&&value.outboxItem.version.revision===command.input.expected.revision+1;
@@ -341,6 +349,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if(value.operation==="mail.storage.save")return exact(value,["operation","input"])&&storageSaveInputSchema.safeParse(value.input).success;
   if(value.operation==="mail.filing")return exact(value,["operation","input"])&&filingInputSchema.safeParse(value.input).success;
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.notifications.")||value.operation.startsWith("mail.lifecycle.")))return mailDesktopCommandSchema.safeParse(value).success;
+  if(typeof value.operation==='string'&&value.operation.startsWith('mail.snooze.'))return mailSnoozeCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.outbox.")||value.operation.startsWith("mail.smtp.")))return outboxCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.retention."))return retentionCommandSchema.safeParse(value).success;
   if(value.operation==='mail.invitation.journal')return invitationReplyJournalCommandSchema.safeParse(value).success;

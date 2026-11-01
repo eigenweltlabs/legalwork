@@ -1,3 +1,4 @@
+import {MAIL_ACTIVE_SNOOZE_SQL} from './snooze-sql.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { MailDatabase } from './database-interface.js';
@@ -14,7 +15,7 @@ export class MailNotificationStore {
         const input = mailNotificationPollSchema.parse(supplied), now = this.now(), items: z.infer<typeof mailNotificationBatchSchema>['items'] = [];
         let suppressed = 0, remainingEvents = 1000;
         return this.db.transaction(() => {
-            const credentials = new MailCredentialRepository(this.db, this.ownerId), reads = new MailReadStore(this.db, this.ownerId);
+            const credentials = new MailCredentialRepository(this.db, this.ownerId), reads = new MailReadStore(this.db, this.ownerId,this.now);
             const accounts = this.db.all("SELECT id,provider FROM mail_accounts WHERE owner_id=? AND NOT EXISTS(SELECT 1 FROM mail_integration_accounts i WHERE i.account_id=mail_accounts.id AND i.read_only=1) AND provider IN ('gmail','graph','imap') ORDER BY id LIMIT 200", [this.ownerId]).map(account => ({ account, status: credentials.status(text.parse(account.id)) })).filter(({ status }) => status.state === 'connected' && !status.archiveLocked);
             const perAccount = Math.max(1, Math.floor(1000 / Math.max(1, accounts.length)));
             for (const { account, status } of accounts) {
@@ -45,10 +46,11 @@ export class MailNotificationStore {
                     seen.add(event.entity_id);
                     const row = this.db.get(`SELECT m.locator_json,m.is_read,CASE WHEN im.internal_date>=0 THEN im.internal_date WHEN gm.internal_date>=0 THEN gm.internal_date WHEN unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')>=0 THEN CAST(unixepoch(json_extract(gr.metadata_json,'$.receivedDateTime'),'subsec')*1000 AS INTEGER) END received_at
      FROM mail_messages m LEFT JOIN mail_gmail_metadata gm ON gm.account_id=m.account_id AND gm.message_key=m.message_key LEFT JOIN mail_imap_messages im ON im.account_id=m.account_id AND im.message_key=m.message_key LEFT JOIN mail_graph_messages gr ON gr.account_id=m.account_id AND gr.message_key=m.message_key
-     WHERE m.account_id=? AND m.message_key=? AND NOT EXISTS(SELECT 1 FROM mail_notification_claims c WHERE c.account_id=m.account_id AND c.message_key=m.message_key)
+     WHERE m.account_id=? AND m.message_key=? AND NOT ${MAIL_ACTIVE_SNOOZE_SQL}
+     AND NOT EXISTS(SELECT 1 FROM mail_notification_claims c WHERE c.account_id=m.account_id AND c.message_key=m.message_key)
      AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=m.account_id AND t.message_key=m.message_key)
      AND EXISTS(SELECT 1 FROM mail_memberships f JOIN mail_folders ff ON ff.account_id=f.account_id AND ff.id=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ff.role='inbox')
-     AND NOT EXISTS(SELECT 1 FROM mail_memberships f LEFT JOIN mail_imap_folders i ON i.account_id=f.account_id AND i.path=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ((m.provider='gmail' AND f.folder_id IN ('SPAM','TRASH')) OR i.special_use IN ('\\Junk','\\Trash')))`, [accountId, event.entity_id]);
+     AND NOT EXISTS(SELECT 1 FROM mail_memberships f LEFT JOIN mail_imap_folders i ON i.account_id=f.account_id AND i.path=f.folder_id WHERE f.account_id=m.account_id AND f.message_key=m.message_key AND ((m.provider='gmail' AND f.folder_id IN ('SPAM','TRASH')) OR i.special_use IN ('\\Junk','\\Trash')))`, [accountId, event.entity_id,now]);
                     if (!row || typeof row.received_at !== 'number' || row.received_at < baseline || row.received_at > now)
                         continue;
                     const locator = providerMessageLocatorSchema.parse(JSON.parse(text.parse(row.locator_json))), message = reads.read(accountId, locator);

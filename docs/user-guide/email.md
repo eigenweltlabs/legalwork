@@ -49,6 +49,16 @@ This is a local schedule for Gmail, Outlook Email and configured SMTP accounts. 
 
 Once dispatch starts, a cancellation cannot guarantee that the message was stopped. An uncertain result is never sent again automatically. Use **Check Sent for acceptance** to look for matching provider evidence. Rescheduling cannot restart an uncertain send.
 
+## Snooze a conversation
+
+Select one conversation or message, then choose **Snooze** (the clock button) or right-click it and choose **Snooze**. Enter **Date and time**, check **Time zone** and review **Applies to**. A conversation snooze covers its currently downloaded Inbox messages, up to 1,000. A message without a conversation is snoozed individually. The same daylight-saving choices and one-year time limit apply as for scheduled send. Confirm with **Snooze**.
+
+Snoozed messages leave this client's Inbox and unread count until their due time. They remain readable in **All mail**, search and **Snoozed**. Open **Snoozed** in Email's mailbox navigation to inspect them; the list shows their return dates. Select an item and open **Snooze** to choose another time or **End snooze** to end it early.
+
+This is local to LegalWork. It does not move provider folders, change read flags or synchronize a snooze to Gmail, Outlook or another computer. Read-only provider access is sufficient. Retained local copies and imported archives cannot be snoozed. Ending a snooze does not move an archived or deleted provider message back into Inbox.
+
+The chosen instant and zone survive restarting or locking Email. Due conversations return to the top of this client's Inbox when Email is available, including offline with downloaded mail. Their original email dates remain unchanged. Closing the app or locking Email delays the refresh until it is available again; LegalWork does not wake the computer. Newly downloaded messages, or messages moved into Inbox, bring their snoozed conversation back early. Historical mail discovered later can also count as a new local Inbox message. Notifications keep the existing opt-in and at-most-once policy.
+
 ## Meeting invitations
 
 Downloaded `text/calendar` and `.ics` attachments appear above the message body. The preview shows the title, organizer, location and dates. **Details** shows the description, attendees and standard recurrence settings. **Updated invitation**, **Cancelled**, **Repeats**, **Occurrence** and **Delegated** describe the attached calendar data. They do not verify the sender or prove that a connected calendar has applied an update.

@@ -11,7 +11,7 @@ import { mailTimeZoneSchema, validFutureMailTime, type MailTime } from '../../..
 import type { MailDraftView } from '../../../../../server/src/mail/local-view';
 import { formatMailSchedule, mailScheduleCandidates, mailScheduleWall } from './mail-scheduling-model';
 
-export function MailScheduleDialog({ initial, subject, message, onClose, onConfirm }: { initial?: MailTime; subject: string; message?: Pick<MailDraftView['content'], 'from' | 'to' | 'cc' | 'bcc'>; onClose: () => void; onConfirm: (time: MailTime) => Promise<void> }) {
+export function MailScheduleDialog({ initial, subject, message, mode='send', scope, onClear, errorText, onClose, onConfirm }: { initial?: MailTime; subject: string; message?: Pick<MailDraftView['content'], 'from' | 'to' | 'cc' | 'bcc'>; mode?:'send'|'snooze'; scope?:{kind:'message'|'conversation';count:number}; onClear?:()=>Promise<void>; errorText?:(error:unknown)=>string; onClose: () => void; onConfirm: (time: MailTime) => Promise<void> }) {
   const [zone, setZone] = useState(initial?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [wall, setWall] = useState(initial ? mailScheduleWall(initial) : '');
   const [choice, setChoice] = useState(initial ? String(initial.at) : '');
@@ -26,13 +26,17 @@ export function MailScheduleDialog({ initial, subject, message, onClose, onConfi
     if (wall && !candidates.length) { setError(t('mail.schedule_nonexistent')); return; }
     if (candidates.length > 1 && !time) { setError(t('mail.schedule_choose_occurrence')); return; }
     if (!time || !validFutureMailTime(time, Date.now())) { setError(t('mail.schedule_invalid')); return; }
+    await apply(()=>onConfirm(time));
+  }
+  async function apply(operation:()=>Promise<void>){
+    if(lock.current)return;
     lock.current = true; setBusy(true); setError('');
-    try { await onConfirm(time); onClose(); }
-    catch { setError(t('mail.schedule_failed')); }
+    try { await operation(); onClose(); }
+    catch(error) { setError(errorText?errorText(error):t(mode==='snooze'?'mail.snooze_failed':'mail.schedule_failed')); }
     finally { lock.current = false; setBusy(false); }
   }
   return <Dialog open onOpenChange={open => { if (!open && !lock.current) onClose(); }}><DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto" initialFocus={cancel} onKeyDownCapture={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.stopPropagation(); } }}>
-    <DialogHeader><DialogTitle>{t(initial ? 'mail.reschedule_title' : 'mail.schedule_title')}</DialogTitle></DialogHeader>
+    <DialogHeader><DialogTitle>{t(mode==='snooze'?'mail.snooze_title':initial ? 'mail.reschedule_title' : 'mail.schedule_title')}</DialogTitle></DialogHeader>
     <p className="break-words text-sm font-medium">{subject}</p>
     <div className="grid gap-4">
       <div className="grid gap-1.5"><Label htmlFor={`${id}-time`}>{t('mail.schedule_date')}</Label><Input id={`${id}-time`} type="datetime-local" value={wall} disabled={busy} onChange={event => { setWall(event.target.value); setChoice(''); setError(''); }} /></div>
@@ -41,11 +45,12 @@ export function MailScheduleDialog({ initial, subject, message, onClose, onConfi
     </div>
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
       {message && <><dt className="text-muted-foreground">{t('mail.schedule_from')}</dt><dd className="break-words">{message.from}</dd><dt className="text-muted-foreground">{t('mail.schedule_to')}</dt><dd className="break-words">{message.to.join(', ')}</dd>{message.cc.length > 0 && <><dt className="text-muted-foreground">Cc</dt><dd className="break-words">{message.cc.join(', ')}</dd></>}{message.bcc.length > 0 && <><dt className="text-muted-foreground">Bcc</dt><dd className="break-words">{message.bcc.join(', ')}</dd></>}</>}
-      {time && <><dt className="text-muted-foreground">{t('mail.send_at')}</dt><dd>{formatMailSchedule(time)}</dd></>}
+      {scope&&<><dt className="text-muted-foreground">{t('mail.snooze_scope')}</dt><dd>{t(scope.kind==='conversation'?'mail.snooze_conversation':'mail.snooze_message')} ({scope.count})</dd></>}
+      {time && <><dt className="text-muted-foreground">{t(mode==='snooze'?'mail.snooze_until':'mail.send_at')}</dt><dd>{formatMailSchedule(time)}</dd></>}
       <dt className="text-muted-foreground">{t('mail.schedule_execution')}</dt><dd>{t('mail.schedule_device')}</dd>
-      <dt className="text-muted-foreground">{t('mail.schedule_unavailable')}</dt><dd>{t('mail.schedule_when_available')}</dd>
+      {mode==='send'&&<><dt className="text-muted-foreground">{t('mail.schedule_unavailable')}</dt><dd>{t('mail.schedule_when_available')}</dd></>}
     </dl>
     {error && <Alert variant="destructive" role="alert">{error}</Alert>}
-    <DialogFooter><Button ref={cancel} variant="ghost" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button><Button disabled={busy} onClick={() => void confirm()}>{t(initial ? 'mail.schedule_change' : 'mail.schedule_action')}</Button></DialogFooter>
+    <DialogFooter>{mode==='snooze'&&onClear&&<Button variant="outline" disabled={busy} onClick={()=>void apply(onClear)}>{t('mail.snooze_clear')}</Button>}<Button ref={cancel} variant="ghost" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button><Button disabled={busy||mode==='snooze'&&scope?.count===0} onClick={() => void confirm()}>{t(mode==='snooze'?'mail.snooze_action':initial ? 'mail.schedule_change' : 'mail.schedule_action')}</Button></DialogFooter>
   </DialogContent></Dialog>;
 }
