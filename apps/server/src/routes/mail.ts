@@ -22,6 +22,7 @@ import { MailServiceError, type MailPageInput, type MailService } from "../mail/
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { providerMessageLocatorSchema } from "../mail/model.js";
 import { mailMessagePageSchema, mailPartPageSchema, mailContentReadSchema } from "../mail/read-view.js";
+import { mailDiagnosticsSchema } from '../mail/diagnostics-view.js';
 
 export function isMailLoopback(host: string): boolean {
   return host === "127.0.0.1" || host === "::1";
@@ -152,6 +153,8 @@ export function registerMailRoutes(routes: Route[], host: string, service?: Mail
     try{return Response.json(await service.savedSearch(input.data),{headers:{'Cache-Control':'no-store'}});}catch(error){throw safeError(error);}
   });
   route("GET", "/status", false, () => service.status());
+  const diagnostics = service.diagnostics?.bind(service);
+  if (diagnostics) route('GET', '/diagnostics', false, async () => mailDiagnosticsSchema.parse(await diagnostics()));
   route("POST", "/unlock", false, async () => { await service.unlock(); return service.status(); });
   route("POST", "/lock", false, async () => { await service.lock(); return service.status(); });
   if (service.maintain) {

@@ -1,4 +1,5 @@
 import {mailTimeSchema} from '../../../../../server/src/mail/scheduling-view';
+import { mailDiagnosticsSchema } from '../../../../../server/src/mail/diagnostics-view';
 import {MailSnoozeError,mailSnoozeErrorSchema} from '../../../../../server/src/mail/snooze-view';
 import {outboxErrors} from './mail-outbox-errors';
 import { mailInvitationsSchema } from '../../../../../server/src/mail/invitation-view';
@@ -52,6 +53,7 @@ export class MailClient {
     }
     changeCursor(accountId:string,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/events/query`,z.object({stream:z.string(),nextCursor:z.number()}),signal,{cursorOnly:true});}
     status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal); }
+    diagnostics(signal: AbortSignal) { return this.request('/diagnostics', mailDiagnosticsSchema, signal); }
     unlock(signal: AbortSignal) { return this.request('/unlock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }
     lock(signal: AbortSignal) { return this.request('/lock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }
     senders(accountId:string,signal:AbortSignal,refresh=false){return this.request(`/accounts/${encodeURIComponent(accountId)}/senders${refresh?'/refresh':''}`,senderListSchema,signal,undefined,refresh,90000);}

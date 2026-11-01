@@ -21,6 +21,7 @@
   "runtime/sync-executor",
   "storage/action-journal",
   "storage/content-store",
+  "storage/diagnostics",
   "storage/credentials",
   "storage/database",
   "storage/consistency",
