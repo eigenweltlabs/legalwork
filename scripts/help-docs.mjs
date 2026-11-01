@@ -105,7 +105,12 @@ export function generateHelpScreens(root = repoRoot) {
     schemaVersion: 1,
     generatedBy: "scripts/gen-core-skills.mjs",
     note: "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
-    dialogs: [{ id: "assistant-upgrade", guide: "assistant.md", source: "apps/app/src/react-app/shell/assistant-upgrade.tsx" }, { id: "unsaved-shutdown", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx" }],
+    dialogs: [
+      { id: "assistant-upgrade", guide: "assistant.md", source: "apps/app/src/react-app/shell/assistant-upgrade.tsx" },
+      { id: "unsaved-shutdown", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx" },
+      { id: "global-search", guide: "workspaces-chats.md", source: "apps/app/src/react-app/shell/command-palette.tsx" },
+      { id: "global-search-email", guide: "email.md", source: "apps/app/src/react-app/shell/command-palette.tsx" },
+    ],
     routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({
       id, scope, guide: guide(settingGuides, id), source: settingsSource,

@@ -12,6 +12,16 @@
       "id": "unsaved-shutdown",
       "guide": "settings-privacy.md",
       "source": "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx"
+    },
+    {
+      "id": "global-search",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/command-palette.tsx"
+    },
+    {
+      "id": "global-search-email",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/shell/command-palette.tsx"
     }
   ],
   "routes": [

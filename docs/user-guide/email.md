@@ -2,6 +2,14 @@
 
 Open in LegalWork: [Email](legalwork://app/mail), [Mail accounts](legalwork://app/settings/mail-accounts), [Integrations](legalwork://app/settings/extensions/mcp), [Account](legalwork://app/settings/account).
 
+## Search from anywhere in the app
+
+Open **Search** with `Cmd+K` on macOS or `Ctrl+K` on Windows/Linux and select **Email**. While the search field has focus, `Tab` and `Shift+Tab` cycle between search tabs. Enter at least two characters, choose **All mail accounts** or one account, then use the arrow keys and `Enter` to open a result in Email.
+
+The Email tab searches the existing local index, including downloaded attachment text. It preserves punctuation as literal text. Its scope is mail accounts; the project filter on the other search tabs does not assign email to a project. The **All** tab continues to search project content. Use Email's own search for structured filters, saved searches and filed-matter scope.
+
+Search does not unlock mail storage. If Email is locked, choose **Open Email** to open it first. Unavailable or unindexed content can make results incomplete.
+
 ## Read email in LegalWork
 
 Select **Email** in the narrow global sidebar, beside Calendar. Email stays available when you switch projects or open Settings. Double-click its icon to open a separate window. Use **Settings > Customization > Sidebar** to move or hide the icon.

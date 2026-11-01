@@ -1188,6 +1188,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.projectsPage ? t("projects.plural")
     : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
     : props.sidebar.activeNav === "calendar" ? t("calendar.title")
+    : props.sidebar.activeNav === "mail" ? t("sidebar.email")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")

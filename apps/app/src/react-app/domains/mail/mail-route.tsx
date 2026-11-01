@@ -1,6 +1,6 @@
 import {t} from '@/i18n';
 import {formatMailSchedule} from './mail-scheduling-model';
-import {Alert} from '@/components/ui/alert';
+import {Alert, AlertAction, AlertTitle} from '@/components/ui/alert';
 import { MailInvitations } from './mail-invitations';
 import {PanelEmptyState} from '../../design-system/panel-chrome';
 import {Input} from '@/components/ui/input';
@@ -108,16 +108,18 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
       if(!client||locked)return;const state=location.state;if(!state||typeof state!=='object')return;
       const source=mailSourceTargetSchema.safeParse(Reflect.get(state,'mailSourceTarget'));
       const notification=mailNotificationOpenSchema.safeParse(Reflect.get(state,'mailNotificationTarget'));
-      if(!source.success&&!notification.success)return;
-      const raw=source.success?Reflect.get(state,'mailSourceTarget'):Reflect.get(state,'mailNotificationTarget');if(notificationOpened.current===raw)return;
-      if(!source.success&&notification.success&&new URL(connectionIdentity.current.split('\n')[0]).origin!==notification.data.serverOrigin){setError('Open the local server connection in Settings to view this email.');return;}
-      const target=source.success?source.data:notification.success?notification.data:null;if(!target)return;
+      const searchTarget=mailNotificationOpenSchema.safeParse(Reflect.get(state,'mailSearchTarget'));
+      if(!source.success&&!notification.success&&!searchTarget.success)return;
+      const raw=source.success?Reflect.get(state,'mailSourceTarget'):notification.success?Reflect.get(state,'mailNotificationTarget'):Reflect.get(state,'mailSearchTarget');if(notificationOpened.current===raw)return;
+      const localTarget=notification.success?notification.data:searchTarget.success?searchTarget.data:null;
+      if(!source.success&&localTarget&&new URL(connectionIdentity.current.split('\n')[0]).origin!==localTarget.serverOrigin){setError('Open the local server connection in Settings to view this email.');return;}
+      const target=source.success?source.data:localTarget;if(!target)return;
       const controller=new AbortController();void(async()=>{
         const message=await client.readLocator(target.accountId,target.locator,controller.signal);if(message.removed)throw Error('Source removed');
         if(source.success){let after:string|undefined,found=false;for(let page=0;page<20;page++){const parts=await client.parts(message,controller.signal,after);if(parts.items.some(part=>part.kind==='attachment'&&part.referenceId===source.data.referenceId&&part.sha256===source.data.sha256&&part.bytesAvailable)){found=true;break;}after=parts.nextCursor??undefined;if(!after)break;}if(!found)throw Error('Source changed');}
         if(controller.signal.aborted)return;notificationOpened.current=raw;openMessage(message);setError('');setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);
         readerFocus.current={generation:openGeneration.current,accountId:message.accountId,key:message.key,signal:controller.signal};
-      })().catch(()=>{if(!controller.signal.aborted)setError('The source email is unavailable or changed. The copied workspace file remains available. Review the account connection in Settings.');});return()=>controller.abort();
+      })().catch(()=>{if(!controller.signal.aborted)setError(source.success?'The source email is unavailable or changed.':t('content_search.mail_message_unavailable'));});return()=>controller.abort();
     },[client,locked,location.state]);
     useEffect(()=>{if(locked){setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);}},[locked]);
     useEffect(()=>{setFilingOpen(false);setCompose(undefined);setDraftsOpen(false);setOutboxOpen(false);},[client]);
@@ -330,7 +332,7 @@ export function MailRoute({chatBridge}:{chatBridge?:MailChatBridge}) {
           </div>
         </header>
 
-        {error && <Alert variant="destructive" role="alert" className="my-3"><CircleAlert size={15}/><span>{error}</span><Button variant="ghost" size="icon-sm" aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></Button></Alert>}
+        {error && <Alert variant="destructive" role="alert" className="mx-3 my-3 w-auto shrink-0"><CircleAlert size={15}/><AlertTitle>{error}</AlertTitle><AlertAction><Button variant="ghost" size="icon-sm" aria-label="Dismiss message" onClick={() => setError('')}><X size={14}/></Button></AlertAction></Alert>}
 
         {locked ? <div className="mail-empty"><div className="mail-empty-icon"><Mail size={24}/></div><h2 role="status">{error ? 'Mail is unavailable' : 'Opening your mail…'}</h2>{error && <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>}</div>
           : <div className={`mail-grid ${workView?'mail-work-layout':''} ${selected||compose||draftsOpen||outboxOpen ? 'has-selection' : ''} ${foldersOpen ? 'folders-open' : ''}`}>

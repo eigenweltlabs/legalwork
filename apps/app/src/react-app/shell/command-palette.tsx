@@ -1,6 +1,7 @@
 import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CornerDownLeft, FileText, LayoutGrid, ListTodo, Loader2, MessageSquare, Search, X } from "lucide-react";
+import { CornerDownLeft, FileText, LayoutGrid, ListTodo, Loader2, Mail, MessageSquare, Search, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { matchesSearch, searchTerms, type ContentSearchKind, type ContentSearchResponse, type ContentSearchResult } from "@legalwork/types/search";
 import { t } from "@/i18n";
 import { isMacPlatform } from "@/app/utils";
@@ -15,17 +16,19 @@ import { matchesProjectFilters, useProjectFilterStore } from "../domains/workspa
 import { useProjectSyncStore } from "../domains/workspace/project-sync-store";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "../domains/workspace/project-defaults-store";
 import "./command-palette.css";
+import { useGlobalMailSearch } from './use-global-mail-search';
+import type { GlobalMailHit } from './global-mail-search';
 
 export type SessionOption = {
   workspaceId: string; sessionId: string; title: string; workspaceTitle: string;
   updatedAt: number; searchText: string; isActive: boolean;
 };
 export type SearchWorkspace = { id: string; title: string; local: boolean; server: string };
-type SearchFilter = "all" | ContentSearchKind;
+type SearchFilter = "all" | ContentSearchKind | 'mail';
 const kinds: ContentSearchKind[] = ["sessions", "projects", "tasks", "files"];
-const filters: SearchFilter[] = ["all", ...kinds];
+const filters: SearchFilter[] = ["all", ...kinds, 'mail'];
 const icons = { sessions: MessageSquare, projects: LayoutGrid, tasks: ListTodo, files: FileText };
-const labels = () => ({ all: t("content_search.all"), sessions: t("content_search.sessions"), projects: t("content_search.projects"), tasks: t("content_search.tasks"), files: t("content_search.files") });
+const labels = () => ({ all: t("content_search.all"), sessions: t("content_search.sessions"), projects: t("content_search.projects"), tasks: t("content_search.tasks"), files: t("content_search.files"), mail: t('content_search.mail') });
 
 function Highlight({ text, query }: { text: string; query: string }) {
   const terms = searchTerms(query).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -65,6 +68,8 @@ export function CommandPalette(props: {
   const scopedWorkspaces = useMemo(() => { const ids = new Set(eligibleIds.split("\n")); return props.workspaces.filter(workspace => ids.has(workspace.id)); }, [eligibleIds, props.workspaces]);
   const inputRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState<SearchFilter>("all");
+  const [mailAccount, setMailAccount] = useState('');
+  const navigate = useNavigate();
   const resultsByJob = useRef(new Map<string, ContentSearchResult[]>());
   const previousSearch = useRef("");
   const [results, setResults] = useState<ContentSearchResult[]>([]);
@@ -72,14 +77,15 @@ export function CommandPalette(props: {
   const [limited, setLimited] = useState(false);
   const [resultQuery, setResultQuery] = useState("");
   const trimmed = query.trim();
+  const mail = useGlobalMailSearch(props.open && filter === 'mail', trimmed, mailAccount);
   const names = labels();
 
-  useEffect(() => { if (!props.open) { setQuery(""); setFilter("all"); setScope("__all__"); } }, [props.open]);
+  useEffect(() => { if (!props.open) { setQuery(""); setFilter("all"); setScope("__all__"); setMailAccount(''); } }, [props.open]);
   useEffect(() => {
     const key = JSON.stringify([trimmed, filter, eligibleIds, scope]);
     if (previousSearch.current !== key) { previousSearch.current = key; resultsByJob.current.clear(); setResults([]); }
     setLimited(false); setPending(0); setPreparing(0); setResultQuery(trimmed);
-    if (!props.open || trimmed.length === 1 || (trimmed.length < 2 && filter !== "tasks" && filter !== "all") || filter === "projects") return;
+    if (!props.open || filter === 'mail' || trimmed.length === 1 || (trimmed.length < 2 && filter !== "tasks" && filter !== "all") || filter === "projects") return;
     const controller = new AbortController();
     const jobs: Array<{ workspace: SearchWorkspace; kind: "sessions" | "tasks" | "files" }> = [];
     const taskServers = new Set<string>();
@@ -135,6 +141,9 @@ export function CommandPalette(props: {
     return rankSearchResults([...unique.values()].filter(item => filter === "all" || item.kind === filter), trimmed);
   }, [scopedWorkspaces, props.sessions, trimmed, filter, results, resultQuery]);
   const visible = items.filter((item, index, all) => all.slice(0, index).filter(previous => previous.kind === item.kind).length < (filter === "all" ? 20 : 60));
+  const mailPage = mail.state?.status === 'ready' ? mail.state.page : undefined;
+  const commandItems: Array<ContentSearchResult | GlobalMailHit> = filter === 'mail' ? mailPage?.items ?? [] : visible;
+  const openMail = () => { props.onClose(); navigate('/mail'); };
 
   return <CommandDialog open={props.open} onOpenChange={open => { if (!open) props.onClose(); }}>
     <CommandDialogPopup className="search-dialog" backdropClassName="search-backdrop" viewportClassName="search-viewport" onKeyDownCapture={event => {
@@ -146,15 +155,22 @@ export function CommandPalette(props: {
       inputRef.current?.focus({ preventScroll: true });
     }}>
       <CommandDialogTitle>{t("content_search.title")}</CommandDialogTitle>
-      <Command items={visible} filter={null} value={query} onValueChange={setQuery}>
+      <Command items={commandItems} filter={null} value={query} onValueChange={setQuery}>
         <CommandHeader className="search-capsule">
           <SearchGlass />
-          <CommandInput ref={inputRef} className="w-full" startAddon={null} placeholder={t("content_search.placeholder")} aria-label={t("content_search.title")} />
+          <CommandInput ref={inputRef} className="w-full" startAddon={null} maxLength={filter === 'mail' ? 512 : undefined} placeholder={t(filter === 'mail' ? 'content_search.mail_placeholder' : "content_search.placeholder")} aria-label={t("content_search.title")} />
           <Button variant="ghost" size="icon-sm" className="search-dismiss" onClick={props.onClose} aria-label={t("common.close")} title={`${t("common.close")} (Esc)`}><X /><kbd aria-hidden="true">esc</kbd></Button>
         </CommandHeader>
         <div className="search-results-glass">
         <SearchGlass />
         <div className="search-scope">
+          {filter === 'mail' ? <Select value={mailAccount || '__all__'} onValueChange={value => { if (value) setMailAccount(value === '__all__' ? '' : value); }}>
+            <SelectTrigger size="sm" aria-label={t('content_search.mail_account')}><SelectValue>{mailAccount ? mail.accounts.find(account => account.id === mailAccount)?.displayName ?? t('content_search.mail_account') : t('content_search.mail_all_accounts')}</SelectValue></SelectTrigger>
+            <SelectContent align="start" className="search-scope-menu">
+              <SelectItem value="__all__">{t('content_search.mail_all_accounts')}</SelectItem>
+              {mail.accounts.map(account => <SelectItem key={account.id} value={account.id}>{account.displayName}</SelectItem>)}
+            </SelectContent>
+          </Select> : <>
           <Select value={scope} onValueChange={value => { if (value) setScope(value); }}>
             <SelectTrigger size="sm" aria-label={t("content_search.scope")}><SelectValue>{scope === "__all__" ? t("content_search.all_projects") : scope === "__filtered__" ? t("content_search.filtered_projects") : props.workspaces.find(workspace => workspace.id === scope)?.title}</SelectValue></SelectTrigger>
             <SelectContent align="start" className="search-scope-menu">
@@ -164,15 +180,28 @@ export function CommandPalette(props: {
             </SelectContent>
           </Select>
           {scope === "__filtered__" && <span>{filterState.filters.length > 0 && details.some(detail => detail.isFetching) ? t("content_search.searching") : filterState.filters.length > 0 && details.some(detail => detail.isError) ? t("content_search.metadata_unavailable") : t("content_search.projects_count", { count: scopedWorkspaces.length })}</span>}
+          </>}
         </div>
-        <Tabs value={filter} onValueChange={value => { if (value === "all" || value === "sessions" || value === "projects" || value === "tasks" || value === "files") setFilter(value); }} className="search-filters">
+        <Tabs value={filter} onValueChange={value => { if (value === "all" || value === "sessions" || value === "projects" || value === "tasks" || value === "files" || value === 'mail') setFilter(value); }} className="search-filters">
           <TabsList aria-label={t("content_search.filter")} aria-keyshortcuts="Tab Shift+Tab">
             {filters.map(kind => <TabsTrigger key={kind} value={kind} onClick={() => inputRef.current?.focus({ preventScroll: true })}>{names[kind]}</TabsTrigger>)}
           </TabsList>
         </Tabs>
         <CommandPanel className="search-results-panel">
-          <CommandEmpty className="search-empty"><Search aria-hidden="true" /><span>{(pending || preparing) ? t("content_search.searching") : trimmed.length === 1 ? t("content_search.keep_typing") : trimmed ? t("content_search.no_results") : t("content_search.start")}</span></CommandEmpty>
-          <CommandList>{(item: ContentSearchResult) => {
+          <CommandEmpty className="search-empty"><Search aria-hidden="true" />{filter === 'mail' ? <>
+            <span>{!mail.state ? t('content_search.searching') : mail.state.status === 'too-long' ? t('content_search.mail_query_too_long') : mail.state.status === 'locked' ? t('content_search.mail_locked') : mail.state.status === 'unavailable' ? t('content_search.mail_unavailable') : !mailPage?.accounts.length ? t('content_search.mail_no_accounts') : trimmed.length === 1 ? t('content_search.keep_typing') : trimmed ? t('content_search.no_results') : t('content_search.mail_start')}</span>
+            {mail.state?.status === 'unavailable' && <Button size="sm" variant="ghost" onClick={mail.retry}>{t('content_search.retry')}</Button>}
+            {(mail.state?.status === 'locked' || mail.state?.status === 'unavailable' || mailPage?.accounts.length === 0) && <Button size="sm" variant="ghost" onClick={openMail}>{t('content_search.mail_open')}</Button>}
+          </> : <span>{(pending || preparing) ? t("content_search.searching") : trimmed.length === 1 ? t("content_search.keep_typing") : trimmed ? t("content_search.no_results") : t("content_search.start")}</span>}</CommandEmpty>
+          <CommandList>{(item: ContentSearchResult | GlobalMailHit) => {
+            if (item.kind === 'mail') return <CommandItem key={item.id} value={item.id} className="search-result" onClick={() => { props.onClose(); navigate('/mail', { state: { mailSearchTarget: { serverOrigin: item.serverOrigin, accountId: item.accountId, locator: item.locator } } }); }}>
+              <span className="search-result-icon" aria-hidden="true"><Mail /></span>
+              <div className="min-w-0 flex-1">
+                <div className="search-result-title"><Highlight text={item.subject || t('content_search.mail_no_subject')} query={trimmed} /></div>
+                <div className="search-result-meta">{item.sender}{item.date ? ` · ${new Date(item.date).toLocaleDateString()}` : ''} · {item.account}</div>
+                {item.snippet && <div className="search-result-excerpt"><Highlight text={item.snippet} query={trimmed} /></div>}
+              </div><CornerDownLeft className="search-result-enter" aria-hidden="true" />
+            </CommandItem>;
             const Icon = icons[item.kind];
             const project = props.workspaces.find(workspace => workspace.id === item.workspaceId)?.title;
             return <CommandItem key={`${item.kind}:${item.workspaceId}:${item.id}`} value={`${item.kind}:${item.workspaceId}:${item.id}`} className="search-result" onClick={() => { props.onClose(); props.onOpenResult(item); }}>
@@ -190,7 +219,7 @@ export function CommandPalette(props: {
         </CommandPanel>
         <CommandFooter>
           <span className="search-shortcut">{t("content_search.open_shortcut", { shortcut: isMacPlatform() ? "⌘ K" : "Ctrl + K" })}</span>
-          <span aria-live="polite" className="search-footer-status">{(pending || preparing) ? <><Loader2 className="size-3 animate-spin" />{preparing ? t("content_search.preparing", { count: preparing }) : t("content_search.searching")}</> : limited || visible.length < items.length ? t("content_search.refine") : (trimmed || filter === "tasks") ? t("content_search.results", { count: visible.length }) : null}</span>
+          <span aria-live="polite" className="search-footer-status">{filter === 'mail' ? !mail.state ? <><Loader2 className="size-3 animate-spin" />{t('content_search.searching')}</> : mailPage?.incomplete ? t('content_search.mail_incomplete') : mailPage?.limited ? t('content_search.refine') : mailPage && trimmed.length >= 2 ? t('content_search.results', { count: commandItems.length }) : null : (pending || preparing) ? <><Loader2 className="size-3 animate-spin" />{preparing ? t("content_search.preparing", { count: preparing }) : t("content_search.searching")}</> : limited || visible.length < items.length ? t("content_search.refine") : (trimmed || filter === "tasks") ? t("content_search.results", { count: visible.length }) : null}</span>
           <span className="search-key-help">{t("content_search.keys")}</span>
         </CommandFooter>
         </div>
