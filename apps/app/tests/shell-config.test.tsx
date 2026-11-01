@@ -56,7 +56,7 @@ test("older sidebar preferences gain Wiki without changing existing choices", ()
   const savedOrder = ["navHome", "navRecorder", "navEvaluations", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows"];
   const config = readConfig({ navOrder: savedOrder, navRecorder: false, navTasks: false });
   expect(config?.navWikis).toBe(true);
-  expect(config?.navOrder.filter(key => key !== "navWikis")).toEqual(savedOrder);
+  expect(config?.navOrder.filter(key => key !== "navWikis" && key !== "navMail")).toEqual(savedOrder);
   expect(config?.navOrder.indexOf("navWikis")).toBe((config?.navOrder.indexOf("navRecorder") ?? -1) + 1);
   expect(config?.navRecorder).toBe(false);
   expect(config?.navTasks).toBe(false);
@@ -70,4 +70,17 @@ test("the saved Wiki visibility and position survive a reload", () => {
   const config = readConfig({ navOrder: savedOrder, navWikis: false });
   expect(config?.navWikis).toBe(false);
   expect(config?.navOrder).toEqual(savedOrder);
+});
+
+
+test("existing profiles gain Email beside Calendar while preserving their navigation choices", () => {
+  const savedOrder = ["navHome", "navProjects", "navTasks", "navCalendar", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
+  const config = readConfig({ navOrder: savedOrder, navTasks: false });
+  expect(config?.navMail).toBe(true);
+  expect(config?.navOrder.filter(key => key !== "navMail")).toEqual(savedOrder);
+  expect(config?.navOrder.indexOf("navMail")).toBe((config?.navOrder.indexOf("navCalendar") ?? -1) + 1);
+  expect(config?.navTasks).toBe(false);
+  const custom = ["navMail", ...savedOrder];
+  expect(readConfig({ navOrder: custom, navMail: false })?.navOrder).toEqual(custom);
+  expect(readConfig({ navOrder: custom, navMail: false })?.navMail).toBe(false);
 });

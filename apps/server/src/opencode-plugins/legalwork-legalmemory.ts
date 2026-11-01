@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { readManagedEngineSettings } from "../managed-engine-settings.js";
 import { legalMemoryTreeApiUrl, legalMemoryTreeProxyUrl } from "../legalmemory-fetch.js";
-import { legalMemoryReadTools, legalMemoryRequestSchema, legalMemoryResponseSchema, legalMemoryRpc, LegalMemoryAccessError, type LegalMemoryRequest, type LegalMemoryResponse } from "../legalmemory-rpc.js";
+import { assertLegalMemoryFilingCapability, legalMemoryReadTools, legalMemoryFilingTools, legalMemoryRequestSchema, legalMemoryResponseSchema, legalMemoryRpc, LegalMemoryAccessError, type LegalMemoryRequest, type LegalMemoryResponse } from "../legalmemory-rpc.js";
 
 const namespace = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_");
 const action = (server: string, name: string) => `${namespace(server)}_${namespace(name)}`;
@@ -176,6 +176,8 @@ export default Plugin.define({
       let created: Awaited<ReturnType<typeof ctx.session.create>> | undefined;
       try {
         invocation.signal.throwIfAborted();
+        const filing = input.operation.type === "mail-filing";
+        assertLegalMemoryFilingCapability(input.operation, process.env.LEGALWORK_MAIL_AGENT_TOKEN);
         await readManagedEngineSettings(settingsPath, ctx.location.directory);
         const config = safeRemote(definitions.get(input.serverName), input);
         const status = (await ctx.mcp.list()).data.find(server => server.name === input.serverName);
@@ -184,10 +186,10 @@ export default Plugin.define({
         const agents = (await ctx.agent.list()).data;
         const agent = agents.find(agent => agent.id === "legalwork") ?? agents.find(agent => agent.id === "build") ?? agents.find(agent => agent.mode !== "subagent");
         if (!agent) throw new LegalMemoryAccessError("not_configured", "No native context is available for this LegalMemory read.");
-        created = await ctx.session.create({ agent: agent.id, title: "LegalMemory interface read", metadata: { legalworkInternal: LEGALMEMORY_INTERNAL_SESSION },
-          permissions: [{ action: "*", resource: "*", effect: "deny" }, ...legalMemoryReadTools.map(name => ({ action: action(input.serverName, name), resource: "*", effect: "allow" as const }))] });
+        created = await ctx.session.create({ agent: agent.id, title: filing ? "Mail matter filing" : "LegalMemory interface read", metadata: { legalworkInternal: LEGALMEMORY_INTERNAL_SESSION },
+          permissions: [{ action: "*", resource: "*", effect: "deny" }, ...(filing ? [...legalMemoryFilingTools, "list_connectors"] : legalMemoryReadTools).map(name => ({ action: action(input.serverName, name), resource: "*", effect: "allow" as const }))] });
         if (await realpath(created.location.directory) !== await realpath(ctx.location.directory)) throw new LegalMemoryAccessError("not_configured", "LegalMemory execution belongs to a different project.");
-        const message = await ctx.session.synthetic({ sessionID: created.id, text: "The user requested a read-only LegalMemory interface operation.", resume: false, metadata: { legalworkInternal: LEGALMEMORY_INTERNAL_SESSION } });
+        const message = await ctx.session.synthetic({ sessionID: created.id, text: filing ? "The user requested mail matter filing through the local email client." : "The user requested a read-only LegalMemory interface operation.", resume: false, metadata: { legalworkInternal: LEGALMEMORY_INTERNAL_SESSION } });
         const call: ToolContext = { sessionID: Session.ID.make(created.id), agent: Agent.ID.make(agent.id), messageID: SessionMessage.ID.make(message.id),
           id: Tool.CallID.make(`call_${randomUUID().replaceAll("-", "")}`), signal: invocation.signal, progress: async () => {} };
         operations.set(operationID, call);

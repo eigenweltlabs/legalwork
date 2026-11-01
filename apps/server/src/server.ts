@@ -49,6 +49,7 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
 import {
+  resolveLegalMemoryServer,
   collectLegalMemoryFolderFiles,
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
@@ -56,7 +57,7 @@ import {
   fetchLegalMemoryTreeRoots,
   fetchLegalMemoryTreeSearch,
 } from "./legalmemory-fetch.js";
-import { createNativeLegalMemoryClient, legalMemoryRouteError, listNativeLegalMemoryPermissions, replyNativeLegalMemoryPermission } from "./legalmemory-native.js";
+import { callNativeMailFiling, createNativeLegalMemoryClient, legalMemoryRouteError, listNativeLegalMemoryPermissions, replyNativeLegalMemoryPermission } from "./legalmemory-native.js";
 import { fileURLToPath } from "node:url";
 import { assertManagedHistoryReadable, createEngineClient, getWorkspaceEngineSession, getWorkspaceEngineSessionOrNull, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
 import { canonicalFilePath } from "./file-write-lock.js";
@@ -983,16 +984,16 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
 
   registerMailAgentRoutes({routes,host:config.host,agentToken:mailAgentEngineToken,mail:runtimeOptions.mail,session:async input=>{
     const directory=await mailAgentRealpath(input.directory);
-    const candidates=await Promise.all(config.workspaces.filter(workspace=>workspace.id&&workspace.workspaceType!=='remote'&&!workspace.sandboxBackend).map(async workspace=>({workspace,directory:await mailAgentRealpath(workspace.path).catch(()=>null)})));
+    const candidates=await Promise.all(config.workspaces.filter(workspace=>workspace.id&&!workspace.sandboxBackend).map(async workspace=>({workspace,directory:await mailAgentRealpath(workspace.path).catch(()=>null)})));
     const matched=candidates.find(candidate=>candidate.directory===directory);
     if(!matched?.workspace.id)throw new ApiError(403,'mail_agent_denied','Local task workspace unavailable');
     const workspace=await resolveWorkspace(config,matched.workspace.id);
     const client=createWorkspaceOpencodeClient(config,workspace),response=await client.session.get({sessionID:input.sessionId});
-    const session=z.object({id:z.string(),directory:z.string()}).parse(response.data);
-    if(session.id!==input.sessionId||await mailAgentRealpath(session.directory)!==directory)throw new ApiError(403,'mail_agent_denied','Task scope changed');
-    const responseMessage=await client.session.message({sessionID:input.sessionId,messageID:input.messageId});
-    const message=z.object({info:z.object({id:z.string(),sessionID:z.string(),role:z.literal('assistant')})}).parse(responseMessage.data);
-    if(message.info.id!==input.messageId||message.info.sessionID!==input.sessionId)throw new ApiError(403,'mail_agent_denied','Task provenance unavailable');
+    const session=z.object({id:z.string(),location:z.object({directory:z.string()})}).parse(response);
+    if(session.id!==input.sessionId||await mailAgentRealpath(session.location.directory)!==directory)throw new ApiError(403,'mail_agent_denied','Task scope changed');
+    const responseMessage=await client.session.message.get({sessionID:input.sessionId,messageID:input.messageId});
+    const message=z.object({id:z.string(),type:z.literal('assistant')}).parse(responseMessage);
+    if(message.id!==input.messageId)throw new ApiError(403,'mail_agent_denied','Task provenance unavailable');
     return workspace.id;
   }});
 
@@ -1000,7 +1001,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     const workspace=await resolveWorkspace(config,workspaceId);
     const server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));
     if(!server)throw new ApiError(409,'legalmemory_not_configured','Configure LegalMemory for the selected workspace in Settings.');
-    return {server,bearer:await engineAccessToken(server.name)};
+    return {server: {name: server.name, url: server.url}, callTool: (name, args, signal) => callNativeMailFiling(config, workspace, server.name, name, args, mailAgentEngineToken, signal)};
   });
 
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });

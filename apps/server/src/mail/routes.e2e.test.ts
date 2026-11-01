@@ -241,10 +241,10 @@ test("only host-token auth can access mail; all remote bearer scopes are denied"
   const mock = mockService();
   const { root, base } = await boot(mock.service);
   expect((await fetch(`${base}/accounts`)).status).toBe(401);
-  for (const scope of ["owner", "collaborator", "viewer"]) {
-    const issued = await fetch(`${root}/tokens`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ scope, label: "mail isolation test" }) });
-    expect(issued.status).toBe(201);
-    const { token } = z.object({ token: z.string() }).parse(await issued.json());
+  // Share-token issuance was retired. The configured application token and
+  // arbitrary legacy bearer credentials must still never enter the mail API.
+  expect((await fetch(`${root}/tokens`, {method: "POST", headers: auth})).status).toBe(404);
+  for (const token of ["synthetic-mail-collaborator", "retired-owner", "retired-collaborator", "retired-viewer"]) {
     expect((await fetch(`${base}/accounts`, { headers: { authorization: `Bearer ${token}`, "x-legalwork-client-id": "desktop-local" } })).status).toBe(401);
   }
   expect(mock.calls()).toBe(0);

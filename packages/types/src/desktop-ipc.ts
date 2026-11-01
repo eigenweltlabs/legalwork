@@ -399,7 +399,7 @@ export type DesktopCommandMap = {
   setMailBadgeEnabled: { args: [enabled: boolean]; result: boolean };
   // Native windows
   openAppWindow: {
-    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "wikis" | "evals" }];
+    args: [input: { page: "home" | "scheduled" | "calendar" | "mail" | "projects" | "workflows" | "tasks" | "recorder" | "wikis" | "evals" }];
     result: boolean;
   };
   openSessionWindow: {

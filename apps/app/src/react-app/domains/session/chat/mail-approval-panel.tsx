@@ -43,5 +43,5 @@ export function MailApprovalPanel({state}:{state:ReturnType<typeof useMailApprov
  return <>{state.request&&<MailApprovalRequest request={state.request} busy={state.busy} respond={state.respond}/ >}{state.error&&<p role="alert" className="px-4 py-2 text-xs">{state.error}</p>}</>;
 }
 export function MailApprovalRequest({request,busy,respond}:{request:MailPendingApproval;busy:boolean;respond:(allow:boolean)=>void}){
- return <PermissionApprovalPanel reviewDetails={request.description} allowForSession={false} busy={busy} permission={{id:request.id,sessionID:request.sessionId,permission:request.action,patterns:[request.accountLabel],always:[],metadata:{},receivedAt:request.createdAt,protocol:'legacy'}} respondPermission={(_id,reply)=>respond(reply==='once')}/>;
+ return <PermissionApprovalPanel reviewDetails={request.description} allowForSession={false} busy={busy} permission={{id:request.id,sessionID:request.sessionId,permission:request.action,patterns:[request.accountLabel],always:[],metadata:{},receivedAt:request.createdAt,protocol:'v2'}} respondPermission={(_id,reply)=>respond(reply==='once')}/>;
 }

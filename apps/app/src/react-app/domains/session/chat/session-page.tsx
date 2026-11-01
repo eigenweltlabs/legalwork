@@ -988,7 +988,7 @@ export function SessionPage(props: SessionPageProps) {
 
   const openNavWindow = useCallback((key: ShellNavKey) => {
     const pages = {
-      navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
+      navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navMail: "mail", navProjects: "projects", navWorkflows: "workflows",
       navTasks: "tasks", navRecorder: "recorder", navWikis: "wikis", navEvaluations: "evals",
     } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
     void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {

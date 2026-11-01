@@ -7184,6 +7184,7 @@ const de = {
   "providers.removed_invalid":
     "„{name}“ wurde entfernt, weil die Engine die Konfiguration nicht laden konnte. Fügen Sie den Anbieter in den KI-Einstellungen erneut hinzu.",
   // Aufgaben: der gemeinsame Posteingang der Kanzlei (Eigenwelt-Funktion "intake").
+  "sidebar.email": "E-Mail",
   "sidebar.tasks": "Aufgaben",
   "sidebar.tasks_unread_one": "({count} neu)",
   "sidebar.tasks_unread_other": "({count} neu)",

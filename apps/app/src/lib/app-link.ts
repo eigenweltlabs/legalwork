@@ -1,8 +1,8 @@
 /** Navigation-only links in assistant answers and the bundled manual. */
 export const APP_LINK_EVENT = "legalwork:open-app-link";
 
-const pages = new Set(["home", "calendar", "projects", "workflows", "tasks", "scheduled", "recorder", "wikis", "evals"]);
-const settings = new Set(["general", "account", "ai", "tabular-review", "workflows", "recorder", "office-addins", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates", "permissions"]);
+const pages = new Set(["home", "calendar", "mail", "projects", "workflows", "tasks", "scheduled", "recorder", "wikis", "evals"]);
+const settings = new Set(["general", "mail-accounts", "account", "ai", "tabular-review", "workflows", "recorder", "office-addins", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates", "permissions"]);
 const integrationSections = new Set(["mcp", "storage", "skills", "plugins"]);
 const workflowSections = new Set(["skills", "prompts"]);
 

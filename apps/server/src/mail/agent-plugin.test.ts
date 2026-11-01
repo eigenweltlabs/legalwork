@@ -2,7 +2,9 @@ import {test,expect} from 'bun:test';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import MailTools from '../opencode-plugins/legalwork-mail-tools.js';
+import pluginDefinition, {createMailTools} from '../opencode-plugins/legalwork-mail-tools.js';
+import {nativePluginTools} from '../opencode-plugins/native-plugin-test-support.js';
+const MailTools = (context: {directory: string}) => nativePluginTools(pluginDefinition, context);
 
 test('every local task receives account tools; invocation binds trusted directory and never exposes engine credential',async()=>{
  const root=await mkdtemp(join(tmpdir(),'mail-agent-plugin-'));
@@ -17,15 +19,15 @@ test('every local task receives account tools; invocation binds trusted director
   const plugin=await MailTools({directory:root});
   expect(Object.keys(plugin.tool)).toContain('mail_send');expect(Object.keys(plugin.tool)).not.toContain('mail_scopes');
   for(const sessionID of ['first-chat','second-chat']){
-   const result=await plugin.tool.mail_accounts.execute({},{sessionID,messageID:'message'});
+   const result=await plugin.tool.mail_accounts.execute({},{directory:root,sessionID,messageID:'message'});
    expect(result).toContain('account-a');expect(result).not.toContain('a'.repeat(64));
   }
-  await plugin.tool.mail_read.execute({accountId:'account-a',request:'{"locator":{"provider":"gmail","messageId":"m"}}'},{sessionID:'second-chat',messageID:'message'});
+  await plugin.tool.mail_read.execute({accountId:'account-a',request:'{"locator":{"provider":"gmail","messageId":"m"}}'},{directory:root,sessionID:'second-chat',messageID:'message'});
   expect(calls.map(call=>call.sessionId)).toEqual(['first-chat','second-chat','second-chat']);
   expect(calls.every(call=>call.directory.endsWith(root.split('/').pop()!))).toBe(true);
   expect(calls[2]?.accountId).toBe('account-a');
   await expect(plugin.tool.mail_read.execute({accountId:'account-a',request:'{"tool":"propose_send"}'},{sessionID:'task',messageID:'message'})).rejects.toThrow();
-  await expect(plugin.tool.mail_accounts.execute({},{})).rejects.toThrow();
+  await expect((await createMailTools({directory:root})).tool.mail_accounts.execute({},{})).rejects.toThrow();
   expect(calls).toHaveLength(3);
  }finally{
   globalThis.fetch=originalFetch;

@@ -51,9 +51,9 @@ async function files(directory) {
   }
   return result.sort();
 }
-async function run(arguments_, timeout) {
+async function run(arguments_, timeout, executable = process.execPath) {
   await new Promise((resolveRun, reject) => {
-    const child = spawn(process.execPath, arguments_, { cwd: server, stdio: 'inherit', shell: false });
+    const child = spawn(executable, arguments_, { cwd: server, stdio: 'inherit', shell: false });
     const timer = setTimeout(() => child.kill('SIGKILL'), timeout);
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('close', (code, signal) => {
@@ -86,6 +86,9 @@ try {
   const build = join(output, 'build');
   await writeFile(join(build, 'package.json'), '{"type":"module"}');
   await linkTestModules(await realpath(join(server, 'node_modules')), join(build, 'node_modules'));
+  // Match the server build's standalone schema boundary: native shared values
+  // otherwise resolve workspace TypeScript source through package exports in Node.
+  await run(['build', join(source, 'native-shared-values.ts'), '--outfile', join(build, 'native-shared-values.js'), '--target', 'node', '--format', 'esm', '--external', 'zod'], 120_000, 'bun');
   // Native fixtures and their checked-in data/worker scripts keep their source-relative layout.
   const artifacts = paths.filter(path => !path.endsWith('.ts') && !path.endsWith('.md'));
   for (const path of artifacts) {

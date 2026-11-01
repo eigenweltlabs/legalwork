@@ -409,7 +409,7 @@ export function SessionRoute() {
   // Mirroring the URL in state lets urgent updates reopen the chat sidebar
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
-  const showMail = location.pathname === "/mail";
+  const showMail = mainPage === "mail";
   const showWikis = mainPage === "wikis";
   const manageWikis = showWikis && new URLSearchParams(location.search).get("manage") === "1";
   const showEvals = mainPage === "evals";
@@ -521,7 +521,7 @@ export function SessionRoute() {
     handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
-    skipAutomaticNavigation: showMail || showWorkflows || showEvals || showRecorder || showExtensions || showTasks,
+    skipAutomaticNavigation: mainPage !== null,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
@@ -1987,7 +1987,7 @@ export function SessionRoute() {
 
 
   const mailChatBridge = useMemo<MailChatBridge>(() => ({
-    workspaces: workspaces.map(workspace => ({id: workspace.id, name: workspace.name, remote: workspace.workspaceType === "remote"})),
+    workspaces: workspaces.map(workspace => ({id: workspace.id, name: workspace.name, remote: false})),
     async sessions(workspaceId) {
       const workspace = workspaces.find(item => item.id === workspaceId);
       if (!workspace) throw Error("This workspace is unavailable.");
@@ -2002,7 +2002,7 @@ export function SessionRoute() {
       const endpoint = resolveWorkspaceEndpoint(workspace, {baseUrl, token});
       if (!endpoint?.token) throw Error("Connect this workspace before copying an attachment.");
       const sdk = createClient(endpoint.opencodeBaseUrl, workspace.path?.trim() || undefined, {token: endpoint.token, mode: "legalwork"});
-      const session = selectedSessionId ? (await endpoint.client.getSession(endpoint.workspaceId, selectedSessionId)).item : unwrap(await sdk.session.create({directory: workspace.path?.trim() || undefined}));
+      const session = selectedSessionId ? (await endpoint.client.getSession(endpoint.workspaceId, selectedSessionId)).item : projectSession(await sdk.session.create({location: {directory: workspace.path}}));
       const assertCurrent = async () => {
         const current = (await endpoint.client.getSession(endpoint.workspaceId, session.id)).item;
         if (normalizeDirectoryPath(current.directory) !== normalizeDirectoryPath(workspace.path)) throw Error("This chat does not belong to the chosen workspace.");

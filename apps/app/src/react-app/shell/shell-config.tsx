@@ -7,9 +7,9 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navMail" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navMail", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
@@ -20,6 +20,7 @@ export type ShellConfig = {
   newWindowBehavior: "ask" | "empty" | "copy";
   navHome: boolean;
   navCalendar: boolean;
+  navMail: boolean;
   navScheduled: boolean;
   navProjects: boolean;
   chatSectionOrder: ChatSectionKey[];
@@ -82,6 +83,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navOrder: DEFAULT_NAV_ORDER,
   navHome: true,
   navCalendar: true,
+  navMail: true,
   navScheduled: true,
   navProjects: true,
   chatSectionOrder: DEFAULT_CHAT_ORDER,
@@ -160,6 +162,10 @@ export function readShellConfig(): ShellConfig {
     if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
       navOrder.splice(navOrder.indexOf("navCalendar"), 1);
       navOrder.splice(navOrder.indexOf("navProjects") + 1, 0, "navCalendar");
+    }
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navMail")) {
+      navOrder.splice(navOrder.indexOf("navMail"), 1);
+      navOrder.splice(navOrder.indexOf("navCalendar") + 1, 0, "navMail");
     }
     if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navScheduled")) {
       navOrder.splice(navOrder.indexOf("navScheduled"), 1);
