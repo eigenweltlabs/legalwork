@@ -7,7 +7,7 @@ description: Answer how-to questions about LegalWork using its bundled manual. U
 
 For an action request to set up any website login, use legalwork_browser_request_password directly with the user-supplied website_url or a known catalogue provider. Ask for the sign-in URL if missing. The existing secure card checks saved logins. No manual lookup is needed before the card.
 
-For an ordinary how-to question, read the matching page with `legalwork_skill_read`, then answer. This skill and that page are normally sufficient. Use the exact package reference: `name="legalwork-help", path="references/email.md"` for Gmail or Outlook setup. Do not read the index, screen map or localization guide first when the topic is already clear.
+For an ordinary how-to question, read the matching page with `legalwork_skill_read`, then answer. If the result has `nextOffset`, continue at that offset until the relevant section is complete. This skill and that page are normally sufficient. Use the exact package reference: `name="legalwork-help", path="references/email.md"` for Gmail or Outlook setup. Do not read the index, screen map or localization guide first when the topic is already clear.
 
 | Question | Read |
 | --- | --- |
@@ -21,7 +21,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Chats, history, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
 | Tabular Review or review prompt sets | [reviews.md](references/reviews.md) |
-| Scheduled email, Send later, scheduled Outbox items, rescheduling, Snoozed, snoozing conversations, local mail rules, new-arrival conditions, rule readiness or activity, daylight-saving time or local execution guarantees | [email.md](references/email.md) |
+| Scheduled email, Send later, scheduled Outbox items, rescheduling, Snoozed, snoozing conversations, local mail rules, new-arrival conditions, rule readiness or activity, daylight-saving time, local execution guarantees, Email on multiple devices or hosted mail availability | [email.md](references/email.md) |
 | Schedules that run the assistant | [scheduled-tasks.md](references/scheduled-tasks.md) |
 | Tasks, inbox or notifications | [tasks-intake.md](references/tasks-intake.md) |
 | Files, document editors or saving outputs | [files-documents.md](references/files-documents.md) |

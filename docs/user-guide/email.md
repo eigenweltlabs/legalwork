@@ -158,11 +158,18 @@ The assistant can prepare a local email preview containing recipients, subject, 
 
 If a saved draft changes in Gmail or Outlook, LegalWork can require you to review the provider's version instead of sending an outdated local copy. If delivery is marked uncertain, check the mailbox before retrying. A lost response is not proof that sending failed.
 
+## Email on more than one device
+
+Downloaded mail, local drafts, Outbox, snoozes and rules belong to this computer. Connecting the same provider on another computer does not transfer that local state. Provider read flags and folders appear through normal provider sync. Automatic device-to-device cache sync and a firm-hosted Email worker are not available. Connecting the assistant to a remote LegalWork server does not give that server access to this local mail cache.
+
+Open **Settings > Mail accounts > Data & access** for backup and export controls. Restoring an encrypted mail backup does not restore provider credentials or resume old pending work. Review the account connection in Integrations before creating fresh provider actions. Restoring a backup does not resume old sends or enable its rules.
+
 ## Disconnect and troubleshoot
 
 | Situation | What to do |
 | --- | --- |
 | Connect is disabled | Check worker availability, the chosen connection method, Eigenwelt sign-in or saved OAuth app details. Save pending app-detail edits first. |
+| Gmail initial download is slow | Original messages consume more provider quota than metadata, so downloads are paced. Check sync progress in **Mail accounts > Accounts** and leave sync running. Provider throttling can add waits. |
 | Browser sign-in expired or was cancelled | Cancel the pending attempt, reconnect and keep the LegalWork panel open until completion. |
 | Outlook account exists but mail is unavailable | Activate **Outlook Email** separately from **Outlook Calendar**, then test the connection. |
 | Assistant asks which email account to use | Reply Gmail or Outlook Email. It will then prepare a preview for that account. |
