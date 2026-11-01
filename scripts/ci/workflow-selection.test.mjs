@@ -49,6 +49,25 @@ test('documentation and focused manual acceptance do not accidentally launch ful
   assert.equal(condition(main.jobs['unit-tests'].if, changeScope(null), { engine: 'success', event: 'workflow_dispatch', inputs: { package_desktop: true } }), true);
 });
 
+test('Windows Email views retain real renderer checks and synthetic evidence in the required platform job', () => {
+  const mail = changeScope(['apps/app/src/react-app/domains/mail/mail-route.tsx']);
+  const server = changeScope(['apps/server/src/connectors/index.ts']);
+  const job = main.jobs['windows-drafts'];
+  assert.equal(condition(job.if, mail), true);
+  const render = job.steps.find(step => step.name === 'Test Email views on Windows');
+  assert.equal(condition(render.if, mail, {os:'Windows'}), true);
+  assert.equal(condition(render.if, server, {os:'Windows'}), false);
+  assert.equal(render['continue-on-error'], undefined);
+  for (const file of ['mail-outbox', 'mail-compose', 'mail-keyboard-workflow', 'mail-context-render', 'mail-journey-render', 'mail-notification-open-render'])
+    assert.ok(render.run.includes(`apps/app/tests/${file}.test.ts`));
+  const upload = job.steps.find(step => step.with?.name === 'mail-ui-Windows');
+  assert.ok(job.steps.indexOf(upload) > job.steps.indexOf(render));
+  assert.ok(upload.if.includes('always()'));
+  assert.equal(condition(upload.if, server, {os:'Windows'}), false);
+  assert.equal(upload.with.path, '${{ runner.temp }}/mail-ui');
+  assert.ok(main.jobs['ci-result'].needs.includes('windows-drafts'));
+});
+
 test('failed prerequisites cannot become successful selected-check summaries', () => {
   const summary = main.jobs['ci-result'];
   assert.equal(summary.if, 'always()');
