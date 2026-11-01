@@ -158,6 +158,18 @@ The assistant can prepare a local email preview containing recipients, subject, 
 
 If a saved draft changes in Gmail or Outlook, LegalWork can require you to review the provider's version instead of sending an outdated local copy. If delivery is marked uncertain, check the mailbox before retrying. A lost response is not proof that sending failed.
 
+## Signed, encrypted and Microsoft protected mail
+
+LegalWork can display the clear text of a detached S/MIME-signed email, but it does not verify its signature, certificate, sender address or revocation status. A visible `.p7s` signature attachment does not mean the message is verified. Unverified clear text remains searchable, including text whose signature would fail verification.
+
+Bodies inside opaque signed or encrypted S/MIME containers are not decoded. LegalWork does not import signing/decryption certificates or use private keys. If **No message body is available yet** appears for such a message, waiting for sync cannot add decryption support. Use an authorized mail application with the required certificate/key. The encrypted local Email database protects local storage; it does not encrypt outgoing email.
+
+Microsoft-protected mail may expose only an outer wrapper or an unavailable body. LegalWork does not acquire MIP content licenses, decrypt RPMSG, or enforce Microsoft protection policies. A mailbox connection or **Allow write access** is not a content license. Open the message through Microsoft’s supported provider/application when protection is required.
+
+To export available original bytes, open **Settings > Mail accounts > Data & access**, select **Export account**, choose **EML with manifest** or **MBOX with manifest** under **Export format**, then select **Choose export folder…**. Both formats preserve the protected original without converting it into a verified or decrypted copy. An unavailable original is reported as incomplete. Technical access to bytes does not establish permission to export protected content.
+
+Ordinary reply/forward and attaching a signature/certificate file do not sign, encrypt or preserve Microsoft protection on a new message. Use a supported protected-composition workflow in the provider or another authorized mail application when that protection is required.
+
 ## Email on more than one device
 
 Downloaded mail, local drafts, Outbox, snoozes and rules belong to this computer. Connecting the same provider on another computer does not transfer that local state. Provider read flags and folders appear through normal provider sync. Automatic device-to-device cache sync and a firm-hosted Email worker are not available. Connecting the assistant to a remote LegalWork server does not give that server access to this local mail cache.
