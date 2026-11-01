@@ -35,7 +35,6 @@ await run("window.__compose()");await until("!!document.querySelector('[aria-lab
 assert.equal(await run("!!document.querySelector('input[aria-label=\\"Sender email\\"]')"),false);
 await run("document.querySelector('[aria-label^=Sender]').click()");await until("!!document.querySelector('[role=option]')");await run("(()=>{const option=[...document.querySelectorAll('[role=option]')].find(el=>el.textContent==='alias@example.com');option.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));option.click();})()");await until("window.__draft?.senderIdentityId==='alias'");
 assert.equal(await run("window.__draft.senderSignature"),'Alice '+String.fromCharCode(34)+'A'+String.fromCharCode(34)+' & Partners');assert.equal(await run("window.__draft.from"),'alias@example.com');assert.equal(await run("window.__draft.text.includes('Alice ')"),true);
-await run("document.querySelector('[aria-label=\\"Toggle rich text\\"]').click()");
 await until("window.__draft.html!==null");
 await run("(()=>{const el=document.querySelector('[aria-label=\\"Rich message body\\"]');el.insertAdjacentHTML('afterbegin','<p>Edited body</p>');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
 await until("window.__draft.html.includes('Edited body')");

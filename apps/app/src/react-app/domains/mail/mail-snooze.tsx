@@ -17,7 +17,7 @@ function snoozeError(error:unknown){
 
 export function MailSnoozeControl({client,item,disabled,onChanged}:{client:MailClient;item:MailMessageView;disabled:boolean;onChanged:()=>void}){
   const [state,setState]=useState<MailSnooze|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const request=useRef<AbortController|null>(null),lock=useRef(false);
+  const request=useRef<AbortController|null>(null),lock=useRef(false),trigger=useRef<HTMLButtonElement>(null);
   useEffect(()=>{setState(null);setBusy(false);setError('');return()=>request.current?.abort();},[client,item.accountId,item.key]);
   async function open(){
     if(lock.current||disabled)return;lock.current=true;setBusy(true);setError('');
@@ -31,7 +31,7 @@ export function MailSnoozeControl({client,item,disabled,onChanged}:{client:MailC
     await setMailSnooze(client,item,state,time,request.current.signal);
     if(!request.current.signal.aborted)onChanged();
   }
-  return <><Button variant="ghost" size="icon-sm" data-mail-command="snooze" aria-label={t('mail.snooze_action')} title={t('mail.snooze_action')} disabled={disabled||busy} onClick={()=>void open()}><Clock size={15}/></Button>
+  return <><Button ref={trigger} variant="ghost" size="icon-sm" data-mail-command="snooze" aria-label={t('mail.snooze_action')} title={t('mail.snooze_action')} disabled={disabled||busy} onClick={()=>void open()}><Clock size={15}/></Button>
     {error&&<Alert variant="destructive" role="alert">{error}</Alert>}
-    {state&&<MailScheduleDialog mode="snooze" initial={state.time??undefined} subject={item.subject} scope={{kind:state.scope,count:state.count}} errorText={snoozeError} onClose={()=>setState(null)} onConfirm={time=>change(time)} onClear={state.time?()=>change(null):undefined}/>}</>;
+    {state&&<MailScheduleDialog mode="snooze" initial={state.time??undefined} subject={item.subject} scope={{kind:state.scope,count:state.count}} finalFocus={trigger} errorText={snoozeError} onClose={()=>setState(null)} onConfirm={time=>change(time)} onClear={state.time?()=>change(null):undefined}/>}</>;
 }

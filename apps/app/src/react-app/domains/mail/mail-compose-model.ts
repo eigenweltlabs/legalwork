@@ -46,3 +46,10 @@ export function composeTextHtml(content:ComposeContent):string {
  const suffix=content.senderSignature?'\n\n-- \n'+content.senderSignature:'';
  return suffix&&content.text.endsWith(suffix)?escape(content.text.slice(0,-suffix.length))+'<div data-mail-signature="true">'+escape(suffix)+'</div>':escape(content.text);
 }
+
+/** Fresh messages open as documents; saved and recovered drafts retain their chosen format. */
+export function initialComposeContent(content: ComposeContent, retained: boolean): ComposeContent {
+ if(retained||content.html!==null)return content;
+ const document={...content,html:composeTextHtml(content)};
+ return mailDraftContentSchema.safeParse(document).success?document:content;
+}

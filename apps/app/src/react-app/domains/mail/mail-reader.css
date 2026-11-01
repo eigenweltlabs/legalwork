@@ -131,6 +131,10 @@
 .mail-composer>label{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);font-size:12px;min-height:30px}
 .mail-compose-body{min-height:240px;flex:1;resize:none;white-space:pre-wrap;line-height:1.75;overflow-wrap:anywhere;border:0;border-radius:0;background:transparent;padding:var(--lw-space-4) 0;box-shadow:none}
 .mail-compose-body img{max-width:100%;max-height:250px}
+.mail-compose-tools{flex-wrap:wrap;gap:6px}
+.mail-compose-body ul{list-style:disc outside;padding-inline-start:1.5em}
+.mail-compose-body ol{list-style:decimal outside;padding-inline-start:1.5em}
+.mail-compose-body a{text-decoration:underline;text-underline-offset:2px}
 .mail-compose-body blockquote{border-left:2px solid var(--border);padding-left:12px}
 .mail-compose-attachment{font-size:12px}
 .mail-compose-attachment span{flex:1;overflow-wrap:anywhere}

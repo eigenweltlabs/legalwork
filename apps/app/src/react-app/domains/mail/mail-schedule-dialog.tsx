@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type RefObject } from 'react';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,7 @@ import { mailTimeZoneSchema, validFutureMailTime, type MailTime } from '../../..
 import type { MailDraftView } from '../../../../../server/src/mail/local-view';
 import { formatMailSchedule, mailScheduleCandidates, mailScheduleWall } from './mail-scheduling-model';
 
-export function MailScheduleDialog({ initial, subject, message, mode='send', scope, onClear, errorText, onClose, onConfirm }: { initial?: MailTime; subject: string; message?: Pick<MailDraftView['content'], 'from' | 'to' | 'cc' | 'bcc'>; mode?:'send'|'snooze'; scope?:{kind:'message'|'conversation';count:number}; onClear?:()=>Promise<void>; errorText?:(error:unknown)=>string; onClose: () => void; onConfirm: (time: MailTime) => Promise<void> }) {
+export function MailScheduleDialog({ initial, subject, message, mode='send', scope, finalFocus, onClear, errorText, onClose, onConfirm }: { initial?: MailTime; subject: string; message?: Pick<MailDraftView['content'], 'from' | 'to' | 'cc' | 'bcc'>; mode?:'send'|'snooze'; scope?:{kind:'message'|'conversation';count:number}; finalFocus?:RefObject<HTMLElement|null>; onClear?:()=>Promise<void>; errorText?:(error:unknown)=>string; onClose: () => void; onConfirm: (time: MailTime) => Promise<void> }) {
   const [zone, setZone] = useState(initial?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [wall, setWall] = useState(initial ? mailScheduleWall(initial) : '');
   const [choice, setChoice] = useState(initial ? String(initial.at) : '');
@@ -35,7 +35,7 @@ export function MailScheduleDialog({ initial, subject, message, mode='send', sco
     catch(error) { setError(errorText?errorText(error):t(mode==='snooze'?'mail.snooze_failed':'mail.schedule_failed')); }
     finally { lock.current = false; setBusy(false); }
   }
-  return <Dialog open onOpenChange={open => { if (!open && !lock.current) onClose(); }}><DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto" initialFocus={cancel} onKeyDownCapture={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.stopPropagation(); } }}>
+  return <Dialog open onOpenChange={open => { if (!open && !lock.current) onClose(); }}><DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto" initialFocus={cancel} finalFocus={finalFocus} onKeyDownCapture={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.stopPropagation(); } }}>
     <DialogHeader><DialogTitle>{t(mode==='snooze'?'mail.snooze_title':initial ? 'mail.reschedule_title' : 'mail.schedule_title')}</DialogTitle></DialogHeader>
     <p className="break-words text-sm font-medium">{subject}</p>
     <div className="grid gap-4">

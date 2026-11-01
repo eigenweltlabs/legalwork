@@ -50,7 +50,11 @@ Use **Mail accounts** for notification preferences, sender signatures, agent acc
 
 Native JMAP and Exchange Web Services (EWS) connections are not available. For Fastmail, use provider-supplied IMAP/SMTP settings through the integration above; live Fastmail certification is still pending. For an on-premises Exchange mailbox, ask its administrator whether direct TLS IMAP and SMTP are permitted. The Outlook Email integration connects cloud mailboxes through Microsoft Graph; it does not connect an on-premises mailbox merely because the organization uses Microsoft sign-in.
 
-Use **New mail**, **Reply**, **Reply all** or **Forward** to compose. The composer has compact recipient and subject rows above a document-style writing area. **Send** and **Schedule send** stay visible at the bottom while you scroll a long draft. Use **Toggle rich text** for formatting and the attachment controls to add files or inline images. Review the account, sender, recipients, body and attachments before sending. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
+Use **New mail**, **Reply**, **Reply all** or **Forward** to compose. New messages open in document mode, with compact recipient and subject rows above the writing area. Saved, recovered and copied drafts keep their chosen format. **Send** and **Schedule send** stay visible at the bottom while you scroll a long draft. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
+
+Select text and use **Bold**, **Italic** or **Underline**, or format paragraphs with **Bulleted list**, **Numbered list** and **Quote**. **Clear formatting** removes character styles. **Insert link** opens a dialog with **Text** and **URL**; enter an HTTP or HTTPS address and choose **Insert**. **Remove link** keeps its text. Native **Edit > Undo** reverses editing changes. Use **Toggle rich text** to switch between document and plain-text editing. The existing draft-size limit also applies to formatted content; a large new quoted message can remain in plain text when its formatted copy would exceed that limit.
+
+Use the attachment controls to add files or inline images. Review the account, sender, recipients, body and attachments before sending.
 
 When Email has focus, press **/** to focus search. Windows also supports **Ctrl+E** and **F3**; macOS supports **Command+Option+F**. From Drafts or Outbox, these shortcuts return to the mailbox and focus search. They do not interrupt typing in a message or another text field. Open **Mail keyboard shortcuts** in the toolbar for the other commands.
 
@@ -79,7 +83,7 @@ Once dispatch starts, a cancellation cannot guarantee that the message was stopp
 
 ## Snooze a conversation
 
-Select one conversation or message, then choose **Snooze** (the clock button) or right-click it and choose **Snooze**. Enter **Date and time**, check **Time zone** and review **Applies to**. A conversation snooze covers its currently downloaded Inbox messages, up to 1,000. A message without a conversation is snoozed individually. The same daylight-saving choices and one-year time limit apply as for scheduled send. Confirm with **Snooze**.
+Select one conversation or message, then choose **Snooze** (the clock button) or right-click it and choose **Snooze**. Enter **Date and time**, check **Time zone** and review **Applies to**. A conversation snooze covers its currently downloaded Inbox messages, up to 1,000. A message without a conversation is snoozed individually. The same daylight-saving choices and one-year time limit apply as for scheduled send. Confirm with **Snooze**. **Cancel** or Escape closes the dialog without changes and returns focus to the clock button.
 
 Snoozed messages leave this client's Inbox and unread count until their due time. They remain readable in **All mail**, search and **Snoozed**. Open **Snoozed** in Email's mailbox navigation to inspect them; the list shows their return dates. Select an item and open **Snooze** to choose another time or **End snooze** to end it early.
 
