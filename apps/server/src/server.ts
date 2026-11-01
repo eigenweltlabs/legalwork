@@ -192,6 +192,7 @@ import { isInternalSession } from "./native-shared-values.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { prepareConnectorStorage } from "./connectors/store.js";
 import { registerMailRoutes } from "./routes/mail.js";
+import { registerMailInvitationReplyRoutes } from "./routes/mail-invitations.js";
 import { MailIntegrationProxy } from "./mail/integration-proxy.js";
 import type { MailService } from "./mail/service-interface.js";
 import {
@@ -977,6 +978,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
   registerMailRoutes(routes, config.host, runtimeOptions.mail);
+  const mailInvitationReplies = registerMailInvitationReplyRoutes(routes, config, runtimeOptions.mail);
   const mailIntegrations = runtimeOptions.mail?.configureIntegrations && (config.host === "127.0.0.1" || config.host === "::1") ? new MailIntegrationProxy(config) : undefined;
   if (mailIntegrations) addRoute(routes, "POST", "/mail/internal/integrations/request", "none", ctx => mailIntegrations.handle(ctx.request));
   const mailStorageSaves=registerMailStorageSaveRoutes({routes,host:config.host,mail:runtimeOptions.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
@@ -1324,6 +1326,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     wordAddinPort: wordAddinServer?.port ?? null,
     invalidateRawHttpTrust: () => rawHttpTransport?.rotate(),
     stop: async () => {
+      mailInvitationReplies?.close();
       stopSandboxSettingsSync();
       await originalImageCleanup?.close();
       await agentSandbox.stop();

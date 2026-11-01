@@ -1,4 +1,5 @@
 import {MailContacts} from './contacts.js';
+import { MailInvitationRepliesStore } from '../storage/invitation-replies.js';
 import {MailQualification} from './qualification.js';
 import {agentControlSchema} from '../agent-view.js';
 import {agentHash,MailAgentGrants} from '../storage/agent-grants.js';
@@ -307,6 +308,7 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       }
       case "mail.storage.save":result={storageSave:new MailStorageSaveStore(database,ownerId).execute(command.input)};break;
       case "mail.filing":result={filing:new MailFilingStore(database,ownerId).execute(command.input)};break;
+      case 'mail.invitation.journal': result={invitationJournal:new MailInvitationRepliesStore(database,ownerId).execute(command.accountId,command.input)};break;
       case 'mail.notifications.poll':result={notifications:lifecycleSuspended?{items:[],suppressed:0}:new MailNotificationStore(database,ownerId).poll(command.input)};break;
       case 'mail.lifecycle.status':result={lifecycle:{state:lifecycleSuspended?'suspended':'running'}};break;
       case 'mail.lifecycle.set':{

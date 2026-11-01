@@ -115,6 +115,11 @@ export class LocalMailService implements MailService {
       },
     });
   }
+  async invitationJournal(accountId: string, input: import('./invitation-reply-view.js').InvitationReplyJournalInput) {
+    const result = await this.request({ operation: 'mail.invitation.journal', accountId, input });
+    if (!('invitationJournal' in result)) throw new MailServiceError('unavailable');
+    return result.invitationJournal;
+  }
   async contacts(accountId:string,input:ContactsInput){
     let settings:MailOAuthSettings|undefined;
     if(input.action==='sync'){const epoch=this.epoch,provider=await this.request({operation:'mail.sync.provider',accountId});if(!('syncProvider' in provider))throw new MailServiceError('unavailable');if(provider.syncProvider!=='imap' && !provider.integrated)settings=await this.loadProviderSettings?.(provider.syncProvider,provider.personal);if(epoch!==this.epoch)throw new MailServiceError('locked');}

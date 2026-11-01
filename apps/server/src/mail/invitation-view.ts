@@ -7,7 +7,7 @@ export const mailInvitationInputSchema = z.object({
   referenceId: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   rawReferenceId: z.string().regex(/^sha256:[0-9a-f]{64}$/),
 }).strict();
-const invitationTimeSchema = z.object({
+export const invitationTimeSchema = z.object({
   value: z.string().max(40),
   kind: z.enum(["date", "utc", "zoned", "floating"]),
   timeZone: z.string().max(255).nullable(),

@@ -12,7 +12,10 @@ function text(event: ICAL.Component, name: string): string {
 }
 function address(value: unknown): string | null {
   if (typeof value !== "string" || !/^mailto:/i.test(value)) return null;
-  const email = value.slice(7);
+  const uri = value.slice(7);
+  if (/[?#]/.test(uri)) return null;
+  let email: string;
+  try { email = decodeURIComponent(uri); } catch { return null; }
   return email.length <= 1000 && /^[^\s<>@\u0000-\u001f]+@[^\s<>@\u0000-\u001f]+$/.test(email) ? email : null;
 }
 function time(event: ICAL.Component, name: string, duration?: ICAL.Duration): MailInvitationTime | null {
