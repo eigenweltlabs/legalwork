@@ -15,7 +15,7 @@ export function mailComposerShortcut(event:KeyboardEvent,root:HTMLElement,platfo
 }
 const state=new WeakMap<HTMLElement,{anchor:HTMLButtonElement|null;prefix:string;time:number}>();
 /** Local bubbling handler: never installs a global listener or synthesizes provider operations. */
-export function mailKeyboard(event:KeyboardEvent,root:HTMLElement,options:{platform?:MailPlatform;showFolders?:()=>void}={}){
+export function mailKeyboard(event:KeyboardEvent,root:HTMLElement,options:{platform?:MailPlatform;showFolders?:()=>void;showSearch?:()=>void}={}){
  if(!eligible(event,root))return;const target=event.target;if(!(target instanceof HTMLElement))return;
  const platform=options.platform??mailPlatform(),mac=platform==='mac',mod=mac?event.metaKey&&!event.ctrlKey:event.ctrlKey&&!event.metaKey,key=event.key.toLowerCase(),plain=!event.ctrlKey&&!event.metaKey&&!event.altKey;
  let memory=state.get(root);if(!memory){memory={anchor:null,prefix:'',time:0};state.set(root,memory);}
@@ -26,6 +26,7 @@ export function mailKeyboard(event:KeyboardEvent,root:HTMLElement,options:{platf
  const focusList=()=>{const items=rows();return focus(items.find(row=>row.getAttribute('aria-pressed')==='true')??items[0]??root.querySelector('[aria-label="Messages"]'));};
  const focusReader=()=>focus(root.querySelector('#mail-print-root')??root.querySelector('[aria-label="Message reader"]'));
  const focusFolders=()=>{options.showFolders?.();requestAnimationFrame(()=>{if(root.isConnected)focus(root.querySelector('.mail-folders .is-active')??root.querySelector('.mail-folders button'));});return true;};
+ const focusSearch=()=>{const search=root.querySelector('[aria-label="Search mail"]');if(search)return focus(search);if(!options.showSearch)return false;options.showSearch();requestAnimationFrame(()=>{if(root.isConnected)focus(root.querySelector('[aria-label="Search mail"]'));});return true;};
  const editable=target.isContentEditable||!!target.closest('input:not([type="checkbox"]),textarea,select,[contenteditable],[role="textbox"],[role="combobox"],[role="slider"],[role="spinbutton"]');
  const folder=target.closest('.mail-folders'),list=target.closest('.mail-message-scroll,[aria-label="Search results"]'),composer=target.closest('[aria-label="Compose message"]');
  let handled=false;
@@ -37,7 +38,7 @@ export function mailKeyboard(event:KeyboardEvent,root:HTMLElement,options:{platf
  else if(editable)return;
  else if(composer){if(plain&&!event.shiftKey&&event.key==='Escape')handled=click('[aria-label="Close composer"]');}
  else if(plain&&event.key==='?')handled=click('[aria-label="Mail keyboard shortcuts"]');
- else if((plain&&event.key==='/')||(!mac&&event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&key==='e')||(!mac&&plain&&!event.shiftKey&&event.key==='F3')||(mac&&event.metaKey&&event.altKey&&!event.ctrlKey&&!event.shiftKey&&key==='f'))handled=focus(root.querySelector('[aria-label="Search mail"]'));
+ else if((plain&&event.key==='/')||(!mac&&event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&key==='e')||(!mac&&plain&&!event.shiftKey&&event.key==='F3')||(mac&&event.metaKey&&event.altKey&&!event.ctrlKey&&!event.shiftKey&&key==='f'))handled=focusSearch();
  else if(event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&key==='y')handled=focusFolders();
  else if(folder&&plain){
   const buttons=[...root.querySelectorAll<HTMLButtonElement>('.mail-folders .mail-nav-row:not(:disabled)')],at=buttons.indexOf(target.closest('button')??buttons[0]);

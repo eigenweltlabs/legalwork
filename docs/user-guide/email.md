@@ -44,6 +44,8 @@ Native JMAP and Exchange Web Services (EWS) connections are not available. For F
 
 Use **New mail**, **Reply**, **Reply all** or **Forward** to compose. The composer has compact recipient and subject rows above a document-style writing area. Use **Toggle rich text** for formatting and the attachment controls to add files or inline images. Review the account, sender, recipients, body and attachments before sending. **Drafts** keeps unfinished messages, and **Outbox** shows queued submissions and outcomes. A submission with an uncertain result must be checked before retrying.
 
+When Email has focus, press **/** to focus search. Windows also supports **Ctrl+E** and **F3**; macOS supports **Command+Option+F**. From Drafts or Outbox, these shortcuts return to the mailbox and focus search. They do not interrupt typing in a message or another text field. Open **Mail keyboard shortcuts** in the toolbar for the other commands.
+
 Under **Mail accounts > Data & access**, review the per-account agent policy. Connecting an account does not approve sending or deleting mail for the assistant. The same section contains local retention, backup, restore and archive import/export controls. Disconnecting and deleting local data are separate actions; review each dialog's scope.
 
 Open **Settings > Integrations > Communication**. Search for **Gmail** or **Outlook Email** and press its **+** button to connect. Select an installed account and choose **Manage** to open its settings. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
