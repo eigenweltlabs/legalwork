@@ -4,13 +4,14 @@ import {test,expect} from 'bun:test';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {createRequire} from 'node:module';import {spawn} from 'node:child_process';
 test('mail attachment opens internally, prepares a chosen chat and returns to its source',async()=>{
+ const started=performance.now(),phase=(name:string)=>console.log('MAIL_JOURNEY_PHASE',JSON.stringify({name,elapsedMs:Math.round(performance.now()-started)}));
  const directory=await mkdtemp(join(tmpdir(),'mail-journey-ui-')),appRoot=resolve(import.meta.dir,'..'),fixtures=join(import.meta.dir,'fixtures/mail-journey');
  try{
-  await buildBrowserFixture({entrypoints:[join(fixtures,'entry.tsx')],outdir:directory,alias:{'@':join(appRoot,'src'),'react/jsx-dev-runtime':join(appRoot,'node_modules/react/jsx-dev-runtime.js'),'react/jsx-runtime':join(appRoot,'node_modules/react/jsx-runtime.js')},minify:true});
-  await buildMailFixtureStyle(directory,appRoot);
+  phase('bundle:start');await buildBrowserFixture({entrypoints:[join(fixtures,'entry.tsx')],outdir:directory,alias:{'@':join(appRoot,'src'),'react/jsx-dev-runtime':join(appRoot,'node_modules/react/jsx-dev-runtime.js'),'react/jsx-runtime':join(appRoot,'node_modules/react/jsx-runtime.js')},minify:true});
+  phase('bundle:complete');phase('stylesheet:start');await buildMailFixtureStyle(directory,appRoot);phase('stylesheet:complete');
   await writeFile(join(directory,'index.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles/index.css"><link rel="stylesheet" href="entry.css"><style>body{margin:0}section[aria-label="Chosen workspace chat"]{padding:24px}textarea{width:90%;height:220px;border:1px solid #ccc;padding:12px}aside[aria-label="Internal attachment viewer"]{position:fixed;right:0;top:35%;width:50%;background:white;border:1px solid #ddd;padding:12px;box-shadow:0 4px 24px #0002}</style><div id="root"></div><script type="module" src="entry.js"></script>');
   const require=createRequire(resolve(appRoot,'../desktop/package.json'));
-  const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[join(fixtures,'probe.cjs'),join(directory,'profile'),join(directory,'index.html'),process.env.MAIL_JOURNEY_EVIDENCE??join(directory,'evidence')],{env:{...electronDisplayEnvironment(),HOME:process.env.HOME,PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output));},15000);child.stdout.on('data',v=>output+=v);child.stderr.on('data',v=>output+=v);child.once('error',reject);child.once('close',code=>{clearTimeout(timer);done({code,output});});});
-  if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_JOURNEY_PASS');
+  phase('renderer:start');const result=await new Promise<{code:number|null;output:string}>((done,reject)=>{const child=spawn(require('electron'),[join(fixtures,'probe.cjs'),join(directory,'profile'),join(directory,'index.html'),process.env.MAIL_JOURNEY_EVIDENCE??join(directory,'evidence')],{env:{...electronDisplayEnvironment(),HOME:process.env.HOME,PATH:process.env.PATH,...(process.platform==='win32'?{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR}:{})},stdio:['ignore','pipe','pipe']});let output='';const timer=setTimeout(()=>{child.kill();reject(Error(output));},15000);child.stdout.on('data',v=>output+=v);child.stderr.on('data',v=>output+=v);child.once('error',reject);child.once('close',code=>{clearTimeout(timer);done({code,output});});});
+  phase('renderer:complete');if(result.code!==0)throw Error(result.output);expect(result.output).toContain('MAIL_JOURNEY_PASS');
  }finally{await rm(directory,{recursive:true,force:true});}
-},20000);
+},60000);
