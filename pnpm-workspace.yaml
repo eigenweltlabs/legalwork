@@ -65,6 +65,7 @@ overrides:
   '@xmldom/xmldom@>=0.9.0 <0.9.12': 0.9.12
   '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 patchedDependencies:
+  app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
   '@eigenpal/docx-editor-agents@1.8.3': patches/@eigenpal__docx-editor-agents@1.8.3.patch
   '@zone-eu/mailsplit@5.4.16': patches/@zone-eu__mailsplit@5.4.16.patch
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch

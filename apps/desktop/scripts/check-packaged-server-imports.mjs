@@ -28,8 +28,11 @@ export function findMissingServerImports(archive) {
 export function assertPackagedServerImports(archive) {
   const missing = findMissingServerImports(archive);
   assert.deepEqual(missing, [], `Packaged server imports missing files: ${JSON.stringify(missing)}`);
-  const dependencies = findMissingPackageDependencies(archive, ["@google-cloud/storage"]);
-  assert.deepEqual(dependencies, [], `Packaged Google transport dependencies missing: ${JSON.stringify(dependencies)}`);
+  const metadata = JSON.parse(extractFile(archive, "package.json").toString("utf8"));
+  const roots = ["@google-cloud/storage", ...Object.keys(metadata.dependencies ?? {})
+    .filter(name => !Object.hasOwn(metadata.optionalDependencies ?? {}, name))];
+  const dependencies = findMissingPackageDependencies(archive, roots);
+  assert.deepEqual(dependencies, [], `Packaged production dependencies missing: ${JSON.stringify(dependencies)}`);
   console.log("PASS: packaged server relative imports exist inside app.asar");
 }
 

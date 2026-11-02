@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { findServerDepDrift } from "../scripts/check-server-deps.mjs";
 import { findMissingPackageDependencies, findMissingServerImports } from "../scripts/check-packaged-server-imports.mjs";
@@ -12,6 +13,7 @@ const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
 const { createPackage } = libRequire("@electron/asar");
+const { getCollectorByPackageManager } = libRequire("./node-module-collector/index.js");
 
 test("packaging catches a server import into an excluded plugin directory", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-server-imports-"));
@@ -52,6 +54,28 @@ test("packaging catches missing hoisted dependencies in the Google fetch transpo
     await put("tr46", {}); await put("webidl-conversions", {});
     const fixed = path.join(root, "fixed.asar"); await createPackage(stage, fixed);
     assert.deepEqual(findMissingPackageDependencies(fixed, ["@google-cloud/storage"]), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the full pnpm workspace collector preserves required dependencies and aliases", { timeout: 120_000 }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-workspace-deps-")), stage = path.join(root, "stage");
+  let sequence = 0;
+  try {
+    const collector = getCollectorByPackageManager("pnpm", fileURLToPath(new URL("../../../", import.meta.url)), {
+      getTempFile: async () => path.join(root, `${++sequence}.json`),
+    });
+    const { nodeModules } = await collector.getNodeModules({ packageName: "@legalwork/desktop" });
+    const copy = async (nodes, base) => {
+      for (const node of nodes) {
+        const target = path.join(base, "node_modules", node.name);
+        await mkdir(target, { recursive: true });
+        await copyFile(path.join(node.dir, "package.json"), path.join(target, "package.json"));
+        await copy(node.dependencies ?? [], target);
+      }
+    };
+    await copy(nodeModules, stage);
+    const archive = path.join(root, "app.asar"); await createPackage(stage, archive);
+    assert.deepEqual(findMissingPackageDependencies(archive, nodeModules.map(node => node.name)), []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

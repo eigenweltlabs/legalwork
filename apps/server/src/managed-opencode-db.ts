@@ -30,6 +30,7 @@ import { Schema } from "effect";
 import { findExistingOpencodeDbIn, findExistingOpencodeDbPath } from "./opencode-db.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { ensureLegacyHistoryBackup, readLegacyHistoryBackup } from "./history-v1-backup.js";
+import { openReadonlySqlite } from "./sqlite-readonly-open.js";
 
 export const MANAGED_ENGINE_DB_FILENAME = "opencode-engine-v2.db";
 export const LEGACY_MANAGED_ENGINE_DB_FILENAME = "opencode-engine.db";
@@ -57,6 +58,10 @@ type SqliteReader = {
 };
 
 export async function openSqliteReadonly(path: string): Promise<SqliteReader> {
+  return openReadonlySqlite(() => createSqliteReadonly(path));
+}
+
+async function createSqliteReadonly(path: string): Promise<SqliteReader> {
   if (typeof process.versions.bun === "string") {
     const { Database } = await import("bun:sqlite");
     const db = new Database(path, { readonly: true });
@@ -68,7 +73,7 @@ export async function openSqliteReadonly(path: string): Promise<SqliteReader> {
       run: (sql, params) => {
         db.query(sql).run(...params);
       },
-      close: () => db.close(),
+      close: () => db.close(true),
     };
   }
   const { DatabaseSync } = await import("node:sqlite");
