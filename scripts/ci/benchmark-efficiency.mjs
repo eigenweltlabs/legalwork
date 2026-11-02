@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const args = process.argv.slice(2), value = name => args[args.indexOf(name) + 1];
@@ -26,7 +26,12 @@ for (const suite of ['app', 'server']) {
 if (process.env.LEGALWORK_BENCHMARK_ENGINE) {
   const binary = realpathSync(process.env.LEGALWORK_BENCHMARK_ENGINE);
   const env = { ...baseEnvironment, LEGALWORK_TEST_OPENCODE_BIN: binary, LEGALWORK_TEST_OPENCODE_CACHE: process.env.LEGALWORK_BENCHMARK_ENGINE_CACHE || '' };
-  cases.push({ name: 'engine-baseline', cwd: baseline, command: [process.execPath, 'scripts/ci/run-engine-tests.mjs'], env });
+  // The old coordinator hardcodes a bare `bun`. Retain its file discovery and
+  // arguments while selecting the same explicit executable as every case.
+  const { engineTestFiles } = await import(pathToFileURL(path.join(baseline, 'scripts/ci/run-engine-tests.mjs')).href);
+  const files = engineTestFiles(path.join(baseline, 'apps/server/src'));
+  assert.ok(files.length > 0, 'No declared baseline engine tests found');
+  cases.push({ name: 'engine-baseline', cwd: baseline, command: [bun, 'test', '--preload', './apps/server/test-preload.ts', '--timeout', '180000', ...files], env });
   for (const workers of [2, 4]) cases.push({ name: `engine-candidate-${workers}`, cwd: root, command: [process.execPath, 'scripts/ci/run-engine-tests.mjs'], env: { ...env, LEGALWORK_TEST_BUN_BIN: bun, LEGALWORK_TEST_WORKERS: String(workers) } });
 }
 const portable = ['calendar-format', 'task-format', 'benchmark-format', 'storage-display-path'];
