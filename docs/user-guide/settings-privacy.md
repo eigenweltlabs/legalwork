@@ -94,3 +94,13 @@ Official builds can send content-free usage telemetry when enabled. **Settings >
 Related: [Localization](localization.md), [Audio](audio.md), [Troubleshooting](troubleshooting.md).
 
 Opening a project does not require a separate project-automation approval. Chat permissions, added-folder access, command approvals and sandbox settings still apply to the agent's operations.
+
+## Unsaved changes when closing or restarting
+
+When you close LegalWork or choose **Settings > Updates > Install and restart**, LegalWork checks for unsaved work, including workflow instructions and files open behind another page. The dialog lists the affected files, with its actions together in the bottom row. The discard action appears in red.
+
+- **Save and close** or **Save and restart** saves the changes before continuing. If a save fails or changes arrive during saving, LegalWork stays open so you can resolve them.
+- **Discard and close** or **Discard and restart** discards the listed changes before continuing.
+- **Open unsaved file** cancels closing or restarting and brings an affected file to the front. This button appears only when an unsaved file is not already visible.
+
+Use the dialog's close button or press **Esc** to keep working without closing or restarting. If a save is already running, wait for it to finish and try again. A downloaded update remains ready to install when you cancel the restart.

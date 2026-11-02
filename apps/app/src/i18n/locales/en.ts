@@ -5,6 +5,16 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "shutdown.restart_title": "Save changes before restarting?",
+  "shutdown.close_title": "Save changes before closing?",
+  "shutdown.description": "These files have unsaved changes. Save them to keep your work, or discard the changes to continue.",
+  "shutdown.failed": "Some changes could not be saved or discarded. Your work is still here. Open the unsaved file to resolve the problem, or wait for a save in progress and try again.",
+  "shutdown.open_file": "Open unsaved file",
+  "shutdown.discard_restart": "Discard and restart",
+  "shutdown.discard_close": "Discard and close",
+  "shutdown.save_restart": "Save and restart",
+  "shutdown.save_close": "Save and close",
+
   "composer.integrations_load_failed": "Some integrations could not be loaded. Reopen this menu to retry.",
   "catalog.removing": "Removing…",
   "catalog.examples": "Example requests",

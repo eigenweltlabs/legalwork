@@ -3,6 +3,8 @@ import { Download, Loader2, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
+import { documentIsInFront, registerDocumentShutdown } from "../../session/artifacts/docx-document-state";
+import { openUnsavedWorkflow } from "../../session/artifacts/document-shutdown-navigation";
 import { ArtifactFrame } from "../../session/artifacts/artifact-frame";
 import { ArtifactIcon } from "../../session/artifacts/artifact-icon";
 import { OfficeEditorBoundary } from "../../session/artifacts/office-editor-boundary";
@@ -36,6 +38,26 @@ export function WorkflowResourceEditorPanel({ id, onClose }: { id: string; onClo
     editWorkflowResource(id, { content: payload.kind === "binary" ? resourceBase64(payload.data) : payload.data });
     if (!await saveWorkflowResource(id)) throw new Error(useWorkflowResourceStore.getState().drafts[id]?.error ?? t("skill_resources.save_failed"));
   }, [id]);
+  useEffect(() => {
+    if (!draft) return;
+    return registerDocumentShutdown(id, {
+      save: async () => {
+        const type = workflowResourceType(draft.name);
+        if (type === "word") return await docxApi.current?.save() === true;
+        if (type === "xlsx" || type === "pptx") return await officeApi.current?.save() === true;
+        if (type === "csv") return await sheetApi.current?.save() === true;
+        return saveWorkflowResource(id);
+      },
+      discard: async () => {
+        await docxApi.current?.discardRecovery();
+        const current = useWorkflowResourceStore.getState().drafts[id];
+        if (current) editWorkflowResource(id, { content: current.baseline, documentDirty: false, revision: current.revision + 1 });
+      },
+      isBusy: () => serializing || Boolean(useWorkflowResourceStore.getState().drafts[id]?.saving),
+      open: navigate => openUnsavedWorkflow(draft.workspaceId, { id, type: "workflow-resource", label: draft.name }, navigate),
+      isVisible: () => documentIsInFront(document.getElementById(id)),
+    });
+  }, [id, draft?.name, draft?.workspaceId, serializing]);
   if (!draft) return <div className="p-6 text-sm text-muted-foreground">{t("skill_resources.load_failed")}</div>;
   const type = workflowResourceType(draft.name);
   const editable = isEditableWorkflowResource(draft.name);
@@ -65,7 +87,7 @@ export function WorkflowResourceEditorPanel({ id, onClose }: { id: string; onClo
     link.href = url; link.download = draft.name; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  return <div className="h-full min-h-0" onKeyDownCapture={(event) => {
+  return <div id={id} className="h-full min-h-0" onKeyDownCapture={(event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault(); event.stopPropagation();
       if (editable && !disabled) void save();

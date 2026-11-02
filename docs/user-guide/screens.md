@@ -50,6 +50,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Customization | How do I change language, appearance and project defaults? | [Settings](settings-privacy.md), [Localization](localization.md) |
 | Secrets | How do I save browser passwords, use automatic filling and apply environment changes? | [Settings](settings-privacy.md) |
 | Privacy | How do usage analytics and online catalog updates work? | [Settings](settings-privacy.md) |
+| Unsaved changes before closing or restarting | Save or discard pending workflow and file edits, or open an affected file | [Unsaved changes](settings-privacy.md#unsaved-changes-when-closing-or-restarting) |
 | Updates | Which version/channel is running, and how do I install an update? | [Troubleshooting](troubleshooting.md) |
 | Workspace Permissions | Which folders can this workspace access? | [Settings](settings-privacy.md) |
 | Advanced / Recovery / Debug | How do I inspect or repair the runtime when those diagnostic screens are exposed? | [Troubleshooting](troubleshooting.md) |
