@@ -93,6 +93,7 @@
     "ssh2-sftp-client": "^12.1.1",
     "tldts": "7.0.30",
     "webdav": "^5.10.0",
+    "whatwg-url": "5.0.0",
     "ws": "^8.19.0",
     "tesseract.js": "7.0.0",
     "yaml": "^2.6.1",

@@ -2,7 +2,7 @@ import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { engineProjectStatus } from "./engine-project.js";
@@ -12,10 +12,11 @@ import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath,
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { runNativeServerFixture } from "./native-server-fixture.test-support.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and loads native project automation without an approval prompt", async () => {
-  const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/managed-config-")), previous = { ...process.env };
+test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and loads native project automation without an approval prompt", () => runNativeServerFixture(import.meta.filename, async root => {
+  const previous = { ...process.env };
   let server: Awaited<ReturnType<typeof startServer>> | undefined, engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
   const a = join(root, "a"), b = join(root, "b"), outside = join(root, "outside"), library = join(root, "library", "opencode");
   const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(root, "private", "server.json"), token: "fixture", hostToken: "fixture-host", workspaces: [a,b].map((path,index) => ({ id: index === 0 ? "a" : "b", name: "Matter", path, preset: "starter", workspaceType: "local" })), authorizedRoots: [a,b], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, engineProjectTrustRequired: true, engineConfigurationMode: "native-project", startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
@@ -83,6 +84,5 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
   } finally {
     await engine?.close();await server?.stop();await closeRuntimeOpencodeConfig(config);
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env,previous);
-    await rm(root,{recursive:true,force:true});
   }
-},60000);
+}, { parentDirectory: join(import.meta.dir, "../../../.legalwork/scratch"), prefix: "managed-config-" }),60000);

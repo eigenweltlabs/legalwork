@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { findServerDepDrift } from "../scripts/check-server-deps.mjs";
-import { findMissingServerImports } from "../scripts/check-packaged-server-imports.mjs";
+import { findMissingPackageDependencies, findMissingServerImports } from "../scripts/check-packaged-server-imports.mjs";
 
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
@@ -32,6 +32,27 @@ test("packaging catches a server import into an excluded plugin directory", asyn
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("packaging catches missing hoisted dependencies in the Google fetch transport", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-transport-imports-")), stage = path.join(root, "stage");
+  const put = async (name, dependencies, optionalDependencies = {}) => {
+    const directory = path.join(stage, "node_modules", name); await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "package.json"), JSON.stringify({ name, dependencies, optionalDependencies }));
+  };
+  try {
+    await put("@google-cloud/storage", { gaxios: "6" });
+    await put("gaxios", { "node-fetch": "2" });
+    await put("gaxios/node_modules/node-fetch", { "whatwg-url": "5", encoding: "0.1" }, { encoding: "0.1" });
+    const broken = path.join(root, "broken.asar"); await createPackage(stage, broken);
+    assert.deepEqual(findMissingPackageDependencies(broken, ["@google-cloud/storage"]), [
+      { from: "node_modules/gaxios/node_modules/node-fetch", name: "whatwg-url" },
+    ]);
+    await put("whatwg-url", { tr46: "0.0.3", "webidl-conversions": "3" });
+    await put("tr46", {}); await put("webidl-conversions", {});
+    const fixed = path.join(root, "fixed.asar"); await createPackage(stage, fixed);
+    assert.deepEqual(findMissingPackageDependencies(fixed, ["@google-cloud/storage"]), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 // A missing mirror only surfaces after packaging -- the alpha/release workflows

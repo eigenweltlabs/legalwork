@@ -28,5 +28,30 @@ export function findMissingServerImports(archive) {
 export function assertPackagedServerImports(archive) {
   const missing = findMissingServerImports(archive);
   assert.deepEqual(missing, [], `Packaged server imports missing files: ${JSON.stringify(missing)}`);
+  const dependencies = findMissingPackageDependencies(archive, ["@google-cloud/storage"]);
+  assert.deepEqual(dependencies, [], `Packaged Google transport dependencies missing: ${JSON.stringify(dependencies)}`);
   console.log("PASS: packaged server relative imports exist inside app.asar");
+}
+
+/** Check required dependency edges after the packager has hoisted the modules. */
+export function findMissingPackageDependencies(archive, roots) {
+  const files = new Set(listPackage(archive).map(file => file.replaceAll("\\", "/").replace(/^\//, "")));
+  const queue = roots.map(name => ({ from: "", name })), visited = new Set(), missing = [];
+  for (const edge of queue) {
+    let directory = edge.from, manifest;
+    while (true) {
+      const candidate = path.posix.join(directory, "node_modules", edge.name, "package.json");
+      if (path.posix.basename(directory) !== "node_modules" && files.has(candidate)) { manifest = candidate; break; }
+      if (!directory) break;
+      const parent = path.posix.dirname(directory); directory = parent === "." ? "" : parent;
+    }
+    if (!manifest) { missing.push(edge); continue; }
+    if (visited.has(manifest)) continue;
+    visited.add(manifest);
+    const value = JSON.parse(extractFile(archive, manifest.split("/").join(path.sep)).toString("utf8"));
+    for (const name of Object.keys(value.dependencies ?? {})) {
+      if (!Object.hasOwn(value.optionalDependencies ?? {}, name)) queue.push({ from: path.posix.dirname(manifest), name });
+    }
+  }
+  return missing;
 }

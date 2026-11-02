@@ -1,18 +1,16 @@
 import { expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { writeNativeProjectProjection } from "./engine-project.js";
 import { createEngineClient } from "./engine-client.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import { runNativeServerFixture } from "./native-server-fixture.test-support.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("one released engine holds recovery during a configuration conflict, keeps healthy chats usable, and promotes only after current work finishes", async () => {
+test.skipIf(!binary)("one released engine holds recovery during a configuration conflict, keeps healthy chats usable, and promotes only after current work finishes", () => runNativeServerFixture(import.meta.filename, async root => {
   const evidence = process.env.LEGALWORK_TEST_ENGINE_LIFECYCLE_EVIDENCE_DIR;
-  if (evidence) await mkdir(evidence, { mode: 0o700 });
-  const root = await realpath(evidence ?? await mkdtemp(join(tmpdir(), "legalwork-recovery-coordinator-")));
   const snapshots: Array<{ phase: string; at: number; data: unknown }> = [];
   const snapshot = (phase: string, data: unknown) => snapshots.push({ phase, at: Date.now(), data });
   const wires: Array<{ url: string; method: string; headers: Record<string, string>; body: string; sent: string[]; closed: boolean; canceled: boolean }> = [];
@@ -149,7 +147,7 @@ test.skipIf(!binary)("one released engine holds recovery during a configuration 
           await writeFile(join(root, `provider-request-${index + 1}.json`), wire.body);
           await writeFile(join(root, `provider-sent-${index + 1}.sse`), wire.sent.join(""));
         }
-      } else await rm(root, { recursive: true, force: true });
+      }
     }
   }
-}, 45_000);
+}, { prefix: "legalwork-recovery-coordinator-", evidenceDirectory: process.env.LEGALWORK_TEST_ENGINE_LIFECYCLE_EVIDENCE_DIR }), 45_000);
