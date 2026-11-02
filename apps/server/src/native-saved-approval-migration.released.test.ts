@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
@@ -12,10 +11,11 @@ import { rememberNativeChatApproval, removeNativeProjectApproval } from "./nativ
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { managedEngineSettingsFilePath } from "./legalwork-runtime-config.js";
 import type { ServerConfig } from "./types.js";
+import { runNativeServerFixture } from "./native-server-fixture.test-support.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("managed startup stops its actual service before preserving identifiable Saved grants and reconfirming unknown origins", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-saved-startup-"))), previous = { ...process.env };
+test.skipIf(!binary)("managed startup stops its actual service before preserving identifiable Saved grants and reconfirming unknown origins", () => runNativeServerFixture(import.meta.filename, async root => {
+  const previous = { ...process.env };
   const folders = ["known", "foreign", "unregistered"].map(name => join(root, name)), home = join(root, "home");
   for (const folder of [...folders, home]) await mkdir(folder);
   process.env.LEGALWORK_RUNTIME_DB = join(root, "private", "runtime.sqlite"); process.env.XDG_CONFIG_HOME = join(root, "library");
@@ -95,6 +95,5 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
   } finally {
     await lifecycle?.close(); await original?.close(); await server?.stop(); await closeRuntimeOpencodeConfig(config);
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous);
-    await rm(root, { recursive: true, force: true });
   }
-}, 60_000);
+}, { prefix: "legalwork-saved-startup-" }), 60_000);

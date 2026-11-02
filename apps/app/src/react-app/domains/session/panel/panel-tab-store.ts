@@ -76,6 +76,8 @@ export type ArtifactPanelTab = {
   reviewCitation?: ReviewSourceReference;
   /** A review document's recognized pages; without a page, the first page that needs review. */
   reviewRecognition?: { reviewId: string; documentId: string; page?: number };
+  /** In-memory mail source; never a workspace path. */
+  mailSourceId?: string;
 }
 
 export type TaskPanelTab = {
@@ -247,7 +249,7 @@ function reconcileOpenArtifactTabs(session: SessionPanelState, targets: Array<{ 
   const tabs = session.tabs.flatMap<PanelTab>(tab => {
     if (tab.type !== "artifact") return [tab];
     const target = targetMap.get(tab.id);
-    return target ? [{ ...tab, label: target.name, preview: target.preview }] : tab.value || tab.storage || tab.sourceProject ? [tab] : [];
+    return target ? [{ ...tab, label: target.name, preview: target.preview }] : tab.value || tab.storage || tab.sourceProject || tab.mailSourceId ? [tab] : [];
   });
   return normalizeSession({ ...session, tabs });
 }
@@ -840,6 +842,7 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
           Object.entries(state.sessions).map(([sessionId, session]) => {
             const tabs = session.tabs
               .flatMap<PersistedPanelTab>((tab) => {
+                if (tab.type === "artifact" && tab.mailSourceId) return [];
                 if (tab.type === "recording" || tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki" || tab.type === "view") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource" || tab.type === "view-draft") return [];
@@ -852,20 +855,9 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
                 return [];
               });
 
-            return [
-              sessionId,
-              {
-                tabs,
-                assistant: session.assistant,
-                activeTabId: resolveActiveTabId(tabs, session.activeTabId),
-                sideTabIds: session.sideTabIds,
-                sideActiveTabId: session.sideActiveTabId,
-                focusedPaneId: session.focusedPaneId,
-                panes: session.panes,
-                tree: session.tree,
-                sizes: session.sizes,
-              },
-            ];
+            const retained = new Set(tabs.map(tab => tab.id));
+            const layout = normalizeSession({ ...session, tabs: session.tabs.filter(tab => retained.has(tab.id)) });
+            return [sessionId, { ...layout, tabs }];
           }),
         ),
       }),

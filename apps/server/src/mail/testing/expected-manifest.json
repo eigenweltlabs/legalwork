@@ -1,0 +1,124 @@
+[
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-0",
+    "kind": "plain",
+    "messageId": "<fixture-0@example.invalid>",
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 364,
+    "sha256": "bad65c0a83bbd85e6a2463f05b0e740fe5cf705d8166ed3fabda07bc7a581b25"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-1",
+    "kind": "duplicate-id",
+    "messageId": "<fixture-0@example.invalid>",
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 364,
+    "sha256": "d5c8d0bce547f09229abcf195530e58c7f83b78b2e47b3184f18564e69886a73"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-2",
+    "kind": "missing-id",
+    "messageId": null,
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 323,
+    "sha256": "17485485926b737eef6d9679925360ae276093f7658c587da788fdb9a3b95760"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-b",
+    "sourceId": "message-0",
+    "kind": "other-account",
+    "messageId": "<fixture-0@example.invalid>",
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 364,
+    "sha256": "d87fbc890528ea6523e86909dc89930f95e6bffbcfee9bdfd8f89daa332959ff"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-4",
+    "kind": "gmail-labels",
+    "messageId": "<fixture-4@example.invalid>",
+    "memberships": [
+      "INBOX",
+      "Label_Contracts",
+      "Label_Urgent"
+    ],
+    "bytes": 364,
+    "sha256": "9ff16a8769e765ab0db5dc15e33f9331a0ba4ad351d943337d17aa4db2feff42"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-5",
+    "kind": "old-nested",
+    "messageId": "<fixture-5@example.invalid>",
+    "memberships": [
+      "Archive/2001/Mandate/Verträge"
+    ],
+    "bytes": 364,
+    "sha256": "66b0a192f1e7a5a558aff2f50347457a3e0925fbdf2fecb905311f7e036ce428"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-6",
+    "kind": "german",
+    "messageId": "<fixture-6@example.invalid>",
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 390,
+    "sha256": "bdbf6d15507bac581531c42618bd723e143bd14b993ae77f44cf2e19fc91f074"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-7",
+    "kind": "multipart",
+    "messageId": "<fixture-7@example.invalid>",
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 1344,
+    "sha256": "2f441ee967e6b6332c8313b7b881721d6a7a677e4943bf9f0fbb674614bda27e"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-8",
+    "kind": "malformed",
+    "messageId": "<fixture-8@example.invalid>",
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 510,
+    "sha256": "18f55ed969408190737a40c5279b31eaaac478c60e80c863d40dbade8c36c317"
+  },
+  {
+    "version": 1,
+    "accountId": "synthetic-a",
+    "sourceId": "message-9",
+    "kind": "large",
+    "messageId": "<fixture-9@example.invalid>",
+    "memberships": [
+      "INBOX"
+    ],
+    "bytes": 11479721,
+    "sha256": "3f855dc0e0177cda2dc52eb88e9cd69fec1768fe42fef25559904c82be194a8d"
+  }
+]

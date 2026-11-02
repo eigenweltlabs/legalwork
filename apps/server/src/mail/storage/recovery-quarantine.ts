@@ -1,0 +1,30 @@
+import {deniedMailAccountActions} from '../account-policy.js';
+import {randomUUID} from 'node:crypto';
+import type {MailDatabase} from './database-interface.js';
+/** Trusted offline restore fence. Evidence remains immutable; old work never gains fresh authority. */
+export function quarantineRestoredMail(db:MailDatabase){
+ const at=Date.now();
+ db.run("UPDATE mail_project_classifiers SET generation=?,credential_generation=NULL,definition_json=json_set(definition_json,'$.mode','off')",[randomUUID()]);
+ db.run("UPDATE mail_project_arrivals SET generation=?,state=CASE WHEN state='pending' THEN 'skipped' ELSE state END,outcome=CASE WHEN state='pending' THEN 'config_changed' ELSE outcome END",[randomUUID()]);
+ db.run('UPDATE mail_project_associations SET generation=?',[randomUUID()]);
+ db.run("UPDATE mail_local_rules SET definition_json=json_set(definition_json,'$.enabled',json('false')),revision=revision+1 WHERE deleted=0");
+ db.run("UPDATE mail_rule_arrivals SET state='done' WHERE state='pending'");
+ // Restoring mail must not revive all-chat access, including an archive account.
+ db.run("INSERT INTO mail_agent_account_policies(account_id,actions_json,revision) SELECT id,?,1 FROM mail_accounts WHERE true ON CONFLICT(account_id) DO UPDATE SET actions_json=excluded.actions_json,revision=mail_agent_account_policies.revision+1",[JSON.stringify(deniedMailAccountActions)]);
+ db.run("UPDATE mail_agent_grants SET state='revoked',revision=revision+1");
+ db.run("UPDATE mail_agent_proposals SET state='revoked' WHERE state='pending'");
+ db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'submission',id,? FROM mail_action_jobs WHERE kind='submission'",[at]);
+ db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'draft',draft_id,? FROM mail_draft_sync",[at]);
+ db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT account_id,'portability',id,? FROM mail_portability_jobs",[at]);
+ db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT s.account_id,'filing',f.id,? FROM mail_matter_filings f JOIN mail_filing_snapshots s ON s.id=f.snapshot_id",[at]);
+ db.run("INSERT OR IGNORE INTO mail_recovery_quarantine SELECT s.account_id,'filing','storage-save:'||j.id,? FROM mail_storage_saves j JOIN mail_filing_snapshots s ON s.id=j.snapshot_id",[at]);
+ db.run("UPDATE mail_storage_saves SET state='uncertain',error='restore_review',revision=revision+1 WHERE state IN ('queued','uploading')");
+ db.run("UPDATE mail_storage_save_parts SET state='uncertain' WHERE state IN ('queued','uploading')");
+ db.run('DELETE FROM mail_smtp_credentials');
+ db.run("UPDATE mail_graph_mailboxes SET state='disconnected',generation=?,revision=revision+1",[randomUUID()]);
+ db.run("UPDATE mail_draft_sync SET enabled=0,state=CASE WHEN state IN ('queued','syncing') THEN 'uncertain' ELSE state END,error='restore_review',revision=revision+1");
+ db.run("UPDATE mail_portability_jobs SET state='interrupted',error='interrupted' WHERE state<>'complete'");
+ db.run("UPDATE mail_matter_filings SET state='uncertain',error='restore_review',generation=?,revision=revision+1 WHERE state IN ('queued','uploading')",[randomUUID()]);
+ db.run('DELETE FROM mail_notification_accounts');
+}
+export function isRestoredMailWork(db:MailDatabase,accountId:string,kind:'submission'|'draft'|'portability'|'filing',id:string){return !!db.get('SELECT 1 FROM mail_recovery_quarantine WHERE account_id=? AND kind=? AND entity_id=?',[accountId,kind,id]);}

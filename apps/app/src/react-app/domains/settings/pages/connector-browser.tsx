@@ -1,5 +1,5 @@
 import { cloneElement, useEffect, useRef, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowUpRight, Check, ChevronRight, Download, FolderOpen, Globe, Grid2X2, MoreHorizontal, Plus, Plug, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { connectorDefinitions, connectorIsConnected } from "@legalwork/types/connectors";
@@ -20,6 +20,9 @@ import { t } from "@/i18n";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { resolveBrandIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { MailAccountsView } from "./mail-accounts-view";
+import { MailClient } from "../../mail/mail-client";
+import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { ConnectorConfig } from "../connector-config";
 import { connectorStatusQuery } from "../connector-status-query";
 import { CONNECTOR_SETTINGS_CHANGED } from "../connector-write-settings";
@@ -48,6 +51,7 @@ import type { ExtensionsViewProps } from "./extensions-view";
 type Target =
   | { kind: "service"; entry: McpDirectoryInfo }
   | { kind: "native"; id: string }
+  | { kind: "mail" }
   | { kind: "storage"; storageKind: StorageKind; provider?: StorageOAuthProvider; connection?: StorageConnection }
   | { kind: "research"; provider?: ResearchProvider; connection?: LegalworkBrowserPassword }
   | { kind: "package"; plugin: ImportedPlugin }
@@ -66,8 +70,9 @@ const categoryLabel = (category: ConnectorCategory) => ({
   eigenwelt: t("catalog.category_eigenwelt"),
 })[category];
 
-type ConnectionMethod = "skill" | "mcp" | "api" | "file_storage" | "website_automation";
+type ConnectionMethod = "mail" | "skill" | "mcp" | "api" | "file_storage" | "website_automation";
 function connectionMethods(target: Target): ConnectionMethod[] {
+  if (target.kind === "mail") return ["mail"];
   if (target.kind === "research") return ["website_automation"];
   if (target.kind === "storage" || target.kind === "native" && connectorDefinitions.some(value => value.id === target.id && value.kind === "files")) return ["file_storage"];
   if (target.kind === "native") return ["api"];
@@ -84,6 +89,7 @@ function connectionMethods(target: Target): ConnectionMethod[] {
 function ConnectionTags({ target, count, showEmpty = false }: { target: Target; count: number; showEmpty?: boolean }) {
   const methods = connectionMethods(target);
   const methodLabels: Record<ConnectionMethod, string> = {
+    mail: "IMAP / SMTP",
     skill: t("catalog.method_skill"),
     mcp: t("catalog.method_mcp"),
     api: t("catalog.method_api"),
@@ -106,6 +112,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const mcp = props.mcpView.props;
   const cache = useQueryClient(), platform = usePlatform();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const selectedId = params.get("connection");
   const [category, setCategory] = useState<ConnectorCategory | null>(props.initialSection === "storage" ? "files" : null);
   const [search, setSearch] = useState("");
@@ -125,6 +132,14 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
   const pluginsForbidden = useOrgPolicyForbids("plugins.allowCustom");
   const accounts = useQuery(connectorStatusQuery(client));
+  const mailAccounts = useQuery({ queryKey: ["mail-integration-accounts", client?.baseUrl], enabled: Boolean(client?.canApprove), queryFn: async () => {
+    const connection = await resolveLegalworkConnection();
+    const mail = new MailClient(connection.normalizedBaseUrl, connection.resolvedHostToken), signal = AbortSignal.timeout(15_000);
+    if ((await mail.status(signal)).state !== 'ready') return [];
+    const found = []; let cursor: string | undefined;
+    do { const page = await mail.accounts(signal, cursor); found.push(...page.items.filter(account=>account.provider==='imap')); cursor=page.nextCursor??undefined; } while(cursor && found.length<500);
+    return found;
+  } });
   const team = useFirmHub(client);
   const storage = useQuery({ queryKey: ["storage-connections", workspaceId], queryFn: () => { if (!client || !workspaceId) throw new Error(t("storage.connect_workspace")); return client.storageConnections(workspaceId); }, enabled: Boolean(client && workspaceId) });
   const providers = useQuery({ queryKey: ["storage-oauth-providers", workspaceId], queryFn: () => { if (!client || !workspaceId) throw new Error(t("storage.connect_workspace")); return client.storageOAuthProviders(workspaceId); }, enabled: Boolean(client && workspaceId) });
@@ -134,7 +149,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const packages = useQuery({ queryKey: ["integration-packages", client?.baseUrl, props.workspaceKey], queryFn: () => props.skillTools!.importedPackages(), enabled: Boolean(props.skillTools && props.libraryConnection) });
   const refresh = () => {
     props.onRefresh();
-    for (const key of ["storage-connections", "storage-oauth-providers", "storage-oauth-status", "settings", "browser-passwords", "integration-packages", "firm-hub"]) void cache.invalidateQueries({ queryKey: [key] });
+    for (const key of ["storage-connections", "storage-oauth-providers", "storage-oauth-status", "settings", "browser-passwords", "integration-packages", "firm-hub", "mail-integration-accounts"]) void cache.invalidateQueries({ queryKey: [key] });
   };
   useEffect(() => {
     const changed = () => { setVersion(value => value + 1); void cache.invalidateQueries({ queryKey: ["storage-connections"] }); void cache.invalidateQueries({ queryKey: ["settings", "connector-accounts"] }); };
@@ -158,6 +173,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
     const installed = Boolean(account?.connections.length);
     catalog.push({ id: `native:${definition.id}`, name: definition.name, description: t(definition.descriptionKey), category: definition.kind === "files" ? "files" : "communication", popular: popularConnector(definition.id), icon: <Brand name={definition.name} slug={definition.icon} />, target: { kind: "native", id: definition.id }, installed, status: account && installed ? account.active === false ? "disabled" : connectorIsConnected(account) ? "connected" : "needs_auth" : undefined });
   }
+  catalog.push({id:"mail:standards", name:"iCloud / IMAP / SMTP", description:t("catalog.mail_description"), category:"communication", icon:<Brand name="Email" />, target:{kind:"mail"}, installed:Boolean(mailAccounts.data?.length)});
   for (const entry of mcp.quickConnect) {
     if (entry.id === "google-workspace" || connectorDefinitions.some(value => value.id === entry.id) || isLegalWorkExtensionHidden(entry)) continue;
     const id = entry.id ?? getMcpIdentityKey(entry);
@@ -219,6 +235,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
     || selected.target.kind === "native" && item.target.kind === "storage" && item.target.connection?.config.kind === "oauth" && item.target.connection.config.provider === selected.target.id
     || item.id === customForTarget(selected.target)?.id)) : [];
   const connectionCount = (item: Item) => {
+    if (item.target.kind === "mail") return mailAccounts.data?.length ?? 0;
     const target = item.target;
     if (target.kind === "native") return (accounts.data?.connectors.find(value => value.id === target.id)?.connections.length ?? 0) + Number(customForTarget(target)?.installed ?? false);
     if (target.kind === "research" && !target.connection) return installed.filter(value => value.target.kind === "research" && value.target.connection && target.provider?.id === value.target.provider?.id).length;
@@ -247,6 +264,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
         if (client && workspaceId && target.connection.teamInstallation === "optional") void client.setTeamStorageInstalled(workspaceId, target.connection.id, true).then(refresh).catch(error => toast.error(error.message));
       } else void openStorage({ kind: target.storageKind, provider: target.provider, connection: target.connection });
     }
+    else if (target.kind === "mail") select(item.id);
     else if (target.kind === "native" || target.kind === "team") setQuickSetupId(item.id);
     else if (target.kind === "research") setResearchEditor(target);
     else if (target.kind === "server") setManagedServer(target.name);
@@ -336,7 +354,9 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
           {target?.kind === "service" && target.entry.learnMoreUrl ? <Button variant="link" className="px-0" onClick={() => void platform.openLink(target.entry.learnMoreUrl!)}>{t("catalog.website")}<ArrowUpRight className="size-3.5" /></Button> : null}
           {target?.kind === "research" ? <div className="space-y-4"><Button variant="link" className="px-0" onClick={() => { const url = target.provider?.researchUrl ?? target.connection?.websites[0]?.url; if (url) void platform.openLink(url); }}>{t("catalog.website")}<ArrowUpRight className="size-3.5" /></Button>{target.connection ? <Button className="ml-3" variant="outline" disabled={!client?.canApprove} onClick={() => setResearchEditor({ provider: target.provider, ...(target.provider ? {} : { template: target.connection }) })}><Plus className="size-4" />{t("catalog.add_another_login")}</Button> : null}</div> : null}
           {target?.kind === "storage" && target.connection && client && workspaceId ? <div className="space-y-4">{target.connection.team && target.connection.teamInstallation === "optional" ? <p className="text-sm text-muted-foreground">{t("integrations.team_optional")}</p> : null}{target.connection.config.kind === "oauth" && !target.connection.config.accountId ? <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={target.connection.id} revision={target.connection.updatedAt} onChanged={refresh} /> : null}{target.connection.team?.installed !== undefined && target.connection.teamInstallation === "optional" ? <Button variant="outline" onClick={() => { if (target.connection) void client.setTeamStorageInstalled(workspaceId, target.connection.id, !target.connection.team?.installed).then(refresh).catch(error => toast.error(error.message)); }}>{t(target.connection.team.installed ? "storage.remove_local" : "storage.install")}</Button> : null}{!target.connection.team ? <><Button variant="outline" disabled={storageForbidden} onClick={() => void openStorage({ kind: target.storageKind, provider: target.provider, ...(target.connection?.config.kind === "oauth" && target.connection.config.accountId ? { account: target.connection } : {}) })}><Plus className="size-4" />{t("catalog.add_another")}</Button>{target.provider && storage.data?.team?.canManage ? <Button variant="ghost" onClick={() => setSharing(target.connection ?? null)}>{t("storage.share_team")}</Button> : null}</> : null}</div> : null}
+          {nativeId === "gmail" || nativeId === "outlook" ? <div className="space-y-3"><Button variant="outline" onClick={()=>navigate('/mail')}>{t("catalog.open_email")}</Button></div> : null}
           {nativeId && connectorDefinitions.some(value => value.id === nativeId && value.kind === "files") && storage.data?.connections.some(value => value.id.startsWith(`connector:${nativeId}:`)) ? <Button variant="outline" disabled={storageForbidden} onClick={() => { const account = storage.data?.connections.find(value => value.id.startsWith(`connector:${nativeId}:`)); const definition = connectorDefinitions.find(value => value.id === nativeId); if (account && definition) void openStorage({ kind: "oauth", account, provider: cloudProvider(definition) }); }}><FolderOpen className="size-4" />{t("storage.add_folder_view")}</Button> : null}
+          {target?.kind === "mail" ? <MailAccountsView standardsOnly onAccountsChanged={()=>void cache.invalidateQueries({queryKey:["mail-integration-accounts"]})} /> : null}
           {target?.kind === "team" ? teamConfig(target.item) : null}
           {related.length ? <section className="space-y-3 border-t border-border/60 pt-6"><h2 className="text-sm font-medium">{t(target?.kind === "research" ? "catalog.your_logins" : "catalog.your_connections")}</h2>{related.map(row)}</section> : null}
         </article> : selectedId ? <p role="status" className="text-sm text-muted-foreground">{t(loading ? "common.loading" : "catalog.not_found")}</p> : <>

@@ -1,4 +1,4 @@
-import type { ConnectorOAuthClientInput } from "./schema.js";
+import type { ConnectorOAuthClientInput, ConnectorMailAccess, ConnectorCalendarAccess } from "./schema.js";
 import type { OAuthApplication } from "../file-storage/oauth/providers.js";
 import { ApiError } from "../errors.js";
 import { connectionProvider } from "./definition.js";
@@ -15,7 +15,7 @@ export function defaultConnectorOAuthClient(id: string): ConnectorOAuthClientInp
     tenantId: provider === "onedrive-personal" ? "consumers" : provider === "outlook" ? "common" : "organizations" };
 }
 
-export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientInput, writeIds: string[]) {
+export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientInput, writeIds: string[], mailAccess: ConnectorMailAccess = {contacts:false,sharedMailboxes:false}, calendarAccess: ConnectorCalendarAccess = {sharedCalendars:false}) {
   const provider = connectionProvider(id);
   const readOnly = !writeIds.includes(provider);
   const googleScopes: Record<string, string[]> = {
@@ -24,6 +24,7 @@ export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientI
     "google-drive": [`https://www.googleapis.com/auth/drive${readOnly ? ".readonly" : ""}`],
   };
   const scopes = googleScopes[provider];
+  if(provider==='gmail'&&mailAccess.contacts)scopes.push('https://www.googleapis.com/auth/contacts.readonly');
   if (scopes) {
     const application: OAuthApplication = {
       clientId: client.clientId, clientSecret: client.clientSecret,
@@ -41,6 +42,11 @@ export function connectorOAuthProvider(id: string, client: ConnectorOAuthClientI
     onedrive: [`Files.Read${readOnly ? "" : "Write"}.All`], "onedrive-personal": [`Files.Read${readOnly ? "" : "Write"}.All`], "sharepoint-files": ["Sites.Read.All", `Files.Read${readOnly ? "" : "Write"}.All`],
   };
   const permissions = microsoftScopes[provider];
+  if(provider==='outlook'){
+    if(calendarAccess.sharedCalendars)permissions.push(writeIds.includes('outlook-calendar')?'Calendars.ReadWrite.Shared':'Calendars.Read.Shared');
+    if(mailAccess.contacts)permissions.push('Contacts.Read');
+    if(mailAccess.sharedMailboxes){permissions.push(readOnly?'Mail.Read.Shared':'Mail.ReadWrite.Shared');if(!readOnly)permissions.push('Mail.Send.Shared');}
+  }
   if (!permissions) throw new ApiError(409, "connector_oauth_unavailable", "Own-app sign-in is not available for this connector.");
   const application: OAuthApplication = {
     clientId: client.clientId, authorizeUrl: `${endpoint}/authorize`, tokenUrl: `${endpoint}/token`,

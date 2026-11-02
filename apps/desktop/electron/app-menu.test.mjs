@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
+import { dispatchMailReply } from "./mail-menu-shortcuts.mjs";
 
-// Replace only Electron's import so the real factory can run without a GUI.
+// Supply Electron stubs and the real reply dispatcher without launching a GUI.
 const source = readFileSync(new URL("./app-menu.mjs", import.meta.url), "utf8")
-  .replace('import { BrowserWindow, Menu } from "electron";', "")
+  .replace(/^import \{[^}]+\} from "(?:electron|\.\/mail-menu-shortcuts\.mjs)";$/gm, "")
   .replace("export function createApplicationMenu", "function createApplicationMenu");
 
 function fixture(platform) {
@@ -29,7 +30,7 @@ function fixture(platform) {
     getApplicationMenu: () => installed,
   };
   const BrowserWindow = { getFocusedWindow: () => window, getAllWindows: () => [window] };
-  const create = runInNewContext(`${source}\ncreateApplicationMenu`, { Menu, BrowserWindow, process: { platform } });
+  const create = runInNewContext(`${source}\ncreateApplicationMenu`, { Menu, BrowserWindow, dispatchMailReply, process: { platform } });
   const menu = create({ appName: "LegalWork", getWindow: async () => window });
   menu.install();
   return { menu, window, popups, visibility, messages, getInstalled: () => installed };

@@ -80,6 +80,7 @@ export function SettingsShell(props: SettingsShellProps) {
   const actions: MainRailActions = {
     navHome: { onClick: props.onClose },
     navScheduled: { onClick: () => navigate("/scheduled") },
+    navMail: { onClick: () => navigate("/mail") },
     navCalendar: { onClick: () => navigate("/calendar") },
     navProjects: { onClick: () => navigate("/projects") },
     navTasks: { onClick: () => navigate("/tasks") },

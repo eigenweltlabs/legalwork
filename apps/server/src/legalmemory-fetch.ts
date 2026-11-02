@@ -284,7 +284,48 @@ export async function fetchLegalMemoryTreeSearch(
   }
 }
 
-function legalMemoryToolPayload(value: unknown): unknown {
+/** Parse one streamable-HTTP response body, which is either JSON or an SSE
+ * frame carrying the JSON on a `data:` line. */
+function parseRpcBody(text: string): unknown {
+  const line = text.split("\n").find((l) => l.startsWith("data:"));
+  const payload = line ? line.replace(/^data:\s*/, "") : text;
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+type Session = { url: string; headers: Record<string, string> };
+
+async function rpc(session: Session, method: string, params: unknown, id?: number, signal?: AbortSignal): Promise<unknown> {
+  const response = await fetch(session.url, {
+    method: "POST",
+    headers: session.headers,
+    signal,
+    body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }),
+  });
+  // The server assigns a session on initialize and expects it echoed after.
+  const assigned = response.headers.get("mcp-session-id");
+  if (assigned) session.headers["mcp-session-id"] = assigned;
+  if (!response.ok && response.status !== 202) {
+    throw new Error(`LegalMemory ${method} failed (${response.status})`);
+  }
+  return parseRpcBody(await response.text());
+}
+
+function legalMemorySession(server: LegalMemoryServer, bearer?: string): Session {
+  return {
+    url: server.url,
+    headers: {
+      "Content-Type": "application/json", Accept: "application/json, text/event-stream",
+      ...(server.headers ?? {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+    },
+  };
+}
+
+export function legalMemoryToolPayload(value: unknown): unknown {
   const envelope = asRecord(value);
   const result = asRecord(envelope?.result ?? envelope);
   if (!result || result.isError === true || envelope?.error) throw new Error("LegalMemory tool call failed");
@@ -295,6 +336,24 @@ function legalMemoryToolPayload(value: unknown): unknown {
     try { return JSON.parse(text); } catch { /* Tool cards may precede the JSON payload. */ }
   }
   throw new Error("LegalMemory returned no structured tool content");
+}
+
+export async function callLegalMemoryTool(
+  server: LegalMemoryServer,
+  name: string,
+  args: Record<string, unknown>,
+  bearer?: string,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const session = legalMemorySession(server, bearer);
+  await rpc(session, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "LegalWork", version: "1" },
+  }, 1, signal);
+  await rpc(session, "notifications/initialized", {}, undefined, signal);
+  const result = await rpc(session, "tools/call", { name, arguments: args }, 2, signal);
+  return legalMemoryToolPayload(result);
 }
 
 function normalizedSourcePath(value: string): string {

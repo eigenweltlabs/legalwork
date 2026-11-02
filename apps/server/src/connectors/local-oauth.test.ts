@@ -8,7 +8,10 @@ import { join } from "node:path";
 import { connectorConnectSchema, connectorDefinitions, connectorOAuthClientInputSchema } from "@legalwork/types/connectors";
 import type { ServerConfig } from "../types.js";
 import { connectorStatus, createConnectorFlows, connectorAccessToken, disconnectConnector, setConnectorActivation } from "./broker.js";
-import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "./local-oauth.js";
+import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess, localOAuthMailAccess, localOAuthCalendarAccess } from "./local-oauth.js";
+import { outlookCalendarAdapter } from './calendar.js';
+import { openInvitationCalendar } from '../mail/invitations/calendar.js';
+import { parseMailInvitations } from '../mail/invitations/parse.js';
 import { connectorOAuthProvider } from "./oauth-providers.js";
 import { connectorSettings, connectorSettingsPath, saveConnectorWriteSetting } from "./settings.js";
 import { callConnectorExtensionAction, CONNECTOR_EXTENSION_ACTIONS } from "./index.js";
@@ -719,9 +722,9 @@ test("connector preference API needs owner authorization, rejects invalid input 
   expect((await nativeFetch(path)).status).toBe(401);
   expect((await nativeFetch(path, { headers: { Authorization: "Bearer client" } })).status).toBe(401);
   const headers = { "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
-  expect(await (await nativeFetch(path, { headers })).json()).toEqual({ writeAccess: false, readOnly: false });
+  expect(await (await nativeFetch(path, { headers })).json()).toEqual({ writeAccess: false, readOnly: false, mailAccess:{contacts:false,sharedMailboxes:false} });
   expect((await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: "true" }) })).status).toBe(400);
-  expect(await (await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: true }) })).json()).toEqual({ writeAccess: true, readOnly: false });
+  expect(await (await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: true }) })).json()).toEqual({ writeAccess: true, readOnly: false, mailAccess:{contacts:false,sharedMailboxes:false} });
   config.readOnly = true;
   expect((await nativeFetch(path, { method: "PUT", headers, body: JSON.stringify({ writeAccess: false }) })).status).toBe(403);
   expect(requests).toHaveLength(0);
@@ -779,4 +782,215 @@ test("late invalid_grant from an obsolete refresh cannot poison a successfully u
     expect((await localOAuthConnections(config, "outlook"))[0].needsReconnect).toBe(false);
     expect(await connectorAccessToken(config, "outlook-calendar", account.connection.id)).toBe(access);
   } finally { release.resolve(); await Promise.allSettled([refreshing, activating]); }
+});
+
+
+test("optional mail permissions require explicit settings and a renewed grant on the same account",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ const first=await connected();
+ expect(first.authorization.searchParams.get('scope')).not.toContain('contacts');
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ expect(await localOAuthMailAccess(config,'gmail',first.connection.id)).toMatchObject({contacts:false,sharedMailboxes:false});
+ const next=await start('gmail',first.connection.id);
+ expect(next.authorization.searchParams.get('scope')).toContain('https://www.googleapis.com/auth/contacts.readonly');
+ expect(next.authorization.searchParams.get('client_id')).toBe('mail-client');
+ expect((await callback(next.authorization)).status).toBe(200);
+ const result=await next.flows.status(next.flow.flowId);
+ expect(result.connection?.id).toBe(first.connection.id);expect(result.connection?.createdAt).toBe(first.connection.createdAt);
+ expect(await localOAuthMailAccess(config,'gmail',first.connection.id)).toMatchObject({contacts:true,sharedMailboxes:false});
+ const request=await createConnectorRequest(config,'gmail',first.connection.id);
+ await request.response('/v1/people/me/connections?personFields=names,emailAddresses',{mailAccess:'contacts'});
+ expect(requests.at(-1)?.url.origin).toBe('https://people.googleapis.com');
+ expect(requests.at(-1)?.headers.get('authorization')).toBe('Bearer '+access);
+ const dispatched=requests.length;
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:false,sharedMailboxes:false}});
+ await expect(request.response('/v1/people/me/connections',{mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_permission_required'});
+ expect(requests).toHaveLength(dispatched);
+ expect((await localOAuthClient(config,'gmail')).scopes).not.toContain('https://www.googleapis.com/auth/contacts.readonly');
+});
+
+test("optional mail gates are rechecked after credential identity verification",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ const account=await connected();
+ const request=await createConnectorRequest(config,'gmail',account.connection.id,{verifyAccess:async()=>{await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:false,sharedMailboxes:false}});return true;}});
+ const dispatched=requests.length;
+ await expect(request.response('/v1/people/me/connections',{mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_permission_required'});
+ expect(requests).toHaveLength(dispatched);
+});
+
+test("contacts transport is restricted to read-only personal endpoints",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ const account=await connected(),request=await createConnectorRequest(config,'gmail',account.connection.id);
+ const dispatched=requests.length;
+ await expect(request.response('/v1/people:batchGet',{mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_invalid_endpoint'});
+ await expect(request.response('/v1/people/me/connections',{method:'POST',mailAccess:'contacts'})).rejects.toMatchObject({code:'connector_invalid_endpoint'});
+ expect(requests).toHaveLength(dispatched);
+ await expect(saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:false,sharedMailboxes:true}})).rejects.toMatchObject({code:'invalid_payload'});
+ await expect(saveConnectorWriteSetting(config,'google-drive',{mailAccess:{contacts:true,sharedMailboxes:false}})).rejects.toMatchObject({code:'invalid_payload'});
+});
+
+test("shared Microsoft sign-in carries explicit optional mail scopes without changing Calendar write access",async()=>{
+ expect((await localOAuthClient(config,'outlook')).scopes).not.toContain('https://graph.microsoft.com/Contacts.Read');
+ await saveConnectorWriteSetting(config,'outlook',{mailAccess:{contacts:true,sharedMailboxes:true}});
+ const account=await connected('outlook-calendar');
+ const scopes=account.authorization.searchParams.get('scope');
+ expect(scopes).toContain('https://graph.microsoft.com/Contacts.Read');expect(scopes).toContain('https://graph.microsoft.com/Mail.Read.Shared');
+ expect(scopes).not.toContain('Mail.ReadWrite.Shared');expect(scopes).not.toContain('Mail.Send.Shared');expect(scopes).not.toContain('Calendars.ReadWrite');
+ expect(await localOAuthMailAccess(config,'outlook',account.connection.id)).toMatchObject({contacts:true,sharedMailboxes:true});
+ await saveConnectorWriteSetting(config,'outlook',{writeAccess:true});
+ const desired=(await localOAuthClient(config,'outlook')).scopes;
+ expect(desired).toContain('https://graph.microsoft.com/Mail.ReadWrite.Shared');expect(desired).toContain('https://graph.microsoft.com/Mail.Send.Shared');expect(desired).not.toContain('https://graph.microsoft.com/Calendars.ReadWrite');
+ await saveConnectorWriteSetting(config,'outlook',{mailAccess:{contacts:false,sharedMailboxes:false}});
+ expect(await localOAuthMailAccess(config,'outlook-calendar',account.connection.id)).toMatchObject({contacts:false,sharedMailboxes:false});
+});
+
+
+test("a narrower provider grant never acquires requested optional permissions and refresh preserves stated scope",async()=>{
+ await saveLocalOAuthClient(config,'gmail',{clientId:'mail-client'});
+ await saveConnectorWriteSetting(config,'gmail',{mailAccess:{contacts:true,sharedMailboxes:false}});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'https://www.googleapis.com/auth/gmail.readonly'}):Response.json({emailAddress:'local@example.com'});
+ const account=await connected();
+ expect(await localOAuthMailAccess(config,'gmail',account.connection.id)).toMatchObject({contacts:false});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:'renewed-token',expires_in:3600}):Response.json({emailAddress:'local@example.com'});
+ await connectorAccessToken(config,'gmail',account.connection.id,true);
+ expect(await localOAuthMailAccess(config,'gmail',account.connection.id)).toMatchObject({contacts:false});
+});
+
+test("shared scope downshifts on refresh block writes without removing permitted reads",async()=>{
+ await saveConnectorWriteSetting(config,'outlook',{writeAccess:true,mailAccess:{contacts:true,sharedMailboxes:true}});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'User.Read Mail.ReadWrite Mail.Send Contacts.Read Mail.ReadWrite.Shared Mail.Send.Shared'}):Response.json({id:'owner'});
+ const account=await connected('outlook');
+ expect(await localOAuthMailAccess(config,'outlook',account.connection.id)).toMatchObject({contacts:true,sharedMailboxes:true,sharedWrite:true,sharedSend:true});
+ respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:'narrow-token',expires_in:3600,scope:'User.Read Mail.ReadWrite Mail.Read.Shared'}):Response.json({value:[]});
+ await connectorAccessToken(config,'outlook',account.connection.id,true);
+ expect(await localOAuthMailAccess(config,'outlook',account.connection.id)).toMatchObject({contacts:false,sharedMailboxes:true,sharedWrite:false,sharedSend:false});
+ const request=await createConnectorRequest(config,'outlook',account.connection.id),count=requests.length;
+ await expect(request.response('/v1.0/users/team%40example.test/messages',{method:'POST',body:{},mailAccess:'sharedMailboxes'})).rejects.toMatchObject({code:'connector_permission_required'});
+ await expect(request.response('/v1.0/users/team%40example.test/sendMail',{method:'POST',body:{},mailAccess:'sharedMailboxes',send:true})).rejects.toMatchObject({code:'connector_permission_required'});
+ expect(requests).toHaveLength(count);
+ await request.response('/v1.0/users/team%40example.test/messages',{mailAccess:'sharedMailboxes'});expect(requests).toHaveLength(count+1);
+});
+
+test('shared calendar consent reuses the Microsoft account and cannot be enabled by a setting alone',async()=>{
+  respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'User.Read Mail.Read Calendars.Read Calendars.Read.Shared'}):Response.json({id:'actor',mail:'self@example.test',userPrincipalName:'self@example.test',value:[]});
+  const first=await connected('outlook-calendar');
+  expect(first.authorization.searchParams.get('scope')).not.toContain('Calendars.Read.Shared');
+  expect((await connectorSettings(config)).calendarAccess).toEqual({});
+  const oldRequest=await createConnectorRequest(config,'outlook-calendar',first.connection.id);
+  await saveConnectorWriteSetting(config,'outlook-calendar',{calendarAccess:{sharedCalendars:true}});
+  expect(await localOAuthCalendarAccess(config,'outlook-calendar',first.connection.id)).toEqual({read:false,write:false});
+  await expect(oldRequest.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_calendar_permission_required'});
+  const next=await start('outlook-calendar',first.connection.id);
+  expect(next.authorization.searchParams.get('scope')).toContain('https://graph.microsoft.com/Calendars.Read.Shared');
+  expect(next.authorization.searchParams.get('scope')).not.toContain('Calendars.ReadWrite.Shared');
+  expect((await callback(next.authorization)).status).toBe(200);
+  const completed=await next.flows.status(next.flow.flowId);
+  expect(completed.connection?.id).toBe(first.connection.id);expect(completed.connection?.createdAt).toBe(first.connection.createdAt);
+  expect(await localOAuthCalendarAccess(config,'outlook-calendar',first.connection.id)).toEqual({read:true,write:false});
+  const count=requests.length;
+  await expect(oldRequest.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_account_changed'});expect(requests).toHaveLength(count);
+  const current=await createConnectorRequest(config,'outlook-calendar',first.connection.id);
+  await current.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'});
+  expect(requests.at(-1)?.headers.get('Authorization')).toBe('Bearer '+access);
+  const dispatched=requests.length;
+  await saveConnectorWriteSetting(config,'outlook-calendar',{calendarAccess:{sharedCalendars:false}});
+  await expect(current.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_calendar_permission_required'});expect(requests).toHaveLength(dispatched);
+  await current.response('/v1.0/me/calendars/personal/calendarView',{calendarOwner:'self@example.test'});
+  await expect(saveConnectorWriteSetting(config,'outlook',{calendarAccess:{sharedCalendars:true}})).rejects.toMatchObject({code:'invalid_payload'});
+  await expect(saveConnectorWriteSetting(config,'google-calendar',{calendarAccess:{sharedCalendars:true}})).rejects.toMatchObject({code:'invalid_payload'});
+});
+
+test('shared calendar write consent is independent of Mail write/send consent and downshifts on refresh',async()=>{
+  await saveConnectorWriteSetting(config,'outlook-calendar',{writeAccess:true,calendarAccess:{sharedCalendars:true}});
+  respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'User.Read Mail.Read Calendars.ReadWrite Calendars.ReadWrite.Shared'}):Response.json({id:'actor',mail:'self@example.test',value:[]});
+  const account=await connected('outlook-calendar'),scopes=account.authorization.searchParams.get('scope');
+  expect(scopes).toContain('https://graph.microsoft.com/Calendars.ReadWrite.Shared');expect(scopes).not.toContain('https://graph.microsoft.com/Mail.ReadWrite');expect(scopes).not.toContain('https://graph.microsoft.com/Mail.Send');
+  expect(await localOAuthCalendarAccess(config,'outlook-calendar',account.connection.id)).toEqual({read:true,write:true});
+  const request=await createConnectorRequest(config,'outlook-calendar',account.connection.id);
+  await request.response('/v1.0/me/calendars/team/events/event/accept',{method:'POST',calendarOwner:'team@example.test',body:{sendResponse:true}});
+  respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:'narrow-calendar-token',expires_in:3600,scope:'User.Read Mail.Read Calendars.Read Calendars.Read.Shared'}):Response.json({id:'actor',mail:'self@example.test',value:[]});
+  await connectorAccessToken(config,'outlook-calendar',account.connection.id,true);
+  expect(await localOAuthCalendarAccess(config,'outlook-calendar',account.connection.id)).toEqual({read:true,write:false});
+  const count=requests.length;
+  await expect(request.response('/v1.0/me/calendars/team/events/event/accept',{method:'POST',calendarOwner:'team@example.test',body:{sendResponse:true}})).rejects.toMatchObject({code:'connector_calendar_permission_required'});expect(requests).toHaveLength(count);
+  await request.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'});
+});
+
+test('a partial calendar grant cannot acquire shared read or write capabilities',async()=>{
+  await saveConnectorWriteSetting(config,'outlook-calendar',{writeAccess:true,calendarAccess:{sharedCalendars:true}});
+  respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'User.Read Mail.Read Calendars.Read'}):Response.json({id:'actor',mail:'self@example.test'});
+  const account=await connected('outlook-calendar');
+  expect(await localOAuthCalendarAccess(config,'outlook-calendar',account.connection.id)).toEqual({read:false,write:false});
+  const request=await createConnectorRequest(config,'outlook-calendar',account.connection.id);
+  expect(await request.calendarAccess?.('team@example.test')).toBe(false);
+  await expect(request.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_calendar_permission_required'});
+});
+
+test('calendar access is revoked while an authenticated ownership proof is in flight',async()=>{
+  await saveConnectorWriteSetting(config,'outlook-calendar',{calendarAccess:{sharedCalendars:true}});
+  const account=await connected('outlook-calendar');
+  respond=async url=>{if(url.pathname==='/v1.0/me'){await saveConnectorWriteSetting(config,'outlook-calendar',{calendarAccess:{sharedCalendars:false}});return Response.json({id:'actor',mail:'self@example.test'});}return Response.json({value:[]});};
+  const request=await createConnectorRequest(config,'outlook-calendar',account.connection.id);
+  await expect(request.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'})).rejects.toMatchObject({code:'connector_calendar_permission_required'});
+  expect(requests.some(value=>value.url.pathname.includes('/calendarView'))).toBe(false);
+});
+
+test('a refreshed credential cannot use ownership cached for another authenticated principal',async()=>{
+  const account=await connected('outlook-calendar');
+  respond=(url,init)=>url.pathname.endsWith('/token')?Response.json({access_token:'other-principal',expires_in:3600,scope:'User.Read Calendars.Read.Shared'}):url.pathname==='/v1.0/me'?new Headers(init?.headers).get('Authorization')==='Bearer '+access?new Response(null,{status:401}):Response.json({id:'other',mail:'other@example.test'}):Response.json({value:[]});
+  const request=await createConnectorRequest(config,'outlook-calendar',account.connection.id);
+  await expect(request.response('/v1.0/me/calendars/previous/calendarView',{calendarOwner:'self@example.test'})).rejects.toMatchObject({code:'connector_calendar_permission_required'});
+  expect(requests.some(value=>value.url.pathname.includes('/calendarView'))).toBe(false);
+  expect(requests.filter(value=>value.url.pathname==='/v1.0/me').map(value=>value.headers.get('Authorization'))).toEqual(['Bearer '+access,'Bearer other-principal']);
+});
+
+test('Calendar overlays and invitation choices filter shared calendars using the same native grant',async()=>{
+  const account=await connected('outlook-calendar');
+  const items=[{id:'personal',name:'Personal',canEdit:true,owner:{address:'self@example.test'}},{id:'team',name:'Team',canEdit:true,owner:{address:'team@example.test'}}];
+  respond=url=>url.pathname==='/v1.0/me'?Response.json({id:'actor',mail:'self@example.test'}):Response.json({value:items});
+  const request=await createConnectorRequest(config,'outlook-calendar',account.connection.id);
+  expect((await outlookCalendarAdapter.calendars(request,{maxResults:50})).calendars.map(value=>value.id)).toEqual(['personal']);
+  await saveConnectorWriteSetting(config,'outlook-calendar',{calendarAccess:{sharedCalendars:true}});
+  // A saved choice still cannot borrow permissions absent from completed consent.
+  expect((await outlookCalendarAdapter.calendars(request,{maxResults:50})).calendars.map(value=>value.id)).toEqual(['personal']);
+  const next=await start('outlook-calendar',account.connection.id);
+  respond=url=>url.pathname.endsWith('/token')?Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'User.Read Calendars.Read Calendars.Read.Shared'}):url.pathname==='/v1.0/me'?Response.json({id:'actor',mail:'self@example.test'}):Response.json({value:items});
+  expect((await callback(next.authorization)).status).toBe(200);await next.flows.status(next.flow.flowId);
+  const renewed=await createConnectorRequest(config,'outlook-calendar',account.connection.id);
+  expect((await outlookCalendarAdapter.calendars(renewed,{maxResults:50})).calendars.map(value=>({id:value.id,canWrite:value.canWrite}))).toEqual([{id:'personal',canWrite:false},{id:'team',canWrite:false}]);
+});
+
+test('invalid ownership responses are redacted before reaching caller error handling',async()=>{
+  const account=await connected('outlook-calendar');
+  respond=()=>new Response('private-account-marker',{status:200});
+  const request=await createConnectorRequest(config,'outlook-calendar',account.connection.id);
+  try{await request.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'});throw Error('expected failure');}
+  catch(error){expect(error).toMatchObject({code:'connector_api_invalid'});expect(String(error)).not.toContain('private-account-marker');}
+  respond=()=>{throw Error('private-network-marker');};
+  try{await request.response('/v1.0/me/calendars/team/calendarView',{calendarOwner:'team@example.test'});throw Error('expected failure');}
+  catch(error){expect(error).toMatchObject({code:'connector_api_unreachable'});expect(String(error)).not.toContain('private-network-marker');}
+});
+
+test('a delegated invitation reply uses the existing Microsoft grant and is fenced when shared consent is disabled',async()=>{
+  await saveConnectorWriteSetting(config,'outlook-calendar',{writeAccess:true,calendarAccess:{sharedCalendars:true}});
+  let response='notResponded',writes=0;
+  const event=()=>({id:'event',iCalUId:'meeting@example.test',changeKey:response,subject:'Review',start:{dateTime:'2026-11-03T10:00:00',timeZone:'UTC'},end:{dateTime:'2026-11-03T11:00:00',timeZone:'UTC'},isOrganizer:false,organizer:{emailAddress:{address:'organizer@example.test'}},attendees:[{emailAddress:{address:'owner@example.test'}}],responseStatus:{response}});
+  respond=(url,init)=>{
+    if(url.pathname.endsWith('/token'))return Response.json({access_token:access,refresh_token:refresh,expires_in:3600,scope:'User.Read Mail.Read Calendars.ReadWrite Calendars.ReadWrite.Shared'});
+    if(url.pathname==='/v1.0/me')return Response.json({id:'actor',mail:'delegate@example.test'});
+    if(url.pathname==='/v1.0/me/calendars/team')return Response.json({id:'team',name:'Owner calendar',canEdit:true,owner:{address:'owner@example.test'}});
+    if(url.pathname.endsWith('/accept')){writes++;expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer '+access);expect(JSON.parse(String(init?.body))).toEqual({sendResponse:true});response='accepted';return new Response(null,{status:202});}
+    return url.pathname.endsWith('/events')?Response.json({value:[event()]}):Response.json(event());
+  };
+  const account=await connected('outlook-calendar');
+  const source=parseMailInvitations(Buffer.from(['BEGIN:VCALENDAR','VERSION:2.0','METHOD:REQUEST','BEGIN:VEVENT','UID:meeting@example.test','DTSTART:20261103T100000Z','DTEND:20261103T110000Z','ORGANIZER:mailto:organizer@example.test','ATTENDEE:mailto:owner@example.test','END:VEVENT','END:VCALENDAR'].join('\r\n'))).invitations[0];
+  const calendar=await openInvitationCalendar(config,{connectorId:'outlook-calendar',connectionId:account.connection.id,calendarId:'team'},new AbortController().signal);
+  const invitation=await calendar.find(source);
+  expect(calendar.identity.email).toBe('delegate@example.test');expect(invitation.view.replyAs).toBe('owner@example.test');expect(calendar.calendar.canWrite).toBe(true);
+  await calendar.assertWrite();expect((await calendar.respond(invitation,'accepted')).status).toBe(202);expect(writes).toBe(1);
+  expect((await calendar.get('event')).view.currentResponse).toBe('accepted');
+  await saveConnectorWriteSetting(config,'outlook-calendar',{calendarAccess:{sharedCalendars:false}});
+  await expect(calendar.respond(invitation,'declined')).rejects.toMatchObject({code:'connector_calendar_permission_required'});expect(writes).toBe(1);
 });

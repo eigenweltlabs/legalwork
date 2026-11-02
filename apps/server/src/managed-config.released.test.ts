@@ -2,7 +2,7 @@ import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { engineProjectStatus } from "./engine-project.js";
@@ -12,10 +12,11 @@ import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath,
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { runNativeServerFixture } from "./native-server-fixture.test-support.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and loads native project automation without an approval prompt", async () => {
-  const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/managed-config-")), previous = { ...process.env };
+test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and loads native project automation without an approval prompt", () => runNativeServerFixture(import.meta.filename, async root => {
+  const previous = { ...process.env };
   let server: Awaited<ReturnType<typeof startServer>> | undefined, engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
   const a = join(root, "a"), b = join(root, "b"), outside = join(root, "outside"), library = join(root, "library", "opencode");
   const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(root, "private", "server.json"), token: "fixture", hostToken: "fixture-host", workspaces: [a,b].map((path,index) => ({ id: index === 0 ? "a" : "b", name: "Matter", path, preset: "starter", workspaceType: "local" })), authorizedRoots: [a,b], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, engineProjectTrustRequired: true, engineConfigurationMode: "native-project", startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
@@ -44,8 +45,20 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     config.opencodeBaseUrl=engine.url;config.opencodeUsername=engine.username;config.opencodePassword=engine.password;
     const client=OpenCode.make({baseUrl:engine.url,headers:{authorization:`Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`}});
     const locationA={directory:a},locationB={directory:b};
+    const readyPlugins = async (location: { directory: string }) => {
+      const deadline = Date.now() + 15_000;
+      while (true) {
+        const plugins = await client.plugin.list({ location });
+        const states = plugins.data.map(plugin => ({ id: plugin.id, state: plugin.state }));
+        if (plugins.data.some(plugin => plugin.state.status === "failed")) throw new Error(`Native plugin activation failed: ${JSON.stringify(states)}`);
+        if (plugins.data.some(plugin => plugin.id === "fixture.shared-tool" && plugin.state.status === "active")) return plugins;
+        if (Date.now() >= deadline) throw new Error(`Native plugin activation did not settle: ${JSON.stringify(states)}`);
+        await Bun.sleep(25);
+      }
+    };
+    const plugins=await readyPlugins(locationA);
+    await readyPlugins(locationB);
     const modelsA=await client.model.list({location:locationA}),modelsB=await client.model.list({location:locationB});
-    const plugins=await client.plugin.list({location:locationA});
     expect(plugins.data.filter(plugin=>plugin.state.status==="failed").map(plugin=>({id:plugin.id,state:plugin.state}))).toEqual([]);
     expect(plugins.data.map(plugin=>({id:plugin.id,state:plugin.state}))).toContainEqual(expect.objectContaining({id:"fixture.shared-tool"}));
     expect(modelsA.data.find(model=>model.providerID==="fixture"&&model.id==="shared")).toMatchObject({name:"Case A model",settings:{baseURL:"http://127.0.0.1:7/v1"},variants:expect.arrayContaining([{id:"deep",settings:{reasoningEffort:"high"}}])});
@@ -70,19 +83,30 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     await expect(client.session.prompt({sessionID:unknown.id,text:"must be rejected",resume:false})).rejects.toThrow();
     for (const [directory,index] of [[root,0],[a,1]] satisfies Array<[string,number]>) {
       const plugin = join(directory,"untrusted-plugin");
-      await writeFile(join(directory,"opencode.json"), JSON.stringify({ plugins:[plugin],mcp:{servers:{[`fixture-${index}`]:{type:'local',command:[process.execPath,'-e',`require('node:fs').writeFileSync(${JSON.stringify(markers[index+2])},'executed')`]}}}}));
+      const command = `require('node:fs').writeFileSync(${JSON.stringify(markers[index+2])},'executed');
+        const lines=require('node:readline').createInterface({input:process.stdin});
+        lines.on('line',line=>{const request=JSON.parse(line);if(request.id===undefined)return;
+          const result=request.method==='initialize'?{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'fixture-native',version:'1.0.0'}}:request.method==='tools/list'?{tools:[]}:request.method==='ping'?{}:undefined;
+          process.stdout.write(JSON.stringify(result===undefined?{jsonrpc:'2.0',id:request.id,error:{code:-32601,message:'Unsupported fixture method'}}:{jsonrpc:'2.0',id:request.id,result})+'\\n');
+        });lines.on('close',()=>process.exit(0));`;
+      await writeFile(join(directory,"opencode.json"), JSON.stringify({ plugins:[plugin],mcp:{servers:{[`fixture-${index}`]:{type:'local',protocol:'legacy',command:[process.execPath,'-e',command]}}}}));
     }
     await writeLegalworkRuntimeConfigFile(config,"a");
     expect((await engineProjectStatus(config,config.workspaces[0]!)).state).toBe("ready");
     await client.location.reload();
-    await client.mcp.list({location:locationA});
+    const names = ["fixture-0", "fixture-1"], deadline = Date.now() + 30_000;
+    while (true) {
+      const servers = (await client.mcp.list({location:locationA})).data.filter(server => names.includes(server.name));
+      const states = servers.map(server => ({ name: server.name, status: server.status }));
+      if (servers.some(server => server.status.status !== "pending" && server.status.status !== "connected")) throw new Error(`Native MCP startup failed: ${JSON.stringify(states)}`);
+      if (servers.length === names.length && servers.every(server => server.status.status === "connected")) break;
+      if (Date.now() >= deadline) throw new Error(`Native MCP startup did not settle: ${JSON.stringify(states)}`);
+      await Bun.sleep(10);
+    }
     expect(await readFile(join(a,"opencode.json"),"utf8")).toContain("untrusted-plugin");
-    const deadline = Date.now() + 5000;
-    while (markers.some(path => !existsSync(path)) && Date.now() < deadline) await Bun.sleep(10);
     expect(markers.map(path=>existsSync(path))).toEqual([true,true,true,true]);
   } finally {
     await engine?.close();await server?.stop();await closeRuntimeOpencodeConfig(config);
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env,previous);
-    await rm(root,{recursive:true,force:true});
   }
-},60000);
+}, { parentDirectory: join(import.meta.dir, "../../../.legalwork/scratch"), prefix: "managed-config-" }),60000);

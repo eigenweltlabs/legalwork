@@ -269,6 +269,8 @@ test("the desktop loader uses the server vault module, config override and write
       desktopRoot: path.resolve(import.meta.dirname, ".."), listLocalWorkspacePaths: async () => [], recorder: null,
       onSidecarExit: () => {}, getApprovalWindow: () => null, modelDownloadFetch: undefined });
     const loaded = await manager.credentialVault();
+    assert.equal(process.env.HOME, previous.HOME, "opening the credential vault must preserve the OS home for macOS Keychain");
+    assert.equal(process.env.USERPROFILE, previous.USERPROFILE, "opening the credential vault must preserve the Windows user profile");
     const shared = await import("../../server/dist/file-storage/oauth/vault.js");
     assert.equal(loaded.lock, shared.vaultLock);
     assert.equal(loaded.vault.path, shared.oauthVaultPath({ configPath: process.env.LEGALWORK_SERVER_CONFIG }));

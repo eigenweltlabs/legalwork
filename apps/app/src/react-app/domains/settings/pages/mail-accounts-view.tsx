@@ -1,0 +1,142 @@
+import {MailRulesView} from './mail-rules-view';
+import { MailClassifierView } from './mail-classifier-view';
+import { useLocation } from 'react-router-dom';
+import { z } from 'zod';
+import { MailDiagnosticsView } from './mail-diagnostics-view';
+import {t} from '@/i18n';
+import {MailContactsView} from './mail-contacts-view';
+import {MailAgentAccessView} from './mail-agent-access-view';
+import {MailRetentionView} from './mail-retention-view';
+import {MailDesktopPreferences} from '../../mail/mail-desktop';
+import {MailSmtpView} from './mail-smtp-view';
+import {MailPortabilityView} from './mail-portability-view';
+/** @jsxImportSource react */
+import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import {MailSendersView} from './mail-senders-view';
+import { GraphMailboxesView } from './graph-mailboxes-view';
+import { Switch } from '@/components/ui/switch';
+import { resolveLegalworkConnection } from '@/react-app/shell/legalwork-connection';
+import { MailClient, type MailAccountView } from '../../mail/mail-client';
+import { MailOnboarding } from '../../mail/mail-onboarding';
+import { SettingsStack,SettingsNotice } from '../settings-section';
+import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
+import {MailSettingsSection} from './mail-settings-controls';
+
+/** Resolve the host independently of the selected workspace. Repeated desktop
+ * announcements retain active sign-in; a different resolved identity retires it. */
+export function MailAccountsView({ standardsOnly = false, onAccountsChanged }: { standardsOnly?: boolean; onAccountsChanged?: () => void } = {}) {
+  const location=useLocation(),navigation=z.object({mailSection:z.literal('projects').optional(),mailAccount:z.string().optional()}).safeParse(location.state);
+  const [client, setClient] = useState<MailClient>();
+  const identity = useRef('');
+  const [clientVersion, setClientVersion] = useState(0);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const changed = () => setRevision(value => value + 1);
+    window.addEventListener('legalwork-server-settings-changed', changed);
+    return () => window.removeEventListener('legalwork-server-settings-changed', changed);
+  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    setError('');
+    void (async () => {
+      try {
+        const connection = await resolveLegalworkConnection();
+        if (controller.signal.aborted) return;
+        const nextIdentity = connection.normalizedBaseUrl + '\n' + connection.resolvedHostToken;
+        if (identity.current === nextIdentity) return;
+        identity.current = '';
+        setClient(undefined);
+        if (!connection.normalizedBaseUrl) throw Error('unavailable');
+        const next = new MailClient(connection.normalizedBaseUrl, connection.resolvedHostToken);
+        let status = await next.status(controller.signal);
+        if (status.state !== 'ready') status = await next.unlock(controller.signal);
+        if (status.state !== 'ready') throw Error('unavailable');
+        if (!controller.signal.aborted) { identity.current = nextIdentity; setClient(next); setClientVersion(value => value + 1); }
+      } catch {
+        if (!controller.signal.aborted) { identity.current = ''; setClient(undefined); setError('Mail accounts are unavailable. Check the local connection and retry.'); }
+      }
+    })();
+    return () => controller.abort();
+  }, [revision]);
+  return <SettingsStack>
+    {client ? <MailAccountControls key={clientVersion} client={client} standardsOnly={standardsOnly} initialSection={navigation.success?navigation.data.mailSection:undefined} initialAccount={navigation.success?navigation.data.mailAccount:undefined} onAccountsChanged={onAccountsChanged} /> : error ? <div role="alert">{error} <Button variant="outline" onClick={() => setRevision(value => value + 1)}>Retry</Button></div> : <p role="status">Opening mail accounts…</p>}
+  </SettingsStack>;
+}
+
+export function MailAccountControls({ client, standardsOnly = false, initialSection='accounts',initialAccount,onAccountsChanged }: { client: MailClient; standardsOnly?: boolean;initialSection?:string;initialAccount?:string;onAccountsChanged?: () => void }) {
+  const [classification,setClassification]=useState(false), [automaticClassification,setAutomaticClassification]=useState(false);
+  const [section,setSection]=useState(initialSection),pendingProjectSection=useRef(initialSection==='projects');
+  useEffect(()=>{if(classification&&pendingProjectSection.current){pendingProjectSection.current=false;setSection('projects');}},[classification]);
+  const [contactRequest,setContactRequest]=useState<{account:MailAccountView;key:number}>();
+  const [accounts, setAccounts] = useState<MailAccountView[]>([]);
+  const [revision, setRevision] = useState(0);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController(); let previous: number | undefined;
+    const poll = async () => { try { const status=await client.status(controller.signal); if(controller.signal.aborted)return;setClassification(status.projectClassification===true);setAutomaticClassification(status.automaticProjectClassification===true); if(status.accountRevision!==undefined&&status.accountRevision!==previous){previous=status.accountRevision;setRevision(value=>value+1);} } catch { /* Keep local account controls available during a reconnect. */ } };
+    void poll();
+    const timer=setInterval(()=>void poll(),3000); return()=>{controller.abort();clearInterval(timer);};
+  },[client]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const result: MailAccountView[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await client.accounts(controller.signal, cursor);
+          result.push(...page.items);
+          if (result.length > 500) throw Error('limit');
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor && !controller.signal.aborted);
+        if (!controller.signal.aborted) { setAccounts(result); setError(''); }
+      } catch { if (!controller.signal.aborted) { setAccounts([]); setError('Accounts could not be refreshed. Retry to check their current status.'); } }
+    })();
+    return () => controller.abort();
+  }, [client, revision]);
+  if (standardsOnly) return <>
+    {error && <SettingsNotice tone="error"><span role="alert">{error}</span></SettingsNotice>}
+    <MailOnboarding standardSetup client={client} accounts={accounts.filter(account=>account.provider==='imap')} onChanged={()=>{setRevision(value=>value+1);onAccountsChanged?.();}} />
+    <MailSmtpView client={client} accounts={accounts.filter(account=>account.provider==='imap')} />
+  </>;
+  return <Tabs value={section} onValueChange={value=>{if(typeof value==='string')setSection(value);}} className="gap-6">
+    <TabsList variant="line" aria-label="Mail settings sections"><TabsTrigger value="accounts">Accounts</TabsTrigger><TabsTrigger value="notifications">Notifications</TabsTrigger><TabsTrigger value="sending">Sending</TabsTrigger><TabsTrigger value="rules">{t('mail.rules_tab')}</TabsTrigger>{classification&&<TabsTrigger value="projects">{t('mail.classifier_tab')}</TabsTrigger>}<TabsTrigger value="data">Data & access</TabsTrigger></TabsList>
+    {error && <SettingsNotice tone="error"><span role="alert">{error}</span><Button size="sm" variant="ghost" onClick={()=>setRevision(value=>value+1)}>Retry</Button></SettingsNotice>}
+    <TabsContent value="accounts" keepMounted className="space-y-6">
+      <MailOnboarding client={client} contactRequest={contactRequest} accounts={accounts.filter(account=>account.provider!=='archive')} onChanged={() => setRevision(value => value + 1)} />
+      <MailContactsView client={client} accounts={accounts} onAuthorize={account=>setContactRequest({account,key:Date.now()})}/>
+      <GraphMailboxesView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} />
+    </TabsContent>
+    <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon"><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
+    <TabsContent value="sending" keepMounted className="space-y-6"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></TabsContent>
+    <TabsContent value="rules" keepMounted><MailRulesView client={client} accounts={accounts} /></TabsContent>
+    {classification&&<TabsContent value="projects" keepMounted><MailClassifierView client={client} accounts={accounts} initialAccount={initialAccount} automatic={automaticClassification}/></TabsContent>}
+    <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailDiagnosticsView client={client} /></TabsContent>
+  </Tabs>;
+
+}
+
+function MailBadgePreference() {
+  const invoke = window.__LEGALWORK_ELECTRON__?.invokeDesktop;
+  const [enabled, setEnabled] = useState<boolean>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    void invoke?.('getMailBadgeEnabled').then(value => { if (active) setEnabled(value); }).catch(() => { if (active) setError('App icon badge settings are unavailable.'); });
+    return () => { active = false; };
+  }, [invoke]);
+  if (!invoke) return null;
+  return <div className="space-y-2">
+    <div className="flex items-center justify-between gap-4 text-sm"><span>Show unread mail count on app icon</span><Switch aria-label="Show unread mail count on app icon" checked={enabled ?? true} disabled={busy || enabled === undefined} onCheckedChange={async next => {
+      setBusy(true); setError('');
+      try { setEnabled(await invoke('setMailBadgeEnabled', next)); }
+      catch { setError('The app icon badge setting could not be saved. Try again.'); }
+      finally { setBusy(false); }
+    }} /></div>
+
+    {error && <p role="alert">{error}</p>}
+  </div>;
+}

@@ -93,3 +93,7 @@ apps/server/src/help-i18n.generated.ts
 # Engine source-build outputs; reviewed source policy stays tracked.
 /packages/opencode-release/generated/
 /.legalwork/opencode-build/
+# Generated mail reports and dependency notices
+/docs/mail/
+/mail-qualification-evidence/
+/apps/app/public/third-party/mail/

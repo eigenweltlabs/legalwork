@@ -1,0 +1,124 @@
+import type { MailProjectCommand, MailProjectAssociation, MailProjectHistory } from './project-association-view.js';
+import type {MailRules,MailRuleSave,MailRuleDelete} from './rules-view.js';
+import type {MailSnooze,MailSnoozeSet} from './snooze-view.js';
+import {type ContactsInput,type ContactsResult} from './contacts-view.js';
+import type {QualificationInput,QualificationReport} from './qualification-view.js';
+import type {AgentControl,AgentControlResult} from './agent-view.js';
+import type {StorageSaveInput,StorageSaveResult} from './storage-save-view.js';
+import type {FilingInput,FilingResult} from './filing-view.js';
+import type {MailMaintenanceReport} from './maintenance-view.js';
+import type {RetentionCommand,RetentionPreview} from './retention-view.js';
+import type {MailNotificationPoll,MailNotificationBatch} from './notification-view.js';
+import type {OutboxDetail,OutboxItem,SmtpStatus,SmtpConfigure,OutboxSubmission,OutboxReschedule} from './outbox-view.js';
+import type {SenderIdentity,SenderSettings,SenderConfigure} from './sender-view.js';
+import type {DraftSyncRequest,DraftSyncStatus} from "./draft-sync-view.js";
+import type {MailUpload,MailUploadView} from "./local-view.js";
+import type { GraphMailboxInput, GraphMailboxIdentity } from './graph-mailbox-view.js';
+import type {SavedSearchInput,SavedSearchResult} from './saved-search-view.js';
+import type {ImapDiscovery,ImapConnection,ImapConnectionResult} from './providers/imap-config.js';
+import type {MailExtractionRequest,MailExtractionRead,MailExtractionStatus,MailExtractionText} from "./extraction-view.js";
+import type { MailActionCancel, MailActionPage, MailDraftAttachment, MailDraftAttachmentView, MailDraftDelete, MailDraftPage, MailDraftRead, MailDraftSave, MailDraftSummary, MailDraftView, MailEventPage, MailEventQuery, MailLocalAction, MailLocalPage, MailActionPageInput, MailMutation, MailSubmission } from "./local-view.js";
+import type { MailSearchInput, MailSearchResult, MailSearchRebuildInput, MailSearchRebuildResult } from "./search-view.js";
+export type MailPageInput = { limit?: number; after?: string };
+export type MailAccountView = { id: string; provider: "gmail" | "graph" | "imap" | "archive"; displayName: string; personal?: boolean; integration?: "gmail" | "outlook"; integrationArchive?: boolean; contactsAllowed?: boolean; identity?: GraphMailboxIdentity };
+export type MailFolderView = { id: string; name: string; kind: "folder" | "label"; parentId: string | null; mutationPrecondition?: string | null; role?: "inbox" };
+export type MailPage<T> = { items: T[]; nextCursor: string | null };
+export type MailServiceStatus = {
+  protocolVersion: 1;
+  accountRevision?: number;
+  state: "locked" | "unlocking" | "ready" | "unavailable" | "locking" | "stopped";
+  syncSupported: boolean;
+};
+export class MailServiceError extends Error {
+  constructor(readonly code: "not_found" | "locked" | "unavailable" | "too_large" | "unsupported" | "conflict" | "invalid_input") { super(`mail_${code}`); }
+}
+
+/** Bound to one trusted owner at construction; no request supplies an owner ID. */
+export interface MailService {
+  configureAutomaticClassification?(options:{resolve:(id:string)=>Promise<import('./project-association-view.js').MailProjectDestination>;writable:()=>boolean}):void;
+  automaticClassificationAvailable?():boolean;
+  classifier?(command:import('./classifier-view.js').MailClassifierCommand):Promise<Exclude<import('./classifier-view.js').MailClassifierResult,{classifierFailure:unknown}>>;
+  projectAssociation?(command:MailProjectCommand):Promise<{projectAssociation:MailProjectAssociation}|{projectHistory:MailProjectHistory}>;
+  diagnostics?(): Promise<import('./diagnostics-view.js').MailDiagnostics>;
+  /** Host-only RSVP dispatch journal. Never exposed as a general HTTP operation. */
+  invitationJournal?(accountId: string, input: import('./invitation-reply-view.js').InvitationReplyJournalInput): Promise<import('./invitation-reply-view.js').InvitationReplyJournalResult>;
+  /** Host-only transport registration. Never accepts renderer configuration. */
+  configureIntegrations?(load: () => Promise<import("./integration-view.js").MailIntegrationSnapshot>): void;
+  refreshIntegrations?(force?: boolean): Promise<void>;
+  contacts(accountId:string,input:ContactsInput):Promise<ContactsResult>;
+  /** Synchronous cancellation fence before custody closes. */
+  onLock?(listener:()=>void):()=>void;
+  agentControl(input:AgentControl):Promise<AgentControlResult>;
+  storageSave(input:StorageSaveInput):Promise<StorageSaveResult>;
+  filing(input:FilingInput):Promise<FilingResult>;
+  pollNotifications(input:MailNotificationPoll):Promise<MailNotificationBatch>;
+  setLifecycleSuspended(suspended:boolean):Promise<{state:'running'|'suspended'}>;
+  lifecycleStatus():Promise<{state:'running'|'suspended'}>;
+  retention?(command:RetentionCommand):Promise<RetentionPreview|{removedDays:number|null}|{accountId:string;removedAccount:boolean;messages:number;references:number;bytes:number;protectedReferences:number}>;
+  outbox(accountId:string):Promise<OutboxItem[]>;
+  queueOutbox(accountId:string,input:OutboxSubmission):Promise<OutboxItem>;
+  readRules(accountId:string):Promise<MailRules>;
+  saveRule(accountId:string,input:MailRuleSave):Promise<MailRules>;
+  deleteRule(accountId:string,input:MailRuleDelete):Promise<MailRules>;
+  readSnooze(accountId:string,locator:ProviderMessageLocator):Promise<MailSnooze>;
+  setSnooze(accountId:string,input:MailSnoozeSet):Promise<MailSnooze>;
+  outboxRead(accountId:string,input:{actionId:string}):Promise<OutboxDetail>;
+  rescheduleOutbox(accountId:string,input:OutboxReschedule):Promise<OutboxItem>;
+  outboxAction(accountId:string,input:{actionId:string;action:'cancel'|'retry'|'reconcile'}):Promise<OutboxItem>;
+  smtpStatus(accountId:string):Promise<SmtpStatus>;
+  configureSmtp(accountId:string,input:SmtpConfigure):Promise<SmtpStatus>;
+  removeSmtp(accountId:string):Promise<SmtpStatus>;
+  senders(accountId:string):Promise<SenderIdentity[]>;
+  refreshSenders(accountId:string):Promise<SenderIdentity[]>;
+  configureSender(accountId:string,input:SenderConfigure):Promise<SenderIdentity[]>;
+  senderSettings(accountId:string,input:SenderSettings):Promise<SenderIdentity[]>;
+  configureGraphMailbox(input:GraphMailboxInput):Promise<{accountId:string;identity:GraphMailboxIdentity}>;
+  savedSearch(input:SavedSearchInput):Promise<SavedSearchResult>;
+  imapDiscovery(accountId:string,after?:string):Promise<ImapDiscovery>;
+  cancelImapConnection(requestId:string):Promise<void>;
+  connectImap(input:ImapConnection,requestId?:string):Promise<ImapConnectionResult>;
+  extractionStatus(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
+  extractionRead(accountId:string,input:MailExtractionRead):Promise<MailExtractionText>;
+  extractionReset(accountId:string,input:MailExtractionRequest):Promise<MailExtractionStatus>;
+  draftSyncStatus(accountId:string,draftId:string):Promise<DraftSyncStatus>;
+  requestDraftSync(accountId:string,input:DraftSyncRequest):Promise<DraftSyncStatus>;
+  uploadDraft(accountId:string,input:MailUpload):Promise<MailUploadView>;
+  saveDraft(accountId:string, input:MailDraftSave):Promise<MailDraftView>;
+  readDraft(accountId:string, input:MailDraftRead):Promise<MailDraftView>;
+  deleteDraft(accountId:string, input:MailDraftDelete):Promise<MailDraftSummary>;
+  readDraftAttachment(accountId:string, input:MailDraftAttachment):Promise<MailDraftAttachmentView>;
+  listDrafts(accountId:string, input:MailLocalPage):Promise<MailDraftPage>;
+  enqueueSubmission(accountId:string, input:MailSubmission):Promise<MailLocalAction>;
+  enqueueMutation(accountId:string, input:MailMutation):Promise<MailLocalAction>;
+  readAction(accountId:string, actionId:string):Promise<MailLocalAction>;
+  listActions(accountId:string, input:MailActionPageInput):Promise<MailActionPage>;
+  cancelAction(accountId:string, input:MailActionCancel):Promise<MailLocalAction>;
+  listEvents(accountId:string, input:MailEventQuery):Promise<MailEventPage>;
+
+  search(input: MailSearchInput): Promise<MailSearchResult>;
+  rebuildSearch(input: MailSearchRebuildInput): Promise<MailSearchRebuildResult>;
+  qualification?(input:QualificationInput):Promise<QualificationReport>;
+  status(): MailServiceStatus;
+  unlock(): Promise<void>;
+  lock(): Promise<void>;
+  listAccounts(page: MailPageInput): Promise<MailPage<MailAccountView>>;
+  listFolders(accountId: string, page: MailPageInput): Promise<MailPage<MailFolderView>>;
+  listMessages(accountId: string, page: MailMessagePageInput): Promise<MailPage<MailMessageView>>;
+  readMessage(accountId: string, locator: ProviderMessageLocator): Promise<MailMessageView>;
+  listParts(accountId: string, locator: ProviderMessageLocator, page: MailPartPageInput): Promise<MailPage<MailPartView>>;
+  readContent(accountId: string, locator: ProviderMessageLocator, request: MailContentReadInput): Promise<MailContentChunk>;
+  beginConnection(provider: "gmail" | "graph", reconnectAccountId?: string, personal?: boolean, contacts?: boolean): Promise<MailConnectionStarted>;
+  connectionStatus(connectionId: string): Promise<MailConnectionStatus>;
+  cancelConnection(connectionId: string): Promise<void>;
+  disconnectAccount(accountId: string): Promise<void>;
+  startSync(accountId: string): Promise<MailSyncView>;
+  pauseSync(accountId: string): Promise<MailSyncView>;
+  syncStatus(accountId: string): Promise<MailSyncView>;
+  maintain?(operation: "rotate" | "backup" | "restore", passphrase?: string, cancellation?: AbortSignal): Promise<MailMaintenanceReport|void>;
+  stop(): Promise<void>;
+}
+import type { MailConnectionStatus } from "./providers/connection-controller.js";
+import type { MailSyncView } from "./sync-view.js";
+import type { ProviderMessageLocator } from "./model.js";
+import type { MailMessagePageInput, MailMessageView, MailPartPageInput, MailPartView, MailContentReadInput, MailContentChunk } from "./read-view.js";
+export type MailConnectionStarted = { connectionId: string; authorizationUrl: string; expiresAt: number };

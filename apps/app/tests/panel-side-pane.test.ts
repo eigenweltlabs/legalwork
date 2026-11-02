@@ -474,6 +474,13 @@ describe("restoration and repeated moves", () => {
     add("A"); add("B", "A", "left"); add("C", "B", "bottom");
     const originalTree = session().tree;
     store().openTab("session", { ...document("source.docx"), searchSources: [] }, paneOf("A").id, "top");
+    const transient = session().tabs.find(tab => tab.type === "artifact" && tab.searchSources);
+    expect(transient).toBeDefined();
+    const live = session();
+    const persistedLayout = usePanelTabStore.persist.getOptions().partialize!(store());
+    expect(JSON.stringify(persistedLayout)).not.toContain(transient!.id);
+    expect(persistedLayout.sessions.session.tree).toEqual(originalTree);
+    expect(session()).toBe(live);
     const persisted = new Map(storage); usePanelTabStore.setState({ sessions: {} });
     for (const [key, value] of persisted) storage.set(key, value);
     await usePanelTabStore.persist.rehydrate();

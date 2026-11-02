@@ -57,3 +57,4 @@ export const legalworkWikiToolsPluginPath = () => legalworkPluginPath("legalwork
 
 export const legalworkAssistantToolsPluginPath = () => legalworkPluginPath("legalwork-assistant-tools");
 export const legalworkLegalMemoryAccessPluginPath = () => legalworkPluginPath("legalwork-legalmemory");
+export const legalworkMailToolsPluginPath = () => legalworkPluginPath('legalwork-mail-tools');

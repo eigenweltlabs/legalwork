@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -15,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { TaskDialog } from "../tasks/task-dialog";
 import { useTaskMembers } from "../tasks/tasks-queries";
 import { taskMemberOptions } from "../tasks/task-format";
-import { calendarDay, calendarError, calendarKindLabel, calendarRange, formatCalendarDay, isActive, isCompleted, moveCalendar, occurrenceDay, occursInRange, shiftDay, type CalendarViewMode } from "./calendar-format";
+import { calendarAnchor, calendarDay, calendarError, calendarKindLabel, calendarRange, formatCalendarDay, isActive, isCompleted, moveCalendar, occurrenceDay, occursInRange, shiftDay, type CalendarViewMode } from "./calendar-format";
 import { useCalendarOccurrences, useCalendarRecords, useCalendarRefresh, useConnectedCalendars, useConnectedCalendarEvents, type CalendarContext, type CalendarSource } from "./calendar-queries";
 import { CalendarEntry } from "./calendar-entries";
 import { CalendarGrid } from "./calendar-grid";
@@ -32,7 +33,10 @@ type CalendarViewProps = CalendarContext & {
 };
 
 export function CalendarView(props: CalendarViewProps) {
-  const [anchor, setAnchor] = useState(() => new Date());
+  const [search] = useSearchParams();
+  const requestedDay = search.get('date');
+  const [anchor, setAnchor] = useState(() => calendarAnchor(requestedDay) ?? new Date());
+  useEffect(() => { const day = calendarAnchor(requestedDay); if (day) setAnchor(day); }, [requestedDay]);
   const [view, setView] = useState<CalendarViewMode>("week");
   const [kind, setKind] = useState("all"), [status, setStatus] = useState("active"), [project, setProject] = useState("all"), [assignee, setAssignee] = useState("all");
   const [trashOpen, setTrashOpen] = useState(false);

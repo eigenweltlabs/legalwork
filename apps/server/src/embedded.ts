@@ -1,3 +1,4 @@
+import {mailAgentEngineToken} from './mail/agent-auth.js';
 /**
  * Single entry point for embedding the LegalWork server in-process.
  *
@@ -39,6 +40,7 @@ import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./ma
 import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import type { MailService } from "./mail/service-interface.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Publish the bound API while the managed engine is still starting/migrating. */
@@ -72,6 +74,8 @@ export type EmbeddedServerOptions = CliArgs & {
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
   recorder?: ServerConfig["recorder"];
+  /** Desktop-owned local mail service. Never loaded from environment or config. */
+  mail?: MailService;
 };
 
 export type EmbeddedServerHandle = {
@@ -145,7 +149,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
 
-  const server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch,
+  const server = await startServer(config, { mail: options.mail, modelDownloadFetch: options.modelDownloadFetch,
     ...(options.rawHttpNodeExecutable ? { rawHttpNodeExecutable: options.rawHttpNodeExecutable } : {}),
     ...(options.toolImageRasterRuntime ? { toolImageRasterRuntime: options.toolImageRasterRuntime } : {}), onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
@@ -206,6 +210,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
             LEGALWORK_SERVER_URL: serverUrl,
             LEGALWORK_SERVER_TOKEN: config.token,
+            LEGALWORK_MAIL_AGENT_TOKEN: mailAgentEngineToken,
             LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
             LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
             OPENCODE_CONFIG: runtimeConfigPath,

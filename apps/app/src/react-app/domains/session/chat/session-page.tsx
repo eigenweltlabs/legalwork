@@ -181,7 +181,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "mail" | "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -988,7 +988,7 @@ export function SessionPage(props: SessionPageProps) {
 
   const openNavWindow = useCallback((key: ShellNavKey) => {
     const pages = {
-      navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
+      navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navMail: "mail", navProjects: "projects", navWorkflows: "workflows",
       navTasks: "tasks", navRecorder: "recorder", navWikis: "wikis", navEvaluations: "evals",
     } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
     void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
@@ -1188,6 +1188,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.projectsPage ? t("projects.plural")
     : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
     : props.sidebar.activeNav === "calendar" ? t("calendar.title")
+    : props.sidebar.activeNav === "mail" ? t("sidebar.email")
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")

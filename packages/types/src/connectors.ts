@@ -109,12 +109,18 @@ export const connectorWriteAccessSchema = z.object({
   "google-drive": z.boolean().default(false), onedrive: z.boolean().default(false),
   "onedrive-personal": z.boolean().default(false), "sharepoint-files": z.boolean().default(false),
 }).strict();
+export const connectorMailAccessSchema = z.object({ contacts: z.boolean(), sharedMailboxes: z.boolean() }).strict();
+export type ConnectorMailAccess = z.infer<typeof connectorMailAccessSchema>;
+export const connectorCalendarAccessSchema = z.object({ sharedCalendars: z.boolean() }).strict();
+export type ConnectorCalendarAccess = z.infer<typeof connectorCalendarAccessSchema>;
 export const connectorSettingsSchema = z.object({
   writeAccess: connectorWriteAccessSchema,
+  mailAccess: z.object({ gmail: connectorMailAccessSchema.optional(), outlook: connectorMailAccessSchema.optional() }).strict().default({}),
+  calendarAccess: z.object({ "outlook-calendar": connectorCalendarAccessSchema.optional() }).strict().default({}),
   // Public local account handles bind activation to the selected shared account.
   activeAccounts: z.object({ outlook: z.string().min(1).max(500).optional(), "outlook-calendar": z.string().min(1).max(500).optional() }).strict().default({}),
 }).strict();
-export const connectorWriteSettingSchema = z.object({ writeAccess: z.boolean(), readOnly: z.boolean() });
+export const connectorWriteSettingSchema = z.object({ writeAccess: z.boolean(), readOnly: z.boolean(), mailAccess: connectorMailAccessSchema.optional(), calendarAccess: connectorCalendarAccessSchema.optional() });
 export type ConnectorWriteSetting = z.infer<typeof connectorWriteSettingSchema>;
 export type ConnectorSettings = z.infer<typeof connectorSettingsSchema>;
 

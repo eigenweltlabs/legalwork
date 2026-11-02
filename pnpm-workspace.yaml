@@ -45,6 +45,7 @@ allowBuilds:
   msgpackr-extract: false
   ssh2: false
   better-sqlite3: true
+  better-sqlite3-multiple-ciphers: true
   core-js: false
   electron: true
   esbuild: true
@@ -57,14 +58,18 @@ allowBuilds:
   # Windows releases use NSIS, not the optional Squirrel installer.
   electron-winstaller: false
 # Keep security fixes when transitive dependencies pin an older version.
+  tesseract.js: false
 overrides:
   'proxy-addr@<2.0.8': 2.0.8
   'seroval@<1.6.2': 1.6.2
   '@xmldom/xmldom@>=0.9.0 <0.9.12': 0.9.12
   '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 patchedDependencies:
+  app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
   '@eigenpal/docx-editor-agents@1.8.3': patches/@eigenpal__docx-editor-agents@1.8.3.patch
+  '@zone-eu/mailsplit@5.4.16': patches/@zone-eu__mailsplit@5.4.16.patch
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
   pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch
   smb3-client@0.2.0: patches/smb3-client@0.2.0.patch
+  tesseract.js@7.0.0: patches/tesseract.js@7.0.0.patch

@@ -1,3 +1,6 @@
+import {configureMailDesktop} from './mail-desktop.mjs';
+import {configureMailPortability} from "./mail-portability.mjs";
+import { configureMailBadge } from "./app-badge.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
@@ -15,6 +18,8 @@ import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.
 import { downloadOpencodeBinary, opencodeRelease, opencodeReleaseTarget } from "./opencode-release.mjs";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { installSelectedOpencodeEngine, opencodeEngineSelection } from "@legalwork/opencode-release/selection";
+import { createDesktopMailService } from "./mail-runtime.mjs";
+import { applyEmbeddedServerEnvironment } from "./runtime-environment.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1342,7 +1347,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   async function credentialVault() {
     // Match the local server's profile, environment overrides, module instance and write lock.
     const env = await buildChildEnv({});
-    Object.assign(process.env, env);
+    applyEmbeddedServerEnvironment(process.env, env);
     const directory = path.dirname(locateEmbeddedServerPath());
     const { OAuthVault, oauthVaultPath, vaultLock } = await import(pathToFileURL(path.join(directory, "file-storage/oauth/vault.js")).href);
     const { BrowserPasswordStore } = await import(pathToFileURL(path.join(directory, "browser-passwords.js")).href);
@@ -1374,7 +1379,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
     // Inject user env vars so the server and managed OpenCode inherit them.
     const serverEnv = await buildChildEnv({});
-    Object.assign(process.env, serverEnv);
+    applyEmbeddedServerEnvironment(process.env, serverEnv);
 
     // Once the embedded server has a persisted registry, it is the source of
     // truth. Do not pass Electron's legacy workspace list as CLI workspaces or
@@ -1395,6 +1400,19 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // copy under apps/desktop/server for electron-builder.
     const embeddedPath = locateEmbeddedServerPath();
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
+    let mail;
+    // Host startup control for staged Email-client rollout. Never remove or downgrade its stored data.
+    const mailClientEnabled = process.env.LEGALWORK_EMAIL_CLIENT_ENABLED === undefined || process.env.LEGALWORK_EMAIL_CLIENT_ENABLED === '1';
+    if (!options.remoteAccessEnabled && mailClientEnabled) {
+      const { safeStorage, nativeImage, BrowserWindow, Notification, powerMonitor } = await import("electron");
+      mail = await createDesktopMailService({ app, embeddedPath, safeStorage, resourcesPath: process.resourcesPath });
+      configureMailPortability(mail);
+      await configureMailBadge({ app, nativeImage, BrowserWindow, service: mail });
+      await configureMailDesktop({app,service:mail,Notification,powerMonitor});
+      // Reuse normal keychain preflight/unlock for existing profiles, including rotated stores.
+      const mailDirectory = path.join(app.getPath("userData"), "mail");
+      if (existsSync(path.join(mailDirectory, "mail.sqlite")) || existsSync(path.join(mailDirectory, "active-store-v1.json"))) void mail.unlock().catch(() => {});
+    }
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
@@ -1476,11 +1494,13 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         return result.canceled ? null : (result.filePaths[0] ?? null);
       },
       recorder,
+      mail,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...(officeAddinManager.serverConfig() ?? {}),
-    }).catch((error) => {
+    }).catch(async (error) => {
       legalworkServerState.inProcess = false;
+      await mail?.stop();
       throw error;
     });
     publishServerConnection(handle);

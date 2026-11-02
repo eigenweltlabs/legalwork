@@ -6,8 +6,9 @@ import { nativeMcpBinary, nativeMcpEngine } from "./native-mcp-engine.test-suppo
 import { startServer } from "./server.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { runNativeServerFixture } from "./native-server-fixture.test-support.js";
 
-test.skipIf(!nativeMcpBinary)("native config loads without project approval and public reads redact expanded secrets", async () => {
+test.skipIf(!nativeMcpBinary)("native config loads without project approval and public reads redact expanded secrets", () => runNativeServerFixture(import.meta.filename, async root => {
   const previous = { ...process.env };
   let setup: { config: ServerConfig; source: string; original: string; effectPath: string; secretPath: string } | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
@@ -33,7 +34,7 @@ test.skipIf(!nativeMcpBinary)("native config loads without project approval and 
       await writeNativeProjectProjection(config, config.workspaces[0]!, owned);
       setup = { config, source, original, effectPath, secretPath };
       return {};
-    });
+    }, root);
     if (!setup) throw new Error("Native config fixture setup did not finish");
     const { config, source, original, effectPath, secretPath } = setup, connection = engine.connection();
     config.opencodeBaseUrl = connection.url; config.opencodeUsername = connection.username; config.opencodePassword = connection.password;
@@ -61,4 +62,4 @@ test.skipIf(!nativeMcpBinary)("native config loads without project approval and 
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
     Object.assign(process.env, previous);
   }
-}, 30_000);
+}, { prefix: "legalwork-native-mcp-" }), 30_000);

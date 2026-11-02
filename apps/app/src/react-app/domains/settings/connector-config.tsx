@@ -116,8 +116,9 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
   if (!definition) return null;
   const Icon = definition.kind === "calendar" ? CalendarDays : definition.kind === "files" ? Folder : Mail;
   const iconSrc = resolveBrandIconSrc(undefined, definition.icon);
+  const reconnectForPermissions=connections.length===1?()=>run("connect",()=>connect(connections[0].id,"custom")):undefined;
   const oauthFields = oauthClient && <div className="space-y-3">
-    <p className="text-sm text-muted-foreground">{t(oauthClient.family === "google" ? "connectors.google_setup" : "connectors.microsoft_setup")}</p>
+    {definition.kind!=="mail"&&<p className="text-sm text-muted-foreground">{t(oauthClient.family === "google" ? "connectors.google_setup" : "connectors.microsoft_setup")}</p>}
     <Field>
       <FieldLabel htmlFor={`${id}-client-id`}>{t("connectors.client_id")}</FieldLabel>
       <Input id={`${id}-client-id`} value={clientId} onChange={(event) => setClientId(event.target.value)} autoComplete="off" disabled={Boolean(busy)} />
@@ -129,7 +130,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
     {oauthClient.family === "microsoft" && <Field>
       <FieldLabel htmlFor={`${id}-tenant-id`}>{t("connectors.tenant_id")}</FieldLabel>
       <Input id={`${id}-tenant-id`} value={tenantId} onChange={(event) => setTenantId(event.target.value)} autoComplete="off" disabled={Boolean(busy)} placeholder={id === "onedrive-personal" ? "consumers" : "common"} />
-      <FieldDescription>{t("connectors.tenant_hint")}</FieldDescription>
+      {definition.kind!=="mail"&&<FieldDescription>{t("connectors.tenant_hint")}</FieldDescription>}
     </Field>}
     <Field>
       <FieldLabel htmlFor={`${id}-redirect`}>{t("connectors.redirect_uri")}</FieldLabel>
@@ -197,7 +198,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
               if (client) { await client.connectorActivation(id, connections[0].id, !connector?.active); await refresh(); }
             })}>{t(connector?.active ? "connectors.deactivate" : "connectors.activate", { name: definition.name })}</Button>
           </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">{t("connectors.outlook_shared")}</p>
+
         </div>}
         {status && connections.length === 0 && <>
           {!microsoft && <Field>
@@ -207,7 +208,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
               <SelectContent><SelectItem value="nango">{t("connectors.method_nango")}</SelectItem><SelectItem value="custom">{t("connectors.method_custom")}</SelectItem></SelectContent>
             </Select>
           </Field>}
-          {client && <div className="border-t border-border py-3"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} /></div>}
+          {client && <div className="border-t border-border py-3"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} mailOptions={method==="custom"} calendarOptions={method==="custom"} onReconnect={reconnectForPermissions} /></div>}
           {method === "custom" && !builtIn && oauthFields}
           {method === "nango" && status?.requiresSignIn && <Alert><AlertDescription>{t("connectors.signin_hint")}</AlertDescription></Alert>}
           {method === "nango" && status && !status.requiresSignIn && !connector?.configured && <Alert><AlertDescription>{t("connectors.unavailable")}</AlertDescription></Alert>}
@@ -224,15 +225,15 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
         </div>}
       </section>
 
-      {client && connections.length > 0 && <div className="border-t border-border pt-5"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} /></div>}
+      {client && connections.length > 0 && <div className="border-t border-border pt-5"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} mailOptions={method==="custom"} calendarOptions={method==="custom"} onReconnect={reconnectForPermissions} /></div>}
 
       <details className="group border-t border-border pt-4">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
           {t("connectors.connection_details")}<ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
         </summary>
         <div className="space-y-4 pb-1 pt-3">
-          <p className="text-xs leading-relaxed text-muted-foreground">{t(method === "custom" ? builtIn ? "connectors.direct_privacy" : "connectors.custom_privacy" : "connectors.privacy", { name: definition.name })}</p>
-          {sharedOutlookAccount && connections.length === 0 && <p className="text-xs leading-relaxed text-muted-foreground">{t("connectors.outlook_shared")}</p>}
+          {definition.kind!=="mail"&&<p className="text-xs leading-relaxed text-muted-foreground">{t(method === "custom" ? builtIn ? "connectors.direct_privacy" : "connectors.custom_privacy" : "connectors.privacy", { name: definition.name })}</p>}
+
           {method === "custom" && (connections.length > 0 || builtIn) && <details className="space-y-3">
             <summary className="cursor-pointer text-sm font-medium">{t(builtIn ? "connectors.method_custom" : "connectors.oauth_details")}</summary>
             {oauthFields}

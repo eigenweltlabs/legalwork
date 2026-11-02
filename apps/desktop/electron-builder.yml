@@ -76,6 +76,7 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
 asarUnpack:
+  - server/dist/mail-node-runtime/**
   - node_modules/.pnpm/@napi-rs+canvas*/**
   - node_modules/@napi-rs/canvas*/**
   - node_modules/.pnpm/@lydell+node-pty*/**
@@ -93,6 +94,22 @@ asarUnpack:
   - node_modules/paddleocr/**
   - node_modules/.pnpm/image-size*/**
   - node_modules/image-size/**
+  # Mail's pinned Node-API addon resolves prebuilds relative to lib/binding.js.
+  # Keep the complete package together, in both pnpm and flattened layouts.
+  - node_modules/.pnpm/better-sqlite3-multiple-ciphers*/**
+  - node_modules/better-sqlite3-multiple-ciphers/**
+  # Isolated attachment extraction keeps native canvas, OCR worker/WASM and
+  # immutable language assets available by their package-relative paths.
+  - node_modules/@napi-rs/canvas*/**
+  - node_modules/.pnpm/@napi-rs+canvas*/**
+  - node_modules/tesseract.js*/**
+  - node_modules/.pnpm/tesseract.js*/**
+  - node_modules/{bmp-js,idb-keyval,is-url,node-fetch,whatwg-url,tr46,webidl-conversions,opencollective-postinstall,regenerator-runtime,wasm-feature-detect,zlibjs}/**
+  - node_modules/.pnpm/{bmp-js@*,idb-keyval@*,is-url@*,node-fetch@*,whatwg-url@*,tr46@*,webidl-conversions@*,opencollective-postinstall@*,regenerator-runtime@*,wasm-feature-detect@*,zlibjs@*}/**
+  - node_modules/@tesseract.js-data/**
+  - node_modules/.pnpm/@tesseract.js-data*/**
+  - node_modules/pdfjs-dist/**
+  - node_modules/.pnpm/pdfjs-dist*/**
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs

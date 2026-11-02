@@ -114,6 +114,12 @@ import { FolderIcon } from "@/react-app/design-system/folder-icon";
 - `DocumentIcon`: one folded-paper asset family with subtle type-specific tints and content glyphs for documents, sheets, slides, media, PDF, and code. Existing `ArtifactIcon` adapts artifact types to this component.
 - Menus/dialogs/sheets: retain the Base UI wrappers. Use the trigger `render` API to compose the app button; avoid nested buttons. Keep destructive actions semantically distinct.
 
+## Email
+
+Email uses the production `Button`, `Input`, `Textarea`, `Select`, `Checkbox`, `Alert` and menu components. Drafts and Outbox share `PanelHeader`, `PanelEmptyState` and `Surface`. The mail stylesheet owns pane layout and reading typography; shared components own control appearance and interaction states. Selection uses the neutral selected token without an edge accent.
+
+The composer uses plain recipient and subject rows with fine dividers and a borderless document editor. Its plain-text and rich-text modes share the same text size, spacing and white writing surface. Setup and account settings retain the standard field appearance.
+
 ## Motion and accessibility
 
 `MotionConfig reducedMotion="user"` is applied to the application provider tree. CSS also respects `prefers-reduced-motion`, covering existing CSS animations, transitions, and shared entrance classes. `.lw-enter` gives a short fade with an 8 px arrival; `.lw-fade-enter` changes opacity only. The chat welcome is keyed to the empty session so its entrance does not replay for every update. Never animate a virtualized list's geometry.

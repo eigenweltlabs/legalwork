@@ -1,0 +1,55 @@
+--- a/lib/message-splitter.js
++++ b/lib/message-splitter.js
+@@ -147,6 +147,19 @@
+         // find next line ending
+         let pos = 0;
+         let i = 0;
++        let linesSinceYield = 0;
++        let yieldOffset = 0;
++        // Avoid a full event-loop turn for every 76-byte base64 line, while
++        // retaining bounded cancellation/fairness opportunities.
++        const continueData = () => {
++            if (++linesSinceYield >= 64 || i - yieldOffset >= 65536) {
++                linesSinceYield = 0;
++                yieldOffset = i;
++                setImmediate(iterateData);
++            } else {
++                queueMicrotask(iterateData);
++            }
++        };
+         /** @type {SplitterGroup} */
+         let group = {
+             type: 'none'
+@@ -208,7 +221,7 @@
+                         }
+ 
+                         if (!data) {
+-                            return setImmediate(iterateData);
++                            return continueData();
+                         }
+ 
+                         if (flush) {
+@@ -234,7 +247,7 @@
+                             }
+                             this.push(data);
+                             groupend = i;
+-                            return setImmediate(iterateData);
++                            return continueData();
+                         }
+ 
+                         if (data.type === group.type) {
+@@ -275,8 +288,13 @@
+                                 groupend = i;
+                             }
+                         }
+-                        return setImmediate(iterateData);
++                        return continueData();
+                     });
++                }
++                if (i + 1 - yieldOffset >= 65536) {
++                    yieldOffset = ++i;
++                    linesSinceYield = 0;
++                    return setImmediate(iterateData);
+                 }
+             }
+ 

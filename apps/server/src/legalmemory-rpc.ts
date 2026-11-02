@@ -1,9 +1,12 @@
 import { LegalMemoryPermissionSchema, LegalMemoryPermissionReplySchema } from "./native-shared-values.js";
 import { z } from "zod";
+import { isMailAgentEngineToken } from "./mail/agent-auth.js";
 
 export const legalMemoryReadTools = ["list_connectors", "list_matters", "list_matter_documents", "search_semantic", "download_document", "find_related_documents"] as const;
+export const legalMemoryFilingTools = ["list_mail_filing_destinations", "authorized_mail_filings", "begin_mail_filing", "upload_mail_filing_chunk", "commit_mail_filing"] as const;
 export const legalMemoryOperationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool"), name: z.enum(legalMemoryReadTools), args: z.record(z.string(), z.json()) }).strict(),
+  z.object({ type: z.literal("mail-filing"), name: z.enum(legalMemoryFilingTools), args: z.record(z.string(), z.json()), capability: z.string().min(32).max(256) }).strict(),
   z.object({ type: z.literal("tree"), name: z.enum(["roots", "children", "search"]), params: z.record(z.string(), z.union([z.string(), z.number()])) }).strict(),
 ]);
 export const legalMemoryRequestSchema = z.object({
@@ -26,4 +29,12 @@ export class LegalMemoryAccessError extends Error {
 }
 export function canFallbackLegalMemoryTree(error: unknown): boolean {
   return error instanceof LegalMemoryAccessError ? (error.code === "tree_unavailable" || error.code === "tool_unavailable") : !(error instanceof DOMException && error.name === "AbortError");
+}
+
+
+/** Read RPCs cannot grant writes. Filing uses the private local host capability. */
+export function assertLegalMemoryFilingCapability(operation: LegalMemoryRequest["operation"], expected: string | undefined) {
+  if (operation.type === "mail-filing" && (!expected || !isMailAgentEngineToken(`Bearer ${operation.capability}`, expected))) {
+    throw new LegalMemoryAccessError("permission_denied", "Mail filing requires the local host capability.");
+  }
 }

@@ -10,6 +10,8 @@ const sidecarBases = [
 ];
 
 function targetTriple(platformName, arch) {
+  // electron-builder uses its numeric Arch enum in the real hook context.
+  if (typeof arch === "number") arch = Arch[arch];
   if (platformName === "darwin") {
     if (arch === "arm64") return "aarch64-apple-darwin";
     if (arch === "x64") return "x86_64-apple-darwin";

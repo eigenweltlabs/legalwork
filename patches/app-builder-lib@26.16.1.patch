@@ -1,0 +1,34 @@
+diff --git a/out/node-module-collector/pnpmNodeModulesCollector.js b/out/node-module-collector/pnpmNodeModulesCollector.js
+--- a/out/node-module-collector/pnpmNodeModulesCollector.js
++++ b/out/node-module-collector/pnpmNodeModulesCollector.js
+@@ -98,7 +98,11 @@
+         }
+         this.productionGraph[dependencyId] = { dependencies: [] };
+         if (((_a = tree.dedupedDependenciesCount) !== null && _a !== void 0 ? _a : 0) > 0) {
+-            const realDep = this.allDependencies.get(dependencyId);
++            let realDep = this.allDependencies.get(dependencyId);
++            if (!realDep && tree.from) {
++                realDep = this.allDependencies.get(`${tree.from}@${tree.version}`);
++                if (realDep) this.allDependencies.set(dependencyId, realDep);
++            }
+             if (realDep) {
+                 this.cache.logSummary[moduleManager_1.LogMessageByKey.PKG_DUPLICATE_REF].push(dependencyId);
+                 tree = realDep;
+@@ -156,12 +160,12 @@
+             const id = `${key}@${value.version}`;
+             // The pnpm list output can include the same `name@version` thousands of times across a
+             // deep workspace; without this guard we re-resolve and re-recurse each occurrence.
+-            if (this.collectedDeps.has(id)) {
+-                return;
++            if (!this.collectedDeps.has(id)) {
++                this.collectedDeps.add(id);
++                const pkg = await this.locateFromDepOrRoot(key, value.path, value.version);
++                this.allDependencies.set(id, { ...value, path: (_b = pkg === null || pkg === void 0 ? void 0 : pkg.packageDir) !== null && _b !== void 0 ? _b : value.path });
+             }
+-            this.collectedDeps.add(id);
+-            const pkg = await this.locateFromDepOrRoot(key, value.path, value.version);
+-            this.allDependencies.set(id, { ...value, path: (_b = pkg === null || pkg === void 0 ? void 0 : pkg.packageDir) !== null && _b !== void 0 ? _b : value.path });
++            // A later occurrence can contain children omitted from the first pnpm workspace entry.
+             await this.collectDepsRecursively(value);
+         };
+         for (const [key, value] of Object.entries(tree.dependencies || {})) {

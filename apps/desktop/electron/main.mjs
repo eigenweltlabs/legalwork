@@ -1,4 +1,11 @@
 import { createShutdownGuard } from "./shutdown-guard.mjs";
+import {createMailImages} from './mail-images.mjs';
+import {getMailDesktopSettings,setMailDesktopSettings} from './mail-desktop.mjs';
+import {performMailPortability} from "./mail-portability.mjs";
+import {createMailDraftRecovery} from "./mail-draft-recovery.mjs";
+import {assertMailKeychainReady} from "./mail-keychain-preflight.mjs";
+import { getAppBadge, getMailBadgeEnabled, setMailBadgeEnabled } from "./app-badge.mjs";
+import { createMailArtifacts } from "./mail-artifacts.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { boundedShutdown } from "./bounded-shutdown.mjs";
 import { createServer } from "node:http";
@@ -919,6 +926,8 @@ const systemDictation = new SystemDictationService({
 
 let appIsQuitting = false;
 let shutdownApproved = false;
+let shutdownInProgress = false;
+let shutdownComplete = false;
 // Native update installation closes windows before app's before-quit event.
 // Mark the quit intent now so close-to-hide cannot block the installation.
 autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; shutdownApproved = true; });
@@ -1836,11 +1845,13 @@ const desktopCommandHandlers = {
   "__streamRead": (event, id) => eventStreams.read(event.sender, id),
   "__streamCancel": async (event, id) => eventStreams.cancel(event.sender, id),
   "openAppWindow": async (event, input) => {
-    if (!["home", "scheduled", "calendar", "projects", "workflows", "tasks", "recorder", "wikis", "evals"].includes(input?.page)) {
+    if (!["home", "scheduled", "calendar", "mail", "projects", "workflows", "tasks", "recorder", "wikis", "evals"].includes(input?.page)) {
       throw new Error("A valid app page is required to open a new window.");
     }
     return openAppWindow(event, `/${input.page}?detached=1`);
   },
+  getMailBadgeEnabled: async () => getMailBadgeEnabled(),
+  setMailBadgeEnabled: async (_event, enabled) => setMailBadgeEnabled(enabled),
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
@@ -2744,18 +2755,8 @@ const desktopCommandHandlers = {
       const input = args[0] ?? {};
       const count = Math.max(0, Math.min(9999, Math.floor(Number(input.count) || 0)));
       try {
-        if (process.platform === "win32") {
-          // No count on Windows: a small image over the taskbar icon instead.
-          const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
-          if (!win || win.isDestroyed()) return false;
-          const dataUrl = typeof input.overlayDataUrl === "string" && input.overlayDataUrl.startsWith("data:image/png;base64,")
-            ? input.overlayDataUrl
-            : null;
-          const image = count > 0 && dataUrl ? nativeImage.createFromDataURL(dataUrl) : null;
-          win.setOverlayIcon(image && !image.isEmpty() ? image : null, count > 0 ? String(input.description ?? "").slice(0, 200) : "");
-          return true;
-        }
-        return app.setBadgeCount(count);
+        getAppBadge({ app, nativeImage, BrowserWindow }).set('tasks', count);
+        return true;
       } catch {
         return false;
       }
@@ -3028,6 +3029,35 @@ async function createMainWindow() {
   return mainWindow;
 }
 
+let pendingMailNotificationTarget=null;
+/** @type {NodeJS.EventEmitter} Application-defined event on Electron's emitter. */
+const mailNotificationEvents = app;
+mailNotificationEvents.on('legalwork-mail-open',target=>{void runtimeManager.legalworkServerInfo().then(async info=>{if(!info.running||!info.baseUrl)return;pendingMailNotificationTarget={...target,serverOrigin:new URL(info.baseUrl).origin};const win=await createMainWindow();if(win.isMinimized())win.restore();win.show();win.focus();win.webContents.send('legalwork:mail:notification-open');}).catch(()=>{});});
+for(const operation of ['get','set','target'])ipcMain.handle('legalwork:mail:desktop:'+operation,(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error('Mail requires the main window');if(operation==='get')return getMailDesktopSettings();if(operation==='set')return setMailDesktopSettings(value);const target=pendingMailNotificationTarget;pendingMailNotificationTarget=null;return target;});
+const draftRecovery=createMailDraftRecovery({directory:path.join(app.getPath("userData"),"mail-draft-recovery"),safeStorage,beforeAccess:assertMailKeychainReady,canRead:async accountId=>{try{const info=await runtimeManager.legalworkServerInfo();if(!info.running||!info.hostToken||!/^http:\/\/(127\.0\.0\.1|\[::1\]):[1-9]\d{0,4}\/?$/.test(info.baseUrl))return false;const response=await fetch(new URL(info.baseUrl).origin+'/mail/v1/accounts/'+encodeURIComponent(accountId)+'/drafts/query',{method:'POST',headers:{'X-LegalWork-Host-Token':info.hostToken,'Content-Type':'application/json'},body:JSON.stringify({limit:1}),redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok;}catch{return false;}},windowsAcl:async(target,directory)=>{const dist=app.isPackaged?path.join(process.resourcesPath,"app.asar/server/dist"):path.resolve(__dirname,"../../server/dist");const{enforceMailWindowsAcl}=await import(pathToFileURL(path.join(dist,"mail/storage/windows-acl.js")).href);await enforceMailWindowsAcl(target,directory);}});
+for(const operation of ["write","list","remove"])ipcMain.handle("legalwork:mail:draft-recovery:"+operation,(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail recovery requires the main window");if(operation==="list"&&new URL(mainWindow.webContents.getURL()).hash!=="#/mail")throw Error("Mail reader required");return draftRecovery[operation](value);});
+
+ipcMain.handle("legalwork:mail:portability",(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error("Mail import/export requires the main window");return performMailPortability(value,dialog);});
+const mailImages=createMailImages({connection:()=>runtimeManager.legalworkServerInfo(),decode:bytes=>{const image=nativeImage.createFromBuffer(bytes);if(image.isEmpty())throw Error('Invalid image');return image.getSize();}});
+ipcMain.handle('legalwork:mail:images',(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame||new URL(mainWindow.webContents.getURL()).hash!=='#/mail')throw Error('Mail reader required');return mailImages.perform(value);});
+ipcMain.handle('legalwork:mail:images:cancel',event=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error('Mail reader required');mailImages.cancel();});
+const mailArtifacts = createMailArtifacts({
+  connection: () => runtimeManager.legalworkServerInfo(), dialog, shell,
+  privateDirectory: async directory => {
+    if (process.platform !== "win32") return;
+    const dist = app.isPackaged ? path.join(process.resourcesPath, "app.asar/server/dist") : path.resolve(__dirname, "../../server/dist");
+    const { enforceMailWindowsAcl } = await import(pathToFileURL(path.join(dist, "mail/storage/windows-acl.js")).href);
+    await enforceMailWindowsAcl(directory, true);
+  },
+});
+ipcMain.handle("legalwork:mail:artifact", (event, value) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(mainWindow.webContents.getURL()).hash !== "#/mail") throw new Error("Mail reader required");
+  return mailArtifacts.perform(value);
+});
+ipcMain.handle("legalwork:mail:artifact:cancel", event => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("Mail reader required");
+  mailArtifacts.cancel();
+});
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
 ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   if (typeof url === "string" && url.trim().length > 0) {
@@ -3174,9 +3204,10 @@ if (!app.requestSingleInstanceLock()) {
     }
     // Lets the window 'close' handler distinguish quit from close-to-hide.
     appIsQuitting = true;
-    if (runtimeDisposedForQuit) return;
+    if (shutdownComplete) return;
     event.preventDefault();
-    if (runtimeDisposeInProgress) return;
+    if (shutdownInProgress) return;
+    shutdownInProgress = true;
     showShutdownScreen();
     recorderServiceInstance?.dispose();
     appAudioTap.stop();
@@ -3186,11 +3217,17 @@ if (!app.requestSingleInstanceLock()) {
     meetingMonitor.dispose();
     appTray.destroy();
     powerSessions.releaseAll();
-    void boundedShutdown(() => Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]), () => {
+    mailImages.cancel();
+    void boundedShutdown(async () => {
+      const cleanup = await Promise.allSettled([mailArtifacts.close(), draftRecovery.close(), disposeRuntimeBeforeQuit(), uiControlServer.stop()]);
+      if (cleanup.some(result => result.status === "rejected")) {
+        console.warn("[shutdown] A resource could not close cleanly.");
+      }
+    }, () => {
       console.warn("[shutdown] Graceful shutdown exceeded 10 seconds; terminating owned workers.");
       try { runtimeManager.forceStopOwnedChildren(); }
       finally { app.exit(1); }
-    }).finally(() => app.quit());
+    }).finally(() => { shutdownComplete = true; app.quit(); });
   });
 
   app.on("second-instance", async (_event, argv) => {

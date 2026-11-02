@@ -1,3 +1,6 @@
+import { registerMailProjectRoutes } from './routes/mail-projects.js';
+import { registerMailClassifierRoutes } from './routes/mail-classifier.js';
+import { mailProjectDestinations } from './mail/project-destinations.js';
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { browserPasswords } from "./browser-passwords.js";
@@ -38,12 +41,18 @@ import { recordingAccess } from "./recording-access.js";
 import { registerSystemOneRoutes } from "./routes/systemone.js";
 import { registerCloudTranscriptionRoutes } from "./routes/cloud-transcription.js";
 import { SystemOneConfigurationSchema } from "./systemone-schema.js";
+import {mailAgentEngineToken} from './mail/agent-auth.js';
+import {registerMailAgentRoutes} from './routes/mail-agent.js';
+import {realpath as mailAgentRealpath} from 'node:fs/promises';
+import {registerMailStorageSaveRoutes} from './routes/mail-storage-save.js';
+import {registerMailFilingRoutes} from './routes/mail-filing.js';
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
 import {
+  resolveLegalMemoryServer,
   collectLegalMemoryFolderFiles,
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
@@ -51,7 +60,7 @@ import {
   fetchLegalMemoryTreeRoots,
   fetchLegalMemoryTreeSearch,
 } from "./legalmemory-fetch.js";
-import { createNativeLegalMemoryClient, legalMemoryRouteError, listNativeLegalMemoryPermissions, replyNativeLegalMemoryPermission } from "./legalmemory-native.js";
+import { callNativeMailFiling, createNativeLegalMemoryClient, legalMemoryRouteError, listNativeLegalMemoryPermissions, replyNativeLegalMemoryPermission } from "./legalmemory-native.js";
 import { fileURLToPath } from "node:url";
 import { assertManagedHistoryReadable, createEngineClient, getWorkspaceEngineSession, getWorkspaceEngineSessionOrNull, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
 import { canonicalFilePath } from "./file-write-lock.js";
@@ -185,6 +194,10 @@ import { assertManagedCommandIntegration, interruptEngineSession } from "./nativ
 import { isInternalSession } from "./native-shared-values.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { prepareConnectorStorage } from "./connectors/store.js";
+import { registerMailRoutes } from "./routes/mail.js";
+import { registerMailInvitationReplyRoutes } from "./routes/mail-invitations.js";
+import { MailIntegrationProxy } from "./mail/integration-proxy.js";
+import type { MailService } from "./mail/service-interface.js";
 import {
   applyGlobalToolPermissions,
   bootstrapRuntimeOpencodeConfig,
@@ -737,10 +750,11 @@ function logRequest(input: {
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
   const proxyLabel = proxyBaseUrl ? ` (${proxyService ?? "proxy"})` : "";
-  const message = `${method} ${url.pathname} ${status} ${durationMs}ms${proxyLabel}`;
+  const loggedPath = url.pathname.startsWith("/mail/") ? "/mail/[redacted]" : url.pathname;
+  const message = `${method} ${loggedPath} ${status} ${durationMs}ms${proxyLabel}`;
   const attributes: LogAttributes = {
     method,
-    path: url.pathname,
+    path: loggedPath,
     status,
     durationMs,
     auth: authMode,
@@ -831,7 +845,7 @@ function startOriginalImageCleanup(config: ServerConfig) {
   });
 }
 
-export async function startServer(config: ServerConfig, runtimeOptions: ServerRuntimeOptions = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: ServerRuntimeOptions & { mail?: MailService } = {}): Promise<StartedServer> {
   // Also cover callers embedding the HTTP server directly. These preflights
   // validate completed stores without reopening their retired sources.
   await bootstrapRuntimeOpencodeConfig(config);
@@ -966,6 +980,40 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     },
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  registerMailRoutes(routes, config.host, runtimeOptions.mail);
+  registerMailProjectRoutes({ routes, host: config.host, mail: runtimeOptions.mail, ensureWritable: () => ensureWritable(config), ...mailProjectDestinations(config) });
+  registerMailClassifierRoutes({ routes, host: config.host, mail: runtimeOptions.mail, ensureWritable: () => ensureWritable(config), resolve: mailProjectDestinations(config).resolve });
+  const mailInvitationReplies = registerMailInvitationReplyRoutes(routes, config, runtimeOptions.mail);
+  const mailIntegrations = runtimeOptions.mail?.configureIntegrations && (config.host === "127.0.0.1" || config.host === "::1") ? new MailIntegrationProxy(config) : undefined;
+  if (mailIntegrations) addRoute(routes, "POST", "/mail/internal/integrations/request", "none", ctx => mailIntegrations.handle(ctx.request));
+  const mailStorageSaves=registerMailStorageSaveRoutes({routes,host:config.host,mail:runtimeOptions.mail,workspaces:()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),resolveWorkspace:async id=>{await resolveWorkspace(config,id);},request:async(path,input)=>{
+    const origin=`http://${config.host==='::1'?'[::1]':config.host}:${config.port}`;
+    const options={method:input?.method??'GET',headers:{Authorization:`Bearer ${config.token}`,...input?.contentType?{'Content-Type':input.contentType}:{}},body:input?.body,duplex:'half',redirect:'error',signal:input?.signal?AbortSignal.any([input.signal,AbortSignal.timeout(900000)]):AbortSignal.timeout(900000)};
+    return fetch(origin+path,{...options,redirect:'error'});
+  }});
+
+  registerMailAgentRoutes({routes,host:config.host,agentToken:mailAgentEngineToken,mail:runtimeOptions.mail,session:async input=>{
+    const directory=await mailAgentRealpath(input.directory);
+    const candidates=await Promise.all(config.workspaces.filter(workspace=>workspace.id&&!workspace.sandboxBackend).map(async workspace=>({workspace,directory:await mailAgentRealpath(workspace.path).catch(()=>null)})));
+    const matched=candidates.find(candidate=>candidate.directory===directory);
+    if(!matched?.workspace.id)throw new ApiError(403,'mail_agent_denied','Local task workspace unavailable');
+    const workspace=await resolveWorkspace(config,matched.workspace.id);
+    const client=createWorkspaceOpencodeClient(config,workspace),response=await client.session.get({sessionID:input.sessionId});
+    const session=z.object({id:z.string(),location:z.object({directory:z.string()})}).parse(response);
+    if(session.id!==input.sessionId||await mailAgentRealpath(session.location.directory)!==directory)throw new ApiError(403,'mail_agent_denied','Task scope changed');
+    const responseMessage=await client.session.message.get({sessionID:input.sessionId,messageID:input.messageId});
+    const message=z.object({id:z.string(),type:z.literal('assistant')}).parse(responseMessage);
+    if(message.id!==input.messageId)throw new ApiError(403,'mail_agent_denied','Task provenance unavailable');
+    return workspace.id;
+  }});
+
+  registerMailFilingRoutes(routes,config.host,runtimeOptions.mail,()=>config.workspaces.flatMap(workspace=>workspace.id?[{id:workspace.id,name:workspace.name||workspace.id}]:[]),async workspaceId=>{
+    const workspace=await resolveWorkspace(config,workspaceId);
+    const server=resolveLegalMemoryServer(await listMcp(config,workspace.id,workspace.path));
+    if(!server)throw new ApiError(409,'legalmemory_not_configured','Configure LegalMemory for the selected workspace in Settings.');
+    return {server: {name: server.name, url: server.url}, callTool: (name, args, signal) => callNativeMailFiling(config, workspace, server.name, name, args, mailAgentEngineToken, signal)};
+  });
+
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
@@ -1235,6 +1283,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   });
 
   config.port = server.port;
+  if (mailIntegrations) runtimeOptions.mail?.configureIntegrations?.(() => mailIntegrations.snapshot());
+  const mailIntegrationRefresh = mailIntegrations ? setInterval(() => { void runtimeOptions.mail?.refreshIntegrations?.().catch(() => {}); }, 15_000) : undefined;
+  mailIntegrationRefresh?.unref?.();
 
   if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();
 
@@ -1280,6 +1331,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     wordAddinPort: wordAddinServer?.port ?? null,
     invalidateRawHttpTrust: () => rawHttpTransport?.rotate(),
     stop: async () => {
+      mailInvitationReplies?.close();
       stopSandboxSettingsSync();
       await originalImageCleanup?.close();
       await agentSandbox.stop();
@@ -1303,11 +1355,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       await wikiSync.stop();
       await wikiStore.close();
       benchmarkRunner.dispose();
+      await mailStorageSaves?.close();
+      clearInterval(mailIntegrationRefresh);
+      mailIntegrations?.close();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);
-      await wordAddinServer?.stop();
-      await server.stop();
+      try { await runtimeOptions.mail?.stop(); }
+      finally {
+        try { await wordAddinServer?.stop(); }
+        finally { await server.stop(); }
+      }
     },
   };
   try {

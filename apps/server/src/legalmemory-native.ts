@@ -5,8 +5,9 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { createEngineClient, workspaceEngineLocation } from "./engine-client.js";
 import { firmHubConnectorBlocks } from "./firm-hub.js";
 import { allowedMemberConnectors } from "./org-policy-items.js";
+import { legalMemoryToolPayload } from "./legalmemory-fetch.js";
 import type { LegalMemoryClient } from "./legalmemory-fetch.js";
-import { LegalMemoryAccessError, legalMemoryRpc, legalMemoryReadTools, legalMemoryResponseSchema, type LegalMemoryRequest } from "./legalmemory-rpc.js";
+import { LegalMemoryAccessError, legalMemoryRpc, legalMemoryReadTools, legalMemoryFilingTools, legalMemoryResponseSchema, type LegalMemoryRequest } from "./legalmemory-rpc.js";
 import { ApiError } from "./errors.js";
 
 /** Authenticated LegalWork routes own member/firm scope; engine RPC owns OAuth. */
@@ -53,4 +54,15 @@ export async function replyNativeLegalMemoryPermission(config: ServerConfig, wor
   const result = z.object({ replied: z.boolean() }).parse(await createEngineClient(config, workspace).rpc(legalMemoryRpc).reply(input, { location: workspaceEngineLocation(workspace), signal }));
   if (!result.replied) throw new ApiError(409, "legalmemory_permission_stale", "This LegalMemory read is no longer waiting for that permission.");
   return result;
+}
+
+
+/** Host-owned mail filing keeps native MCP sign-in and refresh inside the engine. */
+export async function callNativeMailFiling(config: ServerConfig, workspace: WorkspaceInfo, serverName: string, name: string, args: Record<string, unknown>, capability: string, signal?: AbortSignal) {
+  const operation = { type: "mail-filing", name: z.enum(legalMemoryFilingTools).parse(name), args: z.record(z.string(), z.json()).parse(args), capability } satisfies LegalMemoryRequest["operation"];
+  const engine = createEngineClient(config, workspace), location = workspaceEngineLocation(workspace);
+  await engine.model.list({location}, {signal});
+  const response = legalMemoryResponseSchema.parse(await engine.rpc(legalMemoryRpc).request({serverName, operation}, {location, signal}));
+  if (!response.ok) throw new LegalMemoryAccessError(response.code, response.message);
+  return legalMemoryToolPayload(response.value);
 }

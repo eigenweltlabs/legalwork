@@ -13,6 +13,7 @@ import { writeFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { boundedShutdown } from "../electron/bounded-shutdown.mjs";
 import { createShutdownGuard } from "../electron/shutdown-guard.mjs";
+import { beforeQuitRegistrations } from "./lifecycle-source.mjs";
 const script = fileURLToPath(import.meta.url);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const output = process.env.LEGALWORK_SHUTDOWN_TEST_OUTPUT;
@@ -138,10 +139,9 @@ if (!process.versions.electron) {
     item = await fixture();
     const disposed = [];
     const source = await readFile(new URL("../electron/main.mjs", import.meta.url), "utf8");
-    const from = source.indexOf('app.on("before-quit",'), to = source.indexOf('app.on("second-instance",', from);
-    assert.ok(from >= 0 && to > from);
     const context = {
       app, shutdownGuard: item.guard, shutdownApproved: false, boundedShutdown,
+      shutdownInProgress: false, shutdownComplete: false,
       set appIsQuitting(value) { item.setQuitting(value); },
       runtimeDisposedForQuit: false, runtimeDisposeInProgress: false,
       showShutdownScreen: () => disposed.push("shutdown-screen"),
@@ -149,20 +149,23 @@ if (!process.versions.electron) {
       appAudioTap: { stop: () => {} }, callOverlay: { destroy: () => {} }, systemDictation: { dispose: () => {} },
       dictationHud: { destroy: () => {} }, meetingMonitor: { dispose: () => {} }, appTray: { destroy: () => {} }, powerSessions: { releaseAll: () => {} },
       uiControlServer: { stop: async () => {} }, runtimeManager: { forceStopOwnedChildren() {} },
+      mailImages: { cancel: () => { disposed.push("mail-images"); } },
+      mailArtifacts: { close: async () => { disposed.push("mail-artifacts"); } },
+      draftRecovery: { close: async () => { disposed.push("mail-recovery"); } },
       disposeRuntimeBeforeQuit: async () => {
         const saved = await item.state();
         assert.equal(saved.writes, 1); assert.deepEqual(saved.dirty, []);
         disposed.push("runtime"); context.runtimeDisposedForQuit = true;
       },
     };
-    runInNewContext(source.slice(from, to), context);
+    runInNewContext(beforeQuitRegistrations(source), context);
     app.quit(); await item.modal(); assert.deepEqual(disposed, []);
     await item.window.webContents.executeJavaScript('document.querySelector("[role=dialog] button[data-slot=dialog-close]").click()', true);
     await delay(50); assert.deepEqual(disposed, []); assert.equal(item.window.isDestroyed(), false);
     app.on("will-quit", () => {
       try {
         assert.equal(item.window.isDestroyed(), true);
-        assert.deepEqual(disposed, ["shutdown-screen", "recorder", "runtime"]);
+        assert.deepEqual(disposed, ["shutdown-screen", "recorder", "mail-images", "mail-artifacts", "mail-recovery", "runtime"]);
         results.push("normal app Quit waits for consent, survives cancellation, and saves before disposal");
         for (const result of results) console.log(`PASS ${result}`);
         if (output) writeFileSync(path.join(output, "results.json"), JSON.stringify({ electron: process.versions.electron, results }, null, 2));

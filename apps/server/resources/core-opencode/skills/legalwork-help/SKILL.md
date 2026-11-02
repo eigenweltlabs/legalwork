@@ -7,20 +7,28 @@ description: Answer how-to questions about LegalWork using its bundled manual. U
 
 For an action request to set up any website login, use legalwork_browser_request_password directly with the user-supplied website_url or a known catalogue provider. Ask for the sign-in URL if missing. The existing secure card checks saved logins. No manual lookup is needed before the card.
 
-For an ordinary how-to question, read the matching page with `legalwork_skill_read`, then answer. This skill and that page are normally sufficient. Use the exact package reference: `name="legalwork-help", path="references/email.md"` for Gmail or Outlook setup. Do not read the index, screen map or localization guide first when the topic is already clear.
+For an ordinary how-to question, read the matching page with `legalwork_skill_read`, then answer. If the result has `nextOffset`, continue at that offset until the relevant section is complete. This skill and that page are normally sufficient. Use the exact package reference: `name="legalwork-help", path="references/email.md"` for Gmail or Outlook setup. Do not read the index, screen map or localization guide first when the topic is already clear.
 
 | Question | Read |
 | --- | --- |
 | Personal Assistant, proactive updates, scratchpad, morning briefings, daily chats or custom instructions | [assistant.md](references/assistant.md) |
-| Gmail or Outlook email, direct Microsoft sign-in, or an OAuth app override | [email.md](references/email.md) |
+| Email reader, desktop mail notifications, Mail keyboard shortcuts or search from Drafts/Outbox, meeting invitations, ICS previews or reviewed invitation replies, shared Integrations accounts, retained local copies or account migration, Inbox, Drafts, Outbox, iCloud or IMAP/SMTP, Gmail or Outlook, direct Microsoft sign-in, or an OAuth app override | [email.md](references/email.md) |
+| S/MIME, signed or encrypted email, signature/certificate verification, unavailable decryption keys, RPMSG or Microsoft protected-mail limitations | [email.md](references/email.md) |
+| Fastmail, native JMAP availability, on-premises Exchange, EWS or IMAP/SMTP protocol limitations | [email.md](references/email.md) |
+| Proton Mail Bridge availability, paid-plan or installed-Bridge prerequisites, local certificates or Bridge qualification limits | [email.md](references/email.md) |
+| Global Search Email tab, Cmd/Ctrl+K email results, lexical versus semantic email search, embedding availability, cross-matter retrieval or account/matter search permissions | [email.md](references/email.md) |
+| Email recipient tokens, To/Cc/Bcc entry, quoted display names, autocomplete, unfinished addresses, document editing, text formatting, bulleted or numbered lists, quotes, Insert link, Remove link, Undo or plain-text drafts | [email.md](references/email.md) |
+| Email project assignments, No project, Assignment history, Suggest project, project rules, exclusions, sender/domain/reference matching, inaccessible destinations, Automatic mode, assignment thresholds, Needs review, Undo assignment or Keep project | [email.md](references/email.md) |
+| Mail diagnostics, safe mail support export, queued/uncertain action counts or local download incident reports | [email.md](references/email.md) |
 | Workflows, Review prompts, Skills tab, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
-| Calendar, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
+| Calendar, shared Outlook calendar consent or delegate permissions, Calendar write access, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
 | Transcription models, recording setup, dictation shortcut, meeting detection or Meeting Summarisation | [recorder-settings.md](references/recorder-settings.md) |
 | Record, import, edit or summarize a transcript; speaker names; Voice Mode | [audio.md](references/audio.md) |
 | Projects, matter details, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
 | Chats, history, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
 | Tabular Review or review prompt sets | [reviews.md](references/reviews.md) |
+| Scheduled email, Send later, scheduled Outbox items, rescheduling, Snoozed, snoozing conversations, local mail rules, new-arrival conditions, rule readiness or activity, daylight-saving time, local execution guarantees, Email on multiple devices or hosted mail availability | [email.md](references/email.md) |
 | Schedules that run the assistant | [scheduled-tasks.md](references/scheduled-tasks.md) |
 | Tasks, inbox or notifications | [tasks-intake.md](references/tasks-intake.md) |
 | Files, document editors or saving outputs | [files-documents.md](references/files-documents.md) |

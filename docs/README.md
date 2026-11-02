@@ -4,6 +4,10 @@ Start with the [user guide](user-guide/index.md) and [screen map](user-guide/scr
 
 Technical notes in this directory describe specific subsystems and design/verification work. They are not a user navigation guide. Files under `reviews/` and implementation plans are engineering material, not evidence that a feature has shipped.
 
+The [multi-device and firm-hosted mail scope](mail-multi-device-scope.md) covers ownership, keys, replica conflicts, dispatch recovery and future implementation gates. Its [capacity inputs](mail-hosted-capacity-inputs.json) feed a reproducible headless estimate; they do not enable a hosted service.
+
+The [protected-mail evaluation](mail-protected-content-evaluation.md) records S/MIME certificate/MIME prototypes, current storage/search/export behavior and Microsoft policy limitations. Its explicit OpenSSL evaluation is separate from provider-release certification and does not enable native cryptographic processing.
+
 ## Bundled help
 
 The canonical manual lives in `docs/user-guide/*.md`. The skill entrypoint and read-only label helper live in `apps/server/resources/core-opencode/skills/legalwork-help/`. `scripts/gen-core-skills.mjs` maps the manual into that skill's `references/` directory and embeds it in `apps/server/src/core-skills.ts` along with all other core resources. The full translation reference is generated into the ignored `apps/server/src/help-i18n.generated.ts` module, imported by the bundle and compiled into the app. An ignored `docs/user-guide/i18n.json` copy is also generated for local inspection. No additional documentation download or source checkout is needed at runtime.

@@ -1,0 +1,3 @@
+import {Button} from '@/components/ui/button';
+import {mailSourceHref,openMailSource,useMailChatSources} from './mail-chat-source';
+export function MailChatSourceNotice({sessionId}:{sessionId:string}){const source=useMailChatSources(state=>state.sessions[sessionId]);return source?<div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground" aria-label="Mail attachment source"><span>{source.filename} · {source.accountLabel}</span><Button variant="ghost" size="sm" type="button" className="underline" onClick={()=>openMailSource(mailSourceHref(source))}>Return to source email</Button></div>:null;}

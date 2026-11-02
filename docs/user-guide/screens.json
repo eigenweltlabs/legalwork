@@ -12,6 +12,46 @@
       "id": "unsaved-shutdown",
       "guide": "settings-privacy.md",
       "source": "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx"
+    },
+    {
+      "id": "global-search",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/command-palette.tsx"
+    },
+    {
+      "id": "global-search-email",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/shell/command-palette.tsx"
+    },
+    {
+      "id": "mail-recipients",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/mail/mail-recipient-input.tsx"
+    },
+    {
+      "id": "mail-insert-link",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/mail/mail-formatting-toolbar.tsx"
+    },
+    {
+      "id": "mail-project",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/mail/mail-project.tsx"
+    },
+    {
+      "id": "mail-project-rule",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx"
+    },
+    {
+      "id": "mail-project-activity",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-activity.tsx"
+    },
+    {
+      "id": "mail-project-exclusions",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx"
     }
   ],
   "routes": [
@@ -38,6 +78,11 @@
     {
       "path": "/home",
       "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/mail",
+      "guide": "email.md",
       "source": "apps/app/src/react-app/shell/app-root.tsx"
     },
     {
@@ -198,6 +243,12 @@
       "id": "general",
       "scope": "global",
       "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "mail-accounts",
+      "scope": "global",
+      "guide": "email.md",
       "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
     },
     {

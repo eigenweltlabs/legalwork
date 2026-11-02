@@ -20,6 +20,20 @@ Reusable instructions live under **Workflows > Skills**. The Workflows page also
 
 Removing a connection can take a moment. **Removing…** and a spinner remain visible until it finishes; the removal and cancel buttons are disabled to prevent repeated requests. If removal fails, the connection remains available and an error is shown.
 
+## Email accounts
+
+Connect **Gmail** or **Outlook Email** under **Communication** to use the same account in the global **Email** reader and with the assistant. The reader does not require a second sign-in. Account activation, reconnecting, disconnecting and **Allow write access** stay in the provider's connection panel. Select **Open Email** to open the local mailbox. Only Outlook Email activation enables mail; Outlook Calendar activation alone does not.
+
+Older local mail accounts can move onto these same connections after authenticated identity verification. Local originals, drafts and history are preserved. If a separate current store already exists, the older account becomes a **Retained local copy** with sending and sync disabled. Follow [Email](email.md) to continue a saved draft or check an uncertain send.
+
+For iCloud or another provider, choose **Communication > iCloud / IMAP / SMTP**. Add an account with its IMAP credentials, then configure SMTP for sending on that page. The same accounts appear in Email and in **Settings > Mail accounts**, where you manage notification preferences, local data and agent access. Follow [Email](email.md) for the complete setup and recovery steps.
+
+### Optional email permissions
+
+For direct Microsoft sign-in or a Gmail OAuth app override, Email connection settings include **Personal contacts**. Outlook Email also offers **Shared mailboxes**. Enabling a choice on an existing connection starts the same account's reconnect flow. Reading mail continues to use the existing connection; these options do not add another email account. Setup and account prerequisites are in [Email](email.md#personal-contacts-and-shared-mailboxes).
+
+Outlook Calendar offers **Shared calendars** with direct Microsoft sign-in or an OAuth app override. It uses the same Microsoft account and a separate Calendar **Allow write access** setting. Follow [shared Outlook calendar setup](calendar.md#shared-outlook-calendars) for consent, owner permissions and delegated invitation replies.
+
 ## SharePoint and Dropbox connection methods
 
 SharePoint and Dropbox each have one provider entry in **Files & storage**. Use **+** or open the provider and choose **Connect**. In **Connection method**, keep **Connect with LegalWork** to use the app's standard sign-in. Choose **Custom SharePoint** or **Custom Dropbox** to configure the separate connection with your own app details. Existing custom connections remain in **Installed** with those names.
@@ -68,7 +82,7 @@ For Gmail and Outlook setup, connection methods, write permissions and troublesh
 
 For a new Microsoft connection, open **Settings > Integrations**, use **Communication** for email and calendars or **Files & storage** for drives, select **Outlook Email**, **Outlook Calendar**, **OneDrive**, **OneDrive Personal** or **SharePoint**, then select its **Connect** button and complete Microsoft sign-in. LegalWork supplies the app configuration; an Eigenwelt account, Nango and a client secret are not required. Keep **Allow write access** off for a read-only connection. For SharePoint, choose the document library when prompted. A work or school administrator may need to approve access. Saved custom app settings and older managed connections retain their existing method; [Email setup](email.md) explains how to switch.
 
-Connecting a calendar service lets the assistant use that service's available tools. It does not automatically import those events into LegalWork's project Calendar. Connecting a drive does not establish mail access. Check the individual connector's status and granted permissions.
+Connecting a calendar service makes its available tools accessible to the assistant and its calendars selectable under Calendar's **Connected calendars**. It does not copy those events into a project's local deadline records. Connecting a drive does not establish mail access. Check the individual connector's status and granted permissions.
 
 ## Browser and Computer Use
 

@@ -72,20 +72,31 @@ function outlookSummary(event: z.infer<typeof outlookEvent>) {
     hasAttachments: event.hasAttachments,
   };
 }
-async function outlookDisplayEvent(request: ConnectorRequest, path: string, event: z.infer<typeof outlookEvent>) {
+async function outlookDisplayEvent(request: ConnectorRequest, path: string, event: z.infer<typeof outlookEvent>, calendarOwner?: string) {
   const zone = event.originalStartTimeZone;
   // UTC conversion can move an all-day event onto the previous date. Ask Graph
   // for its original zone (including Windows zone names) to retain calendar days.
   const midnight = /T00:00:00(?:\.0+)?Z?$/;
   if (event.isAllDay && zone && zone !== event.start.timeZone && (!midnight.test(event.start.dateTime) || !midnight.test(event.end.dateTime))) {
     if (/["\r\n]/.test(zone)) throw new ApiError(502, "connector_api_invalid", "Microsoft returned an invalid calendar time zone.");
-    const original = parseNative(outlookEvent, await request(path, { headers: { Prefer: `outlook.timezone="${zone}", outlook.body-content-type="text"` } }));
+    const original = parseNative(outlookEvent, await request(path, { headers: { Prefer: `outlook.timezone="${zone}", outlook.body-content-type="text"` }, ...(calendarOwner?{calendarOwner}:{}) }));
     return outlookSummary(original);
   }
   return outlookSummary(event);
 }
 function googleEventsPath(calendarId: string) { return `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`; }
 function outlookCalendarPath(calendarId: string) { return calendarId === "primary" ? "/v1.0/me/calendar" : `/v1.0/me/calendars/${encodeURIComponent(calendarId)}`; }
+
+async function outlookCalendarTarget(request: ConnectorRequest, calendarId: string, writing=false) {
+  const path=outlookCalendarPath(calendarId);
+  // Primary is the signed-in user's endpoint. Other IDs need provider ownership
+  // metadata before personal or explicitly shared access can be determined.
+  if(calendarId==='primary'||!request.calendarAccess)return {path,calendarOwner:undefined};
+  const calendar=parseNative(z.object({id:z.string(),owner:z.object({address:z.email().max(320)})}),await request(`${path}?$select=id,owner`));
+  if(calendar.id!==calendarId)throw new ApiError(409,'connector_calendar_changed','This calendar changed.');
+  if(!await request.calendarAccess(calendar.owner.address,writing))throw new ApiError(403,'connector_calendar_permission_required','This calendar permission is unavailable.');
+  return {path,calendarOwner:calendar.owner.address};
+}
 
 export const googleCalendarAdapter = {
   async capabilities(request: ConnectorRequest, input: { calendarId: string }) {
@@ -133,30 +144,46 @@ export const outlookCalendarAdapter = {
   },
   async calendars(request: ConnectorRequest, input: z.infer<typeof calendarListInput>) {
     const path = "/v1.0/me/calendars";
-    const query = new URLSearchParams({ "$top": String(input.maxResults), "$select": "id,name,canEdit,isDefaultCalendar,hexColor" });
-    const page = parseNative(z.object({ value: z.array(z.object({ id: z.string(), name: z.string(), hexColor: connectorCalendarColorSchema, canEdit: z.boolean().optional(), isDefaultCalendar: z.boolean().optional() })), "@odata.nextLink": z.string().optional() }),
+    const query = new URLSearchParams({ "$top": String(input.maxResults), "$select": "id,name,canEdit,isDefaultCalendar,hexColor,owner" });
+    const page = parseNative(z.object({ value: z.array(z.object({ id: z.string(), name: z.string(), hexColor: connectorCalendarColorSchema, canEdit: z.boolean().optional(), isDefaultCalendar: z.boolean().optional(), owner:z.object({address:z.email().max(320)}).optional() })), "@odata.nextLink": z.string().optional() }),
       await request(input.pageToken ? nativePagePath(input.pageToken, "https://graph.microsoft.com", path) : `${path}?${query}`));
     if (page["@odata.nextLink"]) nativePagePath(page["@odata.nextLink"], "https://graph.microsoft.com", path);
-    return { calendars: page.value.map((item) => ({ id: item.id, name: item.name, color: item.hexColor, canWrite: item.canEdit ?? false, primary: item.isDefaultCalendar ?? false })), nextPageToken: page["@odata.nextLink"] ?? null };
+    const calendars=[];
+    const permissions=new Map<string,Promise<boolean>>();
+    const calendarAccess=request.calendarAccess;
+    const allowed=(owner:string,writing:boolean)=>{const key=JSON.stringify([owner.toLowerCase(),writing]);let pending=permissions.get(key);if(!pending){if(!calendarAccess)throw new ApiError(403,'connector_calendar_permission_required','This calendar permission is unavailable.');pending=calendarAccess(owner,writing);permissions.set(key,pending);}return pending;};
+    for(const item of page.value){
+      let canWrite=item.canEdit??false;
+      if(request.calendarAccess){
+        if(!item.owner)throw new ApiError(502,'connector_api_invalid','The provider returned an invalid calendar owner.');
+        if(!await allowed(item.owner.address,false))continue;
+        canWrite=canWrite&&await allowed(item.owner.address,true);
+      }
+      calendars.push({id:item.id,name:item.name,color:item.hexColor,canWrite,primary:item.isDefaultCalendar??false});
+    }
+    return { calendars, nextPageToken: page["@odata.nextLink"] ?? null };
   },
   async events(request: ConnectorRequest, input: z.infer<typeof calendarEventsInput>) {
-    const path = `${outlookCalendarPath(input.calendarId)}/calendarView`;
+    const target=await outlookCalendarTarget(request,input.calendarId);
+    const path = `${target.path}/calendarView`;
     const query = new URLSearchParams({ startDateTime: input.timeMin, endDateTime: input.timeMax, "$top": String(input.maxResults), "$orderby": "start/dateTime" });
     const page = parseNative(z.object({ value: z.array(outlookEvent), "@odata.nextLink": z.string().optional() }),
-      await request(input.pageToken ? nativePagePath(input.pageToken, "https://graph.microsoft.com", path) : `${path}?${query}`, { headers: { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' } }));
+      await request(input.pageToken ? nativePagePath(input.pageToken, "https://graph.microsoft.com", path) : `${path}?${query}`, { headers: { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' }, ...(target.calendarOwner?{calendarOwner:target.calendarOwner}:{}) }));
     if (page["@odata.nextLink"]) nativePagePath(page["@odata.nextLink"], "https://graph.microsoft.com", path);
     const events = [];
-    for (const event of page.value) events.push(await outlookDisplayEvent(request, `${outlookCalendarPath(input.calendarId)}/events/${encodeURIComponent(event.id)}`, event));
+    for (const event of page.value) events.push(await outlookDisplayEvent(request, `${target.path}/events/${encodeURIComponent(event.id)}`, event,target.calendarOwner));
     return { events, nextPageToken: page["@odata.nextLink"] ?? null };
   },
   async get(request: ConnectorRequest, input: z.infer<typeof calendarEventInput>) {
-    const path = `${outlookCalendarPath(input.calendarId)}/events/${encodeURIComponent(input.eventId)}`;
-    return outlookDisplayEvent(request, path, parseNative(outlookEvent, await request(path, { headers: { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' } })));
+    const target=await outlookCalendarTarget(request,input.calendarId);
+    const path = `${target.path}/events/${encodeURIComponent(input.eventId)}`;
+    return outlookDisplayEvent(request, path, parseNative(outlookEvent, await request(path, { headers: { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' }, ...(target.calendarOwner?{calendarOwner:target.calendarOwner}:{}) })),target.calendarOwner);
   },
   async create(request: ConnectorRequest, input: z.infer<typeof calendarCreateInput>) {
     if (input.reminders && input.reminders.length > 1) throw new ApiError(400, "connector_calendar_reminders", "Outlook supports one reminder per event.");
+    const target=await outlookCalendarTarget(request,input.calendarId,true);
     const date = (value: string) => ({ dateTime: input.allDay ? `${value}T00:00:00` : new Date(value).toISOString().replace(/Z$/, ""), timeZone: input.allDay ? input.timeZone ?? "UTC" : "UTC" });
-    return outlookSummary(parseNative(outlookEvent, await request(`${outlookCalendarPath(input.calendarId)}/events`, { method: "POST", body: {
+    return outlookSummary(parseNative(outlookEvent, await request(`${target.path}/events`, { method: "POST", ...(target.calendarOwner?{calendarOwner:target.calendarOwner}:{}), body: {
       subject: input.title, body: { contentType: "Text", content: input.description ?? "" }, location: { displayName: input.location ?? "" },
       start: date(input.start), end: date(input.end), isAllDay: input.allDay, attendees: [],
       ...(input.reminders ? { isReminderOn: input.reminders.length > 0, reminderMinutesBeforeStart: input.reminders[0] ?? 0 } : {}),

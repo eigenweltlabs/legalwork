@@ -253,6 +253,44 @@ jobs:
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
       - name: Test Windows signing verification
         run: node --test scripts/release/windows-signing.test.mjs
+      - name: Setup Bun for Windows Email checks
+        if: needs.changes.outputs.app == 'true' || needs.changes.outputs.server == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Test synthetic benchmark checkpoint recovery on Windows
+        if: needs.changes.outputs.server == 'true'
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          LEGALWORK_MAIL_BENCH_CHECKPOINT_SMOKE: '1'
+        run: node apps/server/scripts/mail-acceptance.mjs --suite testing/benchmark-export
+      - name: Test Email views on Windows
+        if: needs.changes.outputs.app == 'true'
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          MAIL_OUTBOX_EVIDENCE: ${{ runner.temp }}/mail-ui/outbox
+          MAIL_COMPOSE_EVIDENCE: ${{ runner.temp }}/mail-ui/compose
+          MAIL_JOURNEY_EVIDENCE: ${{ runner.temp }}/mail-ui/attachments
+          MAIL_CONTEXT_EVIDENCE: ${{ runner.temp }}/mail-ui/context
+          MAIL_CLASSIFIER_EVIDENCE: ${{ runner.temp }}/mail-ui/projects
+        run: >-
+          bun test apps/app/tests/mail-outbox.test.ts
+          apps/app/tests/mail-compose.test.ts
+          apps/app/tests/mail-compose-shutdown.test.ts
+          apps/app/tests/mail-keyboard-workflow.test.ts
+          apps/app/tests/mail-invitation-render.test.ts
+          apps/app/tests/mail-context-render.test.ts
+          apps/app/tests/mail-journey-render.test.ts
+          apps/app/tests/mail-notification-open-render.test.ts
+          apps/app/tests/mail-classifier-render.test.ts
+      - name: Upload synthetic Windows Email UI evidence
+        if: always() && needs.changes.outputs.app == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-ui-Windows
+          path: ${{ runner.temp }}/mail-ui
+          if-no-files-found: warn
+          retention-days: 7
 
   documentation:
     needs: changes
@@ -275,6 +313,7 @@ jobs:
     env:
       LEGALWORK_TEST_OPENCODE_BIN: ''
       LEGALWORK_TEST_OPENCODE_CACHE: ''
+      NODE_OPTIONS: --max-old-space-size=6144
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
@@ -308,6 +347,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare sandboxed Electron on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node scripts/ci/prepare-electron-sandbox.mjs
+          command -v xvfb-run
+          command -v xauth
+
       - name: Prepare checksum-pinned Node for worker tests
         if: needs.changes.outputs.server == 'true' || needs.changes.outputs.desktop == 'true'
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
@@ -326,7 +374,27 @@ jobs:
 
       - name: Run app unit tests
         if: needs.changes.outputs.app == 'true'
-        run: pnpm --filter @legalwork/app test
+        env:
+          MAIL_OUTBOX_EVIDENCE: ${{ runner.temp }}/mail-ui/outbox
+          MAIL_JOURNEY_EVIDENCE: ${{ runner.temp }}/mail-ui/attachments
+          MAIL_CONTEXT_EVIDENCE: ${{ runner.temp }}/mail-ui/context
+          MAIL_CLASSIFIER_EVIDENCE: ${{ runner.temp }}/mail-ui/projects
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run --auto-servernum pnpm --filter @legalwork/app test
+          else
+            pnpm --filter @legalwork/app test
+          fi
+
+      - name: Upload synthetic mail UI evidence
+        if: always() && needs.changes.outputs.app == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-ui-${{ runner.os }}
+          path: ${{ runner.temp }}/mail-ui
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Build UI for unsaved-change Electron checks
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
@@ -398,6 +466,8 @@ jobs:
 
   legalwork-tests:
     needs: [changes, unit-tests, opencode-derivative]
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
@@ -528,6 +598,8 @@ jobs:
 
   sandbox-engine:
     needs: [sandbox-runtime, opencode-derivative]
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     if: >-
       always() && !cancelled() && needs.sandbox-runtime.result == 'success' &&
       needs.opencode-derivative.result == 'success'
