@@ -23,11 +23,11 @@ test("the inline card has a masked password field and locked website, and a rest
     cache.setQueryData(["browser-passwords", client.baseUrl, request.website], { items: [] });
     const html = render();
     expect(html).toContain("Sign-in details needed"); expect(html).toContain(request.website);
-    expect(html).toContain('type="password"'); expect(html).toContain("Save and continue");
+    expect(html).toContain('type="password"'); expect(html).toContain("Save login and resume task");
     expect(html).not.toContain('type="url"'); expect(html).not.toContain('name="password_id"');
     cache.setQueryData(["browser-passwords", client.baseUrl, request.website], { items: [{ ...request, id, origin: request.website, updatedAt: "2026-10-27" }] });
     const restored = render();
-    expect(restored).toContain("Continue with saved login"); expect(restored).not.toContain('type="password"');
+    expect(restored).toContain("Resume task with saved login"); expect(restored).not.toContain('type="password"');
   } finally { cache.clear(); }
 });
 
