@@ -278,7 +278,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
-    runs-on: ${{ matrix.os }}
+    # Keep historical required check names while using the supported runner.
+    runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
 
     strategy:
       fail-fast: false
@@ -374,7 +375,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
       !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
-    runs-on: ${{ matrix.os }}
+    # Keep historical required check names while using the supported runner.
+    runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
 
     strategy:
       fail-fast: false
@@ -503,7 +505,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.sandbox-runtime.result == 'success' &&
       needs.opencode-derivative.result == 'success'
-    runs-on: ${{ matrix.os }}
+    # Keep historical required check names while using the supported runner.
+    runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:

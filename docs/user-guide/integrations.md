@@ -4,17 +4,27 @@ Open in LegalWork: [Integrations](legalwork://app/settings/extensions).
 
 ## Find and connect a service
 
-Open **Settings > Integrations**. Browse **Popular**, **Communication**, **Files & storage**, **Legal databases**, **Practice management** and **Research & productivity**, or use **Search integrations**. Select a category to see its complete list. The categories describe what a connection helps you do. Small tags on connector rows and detail pages show how they work: **Skill**, **MCP**, **Integration API** or **Website Login**. A connection can have more than one tag. A badge such as **1 connection** or **2 connections** shows how many saved connections you already have for that provider. The detail page says **No connections yet** when none have been added. Website entries show **1 saved login** or **2 saved logins**. This counts saved accounts, not verified sign-in.
+Open **Settings > Integrations**. Browse **Popular**, **Communication**, **Files & storage**, **Legal databases**, **Practice management** and **Research & productivity**, or use **Search integrations**. Select a category to see its complete list. The categories describe what a connection helps you do. Small tags on connector rows and detail pages show how they work: **Skill**, **MCP**, **Integration API**, **File Storage Integration** or **Website Login**. A connection can have more than one tag. A badge such as **1 connection** or **2 connections** shows how many saved connections you already have for that provider. The detail page says **No connections yet** when none have been added. Website entries show **1 saved login** or **2 saved logins**. This counts saved accounts, not verified sign-in.
 
 Select a connector to open its detail page and choose **Connect**. To set up a connection directly from the catalogue, use the **+** beside it. This starts sign-in or opens the setup dialog while keeping the catalogue in place. Complete the requested sign-in or setup. Some services open a browser; others ask for a key, server address or username and password. Website Login entries let you save your own logins for the in-app browser.
 
-Saved connections appear under **Installed** on the left. Named storage connections and saved website accounts stay in this list; the browse categories show their general providers with a connection count. Select an installed connection to inspect it, choose **Manage** to change its settings, or use its remove button. The detail page retains the service's connection status and access controls. Native email and drive accounts show their account and disconnect controls directly on the page. Team connections retain the access rules set by your firm.
+Saved connections appear under **Installed** on the left. Named storage connections and saved website accounts stay in this list; the browse categories show their general providers with a connection count. Select an installed connection to inspect it, choose **Manage** to change its settings, or use its remove button. The detail page puts **Firm managed** or **My own** beside the name, followed by status, ownership and access information. File sources are labeled **File Storage Integration**. Choose **Manage** for account, reconnect and disconnect controls. Firm-managed connections retain the access rules set by your firm.
 
 File sources and saved website logins support multiple named connections. Choose **Add another connection** for file sources or **Save another login** for websites, or add the same provider again from the catalogue. Give each entry a distinct name. Each has its own settings and removal action. The general provider page lists saved instances under **Your connections**, or **Your saved logins** for websites; an individual entry page shows only that entry. Connected cloud drives also offer **Add folder view** to create named locations within the existing account. Native account services retain the account choices supported by that service; a folder view does not create a second sign-in.
 
 For a service outside the catalogue, choose **Add > Custom connection** and enter the connection details supplied by the provider. Choose **Add > Import connection** for a supported package or repository, review the requested access, and complete any remaining setup. Removing an imported connection package also removes its included capabilities from the shared library. Existing projects use the updated library.
 
+The chat tool picker has three groups: **Workflows**, **Skills** and **Integrations**. Integrations combines installed packages, MCP connections, signed-in app accounts, named file storage, website logins and installed firm connections in one list. Select any integration to insert its chip into your message. The chip tells the agent which connection to use and stays visible inline in the sent message. Use **Configure** to manage items in the matching library.
+
 Reusable instructions live under **Workflows > Skills**. The Workflows page also has **Workflows** and **Review prompts** tabs.
+
+Removing a connection can take a moment. **Removing…** and a spinner remain visible until it finishes; the removal and cancel buttons are disabled to prevent repeated requests. If removal fails, the connection remains available and an error is shown.
+
+## SharePoint and Dropbox connection methods
+
+SharePoint and Dropbox each have one provider entry in **Files & storage**. Use **+** or open the provider and choose **Connect**. In **Connection method**, keep **Connect with LegalWork** to use the app's standard sign-in. Choose **Custom SharePoint** or **Custom Dropbox** to configure the separate connection with your own app details. Existing custom connections remain in **Installed** with those names.
+
+For Dropbox, give the file connection a name, choose its folder and access, then choose **Connect Dropbox**. Complete the sign-in in the browser. The setup dialog stays open until Dropbox confirms sign-in. Cancelling or failing a new sign-in removes the unfinished connection; it is not reported as a completed connection. An existing account that needs sign-in is marked **Sign in to use it** on its detail page.
 
 ## Research databases
 
@@ -69,3 +79,9 @@ Computer Use controls desktop applications and is configured from its integratio
 Additional integrations, including media capabilities, depend on installed packages and their credentials. The live catalog and returned tool descriptions are authoritative for those tools.
 
 Related: [Storage](connected-storage.md), [Skills](skills-workflows.md), [Audio](audio.md), [Feature availability](feature-availability.md).
+
+### Copy an example
+
+Connector detail pages show practical example requests for file storage, email, calendars and website logins. Click an example on the watercolor panel to copy it, then paste it into a chat. A **Copied** confirmation appears after copying. Examples follow the app language, including both the displayed text and the copied request. The requests name the selected connection without assuming particular files or matters exist. Your account, subscription and permitted access determine which documents are available.
+
+**Eigenwelt Extensions** groups LegalMemory, Open Computer Use and LegalWork UI Control. Box is under **Files & storage**. Use the separate Gmail, Google Calendar and Google Drive entries for Google services.

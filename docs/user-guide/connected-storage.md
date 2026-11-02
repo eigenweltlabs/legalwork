@@ -26,6 +26,10 @@ Expand a root or folder to fetch its contents. Load additional pages when availa
 
 In a writable folder, upload or drop files and create folders using the available controls. Existing-name and read-only errors should be resolved rather than ignored. Pausing a connection hides/disables access without deleting its source. Disconnecting removes the connection configuration, not the remote files. Deleting a file through a file action is a separate operation.
 
+Google Drive files and folders can be renamed in My Drive and shared drives when your account has permission. A rename keeps the same file or folder and its contents; it does not create a copy. LegalWork checks for intervening changes and refuses an existing destination. If a conflict is reported, refresh the parent folder and review its current contents before trying again.
+
+Cloud file locations in search results, tooltips, and rename or delete dialogs show readable folder names. Before confirming a deletion, check both the connection name and the folder path. LegalWork keeps the provider's file identity internally so duplicate names still refer to the exact item you selected.
+
 ## Move and copy files
 
 In a project chat, ask LegalWork to move or copy a file or folder, naming its source connection and destination folder. For example: “Move Contract.docx from My Drive/Matters into My Drive/Archive.” The destination folder must already exist and allow writing. Moving also requires permission to change the source; copying keeps the original and can use a read-only source. An existing item with the same name prevents the transfer.
@@ -46,6 +50,6 @@ LegalWork checks local account and permission changes before further requests. F
 
 ## Team storage
 
-Connections shared by your firm appear alongside your other connections and are marked **Team** on their detail page. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the LegalWork installation running the connection. A separately operated LegalWork server has its own credentials.
+Connections shared by your firm appear alongside your other connections and are marked **Firm managed** on their detail page. Personal connections are marked **My own**. The detail page shows status, ownership and access together, with **File Storage Integration** identifying the connection type. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the LegalWork installation running the connection. A separately operated LegalWork server has its own credentials.
 
 Related: [Files](files-documents.md), [Integrations and LegalMemory](integrations.md), [Permissions](settings-privacy.md).

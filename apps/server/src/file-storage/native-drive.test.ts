@@ -42,6 +42,19 @@ describe("native drive identities and source capabilities", () => {
     await expect(adapter.copyFile!(nativeSegment(source), `${nativeSegment(folder)}/${nativeSegment(source)}`)).rejects.toMatchObject({ code: "invalid_storage_name" });
     expect(mutations).toHaveLength(1);
   });
+  test("providers without a rename token resolver still require a strong conditional version", async () => {
+    const run = fixture(); const folder = run.add("folder", "Folder", "root", true);
+    run.items.set(folder.id, { ...folder, version: "sha256:7" });
+    await expect(run.adapter.rename!(nativeSegment(folder), "Renamed", "folder")).rejects.toMatchObject({ code: "storage_conditional_write_unsupported" });
+    expect(run.mutations).toEqual([]);
+  });
+  test("read-only sources cannot use a rename token resolver to bypass their restriction", async () => {
+    const run = fixture(); const folder = run.add("folder", "Folder", "root", true);
+    run.items.set(folder.id, { ...folder, readOnly: true });
+    let tokens = 0; run.driver.renameVersion = async () => { tokens++; return '"version"'; };
+    await expect(run.adapter.rename!(nativeSegment(folder), "Renamed", "folder")).rejects.toMatchObject({ code: "storage_read_only" });
+    expect(tokens).toBe(0); expect(run.mutations).toEqual([]);
+  });
   test("same-name files remain distinct and plain names reject ambiguity across pages", async () => {
     const { adapter, add } = fixture(); const first = add("a", "same.txt"), second = add("b", "same.txt");
     const page = await adapter.list(""); const next = await adapter.list("", page.nextCursor);

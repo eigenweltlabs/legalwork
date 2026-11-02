@@ -1,4 +1,4 @@
-@layer theme, base, openui, components, utilities;
+@layer theme, base, markdown-editor, openui, components, utilities;
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
 

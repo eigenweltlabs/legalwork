@@ -17,7 +17,7 @@ After an engine upgrade, LegalWork copies your saved chat history into the new e
 | File cannot be found or accessed | Confirm the workspace/worker and path. Check Permissions, remote-worker role, and source/provider permissions. An attachment in another workspace may not be present here. |
 | Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials on the worker that runs it. |
 | Gmail or Outlook cannot connect or is unavailable in chat | Check [Email setup](email.md) for build availability, local-project access, browser sign-in, administrator consent and draft/send permissions. A Drive connection does not grant mailbox access. |
-| Newly saved skill is not offered | Check Integrations > Skills or the Workflows library, the intended scope and the reload prompt. Loose files outside the library are not a library installation. |
+| Newly saved skill is not offered | Check Workflows > Skills or the Workflows library, the intended scope and the reload prompt. Loose files outside the library are not a library installation. |
 | Connected file edited but source unchanged | Local saves affect the working copy. Use Save to the named connection and inspect any permission or conflict error. Preserve the local draft. |
 | Storage search finds nothing | Check root/folder, search scope and pagination. Filename search is not guaranteed full-text search. Try the known folder and confirm the connector is live. |
 | Task or workflow missing | Clear filters, select the intended Local/Team view, check sign-in/sync status and role. Ordinary tasks and benchmark tasks are separate lists. |

@@ -1,3 +1,4 @@
+import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
 import { deriveMcpServerName } from "./mcp-identity";
@@ -612,9 +613,9 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     command: ["npx", "-y", "legalwork-ui-mcp"],
     oauth: false,
     kind: "ui-control",
-    iconSrc: "/legalwork-mark.svg",
+    iconSrc: legalworkMark,
   },
-  ...BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS.map(extensionManifestToDirectoryInfo),
+  ...BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS.filter(manifest => manifest.id !== "google-workspace").map(extensionManifestToDirectoryInfo),
 ];
 
 export const LEGALWORK_EXTENSION_CATALOG = MCP_QUICK_CONNECT.filter((entry) => entry.kind === "extension");

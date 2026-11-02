@@ -113,12 +113,30 @@ test("attachments display without reading their bytes or leaking model instructi
 const emptyQueue: SessionQueue = { workspaceId: "assistant", sessionId: "today", revision: 1, paused: false, completedIds: [], entries: [] };
 
 test("only immediate sends appear as bubbles, not queued messages, edits or paused work", () => {
-  expect(canPreviewAssistantSend(emptyQueue, false, false, false)).toBe(true);
-  expect(canPreviewAssistantSend(undefined, false, false, false)).toBe(false);
-  expect(canPreviewAssistantSend(emptyQueue, true, false, false)).toBe(false);
-  expect(canPreviewAssistantSend(emptyQueue, false, true, false)).toBe(false);
-  expect(canPreviewAssistantSend(emptyQueue, false, false, true)).toBe(false);
-  expect(canPreviewAssistantSend({ ...emptyQueue, paused: true }, false, false, false)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, false, draft)).toBe(true);
+  expect(canPreviewAssistantSend(undefined, false, false, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, true, false, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, true, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, true, draft)).toBe(false);
+  expect(canPreviewAssistantSend({ ...emptyQueue, paused: true }, false, false, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, false, { mode: "shell" })).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, false, { mode: "prompt", command: { name: "compact", arguments: "" } })).toBe(false);
+});
+
+test("project and wiki sends stay visible across admission until canonical history confirms their ID", () => {
+  for (const workspaceId of ["project", "wiki"]) {
+    const scope = assistantOutgoingScope("http://server", workspaceId, "chat");
+    const queue = { ...emptyQueue, workspaceId, sessionId: "chat" };
+    expect(canPreviewAssistantSend(queue, false, false, false, draft)).toBe(true);
+    addAssistantOutgoingMessage(scope, workspaceId, draft);
+    const local = mergeAssistantOutgoingMessages([], entries(), scope, queue);
+    expect(local.map(message => message.id)).toEqual([outgoingMessageId(workspaceId)]);
+    const accepted = { ...queue, completedIds: [workspaceId] };
+    expect(mergeAssistantOutgoingMessages([], entries(), scope, accepted)).toEqual(local);
+    const canonical: UIMessage = { id: local[0].id, role: "user", parts: [{ type: "text", text: "Hello" }] };
+    expect(mergeAssistantOutgoingMessages([canonical], entries(), scope, accepted)).toEqual([canonical]);
+    removeAssistantOutgoingMessage(workspaceId);
+  }
 });
 
 test("a server-side queue decision removes an optimistic bubble, including edits and delivery failures", () => {
@@ -130,13 +148,13 @@ test("a server-side queue decision removes an optimistic bubble, including edits
   };
   for (const status of ["queued", "failed", "uncertain"] satisfies SessionQueue["entries"][number]["status"][]) {
     const queue = { ...emptyQueue, entries: [{ ...entry, status }] };
-    expect(canPreviewAssistantSend(queue, false, false, false)).toBe(false);
+    expect(canPreviewAssistantSend(queue, false, false, false, draft)).toBe(false);
     expect(assistantOutgoingIsQueued("pending", queue)).toBe(true);
     expect(mergeAssistantOutgoingMessages([], entries(), scope, queue)).toEqual([]);
   }
   for (const status of ["sending", "accepted"] satisfies SessionQueue["entries"][number]["status"][]) {
     const queue = { ...emptyQueue, entries: [{ ...entry, status }] };
-    expect(canPreviewAssistantSend(queue, false, false, false)).toBe(false);
+    expect(canPreviewAssistantSend(queue, false, false, false, draft)).toBe(false);
     expect(mergeAssistantOutgoingMessages([], entries(), scope, queue)).toHaveLength(1);
   }
 });

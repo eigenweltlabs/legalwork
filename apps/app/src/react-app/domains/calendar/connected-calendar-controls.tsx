@@ -1,12 +1,11 @@
-import { CalendarDays, ChevronDown, ExternalLink, Loader2, MapPin } from "lucide-react";
+import { CalendarDays, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { openDesktopUrl } from "@/app/lib/desktop";
-import { currentLocale, t } from "@/i18n";
+import { t } from "@/i18n";
 import { calendarDisplayColor } from "./calendar-colors";
 import { cn } from "@/lib/utils";
-import type { CalendarDisplayOccurrence, ConnectedCalendar } from "./connected-calendars";
+import type { ConnectedCalendar } from "./connected-calendars";
+export { ConnectedCalendarEventDialog } from "./connected-calendar-event-dialog";
 
 export function ConnectedCalendarControls({ calendars, hidden, loading, disabled, onVisible }: {
   calendars: ConnectedCalendar[]; hidden: string[]; loading: boolean; disabled: boolean; onVisible: (key: string, visible: boolean) => void;
@@ -30,26 +29,4 @@ export function ConnectedCalendarControls({ calendars, hidden, loading, disabled
       })}
     </DropdownMenuContent>
   </DropdownMenu>;
-}
-
-export function ConnectedCalendarEventDialog({ item, onClose }: { item: CalendarDisplayOccurrence; onClose: () => void }) {
-  const details = item.connectedEvent;
-  if (!details) return null;
-  const format = (value: string) => item.allDay
-    ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString(currentLocale(), { dateStyle: "long" })
-    : new Date(value).toLocaleString(currentLocale(), { dateStyle: "long", timeStyle: "short", timeZone: item.timeZone });
-  const lastDay = item.allDay && item.end ? new Date(`${item.end}T12:00:00`) : null;
-  if (lastDay) lastDay.setDate(lastDay.getDate() - 1);
-  const end = lastDay ? `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, "0")}-${String(lastDay.getDate()).padStart(2, "0")}` : item.end;
-  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent className="grid-cols-1 sm:max-w-lg">
-      <DialogHeader><DialogTitle>{item.title || t("calendar.event")}</DialogTitle><DialogDescription>{details.calendar.providerName} · {details.calendar.name}</DialogDescription></DialogHeader>
-      <div className="max-h-[50vh] space-y-4 overflow-y-auto text-sm">
-        <p className="flex items-start gap-2"><CalendarDays className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><span>{format(item.start)}{end && end !== item.start ? ` – ${format(end)}` : ""}{item.allDay && <span className="block text-xs text-muted-foreground">{t("calendar.all_day")}</span>}</span></p>
-        {details.location && <p className="flex items-start gap-2"><MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><span className="whitespace-pre-wrap break-words">{details.location}</span></p>}
-        {details.description && <p className="whitespace-pre-wrap break-words text-muted-foreground">{details.description}</p>}
-      </div>
-      <DialogFooter><Button variant="outline" onClick={onClose}>{t("common.close")}</Button>{details.webUrl && <Button onClick={() => { if (details.webUrl) void openDesktopUrl(details.webUrl); }}><ExternalLink />{t("calendar.open_in_provider", { provider: details.calendar.providerName })}</Button>}</DialogFooter>
-    </DialogContent>
-  </Dialog>;
 }

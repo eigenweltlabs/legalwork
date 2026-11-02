@@ -70,6 +70,19 @@ test("recovery only adopts a live root session inside the assistant folder", asy
   await expect(f.assistant.current()).rejects.toThrow("writable");
 });
 
+test("saved Assistant identity survives restart without contacting the engine or creating a day", async () => {
+  const f = await fixture();
+  expect(f.assistant.savedDay()).toBeNull();
+  const yesterday = await f.assistant.current();
+  f.config.readOnly = true;
+  const reopened = await MainAssistant.open(f.config, join(f.root, "runtime.sqlite"), () => {
+    throw new Error("Browsing saved history must not contact the engine");
+  }, undefined, () => new Date(2026, 9, 8, 9));
+  expect(reopened.savedDay()).toEqual(yesterday.day);
+  expect(f.sessions).toHaveLength(1);
+  expect(reopened.history(yesterday.workspace.id).days).toEqual([yesterday.day]);
+});
+
 test("assistant appearance persists across restart and never changes its project folder or day", async () => {
   const f = await fixture();
   const before = await f.assistant.current();

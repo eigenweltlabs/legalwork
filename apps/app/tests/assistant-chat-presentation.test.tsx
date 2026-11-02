@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import DOMPurify from "dompurify";
-import { assistantChatMessages, assistantProjectFileTab, assistantReactions, linkedAssistantFiles } from "../src/components/chat/assistant-chat-presentation";
+import { assistantHasVisibleContent, assistantChatMessages, assistantProjectFileTab, assistantReactions, linkedAssistantFiles } from "../src/components/chat/assistant-chat-presentation";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { MessageList } from "../src/components/chat/message-list";
@@ -209,4 +209,15 @@ test("linked saved views use their verified document type and open the rendered 
     expect(html).not.toContain(".view.json");
     expect(resolveHrefOpenTarget(path, targets)).toMatchObject({ value: path, preview: "view", documentType });
   }
+});
+
+
+test("date dividers require visible content, not empty days or background activity", () => {
+  expect(assistantHasVisibleContent([])).toBe(false);
+  expect(assistantHasVisibleContent([activity])).toBe(false);
+  expect(assistantHasVisibleContent([{ ...response, parts: [{ type: "text", text: " \n" }] }])).toBe(false);
+  expect(assistantHasVisibleContent([user])).toBe(true);
+  expect(assistantHasVisibleContent([response])).toBe(true);
+  expect(assistantHasVisibleContent([{ ...response, parts: [shared] }])).toBe(true);
+  expect(assistantHasVisibleContent([{ ...user, parts: [{ type: "file", mediaType: "image/png", url: "image.png" }] }])).toBe(true);
 });

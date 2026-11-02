@@ -2,6 +2,7 @@ import type { QueuedDraftSnapshot, SessionQueue } from "@legalwork/types/session
 import type { UIMessage } from "ai";
 import { create } from "zustand";
 import type { ComposerDraft } from "@/app/types";
+import { integrationReferencesFromDraft } from "./composer/integration-message";
 
 type OutgoingMessage = { scope: string; queueId: string; message: UIMessage; urls: string[] };
 export const assistantOutgoingScope = (baseUrl: string, workspaceId: string, sessionId: string) => JSON.stringify([baseUrl, workspaceId, sessionId]);
@@ -18,7 +19,8 @@ export function addAssistantOutgoingMessage(scope: string, queueId: string, draf
   useAssistantOutgoingMessages.setState(state => ({ entries: [...state.entries, { scope, queueId, message, urls }] }));
 }
 
-function outgoingMessage(queueId: string, draft: Pick<QueuedDraftSnapshot, "parts"> & { attachments: { name: string; mimeType: string }[] }, urls: string[]): UIMessage {
+function outgoingMessage(queueId: string, draft: Pick<QueuedDraftSnapshot, "parts" | "text"> & { attachments: { name: string; mimeType: string }[] }, urls: string[]): UIMessage {
+  const integrations = integrationReferencesFromDraft(draft.text);
   const text = draft.parts.map(part => {
     if (part.type === "text") return part.text;
     if (part.type === "paste") return `[pasted text ${part.label}]`;
@@ -31,7 +33,7 @@ function outgoingMessage(queueId: string, draft: Pick<QueuedDraftSnapshot, "part
     metadata: { localOutgoing: true, opencode: { created: Date.now() } },
     parts: [
       ...draft.attachments.map((attachment, index) => ({ type: "file", filename: attachment.name, mediaType: attachment.mimeType, url: urls[index] } satisfies UIMessage["parts"][number])),
-      ...(text ? [{ type: "text", text } satisfies UIMessage["parts"][number]] : []),
+      ...(text ? [{ type: "text", text, ...(integrations.length ? { providerMetadata: { opencode: { integrations } } } : {}) } satisfies UIMessage["parts"][number]] : []),
     ],
   };
 }
@@ -81,9 +83,9 @@ export function isLocalOutgoingMessage(message: UIMessage) {
   return Boolean(message.metadata && typeof message.metadata === "object" && "localOutgoing" in message.metadata && message.metadata.localOutgoing === true);
 }
 
-/** Only an idle chat with an empty, running queue can preview an immediate send. */
-export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean) {
-  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing);
+/** Any idle chat can preview an ordinary prompt with a durable message ID. */
+export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean, draft: Pick<ComposerDraft, "mode" | "command">) {
+  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing && draft.mode === "prompt" && !draft.command);
 }
 
 /** The server can discover work that the submitting window has not seen yet. */

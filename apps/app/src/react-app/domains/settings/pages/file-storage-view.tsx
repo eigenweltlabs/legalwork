@@ -2,7 +2,10 @@ import { ShareCloudStorageDialog } from "./share-cloud-storage-dialog";
 import { ConnectorWriteSettings, CONNECTOR_SETTINGS_CHANGED } from "../connector-write-settings";
 /** @jsxImportSource react */
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePlatform } from "../../../kernel/platform";
+import { saveStorageAndSignIn } from "./storage-connect";
+import { ConnectionMethodPicker } from "./connection-method-picker";
 import { connectorDefinitions } from "@legalwork/types/connectors";
 import { ConnectorConfig } from "../connector-config";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
@@ -14,7 +17,6 @@ import {
   AlertCircle,
   ArrowUpRight,
   Check,
-  ChevronRight,
   Loader2,
   HardDrive,
   Plus,
@@ -353,6 +355,7 @@ export function StorageConnectionDialog({
   onClose,
   onBack,
   onSaved,
+  customSetup,
 }: {
   client: LegalworkServerClient;
   workspaceId: string;
@@ -363,7 +366,11 @@ export function StorageConnectionDialog({
   onClose: () => void;
   onBack?: () => void;
   onSaved: () => void;
+  customSetup?: { name: string; onSelect: () => void };
 }) {
+  const platform = usePlatform();
+  const activeSave = useRef<AbortController | null>(null);
+  useEffect(() => () => activeSave.current?.abort(), []);
   const initial = connection ?? account;
   const cloud = initial?.config.kind === "oauth" && Boolean(initial.config.accountId);
   const [name, setName] = useState(connection?.name ?? provider?.name ?? "");
@@ -375,7 +382,7 @@ export function StorageConnectionDialog({
   const [secrets, setSecrets] = useState<Partial<Record<StorageSecretKey, string>>>({});
   const [readOnly, setReadOnly] = useState(initial?.readOnly ?? false);
   const [enabled, setEnabled] = useState(connection?.enabled ?? true);
-  const [busy, setBusy] = useState<"test" | "save" | null>(null);
+  const [busy, setBusy] = useState<"test" | "save" | "signin" | null>(null);
   const [error, setError] = useState("");
   const [tested, setTested] = useState(false);
   const Icon = storageIcons[kind];
@@ -413,13 +420,16 @@ export function StorageConnectionDialog({
         await client.testStorageConnection(workspaceId, input.data, connection?.id);
         setTested(true);
       } else {
-        await client.saveStorageConnection(workspaceId, input.data, connection?.id);
+        const controller = new AbortController();
+        activeSave.current = controller;
+        await saveStorageAndSignIn(client, workspaceId, input.data, { id: connection?.id, signal: controller.signal, openLink: url => platform.openLink(url), onWaiting: () => setBusy("signin") });
         onSaved();
         onClose();
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("storage.failed"));
+      if (!activeSave.current?.signal.aborted) setError(cause instanceof Error ? cause.message : t("storage.failed"));
     } finally {
+      activeSave.current = null;
       setBusy(null);
     }
   };
@@ -427,18 +437,12 @@ export function StorageConnectionDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open && (!busy || busy === "signin")) { activeSave.current?.abort(); onClose(); }
       }}
     >
-      <DialogContent className="flex max-h-[90dvh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="shrink-0 border-b border-border p-6 pr-12">
-          <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
-            {onBack ? <Button variant="link" size="xs" className="px-0 text-muted-foreground" onClick={onBack}>{t("integrations.change_provider")}</Button> : <span>{t("extensions.eyebrow_integrations")}</span>}
-            <ChevronRight className="size-3" />
-            <span>{t("catalog.category_files")}</span>
-            <ChevronRight className="size-3" />
-            <span>{providerName}</span>
-          </div>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-12">
+          {onBack ? <Button variant="link" size="xs" className="mb-2 w-fit px-0 text-muted-foreground" onClick={onBack}>{t("integrations.change_provider")}</Button> : null}
           <DialogTitle className="flex items-center gap-3 text-xl">
             <Icon className="size-5 text-muted-foreground" />
             {connection ? t("storage.edit_title") : cloud ? t("storage.add_folder_view") : t("storage.connect_provider", { provider: providerName })}
@@ -453,6 +457,8 @@ export function StorageConnectionDialog({
             void submit(false);
           }}
         >
+          {!connection && !account && customSetup ? <ConnectionMethodPicker name={customSetup.name} onCustom={customSetup.onSelect} disabled={Boolean(busy)} /> : null}
+          <fieldset disabled={Boolean(busy)} className="flex min-w-0 flex-col gap-6">
           <Field>
             <FieldLabel htmlFor="storage-name">{t("storage.name")}</FieldLabel>
             <Input
@@ -482,7 +488,7 @@ export function StorageConnectionDialog({
               <Field
                 key={field.key}
                 className={
-                  field.key === "endpoint" || field.key === "rootPath" || field.key === "hostFingerprint"
+                  kind === "webdav" || field.key === "endpoint" || field.key === "rootPath" || field.key === "hostFingerprint"
                     ? "sm:col-span-2"
                     : ""
                 }
@@ -641,14 +647,16 @@ export function StorageConnectionDialog({
               </span>
               <Switch checked={readOnly} onCheckedChange={setReadOnly} disabled={Boolean(busy)} />
             </label>
-            <label className="flex items-center justify-between gap-4 border-t border-border pt-4">
+            {kind !== "oauth" || connection ? <label className="flex items-center justify-between gap-4 border-t border-border pt-4">
               <span>
                 <span className="block text-sm font-medium">{t("storage.show_drive")}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">{t("storage.show_drive_help")}</span>
               </span>
               <Switch checked={enabled} onCheckedChange={setEnabled} disabled={Boolean(busy)} />
-            </label>
+            </label> : null}
           </div>
+          </fieldset>
+          {busy === "signin" ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("storage.oauth_pending")}</p> : null}
           {error && (
             <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
               <AlertCircle className="size-4 shrink-0" />
@@ -662,17 +670,17 @@ export function StorageConnectionDialog({
             </p>
           )}
         </form>
-        <DialogFooter className="mx-0 mb-0 shrink-0 flex-wrap border-t border-border bg-muted/20 p-4">
+        <DialogFooter className="mx-0 mb-0 shrink-0 flex-wrap gap-2 border-t border-border bg-muted/20 px-6 py-4">
           {kind !== "oauth" && <Button variant="outline" disabled={Boolean(busy)} onClick={() => void submit(true)} className="sm:mr-auto">
             {busy === "test" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             {t("storage.test")}
           </Button>}
-          <Button variant="ghost" disabled={Boolean(busy)} onClick={onClose}>
+          <Button variant="ghost" disabled={Boolean(busy) && busy !== "signin"} onClick={() => { activeSave.current?.abort(); onClose(); }}>
             {t("common.cancel")}
           </Button>
           <Button type="submit" form="storage-connection-form" disabled={Boolean(busy)}>
-            {busy === "save" && <Loader2 className="size-4 animate-spin" />}
-            {connection ? t("storage.save_connection") : t("storage.add")}
+            {(busy === "save" || busy === "signin") && <Loader2 className="size-4 animate-spin" />}
+            {connection ? t("storage.save_connection") : kind === "oauth" && !cloud ? t("connectors.connect", { name: providerName }) : t("storage.add")}
           </Button>
         </DialogFooter>
       </DialogContent>

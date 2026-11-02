@@ -11,7 +11,7 @@ Open Settings from the app's settings action or native app menu. The overview li
 | Tabular Review | Default review mode, models and minimum answer probability for new reviews. |
 | Recorder | Transcription models/source, language, dictation and meeting settings. See [Recorder settings](recorder-settings.md). |
 | Office Add-ins | Install/manage the local Word, Excel and PowerPoint add-ins on supported desktops. |
-| Integrations | Connectors, file storage, skills and plugins, including team library views when available. |
+| Integrations | Connected apps, file storage and website logins, with installed connections in the sidebar. Skills are under Workflows. |
 | Personalisation | Custom instruction additions, response personality and deletion of legacy local memories. |
 | Notifications | Task arrivals, due/overdue reminders, notification scope and system/badge delivery. |
 | Tool Permissions | Which tool actions may proceed automatically or require approval, across workspaces. |

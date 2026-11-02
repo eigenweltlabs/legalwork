@@ -6,6 +6,7 @@ import { artifactDocumentKey, registerUnsavedDocument, getDocumentDiscardPrompt,
 import { layoutLeaves, MAX_DOCUMENT_PANES, type DocumentDropEdge, type DocumentLayoutNode } from "../src/react-app/domains/session/panel/document-layout";
 import type { ArtifactPanelTab, BrowserPanelTab } from "../src/react-app/domains/session/panel/panel-tab-store";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
+import { syncRouteChatTab } from "../src/react-app/domains/session/panel/route-chat-tab";
 
 const storage = new Map<string, string>();
 const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -24,6 +25,26 @@ Object.defineProperty(globalThis, "localStorage", {
 const { createPanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
 const { openTaskProject } = await import("../src/react-app/domains/tasks/task-project-navigation");
 const usePanelTabStore = createPanelTabStore();
+
+test("closing the routed chat once survives stale route renders and later navigation can reopen it", () => {
+  const panels = createPanelTabStore();
+  const scope = "workspace:closing-chat";
+  const first = { scope, sessionId: "first", label: "First", previousRoute: null, restoringTab: false };
+  const previousRoute = syncRouteChatTab(panels, first);
+  const second = { ...first, sessionId: "second", label: "Second", previousRoute };
+  const selectedRoute = syncRouteChatTab(panels, second);
+  panels.getState().closeTab(scope, "chat:second");
+  // React can render the old URL again before the replacement route commits.
+  syncRouteChatTab(panels, { ...second, previousRoute: selectedRoute });
+  expect(panels.getState().sessions[scope].tabs.map(tab => tab.id)).toEqual(["chat:first"]);
+  const replacementRoute = syncRouteChatTab(panels, { ...first, previousRoute: selectedRoute });
+  syncRouteChatTab(panels, { ...second, previousRoute: replacementRoute });
+  expect(panels.getState().sessions[scope].activeTabId).toBe("chat:second");
+  panels.getState().closeTab(scope, "chat:first");
+  panels.getState().closeTab(scope, "chat:second");
+  syncRouteChatTab(panels, { ...second, previousRoute: selectedRoute });
+  expect(panels.getState().sessions[scope].tabs).toEqual([]);
+});
 
 test("opening a recent chat preserves the destination project's split geometry and document tabs", () => {
   const panels = createPanelTabStore();

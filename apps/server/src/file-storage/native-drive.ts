@@ -18,6 +18,8 @@ export type DriveDriver = {
   upload: (parent: DriveItem, name: string, current: DriveItem | null, source: Buffer | string, contentType: string, condition: WriteCondition) => Promise<void>;
   mkdir: (parent: DriveItem, name: string) => Promise<void>;
   copyFile?: (item: DriveItem, parent: DriveItem, name: string) => Promise<void>;
+  /** Obtain a provider conditional token for the resolved revision, never a synthetic ETag. */
+  renameVersion?: (item: DriveItem) => Promise<string>;
   rename: (item: DriveItem, parent: DriveItem, name: string) => Promise<void>;
   remove: (item: DriveItem, version?: string) => Promise<void>;
   search?: (parent: DriveItem, input: StorageSearch) => Promise<{ items: DriveItem[]; nextCursor?: string; truncated?: boolean }>;
@@ -188,7 +190,8 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       if ((item.folder ? "folder" : "file") !== kind) throw missing();
       if (await childrenByName(parent, name)) conflict();
       if (parent.id === item.id || (item.folder && (await relativePath(parent)).startsWith(`${await relativePath(item)}/`))) conflict();
-      requireVersion(item); await driver.rename(item, parent, name);
+      const guarded = driver.renameVersion && !item.readOnly ? { ...item, version: await driver.renameVersion(item) } : item;
+      requireVersion(guarded); await driver.rename(guarded, parent, name);
     },
     async deleteFile(path, condition = {}) {
       const item = await resolve(path); requireFile(item); checkCondition(info(item), condition); requireVersion(item);

@@ -30,6 +30,7 @@ import type {
   WorkspaceSessionGroup,
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
+import { removeProjectFromSidebar } from "./project-removal";
 import { currentLocale, t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
@@ -1348,6 +1349,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           ...(options?.force ? { force: true } : {}),
         });
         invalidateEigenweltEntitlements();
+        getReactQueryClient().removeQueries({ queryKey: ["calendar"] });
       }
       // The firm's tasks left this machine: so do the announcements naming them.
       useNotificationStore.getState().removeKind("tasks");
@@ -1815,22 +1817,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
     try {
       if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
-      await legalworkClient.deleteWorkspace(workspaceId).catch(error => {
-        if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-      });
-
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId);
-      }
-      if (selectedWorkspaceId === workspaceId) {
-        const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
-        const nextId = nextWorkspace?.id ?? "";
-        setLegacySelectedWorkspaceId(nextId);
-        if (nextId) {
-          await workspaceSetSelected(nextId).catch(() => undefined);
+      const nextId = workspacesRef.current.find(workspace => workspace.id !== workspaceId)?.id ?? "";
+      await removeProjectFromSidebar(legalworkClient, workspaceId, () => {
+        workspacesRef.current = workspacesRef.current.filter(workspace => workspace.id !== workspaceId);
+        setWorkspaces(workspacesRef.current);
+        if (selectedWorkspaceId === workspaceId) setLegacySelectedWorkspaceId(nextId);
+      }, async () => {
+        if (isDesktopRuntime()) {
+          await workspaceForget(workspaceId);
         }
-      }
-      await refreshRouteState();
+        if (selectedWorkspaceId === workspaceId && nextId) await workspaceSetSelected(nextId).catch(() => undefined);
+      }, refreshRouteState);
     } catch (error) {
       toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
     }

@@ -84,6 +84,7 @@ import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { navigationTab } from "../../../shell/panel-navigation-history";
+import { syncRouteChatTab } from "../panel/route-chat-tab";
 import { usePanelNavigationHistory } from "../../../shell/use-panel-navigation-history";
 import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { readWikiNavigationWidth, writeWikiNavigationWidth, readWikiNavigationOpen, writeWikiNavigationOpen } from "../../../shell/session-memory";
@@ -867,18 +868,14 @@ export function SessionPage(props: SessionPageProps) {
     // Do not adopt that still-selected route again during this intermediate render.
     if (closingSubagent.current && closingSubagent.current === props.selectedSessionId) return;
     closingSubagent.current = null;
-    if (!props.selectedSessionId || hasMainView || (assistantWorkspace && !isAssistantChat(props.selectedSessionId) && !sessionInfo(props.selectedSessionId))) return;
-    const store = usePanelTabStore.getState();
-    const tab = store.sessions[panelStateSessionId]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === props.selectedSessionId);
-    const routeChat = `${panelStateSessionId}:${props.selectedSessionId}`;
+    if (!props.selectedSessionId) { previousRouteChat.current = null; return; }
+    if (hasMainView || (assistantWorkspace && !isAssistantChat(props.selectedSessionId) && !sessionInfo(props.selectedSessionId))) return;
     // Back/Forward may target a file beside the chat named in this route.
     const restoringTab = navigationTab(window.history.state?.usr, panelStateSessionId);
-    if (tab) {
-      store.updateTabLabel(panelStateSessionId, tab.id, selectedSessionTitle || tab.label);
-      if (!restoringTab && previousRouteChat.current !== routeChat) store.selectTab(panelStateSessionId, tab.id);
-    }
-    else if (!restoringTab) store.adoptChat(panelStateSessionId, props.selectedSessionId, selectedSessionTitle || t("session.default_title"), { parentID: sessionInfo(props.selectedSessionId)?.parentID ?? undefined });
-    previousRouteChat.current = routeChat;
+    previousRouteChat.current = syncRouteChatTab(usePanelTabStore, {
+      scope: panelStateSessionId, sessionId: props.selectedSessionId, label: selectedSessionTitle || t("session.default_title"),
+      previousRoute: previousRouteChat.current, restoringTab: Boolean(restoringTab), parentID: sessionInfo(props.selectedSessionId)?.parentID ?? undefined,
+    });
   }, [panelStateSessionId, props.selectedSessionId, selectedSessionTitle, hasMainView, assistantWorkspace, isAssistantChat, sessionInfo]);
   usePanelNavigationHistory(!hasMainView || sidePanelOpen ? panelStateSessionId : null);
   const subagentStatuses = useSessionActivityStore(state => state.statusesByWorkspaceId[props.selectedWorkspaceId]);

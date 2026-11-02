@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, CheckCircle2, ChevronDown, Folder, Loader2, Mail, RefreshCw } from "lucide-react";
 import { connectorDefinitions, connectorIsConnected, connectorStatusSchema, type ConnectorStatus, type ConnectorOAuthClient } from "@legalwork/types/connectors";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -16,6 +17,7 @@ import { resolveBrandIconSrc } from "../../design-system/extension-icon-src";
 
 export function ConnectorConfig({ id, legalworkServerClient: client, onExtensionConnectionChange, presentation = "panel" }: Pick<ExtensionConfigContext, "legalworkServerClient" | "onExtensionConnectionChange"> & { id: string; presentation?: "panel" | "dialog" }) {
   const platform = usePlatform();
+  const cache = useQueryClient();
   const definition = connectorDefinitions.find((item) => item.id === id);
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -71,7 +73,12 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
   const run = async (label: string, command: () => Promise<void>) => {
     if (active.current || busy) return;
     setBusy(label); setError(null); setNotice(null);
-    try { await command(); }
+    try {
+      await command();
+      if (definition?.kind === "calendar" || id === "outlook") {
+        cache.removeQueries({ predicate: query => query.queryKey[0] === "calendar" && (query.queryKey.includes("connections") || query.queryKey.includes("connected-events")) });
+      }
+    }
     catch (value) { if (mounted.current) setError(value instanceof Error ? value.message : t("connectors.failed")); }
     finally { if (mounted.current) setBusy(null); }
   };

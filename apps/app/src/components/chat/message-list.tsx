@@ -1,4 +1,5 @@
 import { CalendarEventDraftToolCard } from "./calendar-event-draft-card";
+import { integrationMessageMetadata, splitIntegrationMessage } from "@/react-app/domains/session/surface/composer/integration-message";
 import { isLocalOutgoingMessage } from "@/react-app/domains/session/surface/assistant-outgoing-messages";
 import { assistantIsWriting } from "@/react-app/domains/session/surface/assistant-bubbles";
 import { EmailDraftToolCard } from "./email-draft-card";
@@ -620,6 +621,18 @@ function renderUserTextWithReferenceChips(rawText: string) {
   })
 }
 
+function renderUserMessageText(message: UIMessage) {
+  return message.parts.flatMap((part, index) => {
+    if (part.type !== "text") return [];
+    const metadata = part.providerMetadata?.opencode;
+    const { integrations } = integrationMessageMetadata(metadata);
+    return splitIntegrationMessage(part.text, integrations, metadata?.legacyIntegrationSpacing === true).map((segment, segmentIndex) =>
+      typeof segment === "string" ? <React.Fragment key={`${index}:${segmentIndex}`}>{renderUserTextWithReferenceChips(segment)}</React.Fragment> :
+        <span key={`${index}:${segmentIndex}`} data-integration-chip={segment.kind} title={segment.label} className="inline-flex max-w-full items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11 align-middle"><span className="truncate">@{segment.label}</span></span>,
+    );
+  });
+}
+
 const UserMessage = React.memo(
   ({ message: sourceMessage, isStreaming, reaction }: UserMessageProps) => {
     const copyMessage = useCopyMessage();
@@ -655,7 +668,7 @@ const UserMessage = React.memo(
                     data-user-message-bubble=""
                     className="relative bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
                   >
-                    {renderUserTextWithReferenceChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""))}
+                    {renderUserMessageText(message)}
                     {reaction && <span role="img" aria-label={t("assistant.reaction", { emoji: reaction })} data-assistant-reaction="" className="absolute -top-3 -left-3 flex h-7 min-w-8 items-center justify-center rounded-full border-2 border-background bg-muted px-1.5 text-base shadow-sm">{reaction}</span>}
                   </MessageContent>
                 ) : null}

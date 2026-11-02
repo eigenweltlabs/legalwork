@@ -17,7 +17,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Project Files | Local files and linked storage, with import and document panels | [Files](files-documents.md), [Storage](connected-storage.md) |
 | Project Chats | Conversations belonging to one project | [Chats](workspaces-chats.md) |
 | Tasks / Inbox and Project Tasks | Work with an owner, status, due date and attachments | [Tasks](tasks-intake.md) |
-| Calendar and Project Calendar | See dated tasks and deadlines; create and review deadline records | [Calendar](calendar.md) |
+| Calendar and Project Calendar | See tasks, deadlines and connected events; scroll through weeks and read event details | [Calendar](calendar.md) |
 | Scheduled | Run a prompt at a chosen time or repeatedly | [Scheduled tasks](scheduled-tasks.md) |
 | Workflows | Maintain workflows, review prompt sets and skills | [Workflows](skills-workflows.md) |
 | Project Tabular Review | Ask the same questions across documents and inspect cited answers | [Tabular Review](reviews.md) |

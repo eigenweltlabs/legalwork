@@ -88,7 +88,7 @@ describe("desktop MCP removal", () => {
     expect(removalOrder).toEqual(["engine"]);
 
     disconnectError = true;
-    await store.removeMcp("legalmemory");
+    expect(await store.removeMcp("legalmemory")).toBe(false);
     expect(store.getSnapshot().mcpStatus).toBe("Could not disconnect the running integration");
     expect(connectionChanges).toBe(1);
   });

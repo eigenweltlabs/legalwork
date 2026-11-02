@@ -83,12 +83,6 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
           (!source.exported && result.size !== source.size) || (source.checksum && result.checksum !== source.checksum))
         throw new ApiError(409, "storage_conflict", "The copied file's metadata did not match the source and destination. Refresh both folders.");
     },
-    async rename(item, parent, name) {
-      parent = await tree.writeParent(parent);
-      const query = new URLSearchParams({ supportsAllDrives: "true", fields: "id" });
-      if (!item.parents.includes(parent.id)) { query.set("addParents", parent.id); query.set("removeParents", item.parents.join(",")); }
-      await request(`/drive/v3/files/${encodeURIComponent(item.id)}?${query}`, { method: "PATCH", body: { name }, headers: { "If-Match": item.version } });
-    },
     async remove(item, version) {
       await request(`/drive/v3/files/${encodeURIComponent(item.id)}?supportsAllDrives=true`, { method: "PATCH", body: { trashed: true }, headers: { "If-Match": version ?? item.version } });
     },

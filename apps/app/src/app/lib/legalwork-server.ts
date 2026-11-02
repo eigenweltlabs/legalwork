@@ -2839,7 +2839,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     assistantSettings: () => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken }),
     updateAssistantSettings: (settings: AssistantSettings) => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken, method: "PATCH", body: settings }),
     assistantSettingsCatalog: () => requestJson<AssistantSettingsCatalog>(baseUrl, "/assistant/settings/catalog", { token, hostToken }),
-    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null }>(baseUrl, "/assistant", { token, hostToken }),
+    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null; day?: { date: string; sessionId: string } | null; onboarding?: AssistantOnboardingState }>(baseUrl, "/assistant", { token, hostToken }),
     assistantAttention: (cursor?: string) => requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention?presented=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { token, hostToken }),
     setAssistantAttentionVisibility: (item: Pick<AssistantAttentionItem, "id" | "revision" | "workspaceId" | "sessionId">, visible: boolean) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/visibility", { token, hostToken, method: "POST", body: { id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, visible } }),
     replyAssistantAttention: (reply: AssistantAttentionReply) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/reply", { token, hostToken, method: "POST", body: reply }),

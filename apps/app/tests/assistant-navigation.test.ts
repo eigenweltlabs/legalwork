@@ -1,11 +1,39 @@
 import { expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
-import { resolveAssistantChat } from "../src/react-app/shell/assistant-navigation";
+import { resolveAssistantChat, seedSavedAssistant } from "../src/react-app/shell/assistant-navigation";
 
 function current(date: string, sessionId: string): Awaited<ReturnType<LegalworkServerClient["mainAssistantCurrent"]>> {
   return { workspace: { id: "assistant", path: "/projects/Assistant", name: "Assistant", preset: "main-assistant", workspaceType: "local" }, day: { date, sessionId }, profile: { name: "Josi", icon: "cat" } };
 }
+
+test("saved Assistant history is available while the online current-day request is unresolved", async () => {
+  const cache = new QueryClient();
+  const saved = current("2026-10-07", "saved-chat");
+  const next = current("2026-10-08", "today");
+  let finish = (_value: typeof next) => {};
+  const client = { baseUrl: "http://server", mainAssistantCurrent: () => new Promise<typeof next>(resolve => { finish = resolve; }) };
+  const request = resolveAssistantChat(client, cache, new Date(2026, 9, 8));
+  try {
+    seedSavedAssistant(cache, client.baseUrl, saved);
+    expect(cache.getQueryData(["main-assistant", client.baseUrl])).toEqual(saved);
+    expect(cache.isFetching()).toBe(1);
+    finish(next);
+    expect(await request).toEqual(next);
+    seedSavedAssistant(cache, client.baseUrl, saved);
+    expect(cache.getQueryData(["main-assistant", client.baseUrl])).toEqual(next);
+  } finally { finish(next); cache.clear(); }
+});
+
+test("saved Assistant bootstrap stays scoped to its server and cannot invent a first chat", () => {
+  const cache = new QueryClient();
+  try {
+    seedSavedAssistant(cache, "http://old-server", current("2026-10-07", "old-chat"));
+    seedSavedAssistant(cache, "http://new-server", { workspace: null, profile: { name: null, icon: "flower" }, day: null });
+    expect(cache.getQueryData(["main-assistant", "http://new-server"])).toBeUndefined();
+    expect(cache.getQueryData(["main-assistant", "http://old-server"])).toEqual(current("2026-10-07", "old-chat"));
+  } finally { cache.clear(); }
+});
 
 test("opening today's known Assistant never waits for another provisioning request", async () => {
   const cache = new QueryClient();

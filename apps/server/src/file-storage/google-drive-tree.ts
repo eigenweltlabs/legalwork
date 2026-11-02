@@ -5,6 +5,7 @@ import { ApiError } from "../errors.js";
 import { parseNative } from "../connectors/native.js";
 import type { StreamingConnectorRequest } from "../connectors/request.js";
 import { nativeSegment, type DriveItem } from "./native-drive.js";
+import { conflict } from "./common.js";
 
 export const googleFolder = "application/vnd.google-apps.folder";
 export const googleExports = {
@@ -16,17 +17,18 @@ export const googleExports = {
 const googleFile = z.object({ id: z.string(), name: z.string(), mimeType: z.string(), size: z.string().optional(), md5Checksum: z.string().optional(), modifiedTime: z.string().optional(), version: z.string().optional(), parents: z.array(z.string()).default([]), webViewLink: z.string().optional(), trashed: z.boolean().optional(), driveId: z.string().optional(), sharedWithMeTime: z.string().optional(), resourceKey: z.string().optional(), shortcutDetails: z.object({ targetId: z.string(), targetMimeType: z.string(), targetResourceKey: z.string().optional() }).optional() });
 const googleFields = "id,name,mimeType,size,md5Checksum,modifiedTime,version,parents,webViewLink,trashed,driveId,sharedWithMeTime,resourceKey,shortcutDetails";
 const filesPage = z.object({ files: z.array(googleFile).default([]), nextPageToken: z.string().optional(), incompleteSearch: z.boolean().optional() });
+const renameMetadata = z.object({ id: z.string(), etag: z.string(), version: z.string() });
 const driveSchema = z.object({ id: z.string(), name: z.string() });
 const drivesPage = z.object({ drives: z.array(driveSchema), nextPageToken: z.string().optional() });
 const cursorSchema = z.object({ scope: z.string(), phase: z.enum(["user", "drives"]), token: z.string().optional(), drivesToken: z.string().optional(), offset: z.number().int().min(0).max(100).default(0), driveId: z.string().optional() });
 const literal = (value: string) => value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-type GoogleItem = DriveItem & { driveId?: string; sharedWithMeTime?: string; resourceKey?: string; targetId?: string; targetResourceKey?: string; checksum?: string };
+type GoogleItem = DriveItem & { revision?: string; driveId?: string; sharedWithMeTime?: string; resourceKey?: string; targetId?: string; targetResourceKey?: string; checksum?: string };
 function item(file: z.infer<typeof googleFile>, etag?: string | null): GoogleItem {
   if (file.trashed) throw new ApiError(404, "storage_not_found", "This file is in the trash.");
   const mime = file.shortcutDetails?.targetMimeType ?? file.mimeType;
   const format = Object.entries(googleExports).find(([key]) => key === mime)?.[1];
   return { id: file.id, name: format ? `${file.name}.${format.extension}` : file.name, folder: mime === googleFolder,
-    parents: file.parents, size: Number(file.size ?? 0), version: etag ?? `sha256:${file.version ?? file.modifiedTime ?? file.id}`,
+    parents: file.parents, size: Number(file.size ?? 0), version: etag ?? `sha256:${file.version ?? file.modifiedTime ?? file.id}`, revision: file.version,
     contentType: format?.type ?? mime, modifiedAt: file.modifiedTime, webUrl: file.webViewLink,
     exported: mime.startsWith("application/vnd.google-apps.") && mime !== googleFolder,
     driveId: file.driveId, sharedWithMeTime: file.sharedWithMeTime, resourceKey: file.resourceKey, checksum: file.md5Checksum,
@@ -199,6 +201,26 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     if (parent.id.startsWith("legalwork:google:")) throw new ApiError(400, "storage_invalid_destination", "Choose a folder in My Drive or a shared drive to save files.");
     return shortcutTarget(await get(parent.id));
   };
+  // Drive v3 omits the file ETag. Read and patch through v2 for a genuine
+  // conditional rename, rejecting any change since v3 resolved the source.
+  const renameVersion = async (file: GoogleItem) => {
+    if (!file.revision) throw new ApiError(409, "storage_conditional_write_unsupported", "The provider did not supply a safe file version. Refresh before changing this file.");
+    const query = new URLSearchParams({ supportsAllDrives: "true", fields: "id,etag,version" });
+    const current = parseNative(renameMetadata, await request(`/drive/v2/files/${encodeURIComponent(file.id)}?${query}`,
+      file.resourceKey ? { headers: { "X-Goog-Drive-Resource-Keys": `${file.id}/${file.resourceKey}` } } : {}));
+    if (current.id !== file.id) throw new ApiError(502, "storage_invalid_response", "Google returned a different file identity.");
+    if (current.version !== file.revision) conflict();
+    return current.etag;
+  };
+  const rename = async (file: GoogleItem, parent: DriveItem, name: string) => {
+    parent = await writeParent(parent);
+    const query = new URLSearchParams({ supportsAllDrives: "true", fields: "id" });
+    if (!file.parents.includes(parent.id)) { query.set("addParents", parent.id); query.set("removeParents", file.parents.join(",")); }
+    await request(`/drive/v2/files/${encodeURIComponent(file.id)}?${query}`, { method: "PATCH", body: { title: name }, headers: {
+      "If-Match": file.version,
+      ...(file.resourceKey ? { "X-Goog-Drive-Resource-Keys": `${file.id}/${file.resourceKey}` } : {}),
+    } });
+  };
   const lookup = async (parent: DriveItem, name: string) => {
     if (!accountWide || parent.id !== root.id) return null;
     let cursor: string | undefined, found: GoogleItem | null = null;
@@ -216,6 +238,6 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     return found;
   };
   const searchScope: "folder" | "subtree" = accountWide ? "subtree" : "folder";
-  return { root, get, children, contains, lookup, search, searchPath, relativePath, listFilesAtRoot, writeParent,
+  return { root, get, children, contains, lookup, search, searchPath, relativePath, listFilesAtRoot, writeParent, renameVersion, rename,
     namespace: `google-drive:${config.accountId}:${myDrive.id}`, searchScope };
 }

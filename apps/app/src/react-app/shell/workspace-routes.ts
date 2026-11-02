@@ -1,12 +1,13 @@
 import { isProjectView, type ProjectView } from "../domains/session/panel/project-view";
 import type { SettingsTab } from "../../app/types";
 
-export type ComposerToolSection = "workflows" | "plugins" | "connectors" | "skills";
-export type ComposerSettingsSection = ComposerToolSection | "providers";
+export type ComposerToolSection = "workflows" | "skills" | "integrations";
+export type ComposerSettingsSection = ComposerToolSection | "plugins" | "connectors" | "providers";
 
 export function composerSettingsPath(section: ComposerSettingsSection) {
   switch (section) {
     case "workflows": return "/workflows";
+    case "integrations": return "/settings/extensions";
     case "plugins": return "/settings/extensions/plugins";
     case "connectors": return "/settings/extensions/mcp";
     case "skills": return "/settings/workflows/skills";

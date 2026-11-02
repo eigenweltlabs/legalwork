@@ -1,12 +1,12 @@
 # Add Gmail or Outlook email
 
-Open in LegalWork: [Connectors](legalwork://app/settings/extensions/mcp), [Account](legalwork://app/settings/account).
+Open in LegalWork: [Integrations](legalwork://app/settings/extensions/mcp), [Account](legalwork://app/settings/account).
 
-Open **Settings > Integrations**, press **Add**, then select **Plugins** to open the **Plugin catalogue**. Search for and select **Gmail** or **Outlook Email** to open its connection panel. The **Add** step is required to find a connector you have not added yet; an already added connector can be opened from the library. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
+Open **Settings > Integrations > Communication**. Search for **Gmail** or **Outlook Email** and press its **+** button to connect. Select an installed account and choose **Manage** to open its settings. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
 
 ## Connect Outlook directly with Microsoft
 
-1. Open **Settings > Integrations**, press **Add**, choose **Plugins**, then search for and select **Outlook Email**.
+1. Open **Settings > Integrations**, open **Communication**, then press **+** next to **Outlook Email**.
 2. Leave **Allow write access** off to read and search mail. Enable it if you also want drafts, sending or mailbox organization, then review Microsoft's requested permissions.
 3. Select **Connect Outlook Email**. Complete Microsoft sign-in in the browser with an account that has an Outlook mailbox, and review the LegalWork consent screen. An Azure work account alone does not provide a mailbox.
 4. Return to LegalWork, select **Refresh** if needed, then **Test connection**. If you connected through Outlook Calendar, select **Activate Outlook Email** first.
@@ -20,7 +20,7 @@ Existing connections created with **Connect with Eigenwelt** keep that sign-in m
 ## Connect Gmail with Eigenwelt
 
 1. Sign in under **Settings > Account**.
-2. Open **Settings > Integrations**, press **Add**, choose **Plugins**, then search for and select **Gmail**. In its connection panel, choose **Connect with Eigenwelt** under **Connection method**.
+2. Open **Settings > Integrations**, open **Communication**, then press **+** next to **Gmail**. In its connection panel, choose **Connect with Eigenwelt** under **Connection method**.
 3. Leave **Allow write access** off for reading and searching. Enable it if you want to save drafts or send emails, then review the permissions requested during sign-in.
 4. Select **Connect Gmail**. Keep the connection panel open while completing Google sign-in in the browser. Choose the intended account and review its consent screen.
 5. Return to LegalWork and select **Refresh** if necessary. Use **Test connection** to check access directly with the provider.

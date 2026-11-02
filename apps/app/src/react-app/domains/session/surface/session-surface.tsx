@@ -1,3 +1,4 @@
+import { assistantHasVisibleContent } from "@/components/chat/assistant-chat-presentation";
 import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
 import { browserPasswordRequest } from "@legalwork/types/browser-password-request";
 import { NativeFormPanel } from "../modals/native-form-panel";
@@ -1168,13 +1169,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
     let outgoingId: string | undefined;
     try {
-      if (props.assistantDate) {
-        const localDraft = buildDraft(text, attachments);
-        outgoingId = sharedQueue.reserve(localDraft, editor);
-        if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor?.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope))) {
-          addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
-          sessionScroll.scrollToBottom("auto");
-        }
+      const localDraft = buildDraft(text, attachments);
+      outgoingId = sharedQueue.reserve(localDraft, editor);
+      if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor?.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope), localDraft)) {
+        addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
+        sessionScroll.scrollToBottom("auto");
       }
       const prepared = await prepareProjectAttachments(text, attachments);
       await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);
@@ -2005,7 +2004,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           )}
         >
           <div ref={contentRef} className="lw-session-column">
-            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
+            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} hasCurrentContent={showOnboarding || assistantHasVisibleContent(displayedMessages)} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
             <div className={cn(props.assistantDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
             {showOnboarding && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
@@ -2182,6 +2181,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         listCommands={props.listCommands}
         listSkills={listSkills}
         skills={toolSkills}
+        integrationClient={props.client}
+        integrationWorkspaceId={props.workspaceId}
         listMcp={listMcp}
         mcpServers={toolMcpServers}
         mcpStatuses={toolMcpStatuses}

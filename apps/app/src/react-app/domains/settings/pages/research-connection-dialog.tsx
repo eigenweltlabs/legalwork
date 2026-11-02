@@ -38,9 +38,9 @@ export function ResearchConnectionDialog({ client, workspaceId, provider, connec
     finally { setBusy(false); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
-    <DialogContent>
+    <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-xl">
       <DialogHeader><DialogTitle>{connection ? t("catalog.manage_login") : provider ? t("research.connect_title", { name: provider.name }) : t("catalog.save_browser_login")}</DialogTitle><DialogDescription>{t("catalog.research_setup")}</DialogDescription></DialogHeader>
-      <form id="research-connection" data-private data-ph-mask className="space-y-4" onSubmit={event => { event.preventDefault(); void submit(); }}>
+      <form id="research-connection" data-private data-ph-mask className="min-h-0 space-y-5 overflow-y-auto" onSubmit={event => { event.preventDefault(); void submit(); }}>
         <label className="block space-y-2 text-sm"><span className="block">{t("catalog.login_name")}</span><Input value={name} required maxLength={80} disabled={busy} onChange={event => setName(event.target.value)} /></label>
         {!provider && !connection ? <label className="block space-y-2 text-sm"><span className="block">{t("catalog.website_url")}</span><Input value={researchUrl} type="url" required disabled={busy} onChange={event => setResearchUrl(event.target.value)} /></label> : null}
         {!connection && !provider?.loginUrl ? <label className="block space-y-2 text-sm"><span className="block">{t("research.login_url")}</span><Input value={loginUrl} type="url" disabled={busy} onChange={event => setLoginUrl(event.target.value)} /></label> : null}

@@ -1,3 +1,4 @@
+import { assistantHasVisibleContent } from "@/components/chat/assistant-chat-presentation";
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import type { AssistantOnboardingState } from "@legalwork/types/main-assistant";
 import { AssistantOnboardingConversation } from "./assistant-onboarding-conversation";
@@ -21,10 +22,11 @@ export function AssistantDateDivider({ date }: { date: string }) {
 }
 
 /** Older engine contexts are rendered here only. They never enter today's prompt or transcript cache. */
-export function AssistantHistory({ client, workspaceId, sessionId, date, scrollRef, onOpenTarget, onboarding }: {
+export function AssistantHistory({ client, workspaceId, sessionId, date, scrollRef, onOpenTarget, onboarding, hasCurrentContent }: {
   client: LegalworkServerClient; workspaceId: string; sessionId: string; date: string; scrollRef: RefObject<HTMLDivElement | null>;
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions) => void;
   onboarding?: AssistantOnboardingState;
+  hasCurrentContent: boolean;
 }) {
   const anchor = useRef<{ top: number; height: number } | null>(null);
   const history = useInfiniteQuery({
@@ -70,7 +72,13 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
     load();
     return () => container.removeEventListener("scroll", load);
   }, [loadOlder, scrollRef, sessionId]);
-  const days = history.data?.pages.flatMap(page => page.days).toReversed() ?? [];
+  const hasOnboarding = (id: string) => onboarding?.step === "complete" && onboarding.sessionId === id;
+  const days = history.data?.pages.flatMap(page => page.days).filter(day => assistantHasVisibleContent(day.messages) || hasOnboarding(day.sessionId)).toReversed() ?? [];
+  const lastPage = history.data?.pages.at(-1);
+  const lastPageEmpty = Boolean(lastPage && lastPage.days.every(day => !assistantHasVisibleContent(day.messages) && !hasOnboarding(day.sessionId)));
+  useEffect(() => {
+    if (lastPageEmpty && history.hasNextPage && !history.isFetching && !history.isError) void history.fetchNextPage();
+  }, [lastPageEmpty, history.hasNextPage, history.isFetching, history.isError, history.fetchNextPage]);
   return <>
     {history.isFetching && <p role="status" className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("assistant.loading_history")}</p>}
     {history.isError && <div role="alert" className="py-3 text-center text-xs text-muted-foreground">{t("assistant.history_failed")}<Button variant="ghost" size="sm" onClick={() => void (history.isFetchNextPageError ? history.fetchNextPage() : history.refetch())}>{t("scheduled.retry")}</Button></div>}
@@ -85,6 +93,6 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
       </MessageListProvider>
       </OpenTargetProvider>
     </section>)}
-    {days.length > 0 && <AssistantDateDivider date={date} />}
+    {days.length > 0 && hasCurrentContent && <AssistantDateDivider date={date} />}
   </>;
 }

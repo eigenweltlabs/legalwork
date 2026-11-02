@@ -1,3 +1,5 @@
+import { createIntegrationMention, type IntegrationSelection } from "./integration-mention";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
 import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
@@ -98,12 +100,14 @@ type ComposerProps = {
   listCommands: () => Promise<SlashCommandOption[]>;
   listSkills?: () => Promise<SkillCard[]>;
   skills?: SkillCard[];
+  integrationClient?: LegalworkServerClient;
+  integrationWorkspaceId?: string;
   listMcp?: () => Promise<{ servers: ComposerConnector[]; statuses: McpStatusMap }>;
   mcpServers?: ComposerConnector[];
   mcpStatuses?: McpStatusMap;
   listImportedPlugins?: () => Promise<ImportedPlugin[]>;
   importedPlugins?: ImportedPlugin[];
-  onOpenSettingsSection?: (section: ComposerToolSection) => void;
+  onOpenSettingsSection?: (section: ComposerToolSection, connectionId?: string) => void;
   recentFiles: string[];
   searchFiles: (query: string) => Promise<string[]>;
   onInsertMention: (kind: ComposerMentionKind, value: string) => void;
@@ -534,10 +538,9 @@ export function ReactSessionComposer(props: ComposerProps) {
     setToolMenuOpen(false);
   };
 
-  const applyPluginSelection = (plugin: ImportedPlugin) => {
-    const value = createPluginComposerMention(plugin.pluginId, pluginImportName(plugin));
-    props.onRegisterMention("plugin", value);
-    if (editorRef.current) editorRef.current.insertMentionAtSelection(value, "plugin");
+  const insertToolMention = (value: string, kind: "plugin" | "integration") => {
+    props.onRegisterMention(kind, value);
+    if (editorRef.current) editorRef.current.insertMentionAtSelection(value, kind);
     else {
       const separator = props.draft.length && !/\s$/.test(props.draft) ? " " : "";
       props.onDraftChange(`${props.draft}${separator}@${encodeComposerMentionValue(value)} `);
@@ -545,6 +548,8 @@ export function ReactSessionComposer(props: ComposerProps) {
     setSlashOpen(false);
     setToolMenuOpen(false);
   };
+  const applyPluginSelection = (plugin: ImportedPlugin) => insertToolMention(createPluginComposerMention(plugin.pluginId, pluginImportName(plugin)), "plugin");
+  const applyIntegrationSelection = (selection: IntegrationSelection) => insertToolMention(createIntegrationMention(selection), "integration");
 
   const acceptActiveItem = () => {
     if (!activeItems.length) return false;
@@ -1110,6 +1115,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                     className="max-h-[min(24rem,var(--available-height))] w-[min(calc(100vw-2.5rem),34rem)] gap-0 overflow-hidden rounded-[22px] border-dls-border bg-dls-surface p-0 shadow-[var(--dls-shell-shadow)]"
                   >
                     {toolMenuOpen ? <ComposerToolMenu
+                      client={props.integrationClient}
+                      workspaceId={props.integrationWorkspaceId}
                       section={toolMenuSection}
                       onSectionChange={setToolMenuSection}
                       skills={skills}
@@ -1121,7 +1128,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                       pluginsLoading={pluginsLoading}
                       onSelectSkill={applySkillSelection}
                       onSelectPlugin={applyPluginSelection}
-                      onConfigure={section => {
+                      onSelectIntegration={applyIntegrationSelection}
+                      onConfigure={(section) => {
                         setToolMenuOpen(false);
                         props.onOpenSettingsSection?.(section);
                       }}

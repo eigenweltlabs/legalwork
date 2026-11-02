@@ -86,3 +86,10 @@ export function assistantReactions(messages: UIMessage[]) {
   }
   return reactions;
 }
+
+/** Match chat presentation so hidden tool activity never creates an empty day. */
+export function assistantHasVisibleContent(messages: UIMessage[]): boolean {
+  return assistantChatMessages(messages).some(message => message.parts.some(part =>
+    part.type === "text" ? Boolean(part.text.trim()) : part.type === "file" || isToolUIPart(part),
+  ));
+}

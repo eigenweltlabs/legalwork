@@ -74,6 +74,9 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
 test('existing required check names fail if units or a selected engine build fail', () => {
   const gate = workflow('ci-tests').jobs['legalwork-tests'];
   assert.deepEqual(gate.strategy.matrix.os, ['ubuntu-latest', 'macos-14']);
+  for (const name of ['unit-tests', 'legalwork-tests', 'sandbox-engine']) {
+    assert.equal(workflow('ci-tests').jobs[name]['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
+  }
   const script = gate.steps[0].run;
   const run = (units, required, engine) => execFileSync('bash', ['-e', '-c', script], {
     env: { ...process.env, UNIT_RESULT: units, ENGINE_REQUIRED: required, ENGINE_RESULT: engine }, stdio: 'pipe',

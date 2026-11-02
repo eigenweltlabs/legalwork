@@ -189,6 +189,14 @@ export class MainAssistant {
     return this.pending;
   }
 
+  /** Reading saved history must not wait for subscription refresh or engine startup. */
+  savedDay(): AssistantDay | null {
+    const workspace = this.config.workspaces.find(isMainAssistant);
+    if (!workspace) return null;
+    const row = this.db.get("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date <= ? ORDER BY date DESC LIMIT 1", [workspace.id, assistantDate(this.now())]);
+    return row ? { date: String(row.date), sessionId: String(row.session_id) } : null;
+  }
+
   private async ensureDay() {
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
     const workspace = await this.workspace();

@@ -15,7 +15,7 @@ import { Code, FileText, GitCompareArrows, Ellipsis, Link } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MarkdownImageDialog } from "./markdown-image-dialog";
-import "@mdxeditor/editor/style.css";
+import "./markdown-editor-vendor.css";
 import "./markdown-editor.css";
 import { markdownCodeTheme } from "./markdown-code-theme";
 import { t } from "@/i18n";

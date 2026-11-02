@@ -143,6 +143,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal((await call("/assistant/projects?query=other&cursor=" + firstMatch.nextCursor)).status, 400);
       config.workspaces = originalProjects;
       assert.equal((await (await call("/assistant/history")).json()).days[0].sessionId, assistant.day.sessionId);
+      assert.deepEqual((await (await call("/assistant")).json()).day, assistant.day);
       assert.equal((await call("/assistant/history?before=bad")).status, 400);
       const schedule = await (await call("/workspace/" + assistant.workspace.id + "/scheduled-tasks", "POST", {
         title: "Morning brief", prompt: "Review open projects", sessionId: assistant.day.sessionId, reuseChat: true, pinSession: true, projectAccess: "project",
@@ -426,6 +427,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.ok(signedOutContext.includes('"signedIn":false')); assert.ok(!signedOutContext.includes("Grace Hopper"));
       assert.equal((await call("/assistant/current", "POST", {})).status, 403);
       assert.equal((await call("/assistant/history")).status, 200);
+      assert.deepEqual((await (await call("/assistant")).json()).day, assistant.day, "Saved history stays available without provisioning or subscription refresh");
       await subscribe();
       assert.equal(sessions.size, sessionCount, "Saving preferences must keep chat history intact");
       assert.equal((await call("/assistant/projects/matter/details")).status, 200);

@@ -27,7 +27,7 @@ type SettingsExtensionControllerInput = {
   setGoogleWorkspaceConnected: (connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
   connectMcp: (entry: McpDirectoryInfo) => Promise<boolean>;
-  removeMcp: (name: string) => void | Promise<void>;
+  removeMcp: (name: string) => void | Promise<void | false>;
   refreshMcpServers: () => void | Promise<void>;
   providers: ProviderLike[];
   providerConnectedIds: string[];
@@ -75,7 +75,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     actaport: {
       connected: input.mcpServers.some((server) => server.name === "actaport" && server.config.enabled !== false),
       onConnect: () => input.connectMcp(entry),
-      onDisconnect: () => input.removeMcp("actaport"),
+      onDisconnect: async () => { await input.removeMcp("actaport"); },
       onRefresh: input.refreshMcpServers,
     },
     imageExtension: {

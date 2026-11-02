@@ -1,4 +1,6 @@
+import { connectorCategory, popularConnector } from "../src/react-app/domains/settings/pages/connector-categories";
 import { expect, test } from "bun:test";
+import { MCP_QUICK_CONNECT } from "../src/app/constants";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -20,12 +22,12 @@ const props: ExtensionsViewProps = {
   skillTools: { importedPackages: async () => [], removeImportedPackage: async () => {}, revealSkillsFolder: noop },
   mcpView: <McpView busy={false} selectedWorkspaceRoot="/test" isRemoteWorkspace={false} mcpServers={[]} mcpStatus={null} mcpStatuses={{}} mcpConnectingName={null} selectedMcp={null} setSelectedMcp={noop} quickConnect={[]} connectMcp={noop} authorizeMcp={noop} logoutMcpAuth={noop} removeMcp={noop} />,
 };
-function render(connection?: string, overrides: Partial<ExtensionsViewProps> = {}, packages: ImportedPlugin[] = []) {
+function render(connection?: string, overrides: Partial<ExtensionsViewProps> = {}, packages: ImportedPlugin[] = [], firm = false) {
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   cache.setQueryData(["settings", "connector-accounts", client.baseUrl], { configured: true, requiresSignIn: false, connectors: [{ id: "gmail", connections: [{ id: "personal", needsReconnect: true }] }] });
-  const storage = { ...storageInputSchema.parse({ name: "Matter documents", config: { kind: "webdav", endpoint: "https://example.invalid/files" } }), id: "first", updatedAt: 1, configuredSecrets: [] };
+  const storage = { ...storageInputSchema.parse({ name: "Matter documents", config: { kind: "webdav", endpoint: "https://example.invalid/files" } }), id: "first", updatedAt: 1, configuredSecrets: [], ...(firm ? { team: { orgId: "firm", version: 1, installed: true } } : {}) };
   cache.setQueryData(["storage-connections", "test"], { connections: [storage, { ...storage, id: "second", name: "Archive documents" }] });
-  cache.setQueryData(["storage-oauth-providers", "test"], { providers: [] });
+  cache.setQueryData(["storage-oauth-providers", "test"], { providers: [{ id: "dropbox", name: "Dropbox", rootHint: "Folder path" }] });
   cache.setQueryData(["browser-passwords", client.baseUrl], { items: [{ id: "beck-personal", label: "Beck personal", origin: "https://beck-online.beck.de", username: "test", websites: [{ providerId: "beck-online", url: "https://beck-online.beck.de/Home", name: "beck-online" }] }] });
   cache.setQueryData(["integration-packages", client.baseUrl, "test"], packages);
   cache.setQueryData(["firm-hub"], { items: [] });
@@ -110,7 +112,7 @@ test("provider pages list saved instances while individual connections stay inde
   expect(article).toContain("Your connections");
   expect(article).toContain("Matter documents");
   expect(article).toContain("Archive documents");
-  expect(article).toContain("Integration API");
+  expect(article).toContain("File Storage Integration");
   expect(article).toContain("2 connections");
 });
 
@@ -139,4 +141,40 @@ test("catalogue and detail pages show saved connection counts without claiming a
   expect(connected).not.toContain("No saved logins yet");
   expect(render("research:juris")).toContain("No saved logins yet");
   expect(render("native:gmail")).toContain("1 connection");
+});
+
+
+test("connection details surface ownership, permissions and file storage type", () => {
+  const own = render("saved-storage:first").split("<article")[1];
+  expect(own).toContain("My own");
+  expect(own).toContain("Ownership");
+  expect(own).toContain("Access");
+  expect(own).toContain("File Storage Integration");
+  expect(own).not.toContain("In Memory Drive");
+  const firm = render("saved-storage:first", {}, [], true).split("<article")[1];
+  expect(firm).toContain("Firm managed");
+  expect(firm).not.toContain("My own");
+  expect(firm).not.toContain('aria-label="Remove Matter documents"');
+});
+
+test("SharePoint and Dropbox each have one catalog provider and preserve custom links", () => {
+  const overrides = { mcpView: <McpView {...props.mcpView.props} quickConnect={MCP_QUICK_CONNECT.filter(entry => entry.serverName === "dropbox" || entry.serverName === "sharepoint")} /> };
+  const catalog = render(undefined, { ...overrides, initialSection: "storage" }).split("<section")[1];
+  expect(catalog.match(/>SharePoint</g)).toHaveLength(1);
+  expect(catalog.match(/>Dropbox</g)).toHaveLength(1);
+  expect(catalog).not.toContain("Custom SharePoint");
+  expect(catalog).not.toContain("Custom Dropbox");
+  expect(render("service:sharepoint", overrides)).toContain("Custom SharePoint</h1>");
+  expect(render("service:dropbox", overrides)).toContain("Custom Dropbox</h1>");
+});
+
+
+test("catalog categories place storage and Eigenwelt tools correctly and omit the retired Google bundle", () => {
+  for (const name of ["box", "egnyte", "dropbox", "sharepoint"]) expect(connectorCategory(name, name)).toBe("files");
+  for (const name of ["legalmemory", "open-computer-use", "legalwork-ui"]) expect(connectorCategory(name, name)).toBe("eigenwelt");
+  for (const name of ["beck-online", "juris", "legalmemory"]) expect(popularConnector(name)).toBe(false);
+  expect(MCP_QUICK_CONNECT.some(item => item.id === "google-workspace")).toBe(false);
+  const ui = MCP_QUICK_CONNECT.find(item => item.serverName === "legalwork-ui");
+  expect(ui?.iconSrc).toContain("legalwork-mark-dark.svg");
+  expect(render()).toContain("Eigenwelt Extensions");
 });

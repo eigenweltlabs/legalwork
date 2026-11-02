@@ -21,7 +21,7 @@ export const queuedDraftSchema = z.object({
   ])),
   attachments: z.array(z.object({ id: z.string(), name: z.string(), mimeType: z.string(), size: z.number(), kind: z.enum(["image", "file"]), data: z.string().regex(/^data:[^,]*;base64,[A-Za-z0-9+/]*={0,2}$/).refine(data => (data.length - data.indexOf(",") - 1) % 4 === 0) })),
   editor: z.object({
-    mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar", "plugin"])),
+    mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar", "plugin", "integration"])),
     pasteParts: z.array(paste),
   }),
 });

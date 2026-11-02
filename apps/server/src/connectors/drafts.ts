@@ -17,6 +17,7 @@ import { calendarCreateInput, calendarEventInput, googleCalendarUpdateInput, goo
 import { mailDraftInput } from "./mail.js";
 import { parseNative } from "./native.js";
 import { connectorWorkspace } from "./workspace.js";
+import { announceSyncChange } from "../app-sync-events.js";
 
 export const connectorEmailDraftInput = mailDraftInput.extend({
   html: EmailDraftInputSchema.shape.html, from: EmailDraftInputSchema.shape.from, replyTo: EmailDraftInputSchema.shape.replyTo,
@@ -258,6 +259,7 @@ export async function deliverConnectorCalendarDraft(config: ServerConfig, worksp
         ? update ? await googleCalendarAdapter.update(request, calendarEventInput.parse({ calendarId: target.calendarId, connectionId: target.connectionId, eventId: update.eventId }), update.etag, changes, addMeet ? draft.googleCalendar?.requestId : undefined)
           : await googleCalendarAdapter.create(request, input, addMeet ? draft.googleCalendar?.requestId : undefined)
         : await outlookCalendarAdapter.create(request, input);
+      announceSyncChange(config, "projects");
       return CalendarEventDraftSchema.parse({ ...draft, revision: randomUUID(), ...(draft.googleCalendar && "conference" in result ? { googleCalendar: { ...draft.googleCalendar, conference: { ...result.conference, status: addMeet && result.conference.status === "none" ? "pending" : result.conference.status } } } : {}), delivery: { state: "saved", id: result.id, webUrl: providerLink(result.webUrl ?? undefined, target.connectorId === "google-calendar" ? ["calendar.google.com", "www.google.com"] : ["outlook.office.com", "outlook.office365.com", "outlook.live.com"], target.connectorId === "google-calendar" ? "https://calendar.google.com" : "https://outlook.office.com/calendar") } });
     });
   });

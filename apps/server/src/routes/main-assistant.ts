@@ -126,7 +126,7 @@ export function registerMainAssistantRoutes(options: {
   addRoute(routes, "GET", "/assistant", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
-    return jsonResponse({ workspace: workspace ? summary(workspace) : null, profile: assistant.profile(), onboarding: await assistant.onboarding() });
+    return jsonResponse({ workspace: workspace ? summary(workspace) : null, day: assistant.savedDay(), profile: assistant.profile(), onboarding: await assistant.onboarding() });
   });
   addRoute(routes, "GET", "/assistant/activity", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
