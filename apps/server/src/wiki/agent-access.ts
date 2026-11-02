@@ -205,7 +205,7 @@ function workspaceToolPath(method: string, pathname: string): string | null {
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
     ? /^(?:browser-connections|storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|reviews\/workers\/[^/]+\/contract|sessions\/[^/]+\/(?:history-images|tool-image-originals|tool-output\/authorize)|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
-    : method === "POST" && /^(?:pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|command|web|http)|office-tools\/execute|reviews\/workers\/[^/]+\/submit|sessions\/[^/]+\/(?:review-recovery|history-images\/read|tool-image-originals\/(?:capture|read|crop|export))|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/.test(route));
+    : method === "POST" && /^(?:pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders|transfer)|sandbox\/(?:execute|command|web|http)|office-tools\/execute|reviews\/workers\/[^/]+\/submit|sessions\/[^/]+\/(?:review-recovery|history-images\/read|tool-image-originals\/(?:capture|read|crop|export))|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
 

@@ -34,6 +34,7 @@ import { storagePath, providerError } from "./file-storage/common.js";
 import { webdavFixture } from "./file-storage/testing/webdav.js";
 import { zipSync, strToU8 } from "fflate";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession } from "./wiki/agent-access.js";
 
 let temporary: string;
 let rootPath: string;
@@ -167,6 +168,56 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
 });
 
 describe("storage API access and validation", () => {
+  test("session-scoped storage tools create a folder and move files without a general client credential", async () => {
+    const dav = webdavFixture();
+    const ids: string[] = [];
+    const sessionID = "storage-transfer-agent";
+    const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const previousAgentToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    try {
+      for (const folder of ["first", "second", "readonly"])
+        ids.push(await connect(storageInputSchema.parse({ name: folder, readOnly: folder === "readonly", config: { kind: "webdav", endpoint: `${dav.endpoint}/${folder}` } })));
+      const [first, second, reference] = ids;
+      const agentToken = await ensureWikiAgentToken(config);
+      await grantWikiAgentSession(config, { sessionId: sessionID, directory: temporary, scope: "owner" });
+      process.env.LEGALWORK_WIKI_AGENT_TOKEN = agentToken;
+      process.env.LEGALWORK_SERVER_TOKEN = "not-a-general-client-credential";
+      const plugin = await LegalWorkStorageTools();
+      const context = { directory: temporary, sessionID };
+      const transfer = (input: Record<string, unknown>) => plugin.tool.storage_transfer.execute(input, context).then(parseToolJson);
+      expect(parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id: first, path: "Archive" }, context))).toMatchObject({ result: { ok: true } });
+      expect(dav.folders.has("first/Archive")).toBe(true);
+      const file = { connection_id: first, path: "note.txt", kind: "file", destination_connection_id: first, destination_path: "Archive", mode: "move" };
+      expect(await transfer(file)).toMatchObject({ result: { ok: true, path: "Archive/note.txt" } });
+      expect(dav.files.has("first/note.txt")).toBe(false);
+      expect(dav.files.get("first/Archive/note.txt")?.toString()).toBe("note");
+      expect(await transfer({ ...file, path: "matter", kind: "folder", destination_connection_id: second, destination_path: "" })).toMatchObject({ result: { ok: true, path: "matter" } });
+      expect(dav.files.get("second/matter/nested/b.txt")?.toString()).toBe("beta");
+      expect(dav.folders.has("second/matter/empty")).toBe(true);
+      expect(dav.folders.has("first/matter")).toBe(false);
+      expect(await transfer({ ...file, connection_id: reference, path: "reference.txt" })).toMatchObject({ ok: false, code: "storage_read_only" });
+      expect(await transfer({ ...file, path: "Archive/note.txt", destination_connection_id: reference, destination_path: "" })).toMatchObject({ ok: false, code: "storage_read_only" });
+      expect(dav.files.has("first/Archive/note.txt")).toBe(true);
+      expect(dav.files.has("readonly/reference.txt")).toBe(true);
+      const crossWorkspace = await api("POST", `/${first}/transfer`, {}, "none", "other-workspace", {
+        "x-legalwork-wiki-agent-token": agentToken,
+        "x-legalwork-wiki-agent-session": sessionID,
+        "x-legalwork-wiki-agent-directory": encodeURIComponent(temporary),
+      });
+      expect(crossWorkspace.status).toBe(403);
+      expect(await crossWorkspace.json()).toMatchObject({ code: "wiki_agent_workspace_denied" });
+      await grantWikiAgentSession(config, { sessionId: sessionID, directory: temporary, scope: "viewer" });
+      expect(await transfer({ ...file, path: "Archive/note.txt", destination_path: "" })).toMatchObject({ ok: false, code: "forbidden" });
+      expect(dav.files.has("first/Archive/note.txt")).toBe(true);
+      expect(dav.files.has("first/note.txt")).toBe(false);
+    } finally {
+      revokeWikiAgentSession(config, sessionID);
+      if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+      if (previousAgentToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previousAgentToken;
+      for (const id of ids) await api("DELETE", `/${id}`);
+      await dav.server.stop(true);
+    }
+  });
   test("streams folder progress before the transfer finishes, and reports the final path", async () => {
     const dav = webdavFixture(20);
     const ids: string[] = [];

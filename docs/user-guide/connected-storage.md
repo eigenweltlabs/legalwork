@@ -38,6 +38,8 @@ Cloud file locations in search results, tooltips, and rename or delete dialogs s
 
 In a project chat, ask LegalWork to move or copy a file or folder, naming its source connection and destination folder. For example: “Move Contract.docx from My Drive/Matters into My Drive/Archive.” The destination folder must already exist and allow writing. Moving also requires permission to change the source; copying keeps the original and can use a read-only source. An existing item with the same name prevents the transfer.
 
+Chat transfers use the connections available in the current project and keep the chat's access level. A chat with read-only access cannot move files or create copies, even when the storage connection itself allows writing.
+
 Dragging a file or folder between folders in Memory Drive copies it. Within the same Google Drive, OneDrive or SharePoint connection, files are copied inside the provider without downloading and uploading their contents through LegalWork. Google Docs, Sheets and Slides stay in their native format when copied this way. Originals are kept. Copies between different connections or through other providers can still require downloading and uploading.
 
 To move an item, ask in chat. Google Docs, Sheets and Slides copied to another connection become exported files; moving those native documents across connections is unavailable. If a transfer reports that it did not finish, refresh and inspect both folders before retrying: some copies may already exist or still be processing, and removal of originals during a move may be incomplete.

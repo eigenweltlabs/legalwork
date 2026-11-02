@@ -221,6 +221,21 @@ test("skill tools keep the session origin and stay limited to their own workspac
     await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
 });
 
+test("storage transfers keep the session's scope and cannot borrow another workspace", async () => {
+  const { config, root, request } = await fixture();
+  const nested = join(root, "other"); await mkdir(nested);
+  config.workspaces.push({ id: "other", name: "Other", path: nested, preset: "starter", workspaceType: "local" });
+  const path = "/workspace/project/storage/source/transfer";
+  for (const scope of ["owner", "collaborator", "viewer"] satisfies Array<"owner" | "collaborator" | "viewer">) {
+    await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope });
+    expect(await authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).toMatchObject({ sessionId: "session-1", actor: { scope } });
+  }
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/other/storage/source/transfer", { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await expect(authenticateWikiAgentRequest(config, request(path, { method: "POST", session: "unregistered" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  for (const method of ["GET", "DELETE", "PATCH"])
+    await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
 test("ordinary Office, command, HTTP and review worker calls retain their recorded workspace and chat", async () => {
   const { config, root, request } = await fixture();
   const nested = join(root, "wiki"); await mkdir(nested);
