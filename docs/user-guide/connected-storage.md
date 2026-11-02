@@ -24,6 +24,8 @@ SMB accesses the share directly without mounting it. Access to RA-MICRO folders 
 
 Expand a root or folder to fetch its contents. Load additional pages when available. Search behavior is provider-dependent: filename searches and native provider search are different from full-text indexing. The returned search scope matters, especially for network shares. These connections do not automatically index their files in LegalMemory.
 
+When opening a Google Drive file, LegalWork checks its location and version again after downloading it. If the file changes, a parent folder moves outside the selected location, or a shortcut points to a different file while it opens, refresh the folder and open the file again.
+
 In a writable folder, upload or drop files and create folders using the available controls. Existing-name and read-only errors should be resolved rather than ignored. Pausing a connection hides/disables access without deleting its source. Disconnecting removes the connection configuration, not the remote files. Deleting a file through a file action is a separate operation.
 
 Google Drive files and folders can be renamed in My Drive and shared drives when your account has permission. A rename keeps the same file or folder and its contents; it does not create a copy. LegalWork checks for intervening changes and refuses an existing destination. If a conflict is reported, refresh the parent folder and review its current contents before trying again.

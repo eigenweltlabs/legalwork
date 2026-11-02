@@ -4,11 +4,13 @@ import { checkCondition, collectStream, conflict, receiveFile, storagePath, type
 
 export type DriveItem = {
   id: string; name: string; folder: boolean; parents: string[]; size: number; version: string;
-  contentType: string; modifiedAt?: string; webUrl?: string; exported?: boolean; readOnly?: boolean;
+  contentType: string; modifiedAt?: string; webUrl?: string; exported?: boolean; readOnly?: boolean; targetId?: string;
 };
 export type DriveDriver = {
   root: DriveItem; namespace: string;
   get: (id: string) => Promise<DriveItem>;
+  /** Account-wide identity paths can fetch metadata concurrently, then validate every edge in order. */
+  parallelMetadata?: boolean;
   children: (id: string, cursor?: string) => Promise<{ items: DriveItem[]; nextCursor?: string; truncated?: boolean }>;
   contains?: (parent: DriveItem, item: DriveItem) => Promise<boolean>;
   lookup?: (parent: DriveItem, name: string) => Promise<DriveItem | null>;
@@ -75,11 +77,20 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
   const resolve = async (path: string) => {
     let current = await driver.get(driver.root.id);
     if (!current.folder) throw missing();
+    const segments = storagePath(path).split("/").filter(Boolean);
+    const identities = driver.parallelMetadata ? segments.map(segmentId) : [];
+    const metadata: PromiseSettledResult<DriveItem>[] = [];
+    if (driver.parallelMetadata && identities.every(id => id !== undefined)) {
+      for (let index = 0; index < identities.length; index += 8)
+        metadata.push(...await Promise.allSettled(identities.slice(index, index + 8).map(id => driver.get(id))));
+    }
     const seen = new Set([current.id]);
-    for (const segment of storagePath(path).split("/").filter(Boolean)) {
+    for (const [index, segment] of segments.entries()) {
       if (!current.folder) throw missing();
-      const id = segmentId(segment);
-      const next = id ? await driver.get(id) : await childrenByName(current, segment);
+      const result = metadata[index];
+      if (result?.status === "rejected") throw result.reason;
+      const id = identities[index] ?? segmentId(segment);
+      const next = result?.status === "fulfilled" ? result.value : id ? await driver.get(id) : await childrenByName(current, segment);
       if (!next || !(driver.contains ? await driver.contains(current, next) : next.parents.includes(current.id))) throw missing();
       if (seen.has(next.id)) throw new ApiError(502, "storage_invalid_response", "The drive returned a folder or shortcut cycle.");
       seen.add(next.id);
@@ -167,7 +178,7 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       const response = await driver.download(item);
       if (!response.body) throw new ApiError(502, "storage_invalid_response", "The provider returned no file content.");
       const data = await collectStream(response.body);
-      const after = await resolve(path); if (after.version !== item.version) conflict();
+      const after = await resolve(path); if (after.version !== item.version || after.targetId !== item.targetId) conflict();
       return { ...info(item), size: data.length, data };
     },
     async download(path, destination) {
@@ -175,7 +186,7 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       const response = await driver.download(item);
       if (!response.body) throw new ApiError(502, "storage_invalid_response", "The provider returned no file content.");
       const result = await receiveFile(response.body, destination);
-      const after = await resolve(path); if (after.version !== item.version) conflict();
+      const after = await resolve(path); if (after.version !== item.version || after.targetId !== item.targetId) conflict();
       return { ...info(item), ...result };
     },
     write: upload, upload,

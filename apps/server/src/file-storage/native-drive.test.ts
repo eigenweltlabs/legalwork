@@ -28,6 +28,36 @@ function fixture() {
   return { adapter: nativeDriveAdapter(driver), driver, items, add, mutations };
 }
 describe("native drive identities and source capabilities", () => {
+  test("parallel identity lookups are bounded and still support ordinary name paths", async () => {
+    const run = fixture(); run.driver.parallelMetadata = true;
+    let parent = "root";
+    const segments: string[] = [];
+    for (let index = 0; index < 18; index++) {
+      const folder = run.add(`folder-${index}`, `Folder ${index}`, parent, true);
+      parent = folder.id; segments.push(nativeSegment(folder));
+    }
+    const file = run.add("leaf", "Leaf.txt", parent);
+    const get = run.driver.get;
+    let active = 0, maximum = 0;
+    run.driver.get = async id => {
+      active++; maximum = Math.max(maximum, active);
+      try { await new Promise<void>(resolve => setImmediate(resolve)); return await get(id); }
+      finally { active--; }
+    };
+    expect((await run.adapter.list(segments.join("/"))).entries[0].id).toBe(file.id);
+    expect(maximum).toBe(8);
+    expect((await run.adapter.read(`${segments.join("/")}/Leaf.txt`)).data.toString()).toBe("data:leaf");
+  });
+  test("parallel lookups validate parent edges before exposing a later provider error or file contents", async () => {
+    const run = fixture(); run.driver.parallelMetadata = true;
+    const folder = run.add("outside", "Outside", "different-root", true);
+    const secret = run.add("secret", "Secret.txt", folder.id);
+    const get = run.driver.get;
+    run.driver.get = async id => { if (id === secret.id) throw new ApiError(403, "private_metadata", "Private metadata"); return get(id); };
+    let downloads = 0; run.driver.download = async () => { downloads++; return new Response("secret"); };
+    await expect(run.adapter.read(`${nativeSegment(folder)}/${nativeSegment(secret)}`)).rejects.toMatchObject({ code: "storage_not_found" });
+    expect(downloads).toBe(0); expect(run.mutations).toEqual([]);
+  });
   test("native copies recheck source membership and destination collisions before invoking the provider", async () => {
     const { driver, add, mutations } = fixture();
     const source = add("native", "Report.docx", "root", false, true), folder = add("archive", "Archive", "root", true);

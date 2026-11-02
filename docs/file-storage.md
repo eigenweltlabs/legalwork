@@ -152,6 +152,10 @@ listing only. Absolute paths, traversal, empty segments, backslashes and control
 characters are rejected. Upload/edit operations are audited using the existing
 workspace audit system.
 
+## Google Drive metadata and reads
+
+Account-wide Google Drive identity paths fetch metadata in batches of at most eight concurrent requests, then validate every parent edge in order before listing or transferring content. Failed lookups are inspected in path order, so a later provider error does not bypass an earlier scope failure. Plain-name paths and explicit folder views retain sequential resolution. File reads and downloads still resolve the complete path with fresh metadata before and after content transfer, including checking shortcut target identities. The download uses the already-resolved file metadata rather than fetching it a third time. There is no shared metadata cache or extended authorization lease.
+
 ## Provider-side sidebar copies
 
 Memory Drive dragging retains `mode: "copy"`. The shared transfer endpoint selects `StorageAdapter.copyFile` for files in a same-connection copy when the adapter implements it. This branch does not create staging files, download source or destination content, or upload bytes. Folder copies enumerate a complete metadata snapshot, create the destination folder structure (including empty folders), and copy each file through the provider. File-count progress advances only after a copy is confirmed. Truncated listings are rejected before creating destinations.

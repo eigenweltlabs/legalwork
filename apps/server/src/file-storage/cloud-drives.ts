@@ -29,14 +29,6 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
   }
   const tree = await googleDriveTree(config, request);
   const adapter = nativeDriveAdapter({ ...tree,
-    async download(item) {
-      if (item.exported && !Object.values(googleExports).some((format) => format.type === item.contentType)) throw new ApiError(415, "storage_export_unsupported", "This Google file cannot be exported to a supported editor format. Open its provider link.");
-      const file = await tree.get(item.id);
-      const target = file.targetId ?? file.id;
-      const key = file.targetResourceKey ?? file.resourceKey;
-      const path = `/drive/v3/files/${encodeURIComponent(target)}`;
-      return request.response(item.exported ? `${path}/export?${new URLSearchParams({ mimeType: item.contentType })}` : `${path}?alt=media&supportsAllDrives=true`, { bytes: true, ...(key ? { headers: { "X-Goog-Drive-Resource-Keys": `${target}/${key}` } } : {}) });
-    },
     async upload(parent, name, current, source, type, condition) {
       parent = await tree.writeParent(parent);
       const size = await sourceSize(source);

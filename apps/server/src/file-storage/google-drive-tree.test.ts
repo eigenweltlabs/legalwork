@@ -71,6 +71,71 @@ test("folder expansion fetches each path item's metadata once and performs one c
   }
 });
 
+test("account paths fetch independent metadata concurrently before validating their parent links", async () => {
+  const { request, company, files } = fixture();
+  const adapter = await googleStorageAdapter(config, request);
+  const response = request.response;
+  let active = 0, maximum = 0;
+  request.response = async (path, options) => {
+    active++; maximum = Math.max(maximum, active);
+    try { await new Promise<void>(resolve => setImmediate(resolve)); return await response(path, options); }
+    finally { active--; }
+  };
+  const path = `${nativeSegment({ id: "legalwork:google:drives", name: "Shared drives" })}/${nativeSegment(company)}/${nativeSegment(files.find(file => file.id === "matter")!)}`;
+  expect((await adapter.list(path)).entries.map(entry => entry.id)).toEqual(["company-file", "company-file-2"]);
+  expect(maximum).toBeGreaterThan(1);
+  expect(maximum).toBeLessThanOrEqual(8);
+});
+
+test("opening a Google file fetches its metadata only once before and once after transferring content", async () => {
+  for (const streaming of [false, true]) {
+    const { request, calls, my, files } = fixture();
+    const adapter = await googleStorageAdapter(config, request);
+    const file = files.find(file => file.id === "my-file")!;
+    const path = `${nativeSegment(my)}/${nativeSegment(file)}`;
+    calls.length = 0;
+    if (streaming) await adapter.download(path); else await adapter.read(path);
+    expect(calls.filter(call => call.url.pathname.endsWith(`/files/${file.id}`) && !call.url.searchParams.has("alt"))).toHaveLength(2);
+    expect(calls.filter(call => call.url.searchParams.get("alt") === "media")).toHaveLength(1);
+  }
+});
+
+test("a folder moved outside the path during download is still rejected after concurrent metadata reads", async () => {
+  const { request, company, files } = fixture();
+  const matter = files.find(file => file.id === "matter")!, file = files.find(file => file.id === "company-file")!;
+  const path = `${nativeSegment({ id: "legalwork:google:drives", name: "Shared drives" })}/${nativeSegment(company)}/${nativeSegment(matter)}/${nativeSegment(file)}`;
+  const response = request.response;
+  request.response = async (path, options) => {
+    const result = await response(path, options);
+    if (new URL(path, "https://www.googleapis.com").searchParams.get("alt") === "media") matter.parents = ["outside"];
+    return result;
+  };
+  const adapter = await googleStorageAdapter(config, request);
+  await expect(adapter.download(path)).rejects.toMatchObject({ status: 404 });
+});
+
+test("explicit folder views reject an outside ancestor before fetching descendant metadata", async () => {
+  const { request, calls, my, files } = fixture();
+  const matter = files.find(file => file.id === "matter")!, file = files.find(file => file.id === "company-file")!;
+  const adapter = await googleStorageAdapter({ ...config, root: my.id }, request);
+  calls.length = 0;
+  await expect(adapter.read(`${nativeSegment(matter)}/${nativeSegment(file)}`)).rejects.toMatchObject({ status: 404 });
+  expect(calls.some(call => call.url.pathname.endsWith(`/files/${file.id}`))).toBe(false);
+});
+
+test("retargeting a shortcut during download is detected even when both targets have the same version", async () => {
+  const { request, my, files } = fixture();
+  const shortcut = files.find(file => file.id === "file-shortcut")!;
+  const response = request.response;
+  request.response = async (path, options) => {
+    const result = await response(path, options);
+    if (new URL(path, "https://www.googleapis.com").searchParams.get("alt") === "media" && shortcut.shortcutDetails) shortcut.shortcutDetails.targetId = "my-file";
+    return result;
+  };
+  const adapter = await googleStorageAdapter(config, request);
+  await expect(adapter.read(`${nativeSegment(my)}/${nativeSegment(shortcut)}`)).rejects.toMatchObject({ code: "storage_conflict" });
+});
+
 test("metadata reuse preserves fresh versions, parent checks and changes during download", async () => {
   const { request, my, files } = fixture();
   const adapter = await googleStorageAdapter(config, request);

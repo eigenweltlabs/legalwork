@@ -22,7 +22,7 @@ const driveSchema = z.object({ id: z.string(), name: z.string() });
 const drivesPage = z.object({ drives: z.array(driveSchema), nextPageToken: z.string().optional() });
 const cursorSchema = z.object({ scope: z.string(), phase: z.enum(["user", "drives"]), token: z.string().optional(), drivesToken: z.string().optional(), offset: z.number().int().min(0).max(100).default(0), driveId: z.string().optional() });
 const literal = (value: string) => value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-type GoogleItem = DriveItem & { revision?: string; driveId?: string; sharedWithMeTime?: string; resourceKey?: string; targetId?: string; targetResourceKey?: string; checksum?: string };
+type GoogleItem = DriveItem & { revision?: string; driveId?: string; sharedWithMeTime?: string; resourceKey?: string; targetResourceKey?: string; checksum?: string };
 function item(file: z.infer<typeof googleFile>, etag?: string | null): GoogleItem {
   if (file.trashed) throw new ApiError(404, "storage_not_found", "This file is in the trash.");
   const mime = file.shortcutDetails?.targetMimeType ?? file.mimeType;
@@ -227,6 +227,13 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
       ...(file.resourceKey ? { "X-Goog-Drive-Resource-Keys": `${file.id}/${file.resourceKey}` } : {}),
     } });
   };
+  const download = async (file: GoogleItem) => {
+    if (file.exported && !Object.values(googleExports).some(format => format.type === file.contentType)) throw new ApiError(415, "storage_export_unsupported", "This Google file cannot be exported to a supported editor format. Open its provider link.");
+    const target = file.targetId ?? file.id;
+    const key = file.targetResourceKey ?? file.resourceKey;
+    const path = `/drive/v3/files/${encodeURIComponent(target)}`;
+    return request.response(file.exported ? `${path}/export?${new URLSearchParams({ mimeType: file.contentType })}` : `${path}?alt=media&supportsAllDrives=true`, { bytes: true, ...(key ? { headers: { "X-Goog-Drive-Resource-Keys": `${target}/${key}` } } : {}) });
+  };
   const lookup = async (parent: DriveItem, name: string) => {
     if (!accountWide || parent.id !== root.id) return null;
     let cursor: string | undefined, found: GoogleItem | null = null;
@@ -244,6 +251,6 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     return found;
   };
   const searchScope: "folder" | "subtree" = accountWide ? "subtree" : "folder";
-  return { root, get, children, contains, lookup, search, searchPath, relativePath, listFilesAtRoot, writeParent, conditionalVersion, rename, remove,
+  return { root, get, children, contains, lookup, search, searchPath, relativePath, listFilesAtRoot, writeParent, conditionalVersion, rename, remove, download, parallelMetadata: accountWide,
     namespace: `google-drive:${config.accountId}:${myDrive.id}`, searchScope };
 }
