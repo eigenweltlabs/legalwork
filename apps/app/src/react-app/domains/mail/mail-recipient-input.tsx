@@ -95,7 +95,6 @@ export function MailRecipientInput({client,account,label,value,onChange,history,
     }
   }
   const entry=<AutocompleteInput key="entry" ref={input} id={id??list+'-input'} className="rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0" aria-label={label} aria-invalid={!focused&&mailRecipientsInvalid(buffer)||undefined} autoComplete="off" spellCheck={false} maxLength={4096}
-    onFocus={()=>{setFocused(true);setSelected(null);}} onBlur={()=>{setFocused(false);if(!buffer.trim()||mailRecipientAddress(buffer)!==null)setEditing(null);}}
     onPaste={event=>{const text=event.clipboardData.getData('text/plain');if(/[\r\n]/.test(text)){event.preventDefault();const start=event.currentTarget.selectionStart??buffer.length,end=event.currentTarget.selectionEnd??start;change(buffer.slice(0,start)+text+buffer.slice(end));}}}
     onKeyDown={event=>{
       if(event.nativeEvent.isComposing||event.metaKey||event.ctrlKey||event.altKey)return;
@@ -127,7 +126,10 @@ export function MailRecipientInput({client,account,label,value,onChange,history,
       if(details.reason==='item-press'){setEditing(null);setOpen(false);nextFocus.current='input';}
       else setOpen(true);
     }}>
-    <div className="mail-recipient-input flex min-w-0 flex-wrap items-center gap-1 py-1" onMouseDown={event=>{if(event.target===event.currentTarget)input.current?.focus();}}>{children}</div>
+    <div className="mail-recipient-input flex min-w-0 flex-wrap items-center gap-1 py-1"
+      onFocusCapture={event=>{if(event.target instanceof HTMLInputElement){setFocused(true);setSelected(null);}}}
+      onBlurCapture={event=>{if(event.target instanceof HTMLInputElement){setFocused(false);if(!buffer.trim()||mailRecipientAddress(buffer)!==null)setEditing(null);}}}
+      onMouseDown={event=>{if(event.target===event.currentTarget)input.current?.focus();}}>{children}</div>
     <AutocompletePopup className="w-80 min-w-64"><AutocompleteList>{options.map(option=><AutocompleteItem key={option.address.toLowerCase()} value={option} className="flex-col items-start gap-0.5 px-2.5 py-2">
       {option.name&&<span className="w-full truncate text-sm">{option.name}</span>}<span className={option.name?'w-full truncate text-xs text-muted-foreground':'w-full truncate text-sm'}>{option.address}</span>
     </AutocompleteItem>)}</AutocompleteList></AutocompletePopup>
