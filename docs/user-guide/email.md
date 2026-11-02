@@ -98,6 +98,8 @@ Select text and use **Bold**, **Italic** or **Underline**, or format paragraphs 
 
 Use the attachment controls to add files or inline images. Review the account, sender, recipients, body and attachments before sending.
 
+Closing or restarting LegalWork also checks unfinished email changes. Finish active saves, uploads, sending and account changes before continuing. If the app's save dialog lists an email draft, **Save and close** or **Save and restart** retries its local save. **Discard and close** or **Discard and restart** closes that composer; already saved drafts remain in **Drafts**. A saved encrypted device recovery copy can still be recovered after restarting.
+
 When Email has focus, press **/** to focus search. Windows also supports **Ctrl+E** and **F3**; macOS supports **Command+Option+F**. From Drafts or Outbox, these shortcuts return to the mailbox and focus search. They do not interrupt typing in a message or another text field. Open **Mail keyboard shortcuts** in the toolbar for the other commands.
 
 Enable **Desktop notifications** under **Settings > Mail accounts > Notifications** to receive alerts. Selecting an alert opens its message in Email. Use **Message preview** to choose whether alerts show no message details, the sender, or the sender and subject.

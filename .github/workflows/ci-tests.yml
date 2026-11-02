@@ -276,6 +276,7 @@ jobs:
         run: >-
           bun test apps/app/tests/mail-outbox.test.ts
           apps/app/tests/mail-compose.test.ts
+          apps/app/tests/mail-compose-shutdown.test.ts
           apps/app/tests/mail-keyboard-workflow.test.ts
           apps/app/tests/mail-invitation-render.test.ts
           apps/app/tests/mail-context-render.test.ts
