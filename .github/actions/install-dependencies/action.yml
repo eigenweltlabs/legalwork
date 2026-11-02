@@ -1,5 +1,5 @@
 name: Install frozen workspace dependencies
-description: Restore a shared pnpm store; seed it only from trusted dev pushes
+description: Restore a shared pnpm store; save complete installs in the run’s GitHub cache scope
 inputs:
   ignore-scripts:
     default: 'false'
@@ -18,7 +18,9 @@ runs:
       with:
         path: ${{ steps.store.outputs.path }}
         key: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc') }}
-        restore-keys: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-
+        restore-keys: |
+          pnpm-v1-${{ runner.os }}-${{ runner.arch }}-
+          ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
     - name: Install dependencies
       shell: bash
       env:
@@ -31,7 +33,7 @@ runs:
         if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
         pnpm "${args[@]}"
     - uses: actions/cache/save@v4
-      if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.cache.outputs.cache-hit != 'true'
+      if: inputs.filter == '' && steps.cache.outputs.cache-hit != 'true'
       with:
         path: ${{ steps.store.outputs.path }}
         key: ${{ steps.cache.outputs.cache-primary-key }}

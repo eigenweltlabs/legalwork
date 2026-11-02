@@ -74,8 +74,9 @@ jobs:
         run: node scripts/ci/cache-sandbox-runtime.mjs seal guest ${{ matrix.arch }}
       - name: Verify complete sandbox cache receipt
         run: node scripts/ci/cache-sandbox-runtime.mjs verify guest ${{ matrix.arch }}
+      # GitHub scopes PR saves to their merge ref; only the dev warmer seeds dev.
       - uses: actions/cache/save@v4
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.runtime-cache.outputs.cache-hit != 'true'
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         with:
           path: apps/server/resources/agent-sandbox/runtime
           key: ${{ steps.runtime-key.outputs.key }}
@@ -181,8 +182,9 @@ jobs:
         run: |
           node scripts/sandbox/verify-runtime.mjs
           node -e 'const {spawnSync}=require("node:child_process"),p=require("node:path");const arch=process.arch==="arm64"?"aarch64":"x86_64";const r=spawnSync(p.resolve("apps/server/resources/agent-sandbox/runtime/qemu-system-"+arch+(process.platform==="win32"?".exe":"")),["--version"],{stdio:"inherit"});process.exit(r.status??1)'
+      # GitHub scopes PR saves to their merge ref; only the dev warmer seeds dev.
       - uses: actions/cache/save@v4
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.runtime-cache.outputs.cache-hit != 'true'
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         with:
           path: apps/server/resources/agent-sandbox/runtime
           key: ${{ steps.runtime-key.outputs.key }}

@@ -39,6 +39,7 @@ jobs:
       - uses: ./.github/actions/install-dependencies
         with:
           ignore-scripts: "true"
+          filter: "@legalwork/app..."
       - run: pnpm --filter @legalwork/app exec bun test tests/docx-document-state.test.ts tests/docx-roundtrip.test.ts tests/docx-table-grid.test.ts
       - run: sudo apt-get update && sudo apt-get install -y libreoffice-writer poppler-utils fonts-liberation
       - run: pnpm --filter @legalwork/app exec node scripts/docx-interop.mjs

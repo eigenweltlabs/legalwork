@@ -11,6 +11,12 @@ const args = process.argv.slice(2), value = name => args[args.indexOf(name) + 1]
 for (const name of ['--baseline', '--bun', '--output']) assert.ok(args.includes(name), `Missing ${name}`);
 const baseline = realpathSync(value('--baseline')), bun = realpathSync(value('--bun')), output = path.resolve(value('--output'));
 mkdirSync(output, { recursive: true });
+// First execution of a freshly downloaded native binary can be slower.
+// Prepare both pinned Node workers before any timed test fixture.
+for (const checkout of [baseline, root]) {
+  const worker = path.join(checkout, 'apps/desktop/resources/node', process.platform === 'win32' ? 'node.exe' : 'node');
+  assert.equal(spawnSync(worker, ['--version'], { encoding: 'utf8' }).status, 0, `Prepare the pinned Node worker in ${checkout}`);
+}
 const baseEnvironment = { ...process.env, TZ: 'Europe/Berlin', LEGALWORK_TEST_OPENCODE_BIN: '', LEGALWORK_TEST_OPENCODE_CACHE: '' };
 const cases = [];
 for (const suite of ['app', 'server']) {
@@ -33,7 +39,7 @@ if (args.includes('--vitest-bin')) {
     writeFileSync(target, readFileSync(source, 'utf8').replaceAll('"bun:test"', '"vitest"')); temporary.push(target);
   }
   const config = path.join(output, 'vitest.config.mjs');
-  writeFileSync(config, `export default ${JSON.stringify({ resolve: { alias: { vitest: vitestModule } }, test: { include: ['apps/app/tests/.ci-benchmark-*.vitest.ts'], maxWorkers: 1, fileParallelism: false } })};\n`);
+  writeFileSync(config, `export default ${JSON.stringify({ resolve: { alias: { vitest: vitestModule, '@': path.join(root, 'apps/app/src') } }, test: { include: ['apps/app/tests/.ci-benchmark-*.vitest.ts'], maxWorkers: 1, fileParallelism: false } })};\n`);
   cases.push({ name: 'portable-vitest', cwd: root, command: [vitest, 'run', '--config', config, '--reporter=json', '--outputFile', path.join(output, 'vitest-results.json')], env: baseEnvironment });
 }
 const results = [];
@@ -47,7 +53,7 @@ try {
     try { spawnSync('python3', [path.join(root, 'scripts/ci/measure-command.py'), request], { stdio: 'inherit' }); }
     finally { rmSync(request); }
     const measured = JSON.parse(readFileSync(result, 'utf8')), text = readFileSync(log, 'utf8');
-    const count = kind => Number(text.match(new RegExp(`(?:^|\\n)\\s*(\\d+) ${kind}(?:\\s|$)`))?.[1] ?? 0);
+    const count = kind => Number([...text.matchAll(new RegExp(`(?:^|\\n)\\s*(\\d+) ${kind}(?:\\s|$)`, 'g'))].at(-1)?.[1] ?? 0);
     const row = { name: entry.name, ...measured, passed: count('pass'), failed: count('fail'), skipped: count('skip') };
     if (entry.name === 'portable-vitest' && measured.exitCode === 0) {
       const report = JSON.parse(readFileSync(path.join(output, 'vitest-results.json'), 'utf8'));

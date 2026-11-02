@@ -74,7 +74,9 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
 test('existing required check names fail if units or a selected engine build fail', () => {
   const gate = workflow('ci-tests').jobs['legalwork-tests'];
   assert.deepEqual(gate.strategy.matrix.os, ['ubuntu-latest', 'macos-14']);
-  for (const name of ['unit-tests', 'legalwork-tests', 'sandbox-engine']) {
+  assert.equal(gate.name, 'legalwork-tests (${{ matrix.os }})');
+  assert.equal(gate['runs-on'], 'ubuntu-latest');
+  for (const name of ['unit-tests', 'sandbox-engine']) {
     assert.equal(workflow('ci-tests').jobs[name]['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
   }
   assert.ok(gate.needs.includes('unit-tests'));
@@ -100,7 +102,7 @@ test('runtime cache hits retain verification and isolation tests while skipping 
     const verify = job.steps.find(step => step.run?.includes('cache-sandbox-runtime.mjs verify'));
     assert.ok(verify, 'Every restored bundle must be verified');
     for (const step of job.steps.filter(step => step.uses === './.github/actions/install-dependencies')) assert.match(step.if, /inputs.run_tests/);
-    for (const step of job.steps.filter(step => step.uses === 'actions/cache/save@v4')) assert.match(step.if, /refs\/heads\/dev/);
+    for (const step of job.steps.filter(step => step.uses === 'actions/cache/save@v4')) assert.equal(step.if, "steps.runtime-cache.outputs.cache-hit != 'true'");
   }
   assert.equal(workflow('ci-runtime-cache').jobs.warm.with.run_tests, false);
 });

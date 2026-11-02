@@ -35,7 +35,8 @@ test("Azure overlay is valid for the installed packager and preserves the NSIS a
 test("both Windows architectures must sign and verify before uploading alpha or stable assets", () => {
   const stable = workflow("release-macos-aarch64");
   const alpha = workflow("alpha-windows-x64");
-  const jobs = [stable.jobs["publish-electron-windows"], alpha.jobs["publish-alpha-windows"]];
+  const combined = workflow("alpha-macos-aarch64");
+  const jobs = [stable.jobs["publish-electron-windows"], alpha.jobs["publish-alpha-windows"], combined.jobs["publish-alpha-windows"]];
   for (const job of jobs) {
     assert.equal(job.environment, "windows-signing");
     assert.equal(job.permissions["id-token"], "write");

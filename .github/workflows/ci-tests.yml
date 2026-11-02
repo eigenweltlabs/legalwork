@@ -590,6 +590,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
   legalwork-tests:
+    name: legalwork-tests (${{ matrix.os }})
     needs:
       - changes
       - signing-inputs
@@ -610,7 +611,9 @@ jobs:
       - sandbox-engine
       - engine-tests
     if: always()
-    runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
+    # These preserve historical required names and only aggregate outcomes.
+    # Native Mac tests above run on Mac; a metadata gate needs no Mac runner.
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
