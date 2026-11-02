@@ -79,6 +79,15 @@ async function runFixture(injectTimestamp: boolean) {
       if (!child && step === 3) call = { name: "subagent", arguments: JSON.stringify({ description: "Cache fixture child", prompt: "CACHE_CHILD: Read fixture.txt and report its synthetic text.", agent: "explore", background: false }) };
       if (!child && step === 4) call = { name: "execute", arguments: JSON.stringify({ code: "return await tools.legalwork_schedule_clock({});" }) };
       if (!child && step === 5) call = { name: "skill", arguments: JSON.stringify({ id: skillID }) };
+      if (!child && step === 6) {
+        await writeFile(clock, String(Date.parse("2026-11-02T23:01:00Z")));
+        call = { name: "cache_recovery_direct", arguments: JSON.stringify({ query: "" }) };
+      }
+      if (!child && step === 7) call = { name: "cache_recovery_direct", arguments: JSON.stringify({ query: "corrected" }) };
+      // Catch the nested failure so its raw error text cannot accidentally carry
+      // the guidance. Recovery must save it on the owning outer result.
+      if (!child && step === 8) call = { name: "execute", arguments: JSON.stringify({ code: 'try { return await tools.cache_recovery_nested({query:""}); } catch { return {caught:true}; }' }) };
+      if (!child && step === 9) call = { name: "execute", arguments: JSON.stringify({ code: 'return await tools.cache_recovery_nested({query:"corrected"});' }) };
       if (call && !toolNames.includes(call.name)) throw new Error(`Production native tool not discovered: ${call.name}; available ${toolNames.join(",")}`);
     } else auxiliary.push({ sessionID, kind, request: input });
     const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: `fixture_${trajectory}_${step}`, object: "chat.completion.chunk", created: 1, model: input.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
@@ -100,7 +109,7 @@ async function runFixture(injectTimestamp: boolean) {
       return Response.json({ error: { message: "Deterministic cache provider fixture failed; original error retained by the harness." } }, { status: 400 });
     }
   } });
-  const discovery = join(root, "ui.json"), instrumentation = join(root, "instrumentation"), mutation = join(root, "mutation");
+  const discovery = join(root, "ui.json"), instrumentation = join(root, "instrumentation"), mutation = join(root, "mutation"), clock = join(root, "clock.txt");
   const request = async (path: string, body?: unknown, method = body === undefined ? "GET" : "POST") => {
     if (!server) throw new Error("LegalWork server unavailable");
     const response = await fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { authorization: "Bearer fixture", "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(deadlines.request) });
@@ -143,7 +152,7 @@ async function runFixture(injectTimestamp: boolean) {
       diagnostics.push({ session, messages, status, agents: await client.agent.list({ location: session.location }), plugins: await client.plugin.list({ location: session.location }), files: await Promise.all(files.map(async path => ({ path, content: await readFile(path, "utf8") }))) });
     }
     expect(session.outcome, JSON.stringify(messages.filter(message => message.type === "idle"))).toBe("succeeded");
-    const failures = messages.flatMap(message => message.type === "assistant" ? message.content.filter(part => part.type === "tool" && (part.state.status === "error" || "metadata" in part.state && part.state.metadata?.error === true)) : []);
+    const failures = messages.flatMap(message => message.type === "assistant" ? message.content.filter(part => part.type === "tool" && part.name !== "cache_recovery_direct" && (part.state.status === "error" || "metadata" in part.state && part.state.metadata?.error === true)) : []);
     expect(failures, JSON.stringify(failures)).toEqual([]);
   };
   const personalize = async (customInstructions: string) => {
@@ -156,7 +165,17 @@ async function runFixture(injectTimestamp: boolean) {
     const skill = join(workspace.path, ".opencode", "skills", "cache-fixture"); await mkdir(skill, { recursive: true });
     await writeFile(join(skill, "SKILL.md"), "---\nname: cache-fixture\ndescription: Synthetic cache regression skill\n---\nUse the synthetic fixture file.\n");
     await writeFile(discovery, JSON.stringify({ baseUrl: ui.url.origin, token: "fixture" }));
-    await writeFile(join(instrumentation, "index.js"), `import{Plugin}from'@opencode/plugin';export default Plugin.define({id:'legalwork.cache-instrumentation',async setup(ctx){await ctx.session.hook('model.request',event=>{event.headers['x-legalwork-cache-session']=event.sessionID;event.headers['x-legalwork-cache-kind']=event.kind;});}});`);
+    await writeFile(clock, String(Date.parse("2026-11-02T22:59:00Z")));
+    // Test-only process clock: exercise the shipped engine's actual date reader
+    // across Berlin midnight. Never scrub or rewrite captured model requests.
+    await writeFile(join(instrumentation, "index.js"), `import{Plugin}from'@opencode/plugin';import{readFileSync}from'node:fs';
+const now=Date.now;let previous;const setClock=()=>{const time=Number(readFileSync(${JSON.stringify(clock)},'utf8'));if(time===previous)return;previous=time;const offset=time-now();Date.now=()=>now()+offset;};setClock();
+export default Plugin.define({id:'legalwork.cache-instrumentation',async setup(ctx){
+await ctx.session.hook('prompt',setClock);
+await ctx.tool.hook('execute.after',setClock);
+await ctx.session.hook('model.request',event=>{event.headers['x-legalwork-cache-session']=event.sessionID;event.headers['x-legalwork-cache-kind']=event.kind;});
+await ctx.tool.transform(editor=>{for(const name of ['cache_recovery_direct','cache_recovery_nested'])editor.add({name,description:'Supply a non-empty synthetic query.',input:{type:'object',properties:{query:{type:'string'}},required:['query']},...(name.endsWith('direct')?{options:{codemode:false}}:{}),output:{type:'object',properties:{ok:{type:'boolean'}},required:['ok']},execute:async input=>{if(!input.query)throw new Error('Invalid arguments for tool "'+name+'": query must not be empty');return{output:{ok:true},content:'Synthetic recovery succeeded'};}});});
+}});`);
     if (injectTimestamp) { await mkdir(mutation); await writeFile(join(mutation, "index.js"), `import{Plugin}from'@opencode/plugin';export default Plugin.define({id:'legalwork.cache-negative',async setup(ctx){await ctx.session.hook('context',event=>{event.system.push({type:'text',text:'CACHE_REGRESSION_TIME: '+new Date().toISOString()});});}});`); }
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }] }));
     await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ plugins: [instrumentation, ...(injectTimestamp ? [mutation] : [])],
@@ -179,10 +198,31 @@ async function runFixture(injectTimestamp: boolean) {
       expect(systemIndex).toBeGreaterThanOrEqual(0); expect(contractError?.message).toContain(`prompt cache prefix changed at messages[${systemIndex}].content`); return;
     }
     if (contractError) throw contractError;
-    expect(steps.get("parent")).toBeGreaterThanOrEqual(7); expect(steps.get("child")).toBeGreaterThanOrEqual(2);
+    expect(steps.get("parent")).toBeGreaterThanOrEqual(11); expect(steps.get("child")).toBeGreaterThanOrEqual(2);
+    const recovered = captures.filter(capture => capture.trajectory === "parent");
+    for (const index of [7, 9]) expect(JSON.stringify(recovered[index].request.messages).includes("[LegalWork tool recovery]"), `saved guidance in request ${index}`).toBe(true);
+    expect(JSON.stringify(recovered[7].request.messages)).toContain("Today's date is now: Tue Nov 03 2026");
+    expect(JSON.stringify(recovered[9].request.messages)).toContain("caught");
+    expect(JSON.stringify(recovered[10].request.messages)).toContain('\\"ok\\": true');
+    expect(JSON.stringify(recovered[0].request.messages)).toContain("Today's date: Mon Nov 02 2026");
     surface = "follow-up-document.docx"; await personalize("PROJECT UPDATED SYNTHETIC PREFERENCE");
     await request("/workspace/matter/office-tools/poll?wait=0&host=word&document=synthetic-word.docx");
+    await writeFile(clock, String(Date.parse("2026-11-02T23:02:00Z")));
     await prompt("Continue the synthetic check.", "APP UPDATED SYNTHETIC CONTEXT"); if (contractError) throw contractError;
+    const midnight = captures.filter(capture => capture.trajectory === "parent").at(-1)?.request;
+    expect(JSON.stringify(midnight?.messages)).toContain("Today's date is now: Tue Nov 03 2026");
+    expect(JSON.stringify(midnight?.messages.filter(message => message.role === "system"))).not.toContain("Today's date is now:");
+    // Availability changes used to rebuild early MCP instructions in V1. With
+    // the native Code Mode catalog they must remain chronological as well.
+    await client.mcp.disconnect({ location: { directory: workspace.path }, server: "cachefixture" });
+    await ready(async () => (await client!.mcp.list({ location: { directory: workspace.path } })).data.find(server => server.name === "cachefixture")?.status.status, value => value === "disabled");
+    await writeFile(clock, String(Date.parse("2026-11-02T23:02:15Z")));
+    await prompt("Continue while the synthetic connector is disconnected.", "APP DISCONNECTED SYNTHETIC CONTEXT"); if (contractError) throw contractError;
+    await client.mcp.connect({ location: { directory: workspace.path }, server: "cachefixture" });
+    await ready(async () => (await client!.mcp.list({ location: { directory: workspace.path } })).data.find(server => server.name === "cachefixture")?.status.status, value => value === "connected");
+    await writeFile(clock, String(Date.parse("2026-11-02T23:02:30Z")));
+    await prompt("Continue after the synthetic connector reconnects.", "APP RECONNECTED SYNTHETIC CONTEXT"); if (contractError) throw contractError;
+    await writeFile(clock, String(Date.parse("2026-11-02T23:03:00Z")));
     await engine?.close(); await startEngine();
     await prompt("Continue after persisted service restart.", "APP RESTART SYNTHETIC CONTEXT"); if (contractError) throw contractError;
     const parent = captures.filter(capture => capture.trajectory === "parent" && capture.epoch === "continuous"), first = parent[0].request, last = parent.at(-1)?.request;
@@ -202,7 +242,7 @@ async function runFixture(injectTimestamp: boolean) {
     await prompt("Continue with alternate fixture model.", "APP MODEL CHANGE CONTEXT"); await prompt("Continue with this model.", "APP MODEL FOLLOW-UP CONTEXT"); if (contractError) throw contractError;
     for (const boundary of ["compaction", "model-change"]) expect(captures.filter(capture => capture.trajectory === "parent" && capture.epoch === boundary)).toHaveLength(2);
     expect(auxiliary.some(capture => capture.kind === "compaction")).toBe(true);
-    console.log(`Native prefix contract: ${parent.length} parent requests, ${captures.filter(capture => capture.trajectory === "child").length} child requests, ${auxiliary.length} separately recorded auxiliary requests; Code Mode/MCP/subagent/skill/production plugins and persisted service restart. This is not a provider cache-hit or cost-performance claim.`);
+    console.log(`Native prefix contract: ${parent.length} parent requests, ${captures.filter(capture => capture.trajectory === "child").length} child requests, ${auxiliary.length} separately recorded auxiliary requests; direct/nested recovery, Berlin midnight, connector disconnect/reconnect, Code Mode/MCP/subagent/skill/production plugins and persisted service restart. This is not a provider cache-hit or cost-performance claim.`);
   } finally {
     if (process.env.LEGALWORK_CACHE_CAPTURE) await writeFile(process.env.LEGALWORK_CACHE_CAPTURE + (injectTimestamp ? ".negative" : ""), JSON.stringify({ negativeControl: injectTimestamp, captures, auxiliary, inventory, diagnostics, limits: { infrastructureDeadlinesMs: deadlines, modelFixture: { context: 128_000, output: 4096 }, outputCaps: [] } }, null, 2), { mode: 0o600 });
     await engine?.close(); await server?.stop(); provider.stop(true); ui.stop(true); await closeRuntimeOpencodeConfig(config); await rm(root, { recursive: true, force: true });
@@ -211,5 +251,5 @@ async function runFixture(injectTimestamp: boolean) {
 
 // Native integration is opt-in in the default unit suite; CI supplies the pinned
 // released binary explicitly. Missing/broken configured binaries still fail.
-test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("native production agent preserves prompt prefix through Code Mode, MCP, app changes, subagents and service restart", () => runFixture(false), setting("LEGALWORK_CACHE_FIXTURE_TEST_MS", 150_000));
+test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("native production agent preserves prompt prefix through tool recovery, midnight, Code Mode, MCP, app changes, subagents and service restart", () => runFixture(false), setting("LEGALWORK_CACHE_FIXTURE_TEST_MS", 150_000));
 test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("native prefix guard detects an actual plugin injecting changing system timestamps", () => runFixture(true), setting("LEGALWORK_CACHE_FIXTURE_NEGATIVE_TEST_MS", 120_000));
