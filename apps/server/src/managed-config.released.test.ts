@@ -76,7 +76,12 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     await writeLegalworkRuntimeConfigFile(config,"a");
     expect((await engineProjectStatus(config,config.workspaces[0]!)).state).toBe("ready");
     await client.location.reload();
-    await client.mcp.list({location:locationA});
+    // Reload boots replacement services, but model.list also awaits lazy
+    // plugin activation; mcp.list alone only reads the current server list.
+    await Promise.all([{ directory: root }, locationA].map(async location => {
+      await client.model.list({ location });
+      await client.mcp.list({ location });
+    }));
     expect(await readFile(join(a,"opencode.json"),"utf8")).toContain("untrusted-plugin");
     const deadline = Date.now() + 5000;
     while (markers.some(path => !existsSync(path)) && Date.now() < deadline) await Bun.sleep(10);

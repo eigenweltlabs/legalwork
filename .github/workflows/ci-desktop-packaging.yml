@@ -50,6 +50,8 @@ jobs:
           bun-version: 1.4.4
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+      - name: Verify Node and Bun agree on native fixture ownership
+        run: node --test scripts/ci/run-native-package-tests.test.mjs
       - uses: actions/download-artifact@v4
         if: inputs.derivative-manifest-sha256 != ''
         with:
