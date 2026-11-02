@@ -1,8 +1,9 @@
+import { openUnsavedWorkflow } from "../../session/artifacts/document-shutdown-navigation";
 import { create } from "zustand";
 import type { SkillCard } from "@/app/types";
 import { t } from "@/i18n";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
-import { registerUnsavedDocument } from "../../session/artifacts/docx-document-state";
+import { documentIsInFront, registerDocumentShutdown, registerUnsavedDocument } from "../../session/artifacts/docx-document-state";
 import { requestPanelTab } from "../../session/panel/panel-tab-request";
 import { usePanelTabStore } from "../../session/panel/panel-tab-store";
 import type { SkillsExtensionsStore } from "../pages/skills-view";
@@ -98,10 +99,18 @@ export function discardWorkflow(id: string) {
 function addDraft(draft: WorkflowDraft) {
   useWorkflowEditorStore.setState((state) => ({ drafts: { ...state.drafts, [draft.id]: draft } }));
   registrations.get(draft.id)?.();
-  registrations.set(draft.id, registerUnsavedDocument(draft.id, draft.title || t("skills.new_workflow"), () => {
+  const unregister = registerUnsavedDocument(draft.id, draft.title || t("skills.new_workflow"), () => {
     const current = useWorkflowEditorStore.getState().drafts[draft.id];
     return Boolean(current && (current.saving || workflowDirty(current)));
-  }, () => discardWorkflow(draft.id), true));
+  }, () => discardWorkflow(draft.id), true);
+  const unregisterShutdown = registerDocumentShutdown(draft.id, {
+    save: () => saveWorkflow(draft.id),
+    discard: () => discardWorkflow(draft.id),
+    isBusy: () => Boolean(useWorkflowEditorStore.getState().drafts[draft.id]?.saving),
+    open: navigate => { const current = useWorkflowEditorStore.getState().drafts[draft.id]; if (current) openUnsavedWorkflow(current.workspaceId, { id: current.id, type: "workflow", label: current.title }, navigate); },
+    isVisible: () => documentIsInFront(document.getElementById(`${draft.id}-instructions-tab`)),
+  });
+  registrations.set(draft.id, () => { unregister(); unregisterShutdown(); });
 }
 
 function servicesFor(draft: WorkflowDraft) {
