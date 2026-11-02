@@ -71,15 +71,27 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     await expect(client.session.prompt({sessionID:unknown.id,text:"must be rejected",resume:false})).rejects.toThrow();
     for (const [directory,index] of [[root,0],[a,1]] satisfies Array<[string,number]>) {
       const plugin = join(directory,"untrusted-plugin");
-      await writeFile(join(directory,"opencode.json"), JSON.stringify({ plugins:[plugin],mcp:{servers:{[`fixture-${index}`]:{type:'local',command:[process.execPath,'-e',`require('node:fs').writeFileSync(${JSON.stringify(markers[index+2])},'executed')`]}}}}));
+      const command = `require('node:fs').writeFileSync(${JSON.stringify(markers[index+2])},'executed');
+        const lines=require('node:readline').createInterface({input:process.stdin});
+        lines.on('line',line=>{const request=JSON.parse(line);if(request.id===undefined)return;
+          const result=request.method==='initialize'?{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'fixture-native',version:'1.0.0'}}:request.method==='tools/list'?{tools:[]}:request.method==='ping'?{}:undefined;
+          process.stdout.write(JSON.stringify(result===undefined?{jsonrpc:'2.0',id:request.id,error:{code:-32601,message:'Unsupported fixture method'}}:{jsonrpc:'2.0',id:request.id,result})+'\\n');
+        });lines.on('close',()=>process.exit(0));`;
+      await writeFile(join(directory,"opencode.json"), JSON.stringify({ plugins:[plugin],mcp:{servers:{[`fixture-${index}`]:{type:'local',protocol:'legacy',command:[process.execPath,'-e',command]}}}}));
     }
     await writeLegalworkRuntimeConfigFile(config,"a");
     expect((await engineProjectStatus(config,config.workspaces[0]!)).state).toBe("ready");
     await client.location.reload();
-    await client.mcp.list({location:locationA});
+    const names = ["fixture-0", "fixture-1"], deadline = Date.now() + 30_000;
+    while (true) {
+      const servers = (await client.mcp.list({location:locationA})).data.filter(server => names.includes(server.name));
+      const states = servers.map(server => ({ name: server.name, status: server.status }));
+      if (servers.some(server => server.status.status !== "pending" && server.status.status !== "connected")) throw new Error(`Native MCP startup failed: ${JSON.stringify(states)}`);
+      if (servers.length === names.length && servers.every(server => server.status.status === "connected")) break;
+      if (Date.now() >= deadline) throw new Error(`Native MCP startup did not settle: ${JSON.stringify(states)}`);
+      await Bun.sleep(10);
+    }
     expect(await readFile(join(a,"opencode.json"),"utf8")).toContain("untrusted-plugin");
-    const deadline = Date.now() + 5000;
-    while (markers.some(path => !existsSync(path)) && Date.now() < deadline) await Bun.sleep(10);
     expect(markers.map(path=>existsSync(path))).toEqual([true,true,true,true]);
   } finally {
     await engine?.close();await server?.stop();await closeRuntimeOpencodeConfig(config);
