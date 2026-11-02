@@ -45,8 +45,20 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     config.opencodeBaseUrl=engine.url;config.opencodeUsername=engine.username;config.opencodePassword=engine.password;
     const client=OpenCode.make({baseUrl:engine.url,headers:{authorization:`Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`}});
     const locationA={directory:a},locationB={directory:b};
+    const readyPlugins = async (location: { directory: string }) => {
+      const deadline = Date.now() + 15_000;
+      while (true) {
+        const plugins = await client.plugin.list({ location });
+        const states = plugins.data.map(plugin => ({ id: plugin.id, state: plugin.state }));
+        if (plugins.data.some(plugin => plugin.state.status === "failed")) throw new Error(`Native plugin activation failed: ${JSON.stringify(states)}`);
+        if (plugins.data.some(plugin => plugin.id === "fixture.shared-tool" && plugin.state.status === "active")) return plugins;
+        if (Date.now() >= deadline) throw new Error(`Native plugin activation did not settle: ${JSON.stringify(states)}`);
+        await Bun.sleep(25);
+      }
+    };
+    const plugins=await readyPlugins(locationA);
+    await readyPlugins(locationB);
     const modelsA=await client.model.list({location:locationA}),modelsB=await client.model.list({location:locationB});
-    const plugins=await client.plugin.list({location:locationA});
     expect(plugins.data.filter(plugin=>plugin.state.status==="failed").map(plugin=>({id:plugin.id,state:plugin.state}))).toEqual([]);
     expect(plugins.data.map(plugin=>({id:plugin.id,state:plugin.state}))).toContainEqual(expect.objectContaining({id:"fixture.shared-tool"}));
     expect(modelsA.data.find(model=>model.providerID==="fixture"&&model.id==="shared")).toMatchObject({name:"Case A model",settings:{baseURL:"http://127.0.0.1:7/v1"},variants:expect.arrayContaining([{id:"deep",settings:{reasoningEffort:"high"}}])});
