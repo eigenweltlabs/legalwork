@@ -26,6 +26,12 @@ Expand a root or folder to fetch its contents. Load additional pages when availa
 
 In a writable folder, upload or drop files and create folders using the available controls. Existing-name and read-only errors should be resolved rather than ignored. Pausing a connection hides/disables access without deleting its source. Disconnecting removes the connection configuration, not the remote files. Deleting a file through a file action is a separate operation.
 
+## Move and copy files
+
+In a project chat, ask LegalWork to move or copy a file or folder, naming its source connection and destination folder. For example: “Move Contract.docx from My Drive/Matters into My Drive/Archive.” The destination folder must already exist and allow writing. Moving also requires permission to change the source; copying keeps the original and can use a read-only source. An existing item with the same name prevents the transfer.
+
+Dragging a file or folder between folders in Memory Drive copies it. To move it, ask in chat. Google Docs, Sheets and Slides copied to another connection become exported files; moving those native documents across connections is unavailable. If a transfer reports that it did not finish, refresh and inspect both folders before retrying: some copies may already exist, and removal of originals may be incomplete.
+
 ## Edit and save back
 
 Opening a connected file downloads a working copy into the selected workspace. Editor and agent saves update that copy. **Save…** provides **Save to [connection]** to publish back and **Save local copy…** to keep a separate workspace file. A read-only source can still be used for a local edited copy if workspace writing is allowed.

@@ -165,7 +165,9 @@ The bundled agent uses one tool set across all providers and multiple connection
 | `storage_search_filenames` | Find filename text across descendants on any provider, using metadata listings; separate continuation cursor per connection |
 | `storage_read_file` | Read bounded UTF-8 text or download a document into the workspace for existing document tools |
 | `storage_write_file` | Create from text/a workspace file, or replace using the version returned by a read |
+| `storage_rename` | Rename a file or folder within its current folder |
 | `storage_create_folder` | Create a folder within a writable connection |
+| `storage_transfer` | Move or copy a file or folder within or between connections; requires explicit mode, destination connection ID and existing destination folder path (empty for its root) |
 
 Every file result retains its connection ID and root-relative path. Identical
 filenames in different connections remain distinct. Binary files are downloaded
