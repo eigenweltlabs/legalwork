@@ -76,6 +76,16 @@ jobs:
           archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
           if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
           tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
+      - name: Prepare server and pinned worker for native fixtures
+        run: |
+          node apps/desktop/scripts/prepare-node-runtime.mjs
+          node apps/desktop/scripts/prepare-opencode-sdk.mjs
+          pnpm --filter legalwork-server build
+      - name: Execute real engine, storage transitions, history, MCP and first-party tools
+        id: engine-tests
+        timeout-minutes: 10
+        run: >-
+          node scripts/ci/run-native-package-tests.mjs --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts apps/server/src/engine-client.released.test.ts apps/server/src/managed-config.released.test.ts apps/server/src/managed-engine-lifecycle.released.test.ts apps/server/src/native-workspace-config.released.test.ts apps/server/src/native-config-state.test.ts apps/server/src/connectors/storage-transition.test.ts apps/server/src/agent-sandbox/project-approvals.test.ts apps/server/src/native-saved-approval-migration.test.ts apps/server/src/native-saved-approval-migration.released.test.ts apps/server/src/mcp-native-complete.released.test.ts apps/server/src/opencode-plugins/native-office-host.integration.test.ts apps/server/src/opencode-plugins/legalwork-raw-http.released.test.ts
       - name: Download verified portable desktop assets
         uses: actions/download-artifact@v4
         with:
@@ -88,11 +98,6 @@ jobs:
           LEGALWORK_OPENCODE_ARCHIVES: ${{ inputs.derivative-manifest-sha256 != '' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
           LEGALWORK_PREBUILT_UI: "1"
         run: pnpm --filter @legalwork/desktop ${{ inputs.engine-build-mode == 'production' && 'build:electron:production' || 'build:electron' }}
-      - name: Execute real engine, storage transitions, history, MCP and first-party tools
-        id: engine-tests
-        timeout-minutes: 10
-        run: >-
-          node scripts/ci/run-native-package-tests.mjs --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts apps/server/src/engine-client.released.test.ts apps/server/src/managed-config.released.test.ts apps/server/src/managed-engine-lifecycle.released.test.ts apps/server/src/native-workspace-config.released.test.ts apps/server/src/native-config-state.test.ts apps/server/src/connectors/storage-transition.test.ts apps/server/src/agent-sandbox/project-approvals.test.ts apps/server/src/native-saved-approval-migration.test.ts apps/server/src/native-saved-approval-migration.released.test.ts apps/server/src/mcp-native-complete.released.test.ts apps/server/src/opencode-plugins/native-office-host.integration.test.ts apps/server/src/opencode-plugins/legalwork-raw-http.released.test.ts
       - name: Package desktop app
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --${{ matrix.arch }} --dir --publish never
       - name: Verify Linux AppImage packaging
@@ -177,6 +182,14 @@ jobs:
           name: packaged-startup-failure-${{ matrix.os }}-${{ matrix.arch }}
           path: apps/desktop/.test-artifacts/packaged-startup/
           include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Retain native fixture and build operation timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-timings-native-package-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/ci-spans.jsonl
           if-no-files-found: ignore
           retention-days: 7
     needs:
