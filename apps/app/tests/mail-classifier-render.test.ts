@@ -49,7 +49,13 @@ test('project classification UI saves explicit automatic policy, reviews arrival
       const win=new BrowserWindow({show:false,width:1100,height:1000,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});await win.loadFile(${JSON.stringify(join(root, 'index.html'))});
       const run=code=>win.webContents.executeJavaScript(code),until=async code=>{for(let i=0;i<300;i++){if(await run(code))return;await new Promise(done=>setTimeout(done,30));}throw Error('Renderer deadline: '+code+' '+await run('document.body.textContent'));};
       const click=async text=>{await until("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==="+JSON.stringify(text)+")");await run("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==="+JSON.stringify(text)+").click()");};
-      const choose=async(label,text)=>{await run("document.querySelector('[aria-label=\\\""+label+"\\\"]').click()");await until("[...document.querySelectorAll('[role=option]')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");await run("[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.trim()==="+JSON.stringify(text)+").click()");};
+      const choose=async(label,text)=>{
+        await run("(()=>{const trigger=document.querySelector('[aria-label=\\\""+label+"\\\"]');trigger.focus();trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',code:'ArrowDown',bubbles:true,cancelable:true}));})()");
+        await until("[...document.querySelectorAll('[role=option]')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");
+        await run("[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.trim()==="+JSON.stringify(text)+").focus()");
+        await until("[...document.querySelectorAll('[role=option][data-highlighted]')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");
+        await run("[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.trim()==="+JSON.stringify(text)+").click()");
+      };
       await until("document.querySelector('[aria-label=Mode]')?.textContent.includes('Off')");await choose('Mode','Automatic');await until("document.body.textContent.includes('Active for new Inbox mail')");await choose('Assign automatically when','Any matching rule');await until("document.querySelector('[aria-label=\\\"Assign automatically when\\\"]').textContent.includes('Any matching rule')");
       ${evidenceRoot?`require('node:fs').writeFileSync(${JSON.stringify(join(evidenceRoot,'automatic-project-settings.png'))},(await win.webContents.capturePage()).toPNG());`:''}
       await until("document.body.textContent.includes('Ambiguous arrival')");await click('Dismiss');await until("document.body.textContent.includes('No matching activity')");await until("document.activeElement?.textContent==='Refresh'");
