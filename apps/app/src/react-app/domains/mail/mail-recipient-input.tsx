@@ -120,7 +120,7 @@ export function MailRecipientInput({client,account,label,value,onChange,history,
   if(editing===null||editing>=parts.length)children.push(entry);
   const existing=new Set(parts.flatMap((part,index)=>index===editing?[]:mailRecipientAddresses(part)).map(address=>address.toLowerCase()));
   const options=recipientOptions(buffer,contacts,history).filter(option=>!existing.has(option.address.toLowerCase()));
-  return <Autocomplete items={options} filter={null} value={buffer} open={open&&focused&&options.length>0} onOpenChange={setOpen} openOnInputClick autoHighlight
+  return <Autocomplete items={options} filter={null} value={buffer} open={open&&focused&&options.length>0} onOpenChange={setOpen} openOnInputClick autoHighlight loopFocus={false}
     itemToStringValue={option=>option.value} onValueChange={(text,details)=>{
       change(text);
       if(details.reason==='item-press'){setEditing(null);setOpen(false);nextFocus.current='input';}
