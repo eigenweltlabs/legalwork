@@ -48,9 +48,10 @@ test('project classification UI saves explicit automatic policy, reviews arrival
     await writeFile(join(root, 'index.html'), '<html><head><meta charset="utf-8"><link rel="stylesheet" href="styles/index.css"></head><body><div id="root"></div><script src="entry.js"></script></body></html>');
     const probe = join(root, 'probe.cjs');
     await writeFile(probe, `const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(root, 'profile'))});app.whenReady().then(async()=>{
-      const win=new BrowserWindow({show:false,width:1100,height:1000,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});await win.loadFile(${JSON.stringify(join(root, 'index.html'))});
+      const win=new BrowserWindow({show:false,width:1100,height:1000,enableLargerThanScreen:true,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});await win.loadFile(${JSON.stringify(join(root, 'index.html'))});win.show();win.focus();win.setContentSize(1100,1000);
       const run=code=>win.webContents.executeJavaScript(code),until=async code=>{for(let i=0;i<300;i++){if(await run(code))return;await new Promise(done=>setTimeout(done,30));}throw Error('Renderer deadline: '+code+' '+await run('document.body.textContent'));};
       assert(await run("getComputedStyle(document.documentElement).getPropertyValue('--lw-control-md').trim().length>0"),'Shared design tokens must load');
+      await until('document.hasFocus()&&innerWidth===1100&&innerHeight===1000');
       const settledFrame=async()=>{await run("document.fonts.ready.then(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))");};
       const click=async text=>{await until("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==="+JSON.stringify(text)+")");await run("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==="+JSON.stringify(text)+").click()");};
       const choose=async(label,text)=>{
