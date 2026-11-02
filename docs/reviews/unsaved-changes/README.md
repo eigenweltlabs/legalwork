@@ -40,3 +40,9 @@ These checks also run on macOS in CI and upload their evidence as `unsaved-chang
 - `pnpm --filter @legalwork/app test`: 2077 pass, 1 skipped, 3 Lexical initialization errors under local Bun 1.3.14: `markdown-block-editor.test.ts` (`defineExtension`) and `wiki-editor-outline.test.ts` / `wiki-title-editor.test.ts` (`getStyleObjectFromCSS$1`). All three files also fail with Lexical circular-initialization errors on the unchanged base (`IS_FIREFOX` when run together in isolation). CI uses Bun 1.4.4.
 
 Workflow, workflow-resource, and file editors provide save/discard adapters. Existing unsaved registrations without an adapter remain protected and cannot be cleared by the shutdown dialog; finish those drafts in their original editor. Real installer replacement and Windows desktop behavior require release/platform verification.
+
+## Email integration follow-up
+
+After the mail branch rebase, Mac CI at `afae1d58` exposed two earlier mail quit listeners outside the guarded lifecycle. They cancelled image requests and closed attachment resources before the save decision. Mail cleanup now runs only after approval, alongside the recovery journal and owned workers. A separate completion guard keeps repeated Quit requests blocked until all cleanup finishes, even when the engine has already stopped.
+
+The regression harness extracts every real `before-quit` registration through the existing TypeScript parser. It no longer slices from the first listener to an unrelated source marker. Headless tests execute those production listeners and verify cancellation, exactly-once cleanup and delayed recovery completion; the repeated-Quit assertion failed before the completion fix. The real Electron fixtures retain their save/cancel/discard/native-exit checks and now include the mail resources in their disposal assertions. Current-source hosted Electron results remain required; no local GUI acceptance was run for this follow-up.

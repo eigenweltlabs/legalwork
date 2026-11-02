@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
+import { beforeQuitRegistrations } from "./lifecycle-source.mjs";
 
 const script = fileURLToPath(import.meta.url);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -90,6 +91,9 @@ if (!process.versions.electron) {
       meetingMonitor: { dispose: () => disposed.push("meeting") },
       powerSessions: { releaseAll: () => disposed.push("power") },
       uiControlServer: { stop: async () => disposed.push("control-server") },
+      mailImages: { cancel: () => disposed.push("mail-images") },
+      mailArtifacts: { close: async () => disposed.push("mail-artifacts") },
+      draftRecovery: { close: async () => disposed.push("mail-recovery") },
       disposeRuntimeBeforeQuit: async () => {
         context.runtimeDisposeInProgress = true;
         await delay(10);
@@ -101,7 +105,7 @@ if (!process.versions.electron) {
     runInNewContext([
       section("let appIsQuitting = false;", "let windowsCloseHintShown"),
       section('mainWindow.on("close",', 'mainWindow.on("show",'),
-      section('app.on("before-quit",', 'app.on("second-instance",'),
+      beforeQuitRegistrations(source),
     ].join("\n"), context);
     window.on("close", event => events.push(event.defaultPrevented ? "close-prevented" : "close-allowed"));
     await window.loadURL(`http://127.0.0.1:${server.address().port}`);

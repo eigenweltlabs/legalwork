@@ -926,6 +926,8 @@ const systemDictation = new SystemDictationService({
 
 let appIsQuitting = false;
 let shutdownApproved = false;
+let shutdownInProgress = false;
+let shutdownComplete = false;
 // Native update installation closes windows before app's before-quit event.
 // Mark the quit intent now so close-to-hide cannot block the installation.
 autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; shutdownApproved = true; });
@@ -3039,7 +3041,6 @@ ipcMain.handle("legalwork:mail:portability",(event,value)=>{if(!mainWindow||even
 const mailImages=createMailImages({connection:()=>runtimeManager.legalworkServerInfo(),decode:bytes=>{const image=nativeImage.createFromBuffer(bytes);if(image.isEmpty())throw Error('Invalid image');return image.getSize();}});
 ipcMain.handle('legalwork:mail:images',(event,value)=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame||new URL(mainWindow.webContents.getURL()).hash!=='#/mail')throw Error('Mail reader required');return mailImages.perform(value);});
 ipcMain.handle('legalwork:mail:images:cancel',event=>{if(!mainWindow||event.sender!==mainWindow.webContents||event.senderFrame!==mainWindow.webContents.mainFrame)throw Error('Mail reader required');mailImages.cancel();});
-app.on('before-quit',()=>mailImages.cancel());
 const mailArtifacts = createMailArtifacts({
   connection: () => runtimeManager.legalworkServerInfo(), dialog, shell,
   privateDirectory: async directory => {
@@ -3057,7 +3058,6 @@ ipcMain.handle("legalwork:mail:artifact:cancel", event => {
   if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error("Mail reader required");
   mailArtifacts.cancel();
 });
-app.on("before-quit", () => { void mailArtifacts.close(); });
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
 ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   if (typeof url === "string" && url.trim().length > 0) {
@@ -3204,9 +3204,10 @@ if (!app.requestSingleInstanceLock()) {
     }
     // Lets the window 'close' handler distinguish quit from close-to-hide.
     appIsQuitting = true;
-    if (runtimeDisposedForQuit) return;
+    if (shutdownComplete) return;
     event.preventDefault();
-    if (runtimeDisposeInProgress) return;
+    if (shutdownInProgress) return;
+    shutdownInProgress = true;
     showShutdownScreen();
     recorderServiceInstance?.dispose();
     appAudioTap.stop();
@@ -3216,11 +3217,12 @@ if (!app.requestSingleInstanceLock()) {
     meetingMonitor.dispose();
     appTray.destroy();
     powerSessions.releaseAll();
-    void boundedShutdown(() => Promise.all([draftRecovery.close(), disposeRuntimeBeforeQuit(), uiControlServer.stop()]), () => {
+    mailImages.cancel();
+    void boundedShutdown(() => Promise.all([mailArtifacts.close(), draftRecovery.close(), disposeRuntimeBeforeQuit(), uiControlServer.stop()]), () => {
       console.warn("[shutdown] Graceful shutdown exceeded 10 seconds; terminating owned workers.");
       try { runtimeManager.forceStopOwnedChildren(); }
       finally { app.exit(1); }
-    }).finally(() => app.quit());
+    }).finally(() => { shutdownComplete = true; app.quit(); });
   });
 
   app.on("second-instance", async (_event, argv) => {
