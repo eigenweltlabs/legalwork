@@ -19,8 +19,12 @@ export function withNativeFixtureOwner(run) {
     return run({ LEGALWORK_TEST_NATIVE_FIXTURE_PARENT: temporary, LEGALWORK_TEST_NATIVE_REPO_FIXTURE_PARENT: repository });
   } finally {
     // No retry or ignored cleanup error: a surviving process/handle still fails.
-    rmSync(temporary, { recursive: true });
-    rmSync(repository, { recursive: true });
+    const errors = [];
+    for (const directory of [temporary, repository]) {
+      try { rmSync(directory, { recursive: true }); }
+      catch (error) { errors.push(error); }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Native fixture cleanup failed');
   }
 }
 
@@ -38,14 +42,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // own OS process. A failing file still cannot contaminate the next file.
     for (const file of files) {
       const started = performance.now();
-      const code = withNativeFixtureOwner(environment => {
-        const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', ['test', '--isolate', ...options, file], {
+      let code;
+      try { code = withNativeFixtureOwner(environment => {
+        const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', ['test', ...options, file], {
           cwd: root, env: { ...process.env, ...environment, LEGALWORK_TEST_PREPARED: '1' },
           stdio: 'inherit', windowsHide: true, timeout: 300_000,
         });
         if (result.error) throw result.error;
         return result.status ?? 1;
-      });
+      }); } catch (error) {
+        console.error(error);
+        code = 1;
+      }
       timing.recordSpan('native-fixture-file', started, { file, status: code });
       if (code !== 0) status = code;
     }
