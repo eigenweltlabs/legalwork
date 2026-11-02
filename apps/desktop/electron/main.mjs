@@ -3218,7 +3218,12 @@ if (!app.requestSingleInstanceLock()) {
     appTray.destroy();
     powerSessions.releaseAll();
     mailImages.cancel();
-    void boundedShutdown(() => Promise.all([mailArtifacts.close(), draftRecovery.close(), disposeRuntimeBeforeQuit(), uiControlServer.stop()]), () => {
+    void boundedShutdown(async () => {
+      const cleanup = await Promise.allSettled([mailArtifacts.close(), draftRecovery.close(), disposeRuntimeBeforeQuit(), uiControlServer.stop()]);
+      if (cleanup.some(result => result.status === "rejected")) {
+        console.warn("[shutdown] A resource could not close cleanly.");
+      }
+    }, () => {
       console.warn("[shutdown] Graceful shutdown exceeded 10 seconds; terminating owned workers.");
       try { runtimeManager.forceStopOwnedChildren(); }
       finally { app.exit(1); }

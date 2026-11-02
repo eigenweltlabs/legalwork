@@ -47,7 +47,7 @@ test("a native update can close an armed dictation window before app before-quit
   assert.deepEqual(app.close(), { prevented: false, hidden: false });
 });
 
-function quitting({ holdRecovery = false } = {}) {
+function quitting({ holdRecovery = false, failArtifacts = false } = {}) {
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
   const disposed = [];
   /** @type {(approved: boolean) => void} */
@@ -76,7 +76,10 @@ function quitting({ holdRecovery = false } = {}) {
     appAudioTap: { stop() {} }, callOverlay: { destroy() {} }, systemDictation: { dispose() {} },
     dictationHud: { destroy() {} }, meetingMonitor: { dispose() {} }, appTray: { destroy() {} }, powerSessions: { releaseAll() {} },
     mailImages: { cancel: () => { disposed.push("mail-images"); } },
-    mailArtifacts: { close: async () => { disposed.push("mail-artifacts"); } },
+    mailArtifacts: { close: async () => {
+      disposed.push("mail-artifacts");
+      if (failArtifacts) throw Error("synthetic temporary-file cleanup failure");
+    } },
     draftRecovery: { close: async () => { disposed.push("mail-recovery"); await recovery; } },
     uiControlServer: { stop: async () => { disposed.push("control-server"); } },
     runtimeManager: { forceStopOwnedChildren() { throw Error("Unexpected forced shutdown"); } },
@@ -110,6 +113,19 @@ test("a repeated Quit waits for mail recovery even after runtime disposal", asyn
     run.app.quit();
     assert.equal(run.exited(), false, "Mail recovery must finish before native exit");
     assert.equal(run.disposed.filter(value => value === "mail-recovery").length, 1);
+  } finally { run.releaseRecovery(); await settled(); }
+  assert.equal(run.exited(), true);
+});
+
+test("failed temporary-file cleanup cannot release Quit before mail recovery", async () => {
+  const run = quitting({ holdRecovery: true, failArtifacts: true });
+  try {
+    run.app.quit(); run.approve(true); await settled();
+    assert.ok(run.disposed.includes("mail-artifacts"));
+    assert.ok(run.disposed.includes("runtime"));
+    assert.equal(run.exited(), false, "Cleanup failure must not interrupt encrypted recovery");
+    run.app.quit();
+    assert.equal(run.exited(), false);
   } finally { run.releaseRecovery(); await settled(); }
   assert.equal(run.exited(), true);
 });
