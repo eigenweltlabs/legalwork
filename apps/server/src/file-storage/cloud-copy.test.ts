@@ -121,7 +121,7 @@ test("Microsoft sidebar copies wait for provider completion and monitor without 
 test("Microsoft copy monitoring rejects hostile URLs and permission changes without leaking credentials", async () => {
   let external = 0;
   globalThis.fetch = Object.assign(async () => { external++; throw new Error("Unexpected external fetch"); }, { preconnect: nativeFetch.preconnect });
-  for (const location of ["http://127.0.0.1/monitor/job", "https://attacker.test/monitor/job", "https://fixture.sharepoint.com/content", "https://user:secret@fixture.sharepoint.com/monitor/job"]) {
+  for (const location of ["http://127.0.0.1/monitor/job", "https://attacker.test/monitor/job", "https://fixture.sharepoint.com/content", "https://USER:PASSWORD@fixture.sharepoint.com/monitor/job"]) {
     const { request } = transport(() => new Response(null, { status: 202, headers: { location } }));
     await expect(microsoftCopy(request, "/copy", "target", "drive", "Report.docx", "https://graph.microsoft.com", false)).rejects.toMatchObject({ code: "storage_invalid_response" });
   }
