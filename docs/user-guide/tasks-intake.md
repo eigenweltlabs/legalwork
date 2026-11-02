@@ -28,7 +28,9 @@ Configure the firm's intake addresses and platform-side rules through the releva
 
 Choose **Start workflow**, select a workflow and a local folder, then start. The app prepares the task's attachments in that folder and opens an agent session. The local folder must be reachable, and the workflow must already exist in the library. Use **Open run** to return to a prior local session, or **Run again** when another pass is intended. A cloud-run status and a locally started run are different executions.
 
-The assistant can list/read tasks, create or update them, and attach existing source documents, reviews and new outputs using the task tools. Ask it to attach the completed deliverable back to the task, rather than leaving it discoverable only in chat. A task link in a response opens that task. Marking a task done changes its status; it does not validate the quality of the attached work.
+The assistant can list/read tasks, create or update them, and manage their attachments. Ask it to download an attachment into the current project to read or edit it, attach an existing document or new deliverable, replace an outdated attachment with an edited file, or remove an attachment from the task. Downloads save a separate working copy and never overwrite an existing project file. Editing that copy does not update the attachment until you ask the assistant to replace it. Replacement adds the new file before removing the old attachment. Removing an attachment leaves the task and any downloaded copies in place. Cached attachments remain available offline; an intake file that has not been downloaded yet requires the firm's Eigenwelt connection.
+
+Ask the assistant to attach the completed deliverable back to the task, rather than leaving it discoverable only in chat. A task link in a response opens that task. Marking a task done changes its status; it does not validate the quality of the attached work.
 
 ## Notifications
 
