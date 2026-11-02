@@ -38,6 +38,10 @@ Opening a connected file downloads a working copy into the selected workspace. E
 
 If another person changes the source, a save can report a conflict. Keep your local draft. **Open latest from [connection]** preserves the previous working copy and opens the newer source. Review and reconcile before trying again. Conflict protection differs between cloud APIs and file-server protocols, so it is not an assurance against every external write race.
 
+## Access changes
+
+LegalWork checks local account and permission changes before further requests. Firm access is checked automatically while browsing, normally within about 30 seconds, and again when an operation starts writing. If an access check fails, LegalWork stops further requests. Requests already sent may finish. Reconnect only when LegalWork asks you to; a temporary connection-service outage can be resolved by trying again later.
+
 ## Team storage
 
 Connections shared by your firm appear alongside your other connections and are marked **Team** on their detail page. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the LegalWork installation running the connection. A separately operated LegalWork server has its own credentials.

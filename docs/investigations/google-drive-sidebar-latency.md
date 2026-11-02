@@ -35,3 +35,20 @@ Memory Drive drag-and-drop explicitly requests `mode: "copy"`. Cross-connection 
 - `pnpm --filter legalwork-server test` did not produce a clean full-suite result: its log contains `webidl.util.markAsUncloneable is not a function` in installed Undici under Bun 1.3.14, plus engine derivative-installation validation failures. These prevent claiming full server-suite verification.
 
 Status: **DONE_WITH_CONCERNS**. The duplicate-request cause is reproduced and fixed, with live read-only measurements. Credential-broker latency and transfer byte verification remain separate costs; the branch is not installed in the desktop app.
+
+## Follow-up: credential reuse
+
+After reviewing the diagnosis, the user authorized token reuse with independent authorization checks. Managed personal connector tokens now stay in process memory until one minute before their actual expiry. Account/permission changes invalidate credentials and reject old request objects or late credential responses. Concurrent retrievals share one request. The existing broker status endpoint remains the authority: browsing renews its authorization check every 30 seconds; each connector operation forces a fresh check before its first write and renews it during long writes. Virtual account listings explicitly recheck authorization even when they require no Google HTTP request. Tokens and file permissions remain separate.
+
+The same read-only probe, account, folder paths and Bun 1.3.14 runtime were used before and after this follow-up. Every measured operation created a new connector and Google adapter, including initialization, so the results include the work repeated by sidebar expansions. Each repeat median uses three samples; network latency varies.
+
+| Complete operation | Before token reuse | After token reuse | Observed reduction |
+| --- | --- | --- | --- |
+| My Drive expansion, repeat median | 1,547 ms | 779 ms | 49.6% |
+| Nested folder expansion, repeat median | 1,830 ms | 1,144 ms | 37.5% |
+
+Across the initial eight operations, token retrievals fell from eight to one. The six repeat expansions made zero broker requests. A further live request after a 31-second pause made one authorization-status request and zero token requests, confirming that authorization renewal is independent of credential reuse. That expansion took 1,587 ms, including an 801 ms status request. The cold account expansion still requires status and token retrieval; caching chiefly improves subsequent navigation. Live writes or transfers were not performed for this measurement.
+
+Validation used the CI-pinned Bun 1.4.4 through `pnpm dlx bun@1.4.4 test`, leaving the installed runtime and dependencies unchanged. The credential cache/reuse, existing connector/own-OAuth/storage-account, Eigenwelt connection/refresh, storage transition, Google tree/native driver/cloud adapter/transfer, and agent storage-tool suites passed: **217 tests, 0 failures, 1,518 assertions across 13 files**. Tests exercise expiry, concurrent retrievals, authorization renewal, write checks, local permission changes, cross-tenant isolation, repeated 401 refresh, broker outages, disconnect races and same-user re-sign-in races. Server typecheck, plugin build, documentation generation/check and diff whitespace checks passed. This is targeted regression verification, not a successful full-server-suite claim.
+
+The follow-up is implemented on `codex/storage-transfer-gdrive-sidebar`. Measurements use the branch source with the live account; the installed desktop application has not been replaced.

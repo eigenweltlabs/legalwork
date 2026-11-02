@@ -74,7 +74,12 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
       await request(`/drive/v3/files/${encodeURIComponent(item.id)}?supportsAllDrives=true`, { method: "PATCH", body: { trashed: true }, headers: { "If-Match": version ?? item.version } });
     },
   });
-  return { ...adapter, ...(tree.listFilesAtRoot ? { listFilesAtRoot: tree.listFilesAtRoot } : {}),
+  return { ...adapter,
+    async list(path, cursor) {
+      await request.assertRead?.();
+      return adapter.list(path, cursor);
+    },
+    ...(tree.listFilesAtRoot ? { listFilesAtRoot: tree.listFilesAtRoot } : {}),
     async restrictToFolder(reference) {
       if (!reference.id || reference.id.startsWith("legalwork:google:")) return null;
       const folder = await tree.get(reference.id);
