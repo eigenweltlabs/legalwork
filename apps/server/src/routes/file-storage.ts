@@ -2,6 +2,7 @@ import { managedStorageCapability } from "../connectors/broker.js";
 import { hasConnectorRuntimeCapability, hasConnectorHostAuthorization } from "../connectors/capability.js";
 import { ConnectorStorageAccounts, isConnectorStorageId } from "../file-storage/connector-accounts.js";
 import { isCloudStorage } from "../file-storage/cloud-drives.js";
+import { nativeFilename } from "../file-storage/native-drive.js";
 import { registerProjectFolderRoutes } from "./project-folders.js";
 import { readProjectDetails } from "../project-store.js";
 import { connectionFingerprint, projectFolderScopes } from "../file-storage/project-folders.js";
@@ -437,7 +438,7 @@ export function registerStorageRoutes({
     if (!parsed.success) throw new ApiError(400, "invalid_storage_path", "A file path is required.");
     const path = storagePath(parsed.data.path, false);
     const current = await resolveWorkspace(config, ctx.params.id);
-    const copy = await workingCopy(current.path, path);
+    const copy = await workingCopy(current.path, isCloudStorage(connection.config) ? nativeFilename(path) : path);
     try {
       const file = await withStorage(connection, (adapter) => adapter.download(path, copy.path));
       const reading = parsed.data.readText

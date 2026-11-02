@@ -44,6 +44,11 @@ function segmentId(value: string) {
   if (decoded.toString("base64url") !== encoded || decoded.length > 1000) throw new ApiError(400, "invalid_storage_path", "Invalid file identity.");
   return decoded.toString();
 }
+/** The provider identity stays in the remote path, never in a local working-copy filename. */
+export function nativeFilename(path: string) {
+  const name = storagePath(path, false).split("/").at(-1)!;
+  return segmentId(name) ? storagePath(name.replace(/^~lw~[A-Za-z0-9_-]+~/, ""), false) : name;
+}
 function info(item: DriveItem): FileInfo {
   const usableVersion = /^(?:W\/)?"[^"\r\n]+"$/.test(item.version) && !item.version.startsWith("W/");
   return { size: item.size, version: item.version, contentType: item.contentType, writable: usableVersion && !item.exported && !item.readOnly, exported: item.exported };

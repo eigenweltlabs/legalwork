@@ -311,7 +311,7 @@ export default Plugin.define({
             bytes = await handle.readFile();
           } finally { await handle.close(); }
           if (bytes.length > PDF_MAX_BYTES) throw new ApiError(400, "pdf_size", "The PDF exceeds 64 MiB.");
-          const result = await pdf.read({ type: "file", mime: "application/pdf", filename: basename(args.path), url: `data:application/pdf;base64,${bytes.toString("base64")}` },
+          const result = await pdf.read({ type: "file", mime: "application/pdf", filename: basename(file.localPath), url: `data:application/pdf;base64,${bytes.toString("base64")}` },
             { ocr: args.ocr, pages: args.pages, offset: args.offset, limit: args.max_chars }, context);
           return new PdfToolResult(nativePdfResult({ ...result, output: JSON.stringify({ ...metadata, ...JSON.parse(result.output) }),
             metadata: { ...metadata, ...result.metadata } }));

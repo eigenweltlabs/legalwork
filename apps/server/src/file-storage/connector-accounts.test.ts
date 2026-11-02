@@ -136,7 +136,13 @@ test("whole-account sidebar file reads and checkouts use two metadata requests w
       ...(checkout ? { body: JSON.stringify({ path }) } : {}),
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ version: "sha256:7", ...(checkout ? { size: 15 } : { dataBase64: Buffer.from("fixture-content").toString("base64") }) });
+    const result = await response.json();
+    expect(result).toMatchObject({ version: "sha256:7", ...(checkout ? { size: 15 } : { dataBase64: Buffer.from("fixture-content").toString("base64") }) });
+    if (checkout) {
+      const copy = z.object({ localPath: z.string() }).parse(result);
+      expect(copy.localPath).toEndWith("/Report.txt");
+      expect(copy.localPath).not.toContain("~lw~");
+    }
     expect(metadata).toBe(2); expect(content).toBe(1);
   }
 });

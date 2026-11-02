@@ -18,6 +18,7 @@ async function fixture(
     calls: Call[];
   }) => Promise<void>,
   linked = false,
+  checkoutName = "Contract.docx",
 ) {
   const directory = await mkdtemp(join(tmpdir(), "storage-agent-"));
   const outside = await mkdtemp(join(tmpdir(), "storage-outside-"));
@@ -102,7 +103,7 @@ async function fixture(
         });
       if (url.pathname.endsWith("/checkout")) {
         try {
-          const copy = await workingCopy(directory, "Contract.docx");
+          const copy = await workingCopy(directory, checkoutName);
           await writeFile(copy.path, Buffer.from([0, 255, 1, 2]));
           return Response.json({
             localPath: copy.relativePath,
@@ -309,6 +310,19 @@ test("confines uploads and downloads to the task workspace, including symlink ta
       parseToolJson(await plugin.tool.storage_read_file.execute({ ...source, path: "../outside" }, { directory })).code,
     ).toBe("invalid_storage_path");
   });
+});
+
+test("PDF reader cards use the checked-out filename and retain the remote file identity", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    plugin.runtime.models([{ providerID: "fixture", id: "pdf", capabilities: { input: ["text", "pdf"] } }]);
+    await plugin.runtime.hook("session", "model.request", { sessionID: "read-cloud-pdf", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
+    const path = "~lw~Zm9sZGVy~Matters/~lw~cHJvdmlkZXItZmlsZQ~Rechnung (Signatur).pdf";
+    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path }, { directory, sessionID: "read-cloud-pdf" });
+    const attachment = typeof result.content === "string" ? undefined : result.content?.find(part => part.type === "file");
+    expect(attachment?.name).toBe("Rechnung (Signatur).pdf");
+    expect(result.output).toMatchObject({ path, local_path: expect.stringContaining("/Rechnung (Signatur).pdf"), extraction: "pdf" });
+    expect(calls.at(-1)?.body).toEqual({ path });
+  }, false, "Rechnung (Signatur).pdf");
 });
 
 test("omitted search connections default exclusively to project folder aliases", async () => {

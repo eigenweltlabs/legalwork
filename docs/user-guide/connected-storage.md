@@ -44,7 +44,7 @@ To move an item, ask in chat. Google Docs, Sheets and Slides copied to another c
 
 ## Edit and save back
 
-Opening a connected file downloads a working copy into the selected workspace. Editor and agent saves update that copy. **Save…** provides **Save to [connection]** to publish back and **Save local copy…** to keep a separate workspace file. A read-only source can still be used for a local edited copy if workspace writing is allowed.
+Opening a connected file downloads a working copy into the selected workspace. Google Drive, OneDrive and SharePoint working copies and new chat attachments use readable filenames without the provider's internal file ID. Files with the same name are kept in separate working-copy folders. Attachments already saved in a chat keep their existing names; attach the source again to use its readable name. Editor and agent saves update the working copy. **Save…** provides **Save to [connection]** to publish back and **Save local copy…** to keep a separate workspace file. A read-only source can still be used for a local edited copy if workspace writing is allowed.
 
 If another person changes the source, a save can report a conflict. Keep your local draft. **Open latest from [connection]** preserves the previous working copy and opens the newer source. Review and reconcile before trying again. Conflict protection differs between cloud APIs and file-server protocols, so it is not an assurance against every external write race.
 
