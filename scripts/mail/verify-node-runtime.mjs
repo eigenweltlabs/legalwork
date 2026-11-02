@@ -152,20 +152,24 @@ try {
       const result = await run(join(directory, "process.js"), { data: Buffer.from(bytes).toString("base64"), filename, contentType });
       assert.equal(result.code, 0, result.stderr);
       const parsed = JSON.parse(result.stdout); assert.equal(parsed.ok, true, parsed.error);
-      assert.ok(parsed.result.sections.some(section => section.text.includes(marker))); return parsed.result;
+      assert.ok(parsed.result.sections.some(section => section.text.includes(marker)),
+        JSON.stringify({ filename, expected: marker, sections: parsed.result.sections })); return parsed.result;
     };
     await extract(Buffer.from(pdf), "contract.pdf", "application/pdf", "Packagedpdfneedle");
     const imageFixture = join(root, "image-fixture.mjs");
     await writeFile(imageFixture, `
 import {createRequire} from 'node:module';
+import {readFileSync} from 'node:fs';
 const require=createRequire(${JSON.stringify(join(directory, "worker.mjs"))});
-const {createCanvas}=require('@napi-rs/canvas');
-const canvas=createCanvas(1000,220),context=canvas.getContext('2d');
-context.fillStyle='white';context.fillRect(0,0,1000,220);context.fillStyle='black';
-context.font='60px Arial';context.fillText('CONTRACT ATTACHMENT 138',20,125);
+const {createCanvas,loadImage}=require('@napi-rs/canvas');
+const input=JSON.parse(readFileSync(0,'utf8'));
+const image=await loadImage(Buffer.from(input.data,'base64'));
+const canvas=createCanvas(image.width,image.height);
+canvas.getContext('2d').drawImage(image,0,0);
 console.log(JSON.stringify({data:canvas.toBuffer('image/png').toString('base64')}));
 `);
-    const fixture = await run(imageFixture, {}); assert.equal(fixture.code, 0, fixture.stderr);
+    const scan = await readFile(new URL('./fixtures/contract-scan.png', import.meta.url));
+    const fixture = await run(imageFixture, { data: scan.toString('base64') }); assert.equal(fixture.code, 0, fixture.stderr);
     const ocr = await extract(Buffer.from(JSON.parse(fixture.stdout).data, "base64"), "scan.png", "image/png", "CONTRACT ATTACHMENT 138");
     assert.ok(ocr.sections.some(section => section.method === "ocr"));
     const ciphertext = await readFile(original.databasePath);
