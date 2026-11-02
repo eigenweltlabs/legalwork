@@ -265,6 +265,7 @@ jobs:
           MAIL_OUTBOX_EVIDENCE: ${{ runner.temp }}/mail-ui/outbox
           MAIL_JOURNEY_EVIDENCE: ${{ runner.temp }}/mail-ui/attachments
           MAIL_CONTEXT_EVIDENCE: ${{ runner.temp }}/mail-ui/context
+          MAIL_CLASSIFIER_EVIDENCE: ${{ runner.temp }}/mail-ui/projects
         run: >-
           bun test apps/app/tests/mail-outbox.test.ts
           apps/app/tests/mail-compose.test.ts
@@ -272,6 +273,7 @@ jobs:
           apps/app/tests/mail-context-render.test.ts
           apps/app/tests/mail-journey-render.test.ts
           apps/app/tests/mail-notification-open-render.test.ts
+          apps/app/tests/mail-classifier-render.test.ts
       - name: Upload synthetic Windows Email UI evidence
         if: always() && needs.changes.outputs.app == 'true'
         uses: actions/upload-artifact@v4
@@ -367,6 +369,7 @@ jobs:
           MAIL_OUTBOX_EVIDENCE: ${{ runner.temp }}/mail-ui/outbox
           MAIL_JOURNEY_EVIDENCE: ${{ runner.temp }}/mail-ui/attachments
           MAIL_CONTEXT_EVIDENCE: ${{ runner.temp }}/mail-ui/context
+          MAIL_CLASSIFIER_EVIDENCE: ${{ runner.temp }}/mail-ui/projects
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then

@@ -9,10 +9,10 @@ const rule = { id: '11111111-1111-4111-8111-111111111111', name: 'Matter referen
 const definition = mailClassifierDefinitionSchema.parse({ mode: 'suggestions', rules: [rule], exclusions: { senders: [], domains: [], subjects: [] } });
 const metadata = { from: 'Client <client@example.test>', subject: 'Re: [MAT-123] contract' };
 
-test('classifier defaults and commands cannot add model, owner, filesystem, provider-write or automatic authority', () => {
+test('classifier defaults and commands cannot add model, owner, filesystem or provider-write authority', () => {
   expect(classifyMailProject({ ...definition, mode: 'off' }, metadata)).toEqual({ status: 'off', candidates: [] });
   for (const extra of [{ ownerId: 'other' }, { model: 'remote' }, { send: true }, { projectPath: '/private' }]) expect(mailClassifierCommandSchema.safeParse({ operation: 'mail.classifier.preview', accountId: 'a', input: { locator: { provider: 'gmail', messageId: 'one' } }, ...extra }).success).toBe(false);
-  expect(mailClassifierDefinitionSchema.safeParse({ ...definition, mode: 'automatic' }).success).toBe(false);
+  expect(mailClassifierDefinitionSchema.safeParse({ ...definition, mode: 'remote-automatic' }).success).toBe(false);
   expect(mailClassifierDefinitionSchema.safeParse({ ...definition, rules: [{ ...rule, criteria: { sender: '', domain: '', reference: '', subject: '' } }] }).success).toBe(false);
   expect(mailClassifierDefinitionSchema.safeParse({ ...definition, rules: [rule, rule] }).success).toBe(false);
 });

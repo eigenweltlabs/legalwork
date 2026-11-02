@@ -16,6 +16,7 @@ export async function setMailProject(client: MailClient, item: MailMessageView, 
   matches(item, current);
   const value = await client.request('/projects', mailProjectDisplaySchema, signal, { action: 'set', accountId: item.accountId, input: { locator: item.locator, expected: current.version, project } });
   matches(item, value);
+  if(value.source==='automatic'||current.source==='automatic'&&value.version?.revision!==((current.version?.revision??0)+1))throw new MailProjectError('unavailable');
   if (!value.unavailable && JSON.stringify(value.project ? { id: value.project.id, binding: value.project.binding } : null) !== JSON.stringify(project)) throw new MailProjectError('unavailable');
   if (current.version ? value.version?.generation !== current.version.generation || ![current.version.revision, current.version.revision + 1].includes(value.version.revision) : !(value.version?.revision === 1 || value.version === null && project === null)) throw new MailProjectError('unavailable');
   return value;

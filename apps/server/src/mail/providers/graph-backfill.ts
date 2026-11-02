@@ -1,4 +1,4 @@
-import { captureMailRuleArrival } from '../storage/rules.js';
+import { captureMailArrival } from '../storage/arrivals.js';
 import { GraphMailboxRepository } from '../storage/graph-mailboxes.js';
 import { randomUUID } from "node:crypto";
 import { MailHttpActionRunner } from './http-action-runner.js';
@@ -332,7 +332,7 @@ export class GraphBackfill {
         const unique = [...new Set(ids)];
         this.journal.commitPage({ ...scope, expectedCursor: checkpoint.cursor, expectedRevision: checkpoint.revision, nextCursor: terminal ? null : randomUUID(), discoveryComplete: terminal, jobs: unique.map(messageId => ({ kind: 'raw', locator: { provider: 'graph', messageId } })) }, () => {
             this.assert(session);
-            for (const messageId of arrivals) captureMailRuleArrival(db, this.options.ownerId, accountId, { provider: 'graph', messageId });
+            for (const messageId of arrivals) captureMailArrival(db, this.options.ownerId, accountId, { provider: 'graph', messageId });
             for (const messageId of unique) {
                 const locator = { provider: 'graph', messageId } satisfies import('../model.js').ProviderMessageLocator, key = providerMessageKey(locator);
                 if (!db.get('SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?', [accountId, key]))

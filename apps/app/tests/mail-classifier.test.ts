@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { MailClient, type MailMessageView } from '../src/react-app/domains/mail/mail-client';
-import { requestMailClassifier, previewMailClassification } from '../src/react-app/domains/mail/mail-classifier-client';
+import { requestMailClassifier, previewMailClassification, mailClassificationActivity, changeMailClassification } from '../src/react-app/domains/mail/mail-classifier-client';
 import { mailClassifierDisplayPreviewSchema } from '../../server/src/mail/classifier-view';
 
 const item: MailMessageView = { accountId: 'a', key: '["gmail","one"]', locator: { provider: 'gmail', messageId: 'one' }, subject: 'MAT-123', threadId: null, rfcMessageId: null, memberships: [], removed: false, contentState: 'complete', metadata: null };
@@ -44,4 +44,31 @@ test('classifier failures hide raw error payloads and retain their actionable er
   const client = new MailClient('http://127.0.0.1:8787', 'fixture', async () => Response.json({ code: 'mail_classifier_conflict', message: 'private-provider-marker' }, { status: 409 }));
   try { await requestMailClassifier(client, 'a', new AbortController().signal); throw Error('Expected conflict'); }
   catch (error) { expect(error).toMatchObject({ code: 'conflict' }); expect(String(error)).not.toContain('private-provider-marker'); }
+});
+
+test('activity pagination rejects foreign accounts, repeated identities and non-advancing cursors',async()=>{
+  const row={id:2,version,locator:item.locator,subject:'Synthetic',at:1,outcome:'ambiguous',project:null,unavailable:false,assignmentVersion:null,canUndo:false,canDismiss:true},page={accountId:'a',items:[row],nextCursor:2};
+  const signal=new AbortController().signal;
+  for(const value of [{...page,accountId:'other'},{...page,items:[row,row]},{...page,nextCursor:3}]){
+    const client=new MailClient('http://127.0.0.1:8787','fixture',async()=>Response.json(value));await expect(mailClassificationActivity(client,'a',signal,{filter:'review',beforeId:3})).rejects.toMatchObject({code:'unavailable'});
+  }
+  const client=new MailClient('http://127.0.0.1:8787','fixture',async(_,init)=>{expect(JSON.parse(String(init?.body))).toEqual({operation:'mail.classifier.activity',accountId:'a',input:{filter:'review',beforeId:3}});return Response.json(page);});
+  expect((await mailClassificationActivity(client,'a',signal,{filter:'review',beforeId:3})).items).toHaveLength(1);
+});
+
+test('undo and dismissal accept only the exact account, row and next decision version',async()=>{
+  const input={id:2,expected:version,assignmentVersion:version},value={accountId:'a',id:2,version:{...version,revision:2},outcome:'undone'};
+  const signal=new AbortController().signal;
+  for(const result of [{...value,accountId:'other'},{...value,id:3},{...value,version},{...value,outcome:'dismissed'}]){
+    const client=new MailClient('http://127.0.0.1:8787','fixture',async()=>Response.json(result));await expect(changeMailClassification(client,'a',signal,'undo',input)).rejects.toMatchObject({code:'unavailable'});
+  }
+  const client=new MailClient('http://127.0.0.1:8787','fixture',async(_,init)=>{expect(JSON.parse(String(init?.body))).toEqual({operation:'mail.classifier.undo',accountId:'a',input});return Response.json(value);});
+  expect((await changeMailClassification(client,'a',signal,'undo',input)).outcome).toBe('undone');
+  const abort=new AbortController(),ignored=new MailClient('http://127.0.0.1:8787','fixture',async()=>{abort.abort();return Response.json(value);});await expect(changeMailClassification(ignored,'a',abort.signal,'undo',input)).rejects.toMatchObject({name:'AbortError'});
+});
+
+test('saving automatic policy rejects a server which silently weakens the selected threshold',async()=>{
+  const edit={...definition,mode:'automatic',automaticThreshold:'reference_sender',rules:definition.rules.map(({unavailable:_unavailable,...rule})=>({...rule,project:{id:project.id,binding:project.binding}}))} satisfies import('../../server/src/mail/classifier-view').MailClassifierSave['definition'];
+  const client=new MailClient('http://127.0.0.1:8787','fixture',async()=>Response.json({...state,version:{...version,revision:2},definition:{...edit,automaticThreshold:'any_rule',rules:definition.rules}}));
+  await expect(requestMailClassifier(client,'a',new AbortController().signal,{expected:version,definition:edit})).rejects.toMatchObject({code:'unavailable'});
 });

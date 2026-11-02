@@ -37,6 +37,7 @@
   "storage/snoozes",
   "storage/project-associations",
   "storage/classifier",
+  "storage/classifier-arrivals",
   "storage/rules",
   "storage/historical-upgrades",
   "storage/maintenance",

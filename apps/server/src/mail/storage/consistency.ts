@@ -26,9 +26,10 @@ const size = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 // Static identifiers only. Never interpolate provider values or schema-discovered names into SQL.
 const requiredColumns: Record<string, string[]> = {
-  mail_project_associations: ['account_id','message_key','generation','revision','project_id','project_binding','updated_at'],
-  mail_project_classifiers: ['account_id','generation','revision','definition_json','updated_at'],
-  mail_project_changes: ['account_id','message_key','generation','revision','project_id','project_binding','changed_at'],
+  mail_project_associations: ['account_id','message_key','generation','revision','project_id','project_binding','updated_at','source','decision_id'],
+  mail_project_classifiers: ['account_id','generation','revision','definition_json','updated_at','credential_generation','activated_at'],
+  mail_project_changes: ['account_id','message_key','generation','revision','project_id','project_binding','changed_at','source','evidence_json'],
+  mail_project_arrivals: ['id','account_id','message_key','generation','revision','config_generation','config_revision','credential_generation','observed_at','available_at','state','outcome','project_id','project_binding'],
   mail_local_rules: ['account_id','id','generation','revision','definition_json','credential_generation','activated_at','after_arrival','deleted'],
   mail_rule_arrivals: ['id','account_id','message_key','credential_generation','observed_at','available_at','state','rule_name','action','outcome','action_id'],
   mail_snoozes: ['account_id','scope_key','anchor_key','thread_id','generation','revision','until_at','time_zone','woke_at'],
@@ -124,6 +125,7 @@ function schemaIssue(database: MailDatabase): MailConsistencyCode | undefined {
   if (typeof version === "number" && Number.isInteger(version) && version >= 1 && version < MAIL_SCHEMA_VERSION) return "schema-upgrade-required";
   if (version !== MAIL_SCHEMA_VERSION) return "unsupported-schema-version";
   if(!database.get("SELECT name FROM sqlite_schema WHERE type='view' AND name='mail_account_access'"))return "schema-incomplete";
+  if(!database.get("SELECT name FROM sqlite_schema WHERE type='trigger' AND name='mail_project_arrival_purge'"))return "schema-incomplete";
   for (const [table, columns] of Object.entries(requiredColumns)) {
     if (!database.get("SELECT name FROM sqlite_schema WHERE type='table' AND name=?", [table])) return "schema-incomplete";
     for (const column of columns) {

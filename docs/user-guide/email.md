@@ -50,7 +50,21 @@ Project-scoped Email search is not available yet. Project assignment does not ru
 
 Suggestions check only the selected message's stored sender and subject when you choose **Suggest project**. Missing, invalid or multiple sender addresses make a suggestion unavailable. They do not scan your mailbox in the background, change provider folders, process attachments, use a model or share content with the project. Multiple destinations stay marked **Multiple project matches**, including when a conflicting destination is inaccessible. Inaccessible projects are hidden. Refresh changed rules before retrying an edit.
 
-Set **Mode** to **Off** to stop suggestions for that account. Restoring a backup keeps its rules but turns suggestions off and invalidates earlier settings edits. Automatic classification of future incoming mail, historical batch classification and model-assisted classification are not available yet.
+Set **Mode** to **Off** to stop suggestions and automatic assignment for that account. Restoring a backup keeps its rules and assignment history but turns classification off and invalidates earlier settings edits and undo controls.
+
+### Assign new incoming email automatically
+
+1. Open **Settings > Mail accounts > Projects** and choose a connected Gmail, Outlook or IMAP account. Set up its project rules and exclusions as above. Imported archives and retained copies support suggestions and manual assignment, but cannot enable automatic assignment.
+2. Select **Mode > Automatic**. Under **Assign automatically when**, choose **Reference and sender or domain** (the default), **Project reference**, or **Any matching rule**. The default requires a whole project reference and a sender address or exact domain in the same matching rule. These are explicit matching policies, not probability scores.
+3. Check the status. **Active for new Inbox mail** means automatic assignment is enabled. **Waiting for initial sync** waits for incremental mail sync. **Paused** follows the account or app pause state. A changed connection requires **Resume for new mail** after reconnecting. Saving rules also starts a new settings version for subsequent arrivals.
+
+Only new messages observed by incremental sync in Inbox are eligible. Initial downloads, imports, older provider dates, Sent-only messages, Spam and Trash are skipped. The app must be running with Email unlocked. No earlier mailbox scan runs when you enable or resume the feature. Changes to the connection or rules invalidate older pending decisions; those messages are not replayed under the new settings. Pending work expires into review after seven days.
+
+One qualifying project is assigned locally. Competing projects, weaker matches and unavailable destinations remain unassigned and appear under **Assignment activity > Needs review**. **Open email** opens that exact message; use **Project** to choose its project. **Dismiss** records your choice to leave it unassigned. **Automatic assignments** lists assignments and their later manual changes; **All activity** includes skipped arrivals. Use **Earlier activity** for older entries and **Refresh** to return to the latest page.
+
+An automatically assigned email shows **Automatic** beside its project. Open the project selector to inspect the matching rules, choose **Keep project** to confirm it manually, or select another project or **No project** and **Save**. **Assignment history** preserves the original automatic decision and later corrections. **Undo assignment** in the activity list clears an unchanged automatic assignment. It refuses a stale action after another window has changed or confirmed that assignment. Manual choices always take precedence.
+
+Automatic assignment uses the stored sender and subject and rechecks the current message, settings, connection and accessible project before saving. It does not copy email into a project, grant project members mailbox access, change provider folders or call a model. Historical batch classification, learned classification, project-scoped search and model-assisted classification are not available.
 
 ## Download status and local privacy
 

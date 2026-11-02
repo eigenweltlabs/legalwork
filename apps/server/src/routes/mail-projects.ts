@@ -23,7 +23,7 @@ export function registerMailProjectRoutes({ routes, host, mail, ensureWritable, 
     } catch { /* Do not expose inaccessible project names or paths. */ }
     return { project: null, unavailable: true };
   }
-  async function display(record: MailProjectAssociation) { return mailProjectDisplaySchema.parse({ ...record, ...await visible(record.project) }); }
+  async function display(record: MailProjectAssociation) {const scope=await visible(record.project); return mailProjectDisplaySchema.parse({ ...record, ...scope,...(scope.unavailable?{evidence:null}:{}) }); }
   addRoute(routes, 'POST', '/mail/v1/projects', 'host-token', async ctx => {
     if (ctx.actor?.type !== 'host') throw new ApiError(401, 'unauthorized', 'Invalid host token');
     let request: unknown;
@@ -55,7 +55,7 @@ export function registerMailProjectRoutes({ routes, host, mail, ensureWritable, 
       } else {
         const result = await execute({ operation: 'mail.project.history', accountId: input.accountId, input: input.input });
         if (!('projectHistory' in result)) throw new MailProjectError('unavailable');
-        value = mailProjectDisplayHistorySchema.parse({ ...result.projectHistory, items: await Promise.all(result.projectHistory.items.map(async item => ({ ...item, ...await visible(item.project) }))) });
+        value = mailProjectDisplayHistorySchema.parse({ ...result.projectHistory, items: await Promise.all(result.projectHistory.items.map(async item => {const scope=await visible(item.project);return{ ...item, ...scope,...(scope.unavailable?{evidence:null}:{}) };})) });
       }
       if (mail.status().state !== 'ready') throw new ApiError(423, 'mail_locked', 'Mail storage is locked');
       return Response.json(value, { headers: { 'Cache-Control': 'no-store' } });

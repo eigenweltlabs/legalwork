@@ -1,10 +1,23 @@
 import { expect, test } from "bun:test";
 import { GMAIL_MAIL_SCOPES, GRAPH_MAIL_SCOPES } from "../provider-config.js";
 import { parseParentMessage, parseWorkerMessage, resultMatchesCommand } from "./protocol.js";
+import { mailClassifierCommandSchema } from '../classifier-view.js';
+import { mailClassifierPlanSchema } from '../classifier-incoming-view.js';
 const settings = { provider: "gmail", applicationType: "desktop", pkceMethod: "S256", clientId: "synthetic.apps.googleusercontent.com", clientSecret: "synthetic-secret", scopes: [...GMAIL_MAIL_SCOPES] };
 const connectionId = "11111111-1111-4111-8111-111111111111";
 const parent = (command: unknown) => parseParentMessage(JSON.stringify({ kind: "request", id: "1:1", command }));
 const response = (result: unknown) => parseWorkerMessage(JSON.stringify({ kind: "response", id: "1:1", ok: true, result }));
+test('automatic classification stays on the private protocol and commits correlate to exact arrival/account identities',()=>{
+ const version={generation:'11111111-1111-4111-8111-111111111111',revision:1};
+ const plan=mailClassifierPlanSchema.parse({id:1,version,accountId:'a',locator:{provider:'gmail',messageId:'one'},configVersion:version,fingerprint:'a'.repeat(64),project:{id:'project',binding:'b'.repeat(64)},threshold:'reference_sender',rules:[{id:version.generation,name:'Synthetic rule',reasons:['reference','sender']}]});
+ const command={operation:'mail.classifier.commit',plan,project:plan.project} satisfies import('./protocol.js').WorkerCommand;
+ expect(parent(command)).toBeDefined();expect(parent({operation:'mail.classifier.pending'})).toBeDefined();
+ expect(mailClassifierCommandSchema.safeParse(command).success).toBe(false);expect(mailClassifierCommandSchema.safeParse({operation:'mail.classifier.pending'}).success).toBe(false);
+ for(const invalid of [{...command,ownerId:'other'},{...command,project:{...plan.project,name:'injected'}},{...command,plan:{...plan,fingerprint:'bad'}}])expect(parent(invalid)).toBeUndefined();
+ expect(response({classifierPending:{items:[plan]}})).toBeDefined();expect(response({classifierPending:{items:[plan,plan]}})).toBeUndefined();
+ const result={classifierCommit:{accountId:'a',id:1,outcome:'assigned'}} satisfies import('./protocol.js').WorkerResult;
+ expect(resultMatchesCommand(command,result)).toBe(true);expect(resultMatchesCommand(command,{classifierCommit:{...result.classifierCommit,id:2}})).toBe(false);expect(resultMatchesCommand(command,{classifierCommit:{...result.classifierCommit,accountId:'other'}})).toBe(false);
+});
 test("integration configuration is private, loopback-only and cannot contain provider credentials", () => {
   const snapshot = {configuration:{origin:"http://127.0.0.1:12345",capability:"a".repeat(64)},handles:[],accounts:[]};
   expect(parent({operation:"mail.integrations.reconcile",snapshot})).toBeDefined();

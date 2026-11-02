@@ -1,5 +1,7 @@
 import { MailProjectError, type MailProjectCommand } from './project-association-view.js';
 import { MailClassifierError, type MailClassifierCommand } from './classifier-view.js';
+import {MailProjectClassifierCoordinator} from './project-classifier-coordinator.js';
+import type {MailClassifierAutomationCommand} from './classifier-incoming-view.js';
 import {MailRulesError,type MailRuleSave,type MailRuleDelete} from './rules-view.js';
 import { mailDiagnosticsSchema, type MailDiagnostics, type MailDiagnosticSnapshot } from './diagnostics-view.js';
 import {MailSnoozeError,type MailSnooze,type MailSnoozeSet} from './snooze-view.js';
@@ -66,6 +68,15 @@ export class LocalMailService implements MailService {
   private opening?: Promise<void>;
   private closing?: Promise<void>;
   private readonly loadProviderSettings?: LocalMailServiceOptions["loadProviderSettings"];
+  private classifierCoordinator?:MailProjectClassifierCoordinator;
+  private classifierWritable?:()=>boolean;
+  configureAutomaticClassification(options:{resolve:(id:string)=>Promise<import('./project-association-view.js').MailProjectDestination>;writable:()=>boolean}){
+    this.classifierCoordinator?.stop();this.classifierWritable=options.writable;
+    this.classifierCoordinator=new MailProjectClassifierCoordinator({resolve:options.resolve,canRun:()=>this.status().state==='ready'&&!this.lifecycleSuspended&&options.writable(),pending:async()=>{const result=await this.automaticClassification({operation:'mail.classifier.pending'});if(!('classifierPending' in result))throw new MailClassifierError('unavailable');return result.classifierPending;},commit:(plan,project)=>this.automaticClassification({operation:'mail.classifier.commit',plan,project})});
+    if(this.phase==='open'&&!this.lifecycleSuspended)this.classifierCoordinator.start();
+  }
+  automaticClassificationAvailable(){return !!this.classifierCoordinator&&this.classifierWritable?.()===true;}
+  private async automaticClassification(command:MailClassifierAutomationCommand){const result=await this.request(command);if('classifierFailure' in result)throw new MailClassifierError(result.classifierFailure);if(!('classifierPending' in result)&&!('classifierCommit' in result))throw new MailClassifierError('unavailable');return result;}
 
   private integrationLoader?: () => Promise<MailIntegrationSnapshot>;
   private integrationSnapshot?: MailIntegrationSnapshot;
@@ -135,7 +146,12 @@ export class LocalMailService implements MailService {
   saveRule(accountId:string,input:MailRuleSave){return this.rulesRequest({operation:'mail.rules.save',accountId,input});}
   deleteRule(accountId:string,input:MailRuleDelete){return this.rulesRequest({operation:'mail.rules.delete',accountId,input});}
   async projectAssociation(command:MailProjectCommand){const result=await this.request(command);if('projectFailure' in result)throw new MailProjectError(result.projectFailure);if(!('projectAssociation' in result)&&!('projectHistory' in result))throw new MailServiceError('unavailable');return result;}
-  async classifier(command:MailClassifierCommand){const result=await this.request(command);if('classifierFailure' in result)throw new MailClassifierError(result.classifierFailure);if(!('classifier' in result)&&!('classification' in result))throw new MailServiceError('unavailable');return result;}
+  async classifier(command:MailClassifierCommand){
+    if(command.operation==='mail.classifier.save'&&command.input.definition.mode==='automatic'&&!this.automaticClassificationAvailable())throw new MailClassifierError('unavailable');
+    const result=await this.request(command);if('classifierFailure' in result)throw new MailClassifierError(result.classifierFailure);
+    if(!('classifier' in result)&&!('classification' in result)&&!('classifierActivity' in result)&&!('classifierAction' in result))throw new MailServiceError('unavailable');
+    if(command.operation==='mail.classifier.save')this.classifierCoordinator?.wake();return result;
+  }
   async readSnooze(accountId:string,locator:ProviderMessageLocator){if(locator.provider==='archive')throw new MailSnoozeError('unavailable');const result=await this.request({operation:'mail.snooze.read',accountId,input:{locator}});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
   async setSnooze(accountId:string,input:MailSnoozeSet){const result=await this.request({operation:'mail.snooze.set',accountId,input});if('snoozeFailure' in result)throw new MailSnoozeError(result.snoozeFailure);if(!('snooze' in result))throw new MailServiceError('unavailable');return result.snooze;}
   async outboxRead(accountId:string,input:{actionId:string}){const result=await this.request({operation:'mail.outbox.read',accountId,input});if('outboxFailure' in result)throw new OutboxError(result.outboxFailure);if(!('outboxDetail' in result))throw new MailServiceError('unavailable');return result.outboxDetail;}
@@ -170,7 +186,12 @@ export class LocalMailService implements MailService {
   }
   private lifecycleSuspended=false;
   async pollNotifications(input:MailNotificationPoll){const result=await this.request({operation:'mail.notifications.poll',input});if(!('notifications' in result))throw new MailServiceError('unavailable');return result.notifications;}
-  async setLifecycleSuspended(suspended:boolean){this.lifecycleSuspended=suspended;if(this.status().state!=='ready')return{state:suspended?'suspended':'running'} satisfies {state:'running'|'suspended'};const result=await this.request({operation:'mail.lifecycle.set',input:{suspended}});if(!('lifecycle' in result))throw new MailServiceError('unavailable');return result.lifecycle;}
+  async setLifecycleSuspended(suspended:boolean){
+    this.lifecycleSuspended=suspended;if(suspended)this.classifierCoordinator?.stop();
+    if(this.status().state!=='ready')return{state:suspended?'suspended':'running'} satisfies {state:'running'|'suspended'};
+    const result=await this.request({operation:'mail.lifecycle.set',input:{suspended}});if(!('lifecycle' in result))throw new MailServiceError('unavailable');
+    if(!suspended)this.classifierCoordinator?.start();return result.lifecycle;
+  }
   async lifecycleStatus(){const result=await this.request({operation:'mail.lifecycle.status'});if(!('lifecycle' in result))throw new MailServiceError('unavailable');return result.lifecycle;}
   async unreadInboxCount(): Promise<number> {
     const result = await this.request({ operation: "mail.badge.count" });
@@ -212,6 +233,7 @@ export class LocalMailService implements MailService {
         if (this.phase !== "unlocking" || this.stopped) throw new MailServiceError("locked");
         this.phase = "open";
         await this.restoreConnectedAccounts();
+        if(this.phase==='open'&&!this.lifecycleSuspended)this.classifierCoordinator?.start();
       } catch (error) {
         // This opening also owns the open phase while enumerating accounts. A
         // concurrent lock owns its own teardown; never overwrite its state.
@@ -233,6 +255,7 @@ export class LocalMailService implements MailService {
   private readonly lockListeners=new Set<()=>void>();
   onLock(listener:()=>void){this.lockListeners.add(listener);return()=>this.lockListeners.delete(listener);}
   lock(): Promise<void> {
+    this.classifierCoordinator?.stop();
     for(const listener of this.lockListeners)listener();
     this.maintenanceAbort?.abort();
     if (this.closing) return this.closing;

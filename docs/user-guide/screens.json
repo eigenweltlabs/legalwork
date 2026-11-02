@@ -39,6 +39,11 @@
       "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx"
     },
     {
+      "id": "mail-project-activity",
+      "guide": "email.md",
+      "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-activity.tsx"
+    },
+    {
       "id": "mail-project-exclusions",
       "guide": "email.md",
       "source": "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx"

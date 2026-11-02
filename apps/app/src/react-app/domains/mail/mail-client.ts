@@ -56,7 +56,7 @@ export class MailClient {
         return schema.parse(await response.json());
     }
     changeCursor(accountId:string,signal:AbortSignal){return this.request(`/accounts/${encodeURIComponent(accountId)}/events/query`,z.object({stream:z.string(),nextCursor:z.number()}),signal,{cursorOnly:true});}
-    status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string(), projectAssociations: z.boolean().optional(), projectClassification: z.boolean().optional(), accountRevision: z.number().int().nonnegative().optional() }), signal); }
+    status(signal: AbortSignal) { return this.request('/status', z.object({ state: z.string(), projectAssociations: z.boolean().optional(), projectClassification: z.boolean().optional(), automaticProjectClassification: z.boolean().optional(), accountRevision: z.number().int().nonnegative().optional() }), signal); }
     diagnostics(signal: AbortSignal) { return this.request('/diagnostics', mailDiagnosticsSchema, signal); }
     unlock(signal: AbortSignal) { return this.request('/unlock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }
     lock(signal: AbortSignal) { return this.request('/lock', z.object({ state: z.string(), accountRevision: z.number().int().nonnegative().optional() }), signal, undefined, true); }

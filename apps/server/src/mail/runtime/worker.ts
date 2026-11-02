@@ -2,6 +2,7 @@ import { MailProjectAssociations } from '../storage/project-associations.js';
 import { MailProjectError } from '../project-association-view.js';
 import {MailRulesStore} from '../storage/rules.js';
 import { MailClassifierStore } from '../storage/classifier.js';
+import { MailClassifierArrivals } from '../storage/classifier-arrivals.js';
 import { MailClassifierError } from '../classifier-view.js';
 import { collectMailDiagnostics } from '../storage/diagnostics.js';
 import {MailRulesRunner} from './rules-runner.js';
@@ -299,9 +300,13 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
       case 'mail.project.read':result={projectAssociation:new MailProjectAssociations(database,ownerId).read(command.accountId,command.input.locator)};break;
       case 'mail.project.set':result={projectAssociation:new MailProjectAssociations(database,ownerId).set(command.accountId,command.input)};break;
       case 'mail.project.history':result={projectHistory:new MailProjectAssociations(database,ownerId).history(command.accountId,command.input)};break;
-      case 'mail.classifier.read':result={classifier:new MailClassifierStore(database,ownerId).read(command.accountId)};break;
-      case 'mail.classifier.save':result={classifier:new MailClassifierStore(database,ownerId).save(command.accountId,command.input)};break;
-      case 'mail.classifier.preview':result={classification:new MailClassifierStore(database,ownerId).preview(command.accountId,command.input)};break;
+      case 'mail.classifier.read':result={classifier:new MailClassifierStore(database,ownerId,Date.now,()=>!lifecycleSuspended).read(command.accountId)};break;
+      case 'mail.classifier.save':result={classifier:new MailClassifierStore(database,ownerId,Date.now,()=>!lifecycleSuspended).save(command.accountId,command.input)};break;
+      case 'mail.classifier.preview':result={classification:new MailClassifierStore(database,ownerId,Date.now,()=>!lifecycleSuspended).preview(command.accountId,command.input)};break;
+      case 'mail.classifier.pending':if(lifecycleSuspended)throw new MailClassifierError('unavailable');result={classifierPending:new MailClassifierArrivals(database,ownerId).pending()};break;
+      case 'mail.classifier.commit':if(lifecycleSuspended)throw new MailClassifierError('unavailable');result={classifierCommit:new MailClassifierArrivals(database,ownerId).commit(command.plan,command.project)};break;
+      case 'mail.classifier.activity':result={classifierActivity:new MailClassifierArrivals(database,ownerId).activity(command.accountId,command.input)};break;
+      case 'mail.classifier.dismiss':case 'mail.classifier.undo':result={classifierAction:new MailClassifierArrivals(database,ownerId).action(command.accountId,command.input,command.operation==='mail.classifier.undo'?'undo':'dismiss')};break;
       case 'mail.snooze.read':result={snooze:new MailSnoozeStore(database,ownerId).read(command.accountId,command.input.locator)};break;
       case 'mail.snooze.set':result={snooze:new MailSnoozeStore(database,ownerId).set(command.accountId,command.input)};break;
       case "mail.agent.control":{
@@ -506,15 +511,17 @@ async function request(message: Extract<ParentMessage, { kind: "request" }>): Pr
         if(command.operation==='mail.sync.stop')qualification?.cancel(command.accountId);
         const engine = syncLifecycle.engine(command.accountId);
         if(new MailIntegrationAccounts(database,ownerId).get(command.accountId)?.readOnly){if(command.operation==='mail.sync.start')throw unsupported;result={sync:engine.status(command.accountId)};break;}
-        if(lifecycleSuspended&&command.operation==='mail.sync.start'){result={sync:engine.status(command.accountId)};break;}
-        if(provider==='imap' || new MailIntegrationAccounts(database, ownerId).get(command.accountId)){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}
-
-        if (command.operation === "mail.sync.start" || command.operation === "mail.sync.resume") {
+        if ((command.operation === "mail.sync.start" || command.operation === "mail.sync.resume") && provider !== 'imap' && !new MailIntegrationAccounts(database, ownerId).get(command.accountId)) {
           if(!command.settings)throw unsupported;
           const binding = credentials.getBinding(command.accountId);
           if (command.settings.provider !== provider || binding.clientId !== command.settings.clientId
             || binding.authority !== (command.settings.provider === "gmail" ? "https://accounts.google.com" : `https://login.microsoftonline.com/${command.settings.tenantId}/v2.0`)) throw new Error("mail_configuration_mismatch");
           providerSettings.set(`${provider}:${binding.clientId}:${binding.authority}`, command.settings);
+        }
+        if(lifecycleSuspended&&(command.operation==='mail.sync.start'||command.operation==='mail.sync.resume')){result={sync:engine.status(command.accountId)};break;}
+        if(provider==='imap' || new MailIntegrationAccounts(database, ownerId).get(command.accountId)){result={sync:command.operation==='mail.sync.resume'?syncLifecycle.resume(command.accountId):command.operation==='mail.sync.start'?engine.start(command.accountId):command.operation==='mail.sync.stop'?engine.pause(command.accountId):engine.status(command.accountId)};break;}
+
+        if (command.operation === "mail.sync.start" || command.operation === "mail.sync.resume") {
           contacts?.refreshDue();
           result = { sync: command.operation === "mail.sync.resume" ? syncLifecycle.resume(command.accountId) : engine.start(command.accountId) };
         } else result = { sync: command.operation === "mail.sync.stop" ? engine.pause(command.accountId) : engine.status(command.accountId) };

@@ -1,6 +1,7 @@
 /** Test fixtures only: remove later additions before reconstructing an older
  * database. Keep production migrations additive; never call this on user data. */
 export function removeLaterMailSchema(db, version) {
+  if(version<40)db.exec('DROP TRIGGER IF EXISTS mail_project_arrival_purge; DROP TABLE IF EXISTS mail_project_arrivals; ALTER TABLE mail_project_classifiers DROP COLUMN credential_generation; ALTER TABLE mail_project_classifiers DROP COLUMN activated_at; ALTER TABLE mail_project_associations DROP COLUMN decision_id; ALTER TABLE mail_project_associations DROP COLUMN source; ALTER TABLE mail_project_changes DROP COLUMN evidence_json; ALTER TABLE mail_project_changes DROP COLUMN source');
   if(version<39)db.exec('DROP TABLE IF EXISTS mail_project_classifiers');
   if(version<38)db.exec('DROP TABLE IF EXISTS mail_project_changes; DROP TABLE IF EXISTS mail_project_associations');
   if(version<37)db.exec('DROP TABLE IF EXISTS mail_rule_arrivals; DROP TABLE IF EXISTS mail_local_rules; ALTER TABLE mail_imap_folders DROP COLUMN rules_uid_floor; ALTER TABLE mail_imap_folders DROP COLUMN rules_uid_validity');

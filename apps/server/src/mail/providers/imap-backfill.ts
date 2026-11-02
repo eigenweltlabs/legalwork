@@ -1,4 +1,4 @@
-import { captureMailRuleArrival } from '../storage/rules.js';
+import { captureMailArrival } from '../storage/arrivals.js';
 import { ImapActions } from './imap-actions.js';
 import { removeImapMessage } from '../storage/imap-incremental.js';
 import { randomUUID } from 'node:crypto';
@@ -389,7 +389,7 @@ export class ImapBackfill {
                     for (const item of page.items) {
                         const locator = { provider: 'imap', mailboxId: folder.path, uidValidity: validity, uid: item.uid } satisfies import('../model.js').ProviderMessageLocator, key = providerMessageKey(locator);
                         if (folder.rules_uid_floor !== null && folder.rules_uid_validity === validity && item.uid >= folder.rules_uid_floor)
-                            captureMailRuleArrival(db, this.options.ownerId, accountId, locator);
+                            captureMailArrival(db, this.options.ownerId, accountId, locator);
                         if (!db.get('SELECT 1 FROM mail_messages WHERE account_id=? AND message_key=?', [accountId, key]))
                             this.repo.ingestMessage(accountId, { locator, subject: '', rfcMessageId: null, threadId: null, memberships: [folder.path] });
                         if (item.flags !== null)

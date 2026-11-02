@@ -35,6 +35,8 @@ export class MailServiceError extends Error {
 
 /** Bound to one trusted owner at construction; no request supplies an owner ID. */
 export interface MailService {
+  configureAutomaticClassification?(options:{resolve:(id:string)=>Promise<import('./project-association-view.js').MailProjectDestination>;writable:()=>boolean}):void;
+  automaticClassificationAvailable?():boolean;
   classifier?(command:import('./classifier-view.js').MailClassifierCommand):Promise<Exclude<import('./classifier-view.js').MailClassifierResult,{classifierFailure:unknown}>>;
   projectAssociation?(command:MailProjectCommand):Promise<{projectAssociation:MailProjectAssociation}|{projectHistory:MailProjectHistory}>;
   diagnostics?(): Promise<import('./diagnostics-view.js').MailDiagnostics>;

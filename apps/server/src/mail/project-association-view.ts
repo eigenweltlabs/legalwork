@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { providerMessageKey, providerMessageLocatorSchema } from './model.js';
 import { mailLocalVersionSchema } from './local-view.js';
+import { mailProjectSourceSchema, mailProjectDecisionSchema } from './project-decision-view.js';
 
 const id = z.string().min(1).max(4096);
 export const mailProjectReferenceSchema = z.object({ id, binding: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
@@ -12,9 +13,10 @@ export const mailProjectHistoryInputSchema = mailProjectReadSchema.extend({ befo
 export const mailProjectAssociationSchema = z.object({
   accountId: id, locator: providerMessageLocatorSchema,
   version: mailLocalVersionSchema.nullable(), project: mailProjectReferenceSchema.nullable(), updatedAt: z.number().int().nonnegative().nullable(),
-}).strict().refine(value => value.version === null ? value.project === null && value.updatedAt === null : value.updatedAt !== null);
+  source: mailProjectSourceSchema.optional(), evidence: mailProjectDecisionSchema.nullable().optional(),
+}).strict().refine(value => (value.version === null ? value.project === null && value.updatedAt === null : value.updatedAt !== null) && (value.source === 'automatic' ? value.version !== null && value.project !== null && value.evidence != null : value.evidence == null));
 export type MailProjectAssociation = z.infer<typeof mailProjectAssociationSchema>;
-export const mailProjectChangeSchema = z.object({ version: mailLocalVersionSchema, project: mailProjectReferenceSchema.nullable(), at: z.number().int().nonnegative(), source: z.literal('manual') }).strict();
+export const mailProjectChangeSchema = z.object({ version: mailLocalVersionSchema, project: mailProjectReferenceSchema.nullable(), at: z.number().int().nonnegative(), source: mailProjectSourceSchema, evidence: mailProjectDecisionSchema.nullable().optional() }).strict().refine(value => value.source === 'automatic' ? value.project !== null && value.evidence != null : value.evidence == null);
 export const mailProjectHistorySchema = z.object({ accountId: id, locator: providerMessageLocatorSchema, items: z.array(mailProjectChangeSchema).max(20), nextRevision: z.number().int().positive().nullable() }).strict();
 export type MailProjectHistory = z.infer<typeof mailProjectHistorySchema>;
 export const mailProjectErrorSchema = z.enum(['not_found', 'conflict', 'unavailable']);
@@ -33,11 +35,12 @@ export const mailProjectCatalogSchema = z.object({ items: z.array(mailProjectDes
 export const mailProjectDisplaySchema = z.object({
   accountId: id, locator: providerMessageLocatorSchema, version: mailLocalVersionSchema.nullable(),
   project: mailProjectDestinationSchema.nullable(), unavailable: z.boolean(), updatedAt: z.number().int().nonnegative().nullable(),
-}).strict().refine(value => (value.unavailable ? value.project === null : true) && (value.version === null ? value.project === null && value.updatedAt === null && !value.unavailable : value.updatedAt !== null));
+  source: mailProjectSourceSchema.optional(), evidence: mailProjectDecisionSchema.nullable().optional(),
+}).strict().refine(value => (value.unavailable ? value.project === null : true) && (value.version === null ? value.project === null && value.updatedAt === null && !value.unavailable : value.updatedAt !== null) && (value.source === 'automatic' ? value.version !== null && (value.unavailable||value.evidence != null) : value.evidence == null));
 export type MailProjectDisplay = z.infer<typeof mailProjectDisplaySchema>;
 export const mailProjectDisplayHistorySchema = z.object({
   accountId: id, locator: providerMessageLocatorSchema,
-  items: z.array(z.object({ version: mailLocalVersionSchema, project: mailProjectDestinationSchema.nullable(), unavailable: z.boolean(), at: z.number().int().nonnegative(), source: z.literal('manual') }).strict()).max(20),
+  items: z.array(z.object({ version: mailLocalVersionSchema, project: mailProjectDestinationSchema.nullable(), unavailable: z.boolean(), at: z.number().int().nonnegative(), source: mailProjectSourceSchema, evidence: mailProjectDecisionSchema.nullable().optional() }).strict()).max(20),
   nextRevision: z.number().int().positive().nullable(),
 }).strict();
 export const mailProjectHostInputSchema = z.discriminatedUnion('action', [
@@ -66,6 +69,7 @@ export function mailProjectResultMatches(command: MailProjectCommand, value: unk
   if (!('projectAssociation' in result)) return false;
   if (command.operation === 'mail.project.read') return true;
   const association = result.projectAssociation, expected = command.input.expected;
+  if(association.source==='automatic')return false;
   if (JSON.stringify(association.project) !== JSON.stringify(command.input.project)) return false;
   return expected ? association.version?.generation === expected.generation && [expected.revision, expected.revision + 1].includes(association.version.revision) : association.version?.revision === 1 || association.version === null && command.input.project === null;
 }

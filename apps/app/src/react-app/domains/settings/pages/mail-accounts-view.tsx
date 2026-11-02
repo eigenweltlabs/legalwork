@@ -66,7 +66,7 @@ export function MailAccountsView({ standardsOnly = false, onAccountsChanged }: {
 }
 
 export function MailAccountControls({ client, standardsOnly = false, initialSection='accounts',initialAccount,onAccountsChanged }: { client: MailClient; standardsOnly?: boolean;initialSection?:string;initialAccount?:string;onAccountsChanged?: () => void }) {
-  const [classification,setClassification]=useState(false);
+  const [classification,setClassification]=useState(false), [automaticClassification,setAutomaticClassification]=useState(false);
   const [section,setSection]=useState(initialSection),pendingProjectSection=useRef(initialSection==='projects');
   useEffect(()=>{if(classification&&pendingProjectSection.current){pendingProjectSection.current=false;setSection('projects');}},[classification]);
   const [contactRequest,setContactRequest]=useState<{account:MailAccountView;key:number}>();
@@ -75,7 +75,7 @@ export function MailAccountControls({ client, standardsOnly = false, initialSect
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController(); let previous: number | undefined;
-    const poll = async () => { try { const status=await client.status(controller.signal); if(controller.signal.aborted)return;setClassification(status.projectClassification===true); if(status.accountRevision!==undefined&&status.accountRevision!==previous){previous=status.accountRevision;setRevision(value=>value+1);} } catch { /* Keep local account controls available during a reconnect. */ } };
+    const poll = async () => { try { const status=await client.status(controller.signal); if(controller.signal.aborted)return;setClassification(status.projectClassification===true);setAutomaticClassification(status.automaticProjectClassification===true); if(status.accountRevision!==undefined&&status.accountRevision!==previous){previous=status.accountRevision;setRevision(value=>value+1);} } catch { /* Keep local account controls available during a reconnect. */ } };
     void poll();
     const timer=setInterval(()=>void poll(),3000); return()=>{controller.abort();clearInterval(timer);};
   },[client]);
@@ -112,7 +112,7 @@ export function MailAccountControls({ client, standardsOnly = false, initialSect
     <TabsContent value="notifications" keepMounted className="space-y-6"><MailSettingsSection title="App icon"><MailBadgePreference /></MailSettingsSection><MailDesktopPreferences /></TabsContent>
     <TabsContent value="sending" keepMounted className="space-y-6"><MailSendersView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /><MailSmtpView client={client} accounts={accounts.filter(account=>account.provider!=='archive')} /></TabsContent>
     <TabsContent value="rules" keepMounted><MailRulesView client={client} accounts={accounts} /></TabsContent>
-    {classification&&<TabsContent value="projects" keepMounted><MailClassifierView client={client} accounts={accounts} initialAccount={initialAccount}/></TabsContent>}
+    {classification&&<TabsContent value="projects" keepMounted><MailClassifierView client={client} accounts={accounts} initialAccount={initialAccount} automatic={automaticClassification}/></TabsContent>}
     <TabsContent value="data" keepMounted className="space-y-6"><MailAgentAccessView client={client} accounts={accounts} /><MailRetentionView client={client} accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailPortabilityView accounts={accounts} onChanged={() => setRevision(value => value + 1)} /><MailDiagnosticsView client={client} /></TabsContent>
   </Tabs>;
 

@@ -1,5 +1,6 @@
 import { mailProjectCommandSchema, mailProjectResultSchema, mailProjectResultMatches, type MailProjectCommand, type MailProjectAssociation, type MailProjectHistory } from '../project-association-view.js';
 import { mailClassifierCommandSchema, mailClassifierResultSchema, mailClassifierResultMatches, type MailClassifierCommand, type MailClassifierResult } from '../classifier-view.js';
+import {mailClassifierAutomationCommandSchema,mailClassifierAutomationResultSchema,classifierIncomingMatches,type MailClassifierAutomationCommand} from '../classifier-incoming-view.js';
 import {mailRuleDefinitionSchema,mailRulesCommandSchema,mailRulesSchema,mailRulesErrorSchema,type MailRulesCommand,type MailRules} from '../rules-view.js';
 import {mailSnoozeCommandSchema,mailSnoozeSchema,mailSnoozeErrorSchema,type MailSnoozeCommand,type MailSnooze} from '../snooze-view.js';
 import {contactsInputSchema,contactsResultSchema,type ContactsInput,type ContactsResult} from '../contacts-view.js';
@@ -61,6 +62,7 @@ export type WorkerCommand = {operation:"mail.qualification";input:QualificationI
   | MailSnoozeCommand
   | MailProjectCommand
   | MailClassifierCommand
+  | MailClassifierAutomationCommand
   | OutboxCommand
   | PortabilityCommand
   | {operation:'mail.contacts';accountId:string;input:ContactsInput;settings?:MailOAuthSettings}
@@ -110,6 +112,7 @@ export type WorkerResult = {qualification:QualificationReport} | {agent:AgentCon
   | {rules:MailRules} | {rulesFailure:import('../rules-view.js').MailRulesError['code']}
   | {projectAssociation:MailProjectAssociation} | {projectHistory:MailProjectHistory} | {projectFailure:import('../project-association-view.js').MailProjectError['code']}
   | MailClassifierResult
+  | import('../classifier-incoming-view.js').MailClassifierIncomingResult
   | {snooze:MailSnooze} | {snoozeFailure:import('../snooze-view.js').MailSnoozeError['code']}
   | {outboxDetail:OutboxDetail} | {outbox:OutboxItem[]} | {outboxItem:OutboxItem} | {smtp:SmtpStatus} | {outboxFailure:OutboxErrorCode}
   | {senders:SenderIdentity[]}
@@ -220,6 +223,7 @@ function folder(value: unknown): value is WorkerFolder {
     && typeof value.name === "string" && (value.kind === "folder" || value.kind === "label") && cursor(value.parentId);
 }
 function result(value: unknown): value is WorkerResult {
+  if(mailClassifierAutomationResultSchema.safeParse(value).success)return true;
   if (mailClassifierResultSchema.safeParse(value).success) return true;
   if (mailProjectResultSchema.safeParse(value).success) return true;
   if (record(value) && exact(value, ['diagnostics'])) return mailDiagnosticSnapshotSchema.safeParse(value.diagnostics).success;
@@ -298,6 +302,8 @@ export function resultMatchesCommand(command: WorkerCommand, value: WorkerResult
     }
     case 'mail.project.read':case 'mail.project.set':case 'mail.project.history':return mailProjectResultMatches(command,value);
     case 'mail.classifier.read':case 'mail.classifier.save':case 'mail.classifier.preview':return mailClassifierResultMatches(command,value);
+    case 'mail.classifier.activity':case 'mail.classifier.dismiss':case 'mail.classifier.undo':return mailClassifierResultMatches(command,value);
+    case 'mail.classifier.pending':case 'mail.classifier.commit':return 'classifierFailure' in value||classifierIncomingMatches(command,value);
     case 'mail.snooze.read':case 'mail.snooze.set':{
       if('snoozeFailure' in value)return true;
       if(!('snooze' in value)||value.snooze.accountId!==command.accountId||providerMessageKey(value.snooze.locator)!==providerMessageKey(command.input.locator))return false;
@@ -377,7 +383,7 @@ export function validWorkerCommand(value: unknown): value is WorkerCommand {
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.notifications.")||value.operation.startsWith("mail.lifecycle.")))return mailDesktopCommandSchema.safeParse(value).success;
   if(typeof value.operation==='string'&&value.operation.startsWith('mail.rules.'))return mailRulesCommandSchema.safeParse(value).success;
   if(typeof value.operation==='string'&&value.operation.startsWith('mail.project.'))return mailProjectCommandSchema.safeParse(value).success;
-  if(typeof value.operation==='string'&&value.operation.startsWith('mail.classifier.'))return mailClassifierCommandSchema.safeParse(value).success;
+  if(typeof value.operation==='string'&&value.operation.startsWith('mail.classifier.'))return mailClassifierCommandSchema.safeParse(value).success||mailClassifierAutomationCommandSchema.safeParse(value).success;
   if(typeof value.operation==='string'&&value.operation.startsWith('mail.snooze.'))return mailSnoozeCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&(value.operation.startsWith("mail.outbox.")||value.operation.startsWith("mail.smtp.")))return outboxCommandSchema.safeParse(value).success;
   if(typeof value.operation==="string"&&value.operation.startsWith("mail.retention."))return retentionCommandSchema.safeParse(value).success;

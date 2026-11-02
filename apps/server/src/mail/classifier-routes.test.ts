@@ -62,3 +62,32 @@ test('preview rechecks reject late configuration changes, wrong accounts and loc
   let count = 0; f.responder(async () => ({ classification: ++count === 1 ? preview : { ...preview, status: 'off', candidates: [] } })); await expect(f.post(check)).rejects.toMatchObject({ status: 409 });
   f.responder(async () => ({ classification: preview })); f.resolver(async () => { f.ready(false); return project; }); await expect(f.post(check)).rejects.toMatchObject({ status: 423 });
 });
+
+test('the HTTP classifier cannot request private pending work or commit an automatic assignment', async () => {
+  const f=fixture();
+  for(const operation of ['mail.classifier.pending','mail.classifier.commit'])await expect(f.post({operation,accountId:'a'})).rejects.toMatchObject({status:400});
+  expect(f.calls()).toBe(0);
+});
+
+test('automatic mode requires an available writable parent coordinator', async()=>{
+  const f=fixture(),automatic={...definition,mode:'automatic'} satisfies import('./classifier-view.js').MailClassifierDefinition;
+  f.responder(async()=>({classifier:{accountId:'a',version:{...version,revision:2},definition:automatic,automaticStatus:'ready',automaticEligible:true}}));
+  const save={operation:'mail.classifier.save',accountId:'a',input:{expected:version,definition:automatic}};
+  expect((await (await f.post(save)).json()).automaticStatus).toBe('ready');
+  f.options.mail.automaticClassificationAvailable=()=>false;
+  await expect(f.post(save)).rejects.toMatchObject({status:503});
+  f.config.readOnly=true;await expect(f.post(save)).rejects.toMatchObject({status:403});
+});
+
+test('activity redacts revoked project destinations and review actions enforce account, version and writable authority',async()=>{
+  const f=fixture(),item={id:1,version,locator,subject:'Synthetic',at:1,outcome:'assigned',project:reference,assignmentVersion:version,canUndo:true,canDismiss:false} satisfies import('./classifier-incoming-view.js').MailClassifierActivity['items'][number];
+  f.responder(async()=>({classifierActivity:{accountId:'a',items:[item],nextCursor:null}}));f.resolver(async()=>{throw Error('private path');});
+  const request={operation:'mail.classifier.activity',accountId:'a',input:{filter:'assigned'}};
+  const result=await (await f.post(request)).json();expect(result.items[0]).toMatchObject({project:null,unavailable:true,canUndo:true});expect(JSON.stringify(result)).not.toContain(project.id);
+  f.responder(async()=>({classifierActivity:{accountId:'other',items:[item],nextCursor:null}}));await expect(f.post(request)).rejects.toMatchObject({status:503});
+  const undo={operation:'mail.classifier.undo',accountId:'a',input:{id:1,expected:version,assignmentVersion:version}};
+  f.responder(async()=>({classifierAction:{accountId:'a',id:1,version:{...version,revision:2},outcome:'undone'}}));
+  f.config.readOnly=true;await expect(f.post(undo)).rejects.toMatchObject({status:403});f.config.readOnly=false;
+  expect(await (await f.post(undo)).json()).toMatchObject({id:1,outcome:'undone'});
+  f.responder(async()=>({classifierAction:{accountId:'a',id:2,version:{...version,revision:2},outcome:'undone'}}));await expect(f.post(undo)).rejects.toMatchObject({status:503});
+});
