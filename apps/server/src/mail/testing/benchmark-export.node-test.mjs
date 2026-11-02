@@ -236,11 +236,15 @@ test('actual 100-message driver preserves a colliding report and exports an inco
   }));
 
 test('actual checkpoint resume completes only pending processing on a copy and reports an honest follow-up',
-  { skip: process.env.LEGALWORK_MAIL_BENCH_CHECKPOINT_SMOKE !== '1' }, () => fixture(async f => {
+  // Three sequential 90-second children plus fixture/export verification. The
+  // ordinary per-test ceiling cannot cover their combined legitimate budgets.
+  { skip: process.env.LEGALWORK_MAIL_BENCH_CHECKPOINT_SMOKE !== '1', timeout: 360_000 }, () => fixture(async f => {
     const source = f.destination('checkpoint'), profiles = [];
     const metadata = await exportBenchmarkProfile({ source: f.source, destination: source, checkpoint: true });
     const originalMetadata = await readFile(join(source, 'benchmark-profile.json')), originalState = await stat(join(source, 'mail.sqlite'));
     async function run(input, name) {
+      const started = performance.now();
+      console.log(`Checkpoint resume round ${name}: started (90-second processing deadline)`);
       const report = f.destination(name + '.json'); let output = '', profile;
       const code = await new Promise((done, reject) => {
         const child = spawn(process.execPath, [fileURLToPath(new URL('./large-mailbox-benchmark.mjs', import.meta.url)), '--resume', input, report], {
@@ -257,6 +261,7 @@ test('actual checkpoint resume completes only pending processing on a copy and r
         child.once('error', reject); child.once('close', done);
       });
       assert.equal(code, 0, output.slice(-6000));
+      console.log(`Checkpoint resume round ${name}: completed in ${Math.round(performance.now() - started)}ms`);
       const result = JSON.parse(await readFile(report, 'utf8'));
       assert.equal(result.baselineKind, 'resumed-checkpoint-follow-up'); assert.equal(result.ingestion, null);
       assert.equal(result.ownerId, 'desktop-local'); assert.equal(result.recovery.originalsVerified, 100);

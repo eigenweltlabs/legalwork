@@ -116,8 +116,10 @@ try {
   if (testNamePattern) console.log(`Test name filter: ${testNamePattern}`);
   // The complete 65-file matrix was still making progress when Windows reached
   // the old five-minute process cap. Keep individual hangs bounded separately
-  // from the aggregate workload; a focused file retains its original ceiling.
-  const testTimeoutMs = 120_000, suiteTimeoutMs = suites.length === 1 ? 300_000 : 900_000;
+  // from the aggregate workload. Explicit checkpoint smoke includes three
+  // sequential bounded resumes, separate from its other 100-message driver.
+  const checkpointSmoke = suite === 'testing/benchmark-export' && process.env.LEGALWORK_MAIL_BENCH_CHECKPOINT_SMOKE === '1';
+  const testTimeoutMs = 120_000, suiteTimeoutMs = checkpointSmoke ? 480_000 : suites.length === 1 ? 300_000 : 900_000;
   console.log(`Native limits: ${testTimeoutMs}ms per test, ${suiteTimeoutMs}ms for ${suites.length} suite files.`);
   await run(['--test', `--test-timeout=${testTimeoutMs}`, ...(selected ? ['--test-reporter=tap'] : []), `--test-concurrency=${concurrency}`, ...(testNamePattern ? [`--test-name-pattern=${testNamePattern}`] : []), ...suites], suiteTimeoutMs);
   console.log(`Mail acceptance passed in ${((performance.now() - started) / 1000).toFixed(1)}s.`);
