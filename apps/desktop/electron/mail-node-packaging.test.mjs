@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyMailNodeRuntime } from "../../../scripts/mail/verify-node-runtime.mjs";
+import { readPackagedMailManifest } from "../../../scripts/mail/read-packaged-manifest.mjs";
 
 const desktop = fileURLToPath(new URL("../", import.meta.url));
 const server = resolve(desktop, "../server"), require = createRequire(join(server, "package.json"));
@@ -62,10 +63,9 @@ test("standalone Node executes unpacked mail, PDF and OCR with the fixture sourc
     const asar = createRequire(builderRequire.resolve("app-builder-lib"))("@electron/asar");
     const archive = join(root, "app.asar");
     await asar.createPackageWithOptions(source, archive, { unpack: `{${config.asarUnpack.map(pattern => `**/${pattern}`).join(",")}}` });
-    assert.notEqual(asar.statFile(archive, "server/dist/mail-node-runtime.json").unpacked, true);
-    const manifest = JSON.parse(asar.extractFile(archive, "server/dist/mail-node-runtime.json"));
+    const manifest = readPackagedMailManifest(archive, asar);
     for (const expected of manifest.files) {
-      const relative = `server/dist/mail-node-runtime/${expected.name}`;
+      const relative = join("server", "dist", "mail-node-runtime", expected.name);
       assert.equal(asar.statFile(archive, relative).unpacked, true);
       const bytes = await readFile(join(`${archive}.unpacked`, relative));
       assert.equal(bytes.length, expected.bytes);

@@ -8,12 +8,27 @@ import { fileURLToPath } from "node:url";
 
 import { findServerDepDrift } from "../scripts/check-server-deps.mjs";
 import { findMissingPackageDependencies, findMissingServerImports } from "../scripts/check-packaged-server-imports.mjs";
+import { readPackagedMailManifest } from "../../../scripts/mail/read-packaged-manifest.mjs";
 
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
-const { createPackage } = libRequire("@electron/asar");
+const asar = libRequire("@electron/asar"), { createPackage } = asar;
 const { getCollectorByPackageManager } = libRequire("./node-module-collector/index.js");
+
+test("the installed Email manifest uses host ASAR paths and remains inside the protected archive", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-mail-manifest-")), stage = path.join(root, "stage");
+  const manifest = { version: 1, files: [] };
+  try {
+    await mkdir(path.join(stage, "server", "dist"), { recursive: true });
+    await writeFile(path.join(stage, "server", "dist", "mail-node-runtime.json"), JSON.stringify(manifest));
+    const archive = path.join(root, "app.asar"); await createPackage(stage, archive);
+    assert.deepEqual(readPackagedMailManifest(archive, asar), manifest);
+    const unpacked = path.join(root, "unpacked.asar");
+    await asar.createPackageWithOptions(stage, unpacked, { unpack: "**/mail-node-runtime.json" });
+    assert.throws(() => readPackagedMailManifest(unpacked, asar), assert.AssertionError);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("packaging catches a server import into an excluded plugin directory", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-server-imports-"));

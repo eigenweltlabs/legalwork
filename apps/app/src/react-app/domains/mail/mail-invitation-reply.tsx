@@ -25,6 +25,7 @@ export function MailInvitationReply({ client, item, part, index }: { client: Mai
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [loaded, setLoaded] = useState(false);
   const [review, setReview] = useState<InvitationReplyPreview>(), [last, setLast] = useState<InvitationReplyPreview>(), [result, setResult] = useState<InvitationReplyResult['outcome']>();
   const abort = useRef(new AbortController());
+  const reviewTrigger = useRef<HTMLButtonElement>(null), acceptReply = useRef<HTMLButtonElement>(null), checkReply = useRef<HTMLButtonElement>(null);
   useEffect(() => { const controller = new AbortController(); abort.current = controller; return () => controller.abort(); }, [api, item.accountId, item.key, item.rawReferenceId, part.referenceId]);
   const signal = () => abort.current.signal;
   async function load() {
@@ -38,9 +39,10 @@ export function MailInvitationReply({ client, item, part, index }: { client: Mai
     } catch (error) { if (!current.aborted) setError(errorLabel(error)); }
     finally { if (!current.aborted) setBusy(false); }
   }
-  async function preview(response: InvitationResponse, previous?: InvitationReplyPreview) {
+  async function preview(response: InvitationResponse, trigger: HTMLButtonElement, previous?: InvitationReplyPreview) {
     const calendar = previous?.calendar ?? calendars.find(calendar => JSON.stringify([calendar.connectorId, calendar.connectionId, calendar.calendarId]) === selected);
     if (!calendar) return;
+    reviewTrigger.current = trigger;
     setBusy(true); setError(''); const current = signal();
     try {
       const value = await api.preview(item, part, index, { connectorId: calendar.connectorId, connectionId: calendar.connectionId, calendarId: calendar.calendarId }, response, current);
@@ -65,12 +67,12 @@ export function MailInvitationReply({ client, item, part, index }: { client: Mai
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void load()}>{t('common.refresh')}</Button>
       </div>
       {loaded && !calendars.length && <div className="flex items-center gap-2 text-sm text-muted-foreground"><span>{t('mail.invitation_reply_no_calendars')}</span><Button size="sm" variant="ghost" onClick={() => navigate('/settings/extensions/mcp')}>{t('mail.invitation_reply_integrations')}</Button></div>}
-      {calendars.length > 0 && <div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" disabled={busy || !chosen?.canWrite || result === 'uncertain'} onClick={() => void preview('accepted')}>{t('mail.invitation_reply_accept')}</Button><Button size="sm" variant="outline" disabled={busy || !chosen?.canWrite || result === 'uncertain'} onClick={() => void preview('tentative')}>{t('mail.invitation_reply_tentative')}</Button><Button size="sm" variant="outline" disabled={busy || !chosen?.canWrite || result === 'uncertain'} onClick={() => void preview('declined')}>{t('mail.invitation_reply_decline')}</Button></div>}
+      {calendars.length > 0 && <div className="flex flex-wrap items-center gap-2"><Button ref={acceptReply} size="sm" variant="outline" disabled={busy || !chosen?.canWrite || result === 'uncertain'} onClick={event => void preview('accepted', event.currentTarget)}>{t('mail.invitation_reply_accept')}</Button><Button size="sm" variant="outline" disabled={busy || !chosen?.canWrite || result === 'uncertain'} onClick={event => void preview('tentative', event.currentTarget)}>{t('mail.invitation_reply_tentative')}</Button><Button size="sm" variant="outline" disabled={busy || !chosen?.canWrite || result === 'uncertain'} onClick={event => void preview('declined', event.currentTarget)}>{t('mail.invitation_reply_decline')}</Button></div>}
     </>}
     {error && <Alert variant="destructive">{error}</Alert>}
-    {result && <div role="status" className="flex flex-wrap items-center gap-2 text-sm"><span>{t(result === 'confirmed' || result === 'unchanged' ? 'mail.invitation_reply_saved' : result === 'rejected' ? 'mail.invitation_reply_rejected' : 'mail.invitation_reply_uncertain')}</span>{result === 'uncertain' && last && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void preview(last.response, last)}>{t('mail.invitation_reply_check')}</Button>}{last?.event.webUrl && <Button size="sm" variant="ghost" onClick={() => { if (last.event.webUrl) void openDesktopUrl(last.event.webUrl); }}>{t('mail.invitation_reply_open_provider')}</Button>}</div>}
+    {result && <div role="status" className="flex flex-wrap items-center gap-2 text-sm"><span>{t(result === 'confirmed' || result === 'unchanged' ? 'mail.invitation_reply_saved' : result === 'rejected' ? 'mail.invitation_reply_rejected' : 'mail.invitation_reply_uncertain')}</span>{result === 'uncertain' && last && <Button ref={checkReply} size="sm" variant="ghost" disabled={busy} onClick={event => void preview(last.response, event.currentTarget, last)}>{t('mail.invitation_reply_check')}</Button>}{last?.event.webUrl && <Button size="sm" variant="ghost" onClick={() => { if (last.event.webUrl) void openDesktopUrl(last.event.webUrl); }}>{t('mail.invitation_reply_open_provider')}</Button>}</div>}
     <Dialog open={Boolean(review)} onOpenChange={value => { if (!value && !busy) setReview(undefined); }}>
-      <DialogContent className="sm:max-w-lg" onKeyDownCapture={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); } }}>
+      <DialogContent className="sm:max-w-lg" finalFocus={() => reviewTrigger.current?.isConnected && !reviewTrigger.current.disabled ? reviewTrigger.current : checkReply.current ?? acceptReply.current} onKeyDownCapture={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); } }}>
         <DialogHeader><DialogTitle>{t('mail.invitation_reply_review')}</DialogTitle><DialogDescription>{review?.calendar.name} · {review?.calendar.account}</DialogDescription></DialogHeader>
         {review && <div className="max-h-[55vh] space-y-4 overflow-y-auto text-sm">
           <div><h3 className="font-medium">{review.event.title}</h3>{review.changedSinceInvitation && <p className="text-xs text-muted-foreground">{t('mail.invitation_reply_calendar_updated')}</p>}</div>

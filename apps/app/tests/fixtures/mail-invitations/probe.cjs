@@ -52,6 +52,7 @@ app.whenReady().then(async () => {
     await until(`window.invitationFixture.calls.filter(call=>call.path.endsWith('/respond')).length===${before + 1}`);
     await key('Return'); await run('window.invitationFixture.release()');
     await until("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('Reply status unknown')");
+    await until("document.activeElement?.textContent==='Check reply'");
     assert.equal(await respondCount(), before + 1, 'Only one synthetic confirmation is allowed');
     assert(await run(`${button('Accept')}.disabled`));
     await capture(`invitation-${provider}-uncertain`);
@@ -62,6 +63,7 @@ app.whenReady().then(async () => {
     await until("document.querySelector('[role=dialog]')?.textContent.includes('Response saved')");
     assert.equal(await run(`!!${button('Send reply', true)}`), false); assert.equal(await respondCount(), before + 1);
     await key('Escape'); await until("!document.querySelector('[role=dialog]')");
+    await until("document.activeElement?.textContent==='Accept'");
   }
   await run("window.invitationFixture.select('cancelled')");
   await until("document.body.textContent.includes('Cancelled')");

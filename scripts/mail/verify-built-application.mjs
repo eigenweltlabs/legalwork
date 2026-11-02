@@ -6,6 +6,7 @@ import { access, lstat, readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve, sep } from "node:path";
 import { verifyMailNodeRuntime } from "./verify-node-runtime.mjs";
+import { readPackagedMailManifest } from "./read-packaged-manifest.mjs";
 
 const target = process.argv[2];
 if (!target || process.argv.length !== 3 || !["darwin", "win32", "linux"].includes(process.platform)) {
@@ -20,12 +21,11 @@ await access(archive);
 const require = createRequire(new URL("../../apps/desktop/package.json", import.meta.url));
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const asar = createRequire(builderRequire.resolve("app-builder-lib"))("@electron/asar");
-const manifest = JSON.parse(asar.extractFile(archive, "server/dist/mail-node-runtime.json"));
-assert.notEqual(asar.statFile(archive, "server/dist/mail-node-runtime.json").unpacked, true);
+const manifest = readPackagedMailManifest(archive, asar);
 assert.equal(manifest.version, 1);
 assert.deepEqual(manifest.files.map(file => file.name), ["worker.mjs", "maintenance-worker.mjs", "process.js", "package.json"]);
 for (const file of manifest.files) {
-  const relative = `server/dist/mail-node-runtime/${file.name}`, path = join(unpacked, relative);
+  const relative = join("server", "dist", "mail-node-runtime", file.name), path = join(unpacked, relative);
   assert.equal(asar.statFile(archive, relative).unpacked, true);
   assert.equal((await lstat(path)).isFile(), true);
   assert.ok((await realpath(path)).startsWith(await realpath(unpacked) + sep));
