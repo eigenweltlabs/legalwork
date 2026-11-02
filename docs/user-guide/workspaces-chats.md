@@ -18,6 +18,12 @@ In a project, **New Chat** starts a conversation in that project. From the Perso
 
 The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them. Stopping also cancels document requests that are still waiting to run. An edit already applied may finish saving; Stop does not undo that edit.
 
+Questions appear above the composer with numbered choices. Click once to select a choice, or select several when multiple answers are allowed; selected answers have a highlighted border. Use the arrow keys to move through single-choice answers. If **Or type a custom answer** appears, you can enter your own response there. For a single question, double-click a choice, choose **Send** or press Enter in the response field to send your answer.
+
+When the assistant asks several questions together, LegalWork shows one at a time with a counter such as **1 / 3**. Use **Next** and **Back** to navigate; selections and typed answers stay available when you return to a step. Double-click a choice, or press Enter in the response field, to continue to the next question. On the final question, double-click or choose **Send** to send all answers together. Required answers and field constraints are checked before advancing. Longer questions scroll while the navigation stays visible.
+
+Choose **Skip** or the **Close** (×) button to decline the question request without sending an answer, including all its steps and questions from subagents. If cancellation fails, the question stays available so you can retry.
+
 A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
 
 In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry. Messages for busy or paused chats remain in the editable queue until delivered.
