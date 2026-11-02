@@ -32,6 +32,46 @@ export function publishedDocxSnapshot(saved: DocxSnapshot, revision: number): Do
 
 type UnsavedDocument = { name: string; isDirty: () => boolean; discard?: () => void; retainOnSwitch: boolean; scopedOnly: boolean };
 const unsavedDocuments = new Map<string, UnsavedDocument>();
+type ShutdownActions = {
+  save: () => Promise<boolean>;
+  discard: () => void | Promise<void>;
+  open?: (navigate: (path: string) => void) => void;
+  isVisible?: () => boolean;
+  isBusy?: () => boolean;
+};
+const shutdownActions = new Map<string, Set<ShutdownActions>>();
+
+/** Editor actions stay live even when its panel is parked behind another page. */
+export function registerDocumentShutdown(key: string, actions: ShutdownActions) {
+  const registrations = shutdownActions.get(key) ?? new Set<ShutdownActions>();
+  registrations.add(actions);
+  shutdownActions.set(key, registrations);
+  return () => {
+    registrations.delete(actions);
+    if (!registrations.size && shutdownActions.get(key) === registrations) shutdownActions.delete(key);
+  };
+}
+
+export function getUnsavedDocuments() {
+  return [...unsavedDocuments].filter(([, entry]) => entry.isDirty()).map(([key, entry]) => ({ key, name: entry.name, actions: [...(shutdownActions.get(key) ?? [])].at(-1) }));
+}
+
+export async function settleUnsavedDocuments(choice: "save" | "discard") {
+  for (const { key, actions } of getUnsavedDocuments()) {
+    if (!unsavedDocuments.get(key)?.isDirty()) continue;
+    if (!actions || actions.isBusy?.()) return false;
+    if (choice === "save") { if (!await actions.save()) return false; }
+    else await actions.discard();
+  }
+  // A save can finish after the user types again or another draft appears.
+  return getUnsavedDocuments().length === 0;
+}
+
+export function documentIsInFront(element: HTMLElement | null) {
+  if (!element || !element.isConnected || !element.checkVisibility()) return false;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 && rect.left < window.innerWidth && rect.top < window.innerHeight;
+}
 let approvedDocuments = new Set<UnsavedDocument>();
 let discardedDocuments = new Set<UnsavedDocument>();
 type DiscardPrompt = { names: string[]; proceed: () => void; settled: Promise<boolean>; settle: (accepted: boolean) => void };

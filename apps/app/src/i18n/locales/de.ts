@@ -15,6 +15,16 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",
+  "shutdown.close_title": "Änderungen vor dem Schließen speichern?",
+  "shutdown.description": "Diese Dateien enthalten ungespeicherte Änderungen. Speichern Sie Ihre Arbeit oder verwerfen Sie die Änderungen, um fortzufahren.",
+  "shutdown.failed": "Einige Änderungen konnten nicht gespeichert oder verworfen werden. Ihre Arbeit ist weiterhin vorhanden. Öffnen Sie die ungespeicherte Datei, um das Problem zu beheben, oder warten Sie einen laufenden Speichervorgang ab und versuchen Sie es erneut.",
+  "shutdown.open_file": "Ungespeicherte Datei öffnen",
+  "shutdown.discard_restart": "Verwerfen und neu starten",
+  "shutdown.discard_close": "Verwerfen und schließen",
+  "shutdown.save_restart": "Speichern und neu starten",
+  "shutdown.save_close": "Speichern und schließen",
+
   "composer.integrations_load_failed": "Einige Integrationen konnten nicht geladen werden. Öffnen Sie dieses Menü erneut, um es noch einmal zu versuchen.",
   "catalog.removing": "Wird entfernt…",
   "catalog.examples": "Beispielanfragen",

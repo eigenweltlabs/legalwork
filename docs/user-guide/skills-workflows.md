@@ -18,6 +18,8 @@ Open **Workflows** in the main sidebar. Use its **Workflows**, **Review prompts*
 4. In **Files**, attach reusable templates, playbooks and examples. Keep matter-specific agreements in the project or run's inputs unless deliberately making them reusable.
 5. Select **Create** or **Save**. Resolve validation errors and the unsaved-changes prompt before leaving. Test the workflow on a representative document and inspect the result.
 
+Opening a saved workflow, moving the cursor, or switching between **Rich text**, **Source mode** and **Diff mode** keeps its **Saved** status. Editing the instructions or details marks it as **Unsaved changes**. Select **Save** to store those edits.
+
 Older libraries offer **Assistant workflow** and **Tabular workflow** types. Newer libraries create ordinary workflows and provide **Review prompts** separately for reusable question sets. Existing tabular workflows can remain editable, but the native review implementation uses saved reviews rather than generating a standalone HTML grid. Follow the controls actually present in your library.
 
 Attach the firm's templates, playbooks and examples as workflow resources. Resource files can be opened and edited in their supported editor; saving an edited resource updates the library copy. Generating a workflow from templates is available through the template generation action. Inspect the generated instructions before treating them as a firm standard.

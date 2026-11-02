@@ -317,7 +317,7 @@ export function serializeUpdaterTasks() {
 
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
-export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
+export function registerUpdaterIpc({ app, ipcMain, getMainWindow, beforeRestart = async () => true }) {
   const preferences = createUpdaterPreferences(app);
   ipcMain.handle("legalwork:updater:getPreferences", (_event, legacy) => preferences.read(legacy));
   ipcMain.handle("legalwork:updater:setPreferences", (_event, patch) => preferences.write(patch));
@@ -527,6 +527,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     if (!updateReady) return { ok: false, reason: "No update is ready to install. Please download the update again." };
+    if (!await beforeRestart()) return { ok: true, cancelled: true };
     try {
       // Re-assert the in-place-write default right before the swap; the ShipIt
       // defaults domain may have been wiped when stale state was cleaned.

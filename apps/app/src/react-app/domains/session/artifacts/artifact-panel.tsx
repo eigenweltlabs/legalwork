@@ -28,8 +28,9 @@ import { ArtifactIcon } from "./artifact-icon";
 import type { OfficeEditorApi } from "./office-editor-state";
 import type { SpreadsheetEditorApi } from "./artifact-spreadsheet-editor";
 import type { DocxEditorApi } from "./artifact-docx-editor";
-import { artifactDocumentKey, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, publishedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
+import { artifactDocumentKey, documentIsInFront, registerDocumentShutdown, reconcileDocxSnapshot, registerUnsavedDocument, savedDocxSnapshot, publishedDocxSnapshot, type DocxSnapshot } from "./docx-document-state";
 import { drainDocxRecovery } from "./docx-recovery";
+import { openUnsavedArtifact } from "./document-shutdown-navigation";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { MediaPreview } from "./media-preview";
@@ -719,8 +720,23 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
   useEffect(() => { if (textDirtyRef.current) usePanelTabStore.getState().keepTab(sessionId, target.id); }, [draft, data, sessionId, target.id]);
   useEffect(() => {
     if (!writableFile || isBinaryEditor || isTextSheet) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => textDirtyRef.current, undefined, taskActive);
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => Boolean(textDraftRef.current && textDraftRef.current.content !== textDraftRef.current.baseline), undefined, taskActive);
   }, [writableFile, isBinaryEditor, isTextSheet, workspaceId, sessionId, target.id, target.name, taskActive]);
+
+  useEffect(() => registerDocumentShutdown(artifactDocumentKey(workspaceId, sessionId, target.id), {
+    save: persistWorkingCopy,
+    discard: async () => {
+      if (target.preview === "word") await docxApi.current?.discardRecovery();
+      if (isTextSheet) sheetApi.current?.discard();
+      updateTextDraft(current => current ? { ...current, content: current.baseline } : current);
+      onDocumentDirtyChange(false);
+      setDocumentSnapshot(current => current ? { ...current, revision: current.revision + 1 } : current);
+      setEditing(false);
+    },
+    isBusy: () => Boolean(pendingWrite.current || pendingTextSave.current || documentSaving),
+    open: navigate => openUnsavedArtifact(sessionId, workspaceId, runtimeEntry?.props.tab ?? { id: target.id, type: "artifact", label: target.name, value: target.value, preview: target.preview }, navigate),
+    isVisible: () => documentIsInFront(runtimeEntry?.host ?? null),
+  }));
 
   const runFileAction = async (action: () => Promise<void>) => {
     try {
