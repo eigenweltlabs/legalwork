@@ -253,11 +253,17 @@ jobs:
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
       - name: Test Windows signing verification
         run: node --test scripts/release/windows-signing.test.mjs
-      - name: Setup Bun for Windows Email views
-        if: needs.changes.outputs.app == 'true'
+      - name: Setup Bun for Windows Email checks
+        if: needs.changes.outputs.app == 'true' || needs.changes.outputs.server == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - name: Test synthetic benchmark checkpoint recovery on Windows
+        if: needs.changes.outputs.server == 'true'
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          LEGALWORK_MAIL_BENCH_CHECKPOINT_SMOKE: '1'
+        run: node apps/server/scripts/mail-acceptance.mjs --suite testing/benchmark-export
       - name: Test Email views on Windows
         if: needs.changes.outputs.app == 'true'
         env:

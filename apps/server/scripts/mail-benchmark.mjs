@@ -1,17 +1,31 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readdir, writeFile, copyFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, writeFile, copyFile, readFile, lstat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { linkTestModules, unlinkTestModules, removeTestTree } from '../../../scripts/mail/link-test-modules.mjs';
-const args = process.argv.slice(2), retained = args[0] === '--retained', exporting = args[0] === '--export', count = Number(args[0] ?? 1000), report = resolve(args[retained || exporting ? 2 : 1] ?? 'mail-benchmark.json');
-if (retained || exporting ? !args[1] || !args[2] : !Number.isSafeInteger(count) || count < 100 || count > 100000)
-    throw Error('Usage: pnpm exec node apps/server/scripts/mail-benchmark.mjs <100..100000 messages> <report.json> OR --retained <synthetic-profile> <new-report.json> OR --export <synthetic-profile> <artifact-directory>');
+const args = process.argv.slice(2), retained = args[0] === '--retained', exporting = args[0] === '--export', checkpointing = args[0] === '--checkpoint', count = Number(args[0] ?? 1000), report = resolve(args[retained || exporting || checkpointing ? 2 : 1] ?? 'mail-benchmark.json');
+if (retained || exporting || checkpointing ? !args[1] || !args[2] : !Number.isSafeInteger(count) || count < 100 || count > 100000)
+    throw Error('Usage: pnpm exec node apps/server/scripts/mail-benchmark.mjs <100..100000 messages> <report.json> OR --retained <synthetic-profile> <new-report.json> OR --export <synthetic-profile> <artifact-directory> OR --checkpoint <synthetic-profile> <artifact-directory>');
 if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 22)
     throw Error('Actual Node22+ required');
+async function requireNewOutput(path) {
+    try { await lstat(path); }
+    catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    throw Error('Benchmark output must not already exist');
+}
+await requireNewOutput(report);
+if (!retained && !exporting && !checkpointing) {
+    const { benchmarkRetention } = await import('../src/mail/testing/benchmark-process.mjs');
+    const retention = benchmarkRetention(process.env);
+    if (retention) {
+        if (resolve(retention.destination) === report) throw Error('Measurement report and checkpoint directory must differ');
+        await requireNewOutput(resolve(retention.destination));
+    }
+}
 const server = resolve(dirname(fileURLToPath(import.meta.url)), '..'), require = createRequire(join(server, 'package.json')), root = await mkdtemp(join(tmpdir(), 'legalwork-mail-bench-build-'));
 async function files(path) {
     const out = [];
@@ -41,7 +55,7 @@ try {
         await mkdir(dirname(target), { recursive: true });
         await copyFile(path, target);
     }
-    await run([join(build, exporting ? 'mail/testing/export-benchmark-profile.mjs' : retained ? 'mail/testing/retained-mailbox-benchmark.mjs' : 'mail/testing/large-mailbox-benchmark.mjs'), retained || exporting ? resolve(args[1]) : String(count), report]);
+    await run([join(build, exporting || checkpointing ? 'mail/testing/export-benchmark-profile.mjs' : retained ? 'mail/testing/retained-mailbox-benchmark.mjs' : 'mail/testing/large-mailbox-benchmark.mjs'), ...(checkpointing ? ['--checkpoint'] : []), retained || exporting || checkpointing ? resolve(args[1]) : String(count), report]);
 }
 finally {
     await unlinkTestModules(join(root, 'build/node_modules'));

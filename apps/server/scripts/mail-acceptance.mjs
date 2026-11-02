@@ -67,8 +67,8 @@ try {
   const paths = await files(mail);
   const selected = suiteSet ? JSON.parse(await readFile(join(server, 'scripts/mail-provider-suites.json'), 'utf8')) : null;
   if (selected && (!Array.isArray(selected) || new Set(selected).size !== selected.length || selected.some(value => typeof value !== 'string' || !/^[a-z][a-z0-9/-]*$/.test(value)))) throw Error('Invalid provider suite manifest');
-  // Follow-on evaluations must be requested explicitly, never counted as release certification.
-  const explicitOnly = new Set(['mime/protected-evaluation.node-test.mjs', 'providers/jmap-evaluation.node-test.mjs']);
+  // Follow-on evaluations and benchmark tooling are separate from provider certification.
+  const explicitOnly = new Set(['mime/protected-evaluation.node-test.mjs', 'providers/jmap-evaluation.node-test.mjs', 'testing/benchmark-export.node-test.mjs']);
   if (selected?.some(name => explicitOnly.has(`${name}.node-test.mjs`))) throw Error('Optional evaluations require --suite and cannot enter provider certification.');
   const fixtures = paths.filter(path => path.endsWith('.node-test.mjs') &&
     (selected ? selected.includes(relative(mail, path).replaceAll('\\', '/').replace(/\.node-test\.mjs$/, '')) : suite === null ? !explicitOnly.has(relative(mail, path).replaceAll('\\', '/')) : relative(mail, path).replaceAll('\\', '/') === `${suite}.node-test.mjs`));

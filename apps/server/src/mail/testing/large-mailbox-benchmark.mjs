@@ -1,4 +1,4 @@
-import { fork, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execute = promisify(execFile);
 function sampleFamily(pid) {
@@ -59,6 +59,8 @@ import { MailSearchStore } from '../storage/search.js';
 import { MailReadStore } from '../storage/read-store.js';
 import { LocalMailService } from '../service.js';
 import { benchmarkMessage, qualityQueries, CORPUS_VERSION } from './large-mailbox-corpus.mjs';
+import { exportBenchmarkProfile } from './export-benchmark-profile.mjs';
+import { benchmarkRetention, runBenchmarkProcess } from './benchmark-process.mjs';
 const ownerId=process.env.LEGALWORK_MAIL_BENCH_OWNER==='desktop-local'?'desktop-local':'benchmark';
 const delay = ms => new Promise(r => setTimeout(r, ms));
 const distribution = values => { const sorted = [...values].sort((a, b) => a - b); return { count: values.length, p50: sorted[Math.floor((sorted.length - 1) * .5)] ?? 0, p95: sorted[Math.floor((sorted.length - 1) * .95)] ?? 0, max: sorted.at(-1) ?? 0 }; };
@@ -117,6 +119,7 @@ async function benchmark({ count, path, key }) {
             }
         }
     });
+    process.send?.({ kind: 'ready' });
     let rawBytes = 0, attachmentBytes = 0, attachmentCount = 0, malformedCount = 0;
     const formats = {};
     const rawSizes = [], attachmentSizes = [], corpusHash = createHash('sha256');
@@ -271,49 +274,22 @@ if (process.env.LEGALWORK_MAIL_BENCH_CHILD === '1') {
     });
 }
 else {
+    const retention = benchmarkRetention(process.env);
     const count = Number(process.argv[2]), output = process.argv[3], root = await mkdtemp(join(tmpdir(), 'legalwork-mail-benchmark-')), key = randomBytes(32), foreground = [], mainLoop = monitorEventLoopDelay({ resolution: 10 });
     await mkdir(join(root,'mail'),{mode:0o700});
     mainLoop.enable();
     const begun = performance.now();
-    let timer, sampler, retained = false;
-        if (process.env.LEGALWORK_MAIL_BENCH_KEEP_PROFILE === '1') {
-            await writeFile(join(root, 'benchmark-profile.json'), JSON.stringify({ kind: 'legalwork-synthetic-benchmark', count, ownerId, database:'mail/mail.sqlite', key: key.toString('base64'), report: output }), { mode: 0o600 });
+    let sampler, retained = false;
+    try {
+        if (process.env.LEGALWORK_MAIL_BENCH_KEEP_PROFILE === '1' || retention) {
+            await writeFile(join(root, 'benchmark-profile.json'), JSON.stringify({ kind: 'legalwork-synthetic-benchmark', count, ownerId, database:'mail/mail.sqlite', key: key.toString('base64'), report: output, sourceSha256:process.env.LEGALWORK_MAIL_BENCH_SOURCE_SHA256??null }), { mode: 0o600 });
             retained = true;
             console.log('Retained isolated synthetic profile: ' + root);
         }
-    try {
-        const result = await new Promise((resolve, reject) => {
-            const child = fork(fileURLToPath(import.meta.url), [], { env: { ...process.env, LEGALWORK_MAIL_BENCH_CHILD: '1' }, stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
-            sampler = sampleFamily(child.pid);
-            let pending = null, id = 0, finished = false;
-            timer = setInterval(() => {
-                if (pending === null && child.connected) {
-                    pending = { id: ++id, start: performance.now() };
-                    child.send({ kind: 'ping', id });
-                }
-            }, 500);
-            child.on('message', message => {
-                if (message.kind === 'progress')
-                    console.log(JSON.stringify(message));
-                if (message.kind === 'pong' && pending?.id === message.id) {
-                    if (!message.skipped)
-                        foreground.push({ phase: message.phase, ms: performance.now() - pending.start, queryMs: message.queryMs, error: message.error });
-                    pending = null;
-                }
-                if (message.kind === 'failure')
-                    reject(Error(message.error));
-                if (message.kind === 'result') {
-                    finished = true;
-                    resolve(message.result);
-                }
-            });
-            child.on('error', reject);
-            child.on('exit', code => {
-                if (!finished)
-                    reject(Error('benchmark worker exited ' + code));
-            });
-            child.send({ count, path: join(root, 'mail/mail.sqlite'), key: key.toString('base64') });
-        });
+        const result = await runBenchmarkProcess({ file: fileURLToPath(import.meta.url),
+            config: { count, path: join(root, 'mail/mail.sqlite'), key: key.toString('base64') },
+            budgetMs: retention?.budgetMs, onStart: pid => { sampler = sampleFamily(pid); },
+            onProgress: message => console.log(JSON.stringify(message)), onForeground: item => foreground.push(item) });
         sampler.stop();
         mainLoop.disable();
         result.memory.processFamilySampled = sampler.result;
@@ -330,12 +306,21 @@ else {
         result.measuredAt = new Date().toISOString();
         result.wallMs = performance.now() - begun;
         await mkdir(dirname(output), { recursive: true });
-        await writeFile(output, JSON.stringify(result, null, 2) + '\n');
+        await writeFile(output, JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
         console.log('Benchmark report: ' + output);
         console.log(JSON.stringify({ count, warm: result.warmQueryMs, indexing: result.indexing, memory: result.memory, storageRatio: result.storage.databaseToRawRatio }));
     }
+    catch (error) {
+        sampler?.stop(); mainLoop.disable();
+        if (retention) {
+            try {
+                const snapshot = await exportBenchmarkProfile({ source: root, destination: retention.destination, checkpoint: true });
+                console.log(JSON.stringify({ kind: 'checkpoint', originalsVerified: snapshot.originalsVerified, measurementState: snapshot.measurementState, destination: retention.destination }));
+            } catch { console.error('Synthetic checkpoint unavailable; no verified artifact was published.'); }
+        }
+        throw error;
+    }
     finally {
-        clearInterval(timer);
         sampler?.stop();
         mainLoop.disable();
         key.fill(0);
