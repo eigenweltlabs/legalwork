@@ -44,7 +44,7 @@ function fixture() {
     const id = url.pathname.split("/").at(-1);
     const value = id === "root" ? my : files.find((value) => value.id === id);
     if (!value) throw new ApiError(404, "storage_not_found", "Missing fixture file");
-    return url.searchParams.get("alt") === "media" ? new Response(`bytes:${value.id}`) : Response.json(value, { headers: { etag: '"fixture-v1"' } });
+    return url.searchParams.get("alt") === "media" ? new Response(`bytes:${value.id}`) : Response.json(value, { headers: { etag: `"fixture-v${value.version}"` } });
   };
   const request: StreamingConnectorRequest = Object.assign(async (path: string, options?: ConnectorRequestOptions) => (await response(path, options)).json(), { response, assertWrite: async () => {} });
   return { request, calls, my, company, shared, files, markIncomplete: () => { incomplete = true; } };
@@ -56,6 +56,40 @@ async function pages(load: (cursor?: string) => Promise<StoragePage>) {
   return entries;
 }
 const config = { kind: "oauth", provider: "google-drive", root: "", accountId: "fixture-account" } satisfies import("@legalwork/types/file-storage").StorageConfig;
+
+test("folder expansion fetches each path item's metadata once and performs one child listing", async () => {
+  const { request, calls, my, company, files } = fixture();
+  const adapter = await googleStorageAdapter(config, request);
+  await adapter.list("");
+  expect(calls.map(({ url }) => url.pathname)).toEqual(["/drive/v3/files/root"]);
+  for (const path of [nativeSegment(my), `${nativeSegment({ id: "legalwork:google:drives", name: "Shared drives" })}/${nativeSegment(company)}/${nativeSegment(files.find(file => file.id === "matter")!)}`]) {
+    calls.length = 0;
+    await adapter.list(path);
+    const metadata = calls.filter(({ url }) => url.pathname.startsWith("/drive/v3/files/"));
+    expect(metadata.length).toBe(new Set(metadata.map(({ url }) => url.pathname)).size);
+    expect(calls.filter(({ url }) => url.pathname === "/drive/v3/files")).toHaveLength(1);
+  }
+});
+
+test("metadata reuse preserves fresh versions, parent checks and changes during download", async () => {
+  const { request, my, files } = fixture();
+  const adapter = await googleStorageAdapter(config, request);
+  const file = files.find(file => file.id === "my-file")!;
+  const path = `${nativeSegment(my)}/${nativeSegment(file)}`;
+  expect((await adapter.stat(path))?.version).toBe('"fixture-v1"');
+  file.version = "2";
+  expect((await adapter.stat(path))?.version).toBe('"fixture-v2"');
+  file.parents = ["another-folder"];
+  expect(await adapter.stat(path)).toBeNull();
+  file.parents = [my.id];
+  const response = request.response;
+  request.response = async (path, options) => {
+    const result = await response(path, options);
+    if (new URL(path, "https://www.googleapis.com").searchParams.get("alt") === "media") file.version = "3";
+    return result;
+  };
+  await expect(adapter.read(path)).rejects.toMatchObject({ code: "storage_conflict" });
+});
 
 test("default Google account exposes My Drive, Shared with me and paginated company drives", async () => {
   const { request, shared, calls } = fixture(); const adapter = await googleStorageAdapter(config, request);

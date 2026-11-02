@@ -130,14 +130,16 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     return target;
   };
   const children = async (id: string, cursor?: string) => {
-    if (accountWide && id === root.id) return { items: [{ ...await get(myDrive.id), name: "My Drive" }, ...locations] };
+    if (accountWide && id === root.id) return { items: [{ ...myDrive, name: "My Drive" }, ...locations] };
     if (accountWide && id === shared.id) return fileList(["sharedWithMe"], cursor, undefined, true);
     if (accountWide && id === all.id) return accountPage([], cursor);
     if (accountWide && id === drives.id) {
       const page = await listGoogleSharedDrives(request, cursor);
       return { items: page.drives.map((drive) => ({ ...virtual(drive.id, drive.name), id: drive.id, parents: [drives.id] })), nextCursor: page.nextPageToken ?? undefined };
     }
-    const folder = await shortcutTarget(await get(id));
+    // resolve() just refreshed this folder. Reuse it for the child listing,
+    // without caching get(): reads still need fresh versions before and after download.
+    const folder = await shortcutTarget(metadata.get(id) ?? await get(id));
     return fileList([`'${literal(folder.id)}' in parents`], cursor, folder.driveId, false, folder);
   };
   const relativePath = async (file: DriveItem): Promise<string> => {
@@ -161,8 +163,9 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     }
     return [accountWide ? nativeSegment({ ...myDrive, name: "My Drive" }) : "", ...parts].filter(Boolean).join("/");
   };
-  const contains = async (parent: DriveItem, file: DriveItem) => {
-    const current = await get(parent.id), child = await get(file.id);
+  const contains = async (current: GoogleItem, child: GoogleItem) => {
+    // Both items were obtained while resolving this path. Fetching them again
+    // adds two serial provider requests per segment without strengthening the check.
     if (accountWide) {
       if (current.id === root.id) return child.id === myDrive.id || locations.some((location) => location.id === child.id) || child.parents.includes(myDrive.id);
       if (current.id === all.id) return !child.id.startsWith("legalwork:google:");
