@@ -54,12 +54,18 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     metadata.set(file.id, file);
     return file;
   };
-  const myDrive = await physical(config.root || config.driveId || "root");
-  if (!myDrive.folder) throw new ApiError(400, "invalid_storage_root", "Choose a Google Drive folder ID.");
+  let myDrive: GoogleItem | undefined;
+  let rootLookup: Promise<GoogleItem> | undefined;
+  const getMyDrive = () => rootLookup ??= physical(config.root || config.driveId || "root").then(file => {
+    if (!file.folder) throw new ApiError(400, "invalid_storage_root", "Choose a Google Drive folder ID.");
+    myDrive = file;
+    return file;
+  });
   const checkShortcutScope = async (target: GoogleItem) => {
     if (accountWide) return;
+    const boundary = await getMyDrive();
     const seen = new Set<string>(); let current = target;
-    while (current.id !== myDrive.id) {
+    while (current.id !== boundary.id) {
       if (seen.has(current.id) || current.parents.length !== 1 || seen.size >= 100) throw new ApiError(403, "storage_outside_root", "This shortcut points outside the selected folder view. Open it from the Google Drive account instead.");
       seen.add(current.id);
       try { current = await physical(current.parents[0]!); }
@@ -70,7 +76,7 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     }
   };
   const virtual = (id: string, name: string): GoogleItem => ({ id: `legalwork:google:${id}`, name, folder: true, parents: ["legalwork:google:account"], size: 0, version: `virtual:${id}`, contentType: googleFolder, readOnly: true });
-  const root = accountWide ? virtual("account", "Google Drive") : myDrive;
+  const root = accountWide ? virtual("account", "Google Drive") : await getMyDrive();
   const shared = virtual("shared", "Shared with me"), drives = virtual("drives", "Shared drives"), all = virtual("all", "All files");
   const locations = [shared, drives, all];
   const get = async (id: string): Promise<GoogleItem> => {
@@ -86,7 +92,8 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
       if (target.targetId || target.folder) throw new ApiError(404, "storage_not_found", "This shortcut target is unavailable.");
       return { ...target, id: file.id, name: file.name, parents: file.parents, targetId: file.targetId, targetResourceKey: file.targetResourceKey, sharedWithMeTime: file.sharedWithMeTime, readOnly: true };
     }
-    return accountWide && file.id === myDrive.id ? { ...file, name: "My Drive" } : file;
+    if (accountWide && file.folder && !file.parents.length && !file.driveId && !myDrive) await getMyDrive();
+    return accountWide && file.id === myDrive?.id ? { ...file, name: "My Drive" } : file;
   };
   const fileList = async (filters: string[], cursor?: string, driveId?: string, user = false, resource?: GoogleItem) => {
     const query = new URLSearchParams({ q: ["trashed = false", ...filters].join(" and "), pageSize: "100", spaces: "drive", fields: `nextPageToken,incompleteSearch,files(${googleFields})`, supportsAllDrives: "true", includeItemsFromAllDrives: "true" });
@@ -132,7 +139,7 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     return target;
   };
   const children = async (id: string, cursor?: string) => {
-    if (accountWide && id === root.id) return { items: [{ ...myDrive, name: "My Drive" }, ...locations] };
+    if (accountWide && id === root.id) return { items: [{ ...await getMyDrive(), name: "My Drive" }, ...locations] };
     if (accountWide && id === shared.id) return fileList(["sharedWithMe"], cursor, undefined, true);
     if (accountWide && id === all.id) return accountPage([], cursor);
     if (accountWide && id === drives.id) {
@@ -148,7 +155,8 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     if (file.id === root.id) return "";
     if (accountWide && locations.some((location) => location.id === file.id)) return nativeSegment(file);
     const parts: string[] = [], seen = new Set<string>(); let current = metadata.get(file.id) ?? await get(file.id);
-    while (current.id !== myDrive.id) {
+    const boundaryId = accountWide && current.driveId ? current.driveId : (await getMyDrive()).id;
+    while (current.id !== boundaryId) {
       if (seen.has(current.id) || seen.size >= 100) throw new ApiError(502, "storage_invalid_response", "Google returned a folder cycle.");
       seen.add(current.id); parts.unshift(nativeSegment(current));
       if (accountWide && current.driveId === current.id) return [nativeSegment(drives), ...parts].join("/");
@@ -163,13 +171,18 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
         throw error;
       }
     }
-    return [accountWide ? nativeSegment({ ...myDrive, name: "My Drive" }) : "", ...parts].filter(Boolean).join("/");
+    if (accountWide && current.driveId === current.id) return [nativeSegment(drives), nativeSegment(current), ...parts].join("/");
+    return [accountWide ? nativeSegment({ ...await getMyDrive(), name: "My Drive" }) : "", ...parts].filter(Boolean).join("/");
   };
   const contains = async (current: GoogleItem, child: GoogleItem) => {
     // Both items were obtained while resolving this path. Fetching them again
     // adds two serial provider requests per segment without strengthening the check.
     if (accountWide) {
-      if (current.id === root.id) return child.id === myDrive.id || locations.some((location) => location.id === child.id) || child.parents.includes(myDrive.id);
+      if (current.id === root.id) {
+        if (locations.some(location => location.id === child.id)) return true;
+        const personalRoot = await getMyDrive();
+        return child.id === personalRoot.id || child.parents.includes(personalRoot.id);
+      }
       if (current.id === all.id) return !child.id.startsWith("legalwork:google:");
       if (current.id === shared.id) return Boolean(child.sharedWithMeTime);
       if (current.id === drives.id) return child.folder && child.driveId === child.id;
@@ -197,7 +210,7 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     return { entries, nextCursor: page.nextCursor, truncated: page.truncated };
   } : undefined;
   const writeParent = async (parent: DriveItem) => {
-    if (accountWide && parent.id === root.id) return get(myDrive.id);
+    if (accountWide && parent.id === root.id) return get((await getMyDrive()).id);
     if (parent.id.startsWith("legalwork:google:")) throw new ApiError(400, "storage_invalid_destination", "Choose a folder in My Drive or a shared drive to save files.");
     return shortcutTarget(await get(parent.id));
   };
@@ -236,10 +249,11 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
   };
   const lookup = async (parent: DriveItem, name: string) => {
     if (!accountWide || parent.id !== root.id) return null;
+    const personalRoot = await getMyDrive();
     let cursor: string | undefined, found: GoogleItem | null = null;
     const seen = new Set<string>();
     do {
-      const page = await fileList([`'${literal(myDrive.id)}' in parents`, `name = '${literal(name)}'`], cursor);
+      const page = await fileList([`'${literal(personalRoot.id)}' in parents`, `name = '${literal(name)}'`], cursor);
       for (const file of page.items) if (file.name === name) {
         if (found) throw new ApiError(409, "storage_ambiguous_path", "Several files have this name. Choose the file by its listed identity.");
         found = file;
@@ -251,6 +265,6 @@ export async function googleDriveTree(config: Extract<StorageConfig, { kind: "oa
     return found;
   };
   const searchScope: "folder" | "subtree" = accountWide ? "subtree" : "folder";
-  return { root, get, children, contains, lookup, search, searchPath, relativePath, listFilesAtRoot, writeParent, conditionalVersion, rename, remove, download, parallelMetadata: accountWide,
-    namespace: `google-drive:${config.accountId}:${myDrive.id}`, searchScope };
+  return { root, get, children, contains, lookup, search, searchPath, relativePath, listFilesAtRoot, writeParent, conditionalVersion, rename, remove, download, parallelMetadata: accountWide, readById: accountWide,
+    namespace: async () => `google-drive:${config.accountId}:${(await getMyDrive()).id}`, searchScope };
 }

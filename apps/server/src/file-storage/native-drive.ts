@@ -7,8 +7,10 @@ export type DriveItem = {
   contentType: string; modifiedAt?: string; webUrl?: string; exported?: boolean; readOnly?: boolean; targetId?: string;
 };
 export type DriveDriver = {
-  root: DriveItem; namespace: string;
+  root: DriveItem; namespace: string | (() => Promise<string>);
   get: (id: string) => Promise<DriveItem>;
+  /** Whole-account file reads use provider-authorized IDs; writes still resolve the full path. */
+  readById?: boolean;
   /** Account-wide identity paths can fetch metadata concurrently, then validate every edge in order. */
   parallelMetadata?: boolean;
   children: (id: string, cursor?: string) => Promise<{ items: DriveItem[]; nextCursor?: string; truncated?: boolean }>;
@@ -55,6 +57,7 @@ function requireVersion(item: DriveItem) {
   if (!/^(?:W\/)?"[^"\r\n]+"$/.test(item.version) || item.version.startsWith("W/")) throw new ApiError(409, "storage_conditional_write_unsupported", "The provider did not supply a safe file version. Refresh before changing this file.");
 }
 export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
+  const namespace = async () => typeof driver.namespace === "function" ? driver.namespace() : driver.namespace;
   const conditionalItem = async (item: DriveItem) => {
     if (item.readOnly) requireVersion(item);
     const guarded = driver.conditionalVersion ? { ...item, version: await driver.conditionalVersion(item) } : item;
@@ -101,6 +104,11 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
   const existing = async (path: string) => {
     try { return await resolve(path); }
     catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error; }
+  };
+  const readItem = async (path: string) => {
+    const parts = storagePath(path, false).split("/");
+    const id = driver.readById ? segmentId(parts.at(-1)!) : undefined;
+    return id ? driver.get(id) : resolve(path);
   };
   const parentAndName = async (path: string) => {
     const parts = storagePath(path, false).split("/");
@@ -152,10 +160,10 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
     async folderReference(path) {
       const item = await resolve(path);
       if (!item.folder) throw missing();
-      return { path: await relativePath(item), id: item.id, name: item.name, namespace: driver.namespace };
+      return { path: await relativePath(item), id: item.id, name: item.name, namespace: await namespace() };
     },
     async resolveFolder(reference: FolderReference) {
-      if (!reference.id || reference.namespace !== driver.namespace) throw new ApiError(409, "storage_namespace_changed", "The folder's account or drive changed. Relink the folder.");
+      if (!reference.id || reference.namespace !== await namespace()) throw new ApiError(409, "storage_namespace_changed", "The folder's account or drive changed. Relink the folder.");
       const item = await driver.get(reference.id);
       if (!item.folder) throw missing();
       return relativePath(item);
@@ -174,19 +182,19 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
     } } : {}),
     async stat(path) { const item = await existing(path); return item && !item.folder ? info(item) : null; },
     async read(path) {
-      const item = await resolve(path); requireFile(item);
+      const item = await readItem(path); requireFile(item);
       const response = await driver.download(item);
       if (!response.body) throw new ApiError(502, "storage_invalid_response", "The provider returned no file content.");
       const data = await collectStream(response.body);
-      const after = await resolve(path); if (after.version !== item.version || after.targetId !== item.targetId) conflict();
+      const after = await readItem(path); if (after.version !== item.version || after.targetId !== item.targetId) conflict();
       return { ...info(item), size: data.length, data };
     },
     async download(path, destination) {
-      const item = await resolve(path); requireFile(item);
+      const item = await readItem(path); requireFile(item);
       const response = await driver.download(item);
       if (!response.body) throw new ApiError(502, "storage_invalid_response", "The provider returned no file content.");
       const result = await receiveFile(response.body, destination);
-      const after = await resolve(path); if (after.version !== item.version || after.targetId !== item.targetId) conflict();
+      const after = await readItem(path); if (after.version !== item.version || after.targetId !== item.targetId) conflict();
       return { ...info(item), ...result };
     },
     write: upload, upload,

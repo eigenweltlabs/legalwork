@@ -114,6 +114,33 @@ test("the sidebar streaming transfer endpoint completes a native Google copy wit
   expect(copies).toBe(1); expect(contentRequests).toBe(0);
 });
 
+test("whole-account sidebar file reads and checkouts use two metadata requests without resolving display ancestors", async () => {
+  const file = { id: "source", name: "Report.txt", mimeType: "text/plain", parents: ["current-parent"], size: "15", version: "7" };
+  const previous = globalThis.fetch;
+  let metadata = 0, content = 0;
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname !== "www.googleapis.com") return previous(input, init);
+    expect(url.pathname).toBe("/drive/v3/files/source");
+    expect(init?.method).toBe("GET");
+    if (url.searchParams.get("alt") === "media") { content++; return new Response("fixture-content"); }
+    metadata++; return Response.json(file);
+  }, { preconnect: nativeFetch.preconnect });
+  await serve();
+  const id = encodeURIComponent(`connector:google-drive:${account.id}`);
+  const path = `${nativeSegment({ id: "old-parent", name: "Old folder" })}/${nativeSegment(file)}`;
+  for (const checkout of [false, true]) {
+    metadata = 0; content = 0;
+    const response = await nativeFetch(`${base}/workspace/project/storage/${id}/${checkout ? "checkout" : `file?${new URLSearchParams({ path })}`}`, {
+      method: checkout ? "POST" : "GET", headers: { Authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
+      ...(checkout ? { body: JSON.stringify({ path }) } : {}),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ version: "sha256:7", ...(checkout ? { size: 15 } : { dataBase64: Buffer.from("fixture-content").toString("base64") }) });
+    expect(metadata).toBe(2); expect(content).toBe(1);
+  }
+});
+
 test("sidebar delete endpoints trash Google files and nonempty folders with real conditional tokens, surfacing conflicts without retry", async () => {
   await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
   await serve();

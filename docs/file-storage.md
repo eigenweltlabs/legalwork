@@ -154,7 +154,9 @@ workspace audit system.
 
 ## Google Drive metadata and reads
 
-Account-wide Google Drive identity paths fetch metadata in batches of at most eight concurrent requests, then validate every parent edge in order before listing or transferring content. Failed lookups are inspected in path order, so a later provider error does not bypass an earlier scope failure. Plain-name paths and explicit folder views retain sequential resolution. File reads and downloads still resolve the complete path with fresh metadata before and after content transfer, including checking shortcut target identities. The download uses the already-resolved file metadata rather than fetching it a third time. There is no shared metadata cache or extended authorization lease.
+Whole-account Google Drive file reads and downloads use the final provider identity directly. Stale display ancestors do not define a folder boundary for that connection. Ordinary ID reads make two metadata requests, before and after content transfer, and compare file versions and shortcut target identities. Shortcuts additionally refresh their target metadata. Plain-name reads retain path resolution. Folder views and linked project scopes always resolve the complete ancestry, including after a download; mutations still validate their source and destination paths.
+
+My Drive metadata is loaded only when needed for account browsing, personal-root path resolution or folder-reference namespaces. Existing folder namespaces remain compatible. Account-wide ancestry lookups, where required for browsing and mutations, use batches of at most eight concurrent requests and validate every parent edge in order. Failed lookups are inspected in path order, so later provider errors do not bypass earlier scope failures. Explicit folder views retain sequential resolution. There is no shared metadata cache or extended authorization lease.
 
 ## Provider-side sidebar copies
 

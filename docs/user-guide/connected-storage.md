@@ -24,7 +24,7 @@ SMB accesses the share directly without mounting it. Access to RA-MICRO folders 
 
 Expand a root or folder to fetch its contents. Load additional pages when available. Search behavior is provider-dependent: filename searches and native provider search are different from full-text indexing. The returned search scope matters, especially for network shares. These connections do not automatically index their files in LegalMemory.
 
-When opening a Google Drive file, LegalWork checks its location and version again after downloading it. If the file changes, a parent folder moves outside the selected location, or a shortcut points to a different file while it opens, refresh the folder and open the file again.
+Files in a whole-account Google Drive connection can still open after their folders move or are renamed. LegalWork checks the file's version before and after downloading it. If the file changes or a shortcut points to a different file while it opens, refresh and open it again. Folder views and linked project folders also check that the file and its parents remain inside the selected location.
 
 In a writable folder, upload or drop files and create folders using the available controls. Existing-name and read-only errors should be resolved rather than ignored. Pausing a connection hides/disables access without deleting its source. Disconnecting removes the connection configuration, not the remote files. Deleting a file through a file action is a separate operation.
 
