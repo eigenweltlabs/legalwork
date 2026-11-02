@@ -152,6 +152,16 @@ listing only. Absolute paths, traversal, empty segments, backslashes and control
 characters are rejected. Upload/edit operations are audited using the existing
 workspace audit system.
 
+## Provider-side sidebar copies
+
+Memory Drive dragging retains `mode: "copy"`. The shared transfer endpoint selects `StorageAdapter.copyFile` for files in a same-connection copy when the adapter implements it. This branch does not create staging files, download source or destination content, or upload bytes. Folder copies enumerate a complete metadata snapshot, create the destination folder structure (including empty folders), and copy each file through the provider. File-count progress advances only after a copy is confirmed. Truncated listings are rejected before creating destinations.
+
+Google Drive uses `files.copy` with `supportsAllDrives`. Native Google documents retain their provider format and title; the viewer's Office-export extension is not added to the native title. Returned metadata is checked against the expected destination and filename, plus binary size and MD5 checksum when supplied. OneDrive and SharePoint use the asynchronous `driveItem/copy` operation with conflict behavior set to fail where supported. The server waits for completion, then verifies the new file's metadata. Monitor URLs are restricted to HTTPS Microsoft endpoints; requests carry no OAuth token and redirects are never followed automatically.
+
+Cross-connection copies and adapters without native copy support retain the verified streaming path. Native failures never trigger a streaming retry: copies may already exist or remain queued in the provider. The original is preserved, and the caller receives `storage_transfer_incomplete` with instructions to refresh both folders. Native copy does not alter the existing version-checked move or delete paths.
+
+Provider references: [Google Drive files.copy](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/copy), [Microsoft driveItem copy](https://learn.microsoft.com/en-us/graph/api/driveitem-copy), [Microsoft copy monitoring](https://learn.microsoft.com/en-us/graph/long-running-actions-overview).
+
 ## Agent access
 
 The bundled agent uses one tool set across all providers and multiple connections:

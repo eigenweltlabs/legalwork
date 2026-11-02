@@ -13,14 +13,14 @@ export const googleExports = {
   "application/vnd.google-apps.presentation": { extension: "pptx", type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
   "application/vnd.google-apps.drawing": { extension: "pdf", type: "application/pdf" },
 };
-const googleFile = z.object({ id: z.string(), name: z.string(), mimeType: z.string(), size: z.string().optional(), modifiedTime: z.string().optional(), version: z.string().optional(), parents: z.array(z.string()).default([]), webViewLink: z.string().optional(), trashed: z.boolean().optional(), driveId: z.string().optional(), sharedWithMeTime: z.string().optional(), resourceKey: z.string().optional(), shortcutDetails: z.object({ targetId: z.string(), targetMimeType: z.string(), targetResourceKey: z.string().optional() }).optional() });
-const googleFields = "id,name,mimeType,size,modifiedTime,version,parents,webViewLink,trashed,driveId,sharedWithMeTime,resourceKey,shortcutDetails";
+const googleFile = z.object({ id: z.string(), name: z.string(), mimeType: z.string(), size: z.string().optional(), md5Checksum: z.string().optional(), modifiedTime: z.string().optional(), version: z.string().optional(), parents: z.array(z.string()).default([]), webViewLink: z.string().optional(), trashed: z.boolean().optional(), driveId: z.string().optional(), sharedWithMeTime: z.string().optional(), resourceKey: z.string().optional(), shortcutDetails: z.object({ targetId: z.string(), targetMimeType: z.string(), targetResourceKey: z.string().optional() }).optional() });
+const googleFields = "id,name,mimeType,size,md5Checksum,modifiedTime,version,parents,webViewLink,trashed,driveId,sharedWithMeTime,resourceKey,shortcutDetails";
 const filesPage = z.object({ files: z.array(googleFile).default([]), nextPageToken: z.string().optional(), incompleteSearch: z.boolean().optional() });
 const driveSchema = z.object({ id: z.string(), name: z.string() });
 const drivesPage = z.object({ drives: z.array(driveSchema), nextPageToken: z.string().optional() });
 const cursorSchema = z.object({ scope: z.string(), phase: z.enum(["user", "drives"]), token: z.string().optional(), drivesToken: z.string().optional(), offset: z.number().int().min(0).max(100).default(0), driveId: z.string().optional() });
 const literal = (value: string) => value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-type GoogleItem = DriveItem & { driveId?: string; sharedWithMeTime?: string; resourceKey?: string; targetId?: string; targetResourceKey?: string };
+type GoogleItem = DriveItem & { driveId?: string; sharedWithMeTime?: string; resourceKey?: string; targetId?: string; targetResourceKey?: string; checksum?: string };
 function item(file: z.infer<typeof googleFile>, etag?: string | null): GoogleItem {
   if (file.trashed) throw new ApiError(404, "storage_not_found", "This file is in the trash.");
   const mime = file.shortcutDetails?.targetMimeType ?? file.mimeType;
@@ -29,7 +29,7 @@ function item(file: z.infer<typeof googleFile>, etag?: string | null): GoogleIte
     parents: file.parents, size: Number(file.size ?? 0), version: etag ?? `sha256:${file.version ?? file.modifiedTime ?? file.id}`,
     contentType: format?.type ?? mime, modifiedAt: file.modifiedTime, webUrl: file.webViewLink,
     exported: mime.startsWith("application/vnd.google-apps.") && mime !== googleFolder,
-    driveId: file.driveId, sharedWithMeTime: file.sharedWithMeTime, resourceKey: file.resourceKey,
+    driveId: file.driveId, sharedWithMeTime: file.sharedWithMeTime, resourceKey: file.resourceKey, checksum: file.md5Checksum,
     targetId: file.shortcutDetails?.targetId, targetResourceKey: file.shortcutDetails?.targetResourceKey,
     readOnly: Boolean(file.shortcutDetails) };
 }

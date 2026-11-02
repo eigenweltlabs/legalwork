@@ -13,6 +13,7 @@ import { saveConnectorWriteSetting } from "../connectors/settings.js";
 import { savedConnectorStatus } from "../connectors/broker.js";
 import { StorageStore } from "./store.js";
 import { storageInputSchema } from "./schema.js";
+import { storageTransferEventSchema } from "@legalwork/types/file-storage";
 import { connectorRuntimeCapability } from "../connectors/capability.js";
 import { ConnectorStorageAccounts } from "./connector-accounts.js";
 import { updateProjectRemote, readProjectDetails } from "../project-store.js";
@@ -73,6 +74,44 @@ test("saved account status and root discovery never request Nango status or toke
     expect(data.roots).toContainEqual(expect.objectContaining({ id: `connector:google-drive:${account.id}`, writable: false, provider: "google-drive" }));
   }
   expect(calls.some((path) => path.startsWith("/api/connectors"))).toBe(false);
+});
+
+test("the sidebar streaming transfer endpoint completes a native Google copy without transferring file contents", async () => {
+  await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
+  const archive = { ...googleRoot, id: "archive", name: "Archive", parents: [googleRoot.id] };
+  const file = { id: "source", name: "Report.txt", mimeType: "text/plain", parents: [googleRoot.id], size: "1024", md5Checksum: "same-hash" };
+  const copied = { ...file, id: "copy", parents: [archive.id] };
+  let copies = 0, contentRequests = 0;
+  const previous = globalThis.fetch;
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname !== "www.googleapis.com") return previous(input, init);
+    if (url.searchParams.get("alt") === "media" || url.pathname.includes("/upload/") || url.pathname.endsWith("/export")) {
+      contentRequests++; throw new Error("Unexpected file-content transfer");
+    }
+    if (url.pathname.endsWith("/copy") && init?.method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual({ name: file.name, parents: [archive.id] });
+      copies++; return Response.json({ id: copied.id });
+    }
+    if (url.pathname.endsWith("/files")) {
+      const parent = /'([^']+)' in parents/.exec(url.searchParams.get("q") ?? "")?.[1];
+      return Response.json({ files: parent === archive.id ? copies ? [copied] : [] : [archive, file] });
+    }
+    return Response.json(url.pathname.endsWith("/archive") ? archive : url.pathname.endsWith("/source") ? file : url.pathname.endsWith("/copy") ? copied : googleRoot, { headers: { etag: '"fixture-version"' } });
+  }, { preconnect: nativeFetch.preconnect });
+  await serve();
+  const rootPath = nativeSegment({ id: googleRoot.id, name: "My Drive" });
+  const id = `connector:google-drive:${account.id}`;
+  const response = await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(id)}/transfer`, {
+    method: "POST", headers: { Authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify({ path: `${rootPath}/${nativeSegment(file)}`, kind: "file", destinationId: id, destinationPath: `${rootPath}/${nativeSegment(archive)}`, mode: "copy" }),
+  });
+  expect(response.status).toBe(200);
+  const events = (await response.text()).split("\n").filter(line => line.startsWith("data: ")).map(line => storageTransferEventSchema.parse(JSON.parse(line.slice(6))));
+  expect(events.some(event => event.type === "result")).toBe(true);
+  expect(events.some(event => event.type === "error")).toBe(false);
+  expect(events.filter(event => event.type === "progress").at(-1)).toMatchObject({ type: "progress", progress: { phase: "completed", completedFiles: 1, totalFiles: 1 } });
+  expect(copies).toBe(1); expect(contentRequests).toBe(0);
 });
 
 test("the managed agent storage routes search and read a shared-drive-only file using the existing account", async () => {

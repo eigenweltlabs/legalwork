@@ -30,7 +30,9 @@ In a writable folder, upload or drop files and create folders using the availabl
 
 In a project chat, ask LegalWork to move or copy a file or folder, naming its source connection and destination folder. For example: “Move Contract.docx from My Drive/Matters into My Drive/Archive.” The destination folder must already exist and allow writing. Moving also requires permission to change the source; copying keeps the original and can use a read-only source. An existing item with the same name prevents the transfer.
 
-Dragging a file or folder between folders in Memory Drive copies it. To move it, ask in chat. Google Docs, Sheets and Slides copied to another connection become exported files; moving those native documents across connections is unavailable. If a transfer reports that it did not finish, refresh and inspect both folders before retrying: some copies may already exist, and removal of originals may be incomplete.
+Dragging a file or folder between folders in Memory Drive copies it. Within the same Google Drive, OneDrive or SharePoint connection, files are copied inside the provider without downloading and uploading their contents through LegalWork. Google Docs, Sheets and Slides stay in their native format when copied this way. Originals are kept. Copies between different connections or through other providers can still require downloading and uploading.
+
+To move an item, ask in chat. Google Docs, Sheets and Slides copied to another connection become exported files; moving those native documents across connections is unavailable. If a transfer reports that it did not finish, refresh and inspect both folders before retrying: some copies may already exist or still be processing, and removal of originals during a move may be incomplete.
 
 ## Edit and save back
 

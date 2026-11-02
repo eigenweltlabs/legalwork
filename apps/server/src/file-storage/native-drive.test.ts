@@ -28,6 +28,20 @@ function fixture() {
   return { adapter: nativeDriveAdapter(driver), driver, items, add, mutations };
 }
 describe("native drive identities and source capabilities", () => {
+  test("native copies recheck source membership and destination collisions before invoking the provider", async () => {
+    const { driver, add, mutations } = fixture();
+    const source = add("native", "Report.docx", "root", false, true), folder = add("archive", "Archive", "root", true);
+    driver.copyFile = async (item, parent, name) => { mutations.push(`copy:${item.id}:${parent.id}:${name}`); };
+    const adapter = nativeDriveAdapter(driver);
+    await adapter.copyFile!(`${nativeSegment(source)}`, `${nativeSegment(folder)}/Report.docx`);
+    expect(mutations).toEqual(["copy:native:archive:Report.docx"]);
+    add("existing", "Taken.docx", folder.id);
+    await expect(adapter.copyFile!(nativeSegment(source), `${nativeSegment(folder)}/Taken.docx`)).rejects.toMatchObject({ code: "storage_conflict" });
+    const outside = add("outside", "Secret.txt", "different-root");
+    await expect(adapter.copyFile!(nativeSegment(outside), `${nativeSegment(folder)}/Secret.txt`)).rejects.toMatchObject({ status: 404 });
+    await expect(adapter.copyFile!(nativeSegment(source), `${nativeSegment(folder)}/${nativeSegment(source)}`)).rejects.toMatchObject({ code: "invalid_storage_name" });
+    expect(mutations).toHaveLength(1);
+  });
   test("same-name files remain distinct and plain names reject ambiguity across pages", async () => {
     const { adapter, add } = fixture(); const first = add("a", "same.txt"), second = add("b", "same.txt");
     const page = await adapter.list(""); const next = await adapter.list("", page.nextCursor);

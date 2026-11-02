@@ -17,6 +17,7 @@ export type DriveDriver = {
   download: (item: DriveItem) => Promise<Response>;
   upload: (parent: DriveItem, name: string, current: DriveItem | null, source: Buffer | string, contentType: string, condition: WriteCondition) => Promise<void>;
   mkdir: (parent: DriveItem, name: string) => Promise<void>;
+  copyFile?: (item: DriveItem, parent: DriveItem, name: string) => Promise<void>;
   rename: (item: DriveItem, parent: DriveItem, name: string) => Promise<void>;
   remove: (item: DriveItem, version?: string) => Promise<void>;
   search?: (parent: DriveItem, input: StorageSearch) => Promise<{ items: DriveItem[]; nextCursor?: string; truncated?: boolean }>;
@@ -170,6 +171,13 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       return { ...info(item), ...result };
     },
     write: upload, upload,
+    ...(driver.copyFile ? { async copyFile(path: string, destination: string) {
+      const item = await resolve(path); requireFile(item);
+      const { parent, name } = await parentAndName(destination);
+      if (segmentId(name)) throw new ApiError(400, "invalid_storage_name", "Use a destination filename, not an existing file identity.");
+      if (await childrenByName(parent, name)) conflict();
+      await driver.copyFile!(item, parent, name);
+    } } : {}),
     async mkdir(path) {
       const { parent, name } = await parentAndName(path);
       if (await childrenByName(parent, name)) conflict();
