@@ -258,6 +258,11 @@ export async function replyToPermission(client: Client, permission: PendingPermi
   }
 }
 
+export async function cancelQuestion(client: Client, question: PendingQuestion) {
+ if (!question.form) throw new Error("Question form is unavailable.");
+ await client.session.form.cancel({ sessionID: question.sessionID, formID: question.id, message: "The user skipped this question." });
+}
+
 export async function replyToQuestion(client:Client,question:PendingQuestion,answers:string[][],_directory:string) {
  if(!question.form)throw new Error("Question form is unavailable.");
  const answer:FormAnswer={};

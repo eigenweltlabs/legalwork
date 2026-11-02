@@ -2861,6 +2861,7 @@ const de = {
   "common.cancel": "Abbrechen",
   "common.back": "Zurück",
   "common.close": "Schließen",
+  "common.skip": "Überspringen",
   "common.continue": "Weiter",
   "common.copy": "Kopieren",
   "common.default_parens": "(Standard)",

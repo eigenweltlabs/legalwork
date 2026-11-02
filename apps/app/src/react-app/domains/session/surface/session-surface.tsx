@@ -227,6 +227,7 @@ export type SessionSurfaceProps = {
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
   respondQuestion?: (requestID: string, answers: string[][]) => void;
+  cancelQuestion?: (requestID: string) => void;
   onOpenInteractionSession?: (sessionId: string) => void;
   safeStringify?: (value: unknown) => string;
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
@@ -2238,7 +2239,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   />
                 ) : null}
                 {composerQuestion ? (
-                  composerQuestion.form ? <NativeFormPanel key={composerQuestion.id} form={composerQuestion.form} client={props.client} sourceSession={composerQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(composerQuestion)props.respondQuestion?.(composerQuestion.id,answers);}}/> : (
+                  composerQuestion.form ? <NativeFormPanel key={composerQuestion.id} form={composerQuestion.form} client={props.client} sourceSession={composerQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(composerQuestion)props.respondQuestion?.(composerQuestion.id,answers);}} onCancel={props.cancelQuestion ? () => props.cancelQuestion?.(composerQuestion.id) : undefined}/> : (
                   <QuestionPanel
                     key={composerQuestion.id}
                     questions={composerQuestion.questions}

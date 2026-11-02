@@ -2824,6 +2824,7 @@ export default {
   "common.cancel": "Cancel",
   "common.back": "Back",
   "common.close": "Close",
+  "common.skip": "Skip",
   "common.copy": "Copy",
   "common.default_parens": "(default)",
   "common.edit": "Edit",
