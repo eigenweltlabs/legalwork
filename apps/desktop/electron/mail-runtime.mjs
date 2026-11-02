@@ -2,22 +2,26 @@ import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createMailStoreMaintenance } from "./mail-store-maintenance.mjs";
 import { assertMailKeychainReady } from "./mail-keychain-preflight.mjs";
+import { createPackagedMailRuntime } from "./mail-packaged-runtime.mjs";
 
 /** Lazy desktop-only binding. No worker or OS-vault access until explicit unlock.
- * @param {{app: Pick<import("electron").App, "getPath"|"isReady">,
- * embeddedPath:string, safeStorage: Pick<import("electron").SafeStorage,
+ * @param {{app: Pick<import("electron").App, "getPath"|"isReady"|"isPackaged">,
+ * embeddedPath:string, resourcesPath?:string, safeStorage: Pick<import("electron").SafeStorage,
  * "isEncryptionAvailable"|"encryptString"|"decryptString"|"getSelectedStorageBackend">}} options
  */
-export async function createDesktopMailService({ app, embeddedPath, safeStorage }) {
+export async function createDesktopMailService({ app, embeddedPath, safeStorage, resourcesPath }) {
   const directory = join(app.getPath("userData"), "mail");
   const dist = dirname(embeddedPath);
+  const packaged = app.isPackaged ? createPackagedMailRuntime(resourcesPath) : undefined;
+  const executable = packaged?.executable ?? { kind: "electron", path: app.getPath("exe") };
+  const beforeAccess = async () => { await packaged?.verify(); await assertMailKeychainReady(); };
   const { enforceMailWindowsAcl } = await import(pathToFileURL(join(dist, "mail/storage/windows-acl.js")).href);
-  const maintenance = createMailStoreMaintenance({ directory, safeStorage, beforeAccess: assertMailKeychainReady, windowsAcl: enforceMailWindowsAcl, executable: { kind: "electron", path: app.getPath("exe") }, entryPoint: join(dist, "mail/runtime/maintenance-worker.js") });
+  const maintenance = createMailStoreMaintenance({ directory, safeStorage, beforeAccess, windowsAcl: enforceMailWindowsAcl, executable, entryPoint: packaged?.maintenanceEntryPoint ?? join(dist, "mail/runtime/maintenance-worker.js") });
   const { LocalMailService } = await import(pathToFileURL(join(dist, "mail/service.js")).href);
   const { loadGoogleInstalledMailClient, parseGraphMailRegistration } = await import(pathToFileURL(join(dist, "mail/providers/development-config.js")).href);
   return new LocalMailService({
-    executable: { kind: "electron", path: app.getPath("exe") },
-    entryPoint: join(dist, "mail/runtime/worker.js"),
+    executable,
+    entryPoint: packaged?.entryPoint ?? join(dist, "mail/runtime/worker.js"),
     databasePath: join(directory, "mail.sqlite"),
     // This database belongs to this local OS desktop profile. It has no remotely
     // selectable owner; future multi-user server support requires its own binding.
@@ -33,6 +37,7 @@ export async function createDesktopMailService({ app, embeddedPath, safeStorage 
     },
     maintain: async (operation, passphrase, signal) => {
       if (!app.isReady() || signal.aborted) throw new Error("mail_maintenance_failed");
+      await packaged?.verify();
       if (operation === "rotate") { await maintenance.rotate(signal); return; }
       const { dialog } = await import("electron");
       const chosen = await dialog.showOpenDialog({ title: operation === "backup" ? "Choose a folder for a new encrypted mail backup" : "Choose an encrypted mail backup", properties: ["openDirectory"] });

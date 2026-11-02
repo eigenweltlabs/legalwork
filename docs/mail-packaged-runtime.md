@@ -1,0 +1,17 @@
+# Packaged Email runtime
+
+Production Email uses the app's checksum-pinned standalone Node runtime. Electron's `RunAsNode` fuse stays disabled. Development keeps its existing Electron worker path and saved profile.
+
+The server build bundles the mailbox worker, maintenance worker and attachment subprocess into `dist/mail-node-runtime/`. The extraction subprocess remains a sibling named `process.js`, with an ESM package marker, so its isolated worker thread and nested process launch resolve within the installation. MIME, schemas and other pure JavaScript dependencies are bundled. Native cipher, canvas, PDF assets, local OCR languages and Tesseract's worker/dependency closure remain physical packages outside ASAR.
+
+Only `server/dist/mail-node-runtime/**` is unpacked. Its versioned manifest stays inside integrity-protected `app.asar`. Before OS-vault access, unlock and maintenance verify the exact four allowed files against manifest byte counts and SHA-256 values. Missing files, changed bytes, unknown manifest fields, traversal and directory links outside the expected installation fail closed. There is no system Node or workspace-module fallback. The production executable probe still validates Node and Node-API compatibility, and the database opener still validates the pinned encrypted engine before changing its store. Native binaries retain the existing platform-signing and loader checks; their bytes are not hashed before signing into this worker manifest.
+
+## Acceptance
+
+`node --test apps/desktop/electron/mail-packaged-runtime.test.mjs` checks lazy installation paths and rejection boundaries. `mail-node-packaging.test.mjs` bundles actual workers, constructs an ASAR fixture with resolved dependency closures, checks unpack rules and the protected manifest, deletes the source, then runs standalone Node. It checks encrypted FTS, MIME import, body and attachment indexing through the nested subprocess, owner isolation, reopen, key rotation, old-key refusal, PDF text and offline OCR. All data is synthetic and temporary.
+
+`node scripts/mail/verify-built-application.mjs <application or executable>` runs the same headless checks against the workers, native dependencies and pinned Node in a complete installed-layout build. It does not launch Electron as Node.
+
+`node apps/desktop/scripts/packaged-startup-regression.mjs <executable> --mail` starts the real hardened main process in a hosted-test profile and verifies host-only HTTP authentication, locked refusal, real OS-wrapped key creation, worker unlock, lock and key reopen. macOS retains the OS home for its actual Keychain, with application/engine stores explicitly isolated. Windows uses actual DPAPI. Linux runs in a private D-Bus session with a private password-protected GNOME keyring; `basic_text` remains rejected. See [Electron's vault semantics](https://www.electronjs.org/docs/latest/api/safe-storage/) and [GNOME's daemon options](https://raw.githubusercontent.com/GNOME/gnome-keyring/master/docs/gnome-keyring-daemon.xml).
+
+The six native desktop package jobs run both probes with production fuses enabled. These are non-release synthetic checks. They do not qualify signed installation/update/uninstall, real retained-data upgrades, physical suspend/login behavior, provider conformance or the performance baseline. Current-source hosted results must be recorded before claiming this matrix passed.

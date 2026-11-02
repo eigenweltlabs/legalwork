@@ -16,12 +16,15 @@ jobs:
           - os: macos-15
             arch: arm64
             application: apps/desktop/dist-electron/mac-arm64/LegalWork.app
+            executable: apps/desktop/dist-electron/mac-arm64/LegalWork.app/Contents/MacOS/LegalWork
           - os: macos-15-intel
             arch: x64
             application: apps/desktop/dist-electron/mac/LegalWork.app
+            executable: apps/desktop/dist-electron/mac/LegalWork.app/Contents/MacOS/LegalWork
           - os: windows-2022
             arch: x64
             application: apps/desktop/dist-electron/win-unpacked
+            executable: apps/desktop/dist-electron/win-unpacked/LegalWork.exe
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -69,6 +72,9 @@ jobs:
       - name: Verify mail from the built application
         if: ${{ !cancelled() }}
         run: node scripts/mail/qualification-step.mjs packaged node scripts/mail/verify-built-application.mjs "${{ matrix.application }}"
+      - name: Verify packaged main-process Email unlock and host authentication
+        if: ${{ !cancelled() }}
+        run: node scripts/mail/qualification-step.mjs packaged-main node apps/desktop/scripts/packaged-startup-regression.mjs "${{ matrix.executable }}" --mail
       - name: Archive bounded source-stamped qualification evidence
         if: always()
         uses: actions/upload-artifact@v4

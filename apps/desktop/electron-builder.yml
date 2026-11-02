@@ -76,6 +76,7 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
 asarUnpack:
+  - server/dist/mail-node-runtime/**
   - node_modules/.pnpm/@napi-rs+canvas*/**
   - node_modules/@napi-rs/canvas*/**
   - node_modules/.pnpm/@lydell+node-pty*/**
@@ -103,6 +104,8 @@ asarUnpack:
   - node_modules/.pnpm/@napi-rs+canvas*/**
   - node_modules/tesseract.js*/**
   - node_modules/.pnpm/tesseract.js*/**
+  - node_modules/{bmp-js,idb-keyval,is-url,node-fetch,whatwg-url,tr46,webidl-conversions,opencollective-postinstall,regenerator-runtime,wasm-feature-detect,zlibjs}/**
+  - node_modules/.pnpm/{bmp-js@*,idb-keyval@*,is-url@*,node-fetch@*,whatwg-url@*,tr46@*,webidl-conversions@*,opencollective-postinstall@*,regenerator-runtime@*,wasm-feature-detect@*,zlibjs@*}/**
   - node_modules/@tesseract.js-data/**
   - node_modules/.pnpm/@tesseract.js-data*/**
   - node_modules/pdfjs-dist/**

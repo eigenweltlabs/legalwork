@@ -104,6 +104,11 @@ jobs:
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --${{ matrix.arch }} --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.securityTarget || matrix.executable }}"
+      - name: Verify packaged Email workers and offline attachment extraction
+        timeout-minutes: 3
+        env:
+          MAIL_EXPECT_ARCH: ${{ matrix.arch }}
+        run: node scripts/mail/verify-built-application.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
       - name: Run isolation probe with the packaged Node and VM
         run: |
           bun build scripts/sandbox/probe.ts --target=node --outfile=scripts/sandbox/probe.mjs
@@ -119,7 +124,7 @@ jobs:
       - name: Verify Windows packaged startup
         if: runner.os == 'Windows'
         timeout-minutes: 3
-        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}" --mail
       - name: Verify Windows installer packaging
         if: runner.os == 'Windows'
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --publish never
@@ -142,7 +147,10 @@ jobs:
       - name: Verify Linux packaged startup
         if: runner.os == 'Linux'
         timeout-minutes: 3
-        run: xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y gnome-keyring libsecret-1-0 libglib2.0-bin dbus-x11
+          dbus-run-session -- xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}" --mail
       - name: Verify macOS native modules
         if: runner.os == 'macOS'
         timeout-minutes: 2
@@ -154,7 +162,7 @@ jobs:
       - name: Verify macOS packaged startup
         if: runner.os == 'macOS'
         timeout-minutes: 3
-        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}" --mail
       # The bridge and packaged startup are independent gates; retain both
       # outcomes if either fixture fails after the real engine tests passed.
       - name: Verify the shipped engine uses protected execution

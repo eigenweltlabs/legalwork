@@ -1405,7 +1405,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const mailClientEnabled = process.env.LEGALWORK_EMAIL_CLIENT_ENABLED === undefined || process.env.LEGALWORK_EMAIL_CLIENT_ENABLED === '1';
     if (!options.remoteAccessEnabled && mailClientEnabled) {
       const { safeStorage, nativeImage, BrowserWindow, Notification, powerMonitor } = await import("electron");
-      mail = await createDesktopMailService({ app, embeddedPath, safeStorage });
+      mail = await createDesktopMailService({ app, embeddedPath, safeStorage, resourcesPath: process.resourcesPath });
       configureMailPortability(mail);
       await configureMailBadge({ app, nativeImage, BrowserWindow, service: mail });
       await configureMailDesktop({app,service:mail,Notification,powerMonitor});

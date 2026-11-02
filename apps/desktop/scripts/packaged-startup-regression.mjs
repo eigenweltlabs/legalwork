@@ -12,9 +12,11 @@ import { createWorkspaceStore } from "../electron/workspace-store.mjs";
 import { opencodeEngineSelection } from "@legalwork/opencode-release/selection";
 import { Service } from "@opencode/client/service";
 import { collectStartupFailure, snapshotStartupLogs } from "./packaged-startup-diagnostics.mjs";
+import { startMailTestSecretService, verifyPackagedMailHttp } from "./packaged-mail-acceptance.mjs";
 
 const target = process.argv[2];
-if (!target) throw new Error("Usage: node packaged-startup-regression.mjs <packaged executable>");
+const mailAcceptance = process.argv[3] === "--mail";
+if (!target || process.argv.length > 4 || (process.argv[3] && !mailAcceptance)) throw new Error("Usage: node packaged-startup-regression.mjs <packaged executable> [--mail]");
 const resources = path.resolve(path.dirname(target), process.platform === "darwin" ? "../Resources" : "resources");
 assertPackagedServerImports(path.join(resources, "app.asar"));
 assertPackagedOpencodeSdk(resources);
@@ -46,11 +48,13 @@ const startedAt = Date.now();
 const milestones = [{ event: "launch-requested", elapsedMs: 0 }];
 const args = process.platform === "win32" ? ["--enable-logging=file", `--log-file=${path.join(root, "chromium-startup.log")}`]
   : process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
-const child = spawn(path.resolve(target), args, {
-  env: {
+if (mailAcceptance && process.platform === "linux") args.push("--password-store=gnome-libsecret");
+const childEnv = {
     ...process.env,
     NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "",
-    HOME: path.join(root, "home"), USERPROFILE: path.join(root, "home"),
+    // macOS's actual vault requires the OS account home. All app and engine
+    // stores remain explicitly rooted in this test's temporary directories.
+    HOME: mailAcceptance && process.platform === "darwin" ? homedir() : path.join(root, "home"), USERPROFILE: path.join(root, "home"),
     APPDATA: path.join(root, "appdata"), LOCALAPPDATA: path.join(root, "localappdata"),
     XDG_CONFIG_HOME: path.join(root, "config"), XDG_DATA_HOME: path.join(root, "data"),
     XDG_STATE_HOME: path.join(root, "state"), XDG_CACHE_HOME: path.join(root, "cache"),
@@ -61,11 +65,17 @@ const child = spawn(path.resolve(target), args, {
     LEGALWORK_DATA_DIR: runtime,
     LEGALWORK_SERVER_CONFIG: path.join(runtime, "server.json"),
     LEGALWORK_RUNTIME_DB: path.join(runtime, "runtime.db"),
+    LEGALWORK_ENV_STORE: path.join(runtime, "env.json"),
+    LEGALWORK_TOKEN_STORE: path.join(runtime, "tokens.json"),
+    OPENCODE_CONFIG_DIR: path.join(root, "config", "opencode"),
     LEGALWORK_ENGINE_STORAGE_DIR: runtime,
     OPENCODE_DB: path.join(runtime, "opencode.db"),
     LEGALWORK_WORKSPACES: workspace,
     LEGALWORK_WORD_ADDIN: "0",
-  },
+  };
+const stopSecretService = mailAcceptance && process.platform === "linux" ? await startMailTestSecretService(root, childEnv) : undefined;
+const child = spawn(path.resolve(target), args, {
+  env: childEnv,
   stdio: ["ignore", "pipe", "pipe"],
 });
 child.on("error", (error) => { launchError = error; });
@@ -127,6 +137,14 @@ try {
     await setTimeout(500);
   }
   assert.ok(engineReady, `The real packaged engine did not become ready: ${lastEngineError?.message}`);
+  if (mailAcceptance) {
+    const key = path.resolve(workspace).replace(/\\/g, "/").toLowerCase();
+    const state = JSON.parse(await readFile(path.join(userData, "legalwork-server-state.json"), "utf8"));
+    const tokens = JSON.parse(await readFile(path.join(userData, "legalwork-server-tokens.json"), "utf8"));
+    await verifyPackagedMailHttp(`http://127.0.0.1:${state.workspacePorts[key]}`, tokens.workspaces[key]);
+    milestones.push({ event: "packaged-mail-unlock-reopen-lock-passed", elapsedMs: Date.now() - startedAt });
+    console.log("PASS: packaged Email host authentication, OS-wrapped key, bundled Node worker, lock and reopen");
+  }
   await setTimeout(3000);
   assert.equal(child.exitCode, null, "Packaged app must remain running");
   assert.equal(child.signalCode, null);
@@ -183,6 +201,7 @@ try {
       await Service.stop({ file, pty: "clear" });
       assert.equal(alive(pid), false, "Test's verified engine must stop before deleting its profile");
     }
+    await stopSecretService?.();
     if (passed) await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     else console.error(`Preserved failed startup profile: ${root}`);
   } catch (error) {
