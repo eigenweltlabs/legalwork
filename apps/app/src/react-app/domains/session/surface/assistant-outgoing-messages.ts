@@ -3,6 +3,8 @@ import type { UIMessage } from "ai";
 import { create } from "zustand";
 import type { ComposerDraft } from "@/app/types";
 import { integrationReferencesFromDraft } from "./composer/integration-message";
+import { decodeComposerMentionValue } from "./composer/mention-encoding";
+import { parseWorkspaceAttachmentMention, workspaceAttachmentDisplayText } from "./composer/workspace-attachment";
 
 type OutgoingMessage = { scope: string; queueId: string; message: UIMessage; urls: string[] };
 export const assistantOutgoingScope = (baseUrl: string, workspaceId: string, sessionId: string) => JSON.stringify([baseUrl, workspaceId, sessionId]);
@@ -21,16 +23,24 @@ export function addAssistantOutgoingMessage(scope: string, queueId: string, draf
 
 function outgoingMessage(queueId: string, draft: Pick<QueuedDraftSnapshot, "parts" | "text"> & { attachments: { name: string; mimeType: string }[] }, urls: string[]): UIMessage {
   const integrations = integrationReferencesFromDraft(draft.text);
-  const text = draft.parts.map(part => {
+  let text = draft.parts.map(part => {
     if (part.type === "text") return part.text;
     if (part.type === "paste") return `[pasted text ${part.label}]`;
     if (part.type === "file") return `@${part.label ?? part.path}`;
     if (part.type === "plugin") return `@${part.label}`;
     return `@${part.name}`;
   }).join("");
+  const preparingAttachments: string[] = [];
+  for (const match of draft.text.matchAll(/@([^\s@]+)/g)) {
+    const value = decodeComposerMentionValue(match[1]);
+    const attachment = parseWorkspaceAttachmentMention(value);
+    if (!attachment?.source) continue;
+    preparingAttachments.push(attachment.name);
+    text = text.replaceAll(workspaceAttachmentDisplayText(value), "");
+  }
   return {
     id: outgoingMessageId(queueId), role: "user",
-    metadata: { localOutgoing: true, opencode: { created: Date.now() } },
+    metadata: { localOutgoing: true, ...(preparingAttachments.length ? { preparingAttachments } : {}), opencode: { created: Date.now() } },
     parts: [
       ...draft.attachments.map((attachment, index) => ({ type: "file", filename: attachment.name, mediaType: attachment.mimeType, url: urls[index] } satisfies UIMessage["parts"][number])),
       ...(text ? [{ type: "text", text, ...(integrations.length ? { providerMetadata: { opencode: { integrations } } } : {}) } satisfies UIMessage["parts"][number]] : []),
@@ -81,6 +91,12 @@ export function mergeAssistantOutgoingMessages(messages: UIMessage[], entries: O
 
 export function isLocalOutgoingMessage(message: UIMessage) {
   return Boolean(message.metadata && typeof message.metadata === "object" && "localOutgoing" in message.metadata && message.metadata.localOutgoing === true);
+}
+
+export function preparingAttachmentNames(message: UIMessage): string[] {
+  if (!isLocalOutgoingMessage(message) || !message.metadata || typeof message.metadata !== "object" || !("preparingAttachments" in message.metadata)) return [];
+  const names = message.metadata.preparingAttachments;
+  return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : [];
 }
 
 /** Any idle chat can preview an ordinary prompt with a durable message ID. */

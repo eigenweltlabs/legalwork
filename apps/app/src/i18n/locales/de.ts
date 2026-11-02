@@ -2925,6 +2925,8 @@ const de = {
   "composer.resume_queue": "Fortsetzen",
   "composer.queue_edit_recovered": "Ihre Queue-Bearbeitung wurde als neuer Entwurf behalten. Der ursprüngliche Queue-Eintrag bleibt unverändert; prüfen Sie ihn vor dem erneuten Senden.",
   "composer.queue_failed": "Nachrichtenwarteschlange pausiert",
+  "composer.preparing_attachments": "Anhänge werden vorbereitet…",
+  "composer.send_failed_restored": "Nachricht nicht gesendet. Ihr Entwurf wurde wiederhergestellt.",
   "composer.queue": "Senden, wenn der Agent fertig ist",
   "composer.queue_hint": "Wird gesendet, sobald der Agent die aktuelle Aufgabe beendet hat",
   "composer.send_options": "Weitere Sendeoptionen",
