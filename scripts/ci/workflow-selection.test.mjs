@@ -42,11 +42,13 @@ test('unit jobs start independently while integration jobs require the verified 
 });
 
 test('every job compiling the server retains the reviewed Node heap budget', () => {
-  const builds = Object.entries(main.jobs).filter(([, job]) =>
-    job.steps?.some(step => step.run?.includes('pnpm --filter legalwork-server build')));
-  assert.ok(builds.length > 0);
-  for (const [name, job] of builds)
-    assert.equal(job.env?.NODE_OPTIONS, '--max-old-space-size=6144', name);
+  for (const source of ['ci-tests', 'ci-opencode-source-hosts']) {
+    const builds = Object.entries(workflow(source).jobs).filter(([, job]) =>
+      job.steps?.some(step => step.run?.includes('pnpm --filter legalwork-server build')));
+    assert.ok(builds.length > 0, source);
+    for (const [name, job] of builds)
+      assert.equal(job.env?.NODE_OPTIONS, '--max-old-space-size=6144', `${source}: ${name}`);
+  }
 });
 
 test('documentation and focused manual acceptance do not accidentally launch full unit suites', () => {
