@@ -56,17 +56,18 @@ test('project classification UI saves explicit automatic policy, reviews arrival
       const choose=async(label,text)=>{
         await until("(()=>{const trigger=document.querySelector('[aria-label=\\\""+label+"\\\"]');return trigger&&!trigger.disabled&&trigger.getAttribute('aria-disabled')!=='true';})()");
         await run("(()=>{const trigger=document.querySelector('[aria-label=\\\""+label+"\\\"]');trigger.focus();trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',code:'ArrowDown',bubbles:true,cancelable:true}));})()");
-        await until("[...document.querySelectorAll('[role=option]')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");
-        await until("!!document.querySelector('[role=option][data-highlighted]')");
-        const count=await run("document.querySelectorAll('[role=option]').length");
+        const popup="[data-slot=select-content][data-open]",option=popup+" [role=option]",highlighted=option+"[data-highlighted]";
+        await until("[...document.querySelectorAll('"+option+"')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");
+        await until("document.querySelector('"+popup+"')?.contains(document.activeElement)&&!!document.querySelector('"+highlighted+"')");
+        const count=await run("document.querySelectorAll('"+option+"').length");
         for(let index=0;index<count;index++){
-          const current=await run("document.querySelector('[role=option][data-highlighted]').textContent.trim()");
+          const current=await run("document.querySelector('"+highlighted+"').textContent.trim()");
           if(current===text)break;
           await run("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',code:'ArrowDown',bubbles:true,cancelable:true}))");
-          await until("document.querySelector('[role=option][data-highlighted]')?.textContent.trim()!=="+JSON.stringify(current));
+          await until("document.querySelector('"+highlighted+"')?.textContent.trim()!=="+JSON.stringify(current));
         }
-        await until("[...document.querySelectorAll('[role=option][data-highlighted]')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");
-        await run("document.querySelector('[role=option][data-highlighted]').click()");
+        await until("[...document.querySelectorAll('"+highlighted+"')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");
+        await run("document.querySelector('"+highlighted+"').click()");
       };
       await until("document.querySelector('[aria-label=Mode]')?.textContent.includes('Off')");await choose('Mode','Automatic');await until("document.body.textContent.includes('Active for new Inbox mail')");await choose('Assign automatically when','Any matching rule');await until("document.querySelector('[aria-label=\\\"Assign automatically when\\\"]').textContent.includes('Any matching rule')");
       ${evidenceRoot?`await until("!document.querySelector('[data-slot=select-content][data-open]')");await settledFrame();require('node:fs').writeFileSync(${JSON.stringify(join(evidenceRoot,'automatic-project-settings.png'))},(await win.webContents.capturePage()).toPNG());`:''}
