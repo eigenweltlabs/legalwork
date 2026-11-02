@@ -23,7 +23,7 @@ test("desktop binding unlocks the built encrypted worker and reopens the same OS
     encryptString(text) { const bytes = randomBytes(64); wrapped.set(bytes.toString("base64"), text); return bytes; },
     decryptString(bytes) { const text = wrapped.get(bytes.toString("base64")); if (typeof text !== "string") throw new Error("fake_vault_locked"); return text; },
   };
-  const app = { isReady: () => true, getPath: name => name === "exe" ? (process.env.LEGALWORK_MAIL_TEST_ELECTRON ?? process.execPath) : userData };
+  const app = { isPackaged: false, isReady: () => true, getPath: name => name === "exe" ? (process.env.LEGALWORK_MAIL_TEST_ELECTRON ?? process.execPath) : userData };
   let service;
   const originalGoogleConfig = process.env.LEGALWORK_MAIL_GOOGLE_CLIENT_CONFIG;
   try {

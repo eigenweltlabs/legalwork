@@ -8,6 +8,7 @@ import { join } from "node:path";
 /** Synthetic headless acceptance, using only installation workers and native packages. */
 export async function verifyMailNodeRuntime({ executable, directory, nativeDirectory, expectedArch }) {
   const root = await mkdtemp(join(tmpdir(), "mail-node-acceptance-"));
+  /** @type {NodeJS.ProcessEnv} */
   const env = {};
   for (const name of ["SystemRoot", "WINDIR"]) if (process.env[name]) env[name] = process.env[name];
   function run(entry, input) {
