@@ -50,6 +50,7 @@ test('project classification UI saves explicit automatic policy, reviews arrival
       const run=code=>win.webContents.executeJavaScript(code),until=async code=>{for(let i=0;i<300;i++){if(await run(code))return;await new Promise(done=>setTimeout(done,30));}throw Error('Renderer deadline: '+code+' '+await run('document.body.textContent'));};
       const click=async text=>{await until("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==="+JSON.stringify(text)+")");await run("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==="+JSON.stringify(text)+").click()");};
       const choose=async(label,text)=>{
+        await until("(()=>{const trigger=document.querySelector('[aria-label=\\\""+label+"\\\"]');return trigger&&!trigger.disabled&&trigger.getAttribute('aria-disabled')!=='true';})()");
         await run("(()=>{const trigger=document.querySelector('[aria-label=\\\""+label+"\\\"]');trigger.focus();trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',code:'ArrowDown',bubbles:true,cancelable:true}));})()");
         await until("[...document.querySelectorAll('[role=option]')].some(o=>o.textContent.trim()==="+JSON.stringify(text)+")");
         await run("[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.trim()==="+JSON.stringify(text)+").focus()");
