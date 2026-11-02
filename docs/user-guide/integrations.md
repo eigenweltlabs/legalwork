@@ -28,7 +28,7 @@ For Dropbox, give the file connection a name, choose its folder and access, then
 
 ## Research databases
 
-The **Save logins for the in-app browser** welcome screen lets you save your own accounts for common legal research websites, including beck-online, juris, Lexis and Westlaw. Use these logins to stay signed in in the in-app browser. Only use agents where your account terms permit automation. Website listings do not imply provider approval. The Saved browser login entries are shortcuts for your saved browser logins. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
+The **Save logins for the in-app browser** welcome screen lets you save your own accounts for common legal research websites, including beck-online, juris, Lexis and Westlaw. Use these logins to stay signed in in the in-app browser. Only use agents where your account terms permit automation. The Saved browser login entries are shortcuts for your saved browser logins. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
 
 1. Open **Settings > Integrations > Legal databases**. Search for your provider, including **beck-online**, **juris**, **Libra**, **Lexis** or **Westlaw**.
 2. Select the website and choose **Save login**. Give the login a name, enter your username and password, then choose **Save login**. If the provider has no preset sign-in address, enter its current sign-in website.
