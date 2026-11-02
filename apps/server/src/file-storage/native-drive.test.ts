@@ -48,11 +48,29 @@ describe("native drive identities and source capabilities", () => {
     await expect(run.adapter.rename!(nativeSegment(folder), "Renamed", "folder")).rejects.toMatchObject({ code: "storage_conditional_write_unsupported" });
     expect(run.mutations).toEqual([]);
   });
-  test("read-only sources cannot use a rename token resolver to bypass their restriction", async () => {
+  test("read-only sources cannot use a conditional token resolver to bypass their restriction", async () => {
     const run = fixture(); const folder = run.add("folder", "Folder", "root", true);
     run.items.set(folder.id, { ...folder, readOnly: true });
-    let tokens = 0; run.driver.renameVersion = async () => { tokens++; return '"version"'; };
+    let tokens = 0; run.driver.conditionalVersion = async () => { tokens++; return '"version"'; };
     await expect(run.adapter.rename!(nativeSegment(folder), "Renamed", "folder")).rejects.toMatchObject({ code: "storage_read_only" });
+    expect(tokens).toBe(0); expect(run.mutations).toEqual([]);
+  });
+  test("deletion rejects read-only sources and providers without safe versions before any mutation", async () => {
+    for (const folder of [false, true]) for (const readOnly of [false, true]) {
+      const run = fixture(); const item = run.add("source", "Source", "root", folder);
+      run.items.set(item.id, { ...item, version: "sha256:7", readOnly });
+      let tokens = 0;
+      if (readOnly) run.driver.conditionalVersion = async () => { tokens++; return '"safe-version"'; };
+      const deletion = folder ? run.adapter.deleteFolder!(nativeSegment(item), true) : run.adapter.deleteFile!(nativeSegment(item));
+      await expect(deletion).rejects.toMatchObject({ code: readOnly ? "storage_read_only" : "storage_conditional_write_unsupported" });
+      expect(tokens).toBe(0); expect(run.mutations).toEqual([]);
+    }
+  });
+  test("nonrecursive cleanup refuses nonempty folders before token lookup or deletion", async () => {
+    const run = fixture(); const folder = run.add("folder", "Folder", "root", true);
+    run.add("child", "Child.txt", folder.id);
+    let tokens = 0; run.driver.conditionalVersion = async () => { tokens++; return '"safe-version"'; };
+    await expect(run.adapter.deleteFolder!(nativeSegment(folder), false)).rejects.toMatchObject({ code: "storage_conflict" });
     expect(tokens).toBe(0); expect(run.mutations).toEqual([]);
   });
   test("same-name files remain distinct and plain names reject ambiguity across pages", async () => {

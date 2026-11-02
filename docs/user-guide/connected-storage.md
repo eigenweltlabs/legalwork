@@ -28,6 +28,8 @@ In a writable folder, upload or drop files and create folders using the availabl
 
 Google Drive files and folders can be renamed in My Drive and shared drives when your account has permission. A rename keeps the same file or folder and its contents; it does not create a copy. LegalWork checks for intervening changes and refuses an existing destination. If a conflict is reported, refresh the parent folder and review its current contents before trying again.
 
+To delete an item, open its menu in Memory Drive, choose **Delete file** or **Delete folder**, and confirm. Deleting a Google Drive item moves it to Google Drive's trash; a folder deletion includes its contents. Local working copies are kept. If the item changes while deletion is being checked, LegalWork stops and reports a conflict. Refresh and review the item before trying again.
+
 Cloud file locations in search results, tooltips, and rename or delete dialogs show readable folder names. Before confirming a deletion, check both the connection name and the folder path. LegalWork keeps the provider's file identity internally so duplicate names still refer to the exact item you selected.
 
 ## Move and copy files

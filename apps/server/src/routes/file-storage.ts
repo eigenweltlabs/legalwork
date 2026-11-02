@@ -736,7 +736,7 @@ export function registerStorageRoutes({
         if (!adapter.deleteFolder) throw new ApiError(400, "storage_delete_unsupported", "This connection does not support deleting folders.");
         if (!await findEntry(adapter, path, "folder"))
           throw new ApiError(404, "storage_not_found", "Folder not found. Refresh before deleting.");
-        try { await adapter.deleteFolder(path); }
+        try { await adapter.deleteFolder(path, true); }
         catch (error) {
           const failure = providerError(error);
           throw new ApiError(failure.status, "storage_folder_delete_incomplete", `The folder could not be fully deleted. Some items may already have been removed. Refresh to see what remains. ${failure.message}`);

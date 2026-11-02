@@ -114,6 +114,40 @@ test("the sidebar streaming transfer endpoint completes a native Google copy wit
   expect(copies).toBe(1); expect(contentRequests).toBe(0);
 });
 
+test("sidebar delete endpoints trash Google files and nonempty folders with real conditional tokens, surfacing conflicts without retry", async () => {
+  await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
+  await serve();
+  const rootPath = nativeSegment({ id: googleRoot.id, name: "My Drive" });
+  const id = encodeURIComponent(`connector:google-drive:${account.id}`);
+  const previous = globalThis.fetch;
+  for (const kind of ["file", "folder"]) for (const changed of [false, true]) {
+    const source = { ...googleRoot, id: "source", name: "Invoice", version: "7", parents: [googleRoot.id], mimeType: kind === "folder" ? googleRoot.mimeType : "application/pdf" };
+    let writes = 0;
+    globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.hostname !== "www.googleapis.com") return previous(input, init);
+      if (init?.method && init.method !== "GET") {
+        writes++;
+        expect(init.method).toBe("PATCH"); expect(url.pathname).toBe("/drive/v2/files/source");
+        expect(url.searchParams.get("supportsAllDrives")).toBe("true");
+        expect(new Headers(init.headers).get("If-Match")).toBe('"provider-version-7"');
+        expect(JSON.parse(String(init.body))).toEqual({ labels: { trashed: true } });
+        return changed ? new Response(null, { status: 412 }) : Response.json({ id: source.id });
+      }
+      if (url.pathname.startsWith("/drive/v2/")) return Response.json({ id: source.id, version: "7", etag: '"provider-version-7"' });
+      if (url.pathname.endsWith("/files")) return Response.json({ files: [{ ...source, id: "child", parents: [source.id] }] });
+      return Response.json(url.pathname.endsWith("/source") ? source : googleRoot);
+    }, { preconnect: nativeFetch.preconnect });
+    const query = new URLSearchParams({ path: `${rootPath}/${nativeSegment(source)}`, ...(kind === "folder" ? { recursive: "true" } : {}) });
+    const response = await nativeFetch(`${base}/workspace/project/storage/${id}/${kind === "file" ? "file" : "folders"}?${query}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken },
+    });
+    expect(response.status).toBe(changed ? 409 : 200);
+    expect(writes).toBe(1);
+    if (!changed) expect(await response.json()).toEqual({ ok: true });
+  }
+});
+
 test("the managed agent storage routes search and read a shared-drive-only file using the existing account", async () => {
   const priorFetch = globalThis.fetch;
   const company = { ...googleRoot, id: "company-root", name: "Example company", driveId: "company-root" };

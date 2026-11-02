@@ -19,7 +19,7 @@ export type DriveDriver = {
   mkdir: (parent: DriveItem, name: string) => Promise<void>;
   copyFile?: (item: DriveItem, parent: DriveItem, name: string) => Promise<void>;
   /** Obtain a provider conditional token for the resolved revision, never a synthetic ETag. */
-  renameVersion?: (item: DriveItem) => Promise<string>;
+  conditionalVersion?: (item: DriveItem) => Promise<string>;
   rename: (item: DriveItem, parent: DriveItem, name: string) => Promise<void>;
   remove: (item: DriveItem, version?: string) => Promise<void>;
   search?: (parent: DriveItem, input: StorageSearch) => Promise<{ items: DriveItem[]; nextCursor?: string; truncated?: boolean }>;
@@ -53,6 +53,12 @@ function requireVersion(item: DriveItem) {
   if (!/^(?:W\/)?"[^"\r\n]+"$/.test(item.version) || item.version.startsWith("W/")) throw new ApiError(409, "storage_conditional_write_unsupported", "The provider did not supply a safe file version. Refresh before changing this file.");
 }
 export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
+  const conditionalItem = async (item: DriveItem) => {
+    if (item.readOnly) requireVersion(item);
+    const guarded = driver.conditionalVersion ? { ...item, version: await driver.conditionalVersion(item) } : item;
+    requireVersion(guarded);
+    return guarded;
+  };
   const childrenByName = async (parent: DriveItem, name: string) => {
     let cursor: string | undefined;
     let found: DriveItem | undefined;
@@ -190,17 +196,18 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       if ((item.folder ? "folder" : "file") !== kind) throw missing();
       if (await childrenByName(parent, name)) conflict();
       if (parent.id === item.id || (item.folder && (await relativePath(parent)).startsWith(`${await relativePath(item)}/`))) conflict();
-      const guarded = driver.renameVersion && !item.readOnly ? { ...item, version: await driver.renameVersion(item) } : item;
-      requireVersion(guarded); await driver.rename(guarded, parent, name);
+      await driver.rename(await conditionalItem(item), parent, name);
     },
     async deleteFile(path, condition = {}) {
-      const item = await resolve(path); requireFile(item); checkCondition(info(item), condition); requireVersion(item);
-      await driver.remove(item, condition.version ?? item.version);
+      const item = await resolve(path); requireFile(item); checkCondition(info(item), condition);
+      const guarded = await conditionalItem(item);
+      await driver.remove(guarded, guarded.version);
     },
     async deleteFolder(path, recursive = false) {
       storagePath(path, false); const item = await resolve(path); if (!item.folder) throw missing();
       if (!recursive) { const page = await driver.children(item.id); if (page.items.length || page.nextCursor) conflict(); }
-      requireVersion(item); await driver.remove(item, item.version);
+      const guarded = await conditionalItem(item);
+      await driver.remove(guarded, guarded.version);
     },
   };
 }
