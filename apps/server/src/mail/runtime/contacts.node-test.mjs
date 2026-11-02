@@ -82,6 +82,35 @@ async function settle(runner) {
   }
   throw Error("contact sync timeout");
 }
+test("recipient lookup uses current downloaded correspondents without personal-contact grants or network", () => fixture(async f => {
+  let requests = 0;
+  const runner = f.make(async () => { requests++; throw Error("No provider request permitted"); }, []);
+  const seed = (repo, accountId, messageId, sender, recipient) => {
+    const locator = { provider: "gmail", messageId }, key = repo.ingestMessage(accountId, { locator, rfcMessageId: null, subject: "Synthetic", memberships: [] });
+    const reference = { id: "raw-" + messageId, bytes: 1, sha256: "1".repeat(64) };
+    repo.putContent(accountId, locator, { kind: "raw", state: "stored", reference });
+    f.db.run("INSERT INTO mail_mime_projections(account_id,message_key,raw_ref_id,state,metadata_json,body_ref_id,error) VALUES(?,?,?,'complete',?,?,NULL)",
+      [accountId, key, reference.id, JSON.stringify({ metadata: { from: sender, to: recipient, cc: "ALICE@example.test" } }), reference.id]);
+    f.db.run("INSERT INTO mail_search_documents(account_id,message_key,subject,body,names,addresses,senders_json,recipients_json,filenames_json,normalized_text,has_attachment,date,incomplete) VALUES(?,?,'','','','','[]','[]','[]','',0,'2026-11-02',0)", [accountId, key]);
+    return { key, locator };
+  };
+  const first = seed(f.repo, "a", "one", '"Doe, Jane" <legal@example.test>', "Alice <alice@example.test>");
+  const other = new MailRepository(f.db, "foreign-owner"); other.createAccount({ id: "foreign", provider: "gmail", displayName: "Foreign" });
+  seed(other, "foreign", "foreign-message", "Private <foreign@example.test>", "");
+  assert.equal(runner.execute("a", { action: "status" }).state, "disabled");
+  assert.deepEqual(runner.execute("a", { action: "search", query: "Jane" }).items, [{ address: "legal@example.test", name: "Doe, Jane", source: "recent" }]);
+  assert.equal(runner.execute("a", { action: "search", query: "alice" }).items.length, 1);
+  assert.deepEqual(runner.execute("a", { action: "search", query: "foreign" }).items, []);
+  assert.throws(() => runner.execute("foreign", { action: "search", query: "" }), { code: "not_found" });
+  f.repo.putContent("a", first.locator, { kind: "raw", state: "pending" });
+  assert.deepEqual(runner.execute("a", { action: "search", query: "Jane" }).items, []);
+  assert.equal(requests, 0);
+}));
+test("IMAP recipient lookup does not require an OAuth contact book", () => fixture(async f => {
+  f.repo.createAccount({ id: "imap", provider: "imap", displayName: "IMAP" });
+  const runner = f.make(async () => { throw Error("No network"); }, []);
+  assert.equal(runner.execute("imap", { action: "search", query: "" }).state, "unsupported");
+}));
 test("encrypted offline snapshot applies incremental updates/tombstones atomically and isolates owners", () =>
   fixture(async (f) => {
     let snapshot = {

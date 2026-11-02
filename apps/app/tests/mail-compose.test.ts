@@ -1,4 +1,5 @@
 import {buildBrowserFixture,electronDisplayEnvironment} from './fixtures/build-browser';
+import {buildMailFixtureStyle} from './fixtures/build-mail-style';
 import { test, expect } from 'bun:test';
 import { mkdtemp,writeFile,rm,copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,6 +21,7 @@ test('isolated compose UI saves/reopens incomplete work, formats safely, attache
  const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:async request=>{
   const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'X-LegalWork-Host-Token,Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'};if(request.method==='OPTIONS')return new Response(null,{headers});expect(request.headers.get('X-LegalWork-Host-Token')).toBe('synthetic');const path=new URL(request.url).pathname,input=request.method==='GET'?{}:await request.json();let value:unknown;
   if(path.endsWith('/senders'))value=[{id:'self',accountId:'a',address:'me@example.test',displayName:'',source:'provider_verified',available:true,signature:'',defaultNew:true,defaultReply:true,sendMode:'self'}];
+  else if(path.endsWith('/contacts'))value={accountId:'a',enabled:false,state:'disabled',count:0,lastSyncAt:null,error:null,items:[{name:'Alice Example',address:'alice@example.test',source:'recent'},{name:'Bob Example',address:'bob@example.test',source:'personal'}].filter(item=>(item.name+' '+item.address).toLowerCase().includes(String(input.query??'').toLowerCase()))};
   else if(path.endsWith('/sync/read'))value={accountId:'a',draftId:input.draftId,state:'local',enabled:false,dirty:false,revision:0,remote:null,remoteHash:null,error:null,operation:'upsert',updatedAt:0};
   else if(path.endsWith('/save')){const parsed=mailDraftSaveSchema.parse(input),old=saved.get(parsed.draftId);if(JSON.stringify(parsed.expected)!==JSON.stringify(old?.version??null))return Response.json({error:'conflict'},{status:409,headers});const content=mailDraftSaveSchema.parse(input).content;const item:MailDraftView={id:parsed.draftId,version:{generation:old?.version.generation??randomUUID(),revision:(old?.version.revision??0)+1},updatedAt:Date.now(),deleted:false,subject:content.subject,content};saved.set(item.id,item);saveCount++;value=item;}
   else if(path.endsWith('/query'))value={accountId:'a',items:[...saved.values()].map(({content,...summary})=>summary),nextCursor:null};
@@ -38,7 +40,8 @@ test('isolated compose UI saves/reopens incomplete work, formats safely, attache
    createRoot(document.getElementById('root')).render(React.createElement(Fixture));
   `);
   await buildBrowserFixture({entrypoints:[entry],outdir:root,minify:true});
-  const css=await Bun.file(join(app,'src/react-app/domains/mail/mail-reader.css')).text();await writeFile(join(root,'index.html'),`<meta charset="utf-8"><style>:root{--border:#ddd;--foreground:#222;--muted:#eee}body{font-family:system-ui;margin:0;height:700px}#root{height:100%}${css}</style><div id="root"></div><script src="entry.js"></script>`);
+  await buildMailFixtureStyle(root,app);
+  const css=await Bun.file(join(app,'src/react-app/domains/mail/mail-reader.css')).text();await writeFile(join(root,'index.html'),`<meta charset="utf-8"><link rel="stylesheet" href="styles/index.css"><style>body{margin:0;height:700px}#root{height:100%}${css}</style><div id="root"></div><script src="entry.js"></script>`);
   const probe=join(root,'probe.cjs');await writeFile(probe,`
    const{app,BrowserWindow}=require('electron'),assert=require('node:assert/strict');app.setPath('userData',${JSON.stringify(join(root,'profile'))});app.whenReady().then(async()=>{
     const win=new BrowserWindow({show:false,width:900,height:760,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});await win.loadFile(${JSON.stringify(join(root,'index.html'))});const run=code=>win.webContents.executeJavaScript(code).catch(error=>{console.error('FAILED CODE',code);throw error;});win.webContents.on('console-message',(_,level,message)=>console.error('renderer',message));const until=async code=>{for(let i=0;i<300;i++){if(await run(code))return;await new Promise(r=>setTimeout(r,20));}throw Error('UI timeout '+code+' '+await run('document.body.textContent'));};
@@ -47,6 +50,15 @@ test('isolated compose UI saves/reopens incomplete work, formats safely, attache
     await run("[...document.querySelectorAll('button')].find(button=>button.getAttribute('aria-label')==='Toggle rich text').click()");await until("[...document.querySelectorAll('textarea')].some(element=>element.getAttribute('aria-label')==='Message body')");
     const set=async(label,value)=>run("(()=>{const el=document.querySelector('[aria-label='+JSON.stringify("+JSON.stringify(label)+")+']');Object.getOwnPropertyDescriptor(el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(el,"+JSON.stringify(value)+");el.dispatchEvent(new Event('input',{bubbles:true}));})()");
     const key=async(label,name)=>run("(()=>{const el=document.querySelector('[aria-label='+JSON.stringify("+JSON.stringify(label)+")+']');el.focus();el.dispatchEvent(new KeyboardEvent('keydown',{key:"+JSON.stringify(name)+",bubbles:true,cancelable:true}));})()");
+    await key('To','Escape');await set('To','ali');await until("!![...document.querySelectorAll('[role=option]')].find(el=>el.textContent.includes('alice@example.test'))");
+    assert.equal(await run("document.querySelectorAll('datalist').length"),0);assert.equal(await run("document.querySelector('[aria-label=To]').getAttribute('aria-invalid')==='true'"),false);
+    assert.equal(await run("document.querySelector('[data-slot=autocomplete-positioner]').getBoundingClientRect().width<500"),true);
+    assert.equal(await run("document.body.textContent.includes('Recent draft recipient')"),false);
+    if(${JSON.stringify(process.env.MAIL_COMPOSE_EVIDENCE??'')}){require('node:fs').mkdirSync(${JSON.stringify(process.env.MAIL_COMPOSE_EVIDENCE??'')},{recursive:true});await win.capturePage().then(image=>require('node:fs').writeFileSync(require('node:path').join(${JSON.stringify(process.env.MAIL_COMPOSE_EVIDENCE??'')},'recipient-autocomplete.png'),image.toPNG()));}
+    await key('To','ArrowDown');await key('To','Enter');await until("!!document.querySelector('[data-recipient-address=\\\"alice@example.test\\\"]')&&document.querySelector('[aria-label=To]').value===''");
+    await run("document.querySelector('[data-recipient-address] button:last-child').click()");await set('To','bob');await until("!![...document.querySelectorAll('[role=option]')].find(el=>el.textContent.includes('bob@example.test'))");
+    await run("[...document.querySelectorAll('[role=option]')].find(el=>el.textContent.includes('bob@example.test')).click()");await until("!!document.querySelector('[data-recipient-address=\\\"bob@example.test\\\"]')&&document.querySelector('[aria-label=To]').value===''");
+    await run("document.querySelector('[data-recipient-address] button:last-child').click()");await set('To','adasd');assert.equal(await run("document.querySelector('[aria-label=To]').getAttribute('aria-invalid')==='true'"),false);await set('To','');
     await set('To','one@example.test;');await until("!!document.querySelector('[data-recipient-address=\\\"one@example.test\\\"]')&&document.querySelector('[aria-label=To]').value===''");
     await key('To','Backspace');await until("document.activeElement.getAttribute('aria-label')==='Edit recipient one@example.test'");
     await run("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}))");await until("document.activeElement.getAttribute('aria-label')==='To'&&document.activeElement.value==='one@example.test'");

@@ -3,7 +3,7 @@ import {Button} from '@/components/ui/button';
 import {X} from 'lucide-react';
 import {t} from '@/i18n';
 import {mailRecipientParts,mailRecipientAddress,mailRecipientAddresses,mailRecipientsInvalid} from '../../../../../server/src/mail/recipients';
-import {Input} from '@/components/ui/input';
+import {Autocomplete, AutocompleteInput, AutocompleteItem, AutocompleteList, AutocompletePopup} from '@/components/ui/autocomplete';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import {
   contactsResultSchema,
@@ -29,17 +29,18 @@ export function recipientOptions(
   return [
     ...contacts.map((contact) => ({
       address: contact.address,
-      label: `${contact.name || contact.address} · Personal contacts`,
+      name: contact.name,
     })),
     ...history
       .filter((address) => address.toLowerCase().includes(query.toLowerCase()))
-      .map((address) => ({ address, label: "Recent draft recipient" })),
+      .map((address) => ({ address, name: "" })),
   ]
     .flatMap((item) => {
-      const key = item.address.toLowerCase();
+      const key = item.address.toLowerCase(), needle = query.toLowerCase();
+      if (!key.includes(needle) && !item.name.toLowerCase().includes(needle)) return [];
       if (seen.has(key)) return [];
       seen.add(key);
-      return [{ value: prefix + item.address, label: item.label }];
+      return [{ value: prefix + item.address, address: item.address, name: item.name }];
     })
     .slice(0, 30);
 }
@@ -47,7 +48,7 @@ export function MailRecipientInput({client,account,label,value,onChange,history,
   client:MailClient;account:string;label:string;value:string;onChange:(value:string)=>void;history:string[];id?:string;
 }) {
   const list=useId(),input=useRef<HTMLInputElement>(null),buttons=useRef(new Map<number,HTMLButtonElement>());
-  const [contacts,setContacts]=useState<ContactSuggestion[]>([]),[focused,setFocused]=useState(false);
+  const [contacts,setContacts]=useState<ContactSuggestion[]>([]),[focused,setFocused]=useState(false),[open,setOpen]=useState(false);
   const [editing,setEditing]=useState<number|null>(()=>{const index=mailRecipientParts(value).findIndex(part=>part.trim()!==''&&mailRecipientAddress(part)===null);return index<0?null:index;});
   const [selected,setSelected]=useState<number|null>(null),nextFocus=useRef<number|'input'|null>(null),selectInput=useRef(false);
   const parts=mailRecipientParts(value),buffer=editing===null?'':parts[editing]?.trimStart()??'';
@@ -93,12 +94,15 @@ export function MailRecipientInput({client,account,label,value,onChange,history,
       if(target===undefined)input.current?.focus();else focusChip(target);
     }
   }
-  const entry=<Input key="entry" ref={input} id={id??list+'-input'} className="min-w-[12ch] flex-1 basis-24 rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0" aria-label={label} aria-invalid={mailRecipientsInvalid(value)||undefined} list={list} autoComplete="off" spellCheck={false} maxLength={4096} value={buffer}
+  const entry=<AutocompleteInput key="entry" ref={input} id={id??list+'-input'} className="rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0" aria-label={label} aria-invalid={!focused&&mailRecipientsInvalid(buffer)||undefined} autoComplete="off" spellCheck={false} maxLength={4096}
     onFocus={()=>{setFocused(true);setSelected(null);}} onBlur={()=>{setFocused(false);if(!buffer.trim()||mailRecipientAddress(buffer)!==null)setEditing(null);}}
     onPaste={event=>{const text=event.clipboardData.getData('text/plain');if(/[\r\n]/.test(text)){event.preventDefault();const start=event.currentTarget.selectionStart??buffer.length,end=event.currentTarget.selectionEnd??start;change(buffer.slice(0,start)+text+buffer.slice(end));}}}
-    onChange={event=>change(event.target.value)} onKeyDown={event=>{
+    onKeyDown={event=>{
       if(event.nativeEvent.isComposing||event.metaKey||event.ctrlKey||event.altKey)return;
-      if(event.key==='Enter'){event.preventDefault();event.stopPropagation();if(!buffer.trim()||mailRecipientAddress(buffer)!==null)setEditing(null);}
+      if(event.key==='Enter'){
+        if(event.currentTarget.getAttribute('aria-activedescendant'))return;
+        event.preventDefault();event.stopPropagation();if(!buffer.trim()||mailRecipientAddress(buffer)!==null)setEditing(null);
+      }
       else if((event.key==='Backspace'&&!buffer||event.key==='ArrowLeft'&&event.currentTarget.selectionStart===0&&event.currentTarget.selectionEnd===0)){
         const previous=parts.flatMap((part,index)=>part.trim()&&index<(editing??parts.length)?[index]:[]).at(-1);
         if(previous!==undefined){event.preventDefault();event.stopPropagation();focusChip(previous);}
@@ -116,7 +120,16 @@ export function MailRecipientInput({client,account,label,value,onChange,history,
   }
   if(editing===null||editing>=parts.length)children.push(entry);
   const existing=new Set(parts.flatMap((part,index)=>index===editing?[]:mailRecipientAddresses(part)).map(address=>address.toLowerCase()));
-  return <div className="flex min-w-0 flex-wrap items-center gap-1 py-1" onMouseDown={event=>{if(event.target===event.currentTarget)input.current?.focus();}}>
-    {children}<datalist id={list}>{recipientOptions(buffer,contacts,history).filter(option=>!existing.has((mailRecipientAddresses(option.value).at(-1)??'').toLowerCase())).map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</datalist>
-  </div>;
+  const options=recipientOptions(buffer,contacts,history).filter(option=>!existing.has(option.address.toLowerCase()));
+  return <Autocomplete items={options} filter={null} value={buffer} open={open&&focused&&options.length>0} onOpenChange={setOpen} openOnInputClick autoHighlight
+    itemToStringValue={option=>option.value} onValueChange={(text,details)=>{
+      change(text);
+      if(details.reason==='item-press'){setEditing(null);setOpen(false);nextFocus.current='input';}
+      else setOpen(true);
+    }}>
+    <div className="mail-recipient-input flex min-w-0 flex-wrap items-center gap-1 py-1" onMouseDown={event=>{if(event.target===event.currentTarget)input.current?.focus();}}>{children}</div>
+    <AutocompletePopup className="w-80 min-w-64"><AutocompleteList>{options.map(option=><AutocompleteItem key={option.address.toLowerCase()} value={option} className="flex-col items-start gap-0.5 px-2.5 py-2">
+      {option.name&&<span className="w-full truncate text-sm">{option.name}</span>}<span className={option.name?'w-full truncate text-xs text-muted-foreground':'w-full truncate text-sm'}>{option.address}</span>
+    </AutocompleteItem>)}</AutocompleteList></AutocompletePopup>
+  </Autocomplete>;
 }

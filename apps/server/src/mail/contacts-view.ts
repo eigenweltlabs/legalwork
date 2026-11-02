@@ -18,7 +18,7 @@ export const contactSuggestionSchema = z
   .object({
     address: mailAddressSchema,
     name: z.string().max(256),
-    source: z.literal("personal"),
+    source: z.enum(["personal", "recent"]),
   })
   .strict();
 export const contactsResultSchema = z

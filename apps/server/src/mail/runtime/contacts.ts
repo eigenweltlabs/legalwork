@@ -12,6 +12,7 @@ import type { MailDatabase } from "../storage/database-interface.js";
 import type { MailAccessCoordinator } from "../providers/access-coordinator.js";
 import { ContactsError, fetchContactSnapshot } from "../providers/contacts.js";
 import { mailAddressSchema } from "../local-view.js";
+import { mailRecipientAddress, mailRecipientParts } from "../recipients.js";
 const bookSchema = z.object({
   cursor: z.string().nullable(),
   last_sync_at: z.number().nullable(),
@@ -43,6 +44,10 @@ export class MailContacts {
       [accountId, this.owner],
     );
     if (!row) throw new MailServiceError("not_found");
+    if (row.provider === "imap") {
+      if (this.db.get("SELECT state FROM mail_imap_credentials WHERE account_id=?", [accountId])?.state === "disconnected") throw new MailServiceError("locked");
+      return null;
+    }
     const status = this.credentials.status(accountId);
     if (
       status.state === "disconnected" ||
@@ -58,6 +63,7 @@ export class MailContacts {
   }
   execute(accountId: string, input: ContactsInput): ContactsResult {
     const provider = this.account(accountId);
+    const recent = input.action === "search" ? this.recentCorrespondents(accountId, input.query) : [];
     if (!provider)
       return {
         accountId,
@@ -66,7 +72,7 @@ export class MailContacts {
         count: 0,
         lastSyncAt: null,
         error: null,
-        items: [],
+        items: recent,
       };
     if (input.action === "disable") {
       this.pending.get(accountId)?.controller.abort();
@@ -132,8 +138,35 @@ export class MailContacts {
       count: typeof count === "number" ? count : 0,
       lastSyncAt: book?.last_sync_at ?? null,
       error: book?.error ?? null,
-      items,
+      items: [...items, ...recent].filter((item, index, all) => all.findIndex(other => other.address.toLowerCase() === item.address.toLowerCase()) === index).slice(0, 30),
     };
+  }
+  private recentCorrespondents(accountId: string, query: string): ContactsResult["items"] {
+    const items: ContactsResult["items"] = [], seen = new Set<string>(), needle = query.trim().toLowerCase();
+    // Bound work on large stores. Only current, downloaded metadata in this
+    // account is eligible, with no contact permission or provider request.
+    const rows = this.db.all(`SELECT
+      substr(json_extract(p.metadata_json,'$.metadata.from'),1,4096) AS sender,
+      substr(json_extract(p.metadata_json,'$.metadata.to'),1,4096) AS recipients,
+      substr(json_extract(p.metadata_json,'$.metadata.cc'),1,4096) AS cc
+      FROM mail_search_documents d JOIN mail_accounts a ON a.id=d.account_id
+      JOIN mail_content_manifests m ON m.account_id=d.account_id AND m.message_key=d.message_key AND m.kind='raw' AND m.state='stored'
+      JOIN mail_mime_projections p ON p.account_id=m.account_id AND p.message_key=m.message_key AND p.raw_ref_id=m.ref_id AND p.state='complete'
+      WHERE d.account_id=? AND a.owner_id=? AND NOT EXISTS(SELECT 1 FROM mail_tombstones t WHERE t.account_id=d.account_id AND t.message_key=d.message_key)
+      ORDER BY d.date DESC,d.message_key LIMIT 500`, [accountId, this.owner]);
+    for (const row of rows) for (const header of [row.sender, row.recipients, row.cc]) {
+      if (typeof header !== "string") continue;
+      for (const part of mailRecipientParts(header)) {
+        const address = mailRecipientAddress(part);
+        if (!address) continue;
+        const key = address.toLowerCase(), display = part.match(/^\s*(.*?)\s*<[^<>]+>\s*$/u)?.[1] ?? "";
+        const name = display.replace(/^"(.*)"$/u, "$1").replace(/\\(["\\])/g, "$1").slice(0, 256);
+        if (seen.has(key) || (!key.includes(needle) && !name.toLowerCase().includes(needle))) continue;
+        seen.add(key); items.push({ address, name, source: "recent" });
+        if (items.length === 30) return items;
+      }
+    }
+    return items;
   }
   private start(accountId: string) {
     if (this.paused || this.closed) return;

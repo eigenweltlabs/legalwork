@@ -269,6 +269,7 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           MAIL_OUTBOX_EVIDENCE: ${{ runner.temp }}/mail-ui/outbox
+          MAIL_COMPOSE_EVIDENCE: ${{ runner.temp }}/mail-ui/compose
           MAIL_JOURNEY_EVIDENCE: ${{ runner.temp }}/mail-ui/attachments
           MAIL_CONTEXT_EVIDENCE: ${{ runner.temp }}/mail-ui/context
           MAIL_CLASSIFIER_EVIDENCE: ${{ runner.temp }}/mail-ui/projects
