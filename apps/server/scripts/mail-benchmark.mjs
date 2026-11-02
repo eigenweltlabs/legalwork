@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readdir, writeFile, copyFile, readFile, lstat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { linkTestModules, unlinkTestModules, removeTestTree } from '../../../scripts/mail/link-test-modules.mjs';
-const args = process.argv.slice(2), retained = args[0] === '--retained', exporting = args[0] === '--export', checkpointing = args[0] === '--checkpoint', count = Number(args[0] ?? 1000), report = resolve(args[retained || exporting || checkpointing ? 2 : 1] ?? 'mail-benchmark.json');
-if (retained || exporting || checkpointing ? !args[1] || !args[2] : !Number.isSafeInteger(count) || count < 100 || count > 100000)
-    throw Error('Usage: pnpm exec node apps/server/scripts/mail-benchmark.mjs <100..100000 messages> <report.json> OR --retained <synthetic-profile> <new-report.json> OR --export <synthetic-profile> <artifact-directory> OR --checkpoint <synthetic-profile> <artifact-directory>');
+const args = process.argv.slice(2), retained = args[0] === '--retained', exporting = args[0] === '--export', checkpointing = args[0] === '--checkpoint', resuming = args[0] === '--resume', count = Number(args[0] ?? 1000), report = resolve(args[retained || exporting || checkpointing || resuming ? 2 : 1] ?? 'mail-benchmark.json');
+if (retained || exporting || checkpointing || resuming ? !args[1] || !args[2] : !Number.isSafeInteger(count) || count < 100 || count > 100000)
+    throw Error('Usage: pnpm exec node apps/server/scripts/mail-benchmark.mjs <100..100000 messages> <report.json> OR --retained <synthetic-profile> <new-report.json> OR --export <synthetic-profile> <artifact-directory> OR --checkpoint <synthetic-profile> <artifact-directory> OR --resume <checkpoint> <new-report.json>');
 if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 22)
     throw Error('Actual Node22+ required');
 async function requireNewOutput(path) {
@@ -19,11 +20,13 @@ async function requireNewOutput(path) {
 }
 await requireNewOutput(report);
 if (!retained && !exporting && !checkpointing) {
-    const { benchmarkRetention } = await import('../src/mail/testing/benchmark-process.mjs');
+    const { benchmarkRetention, assertBenchmarkOutputOutside } = await import('../src/mail/testing/benchmark-process.mjs');
     const retention = benchmarkRetention(process.env);
+    assert(!resuming || retention, 'Checkpoint resume requires a worker budget and new checkpoint directory');
     if (retention) {
         if (resolve(retention.destination) === report) throw Error('Measurement report and checkpoint directory must differ');
         await requireNewOutput(resolve(retention.destination));
+        if (resuming) for (const output of [report, retention.destination]) await assertBenchmarkOutputOutside(args[1], output);
     }
 }
 const server = resolve(dirname(fileURLToPath(import.meta.url)), '..'), require = createRequire(join(server, 'package.json')), root = await mkdtemp(join(tmpdir(), 'legalwork-mail-bench-build-'));
@@ -55,7 +58,7 @@ try {
         await mkdir(dirname(target), { recursive: true });
         await copyFile(path, target);
     }
-    await run([join(build, exporting || checkpointing ? 'mail/testing/export-benchmark-profile.mjs' : retained ? 'mail/testing/retained-mailbox-benchmark.mjs' : 'mail/testing/large-mailbox-benchmark.mjs'), ...(checkpointing ? ['--checkpoint'] : []), retained || exporting || checkpointing ? resolve(args[1]) : String(count), report]);
+    await run([join(build, exporting || checkpointing ? 'mail/testing/export-benchmark-profile.mjs' : retained ? 'mail/testing/retained-mailbox-benchmark.mjs' : 'mail/testing/large-mailbox-benchmark.mjs'), ...(checkpointing ? ['--checkpoint'] : resuming ? ['--resume'] : []), retained || exporting || checkpointing || resuming ? resolve(args[1]) : String(count), report]);
 }
 finally {
     await unlinkTestModules(join(root, 'build/node_modules'));

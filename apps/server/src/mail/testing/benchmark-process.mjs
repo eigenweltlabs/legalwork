@@ -1,5 +1,20 @@
 import assert from 'node:assert/strict';
 import { fork, execFile } from 'node:child_process';
+import { resolve, relative, isAbsolute, sep, dirname, basename, join } from 'node:path';
+import { realpath } from 'node:fs/promises';
+
+async function canonicalOutput(path) {
+  try { return await realpath(path); }
+  catch (error) {
+    if (error.code !== 'ENOENT' || dirname(path) === path) throw error;
+    return join(await canonicalOutput(dirname(path)), basename(path));
+  }
+}
+
+export async function assertBenchmarkOutputOutside(source, destination) {
+  const path = relative(await realpath(resolve(source)), await canonicalOutput(resolve(destination)));
+  assert(path !== '' && (isAbsolute(path) || path === '..' || path.startsWith('..' + sep)), 'Benchmark output must be outside the source profile');
+}
 
 export function benchmarkRetention(environment) {
   const budget = environment.LEGALWORK_MAIL_BENCH_BUDGET_MS, destination = environment.LEGALWORK_MAIL_BENCH_CHECKPOINT_DIR;

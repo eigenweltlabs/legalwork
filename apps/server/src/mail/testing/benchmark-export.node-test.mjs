@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, realpath, stat, symlink } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,8 @@ import { MailRepository } from '../storage/repository.js';
 import { MailContentStore } from '../storage/content-store.js';
 import { MailCredentialRepository } from '../storage/credentials.js';
 import { benchmarkMessage, CORPUS_VERSION } from './large-mailbox-corpus.mjs';
-import { exportBenchmarkProfile } from './export-benchmark-profile.mjs';
+import { exportBenchmarkProfile, fileHash } from './export-benchmark-profile.mjs';
+import { copyBenchmarkCheckpoint } from './benchmark-checkpoint-input.mjs';
 import { benchmarkRetention, runBenchmarkProcess } from './benchmark-process.mjs';
 
 async function fixture(run) {
@@ -101,6 +102,55 @@ test('a live WAL reader fences checkpoint copying and existing output is never o
   assert.deepEqual(await readFile(join(destination, 'benchmark-profile.json')), original);
 }));
 
+test('checkpoint input copying preserves the frozen source and rejects changed bytes, journals and forged metadata', () => fixture(async f => {
+  const source = f.destination('checkpoint'), destination = f.destination('copy.sqlite');
+  const metadata = await exportBenchmarkProfile({ source: f.source, destination: source, checkpoint: true });
+  const database = join(source, 'mail.sqlite'), metadataPath = join(source, 'benchmark-profile.json');
+  const before = await stat(database), originalMetadata = await readFile(metadataPath), originalDatabase = await readFile(database);
+  const input = await copyBenchmarkCheckpoint({ source, destination });
+  assert.equal(input.count, 100); assert.equal(input.ownerId, 'desktop-local');
+  assert.equal(input.origin.databaseSha256, metadata.databaseSha256);
+  assert.equal(input.origin.corpusSha256, metadata.corpusSha256);
+  const copy = await openEncryptedMailDatabase({ path: destination, key: f.key });
+  try { copy.run("DELETE FROM mail_search_dirty"); } finally { copy.close(); }
+  assert.equal(await fileHash(database), metadata.databaseSha256); assert.equal((await stat(database)).mtimeMs, before.mtimeMs);
+  assert.deepEqual(await readFile(metadataPath), originalMetadata);
+  const preserved = await fileHash(destination);
+  await assert.rejects(copyBenchmarkCheckpoint({ source, destination }), { code: 'EEXIST' });
+  assert.equal(await fileHash(destination), preserved);
+  await assert.rejects(copyBenchmarkCheckpoint({ source, destination: join(source, 'inside.sqlite') }), /outside the source profile/);
+  const alias = f.destination('checkpoint-alias');
+  await symlink(source, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(copyBenchmarkCheckpoint({ source, destination: join(alias, 'inside.sqlite') }), /outside the source profile/);
+  await writeFile(database + '-wal', 'live');
+  await assert.rejects(copyBenchmarkCheckpoint({ source, destination: f.destination('rejected.sqlite') }), /without journal sidecars/);
+  await rm(database + '-wal');
+  await writeFile(database, Buffer.concat([originalDatabase, Buffer.from('changed')]));
+  await assert.rejects(copyBenchmarkCheckpoint({ source, destination: f.destination('rejected.sqlite') }), /file hash mismatch/);
+  await writeFile(database, originalDatabase);
+  for (const change of [{ kind: 'legalwork-synthetic-benchmark' }, { report: 'baseline.json' }, { database: '../mail.sqlite' },
+    { originalsVerified: 99 }, { disposableTestKey: false }, { sourceSha256: 'unknown' }, { key: 'bad' }]) {
+    await writeFile(metadataPath, JSON.stringify({ ...metadata, ...change }));
+    await assert.rejects(copyBenchmarkCheckpoint({ source, destination: f.destination('rejected.sqlite') }));
+  }
+  await assert.rejects(readFile(f.destination('rejected.sqlite')), { code: 'ENOENT' });
+}));
+
+test('checkpoint export executes through a real command-line path alias', () => fixture(async f => {
+  const alias = f.destination('exporter-alias'), destination = f.destination('cli-checkpoint');
+  await symlink(dirname(fileURLToPath(new URL('./export-benchmark-profile.mjs', import.meta.url))), alias, process.platform === 'win32' ? 'junction' : 'dir');
+  let output = '';
+  const code = await new Promise((done, reject) => {
+    const child = spawn(process.execPath, [join(alias, 'export-benchmark-profile.mjs'), '--checkpoint', f.source, destination], { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', bytes => { output += bytes; }); child.stderr.on('data', bytes => { output += bytes; });
+    child.once('error', reject); child.once('close', done);
+  });
+  assert.equal(code, 0, output);
+  assert.equal(JSON.parse(output).kind, 'legalwork-synthetic-benchmark-checkpoint');
+  const metadata = JSON.parse(await readFile(join(destination, 'benchmark-profile.json'), 'utf8'));
+  assert.equal(metadata.originalsVerified, 100); assert.equal(metadata.report, null);
+}));
+
 test('retention budgets require an explicit destination and reject invalid or unbounded settings', () => {
   assert.equal(benchmarkRetention({}), null);
   assert.deepEqual(benchmarkRetention({ LEGALWORK_MAIL_BENCH_BUDGET_MS: '500', LEGALWORK_MAIL_BENCH_CHECKPOINT_DIR: 'synthetic' }), { budgetMs: 500, destination: 'synthetic' });
@@ -177,8 +227,78 @@ test('actual 100-message driver preserves a colliding report and exports an inco
       assert.equal(metadata.measurementState, 'incomplete'); assert.equal(metadata.report, null);
       assert.equal(metadata.sourceSha256, process.env.LEGALWORK_MAIL_BENCH_SOURCE_SHA256 ?? null);
       assert.match(output, /EEXIST/);
+      assert.match(output, /"operations":\{"metadata":\{"count":100,/);
+      assert.match(output, /"stageMs":\{"ingestion":[0-9]/);
     } finally {
       if (profile && /^legalwork-mail-benchmark-[a-zA-Z0-9]+$/.test(basename(profile)) && await realpath(dirname(profile)) === await realpath(tmpdir()))
+        await rm(profile, { recursive: true, force: true });
+    }
+  }));
+
+test('actual checkpoint resume completes only pending processing on a copy and reports an honest follow-up',
+  { skip: process.env.LEGALWORK_MAIL_BENCH_CHECKPOINT_SMOKE !== '1' }, () => fixture(async f => {
+    const source = f.destination('checkpoint'), profiles = [];
+    const metadata = await exportBenchmarkProfile({ source: f.source, destination: source, checkpoint: true });
+    const originalMetadata = await readFile(join(source, 'benchmark-profile.json')), originalState = await stat(join(source, 'mail.sqlite'));
+    async function run(input, name) {
+      const report = f.destination(name + '.json'); let output = '', profile;
+      const code = await new Promise((done, reject) => {
+        const child = spawn(process.execPath, [fileURLToPath(new URL('./large-mailbox-benchmark.mjs', import.meta.url)), '--resume', input, report], {
+          env: { ...process.env, LEGALWORK_MAIL_BENCH_CHILD: '0', LEGALWORK_MAIL_BENCH_OWNER: 'benchmark',
+            LEGALWORK_MAIL_BENCH_BUDGET_MS: '90000', LEGALWORK_MAIL_BENCH_CHECKPOINT_DIR: f.destination(name + '-failure') },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        child.stdout.on('data', bytes => {
+          output += bytes;
+          const match = output.match(/^Retained isolated synthetic profile: ([^\r\n]+)$/m);
+          if (match && !profile) { profile = match[1]; profiles.push(profile); }
+        });
+        child.stderr.on('data', bytes => { output += bytes; });
+        child.once('error', reject); child.once('close', done);
+      });
+      assert.equal(code, 0, output.slice(-6000));
+      const result = JSON.parse(await readFile(report, 'utf8'));
+      assert.equal(result.baselineKind, 'resumed-checkpoint-follow-up'); assert.equal(result.ingestion, null);
+      assert.equal(result.ownerId, 'desktop-local'); assert.equal(result.recovery.originalsVerified, 100);
+      assert.equal(result.recovery.operations.metadata.count, 0); assert.equal(result.recovery.operations.rawPublication.count, 0);
+      assert.equal(result.corpus.count, 100); assert.equal(result.corpus.coverage.indexed, 100); assert.equal(result.corpus.coverage.dirty, 0);
+      assert.equal(result.corpus.coverage.body, 99);
+      for (const query of result.quality) assert.equal(query.actual, query.expected, query.name);
+      return { result, profile };
+    }
+    try {
+      const first = await run(source, 'resumed');
+      assert.equal(first.result.recovery.initialCoverage.body, 0); assert.equal(first.result.recovery.projectedMessages, 100);
+      assert.equal(first.result.recovery.skippedProjections, 0); assert.equal(first.result.indexing.processedMessages, 100);
+      assert.equal(first.result.recovery.origin.databaseSha256, metadata.databaseSha256);
+      assert.equal(first.result.recovery.origin.originalInputSourceSha256, 'a'.repeat(64));
+      assert.deepEqual(await readFile(join(source, 'benchmark-profile.json')), originalMetadata);
+      assert.equal(await fileHash(join(source, 'mail.sqlite')), metadata.databaseSha256);
+      assert.equal((await stat(join(source, 'mail.sqlite'))).mtimeMs, originalState.mtimeMs);
+      const complete = f.destination('complete-checkpoint');
+      await exportBenchmarkProfile({ source: first.profile, destination: complete, checkpoint: true });
+      const second = await run(complete, 'already-complete');
+      assert.equal(second.result.recovery.projectedMessages, 0); assert.equal(second.result.recovery.skippedProjections, 100);
+      assert.equal(second.result.extraction.processedParts, 0); assert.equal(second.result.extraction.partsPerSecond, 0);
+      assert.equal(second.result.indexing.processedMessages, 0); assert.equal(second.result.indexing.messagesPerSecond, 0);
+      assert.equal(second.result.recovery.origin.originalInputSourceSha256, 'a'.repeat(64));
+      const profileMetadata = JSON.parse(await readFile(join(first.profile, 'benchmark-profile.json'), 'utf8'));
+      const interrupted = await openEncryptedMailDatabase({ path: join(first.profile, 'mail/mail.sqlite'), key: f.key });
+      try {
+        assert.equal(profileMetadata.ownerId, 'desktop-local');
+        const messageKey = JSON.stringify(['gmail', 'message-000011']);
+        interrupted.run("UPDATE mail_attachment_extractions SET state='running',lease_token='interrupted-test',lease_until=0,attempts=1,result_json=NULL,error=NULL WHERE message_key=?", [messageKey]);
+        interrupted.run('INSERT OR IGNORE INTO mail_search_dirty SELECT account_id,message_key FROM mail_messages WHERE message_key=?', [messageKey]);
+      } finally { interrupted.close(); }
+      const partial = f.destination('interrupted-checkpoint');
+      await exportBenchmarkProfile({ source: first.profile, destination: partial, checkpoint: true });
+      const third = await run(partial, 'interrupted');
+      assert.equal(third.result.recovery.initialCoverage.extractionPending, 1);
+      assert.equal(third.result.recovery.initialCoverage.dirty, 1);
+      assert.equal(third.result.recovery.projectedMessages, 0); assert.equal(third.result.recovery.skippedProjections, 100);
+      assert.equal(third.result.extraction.processedParts, 1); assert.equal(third.result.indexing.processedMessages, 1);
+    } finally {
+      for (const profile of profiles) if (/^legalwork-mail-benchmark-[a-zA-Z0-9]+$/.test(basename(profile)) && await realpath(dirname(profile)) === await realpath(tmpdir()))
         await rm(profile, { recursive: true, force: true });
     }
   }));

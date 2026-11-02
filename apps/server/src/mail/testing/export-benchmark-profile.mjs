@@ -1,27 +1,64 @@
 /** Export only a frozen, generator-verified synthetic database. */
 import assert from 'node:assert/strict';
 import { constants, createReadStream } from 'node:fs';
-import { readFile, mkdir, copyFile, writeFile, chmod, lstat, rm } from 'node:fs/promises';
-import { join, resolve, relative, isAbsolute, sep } from 'node:path';
+import { readFile, mkdir, copyFile, writeFile, chmod, lstat, rm, realpath } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { openEncryptedMailDatabase } from '../storage/database.js';
 import { enforceMailWindowsAcl } from '../storage/windows-acl.js';
 import { MailContentStore } from '../storage/content-store.js';
 import { benchmarkMessage, CORPUS_VERSION } from './large-mailbox-corpus.mjs';
+import { assertBenchmarkOutputOutside } from './benchmark-process.mjs';
 
 const fullCorpusSha256 = '698fa2c64e3b253dd75455e748f83fc02b29fd6214988a7c6818c119f4d85425';
-async function fileHash(path) {
+export async function fileHash(path) {
   const hash = createHash('sha256');
   for await (const bytes of createReadStream(path)) hash.update(bytes);
   return hash.digest('hex');
 }
 
+export function verifyBenchmarkDatabase(db, { count, ownerId, complete = false }) {
+  assert(Number.isSafeInteger(count) && count >= 100 && count <= 100000);
+  assert(['benchmark', 'desktop-local'].includes(ownerId));
+  assert.deepEqual(db.all('SELECT id,owner_id,provider FROM mail_accounts ORDER BY id'),
+    ['benchmark-a', 'benchmark-b', 'benchmark-c'].map(id => ({ id, owner_id: ownerId, provider: 'gmail' })));
+  const coverage = {
+    messages: db.get('SELECT count(*) n FROM mail_messages').n,
+    raw: db.get("SELECT count(*) n FROM mail_content_manifests WHERE kind='raw' AND state='stored'").n,
+    body: db.get("SELECT count(*) n FROM mail_content_manifests WHERE kind='body' AND state='stored'").n,
+    indexed: db.get('SELECT count(*) n FROM mail_search_documents').n,
+    dirty: db.get('SELECT count(*) n FROM mail_search_dirty').n,
+    extractionPending: db.get("SELECT count(*) n FROM mail_attachment_extractions WHERE state IN ('queued','running')").n,
+  };
+  assert.equal(coverage.messages, count, 'Incomplete original inventory');
+  assert.equal(coverage.raw, count, 'Incomplete original inventory');
+  if (complete) { assert.equal(coverage.indexed, count); assert.equal(coverage.dirty, 0); }
+  for (const { name } of db.all("SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%credentials%' OR name LIKE '%oauth%')")) {
+    assert.match(name, /^[a-z_]+$/);
+    assert.equal(db.get('SELECT count(*) n FROM ' + name).n, 0, 'Synthetic credentials must be empty');
+  }
+  const content = new MailContentStore(db, ownerId), hash = createHash('sha256');
+  for (let index = 0; index < count; index++) {
+    const expected = benchmarkMessage(index), messageKey = JSON.stringify(['gmail', expected.locator.messageId]);
+    const part = db.get("SELECT ref_id FROM mail_content_manifests WHERE account_id=? AND message_key=? AND kind='raw' AND state='stored'", [expected.accountId, messageKey]);
+    assert(part, 'Missing synthetic original ' + index);
+    assert.equal(part.ref_id, 'sha256:' + expected.hash, 'Synthetic original ' + index);
+    const actual = createHash('sha256');
+    for (const chunk of content.read(expected.accountId, part.ref_id)) actual.update(chunk);
+    assert.equal(actual.digest('hex'), expected.hash, 'Synthetic original ' + index);
+    hash.update(expected.hash);
+  }
+  const corpusSha256 = hash.digest('hex');
+  if (count === 100000) assert.equal(corpusSha256, fullCorpusSha256);
+  assert.equal(db.get('PRAGMA integrity_check')?.integrity_check, 'ok');
+  return { coverage, corpusSha256 };
+}
+
 export async function exportBenchmarkProfile({ source: suppliedSource, destination: suppliedDestination, checkpoint = false }) {
   assert.equal(typeof checkpoint, 'boolean');
   const source = resolve(suppliedSource), destination = resolve(suppliedDestination);
-  const path = relative(source, destination);
-  assert(path !== '' && (isAbsolute(path) || path === '..' || path.startsWith('..' + sep)), 'Export must be outside the source profile');
+  await assertBenchmarkOutputOutside(source, destination);
   const bytes = await readFile(join(source, 'benchmark-profile.json'));
   assert(bytes.length <= 65536, 'Invalid synthetic metadata');
   const metadata = JSON.parse(bytes.toString('utf8'));
@@ -47,6 +84,8 @@ export async function exportBenchmarkProfile({ source: suppliedSource, destinati
   }
   const sourceSha256 = metadata.sourceSha256 ?? report?.sourceSha256 ?? null;
   assert(sourceSha256 === null || typeof sourceSha256 === 'string' && /^[0-9a-f]{64}$/.test(sourceSha256), 'Invalid source fingerprint');
+  const originalInputSourceSha256 = Object.hasOwn(metadata, 'originalInputSourceSha256') ? metadata.originalInputSourceSha256 : sourceSha256;
+  assert(originalInputSourceSha256 === null || typeof originalInputSourceSha256 === 'string' && /^[0-9a-f]{64}$/.test(originalInputSourceSha256), 'Invalid original source fingerprint');
   const key = Buffer.from(metadata.key, 'base64');
   let db, created = false, published = false;
   try {
@@ -56,36 +95,7 @@ export async function exportBenchmarkProfile({ source: suppliedSource, destinati
     assert.equal(db.get('PRAGMA locking_mode=EXCLUSIVE')?.locking_mode, 'exclusive');
     assert.equal(db.get('PRAGMA journal_mode=DELETE')?.journal_mode, 'delete');
     db.exec('BEGIN EXCLUSIVE');
-    assert.deepEqual(db.all('SELECT id,owner_id FROM mail_accounts ORDER BY id'),
-      ['benchmark-a', 'benchmark-b', 'benchmark-c'].map(id => ({ id, owner_id: ownerId })));
-    const coverage = {
-      messages: db.get('SELECT count(*) n FROM mail_messages').n,
-      raw: db.get("SELECT count(*) n FROM mail_content_manifests WHERE kind='raw' AND state='stored'").n,
-      body: db.get("SELECT count(*) n FROM mail_content_manifests WHERE kind='body' AND state='stored'").n,
-      indexed: db.get('SELECT count(*) n FROM mail_search_documents').n,
-      dirty: db.get('SELECT count(*) n FROM mail_search_dirty').n,
-      extractionPending: db.get("SELECT count(*) n FROM mail_attachment_extractions WHERE state IN ('queued','running')").n,
-    };
-    assert.equal(coverage.messages, count, 'Incomplete original inventory');
-    assert.equal(coverage.raw, count, 'Incomplete original inventory');
-    if (!checkpoint) { assert.equal(coverage.indexed, count); assert.equal(coverage.dirty, 0); }
-    for (const { name } of db.all("SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%credentials%' OR name LIKE '%oauth%')")) {
-      assert.match(name, /^[a-z_]+$/);
-      assert.equal(db.get('SELECT count(*) n FROM ' + name).n, 0, 'Synthetic credentials must be empty');
-    }
-    const content = new MailContentStore(db, ownerId), hash = createHash('sha256');
-    for (let index = 0; index < count; index++) {
-      const expected = benchmarkMessage(index), messageKey = JSON.stringify(['gmail', expected.locator.messageId]);
-      const part = db.get("SELECT ref_id FROM mail_content_manifests WHERE account_id=? AND message_key=? AND kind='raw' AND state='stored'", [expected.accountId, messageKey]);
-      assert(part, 'Missing synthetic original ' + index);
-      const actual = createHash('sha256');
-      for (const chunk of content.read(expected.accountId, part.ref_id)) actual.update(chunk);
-      assert.equal(actual.digest('hex'), expected.hash, 'Synthetic original ' + index);
-      hash.update(expected.hash);
-    }
-    const corpusSha256 = hash.digest('hex');
-    if (count === 100000) assert.equal(corpusSha256, fullCorpusSha256);
-    assert.equal(db.get('PRAGMA integrity_check')?.integrity_check, 'ok');
+    const { coverage, corpusSha256 } = verifyBenchmarkDatabase(db, { count, ownerId, complete: !checkpoint });
     await mkdir(destination, { recursive: false, mode: 0o700 }); created = true;
     await enforceMailWindowsAcl(destination, true);
     const target = join(destination, 'mail.sqlite');
@@ -98,7 +108,7 @@ export async function exportBenchmarkProfile({ source: suppliedSource, destinati
       kind: checkpoint ? 'legalwork-synthetic-benchmark-checkpoint' : metadata.kind,
       count, ownerId, key: metadata.key, database: 'mail.sqlite',
       report: checkpoint ? null : 'baseline.json', corpusVersion: CORPUS_VERSION, corpusSha256,
-      sourceSha256,
+      sourceSha256, originalInputSourceSha256,
       syntheticOnly: true, originalsVerified: count, disposableTestKey: true,
       measurementState: checkpoint ? 'incomplete' : 'complete', coverage, databaseSha256,
     };
@@ -115,7 +125,7 @@ export async function exportBenchmarkProfile({ source: suppliedSource, destinati
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && await realpath(resolve(process.argv[1])) === await realpath(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2), checkpoint = args[0] === '--checkpoint';
   if (checkpoint) args.shift();
   assert.equal(args.length, 2, 'Usage: export-benchmark-profile.mjs [--checkpoint] <synthetic-profile> <new-directory>');
