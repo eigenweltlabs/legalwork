@@ -29,6 +29,10 @@ test("recipient suggestions preserve earlier addresses, distinguish sources and 
   ]);
 });
 
+test("recipient autocomplete does not split a quoted display name",()=>{
+ expect(recipientFragment('"Doe, Jane" <jane@example.test>; Ali')).toEqual({prefix:'"Doe, Jane" <jane@example.test>; ',query:'Ali'});
+});
+
 test("onboarding requests optional contact scope only on explicit choice and preserves reconnect identity", async () => {
   const bodies: unknown[] = [];
   const client = new MailClient(

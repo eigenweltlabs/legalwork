@@ -17,7 +17,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Fastmail, native JMAP availability, on-premises Exchange, EWS or IMAP/SMTP protocol limitations | [email.md](references/email.md) |
 | Proton Mail Bridge availability, paid-plan or installed-Bridge prerequisites, local certificates or Bridge qualification limits | [email.md](references/email.md) |
 | Global Search Email tab, Cmd/Ctrl+K email results, lexical versus semantic email search, embedding availability, cross-matter retrieval or account/matter search permissions | [email.md](references/email.md) |
-| Email document editing, text formatting, bulleted or numbered lists, quotes, Insert link, Remove link, Undo or plain-text drafts | [email.md](references/email.md) |
+| Email recipient tokens, To/Cc/Bcc entry, quoted display names, autocomplete, unfinished addresses, document editing, text formatting, bulleted or numbered lists, quotes, Insert link, Remove link, Undo or plain-text drafts | [email.md](references/email.md) |
 | Email project assignments, No project, Assignment history, Suggest project, project rules, exclusions, sender/domain/reference matching, inaccessible destinations, Automatic mode, assignment thresholds, Needs review, Undo assignment or Keep project | [email.md](references/email.md) |
 | Mail diagnostics, safe mail support export, queued/uncertain action counts or local download incident reports | [email.md](references/email.md) |
 | Workflows, Review prompts, Skills tab, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |

@@ -110,6 +110,7 @@ export function generateHelpScreens(root = repoRoot) {
       { id: "unsaved-shutdown", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx" },
       { id: "global-search", guide: "workspaces-chats.md", source: "apps/app/src/react-app/shell/command-palette.tsx" },
       { id: "global-search-email", guide: "email.md", source: "apps/app/src/react-app/shell/command-palette.tsx" },
+      { id: "mail-recipients", guide: "email.md", source: "apps/app/src/react-app/domains/mail/mail-recipient-input.tsx" },
       { id: "mail-insert-link", guide: "email.md", source: "apps/app/src/react-app/domains/mail/mail-formatting-toolbar.tsx" },
       { id: "mail-project", guide: "email.md", source: "apps/app/src/react-app/domains/mail/mail-project.tsx" },
       { id: "mail-project-rule", guide: "email.md", source: "apps/app/src/react-app/domains/settings/pages/mail-classifier-view.tsx" },

@@ -1,3 +1,4 @@
+import {mailRecipientParts,mailRecipientAddress,mailRecipientAddresses,mailRecipientsInvalid} from '../recipients.js';
 import { randomUUID } from 'node:crypto';
 import { mailDraftContentSchema, mailAddressSchema, type MailDraftView } from '../local-view.js';
 export type MailComposeContent = MailDraftView['content'];
@@ -18,7 +19,7 @@ type ComposeOptions = {
 export async function buildMailMime(content:MailComposeContent,options:ComposeOptions){return serialize(content,options,false);}
 export function projectDraftRecipients(content:MailComposeContent){
  const draft=mailDraftContentSchema.parse(content);let recipientInputLocalOnly=false;
- if(draft.editor)for(const field of ['to','cc','bcc'] as const){const parts=draft.editor[field].split(/[,;]/).filter(value=>value.trim());const valid:string[]=[];for(const part of parts){const value=(part.match(/<([^<>]+)>/)?.[1]??part).trim();if(mailAddressSchema.safeParse(value).success&&!/[^\x00-\x7f]/.test(value))valid.push(value);else recipientInputLocalOnly=true;}draft[field]=valid;}
+ if(draft.editor)for(const field of ['to','cc','bcc'] as const){const parts=mailRecipientParts(draft.editor[field]).filter(value=>value.trim());const valid:string[]=[];for(const part of parts){const value=mailRecipientAddress(part);if(value!==null&&!/[^\x00-\x7f]/.test(value))valid.push(value);else recipientInputLocalOnly=true;}draft[field]=valid;}
  return{content:draft,recipientInputLocalOnly};
 }
 /** Private provider-draft MIME. No submission envelope is exposed. Invalid editable
@@ -31,7 +32,7 @@ async function serialize(content:MailComposeContent,options:ComposeOptions,draft
  if([content.inReplyTo??'',...content.references,options.messageId??''].some(value=>/[^\x00-\x7f]/.test(value)))throw Error('Message identifiers must contain ASCII characters only.');
  const draft=mailDraftContentSchema.parse(content),from=mailAddressSchema.parse(draft.from);
  if(draft.editor){if(!draftMode)for(const field of ['to','cc','bcc']){const text=field==='to'?draft.editor.to:field==='cc'?draft.editor.cc:draft.editor.bcc,expected=field==='to'?draft.to:field==='cc'?draft.cc:draft.bcc;
-  const values=text.split(/[,;]/).filter(value=>value.trim()).map(value=>(value.match(/<([^<>]+)>/)?.[1]??value).trim());if(values.some(value=>!mailAddressSchema.safeParse(value).success)||JSON.stringify(values)!==JSON.stringify(expected))throw Error('Complete every recipient address before sending.');}
+  const values=mailRecipientAddresses(text);if(mailRecipientsInvalid(text)||JSON.stringify(values)!==JSON.stringify(expected))throw Error('Complete every recipient address before sending.');}
   if(draft.editor.from!==from)throw Error('Complete the sender address before sending.');}
 
  if(!options.authorizedSenders.some(sender=>sender.toLowerCase()===from.toLowerCase()))throw Error('The sender is not authorized for this account.');

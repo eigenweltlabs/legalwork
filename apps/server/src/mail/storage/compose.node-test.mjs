@@ -8,6 +8,19 @@ const content=(extra={})=>({subject:'Synthetic local draft',to:['receiver@exampl
 async function fixture(body){const dir=await mkdtemp(join(tmpdir(),'mail-local-api-')),path=join(dir,'mail.sqlite'),key=randomBytes(32);let db=await openEncryptedMailDatabase({path,key});migrateMailSchema(db);const f={get db(){return db;},path,get api(){return new MailLocalApiStore(db,'owner',()=>10000);},get repo(){return new MailRepository(db,'owner');},get credentials(){return new MailCredentialRepository(db,'owner',()=>10000);},get content(){return new MailContentStore(db,'owner');},async reopen(){db.close();db=await openEncryptedMailDatabase({path,key});}};
  for(const id of ['a','b'])f.repo.createAccount({id,provider:'gmail',displayName:'Local'});new MailRepository(db,'other').createAccount({id:'foreign',provider:'gmail',displayName:'Private'});for(const id of ['a','b'])f.credentials.connect(id,{...binding,providerSubject:id},null,{accessToken:'synthetic',expiresAt:999999,grantedScopes:['https://www.googleapis.com/auth/gmail.modify'],refreshToken:{action:'clear'}});f.repo.putFolder('a',{id:'INBOX',name:'Inbox',kind:'label'});f.repo.ingestMessage('a',{locator,subject:'Original',rfcMessageId:null,memberships:['INBOX']});try{await body(f);}finally{db.close();key.fill(0);await rm(dir,{recursive:true,force:true});}}
 
+test('quoted recipient tokens survive encrypted reopen and pin the intended envelope while unfinished edits cannot queue',()=>fixture(async f=>{
+ const identity=new SenderIdentityRepository(f.db,'owner').replace('a',f.credentials.status('a').version.generation,[{address:'self@example.test',displayName:'Self',primary:true,default:true}])[0];
+ const raw='"Doe, Jane" <jane@example.test>; other@example.test',editor={to:raw,cc:'',bcc:'private@example.test',from:identity.address};
+ const draft=f.api.saveDraft('a',{draftId:randomUUID(),expected:null,content:content({from:identity.address,senderIdentityId:identity.id,to:['jane@example.test','other@example.test'],bcc:['private@example.test'],editor})});
+ await f.reopen();assert.equal(f.api.readDraft('a',{draftId:draft.id}).content.editor.to,raw);
+ const queued=await new OutboxStore(f.db,'owner').queue('a',{draftId:draft.id,version:draft.version,replayKey:'synthetic-token-envelope'});
+ const pinned=f.db.get('SELECT envelope_json,mime_bytes FROM mail_outbox WHERE account_id=? AND action_id=?',['a',queued.id]);
+ assert.deepEqual(JSON.parse(pinned.envelope_json).to,['jane@example.test','other@example.test','private@example.test']);assert.equal(Buffer.from(pinned.mime_bytes).toString().includes('private@example.test'),false);
+ const invalid=f.api.saveDraft('a',{draftId:randomUUID(),expected:null,content:content({from:identity.address,senderIdentityId:identity.id,to:['jane@example.test'],editor:{...editor,to:'jane@example.test, unfinished@',bcc:''}})});
+ await assert.rejects(new OutboxStore(f.db,'owner').queue('a',{draftId:invalid.id,version:invalid.version,replayKey:'incomplete-token'}));
+ assert.equal(f.db.get("SELECT count(*) n FROM mail_outbox WHERE account_id='a'").n,1);assert.equal(f.api.readDraft('a',{draftId:invalid.id}).content.editor.to,'jane@example.test, unfinished@');
+}));
+
 test('upload retries, scope, verification, cleanup, pinned bytes and restart',()=>fixture(async f=>{
  const bytes=Buffer.alloc(70000,42),uploadId=randomUUID(),sha256=createHash('sha256').update(bytes).digest('hex'),base={uploadId,totalBytes:bytes.length,sha256};
  let last;for(let offset=0;offset<bytes.length;offset+=16384){const chunk=bytes.subarray(offset,offset+16384),input={...base,offset,data:chunk.toString('base64'),complete:offset+chunk.length===bytes.length};last=f.api.uploadDraft('a',input);assert.deepEqual(f.api.uploadDraft('a',input),last);if(offset===0){assert.throws(()=>f.api.uploadDraft('b',{...input,offset:16384}),{code:'conflict'});assert.throws(()=>f.api.uploadDraft('foreign',input),{code:'not_found'});await f.reopen();}}

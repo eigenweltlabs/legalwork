@@ -187,7 +187,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
     case "tabular-review":
       return t("review.defaults_scope");
     case "mail-accounts":
-      return "Connect and manage the mail accounts on this computer.";
+      return "";
     case "ai":
       return t("settings.tab_description_ai");
     case "account":
@@ -403,12 +403,13 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 
 export function SettingsPage(props: SettingsPageProps) {
   const library = props.activeTab === "extensions" || props.activeTab === "workflows";
+  const description = getSettingsTabDescription(props.activeTab);
   return (
     <SettingsContent scrollable={!library}>
       {!library ? <SettingsPanel key={props.activeTab} className="lw-enter shrink-0">
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
-          <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>
+          {description && <SettingsPanelDescription>{description}</SettingsPanelDescription>}
         </SettingsPanelHeading>
 
         {props.showUpdateToolbar && props.activeTab === "general" ? (

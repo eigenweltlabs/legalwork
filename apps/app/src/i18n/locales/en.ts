@@ -44,6 +44,8 @@ export default {
   "mail.invitation_reply_ambiguous": "Multiple matching calendar events",
   "mail.schedule_from": "From",
   "mail.schedule_to": "To",
+  "mail.recipient_edit": "Edit recipient {address}",
+  "mail.recipient_remove": "Remove recipient {address}",
   "mail.project_title": "Email project",
   "mail.classifier_automatic": "Automatic",
   "mail.classifier_threshold": "Assign automatically when",

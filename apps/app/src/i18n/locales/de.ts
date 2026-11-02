@@ -54,6 +54,8 @@ const de = {
   "mail.invitation_reply_ambiguous": "Mehrere passende Kalendertermine",
   "mail.schedule_from": "Von",
   "mail.schedule_to": "An",
+  "mail.recipient_edit": "Empfänger {address} bearbeiten",
+  "mail.recipient_remove": "Empfänger {address} entfernen",
   "mail.project_title": "E-Mail-Projekt",
   "mail.classifier_automatic": "Automatisch",
   "mail.classifier_threshold": "Automatisch zuordnen bei",

@@ -1,10 +1,11 @@
+import {mailRecipientAddresses} from '../../../../../server/src/mail/recipients';
 import type {SenderIdentity} from '../../../../../server/src/mail/sender-view';
 import { mailDraftContentSchema, mailAddressSchema, type MailDraftView } from '../../../../../server/src/mail/local-view';
 import type { MailMessageView } from './mail-client';
 export type ComposeContent = MailDraftView['content'];
 export type ComposeMode = 'reply'|'reply-all'|'forward'|'forward-attachment';
 export function addresses(value: string): string[] {
- return value.split(/[,;]/).flatMap(part=>{const address=(part.match(/<([^<>]+)>/)?.[1]??part).trim();return mailAddressSchema.safeParse(address).success?[address]:[];});
+ return mailRecipientAddresses(value);
 }
 export function emptyCompose(from: string): ComposeContent {return mailDraftContentSchema.parse({subject:'',to:[],text:'',from:mailAddressSchema.safeParse(from).success?from:null});}
 export function replyCompose(item: MailMessageView, text:string, mode:ComposeMode, from:string, references:string[]=[]): ComposeContent {
