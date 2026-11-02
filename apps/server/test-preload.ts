@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Source tests also need the ignored translation module on a fresh checkout.
-execFileSync("node", [fileURLToPath(new URL("../../scripts/gen-core-skills.mjs", import.meta.url)), "--check"]);
+// The suite coordinator checks this once before starting isolated file workers.
+// Direct bun invocations retain the fresh-checkout check.
+if (process.env.LEGALWORK_TEST_PREPARED !== '1') {
+  execFileSync("node", [fileURLToPath(new URL("../../scripts/gen-core-skills.mjs", import.meta.url)), "--check"]);
+}
 
 /**
  * Keeps every test off the real LegalWork profile. A server a test starts

@@ -2,11 +2,11 @@ name: legalwork-ui-mcp
 
 on:
   push:
-    branches: [dev]
+    branches: [ dev ]
     tags:
       - "legalwork-ui-mcp-v*"
   pull_request:
-    branches: [dev, codex/projects-akte-workspace, codex/opencode-v2-migration]
+    branches: [ dev, codex/projects-akte-workspace, codex/opencode-v2-migration ]
 
 permissions:
   contents: read
@@ -51,7 +51,9 @@ jobs:
           version: 11.4.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        uses: ./.github/actions/install-dependencies
+        with:
+          ignore-scripts: "true"
 
       - name: Syntax check
         run: node --check index.mjs
@@ -88,7 +90,9 @@ jobs:
           version: 11.4.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        uses: ./.github/actions/install-dependencies
+        with:
+          ignore-scripts: "true"
 
       - name: Syntax check
         run: node --check index.mjs

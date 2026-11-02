@@ -63,7 +63,7 @@ test('engine discovery includes nested and newly added fixtures, excluding ordin
 test('real engine job cannot pass by silently skipping all engine fixtures', () => {
   const script = fileURLToPath(new URL('./run-engine-tests.mjs', import.meta.url));
   assert.throws(() => execFileSync(process.execPath, [script], { env: { ...process.env, LEGALWORK_TEST_OPENCODE_BIN: '' }, stdio: 'pipe' }), /Set up the verified engine/);
-  const integration = workflow('ci-tests').jobs['legalwork-tests'];
+  const integration = workflow('ci-tests').jobs['engine-tests'];
   const serverTests = integration.steps.find(step => step.name === 'Run server engine integration tests');
   assert.equal(serverTests.if, "needs.changes.outputs.server == 'true'");
   assert.match(serverTests.run, /run-engine-tests.mjs/);
@@ -77,14 +77,49 @@ test('existing required check names fail if units or a selected engine build fai
   for (const name of ['unit-tests', 'legalwork-tests', 'sandbox-engine']) {
     assert.equal(workflow('ci-tests').jobs[name]['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
   }
+  assert.ok(gate.needs.includes('unit-tests'));
+  assert.ok(gate.needs.includes('engine-tests'));
+  assert.ok(gate.needs.includes('sandbox-runtime'));
   const script = gate.steps[0].run;
-  const run = (units, required, engine) => execFileSync('bash', ['-e', '-c', script], {
-    env: { ...process.env, UNIT_RESULT: units, ENGINE_REQUIRED: required, ENGINE_RESULT: engine }, stdio: 'pipe',
+  const run = results => execFileSync('bash', ['-e', '-c', script], {
+    env: { ...process.env, RESULTS: JSON.stringify(results) }, stdio: 'pipe',
   });
-  assert.doesNotThrow(() => run('success', 'false', 'skipped'));
-  assert.doesNotThrow(() => run('success', 'true', 'success'));
-  for (const result of ['failure', 'cancelled', 'skipped']) {
-    assert.throws(() => run(result, 'false', 'skipped'));
-    assert.throws(() => run('success', 'true', result));
+  assert.doesNotThrow(() => run({ units: { result: 'success' }, engine: { result: 'skipped' } }));
+  for (const result of ['failure', 'cancelled']) {
+    assert.throws(() => run({ units: { result }, engine: { result: 'success' } }));
+    assert.throws(() => run({ units: { result: 'success' }, sandbox: { result } }));
   }
+});
+
+
+test('runtime cache hits retain verification and isolation tests while skipping full workspace preparation', () => {
+  const jobs = workflow('sandbox-runtime').jobs;
+  for (const job of Object.values(jobs).filter(job => job.steps?.some(step => step.uses === 'actions/cache/restore@v4'))) {
+    const restore = job.steps.find(step => step.uses === 'actions/cache/restore@v4');
+    assert.equal(restore.with['restore-keys'], undefined);
+    const verify = job.steps.find(step => step.run?.includes('cache-sandbox-runtime.mjs verify'));
+    assert.ok(verify, 'Every restored bundle must be verified');
+    for (const step of job.steps.filter(step => step.uses === './.github/actions/install-dependencies')) assert.match(step.if, /inputs.run_tests/);
+    for (const step of job.steps.filter(step => step.uses === 'actions/cache/save@v4')) assert.match(step.if, /refs\/heads\/dev/);
+  }
+  assert.equal(workflow('ci-runtime-cache').jobs.warm.with.run_tests, false);
+});
+
+test('every native package consumer uses one portable producer and an OS-family engine handoff', () => {
+  for (const name of ['alpha-macos-aarch64', 'alpha-windows-x64', 'release-macos-aarch64', 'ci-desktop-packaging']) {
+    const jobs = workflow(name).jobs;
+    assert.equal(jobs['portable-assets'].uses, './.github/workflows/ci-portable-assets.yml');
+    const consumers = Object.values(jobs).filter(job => job.steps?.some(step => step.env?.LEGALWORK_PREBUILT_UI === '1'));
+    assert.ok(consumers.length, name);
+    for (const job of consumers) {
+      assert.ok(job.needs.includes('portable-assets'), name);
+      assert.ok(job.steps.some(step => step.uses === 'actions/download-artifact@v4' && step.with.name === 'portable-desktop-assets'));
+      const engine = job.steps.find(step => step.uses === './.github/actions/setup-opencode');
+      assert.equal(engine.with['archive-family'], 'true');
+      assert.ok(job.steps.some(step => step.with?.name === 'opencode-derivative-ci-${{ runner.os }}'));
+    }
+  }
+  const build = workflow('ci-portable-assets').jobs.build;
+  assert.equal(build.env.LEGALWORK_ELECTRON_BUILD, '1');
+  assert.ok(build.steps.some(step => step.run?.includes('portable-assets.mjs seal')));
 });

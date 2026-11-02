@@ -1,0 +1,37 @@
+name: Install frozen workspace dependencies
+description: Restore a shared pnpm store; seed it only from trusted dev pushes
+inputs:
+  ignore-scripts:
+    default: 'false'
+    description: Skip package lifecycle scripts for checks that do not need native modules
+  filter:
+    default: ''
+    description: Optional pnpm workspace dependency filter
+runs:
+  using: composite
+  steps:
+    - id: store
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache/restore@v4
+      id: cache
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc') }}
+        restore-keys: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-
+    - name: Install dependencies
+      shell: bash
+      env:
+        IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+        WORKSPACE_FILTER: ${{ inputs.filter }}
+      run: |
+        args=()
+        if [ -n "$WORKSPACE_FILTER" ]; then args+=(--filter "$WORKSPACE_FILTER"); fi
+        args+=(install --frozen-lockfile --prefer-offline)
+        if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
+        pnpm "${args[@]}"
+    - uses: actions/cache/save@v4
+      if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.cache.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

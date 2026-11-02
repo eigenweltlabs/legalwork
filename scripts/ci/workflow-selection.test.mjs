@@ -22,7 +22,7 @@ test('unit jobs start independently while integration jobs require the verified 
   assert.equal(condition(main.jobs['unit-tests'].if, ui), true);
   const steps = main.jobs['unit-tests'].steps;
   assert.equal(condition(steps.find(step => step.name === 'Run app unit tests').if, ui), true);
-  const integration = main.jobs['legalwork-tests'];
+  const integration = main.jobs['engine-tests'];
   const e2e = integration.steps.find(step => step.name === 'Run e2e tests');
   assert.equal(condition(e2e.if, ui), false);
   assert.equal(steps.some(step => step.uses === './.github/actions/setup-opencode'), false);
@@ -37,7 +37,9 @@ test('unit jobs start independently while integration jobs require the verified 
   assert.equal(condition(integration.if, session, { engine: 'success' }), true);
   assert.equal(condition(e2e.if, session), true);
   assert.ok(main.jobs['ci-result'].needs.includes('unit-tests'));
-  assert.ok(integration.needs.includes('unit-tests'));
+  assert.ok(!integration.needs.includes('unit-tests'));
+  assert.ok(main.jobs['legalwork-tests'].needs.includes('unit-tests'));
+  assert.ok(main.jobs['legalwork-tests'].needs.includes('engine-tests'));
   assert.ok(integration.needs.includes('opencode-derivative'));
 });
 

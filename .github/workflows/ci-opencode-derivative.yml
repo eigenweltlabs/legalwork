@@ -165,10 +165,45 @@ jobs:
             ${{ runner.temp }}/opencode-derivative-search-list.json
             ${{ runner.temp }}/opencode-derivative-identity-probe/
             ${{ runner.temp }}/opencode-derivative-keychain-cleanup.json
+            ${{ runner.temp }}/ci-spans.jsonl
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: opencode-derivative-ci
           path: ${{ runner.temp }}/opencode-derivative/distribution/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Retain verified macOS engine archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-derivative-ci-macOS
+          path: |
+            ${{ runner.temp }}/opencode-derivative/distribution/derivative-release.json
+            ${{ runner.temp }}/opencode-derivative/distribution/distribution-receipt.json
+            ${{ runner.temp }}/opencode-derivative/distribution/archives/*-darwin-*.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain verified Linux engine archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-derivative-ci-Linux
+          path: |
+            ${{ runner.temp }}/opencode-derivative/distribution/derivative-release.json
+            ${{ runner.temp }}/opencode-derivative/distribution/distribution-receipt.json
+            ${{ runner.temp }}/opencode-derivative/distribution/archives/*-linux-*.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain verified Windows engine archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-derivative-ci-Windows
+          path: |
+            ${{ runner.temp }}/opencode-derivative/distribution/derivative-release.json
+            ${{ runner.temp }}/opencode-derivative/distribution/distribution-receipt.json
+            ${{ runner.temp }}/opencode-derivative/distribution/archives/*-windows-*.tar.gz
+          compression-level: 0
           if-no-files-found: error
           retention-days: 7

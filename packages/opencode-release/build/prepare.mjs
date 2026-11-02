@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { opencodeArchiveTarExecutable, opencodeReleaseTarget } from "../index.mjs";
@@ -87,13 +87,21 @@ export function validatePreparedProvenance(value, target, mode, files) {
   }
 }
 
-async function verifyArchives({ manifestPath, manifestSha256, archiveDirectory, mode, identity }) {
+async function verifyArchives({ manifestPath, manifestSha256, archiveDirectory, archiveTargets, mode, identity }) {
   await regularFile(manifestPath); await ordinaryDirectory(archiveDirectory);
   const distribution = await verifyDerivativeDistribution({ manifestPath, manifestSha256 });
   const content = await readFile(manifestPath, "utf8"), manifest = JSON.parse(content);
   if (identity.targets.some(target => !distribution.targets.includes(target)) || mode === "production" && distribution.scope !== "complete") throw new Error("Prepared distribution does not cover the required targets and signing mode.");
-  // Verify every supplied artifact, not only the current host target.
+  // The producer still builds/verifies all twelve targets and independently
+  // pins the complete manifest. Native consumers can receive one OS family;
+  // verify every supplied archive and retain that narrower byte coverage.
+  if (archiveTargets !== undefined) {
+    if (!Array.isArray(archiveTargets) || !archiveTargets.length || new Set(archiveTargets).size !== archiveTargets.length
+      || archiveTargets.some(target => !distribution.targets.includes(target)) || !archiveTargets.includes(opencodeReleaseTarget())) throw new Error('Archive handoff must cover the native host with unique reviewed targets');
+    assert.deepEqual((await readdir(archiveDirectory)).sort(), archiveTargets.map(target => manifest.artifacts[target].archive.filename).sort(), 'Family handoff must contain exactly its declared archives');
+  }
   for (const [target, artifact] of Object.entries(manifest.artifacts)) {
+    if (archiveTargets !== undefined && !archiveTargets.includes(target)) continue;
     const archive = path.join(archiveDirectory, artifact.archive.filename), metadata = await regularFile(archive);
     if (metadata.size !== artifact.archive.size || await derivativeFileSha256(archive) !== artifact.archive.sha256) throw new Error(`Prepared engine archive is corrupt: ${target}`);
     const names = (await command(opencodeArchiveTarExecutable(), ["-tzf", archive])).trim().split(/\r?\n/).sort();
@@ -132,6 +140,7 @@ function locations(options) {
 async function readPrepared(options, identity, locations, held = false) {
   if (!held && await exists(path.join(locations.generated, ".preparing.lock"))) throw new Error("Engine preparation is currently owned by another build.");
   const receipt = await readJson(locations.receiptPath), selection = await readJson(locations.selectionPath);
+  if (options.archiveTargets?.some(target => receipt.archiveTargets && !receipt.archiveTargets.includes(target))) throw new Error('Prepared handoff does not cover the requested archive family');
   if (receipt.sourceKey !== identity.sourceKey) throw new Error("Prepared engine source is stale; run engine preparation for this source/mode/target set.");
   validateBuildSelection(selection);
   if (receipt.schemaVersion !== 1 || receipt.kind !== "legalwork-source-preparation" || receipt.selectionSha256 !== sha256(await readFile(locations.selectionPath))
@@ -141,7 +150,7 @@ async function readPrepared(options, identity, locations, held = false) {
   if (selection.manifestContent !== manifestContent) throw new Error("Prepared selector does not retain the verified manifest.");
   if ((await sourceBuildIdentity({ mode: options.mode, targets: identity.targets })).sourceKey !== identity.sourceKey) throw new Error("Source inputs changed during prepared-engine verification.");
   if (!held && await exists(path.join(locations.generated, ".preparing.lock"))) throw new Error("Engine preparation changed while checking its prior receipt.");
-  return { ...locations, sourceKey: identity.sourceKey, manifestPath: receipt.manifestPath, manifestSha256: receipt.manifestSha256, archiveDirectory: receipt.archiveDirectory, targets: identity.targets, mode: options.mode };
+  return { ...locations, sourceKey: identity.sourceKey, manifestPath: receipt.manifestPath, manifestSha256: receipt.manifestSha256, archiveDirectory: receipt.archiveDirectory, targets: identity.targets, archiveTargets: receipt.archiveTargets, mode: options.mode };
 }
 
 /** Direct starts and skip-prep paths only validate; they never rebuild or mutate. */
@@ -167,6 +176,7 @@ export async function prepareOpencodeEngine(options) {
   const paths = locations(options);
   validateSourceBuildRequest(options);
   if ((options.distributionDirectory === undefined) !== (options.manifestSha256 === undefined)) throw new Error("Distribution reuse requires its directory and independent manifest SHA256 together.");
+  if (options.archiveTargets !== undefined && options.distributionDirectory === undefined) throw new Error('Archive-family selection requires an independently pinned producer handoff');
   return withPreparationLock(paths.generated, async () => {
     const hasSelector = await exists(paths.selectionPath), hasReceipt = await exists(paths.receiptPath);
     if (hasSelector !== hasReceipt) throw new Error("Incomplete prior engine publication; preserve it for inspection before preparing again.");
@@ -177,7 +187,8 @@ export async function prepareOpencodeEngine(options) {
     let built;
     if (options.distributionDirectory !== undefined) {
       const directory = await realpath(options.distributionDirectory);
-      built = { manifestPath: path.join(directory, "derivative-release.json"), archiveDirectory: path.join(directory, "archives"), manifestSha256: options.manifestSha256 };
+      built = { manifestPath: path.join(directory, "derivative-release.json"), archiveDirectory: path.join(directory, "archives"), manifestSha256: options.manifestSha256,
+        ...(options.archiveTargets === undefined ? {} : { archiveTargets: [...options.archiveTargets].sort() }) };
       const supplied = await verifyDerivativeDistribution(built);
       if (identity.targets.some(target => !supplied.targets.includes(target))) throw new Error("Supplied distribution does not cover the requested targets.");
       identity = await sourceBuildIdentity({ ...options, targets: [...supplied.targets] });
@@ -195,6 +206,7 @@ export async function prepareOpencodeEngine(options) {
     const selectionBytes = JSON.stringify(selection, null, 2) + "\n";
     const receipt = { schemaVersion: 1, kind: "legalwork-source-preparation", sourceKey: identity.sourceKey, mode: options.mode, targets: identity.targets,
       sourcePolicySha256, recipeSha256: recipePolicySha256, sourceInputs: identity.files, manifestPath: built.manifestPath, archiveDirectory: built.archiveDirectory,
+      ...(built.archiveTargets === undefined ? {} : { archiveTargets: built.archiveTargets }),
       manifestSha256: built.manifestSha256, selectionSha256: sha256(selectionBytes) };
     const suffix = randomUUID(), temporarySelection = path.join(paths.generated, `.selection-${suffix}.json`), temporaryReceipt = path.join(paths.generated, `.receipt-${suffix}.json`);
     await writeFile(temporarySelection, selectionBytes, { flag: "wx", mode: 0o644 });

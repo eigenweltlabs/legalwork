@@ -34,6 +34,7 @@ async function waitFor(check: () => Promise<boolean>, label: string) {
 }
 
 async function setup(url: string, oauth: false | { callbackPort: number }, activationDelayMs = 0) {
+  const fixtureStarted = performance.now();
   const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/native-recovery-lifecycle-"));
   const previous = { ...process.env };
   for (const key of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "LEGALWORK_RUNTIME_DB", "LEGALWORK_TOKEN_STORE", "LEGALWORK_STORAGE_STORE"]) process.env[key] = join(root, key);
@@ -59,16 +60,20 @@ async function setup(url: string, oauth: false | { callbackPort: number }, activ
     tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   const close = async () => {
+    const started = performance.now();
     await server?.stop();
     await rm(root, { recursive: true, force: true });
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
     Object.assign(process.env, previous);
+    console.log(JSON.stringify({ kind: 'ci-span', name: 'fixture:recovery:teardown', durationMs: Math.round(performance.now() - started) }));
   };
   try {
     await writeFile(config.configPath!, JSON.stringify({ workspaces: config.workspaces, authorizedRoots: directories }));
     await addMcp(config, "a", "notes", remote);
+    const bootStarted = performance.now();
     server = await startEmbeddedServer({ host: "127.0.0.1", port: 0, workspaces: [], configPath: config.configPath, token: config.token, hostToken: config.hostToken,
       approvalMode: "auto", logRequests: false, manageOpencode: true, managedEngineSandbox: false, opencodeBin: binary });
+    console.log(JSON.stringify({ kind: 'ci-span', name: 'fixture:recovery:engine-boot', durationMs: Math.round(performance.now() - bootStarted) }));
     Object.assign(config, server.config);
     const appUrl = server.url;
     async function request(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
@@ -87,11 +92,14 @@ async function setup(url: string, oauth: false | { callbackPort: number }, activ
     const proxy = async (workspace: "a" | "b", path: string, _body?: unknown) => path === "/mcp"
       ? Object.fromEntries((await native(workspace).mcp.list({ location: { directory: directory(workspace) } })).data.map(server => [server.name, server.status]))
       : path === "/mcp/notes/disconnect" ? native(workspace).mcp.disconnect({ location: { directory: directory(workspace) }, server: "notes" }) : (() => { throw new Error("Unsupported native fixture control"); })();
-    for (const workspace of ["a", "b"] satisfies Array<"a" | "b">) {
+    // These are separate native project contexts on the same fixture engine.
+    // Activate both without serially paying each project's plugin startup wait.
+    await Promise.all((["a", "b"] satisfies Array<"a" | "b">).map(async workspace => {
       expect(await request(`/workspace/${workspace}/engine-project`)).toMatchObject({ state: "ready", required: false });
       await waitForNativeFixture(() => directClient.model.list({ location: { directory: directory(workspace) } }), () => true, `initial plugin activation in workspace ${workspace}`);
       await waitFor(async () => statuses.parse(await direct(workspace, "/mcp")).notes?.status === "failed", "initial offline MCP state");
-    }
+    }));
+    console.log(JSON.stringify({ kind: 'ci-span', name: 'fixture:recovery:setup', durationMs: Math.round(performance.now() - fixtureStarted) }));
     return { config, app: request, proxy, direct, native, directory, close };
   } catch (error) { await close(); throw error; }
 }

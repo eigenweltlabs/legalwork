@@ -1,0 +1,22 @@
+name: Warm verified protected execution runtime cache
+on:
+  push:
+    branches: [dev]
+    paths:
+      - scripts/sandbox/**
+      - apps/server/resources/agent-sandbox/**
+      - scripts/ci/cache-sandbox-runtime.mjs
+      - .github/workflows/sandbox-runtime.yml
+      - .github/workflows/ci-runtime-cache.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sandbox-runtime-cache
+  cancel-in-progress: false
+jobs:
+  warm:
+    if: github.ref == 'refs/heads/dev'
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      run_tests: false

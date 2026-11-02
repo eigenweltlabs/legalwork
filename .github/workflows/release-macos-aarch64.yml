@@ -58,7 +58,7 @@ concurrency:
 
 jobs:
   opencode-engine:
-    needs: [resolve-release, verify-release]
+    needs: [ resolve-release, verify-release ]
     permissions:
       contents: read
       actions: read
@@ -259,7 +259,7 @@ jobs:
 
   publish-electron:
     name: Build + publish Electron (${{ matrix.artifact }})
-    needs: [resolve-release, verify-release, sandbox-runtime, opencode-engine]
+    needs: [ resolve-release, verify-release, sandbox-runtime, opencode-engine, portable-assets ]
     if: needs.resolve-release.outputs.build_electron == 'true'
     runs-on: ${{ matrix.platform }}
     # Apple notarization routes first-time/new-account submissions to "in-depth
@@ -320,7 +320,7 @@ jobs:
       - name: Download the same-run source-built engine
         uses: actions/download-artifact@v4
         with:
-          name: opencode-derivative-ci
+          name: opencode-derivative-ci-${{ runner.os }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode
@@ -328,29 +328,15 @@ jobs:
           build-mode: production
           archive-directory: ${{ runner.temp }}/opencode-derivative/archives
           manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
-
+          archive-family: "true"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
 
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        continue-on-error: true
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        uses: ./.github/actions/install-dependencies
 
       # After the frozen-lockfile install; electron-builder, the updater feed,
       # and app.getVersion() all pick the stamped version up from package.json.
@@ -406,6 +392,11 @@ jobs:
           mkdir -p apps/server/resources/agent-sandbox/runtime
           archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
           tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
+      - name: Download verified portable desktop assets
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-desktop-assets
+          path: apps/app
 
       - name: Build Electron app
         shell: bash
@@ -415,6 +406,7 @@ jobs:
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download (critical for cross-arch builds like x64 on arm64 mac).
           TARGET: ${{ matrix.target_triple }}
+          LEGALWORK_PREBUILT_UI: "1"
         run: pnpm --filter @legalwork/desktop build:electron:production
 
       - name: Package Electron (macOS, signed + notarized)
@@ -500,10 +492,18 @@ jobs:
             apps/desktop/dist-electron/latest*.yml
             apps/desktop/dist-electron/SHA256SUMS
           if-no-files-found: error
+      - name: Upload CI operation timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-timings-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/ci-spans.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
 
   publish-electron-windows:
     name: Build + Sign Windows (${{ matrix.target_triple }})
-    needs: [resolve-release, verify-release, sandbox-runtime, opencode-engine]
+    needs: [ resolve-release, verify-release, sandbox-runtime, opencode-engine, portable-assets ]
     if: needs.resolve-release.outputs.build_electron == 'true'
     environment: windows-signing
     permissions:
@@ -552,7 +552,7 @@ jobs:
       - name: Download the same-run source-built engine
         uses: actions/download-artifact@v4
         with:
-          name: opencode-derivative-ci
+          name: opencode-derivative-ci-${{ runner.os }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode
@@ -560,29 +560,15 @@ jobs:
           build-mode: production
           archive-directory: ${{ runner.temp }}/opencode-derivative/archives
           manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
-
+          archive-family: "true"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
 
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        continue-on-error: true
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        uses: ./.github/actions/install-dependencies
 
       # After the frozen-lockfile install; electron-builder, the updater feed,
       # and app.getVersion() all pick the stamped version up from package.json.
@@ -606,6 +592,11 @@ jobs:
           archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
           archive="$(cygpath -u "$archive")"
           tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
+      - name: Download verified portable desktop assets
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-desktop-assets
+          path: apps/app
 
       - name: Build Electron app
         shell: bash
@@ -615,6 +606,7 @@ jobs:
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download (critical for cross-arch builds like x64 on arm64 mac).
           TARGET: ${{ matrix.target_triple }}
+          LEGALWORK_PREBUILT_UI: "1"
         run: pnpm --filter @legalwork/desktop build:electron:production
 
       # Authenticate after the long build so the Azure CLI token is fresh.
@@ -682,10 +674,18 @@ jobs:
             apps/desktop/dist-electron/latest*.yml
             apps/desktop/dist-electron/SHA256SUMS
           if-no-files-found: error
+      - name: Upload CI operation timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-timings-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/ci-spans.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
 
   publish-electron-assets:
     name: Publish Electron Assets
-    needs: [resolve-release, verify-release, publish-electron, publish-electron-windows, opencode-engine]
+    needs: [ resolve-release, verify-release, publish-electron, publish-electron-windows, opencode-engine ]
     if: |
       always() &&
       needs.resolve-release.outputs.build_electron == 'true' &&
@@ -724,7 +724,7 @@ jobs:
 
   publish-npm:
     name: Publish npm packages
-    needs: [resolve-release, verify-release, opencode-engine]
+    needs: [ resolve-release, verify-release, opencode-engine ]
     if: |
       always() &&
       needs.resolve-release.result == 'success' &&
@@ -770,7 +770,6 @@ jobs:
           archive-directory: ${{ runner.temp }}/opencode-derivative/archives
           manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
 
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -781,22 +780,8 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        continue-on-error: true
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ubuntu-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ubuntu-pnpm-
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
+        uses: ./.github/actions/install-dependencies
 
       - name: Stamp release version from tag
         shell: bash
@@ -921,3 +906,12 @@ jobs:
           else
             echo "Release $RELEASE_TAG is already published; nothing to do."
           fi
+  portable-assets:
+    needs:
+      - resolve-release
+      - verify-release
+    if: needs.resolve-release.outputs.build_electron == 'true'
+    uses: ./.github/workflows/ci-portable-assets.yml
+    with:
+      ref: ${{ needs.resolve-release.outputs.release_tag }}
+      version: ${{ needs.resolve-release.outputs.release_tag }}

@@ -56,13 +56,37 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
+      - name: Identify exact sandbox build inputs
+        id: runtime-key
+        run: node scripts/ci/cache-sandbox-runtime.mjs key guest ${{ matrix.arch }}
+      - uses: actions/cache/restore@v4
+        id: runtime-cache
+        with:
+          path: apps/server/resources/agent-sandbox/runtime
+          key: ${{ steps.runtime-key.outputs.key }}
+      - name: Verify restored sandbox bytes
+        if: steps.runtime-cache.outputs.cache-hit == 'true'
+        run: node scripts/ci/cache-sandbox-runtime.mjs verify guest ${{ matrix.arch }}
       - run: node scripts/sandbox/build-guest.mjs ${{ matrix.arch }}
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+      - name: Seal newly built sandbox bytes
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        run: node scripts/ci/cache-sandbox-runtime.mjs seal guest ${{ matrix.arch }}
+      - name: Verify complete sandbox cache receipt
+        run: node scripts/ci/cache-sandbox-runtime.mjs verify guest ${{ matrix.arch }}
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.runtime-cache.outputs.cache-hit != 'true'
+        with:
+          path: apps/server/resources/agent-sandbox/runtime
+          key: ${{ steps.runtime-key.outputs.key }}
       - uses: actions/upload-artifact@v4
         with:
           name: sandbox-guest-${{ matrix.arch }}
-          path: apps/server/resources/agent-sandbox/runtime/
+          path: |
+            apps/server/resources/agent-sandbox/runtime/kernel
+            apps/server/resources/agent-sandbox/runtime/initrd.gz
   runtime:
-    needs: [targets, guest]
+    needs: [ targets, guest ]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.targets.outputs.runtime) }}
@@ -75,13 +99,27 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
+      - name: Identify exact sandbox build inputs
+        id: runtime-key
+        run: node scripts/ci/cache-sandbox-runtime.mjs key runtime ${{ matrix.arch }}
+      - uses: actions/cache/restore@v4
+        id: runtime-cache
+        with:
+          path: apps/server/resources/agent-sandbox/runtime
+          key: ${{ steps.runtime-key.outputs.key }}
+      - name: Verify restored sandbox bytes
+        if: steps.runtime-cache.outputs.cache-hit == 'true'
+        run: node scripts/ci/cache-sandbox-runtime.mjs verify runtime ${{ matrix.arch }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+        if: inputs.run_tests
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
-      - run: pnpm install --frozen-lockfile
+        if: inputs.run_tests
+      - uses: ./.github/actions/install-dependencies
+        if: inputs.run_tests
       - name: Prepare checksum-pinned Node for worker tests
         if: inputs.run_tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
@@ -89,32 +127,33 @@ jobs:
         with:
           name: sandbox-guest-${{ matrix.arch }}
           path: apps/server/resources/agent-sandbox/runtime/
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
       - name: Build QEMU (macOS)
-        if: runner.os == 'macOS'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'macOS')
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
         run: |
           brew install ninja pkgconf
           bash scripts/sandbox/build-macos.sh ${{ matrix.qemu }}
       - name: Install QEMU build dependency (Windows)
-        if: runner.os == 'Windows'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Windows')
         uses: msys2/setup-msys2@v2
         with:
           msystem: ${{ matrix.msystem }}
           path-type: inherit
           update: true
       - name: Install checksum-pinned QEMU packages (Windows)
-        if: runner.os == 'Windows'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Windows')
         shell: msys2 {0}
         run: bash scripts/sandbox/install-windows-qemu.sh ${{ matrix.prefix }}
       - name: Bundle QEMU (Windows)
-        if: runner.os == 'Windows'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Windows')
         shell: msys2 {0}
         run: |
           cc -O2 -municode -static scripts/sandbox/host-windows.c -o apps/server/resources/agent-sandbox/runtime/legalwork-host.exe
           node scripts/sandbox/package-runtime.mjs "$(cygpath -w /${{ matrix.prefix }}/bin/qemu-system-${{ matrix.qemu }}.exe)"
       - name: Build QEMU (Linux)
-        if: runner.os == 'Linux'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Linux')
         shell: bash
         run: |
           sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update
@@ -127,11 +166,28 @@ jobs:
           make -j2
           make install
       - name: Bundle QEMU (macOS and Linux)
-        if: runner.os != 'Windows'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os != 'Windows')
         shell: bash
         run: |
           binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
           QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"
+      - name: Seal newly built sandbox bytes
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        run: node scripts/ci/cache-sandbox-runtime.mjs seal runtime ${{ matrix.arch }}
+      - name: Verify complete sandbox cache receipt
+        run: node scripts/ci/cache-sandbox-runtime.mjs verify runtime ${{ matrix.arch }}
+      - name: Verify native runtime before reuse or shipping
+        shell: bash
+        run: |
+          node scripts/sandbox/verify-runtime.mjs
+          node -e 'const {spawnSync}=require("node:child_process"),p=require("node:path");const arch=process.arch==="arm64"?"aarch64":"x86_64";const r=spawnSync(p.resolve("apps/server/resources/agent-sandbox/runtime/qemu-system-"+arch+(process.platform==="win32"?".exe":"")),["--version"],{stdio:"inherit"});process.exit(r.status??1)'
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.runtime-cache.outputs.cache-hit != 'true'
+        with:
+          path: apps/server/resources/agent-sandbox/runtime
+          key: ${{ steps.runtime-key.outputs.key }}
+      - name: Keep cache receipts out of shipped runtimes
+        run: node -e 'require("node:fs").unlinkSync("apps/server/resources/agent-sandbox/runtime/.ci-cache-receipt.json")'
       # Preserve the built runtime before validation so manual package diagnostics
       # can run independently. Uploading it does not certify that tests passed.
       - name: Preserve executable modes in runtime artifact

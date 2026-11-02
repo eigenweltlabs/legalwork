@@ -21,6 +21,7 @@ function signingFixture(failures = {}) {
         },
       };
       if (name === "node:timers/promises") return { setTimeout: async (ms) => { delays.push(ms); } };
+      if (name === '../../../scripts/ci/timing.cjs') return { recordSpan() {} };
       return require(name);
     },
     process: { env: {

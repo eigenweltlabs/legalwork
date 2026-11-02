@@ -48,6 +48,8 @@ export function changeScope(paths) {
     if (/^scripts\/i18n/.test(file)) { enable('i18n', 'tooling'); continue; }
     if (/^scripts\/(ci|release)\//.test(file)) {
       enable('tooling');
+      if (/^scripts\/ci\/cache-sandbox-runtime/.test(file)) enable('server', 'desktop', 'sandbox', 'alpha');
+      if (/^scripts\/ci\/(portable-assets|run-tests|timing)/.test(file)) enable('app', 'server', 'desktop', 'alpha');
       if (/^scripts\/ci\/(build-opencode|reuse-opencode|cache-opencode|mac-engine)/.test(file)) enable('engine');
       continue;
     }
@@ -59,7 +61,7 @@ export function changeScope(paths) {
       if (/ci-docx\.yml$/.test(file)) enable('docx');
       if (/ci-legalwork-ui-mcp\.yml$/.test(file)) enable('ui_mcp');
       if (/alpha-|release-macos/.test(file)) enable('alpha');
-      if (/ci-tests|ci-desktop|ci-opencode|ci-windows-opencode|sandbox-runtime|setup-opencode|mac-engine-signing/.test(file)) {
+      if (/ci-tests|ci-desktop|ci-portable-assets|install-dependencies|ci-opencode|ci-windows-opencode|sandbox-runtime|setup-opencode|mac-engine-signing/.test(file)) {
         enable('app', 'server', 'desktop', 'sandbox');
       }
       if (/ci-tests\.yml$/.test(file)) enable('windows_meetings', 'windows_drafts', 'docs');

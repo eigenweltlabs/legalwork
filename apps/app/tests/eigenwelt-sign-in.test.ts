@@ -18,6 +18,9 @@ function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0
   let scheduledReloads = 0;
   const server = Bun.serve({
     port: 0,
+    // This fixture intentionally answers after the former ten-second client
+    // deadline; the HTTP server must not close the connection before then.
+    idleTimeout: 30,
     async fetch(request) {
       const path = new URL(request.url).pathname;
       requests.push(`${request.method} ${path}`);

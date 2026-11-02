@@ -47,15 +47,16 @@ remain where unit fixtures require them. Tests that declare
 `LEGALWORK_TEST_OPENCODE_BIN` skip their real-engine fixtures in this job.
 
 The existing required `legalwork-tests (ubuntu-latest)` and
-`legalwork-tests (macos-14)` names remain. They require the unit matrix and, when
-selected, the verified engine producer to succeed before executing integration
-checks. A failed producer is reported as a failed required check rather than a
+`legalwork-tests (macos-14)` names remain. They are final gates over every selected check, including units, integration,
+protected-runtime tests and manual packaging acceptance. Integration starts as
+soon as its verified engine is ready, independently of the unit matrix. A failed
+selected producer or test is reported as a failed required check rather than a
 skipped check. Pure presentation changes need only the successful unit matrix.
 
 `scripts/ci/run-engine-tests.mjs` collects every server test file declaring the
 real-engine fixture variable, including newly added files. It refuses to run
 without the verified engine. Desktop runtime tests import the generated engine selection and therefore stay
-in this gated job too. These tests, browser/e2e checks and prompt-cache
+in the engine integration job too. These tests, browser/e2e checks and prompt-cache
 acceptance remain behind engine setup. The final selected-check summary also
 includes the unit matrix. Sandbox skip labels and manual acceptance modes keep
 their existing scope.
@@ -72,3 +73,19 @@ required status failure propagation, real-engine test discovery, cache
 verification and production-policy separation. A live shared-cache hit can be
 checked after the producer is merged and completes on `dev`: the next ordinary
 PR's engine job should restore and verify the cache while skipping compilation.
+
+
+## Native archive delivery
+
+The producer retains a complete twelve-target distribution and its pinned
+manifest for universal publication and diagnostics. Native consumers download
+only their macOS, Linux or Windows archive family, together with that complete
+manifest. An explicit family selection is accepted only with an independently
+pinned manifest digest; every delivered archive still passes its hash,
+provenance and signature checks. The handoff receipt records its coverage, so
+warming a family cannot masquerade as a complete distribution. Production
+always compiles all reviewed targets afresh using two independent staging
+workers and requires its existing signing identity.
+
+See [CI and execution efficiency](ci-efficiency.md) for scheduling, runtime
+caches, portable builds and the reproducible benchmark command.
