@@ -18,7 +18,7 @@ import { describeRouteError } from "@/react-app/shell/route-workspaces";
 import { acknowledgeInteraction, seedTodoState, todoKey } from "./session-sync";
 import {
   permissionKey, questionKey, interactionSessionsKey, emptyInteractionSessions,
-  interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion, permissionToolInput,
+  interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion, cancelQuestion as cancelNativeQuestion, permissionToolInput,
   type InteractionSessions,
 } from "./interaction-state";
 
@@ -152,14 +152,15 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
 
   const activeQuestion = permissionFirst ? null : firstQuestion ?? null;
   const respondQuestion = useCallback(
-    async (requestID: string, answers: string[][]) => {
+    async (requestID: string, answers: string[][] | null) => {
       if (!client || !workspaceId || !sessionId) return;
       const pendingQuestion = pendingQuestions.find((question) => question.id === requestID);
       if (!pendingQuestion || questionReplyBusyRef.current) return;
       questionReplyBusyRef.current = true;
       setQuestionReplyBusy(true);
       try {
-        await replyToQuestion(client, pendingQuestion, answers, workspaceRoot);
+        if (answers === null) await cancelNativeQuestion(client, pendingQuestion);
+        else await replyToQuestion(client, pendingQuestion, answers, workspaceRoot);
         acknowledgeInteraction(workspaceId, pendingQuestion.sessionID, requestID, "question");
       } catch (error) {
         toast.error(t("app.error_request_failed"), {
@@ -172,6 +173,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     },
     [client, pendingQuestions, sessionId, workspaceId, workspaceRoot],
   );
+  const cancelQuestion = useCallback((requestID: string) => respondQuestion(requestID, null), [respondQuestion]);
 
   return {
     pendingInteractionSessionIds,
@@ -182,6 +184,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     activeQuestion,
     questionReplyBusy,
     respondQuestion,
+    cancelQuestion,
     todos,
   };
 }
