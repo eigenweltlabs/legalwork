@@ -330,6 +330,8 @@ jobs:
 
       - name: Build UI for unsaved-change Electron checks
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm --filter @legalwork/app build
 
       - name: Verify workflow editing and close/restart decisions in Electron
