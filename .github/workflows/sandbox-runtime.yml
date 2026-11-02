@@ -14,6 +14,10 @@ on:
         description: Run sandbox validation after preparing the runtime
         type: boolean
         default: true
+      publish_runtime:
+        description: Retain native runtime artifacts for same-run consumers
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       targets:
@@ -83,9 +87,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: sandbox-guest-${{ matrix.arch }}
-          path: |
-            apps/server/resources/agent-sandbox/runtime/kernel
-            apps/server/resources/agent-sandbox/runtime/initrd.gz
+          path: apps/server/resources/agent-sandbox/runtime/*
+          include-hidden-files: false
+          retention-days: 1
   runtime:
     needs: [ targets, guest ]
     strategy:
@@ -193,9 +197,11 @@ jobs:
       # Preserve the built runtime before validation so manual package diagnostics
       # can run independently. Uploading it does not certify that tests passed.
       - name: Preserve executable modes in runtime artifact
+        if: inputs.publish_runtime
         shell: bash
         run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
       - uses: actions/upload-artifact@v4
+        if: inputs.publish_runtime
         with:
           name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
           path: sandbox-runtime.tgz

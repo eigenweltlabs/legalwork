@@ -9,6 +9,9 @@ on:
       - .github/workflows/sandbox-runtime.yml
       - .github/workflows/ci-runtime-cache.yml
   workflow_dispatch:
+  # Image/toolchain revisions are part of the exact cache key.
+  schedule:
+    - cron: '17 4 * * *'
 permissions:
   contents: read
 concurrency:
@@ -20,3 +23,4 @@ jobs:
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       run_tests: false
+      publish_runtime: false

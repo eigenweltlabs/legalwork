@@ -32,7 +32,7 @@ test('unit jobs start independently while integration jobs require the verified 
   assert.equal(condition(main.jobs['opencode-derivative'].if, session), true);
   assert.equal(condition(main.jobs['unit-tests'].if, session, { engine: 'failure' }), true);
   assert.equal(condition(main.jobs['unit-tests'].if, session, { engine: 'success' }), true);
-  assert.equal(condition(integration.if, ui), true);
+  assert.equal(condition(integration.if, ui), false);
   for (const engine of ['failure', 'cancelled', 'skipped']) assert.equal(condition(integration.if, session, { engine }), true);
   assert.equal(condition(integration.if, session, { engine: 'success' }), true);
   assert.equal(condition(e2e.if, session), true);

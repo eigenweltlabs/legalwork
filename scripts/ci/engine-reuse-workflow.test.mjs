@@ -64,6 +64,7 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   const script = fileURLToPath(new URL('./run-engine-tests.mjs', import.meta.url));
   assert.throws(() => execFileSync(process.execPath, [script], { env: { ...process.env, LEGALWORK_TEST_OPENCODE_BIN: '' }, stdio: 'pipe' }), /Set up the verified engine/);
   const integration = workflow('ci-tests').jobs['engine-tests'];
+  assert.match(integration.if, /needs.changes.outputs.engine == 'true'/);
   const serverTests = integration.steps.find(step => step.name === 'Run server engine integration tests');
   assert.equal(serverTests.if, "needs.changes.outputs.server == 'true'");
   assert.match(serverTests.run, /run-engine-tests.mjs/);
@@ -105,6 +106,13 @@ test('runtime cache hits retain verification and isolation tests while skipping 
     for (const step of job.steps.filter(step => step.uses === 'actions/cache/save@v4')) assert.equal(step.if, "steps.runtime-cache.outputs.cache-hit != 'true'");
   }
   assert.equal(workflow('ci-runtime-cache').jobs.warm.with.run_tests, false);
+  assert.equal(workflow('ci-runtime-cache').jobs.warm.with.publish_runtime, false);
+  assert.ok(workflow('ci-runtime-cache').on.schedule.length);
+  const guest = jobs.guest.steps.find(step => step.with?.name === 'sandbox-guest-${{ matrix.arch }}');
+  assert.equal(guest.with.path, 'apps/server/resources/agent-sandbox/runtime/*');
+  assert.equal(guest.with['include-hidden-files'], false);
+  const artifact = jobs.runtime.steps.find(step => step.with?.name === 'sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}');
+  assert.equal(artifact.if, 'inputs.publish_runtime');
 });
 
 test('every native package consumer uses one portable producer and an OS-family engine handoff', () => {
@@ -117,7 +125,7 @@ test('every native package consumer uses one portable producer and an OS-family 
       assert.ok(job.needs.includes('portable-assets'), name);
       assert.ok(job.steps.some(step => step.uses === 'actions/download-artifact@v4' && step.with.name === 'portable-desktop-assets'));
       const engine = job.steps.find(step => step.uses === './.github/actions/setup-opencode');
-      assert.equal(engine.with['archive-family'], 'true');
+      assert.equal(engine.with['archive-family'], name === 'ci-desktop-packaging' ? "${{ inputs.derivative-manifest-sha256 != '' }}" : 'true');
       assert.ok(job.steps.some(step => step.with?.name === 'opencode-derivative-ci-${{ runner.os }}'));
     }
   }
