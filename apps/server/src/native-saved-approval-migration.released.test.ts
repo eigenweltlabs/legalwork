@@ -1,3 +1,4 @@
+import { waitForNativeFixture } from "./native-mcp.test-support.js";
 import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "./native-fixture-directory.test-support.js";
 import { expect, test } from "bun:test";
 import { mkdir, readFile, readdir, realpath } from "node:fs/promises";
@@ -34,7 +35,7 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
     for (const workspace of config.workspaces) {
       const location = { directory: workspace.path };
       await client.location.get({ location });
-      await client.model.list({ location });
+      await waitForNativeFixture(() => client.model.list({ location }), () => true, `native project ${workspace.id} plugin activation`);
     }
     return client;
   };

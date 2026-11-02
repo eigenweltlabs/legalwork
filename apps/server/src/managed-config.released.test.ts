@@ -1,3 +1,4 @@
+import { waitForNativeFixture } from "./native-mcp.test-support.js";
 import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "./native-fixture-directory.test-support.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
@@ -45,7 +46,7 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     config.opencodeBaseUrl=engine.url;config.opencodeUsername=engine.username;config.opencodePassword=engine.password;
     const client=OpenCode.make({baseUrl:engine.url,headers:{authorization:`Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`}});
     const locationA={directory:a},locationB={directory:b};
-    const modelsA=await client.model.list({location:locationA}),modelsB=await client.model.list({location:locationB});
+    const modelsA=await waitForNativeFixture(() => client.model.list({location:locationA}), () => true, "project a plugins"),modelsB=await waitForNativeFixture(() => client.model.list({location:locationB}), () => true, "project b plugins");
     const plugins=await client.plugin.list({location:locationA});
     expect(plugins.data.filter(plugin=>plugin.state.status==="failed").map(plugin=>({id:plugin.id,state:plugin.state}))).toEqual([]);
     expect(plugins.data.map(plugin=>({id:plugin.id,state:plugin.state}))).toContainEqual(expect.objectContaining({id:"fixture.shared-tool"}));
@@ -79,7 +80,7 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     // Reload boots replacement services, but model.list also awaits lazy
     // plugin activation; mcp.list alone only reads the current server list.
     await Promise.all([{ directory: root }, locationA].map(async location => {
-      await client.model.list({ location });
+      await waitForNativeFixture(() => client.model.list({ location }), () => true, "reloaded project plugins");
       await client.mcp.list({ location });
     }));
     expect(await readFile(join(a,"opencode.json"),"utf8")).toContain("untrusted-plugin");
