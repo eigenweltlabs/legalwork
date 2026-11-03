@@ -53,3 +53,54 @@ test("navigation, cancellation and renderer errors cannot echo the password", as
   moved.set({ url: "about:blank" });
   assert.deepEqual(await original.list(new AbortController().signal), { website: null, passwords: [] });
 });
+
+function autofillFixture() {
+  const messages = [];
+  const saved = { id: "saved", label: "Work", username: "lawyer", password: "synthetic-secret", origin: "https://example.org" };
+  const contents = { getURL: () => "https://example.org/login", isDestroyed: () => false, mainFrame: { detached: false, send: (...args) => messages.push(args) } };
+  const tab = { view: { webContents: contents }, autofillGeneration: 1 };
+  const store = { list: async () => [{ id: saved.id, label: saved.label, username: saved.username }], get: async () => saved, matchesWebsite: (origin, url) => new URL(url).origin === origin };
+  const event = { sender: contents, senderFrame: contents.mainFrame };
+  const details = { document: "document", token: "field", rect: { x: 10, y: 20, width: 200, height: 30 } };
+  return { messages, saved, contents, tab, store, event, details };
+}
+
+const { prepareBrowserAutofill } = await import("./browser-autofill.mjs");
+test("manual suggestions contain account metadata and release values only after a matching choice", async () => {
+  const f = autofillFixture();
+  const suggestion = await prepareBrowserAutofill(f.tab, f.event, f.details, async () => f.store, () => true);
+  assert.deepEqual(suggestion.items, [{ id: "saved", label: "Work", description: "lawyer" }]);
+  assert.equal(JSON.stringify(suggestion).includes(f.saved.password), false);
+  assert.equal(await suggestion.fill("unknown"), false);
+  assert.equal(f.messages.length, 0);
+  assert.equal(await suggestion.fill("saved"), true);
+  assert.deepEqual(f.messages[0], ["legalwork:autofill:fill", { document: "document", token: "field", url: "https://example.org/login", username: "lawyer", password: "synthetic-secret" }]);
+});
+
+test("manual filling rejects hidden tabs, foreign frames, remote contexts and invalid geometry", async () => {
+  for (const alter of [f => { f.event.sender = {}; }, f => { f.event.senderFrame = {}; }, f => { f.tab.nativeContext = { remote: true }; }, f => { f.details.rect.x = NaN; }]) {
+    const f = autofillFixture(); alter(f);
+    assert.equal(await prepareBrowserAutofill(f.tab, f.event, f.details, async () => { throw new Error("Must not read the vault"); }, () => true), null);
+  }
+  const f = autofillFixture();
+  assert.equal(await prepareBrowserAutofill(f.tab, f.event, f.details, async () => f.store, () => false), null);
+});
+
+test("navigation during lookup or after selection and changed saved origins never fill", async () => {
+  const f = autofillFixture();
+  const lookup = { ...f.store, list: async () => { f.tab.autofillGeneration++; return f.store.list(); } };
+  assert.equal(await prepareBrowserAutofill(f.tab, f.event, f.details, async () => lookup, () => true), null);
+  for (const alter of [() => { f.tab.autofillGeneration++; }, () => { f.saved.origin = "https://other.org"; }, () => { f.contents.getURL = () => "https://other.org"; }]) {
+    const suggestion = await prepareBrowserAutofill(f.tab, f.event, f.details, async () => f.store, () => true);
+    alter(); assert.equal(await suggestion.fill("saved"), false);
+  }
+  assert.equal(f.messages.length, 0);
+});
+
+test("a navigation while the selected credential is being read invalidates the fill", async () => {
+  const f = autofillFixture();
+  f.store.get = async () => { f.tab.autofillGeneration++; return f.saved; };
+  const suggestion = await prepareBrowserAutofill(f.tab, f.event, f.details, async () => f.store, () => true);
+  assert.equal(await suggestion.fill("saved"), false);
+  assert.equal(f.messages.length, 0);
+});
