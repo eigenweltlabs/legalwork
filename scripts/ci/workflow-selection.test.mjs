@@ -10,9 +10,9 @@ import { changeScope } from './change-scope.mjs';
 const { parse } = createRequire(new URL('../../apps/desktop/package.json', import.meta.url))('yaml');
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'), { uniqueKeys: true });
 const main = workflow('ci-tests');
-function condition(expression, scope, { engine = 'skipped', event = 'pull_request', inputs = {}, os = 'Linux' } = {}) {
+function condition(expression, scope, { engine = 'skipped', event = 'pull_request', inputs = {}, os = 'Linux', sandbox = 'skipped' } = {}) {
   const needs = { changes: { result: 'success', outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)])) },
-    'opencode-derivative': { result: engine }, 'pr-renderer': { result: 'success' }, 'engine-build-inputs': { result: 'success' } };
+    'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'pr-renderer': { result: 'success' }, 'engine-build-inputs': { result: 'success' } };
   const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]');
   return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', `return (${js});`)(needs,
     { event_name: event }, inputs, { os }, () => true, () => false));
@@ -112,7 +112,12 @@ test('PR sandbox validation covers all six exact producer archives without a lat
   }
   const protectedStep = integration.steps.find(step => step.name === 'Verify the shipped engine uses protected execution');
   assert.equal(protectedStep.env.LEGALWORK_SANDBOX_INTEGRATION, '1');
-  for (const file of ['agent-sandbox/engine.integration.test.ts', 'opencode-plugins/legalwork-skill-resources.integration.test.ts']) assert.ok(protectedStep.run.includes(file));
+  assert.ok(protectedStep.run.includes('agent-sandbox/engine.integration.test.ts'));
+  assert.ok(!protectedStep.run.includes('legalwork-skill-resources.integration.test.ts'));
+  const resources = integration.steps.find(step => step.name === 'Verify workflow resources with the shipped engine');
+  assert.equal(condition(resources.if, changeScope(null), { sandbox: 'success' }), false);
+  assert.equal(condition(resources.if, changeScope(['apps/desktop/electron/runtime.mjs']), { sandbox: 'success' }), true);
+  assert.equal(condition(resources.if, changeScope(['apps/desktop/electron/runtime.mjs'])), false);
   assert.ok(main.jobs['legalwork-tests'].needs.includes('sandbox-validation'));
   assert.ok(main.jobs['ci-result'].needs.includes('sandbox-validation'));
 });

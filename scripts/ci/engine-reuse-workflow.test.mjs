@@ -69,7 +69,12 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   assert.equal(serverTests.if, "needs.changes.outputs.server == 'true'");
   assert.match(serverTests.run, /run-engine-tests.mjs/);
   const files = engineTestFiles(fileURLToPath(new URL('../../apps/server/src', import.meta.url)));
-  for (const suffix of ['managed-opencode.released.test.ts', 'scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts']) assert.ok(files.some(filename => filename.endsWith(suffix)), suffix);
+  for (const file of ['managed-opencode.released.test.ts', 'agent-sandbox/engine.integration.test.ts']) {
+    assert.ok(!files.some(filename => filename.endsWith('/' + file)));
+    assert.ok(integration.steps.some(step => step.run?.includes(file)), `Missing dedicated engine execution: ${file}`);
+  }
+  assert.ok(files.some(filename => filename.endsWith('/opencode-plugins/legalwork-skill-resources.integration.test.ts')));
+  for (const suffix of ['scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts']) assert.ok(files.some(filename => filename.endsWith(suffix)), suffix);
 });
 
 test('existing required check names fail if units or a selected engine build fail', () => {

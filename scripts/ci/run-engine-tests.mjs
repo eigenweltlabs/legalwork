@@ -5,12 +5,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runTests } from './run-tests.mjs';
+import { standaloneEngineTestFiles } from './sandbox-test-files.mjs';
+
+const standalone = new Set(standaloneEngineTestFiles.map(file => fileURLToPath(new URL(`../../apps/server/src/${file}`, import.meta.url))));
 
 export function engineTestFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const filename = path.join(directory, entry.name);
     if (entry.isDirectory()) return engineTestFiles(filename);
-    return entry.isFile() && /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)
+    return entry.isFile() && !standalone.has(filename) && /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)
       && readFileSync(filename, 'utf8').includes('LEGALWORK_TEST_OPENCODE_BIN') ? [filename] : [];
   }).sort();
 }

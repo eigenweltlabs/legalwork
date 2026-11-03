@@ -49,7 +49,7 @@ export function changeScope(paths) {
     if (/^scripts\/(ci|release)\//.test(file)) {
       enable('tooling');
       if (/^scripts\/ci\/cache-sandbox-runtime/.test(file)) enable('server', 'desktop', 'sandbox', 'alpha');
-      if (/^scripts\/ci\/(portable-assets|run-tests|timing)/.test(file)) enable('app', 'server', 'desktop', 'alpha');
+      if (/^scripts\/ci\/(portable-assets|run-tests|run-engine-tests|run-sandbox-tests|sandbox-test-files|timing)/.test(file)) enable('app', 'server', 'desktop', 'alpha');
       if (/^scripts\/ci\/(build-opencode|reuse-opencode|cache-opencode|mac-engine)/.test(file)) enable('engine');
       continue;
     }

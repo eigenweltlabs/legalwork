@@ -610,7 +610,13 @@ jobs:
         if: needs.sandbox-runtime.result == 'success'
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
-        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts
+
+      # The full server engine suite discovers this case. Preserve its earlier
+      # coverage for runtime-only changes that do not select that full suite.
+      - name: Verify workflow resources with the shipped engine
+        if: needs.changes.outputs.server != 'true' && needs.sandbox-runtime.result == 'success'
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
 
       - name: Run desktop unit tests
         if: needs.changes.outputs.desktop == 'true'

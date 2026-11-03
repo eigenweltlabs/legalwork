@@ -28,4 +28,4 @@ runs:
         if [ '${{ runner.os }}' = macOS ]; then
           sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
         fi
-        bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts apps/server/src/skill-package.test.ts
+        node scripts/ci/run-sandbox-tests.mjs
