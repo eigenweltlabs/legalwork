@@ -77,17 +77,21 @@ export async function sameProjectDirectory(a: string, b: string, options: MatchO
 
 /** Closest (longest) registered project that contains `directory`, or undefined. */
 export async function findProjectForDirectory<T extends { path: string }>(items: T[], directory: string, options: MatchOptions = {}): Promise<T | undefined> {
-  const sorted = [...items].filter(item => item.path).sort((a, b) => b.path.length - a.path.length);
+  const candidates = items.filter(item => item.path);
   const key = projectPathKey(directory, options);
-  const lexical = sorted.find(item => pathKeyWithin(projectPathKey(item.path, options), key));
-  if (lexical) return lexical;
+  const exact = candidates.find(item => projectPathKey(item.path, options) === key);
+  if (exact) return exact;
+  // A lexical parent can hide a nested root registered through another alias.
+  // Compare canonical roots before falling back to normalized lexical paths.
   const canonicalDirectory = projectPathKey(await canonicalProjectPath(directory), options);
-  const canonical = await Promise.all(sorted.map(async item => ({ item, key: projectPathKey(await canonicalProjectPath(item.path), options) })));
-  return canonical.sort((a, b) => b.key.length - a.key.length).find(entry => pathKeyWithin(entry.key, canonicalDirectory))?.item;
+  const canonical = await Promise.all(candidates.map(async item => ({ item, key: projectPathKey(await canonicalProjectPath(item.path), options) })));
+  const match = canonical.sort((a, b) => b.key.length - a.key.length).find(entry => pathKeyWithin(entry.key, canonicalDirectory));
+  if (match) return match.item;
+  return candidates.map(item => ({ item, key: projectPathKey(item.path, options) }))
+    .sort((a, b) => b.key.length - a.key.length).find(entry => pathKeyWithin(entry.key, key))?.item;
 }
 
 /** Test seam: forget cached canonical paths. */
 export function clearProjectPathCache(): void {
   canonicalCache.clear();
 }
-

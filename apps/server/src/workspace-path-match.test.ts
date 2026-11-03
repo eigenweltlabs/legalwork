@@ -43,6 +43,26 @@ describe("project path matching", () => {
     expect(match?.id).toBe("inner");
   });
 
+  test("a canonical nested project wins over a lexical parent in either alias direction", async () => {
+    for (const { outer, inner, directory } of [
+      { outer: join(root, "share", "Matters"), inner: join(alias, "Matters", "Example Matter"), directory: join(real, "Drafts") },
+      { outer: join(alias, "Matters"), inner: real, directory: join(alias, "Matters", "Example Matter", "Drafts") },
+    ]) {
+      const match = await findProjectForDirectory([{ id: "outer", path: outer }, { id: "inner", path: inner }], directory);
+      expect(match?.id).toBe("inner");
+    }
+  });
+
+  test("Windows prefixes do not make a parent more specific than its nested project", async () => {
+    for (const { outer, inner } of [
+      { outer: String.raw`\\?\C:\Matters`, inner: String.raw`C:\Matters\X` },
+      { outer: String.raw`\\?\UNC\localhost\share\Matters`, inner: String.raw`\\localhost\share\Matters\X` },
+    ]) {
+      const match = await findProjectForDirectory([{ id: "outer", path: outer }, { id: "inner", path: inner }], `${inner}\\Drafts`, { platform: "win32" });
+      expect(match?.id).toBe("inner");
+    }
+  });
+
   test("sibling folders and prefixes of a folder name never match", async () => {
     await mkdir(join(root, "share", "Matters", "Example Matter 2"), { recursive: true });
     expect(await directoryWithinProject(real, join(root, "share", "Matters", "Example Matter 2"))).toBe(false);
