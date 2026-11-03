@@ -3,11 +3,13 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { applyGlobalToolPermissions, closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readGlobalToolPermissions,
+import { applyGlobalToolPermissions, closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, GLOBAL_TOOL_PERMISSIONS_ID, readGlobalToolPermissions,
   readRuntimeConfigUpgradeBackups, readRuntimeOpencodeConfig, runtimeConfigUpgradeNotices, runtimeEngineConfiguration, writeRuntimeOpencodeConfig, onRuntimeOpencodeConfigWrite, writeSandboxRuntimeConfig, bootstrapRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { SANDBOX_DEFAULT_ID, sandboxSessionId, writeSandboxDefault, writeSessionSandbox } from "./agent-sandbox/settings.js";
 import { openNativeConfigState } from "./native-config-state.js";
+import { resetOrgPolicyRuntimeForTests } from "./org-policy.js";
+import { closeEigenweltConnectionForTests } from "./eigenwelt-connection-store.js";
 
 async function fixture(run: (config: ServerConfig, path: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-native-config-upgrade-"));
@@ -17,7 +19,13 @@ async function fixture(run: (config: ServerConfig, path: string) => Promise<void
     approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [], workspaces: [], authorizedRoots: [root], readOnly: false,
     startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false };
   try { await run(config, path); }
-  finally { await closeRuntimeOpencodeConfig(config); if (previous === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous; await rm(root, { recursive: true, force: true }); }
+  finally {
+    await resetOrgPolicyRuntimeForTests(config);
+    await closeRuntimeOpencodeConfig(config);
+    await closeEigenweltConnectionForTests(config);
+    if (previous === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous;
+    await rm(root, { recursive: true, force: true });
+  }
 }
 function seed(path: string, id: string, json: string) {
   const db = new Database(path);
@@ -31,6 +39,54 @@ function row(path: string, id: string, retired = false) {
   try { return db.query<{ json: string; updatedAt: number }, [string]>(`SELECT config_json AS json, updated_at AS updatedAt FROM ${retired ? "runtime_opencode_configs" : "native_runtime_configs"} WHERE workspace_id = ?`).get(id); }
   finally { db.close(); }
 }
+
+test.each(["legacy", "blocked", "native"])("startup repairs %s MCP settings, retaining originals, credentials and restrictions", kind => fixture(async (config, path) => {
+  const original = JSON.stringify({ configurationVersion: 2, permissions: [{ action: "shell", resource: "*", effect: "deny" }],
+    mcp: { servers: { fibery: { type: "remote", url: "https://fixture.invalid/mcp", enabled: false,
+      headers: { Authorization: "Bearer synthetic-token" }, oauth: { client_id: "synthetic-client", client_secret: "synthetic-secret", scope: "read" } } } } });
+  if (kind === "native") {
+    const previousBuild = await openNativeConfigState(path);
+    previousBuild.upsert({ workspaceId: GLOBAL_MCP_ID, configJson: original, updatedAt: 1 });
+    previousBuild.close();
+    await expect(readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).rejects.toMatchObject({ status: 409 });
+    await closeRuntimeOpencodeConfig(config);
+  } else {
+    seed(path, GLOBAL_MCP_ID, original);
+    if (kind === "blocked") {
+      const previousBuild = await openNativeConfigState(path, () => { throw new Error("Historical MCP schema mismatch"); });
+      expect(() => previousBuild.get(GLOBAL_MCP_ID)).toThrow();
+      previousBuild.close();
+    }
+  }
+  await bootstrapRuntimeOpencodeConfig(config);
+  const imported = await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID);
+  expect(imported.mcp?.servers?.fibery).toEqual({ type: "remote", url: "https://fixture.invalid/mcp", disabled: true,
+    headers: { Authorization: "Bearer synthetic-token" }, oauth: { client_id: "synthetic-client", client_secret: "synthetic-secret", scope: "read" } });
+  expect(imported.permissions).toEqual([{ action: "shell", resource: "*", effect: "deny" }]);
+  const backups = await readRuntimeConfigUpgradeBackups(config, GLOBAL_MCP_ID);
+  expect(backups).toHaveLength(1);
+  expect(backups[0]?.configJson).toBe(original);
+  await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current,
+    mcp: { ...current.mcp, servers: { ...current.mcp?.servers, fibery: { ...current.mcp?.servers?.fibery, type: "remote", url: "https://fixture.invalid/mcp", disabled: false } } } }));
+  const edited = row(path, GLOBAL_MCP_ID);
+  await closeRuntimeOpencodeConfig(config);
+  await bootstrapRuntimeOpencodeConfig(config);
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.fibery.disabled).toBe(false);
+  expect(row(path, GLOBAL_MCP_ID)).toEqual(edited);
+  expect(await readRuntimeConfigUpgradeBackups(config, GLOBAL_MCP_ID)).toEqual(backups);
+}));
+
+test("startup does not repair conflicting or otherwise invalid native settings", () => fixture(async (config, path) => {
+  const original = JSON.stringify({ configurationVersion: 2, permissions: [{ action: "shell", resource: "*", effect: "deny" }],
+    mcp: { servers: { fibery: { type: "remote", url: "https://fixture.invalid/mcp", enabled: false, disabled: false } } } });
+  const previousBuild = await openNativeConfigState(path);
+  previousBuild.upsert({ workspaceId: GLOBAL_MCP_ID, configJson: original, updatedAt: 1 });
+  previousBuild.close();
+  await bootstrapRuntimeOpencodeConfig(config);
+  await expect(readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).rejects.toMatchObject({ status: 409 });
+  expect(row(path, GLOBAL_MCP_ID)).toEqual({ json: original, updatedAt: 1 });
+  expect(await readRuntimeConfigUpgradeBackups(config, GLOBAL_MCP_ID)).toEqual([]);
+}));
 
 test.each([false, true])("v1 UI custom providers import with their exact selected models (previously blocked=%s)", async blocked => fixture(async (config, path) => {
   const original = JSON.stringify({ provider: { openai: { npm: "@ai-sdk/openai-compatible", name: "Custom endpoint", options: { baseURL: "https://example.invalid/v1" }, whitelist: ["selected"], models: { selected: { name: "Selected" }, excluded: { name: "Old definition" } } } } });
