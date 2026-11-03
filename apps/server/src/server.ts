@@ -4911,10 +4911,12 @@ function createRoutes(
     if (!scope) throw new ApiError(404, "connector_not_found", "This connector is no longer available.");
     const removals = mcpEditRemovalsSchema.safeParse(body);
     if (!removals.success) throw new ApiError(400, "invalid_payload", "Connector removals must name header, environment or optional setting fields.");
-    const result = await addMcp(config, workspace.id, name, configPayload, scope, body.preserveScope === true ? removals.data : undefined);
-    // Hot-add into the running engine so connect/auth works immediately,
-    // without waiting for an engine instance rebuild.
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+    const result = await withPluginImportLock(() => publishRuntimeConfigChanges(config, workspace.id, () =>
+      addMcp(config, workspace.id, name, configPayload, scope, body.preserveScope === true ? removals.data : undefined)));
+    // Publish once, then retain the existing refresh order and completion
+    // barrier: connect this project first, then await all other shared-project
+    // refreshes before the client starts OAuth. Reuse the published settings.
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], true).catch(() => undefined);
     if (scope === "global") await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -5759,7 +5761,7 @@ async function syncSharedMcpToOtherWorkspaces(
 ): Promise<void> {
   await Promise.all(
     otherLocalWorkspaces(config, origin).map((workspace) =>
-      syncRuntimeMcpToOpencodeEngine(config, workspace, names).catch(() => undefined),
+      syncRuntimeMcpToOpencodeEngine(config, workspace, names, true).catch(() => undefined),
     ),
   );
 }

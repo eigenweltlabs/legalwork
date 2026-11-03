@@ -13,6 +13,7 @@ import { waitForNativeFixture } from "./native-mcp.test-support.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation } from "./plugin-create.js";
 import { installPluginImport } from "./plugin-import-install.js";
+import { withPluginImportLock } from "./plugin-imports.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, onRuntimeOpencodeConfigWrite, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
@@ -35,7 +36,7 @@ async function fixture(run: (config: ServerConfig) => Promise<void>) {
   }
 }
 
-test("creating a custom plugin publishes once for 11 projects without waiting on other engines", async () => fixture(async config => {
+for (const kind of ["plugin", "connector"]) test(`creating a custom ${kind} publishes once and preserves its project refresh barrier`, async () => fixture(async config => {
   const origin = config.workspaces[0]!;
   const refreshed: string[] = [];
   let releaseOther = () => {}, notifyOther = () => {};
@@ -43,10 +44,16 @@ test("creating a custom plugin publishes once for 11 projects without waiting on
   const otherRequested = new Promise<void>(resolve => { notifyOther = resolve; });
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
+    if (url.pathname === "/api/config") return Response.json([]);
     if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
       const directory = url.searchParams.get("location[directory]") ?? "";
       refreshed.push(directory);
-      if (directory !== origin.path) { notifyOther(); await otherBlocked; }
+      // Resolve only when every refresh has started: a serial loop would
+      // deadlock on the blocked projects, and early success wins the race.
+      if (refreshed.length === config.workspaces.length) notifyOther();
+      if (directory !== origin.path) {
+        await otherBlocked;
+      }
       const settings = await readManagedEngineSettings(managedEngineSettingsFilePath(config), directory);
       expect(Object.keys(settings.configuration.mcp?.servers ?? {})).toHaveLength(1);
       return Response.json({ refreshed: true });
@@ -59,15 +66,21 @@ test("creating a custom plugin publishes once for 11 projects without waiting on
   const publish = spyOn(globalLibrary, "prepareManagedGlobalLibrary");
   let request: Promise<Response> | undefined;
   try {
-    request = fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/workflow-plugins`, {
+    const connector = { type: "remote", url: "https://example.invalid/mcp", oauth: false };
+    request = fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/${kind === "plugin" ? "workflow-plugins" : "mcp"}`, {
       method: "POST", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" },
-      body: JSON.stringify({ name: "Fast custom connector", skills: [], connectors: [], newConnector: { type: "remote", url: "https://example.invalid/mcp", oauth: false } }),
+      body: JSON.stringify(kind === "plugin"
+        ? { name: "Fast custom connector", skills: [], connectors: [], newConnector: connector }
+        : { name: "fast-custom-connector", config: connector }),
       signal: AbortSignal.timeout(15_000),
     });
     const first = await Promise.race([request.then(response => ({ response })), otherRequested.then(() => ({ response: null }))]);
-    expect(first.response, "Creation must finish without contacting an unrelated project").not.toBeNull();
-    expect(first.response?.status).toBe(200);
-    expect(refreshed).toEqual([origin.path]);
+    if (kind === "plugin") expect(first.response, "Plugin creation keeps its existing current-project refresh").not.toBeNull();
+    else expect(first.response, "Shared connector Add must wait for every project refresh").toBeNull();
+    expect(refreshed.sort()).toEqual((kind === "plugin" ? [origin.path] : config.workspaces.map(workspace => workspace.path)).sort());
+    releaseOther();
+    const response = first.response ?? await request;
+    expect(response.status, await response.text()).toBe(200);
     await stopWatching();
     expect(publish).toHaveBeenCalledTimes(1);
     for (const workspace of config.workspaces) {
@@ -77,6 +90,51 @@ test("creating a custom plugin publishes once for 11 projects without waiting on
   } finally {
     releaseOther(); await request?.catch(() => undefined);
     await stopWatching(); publish.mockRestore(); await server.stop(); engine.stop(true);
+  }
+}), 30_000);
+
+test("connector Add waits for an overlapping library publication before refreshing projects", async () => fixture(async config => {
+  const origin = config.workspaces[0]!;
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), refreshed = Promise.withResolvers<void>();
+  const observed: string[][] = [];
+  const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/config") return Response.json([]);
+    if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
+      const settings = await readManagedEngineSettings(managedEngineSettingsFilePath(config), url.searchParams.get("location[directory]") ?? "");
+      observed.push(Object.keys(settings.configuration.mcp?.servers ?? {}));
+      refreshed.resolve();
+      return Response.json({ refreshed: true });
+    }
+    return Response.json({ code: "not_found" }, { status: 404 });
+  } });
+  for (const workspace of config.workspaces) workspace.baseUrl = engine.url.href;
+  const server = await startServer(config);
+  const stopWatching = keepLegalworkRuntimeConfigFileFresh(config, origin.id);
+  await writeLegalworkRuntimeConfigFile(config, origin.id);
+  const held = withPluginImportLock(() => publishRuntimeConfigChanges(config, origin.id, async () => {
+    entered.resolve();
+    await release.promise;
+  }));
+  let request: Promise<Response> | undefined;
+  try {
+    await entered.promise;
+    request = fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/mcp`, {
+      method: "POST", headers: { authorization: "Bearer test", "content-type": "application/json" },
+      body: JSON.stringify({ name: "concurrent", config: { type: "remote", url: "https://example.invalid/mcp", oauth: false } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    expect(await Promise.race([
+      request.then(() => "returned"), refreshed.promise.then(() => "refreshed"), Bun.sleep(100).then(() => "pending"),
+    ])).toBe("pending");
+    release.resolve();
+    await held;
+    const response = await request;
+    expect(response.status, await response.text()).toBe(200);
+    expect(observed).toEqual(config.workspaces.map(() => ["concurrent"]));
+  } finally {
+    release.resolve(); await held; await request?.catch(() => undefined);
+    await stopWatching(); await server.stop(); engine.stop(true);
   }
 }), 30_000);
 
@@ -128,7 +186,7 @@ test("removing a shared plugin publishes everywhere without contacting any proje
 }), 30_000);
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("created and removed connectors reach loaded and unopened native projects without per-project refresh", async () => fixture(async config => {
+for (const kind of ["plugin", "connector"]) test.skipIf(!binary)(`created and removed ${kind}s reach loaded and unopened native projects`, async () => fixture(async config => {
   if (!binary) throw new Error("Released engine binary is required");
   const origin = config.workspaces[0]!, loaded = config.workspaces[1]!, unopened = config.workspaces[2]!;
   const root = dirname(origin.path);
@@ -162,9 +220,11 @@ test.skipIf(!binary)("created and removed connectors reach loaded and unopened n
         entries => entries.length === 1 && entries[0]?.name === "retained", `retained connector in ${workspace.id}`);
     }
     stopWatching = keepLegalworkRuntimeConfigFileFresh(config, origin.id);
-    const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/workflow-plugins`, {
+    const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/${kind === "plugin" ? "workflow-plugins" : "mcp"}`, {
       method: "POST", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" },
-      body: JSON.stringify({ name: "Native custom connector", skills: [], connectors: [], newConnector: { type: "remote", url: `${mcp.url}mcp`, oauth: false } }),
+      body: JSON.stringify(kind === "plugin"
+        ? { name: "Native custom connector", skills: [], connectors: [], newConnector: { type: "remote", url: `${mcp.url}mcp`, oauth: false } }
+        : { name: "native-custom-connector", config: { type: "remote", url: `${mcp.url}mcp`, oauth: false } }),
       signal: AbortSignal.timeout(15_000),
     });
     expect(response.status, await response.text()).toBe(200);
@@ -175,7 +235,7 @@ test.skipIf(!binary)("created and removed connectors reach loaded and unopened n
         entries => entries.length === 2 && entries.every(entry => entry.status.status === "connected"), `connected plugin in ${workspace.id}`);
       expect(connectors).toHaveLength(2);
     }
-    const removed = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/cloud-plugins/${encodeURIComponent(createdPluginId("Native custom connector"))}`, {
+    const removed = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/${kind === "plugin" ? `cloud-plugins/${encodeURIComponent(createdPluginId("Native custom connector"))}` : "mcp/native-custom-connector"}`, {
       method: "DELETE", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host" }, signal: AbortSignal.timeout(15_000),
     });
     expect(removed.status, await removed.text()).toBe(200);

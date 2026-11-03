@@ -12,6 +12,11 @@
       "id": "unsaved-shutdown",
       "guide": "settings-privacy.md",
       "source": "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx"
+    },
+    {
+      "id": "browser-autofill",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/overlay/index.tsx"
     }
   ],
   "routes": [

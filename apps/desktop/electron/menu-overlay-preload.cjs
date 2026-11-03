@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 let latestRequest = null;
 let showCallback = null;
+ipcRenderer.on("legalwork:menu-overlay:focus", () => {
+  document.querySelector("button[data-slot='context-menu-item']:not(:disabled)")?.focus();
+});
 
 ipcRenderer.on("legalwork:menu-overlay:show", (_event, request) => {
   latestRequest = request;

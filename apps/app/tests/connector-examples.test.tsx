@@ -25,9 +25,9 @@ test("examples stay provider-specific and fully translated in English and German
       const juris = connectorExamples("research", "juris", "juris");
       expect(juris[0]).toContain(language === "de" ? "Aktenzeichen" : "case number");
       expect(juris[1]).toContain("juris");
-      expect(beck[0]).toStartWith(language === "de" ? "Hilf" : "Help");
+      expect(beck[0]).toStartWith(language === "de" ? "Öffnen" : "Open");
       const html = renderToStaticMarkup(<ConnectorOverview kind="research" name="beck-online" description="" providerId="beck-online" facts={[]} />);
-      expect(html).toContain(language === "de" ? 'aria-label="Beispiel kopieren: Hilf' : 'aria-label="Copy example: Help');
+      expect(html).toContain(language === "de" ? 'aria-label="Beispiel kopieren: Öffnen' : 'aria-label="Copy example: Open');
       expect(html).toContain('type="button"');
       expect(html).not.toContain("catalog.");
     }
