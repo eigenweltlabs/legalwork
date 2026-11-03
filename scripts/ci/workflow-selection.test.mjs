@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { changeScope } from './change-scope.mjs';
@@ -124,4 +126,24 @@ test('Mac Electron tests consume the Linux renderer only after source and output
   const verify = steps.findIndex(step => step.run === 'node scripts/ci/portable-assets.mjs verify renderer');
   const electron = steps.findIndex(step => step.name === 'Verify workflow editing and close/restart decisions in Electron');
   assert.ok(verify >= 0 && verify < electron);
+});
+
+
+test('native archive extraction converts Windows drive paths before invoking GNU tar', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'runtime-unpack-'));
+  const bin = path.join(root, 'bin');
+  mkdirSync(bin);
+  try {
+    writeFileSync(path.join(bin, 'cygpath'), '#!/bin/sh\nprintf "/d/runner temp/sandbox-runtime/sandbox-runtime.tgz"', { mode: 0o755 });
+    writeFileSync(path.join(bin, 'tar'), `#!/bin/sh
+case "$2" in *:*) exit 90;; esac
+printf '%s' "$2" > "$ARCHIVE_TRACE"
+`, { mode: 0o755 });
+    const script = main.jobs['sandbox-validation'].steps.find(step => step.name === 'Unpack exact same-run runtime').run;
+    for (const [os, directory, expected] of [['Windows', 'D:\\runner temp', '/d/runner temp/sandbox-runtime/sandbox-runtime.tgz'], ['Linux', root, root + '/sandbox-runtime/sandbox-runtime.tgz']]) {
+      const trace = path.join(root, 'archive');
+      execFileSync('bash', ['-e', '-c', script], { cwd: root, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, RUNNER_OS: os, RUNNER_TEMP: directory, ARCHIVE_TRACE: trace } });
+      assert.equal(readFileSync(trace, 'utf8'), expected);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
