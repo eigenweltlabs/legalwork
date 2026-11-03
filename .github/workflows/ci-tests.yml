@@ -166,12 +166,32 @@ jobs:
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+  sandbox-guest-x64:
+    needs: changes
+    if: >-
+      github.event_name != 'workflow_dispatch' && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: linux-x64
+      guest_only: true
+      run_tests: false
+      publish_runtime: false
+  sandbox-guest-arm64:
+    needs: changes
+    if: >-
+      github.event_name != 'workflow_dispatch' && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: linux-arm64
+      guest_only: true
+      run_tests: false
+      publish_runtime: false
   sandbox-runtime:
     needs: changes
     # Maintainers can skip expensive runtime checks for an individual PR.
     # Push, manual and release validation remain unaffected by PR labels.
     if: >-
-      needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.unit_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
+      github.event_name == 'workflow_dispatch' && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.unit_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       run_tests: false
@@ -455,47 +475,53 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  sandbox-validation:
-    needs: sandbox-runtime
-    if: needs.sandbox-runtime.result == 'success'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: macos-15-intel, platform: darwin, arch: x64 }
-          - { os: windows-2022, platform: win32, arch: x64 }
-          - { os: windows-11-arm, platform: win32, arch: arm64 }
-          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64 }
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24.22.1
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.4.0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-      - uses: ./.github/actions/install-dependencies
-        with:
-          filter: legalwork-server...
-      - name: Prepare checksum-pinned Node for worker tests
-        run: node apps/desktop/scripts/prepare-node-runtime.mjs
-      - uses: actions/download-artifact@v4
-        with:
-          name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ runner.temp }}/sandbox-runtime
-      - name: Unpack exact same-run runtime
-        shell: bash
-        run: |
-          mkdir -p apps/server/resources/agent-sandbox/runtime
-          archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
-          if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
-          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
-      - uses: ./.github/actions/test-sandbox-runtime
+  sandbox-validation-darwin-x64:
+    name: sandbox-validation (macos-15-intel, darwin, x64)
+    needs: [ sandbox-guest-x64, sandbox-runtime ]
+    if: >-
+      always() && !cancelled() && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success')
+    uses: ./.github/workflows/ci-sandbox-validation.yml
+    with:
+      os: macos-15-intel
+      platform: darwin
+      arch: x64
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
+
+  sandbox-validation-win32-x64:
+    name: sandbox-validation (windows-2022, win32, x64)
+    needs: [ sandbox-guest-x64, sandbox-runtime ]
+    if: >-
+      always() && !cancelled() && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success')
+    uses: ./.github/workflows/ci-sandbox-validation.yml
+    with:
+      os: windows-2022
+      platform: win32
+      arch: x64
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
+
+  sandbox-validation-win32-arm64:
+    name: sandbox-validation (windows-11-arm, win32, arm64)
+    needs: [ sandbox-guest-arm64, sandbox-runtime ]
+    if: >-
+      always() && !cancelled() && (needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success')
+    uses: ./.github/workflows/ci-sandbox-validation.yml
+    with:
+      os: windows-11-arm
+      platform: win32
+      arch: arm64
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
+
+  sandbox-validation-linux-arm64:
+    name: sandbox-validation (ubuntu-24.04-arm, linux, arm64)
+    needs: [ sandbox-guest-arm64, sandbox-runtime ]
+    if: >-
+      always() && !cancelled() && (needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success')
+    uses: ./.github/workflows/ci-sandbox-validation.yml
+    with:
+      os: ubuntu-24.04-arm
+      platform: linux
+      arch: arm64
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
 
   ci-result:
     name: Selected checks passed
@@ -510,6 +536,8 @@ jobs:
       - windows-desktop-acceptance
       - mac-signing-acceptance
       - sandbox-runtime
+      - sandbox-guest-x64
+      - sandbox-guest-arm64
       - engine-source-build
       - opencode-derivative
       - desktop-packaging
@@ -518,8 +546,12 @@ jobs:
       - documentation
       - pr-renderer
       - unit-tests
-      - sandbox-validation
-      - engine-tests
+      - sandbox-validation-darwin-x64
+      - sandbox-validation-win32-x64
+      - sandbox-validation-win32-arm64
+      - sandbox-validation-linux-arm64
+      - engine-tests-linux
+      - engine-tests-mac
       - legalwork-tests
     runs-on: ubuntu-latest
     steps:
@@ -528,169 +560,42 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           node -e 'const jobs = JSON.parse(process.env.RESULTS); const failed = Object.entries(jobs).filter(([, job]) => !["success", "skipped"].includes(job.result)); if (failed.length) { console.error(failed); process.exit(1); }'
-  engine-tests:
-    timeout-minutes: 40
-    needs:
-      - changes
-      - opencode-derivative
-      - sandbox-runtime
+  engine-tests-linux:
+    name: engine-tests (ubuntu-latest)
+    needs: [ changes, opencode-derivative, sandbox-guest-x64, sandbox-runtime ]
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
-    # Keep historical required check names while using the supported runner.
-    runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-14 ]
-
-    steps:
-      - name: Require the selected engine check
-        env:
-          ENGINE_REQUIRED: ${{ needs.changes.outputs.engine }}
-          ENGINE_RESULT: ${{ needs.opencode-derivative.result }}
-        shell: bash
-        run: |
-          if [ "$ENGINE_REQUIRED" = true ]; then test "$ENGINE_RESULT" = success; fi
-
-      - name: Checkout
-        if: needs.changes.outputs.engine == 'true'
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        if: needs.changes.outputs.engine == 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24.22.1
-
-      - name: Setup pnpm
-        if: needs.changes.outputs.engine == 'true'
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.4.0
-
-      - uses: actions/download-artifact@v4
-        if: needs.opencode-derivative.result == 'success'
-        with:
-          name: opencode-derivative-ci-${{ runner.os }}
-          path: ${{ runner.temp }}/opencode-derivative
-      - uses: ./.github/actions/setup-opencode
-        if: needs.changes.outputs.engine == 'true'
-        with:
-          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
-          manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
-          build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
-          archive-family: "true"
-
-      - name: Setup Bun
-        if: needs.changes.outputs.engine == 'true'
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-
-      - name: Install dependencies
-        if: needs.changes.outputs.engine == 'true'
-        uses: ./.github/actions/install-dependencies
-
-      - name: Prepare checksum-pinned Node for worker tests
-        if: needs.changes.outputs.server == 'true' || needs.changes.outputs.desktop == 'true'
-        run: node apps/desktop/scripts/prepare-node-runtime.mjs
-
-      - name: Build server and native plugins
-        if: needs.changes.outputs.engine == 'true'
-        run: pnpm --filter legalwork-server build
-
-      - uses: actions/download-artifact@v4
-        if: needs.sandbox-runtime.result == 'success'
-        with:
-          name: sandbox-runtime-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}
-          path: ${{ runner.temp }}/sandbox-runtime
-      - name: Unpack exact same-run runtime
-        if: needs.sandbox-runtime.result == 'success'
-        run: |
-          mkdir -p apps/server/resources/agent-sandbox/runtime
-          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
-      - uses: ./.github/actions/test-sandbox-runtime
-        if: needs.sandbox-runtime.result == 'success'
-      - name: Verify the shipped engine uses protected execution
-        if: needs.sandbox-runtime.result == 'success'
-        env:
-          LEGALWORK_SANDBOX_INTEGRATION: '1'
-        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts
-
-      # The full server engine suite discovers this case. Preserve its earlier
-      # coverage for runtime-only changes that do not select that full suite.
-      - name: Verify workflow resources with the shipped engine
-        if: needs.changes.outputs.server != 'true' && needs.sandbox-runtime.result == 'success'
-        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
-
-      - name: Run desktop unit tests
-        if: needs.changes.outputs.desktop == 'true'
-        run: pnpm --filter @legalwork/desktop test
-
-      - name: Verify released engine authentication, native plugin modules, and shutdown
-        if: needs.changes.outputs.engine == 'true'
-        run: |
-          node --test apps/desktop/electron/opencode-release.test.mjs
-          bun test --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts
-
-      - name: Run server engine integration tests
-        if: needs.changes.outputs.server == 'true'
-        run: node scripts/ci/run-engine-tests.mjs
-
-      - name: Verify Node development-server history and restart
-        if: needs.changes.outputs.server == 'true'
-        run: node --test apps/server/scripts/dev-node.test.mjs
-
-      - name: Verify whole-agent prompt cache contract
-        if: needs.changes.outputs.server == 'true'
-        env:
-          LEGALWORK_CACHE_CAPTURE: ${{ runner.temp }}/prompt-cache-capture.json
-        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts apps/server/scripts/prompt-cache-engine.test.ts
-
-      - name: Upload synthetic prompt cache evidence
-        if: (always()) && (needs.changes.outputs.server == 'true')
-        uses: actions/upload-artifact@v4
-        with:
-          name: prompt-cache-${{ runner.os }}
-          path: ${{ runner.temp }}/prompt-cache-capture.json
-
-      - name: Verify HTML preview isolation in Electron
-        if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
-        run: pnpm --filter @legalwork/desktop test:preview-security
-
-      - name: Verify browser batches and project downloads in Electron
-        if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
-        env:
-          LEGALWORK_BROWSER_TEST_SCREENSHOT: ${{ runner.temp }}/browser-workflow.png
-        run: pnpm --filter @legalwork/desktop test:browser-workflow
-
-      - name: Verify browser network policy in Electron
-        if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
-        run: pnpm --filter @legalwork/desktop test:browser-network
-
-      - name: Verify native browser observations in hidden Electron
-        if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
-        run: pnpm --filter @legalwork/desktop test:browser-observation
-
-      - name: Upload browser workflow evidence
-        if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-workflow-evidence
-          path: ${{ runner.temp }}/browser-workflow.png
-
-      - name: Run e2e tests
-        if: needs.changes.outputs.engine == 'true' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.server == 'true')
-        run: pnpm --filter @legalwork/app test:e2e
-      - name: Upload CI operation timings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-timings-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
-          path: ${{ runner.temp }}/ci-spans.jsonl
-          if-no-files-found: ignore
-          retention-days: 7
+    uses: ./.github/workflows/ci-engine-tests.yml
+    with:
+      os: ubuntu-latest
+      arch: x64
+      engine-required: ${{ needs.changes.outputs.engine == 'true' }}
+      engine-result: ${{ needs.opencode-derivative.result }}
+      manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+      app: ${{ needs.changes.outputs.app == 'true' }}
+      server: ${{ needs.changes.outputs.server == 'true' }}
+      desktop: ${{ needs.changes.outputs.desktop == 'true' }}
+      runtime-required: ${{ needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success' }}
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
+      production-engine: ${{ inputs.production_engine == true }}
+  engine-tests-mac:
+    name: engine-tests (macos-14)
+    needs: [ changes, opencode-derivative, sandbox-guest-arm64, sandbox-runtime ]
+    if: >-
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+    uses: ./.github/workflows/ci-engine-tests.yml
+    with:
+      os: macos-15
+      arch: arm64
+      engine-required: ${{ needs.changes.outputs.engine == 'true' }}
+      engine-result: ${{ needs.opencode-derivative.result }}
+      manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+      app: ${{ needs.changes.outputs.app == 'true' }}
+      server: ${{ needs.changes.outputs.server == 'true' }}
+      desktop: ${{ needs.changes.outputs.desktop == 'true' }}
+      runtime-required: ${{ needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success' }}
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
+      production-engine: ${{ inputs.production_engine == true }}
   legalwork-tests:
     name: legalwork-tests (${{ matrix.os }})
     needs:
@@ -703,6 +608,8 @@ jobs:
       - windows-desktop-acceptance
       - mac-signing-acceptance
       - sandbox-runtime
+      - sandbox-guest-x64
+      - sandbox-guest-arm64
       - engine-source-build
       - opencode-derivative
       - desktop-packaging
@@ -711,8 +618,12 @@ jobs:
       - documentation
       - pr-renderer
       - unit-tests
-      - sandbox-validation
-      - engine-tests
+      - sandbox-validation-darwin-x64
+      - sandbox-validation-win32-x64
+      - sandbox-validation-win32-arm64
+      - sandbox-validation-linux-arm64
+      - engine-tests-linux
+      - engine-tests-mac
     if: always()
     # These preserve historical required names and only aggregate outcomes.
     # Native Mac tests above run on Mac; a metadata gate needs no Mac runner.

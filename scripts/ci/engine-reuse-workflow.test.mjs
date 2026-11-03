@@ -63,10 +63,10 @@ test('engine discovery includes nested and newly added fixtures, excluding ordin
 test('real engine job cannot pass by silently skipping all engine fixtures', () => {
   const script = fileURLToPath(new URL('./run-engine-tests.mjs', import.meta.url));
   assert.throws(() => execFileSync(process.execPath, [script], { env: { ...process.env, LEGALWORK_TEST_OPENCODE_BIN: '' }, stdio: 'pipe' }), /Set up the verified engine/);
-  const integration = workflow('ci-tests').jobs['engine-tests'];
-  assert.match(integration.if, /needs.changes.outputs.engine == 'true'/);
+  const integration = workflow('ci-engine-tests').jobs.tests;
+  for (const name of ['engine-tests-linux', 'engine-tests-mac']) assert.match(workflow('ci-tests').jobs[name].if, /needs.changes.outputs.engine == 'true'/);
   const serverTests = integration.steps.find(step => step.name === 'Run server engine integration tests');
-  assert.equal(serverTests.if, "needs.changes.outputs.server == 'true'");
+  assert.equal(serverTests.if, 'inputs.server');
   assert.match(serverTests.run, /run-engine-tests.mjs/);
   const files = engineTestFiles(fileURLToPath(new URL('../../apps/server/src', import.meta.url)));
   for (const file of ['managed-opencode.released.test.ts', 'agent-sandbox/engine.integration.test.ts']) {
@@ -82,11 +82,12 @@ test('existing required check names fail if units or a selected engine build fai
   assert.deepEqual(gate.strategy.matrix.os, ['ubuntu-latest', 'macos-14']);
   assert.equal(gate.name, 'legalwork-tests (${{ matrix.os }})');
   assert.equal(gate['runs-on'], 'ubuntu-latest');
-  for (const name of ['unit-tests', 'engine-tests']) {
-    assert.equal(workflow('ci-tests').jobs[name]['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
-  }
+  assert.equal(workflow('ci-tests').jobs['unit-tests']['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
+  assert.equal(workflow('ci-tests').jobs['engine-tests-mac'].with.os, 'macos-15');
+  assert.equal(workflow('ci-tests').jobs['engine-tests-linux'].with.os, 'ubuntu-latest');
   assert.ok(gate.needs.includes('unit-tests'));
-  assert.ok(gate.needs.includes('engine-tests'));
+  assert.ok(gate.needs.includes('engine-tests-linux'));
+  assert.ok(gate.needs.includes('engine-tests-mac'));
   assert.ok(gate.needs.includes('sandbox-runtime'));
   const script = gate.steps[0].run;
   const run = results => execFileSync('bash', ['-e', '-c', script], {
@@ -116,8 +117,16 @@ test('runtime cache hits retain verification and isolation tests while skipping 
   const guest = jobs.guest.steps.find(step => step.with?.name === 'sandbox-guest-${{ matrix.arch }}');
   assert.equal(guest.with.path, 'apps/server/resources/agent-sandbox/runtime/*');
   assert.equal(guest.with['include-hidden-files'], false);
-  const artifact = jobs.runtime.steps.find(step => step.with?.name === 'sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}');
-  assert.equal(artifact.if, 'inputs.publish_runtime');
+  const prepare = parse(readFileSync(new URL('../../.github/actions/prepare-sandbox-runtime/action.yml', import.meta.url), 'utf8')).runs.steps;
+  const artifact = prepare.find(step => step.uses === 'actions/upload-artifact@v4');
+  assert.equal(artifact.if, "inputs.publish-runtime == 'true'");
+  assert.match(artifact.with.name, /inputs.arch/);
+  assert.ok(prepare.some(step => step.run?.includes('cache-sandbox-runtime.mjs verify runtime')));
+  const restore = prepare.find(step => step.uses === 'actions/cache/restore@v4');
+  assert.equal(restore.with['restore-keys'], undefined);
+  assert.ok(prepare.findIndex(step => step.name === 'Verify complete sandbox cache receipt') < prepare.indexOf(artifact));
+  assert.equal(jobs.runtime.if, '${{ !inputs.guest_only }}');
+  assert.equal(jobs.runtime.steps.find(step => step.uses === './.github/actions/prepare-sandbox-runtime').with['publish-runtime'], '${{ inputs.publish_runtime }}');
 });
 
 test('every native package consumer uses one portable producer and an OS-family engine handoff', () => {

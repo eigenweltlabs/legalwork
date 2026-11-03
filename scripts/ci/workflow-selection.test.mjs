@@ -10,12 +10,12 @@ import { changeScope } from './change-scope.mjs';
 const { parse } = createRequire(new URL('../../apps/desktop/package.json', import.meta.url))('yaml');
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'), { uniqueKeys: true });
 const main = workflow('ci-tests');
-function condition(expression, scope, { engine = 'skipped', event = 'pull_request', inputs = {}, os = 'Linux', sandbox = 'skipped' } = {}) {
+function condition(expression, scope, { engine = 'skipped', event = 'pull_request', inputs = {}, os = 'Linux', sandbox = 'skipped', guest = 'skipped', labels = [] } = {}) {
   const needs = { changes: { result: 'success', outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)])) },
-    'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'pr-renderer': { result: 'success' }, 'engine-build-inputs': { result: 'success' } };
-  const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]');
-  return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', `return (${js});`)(needs,
-    { event_name: event }, inputs, { os }, () => true, () => false));
+    'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'sandbox-guest-x64': { result: guest }, 'sandbox-guest-arm64': { result: guest }, 'pr-renderer': { result: 'success' }, 'engine-build-inputs': { result: 'success' } };
+  const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]').replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace('github.event.pull_request.labels.*.name', 'github.event.pull_request.labels.map(label => label.name)');
+  return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', 'contains', `return (${js});`)(needs,
+    { event_name: event, event: { pull_request: { labels: labels.map(name => ({ name })) } } }, inputs, { os }, () => true, () => false, (values, value) => values.includes(value)));
 }
 
 test('unit jobs start independently while integration jobs require the verified engine', () => {
@@ -24,9 +24,10 @@ test('unit jobs start independently while integration jobs require the verified 
   assert.equal(condition(main.jobs['unit-tests'].if, ui), true);
   const steps = main.jobs['unit-tests'].steps;
   assert.equal(condition(steps.find(step => step.name === 'Run app unit tests').if, ui), true);
-  const integration = main.jobs['engine-tests'];
+  const integration = workflow('ci-engine-tests').jobs.tests;
+  const engineJob = main.jobs['engine-tests-mac'];
   const e2e = integration.steps.find(step => step.name === 'Run e2e tests');
-  assert.equal(condition(e2e.if, ui), false);
+  assert.equal(condition(e2e.if, ui, { inputs: { app: false, server: false, 'engine-required': true } }), false);
   assert.equal(steps.some(step => step.uses === './.github/actions/setup-opencode'), false);
   assert.deepEqual(main.jobs['unit-tests'].needs, ['changes', 'pr-renderer']);
   assert.equal(main.jobs['unit-tests'].env.LEGALWORK_TEST_OPENCODE_BIN, '');
@@ -34,15 +35,16 @@ test('unit jobs start independently while integration jobs require the verified 
   assert.equal(condition(main.jobs['opencode-derivative'].if, session), true);
   assert.equal(condition(main.jobs['unit-tests'].if, session, { engine: 'failure' }), true);
   assert.equal(condition(main.jobs['unit-tests'].if, session, { engine: 'success' }), true);
-  assert.equal(condition(integration.if, ui), false);
-  for (const engine of ['failure', 'cancelled', 'skipped']) assert.equal(condition(integration.if, session, { engine }), true);
-  assert.equal(condition(integration.if, session, { engine: 'success' }), true);
-  assert.equal(condition(e2e.if, session), true);
+  assert.equal(condition(engineJob.if, ui), false);
+  for (const engine of ['failure', 'cancelled', 'skipped']) assert.equal(condition(engineJob.if, session, { engine }), true);
+  assert.equal(condition(engineJob.if, session, { engine: 'success' }), true);
+  assert.equal(condition(e2e.if, session, { inputs: { app: true, server: true, 'engine-required': true } }), true);
   assert.ok(main.jobs['ci-result'].needs.includes('unit-tests'));
-  assert.ok(!integration.needs.includes('unit-tests'));
+  assert.ok(!engineJob.needs.includes('unit-tests'));
   assert.ok(main.jobs['legalwork-tests'].needs.includes('unit-tests'));
-  assert.ok(main.jobs['legalwork-tests'].needs.includes('engine-tests'));
-  assert.ok(integration.needs.includes('opencode-derivative'));
+  assert.ok(main.jobs['legalwork-tests'].needs.includes('engine-tests-mac'));
+  assert.ok(main.jobs['legalwork-tests'].needs.includes('engine-tests-linux'));
+  assert.ok(engineJob.needs.includes('opencode-derivative'));
 });
 
 test('Linux unit workers keep registered OAuth callback ports out of ephemeral allocation', () => {
@@ -87,7 +89,7 @@ test('failed prerequisites cannot become successful selected-check summaries', (
 
 test('all six package jobs retain storage checks without a duplicate six-host suite', () => {
   const packaging = workflow('ci-desktop-packaging').jobs['package-smoke'];
-  const matrix = packaging.strategy.matrix.slice(3, -2).trim().replace(/inputs\.([\w-]+)/g, 'inputs["$1"]');
+  const matrix = packaging.strategy.matrix.slice(3, -2).trim().replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace('github.event.pull_request.labels.*.name', 'github.event.pull_request.labels.map(label => label.name)');
   const selected = Function('inputs', 'fromJSON', `return (${matrix});`)({ 'windows-only': false }, JSON.parse);
   assert.equal(selected.include.length, 6);
   const commands = packaging.steps.map(step => step.run ?? '').join('\n');
@@ -100,7 +102,7 @@ test('required PR workflows have job filtering, and reusable/manual workflows st
     assert.equal(workflow(name).on.pull_request.paths, undefined);
     assert.ok(workflow(name).jobs.changes);
   }
-  for (const name of ['ci-opencode-derivative', 'ci-opencode-source-hosts', 'ci-desktop-packaging', 'ci-windows-opencode-install', 'mac-engine-signing-acceptance']) {
+  for (const name of ['ci-opencode-derivative', 'ci-opencode-source-hosts', 'ci-desktop-packaging', 'ci-windows-opencode-install', 'mac-engine-signing-acceptance', 'ci-engine-tests', 'ci-sandbox-validation']) {
     assert.deepEqual(Object.keys(workflow(name).on), ['workflow_call']);
   }
   for (const file of readdirSync(new URL('../../.github/workflows/', import.meta.url))) {
@@ -112,35 +114,50 @@ test('required PR workflows have job filtering, and reusable/manual workflows st
 });
 
 
-test('PR sandbox validation covers all six exact producer archives without a late Mac allocation', () => {
+test('PR targets prepare and validate their own native bytes without a global host barrier', () => {
   assert.equal(main.jobs['sandbox-engine'], undefined);
-  assert.equal(main.jobs['sandbox-runtime'].with.run_tests, false);
-  const separate = main.jobs['sandbox-validation'];
-  assert.equal(separate.needs, 'sandbox-runtime');
-  const targets = separate.strategy.matrix.include.map(({ platform, arch }) => `${platform}-${arch}`);
-  const integration = main.jobs['engine-tests'];
-  assert.ok(integration.needs.includes('sandbox-runtime'));
-  const validate = integration.steps.find(step => step.uses === './.github/actions/test-sandbox-runtime');
-  assert.equal(validate.if, "needs.sandbox-runtime.result == 'success'");
-  const archive = integration.steps.find(step => step.with?.name?.startsWith('sandbox-runtime-'));
-  assert.match(archive.with.name, /darwin-arm64/);
-  assert.match(archive.with.name, /linux-x64/);
-  assert.deepEqual([...targets, 'darwin-arm64', 'linux-x64'].sort(),
-    ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
-  for (const job of [separate, integration]) {
-    assert.ok(job.steps.some(step => step.uses === './.github/actions/test-sandbox-runtime'));
-    assert.ok(job.steps.some(step => step.name === 'Unpack exact same-run runtime'));
+  assert.match(main.jobs['sandbox-runtime'].if, /github.event_name == 'workflow_dispatch'/);
+  const validators = Object.entries(main.jobs).filter(([id]) => id.startsWith('sandbox-validation-'));
+  const engines = Object.entries(main.jobs).filter(([id]) => id.startsWith('engine-tests-'));
+  const targets = [];
+  for (const [id, job] of [...validators, ...engines]) {
+    const arch = job.with.arch;
+    const guest = `sandbox-guest-${arch}`;
+    assert.ok(job.needs.includes(guest), id);
+    assert.ok(!job.needs.includes(`sandbox-guest-${arch === 'x64' ? 'arm64' : 'x64'}`), id);
+    const prepare = main.jobs[guest];
+    assert.equal(prepare.with.guest_only, true);
+    assert.equal(prepare.with.publish_runtime, false);
+    assert.equal(prepare.with.targets, `linux-${arch}`);
+    assert.equal(condition(prepare.if, changeScope(null)), true);
+    assert.equal(condition(prepare.if, changeScope(null), { labels: ['skip-sandbox-tests'] }), false);
+    assert.equal(condition(prepare.if, changeScope(null), { event: 'workflow_dispatch' }), false);
+    const platform = job.with.platform ?? (arch === 'arm64' ? 'darwin' : 'linux');
+    targets.push(`${platform}-${arch}`);
+    const body = workflow(job.uses.split('/').at(-1).slice(0, -4)).jobs.tests;
+    assert.ok(body.steps.some(step => step.uses === './.github/actions/prepare-sandbox-runtime'), id);
+    assert.ok(body.steps.some(step => step.uses === './.github/actions/test-sandbox-runtime'), id);
+    assert.ok(body.steps.some(step => step.name === 'Unpack exact same-run runtime'), id);
+    for (const gate of ['legalwork-tests', 'ci-result']) assert.ok(main.jobs[gate].needs.includes(id));
   }
+  assert.deepEqual(targets.sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
+  const integration = workflow('ci-engine-tests').jobs.tests;
+  const validate = integration.steps.find(step => step.uses === './.github/actions/test-sandbox-runtime');
+  assert.equal(validate.if, 'inputs.runtime-required');
   const protectedStep = integration.steps.find(step => step.name === 'Verify the shipped engine uses protected execution');
   assert.equal(protectedStep.env.LEGALWORK_SANDBOX_INTEGRATION, '1');
   assert.ok(protectedStep.run.includes('agent-sandbox/engine.integration.test.ts'));
   assert.ok(!protectedStep.run.includes('legalwork-skill-resources.integration.test.ts'));
   const resources = integration.steps.find(step => step.name === 'Verify workflow resources with the shipped engine');
-  assert.equal(condition(resources.if, changeScope(null), { sandbox: 'success' }), false);
-  assert.equal(condition(resources.if, changeScope(['apps/desktop/electron/runtime.mjs']), { sandbox: 'success' }), true);
-  assert.equal(condition(resources.if, changeScope(['apps/desktop/electron/runtime.mjs'])), false);
-  assert.ok(main.jobs['legalwork-tests'].needs.includes('sandbox-validation'));
-  assert.ok(main.jobs['ci-result'].needs.includes('sandbox-validation'));
+  assert.equal(condition(resources.if, changeScope(null), { inputs: { server: true, 'runtime-required': true } }), false);
+  assert.equal(condition(resources.if, changeScope(null), { inputs: { server: false, 'runtime-required': true } }), true);
+  assert.equal(condition(resources.if, changeScope(null), { inputs: { server: false, 'runtime-required': false } }), false);
+  const general = integration.steps.find(step => step.name === 'Run server engine integration tests');
+  assert.equal(general.env.LEGALWORK_TEST_WORKERS, '4');
+  assert.equal(integration.env.LEGALWORK_TEST_WORKERS, '2');
+  assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { guest: 'success' }), true);
+  assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { guest: 'failure' }), false);
+  assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { sandbox: 'success', event: 'workflow_dispatch' }), true);
 });
 
 test('Mac Electron tests consume the Linux renderer only after source and output verification', () => {
@@ -165,7 +182,7 @@ test('native archive extraction converts Windows drive paths before invoking GNU
 case "$2" in *:*) exit 90;; esac
 printf '%s' "$2" > "$ARCHIVE_TRACE"
 `, { mode: 0o755 });
-    const script = main.jobs['sandbox-validation'].steps.find(step => step.name === 'Unpack exact same-run runtime').run;
+    const script = workflow('ci-sandbox-validation').jobs.tests.steps.find(step => step.name === 'Unpack exact same-run runtime').run;
     for (const [os, directory, expected] of [['Windows', 'D:\\runner temp', '/d/runner temp/sandbox-runtime/sandbox-runtime.tgz'], ['Linux', root, root + '/sandbox-runtime/sandbox-runtime.tgz']]) {
       const trace = path.join(root, 'archive');
       execFileSync('bash', ['-e', '-c', script], { cwd: root, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, RUNNER_OS: os, RUNNER_TEMP: directory, ARCHIVE_TRACE: trace } });

@@ -1,9 +1,12 @@
 name: Install frozen workspace dependencies
-description: Restore a shared pnpm store; save complete installs in the run’s GitHub cache scope
+description: Cache full and filtered dependency closures in separate stores and namespaces
 inputs:
   ignore-scripts:
     default: 'false'
     description: Skip package lifecycle scripts for checks that do not need native modules
+  cache:
+    default: 'true'
+    description: Restore and save the selected store; false permits a fresh-install comparison
   filter:
     default: ''
     description: Optional pnpm workspace dependency filter
@@ -12,28 +15,33 @@ runs:
   steps:
     - id: store
       shell: bash
-      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      env:
+        WORKSPACE_FILTER: ${{ inputs.filter }}
+        IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+      run: |
+        if [ -z "$WORKSPACE_FILTER" ]; then export PNPM_DEFAULT_STORE="$(pnpm store path --silent)"; fi
+        node scripts/ci/dependency-store.mjs
     - uses: actions/cache/restore@v4
       id: cache
+      if: inputs.cache == 'true'
       with:
         path: ${{ steps.store.outputs.path }}
-        key: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc') }}
-        restore-keys: |
-          pnpm-v1-${{ runner.os }}-${{ runner.arch }}-
-          ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
+        key: ${{ steps.store.outputs.prefix }}${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc') }}
+        restore-keys: ${{ steps.store.outputs.restore-keys }}
     - name: Install dependencies
       shell: bash
       env:
+        PNPM_STORE_DIR: ${{ steps.store.outputs.path }}
         IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
         WORKSPACE_FILTER: ${{ inputs.filter }}
       run: |
         args=()
-        if [ -n "$WORKSPACE_FILTER" ]; then args+=(--filter "$WORKSPACE_FILTER"); fi
+        if [ -n "$WORKSPACE_FILTER" ]; then args+=(--store-dir "$PNPM_STORE_DIR" --filter "$WORKSPACE_FILTER"); fi
         args+=(install --frozen-lockfile --prefer-offline)
         if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
         pnpm "${args[@]}"
     - uses: actions/cache/save@v4
-      if: inputs.filter == '' && steps.cache.outputs.cache-hit != 'true'
+      if: inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'
       with:
         path: ${{ steps.store.outputs.path }}
         key: ${{ steps.cache.outputs.cache-primary-key }}
