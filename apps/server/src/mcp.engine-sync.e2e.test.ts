@@ -169,7 +169,7 @@ describe("runtime MCP engine sync", () => {
     }
   });
 
-  test("a shared connector is hot-added into every local workspace's engine instance, and dropped from all on removal", async () => {
+  test("a shared connector refreshes only the current engine, and is dropped from all on removal", async () => {
     const rootA = await createWorkspaceRoot();
     const rootB = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
@@ -185,7 +185,7 @@ describe("runtime MCP engine sync", () => {
       });
       expect(response.status).toBe(200);
       const adds = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/api/rpc/legalwork.managed-settings/refresh");
-      expect(adds.map((entry) => new URLSearchParams(entry.search).get("location[directory]")).sort()).toEqual([rootA, rootB].sort());
+      expect(adds.map((entry) => new URLSearchParams(entry.search).get("location[directory]"))).toEqual([rootA]);
       expect(adds.every(entry => entry.definitions?.posthog !== undefined)).toBe(true);
 
       mock.requests.length = 0;

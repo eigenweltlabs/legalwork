@@ -4911,11 +4911,12 @@ function createRoutes(
     if (!scope) throw new ApiError(404, "connector_not_found", "This connector is no longer available.");
     const removals = mcpEditRemovalsSchema.safeParse(body);
     if (!removals.success) throw new ApiError(400, "invalid_payload", "Connector removals must name header, environment or optional setting fields.");
-    const result = await addMcp(config, workspace.id, name, configPayload, scope, body.preserveScope === true ? removals.data : undefined);
-    // Hot-add into the running engine so connect/auth works immediately,
-    // without waiting for an engine instance rebuild.
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
-    if (scope === "global") await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
+    const result = await publishRuntimeConfigChanges(config, workspace.id, () =>
+      addMcp(config, workspace.id, name, configPayload, scope, body.preserveScope === true ? removals.data : undefined));
+    // Publication already includes every project's settings. Native watchers
+    // update loaded locations; unopened projects read them on demand. Refresh
+    // only this location so Add does not rebuild and warm every other project.
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], true).catch(() => undefined);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5744,24 +5745,6 @@ function parseMcpScope(value: unknown): McpScope {
 
 function otherLocalWorkspaces(config: ServerConfig, origin: WorkspaceInfo): WorkspaceInfo[] {
   return config.workspaces.filter((workspace) => workspace.id !== origin.id);
-}
-
-// Local workspaces share one managed engine, so a shared connector is
-// hot-added into each of their instances now rather than on their next
-// rebuild. Awaited on purpose: the client starts sign-in only after this
-// request returns, and every connect attempt for the server must be over by
-// then — an engine instance connecting the same server mid-sign-in replaces
-// the pending flow's client registration and the code exchange fails.
-async function syncSharedMcpToOtherWorkspaces(
-  config: ServerConfig,
-  origin: WorkspaceInfo,
-  names: string[],
-): Promise<void> {
-  await Promise.all(
-    otherLocalWorkspaces(config, origin).map((workspace) =>
-      syncRuntimeMcpToOpencodeEngine(config, workspace, names).catch(() => undefined),
-    ),
-  );
 }
 
 async function disconnectSharedMcpFromOtherWorkspaces(
