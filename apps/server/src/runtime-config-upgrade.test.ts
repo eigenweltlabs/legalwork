@@ -93,6 +93,44 @@ test("one-time connector envelope import preserves a legacy connector named serv
   expect(upgradeRuntimeConfigRecord(configuration).configuration).toMatchObject(configuration);
 });
 
+test.each([undefined, 1, 2])("startup import repairs nested MCP fields in saved version %s without changing restrictions", version => {
+  for (const enabled of [true, false]) {
+    const saved = { configurationVersion: version, permissions: [{ action: "shell", resource: "*", effect: "deny" }],
+      mcp: { timeout: { startup: 1000 }, servers: { fibery: { type: "remote", url: "https://fixture.invalid/mcp", enabled,
+        headers: { Authorization: "Bearer synthetic-token" }, timeout: 77000,
+        oauth: { clientId: "synthetic-client", clientSecret: "synthetic-secret", scope: "read", callbackPort: 12345 } } } } };
+    const original = JSON.stringify(saved);
+    expect(() => decodeNativeRuntimeConfigRecord(saved)).toThrow();
+    const imported = upgradeRuntimeConfigRecord(saved);
+    expect(imported.migrated).toBe(true);
+    expect(imported.configuration.mcp).toEqual({ timeout: { startup: 1000 }, servers: { fibery: {
+      type: "remote", url: "https://fixture.invalid/mcp", disabled: !enabled, headers: { Authorization: "Bearer synthetic-token" },
+      timeout: { startup: 77000, catalog: 77000, execution: 77000 },
+      oauth: { client_id: "synthetic-client", client_secret: "synthetic-secret", scope: "read", callback_port: 12345 },
+    } } });
+    expect(imported.configuration.permissions).toEqual([{ action: "shell", resource: "*", effect: "deny" }]);
+    const reopened = upgradeRuntimeConfigRecord(nativeRuntimeConfigRecord(imported));
+    expect(reopened.migrated).toBe(false);
+    expect(reopened.configuration).toEqual(imported.configuration);
+    expect(JSON.stringify(saved)).toBe(original);
+  }
+});
+
+test("nested MCP repairs reject conflicting switches and unrelated invalid native fields", () => {
+  const definition = { type: "remote", url: "https://fixture.invalid/mcp", enabled: true };
+  for (const invalid of [
+    { ...definition, enabled: "true" }, { ...definition, enabled: null }, { ...definition, disabled: true },
+    { ...definition, disabled: "false" }, { ...definition, unexpected: true }, { ...definition, oauth: { unexpected: true } },
+    { ...definition, oauth: { client_id: null, clientId: "synthetic-client" } },
+  ]) {
+    for (const version of [undefined, 2]) expect(() => upgradeRuntimeConfigRecord({ configurationVersion: version, mcp: { servers: { fibery: invalid } } })).toThrow();
+  }
+  expect(() => upgradeRuntimeConfigRecord({ configurationVersion: 2, permission: "allow", mcp: { servers: { fibery: definition } } })).toThrow();
+  expect(() => upgradeRuntimeConfigRecord({ configurationVersion: 3, mcp: { servers: { fibery: definition } } })).toThrow();
+  expect(upgradeRuntimeConfigRecord({ configurationVersion: 2, mcp: { servers: { fibery: { ...definition, disabled: false } } } }).configuration.mcp?.servers?.fibery)
+    .toEqual({ type: "remote", url: "https://fixture.invalid/mcp", disabled: false });
+});
+
 test("legacy explicit model exclusions become native disabled models and allowlists never silently broaden", () => {
   const imported = upgradeRuntimeConfigRecord({ provider: { fixture: { blacklist: ["blocked"], models: { kept: { tool_call: true }, blocked: { tool_call: true } } } } });
   expect(imported.configuration.providers?.fixture.models?.blocked.disabled).toBe(true);
