@@ -28,6 +28,7 @@ const websiteInput = z.object({ url: websiteConnectionUrl.optional(), name: z.st
 const websiteRemoval = z.object({ url: websiteConnectionUrl.optional(), loginUrl: websiteConnectionUrl.optional() }).strict()
   .refine(value => value.url !== undefined || value.loginUrl !== undefined);
 const MAX_WEBSITES = 32;
+const MIGRATION_VERSION = 2;
 const key = JSON.stringify(["browser-passwords", 1]);
 type Entry = z.infer<typeof entry>;
 function summary(value: Entry) {
@@ -58,37 +59,66 @@ function website(value: string) {
   return url.origin;
 }
 
-function migrateAustrianLexis(value: Entry): Entry {
-  if (value.migrationVersion >= 1) return value;
-  const isAustrianAddress = (address: string) => {
-    try {
-      const url = new URL(address);
-      return url.origin === "https://360.lexisnexis.at" || url.origin === "https://plus.lexis.com" && ["/at", "/at/"].includes(url.pathname);
-    } catch { return false; }
-  };
-  if (!isAustrianAddress(value.origin) && !value.websites.some(site => site.providerId === "lexis360-at" || isAustrianAddress(site.url)))
-    return { ...value, migrationVersion: 1 };
-  const websites = value.websites.filter(site => {
-    try {
-      const url = new URL(site.url);
-      return !(url.origin === "https://signin.lexisnexis.com" && ["/", "/lnaccess/app/signin", "/lnaccess/app/signin/"].includes(url.pathname) && !url.search);
-    } catch { return true; }
-  }).map(site => site.url === "https://360.lexisnexis.at" ? { ...site, url: "https://360.lexisnexis.at/" }
-    : site.url === "https://plus.lexis.com/at/" ? { ...site, url: "https://plus.lexis.com/at" } : site);
-  for (const site of [
+const LEXIS_SIGNIN_ORIGIN = "https://signin.lexisnexis.com";
+function productAddress(address: string, origin: string, paths?: string[]) {
+  try {
+    const url = new URL(address);
+    return url.origin === origin && (!paths || paths.includes(url.pathname));
+  } catch { return false; }
+}
+const lexisRepairs = [
+  { providerId: "lexis360-at", uniqueOrigin: "https://360.lexisnexis.at", destinations: [
     { name: "Lexis 360 Österreich", url: "https://360.lexisnexis.at/" },
     { name: "Lexis+ Österreich", url: "https://plus.lexis.com/at" },
-  ]) {
-    if (!websites.some(existing => {
-      try { return browserWebsiteUrl(existing.url).replace(/\/$/, "") === site.url.replace(/\/$/, ""); } catch { return false; }
-    })) websites.push(site);
+  ] },
+  { providerId: "lexis360-fr", uniqueOrigin: "https://www.lexis360intelligence.fr", destinations: [
+    { name: "Lexis 360 Intelligence", url: "https://www.lexis360intelligence.fr/" },
+  ] },
+  { providerId: "lexis-uk", uniqueOrigin: undefined, destinations: [{ name: "Lexis+ UK", url: "https://plus.lexis.com/uk" }] },
+  { providerId: "lexis-us", uniqueOrigin: undefined, destinations: [{ name: "Lexis+", url: "https://plus.lexis.com/" }] },
+];
+function sameDestination(address: string, destination: string) {
+  const target = new URL(destination);
+  return productAddress(address, target.origin, [target.pathname, `${target.pathname.replace(/\/$/, "")}/`]);
+}
+function withoutGenericLexisSignin(websites: Entry["websites"]) {
+  return websites.filter(site => {
+    try {
+      const url = new URL(site.url);
+      return !(url.origin === LEXIS_SIGNIN_ORIGIN && ["/", "/lnaccess/app/signin", "/lnaccess/app/signin/"].includes(url.pathname) && !url.search);
+    } catch { return true; }
+  });
+}
+function migrateLexis(value: Entry): Entry {
+  if (value.migrationVersion >= MIGRATION_VERSION) return value;
+  const repairs = lexisRepairs.filter(repair =>
+    value.websites.some(site => site.providerId === repair.providerId)
+    || repair.uniqueOrigin && productAddress(value.origin, repair.uniqueOrigin)
+    || value.websites.some(site => repair.uniqueOrigin && productAddress(site.url, repair.uniqueOrigin)
+      || (repair.providerId !== "lexis-us" || value.origin === LEXIS_SIGNIN_ORIGIN) && repair.destinations.some(destination => sameDestination(site.url, destination.url))));
+  const migrated = { ...value, migrationVersion: MIGRATION_VERSION };
+  if (!repairs.length) return migrated;
+  // Version 1 already allowed people to remove destinations and revoke grants.
+  // Their absence cannot distinguish a deliberate removal from an old defect.
+  if (value.migrationVersion === 1) {
+    if (repairs.some(repair => repair.providerId === "lexis360-at")) return migrated;
+    const hasDestination = repairs.some(repair => repair.destinations.some(destination => value.websites.some(site => sameDestination(site.url, destination.url))));
+    return hasDestination ? { ...migrated, websites: withoutGenericLexisSignin(value.websites) } : migrated;
+  }
+  const websites = withoutGenericLexisSignin(value.websites);
+  for (const destination of repairs.flatMap(repair => repair.destinations)) {
+    const index = websites.findIndex(site => sameDestination(site.url, destination.url));
+    if (index < 0) websites.push(destination);
+    else if (!new URL(websites[index]!.url).search && !new URL(websites[index]!.url).hash)
+      websites[index] = { ...websites[index]!, url: destination.url };
   }
   const signinCovered = [value.origin, ...value.additionalOrigins].some(origin => {
-    try { return website(origin) === website("https://signin.lexisnexis.com"); } catch { return false; }
+    try { return website(origin) === website(LEXIS_SIGNIN_ORIGIN); } catch { return false; }
   });
-  const additionalOrigins = !signinCovered
-    ? [...value.additionalOrigins, "https://signin.lexisnexis.com"] : value.additionalOrigins;
-  return { ...value, websites, additionalOrigins, migrationVersion: 1 };
+  // A product destination may use firm SSO. Only repair credentials saved on
+  // the verified Lexis product origins, never infer permission from navigation.
+  const canRepairSignin = ["https://360.lexisnexis.at", "https://www.lexis360intelligence.fr", "https://plus.lexis.com"].includes(value.origin);
+  return { ...migrated, websites, additionalOrigins: signinCovered || !canRepairSignin ? value.additionalOrigins : [...value.additionalOrigins, LEXIS_SIGNIN_ORIGIN] };
 }
 
 /** A separate namespace in the existing vault; never exported as environment variables. */
@@ -96,8 +126,8 @@ export class BrowserPasswordStore {
   constructor(readonly vault: OAuthVault) {}
   private async readCurrent() {
     const current = await this.vault.getEntry(key, entries) ?? [];
-    if (current.every(value => value.migrationVersion >= 1)) return current;
-    const migrated = current.map(migrateAustrianLexis);
+    if (current.every(value => value.migrationVersion >= MIGRATION_VERSION)) return current;
+    const migrated = current.map(migrateLexis);
     await this.vault.setEntry(key, entries, migrated);
     return migrated;
   }
@@ -129,7 +159,7 @@ export class BrowserPasswordStore {
       const websites = sameWebsite ? previous.websites : [];
       const additionalOrigins = sameWebsite ? previous.additionalOrigins : [];
       const url = value.websiteUrl ? browserWebsiteUrl(value.websiteUrl) : sameWebsite ? undefined : browserWebsiteUrl(value.origin);
-      const next = entry.parse({ ...value, migrationVersion: 1, additionalOrigins, websites: url ? [...websites.filter(site => site.url !== url), { ...websites.find(site => site.url === url), name: value.label, url }] : websites, origin, password, id: previous?.id ?? randomUUID(), updatedAt: new Date().toISOString() });
+      const next = entry.parse({ ...value, migrationVersion: MIGRATION_VERSION, additionalOrigins, websites: url ? [...websites.filter(site => site.url !== url), { ...websites.find(site => site.url === url), name: value.label, url }] : websites, origin, password, id: previous?.id ?? randomUUID(), updatedAt: new Date().toISOString() });
       if (next.websites.length > MAX_WEBSITES) throw new ApiError(400, "browser_password_website_limit", "A saved login can have at most 32 website destinations.");
       await this.vault.setEntry(key, entries, [...current.filter(item => item.id !== next.id), next]);
       return summary(next);

@@ -20,8 +20,10 @@ function stableUrl(value: string) {
 }
 function signInUrl(value: string) {
   const url = stableUrl(value);
-  // Verified Austrian product entry points establish state on a separate sign-in host.
-  return ["https://360.lexisnexis.at/", "https://plus.lexis.com/at", "https://plus.lexis.com/at/"].includes(url)
+  // Verified product entry points establish regional state on a separate sign-in host.
+  return ["https://360.lexisnexis.at/", "https://plus.lexis.com/at", "https://plus.lexis.com/at/",
+    "https://plus.lexis.com/", "https://plus.lexis.com/uk", "https://plus.lexis.com/uk/",
+    "https://www.lexis360intelligence.fr/"].includes(url)
     ? "https://signin.lexisnexis.com/lnaccess/app/signin" : url;
 }
 
