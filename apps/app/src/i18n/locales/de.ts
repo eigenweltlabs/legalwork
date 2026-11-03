@@ -6829,6 +6829,7 @@ const de = {
   "message_list.task_badge": "Eingangsaufgabe {id}",
   "markdown.open_with": "Öffnen mit",
   "overlay.context_menu": "Kontextmenü von {source}",
+  "browser.autofill.title": "Gespeicherten Zugang ausfüllen",
   "benchmark.tasks_passed": "{passed}/{total} Aufgaben vollständig bestanden",
   "benchmark.run_name_placeholder": "Benchmark {date}",
   "control.narration_moving": "Wird geöffnet: {label}…",

@@ -22,6 +22,7 @@
     "test:browser-panel": "pnpm run build:browser && electron scripts/browser-panel-regression.mjs",
     "test:browser-workflow": "pnpm run build:browser && electron scripts/browser-workflow-regression.mjs",
     "test:browser-passwords": "pnpm run build:browser && electron scripts/browser-passwords-regression.mjs",
+    "test:browser-autofill": "node scripts/browser-autofill-regression.mjs",
     "test:browser-opening": "pnpm run build:browser && electron scripts/browser-opening-regression.mjs",
     "test:browser-passwords:website": "pnpm run build:browser && electron scripts/browser-passwords-website-smoke.mjs",
     "test:browser-network": "pnpm run build:browser && electron scripts/browser-network-regression.mjs",
