@@ -8,6 +8,8 @@ Give an exact filename or attach the document when several copies exist. "This d
 
 File cards in chat show the filename without its folder path. Select a card to open the referenced file.
 
+When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork saves the document for the chat. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
+
 ## Supported work
 
 | File type | What to use |

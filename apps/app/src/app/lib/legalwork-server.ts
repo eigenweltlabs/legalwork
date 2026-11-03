@@ -1007,6 +1007,7 @@ export type LegalworkBrowserPassword = {
   id: string;
   label: string;
   origin: string;
+  additionalOrigins?: string[];
   username: string;
   updatedAt: string;
 };
@@ -3430,6 +3431,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     listBrowserPasswords: (origin?: string) => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, `/browser-passwords${origin ? `?${new URLSearchParams({ origin })}` : ""}`, { token, hostToken, timeoutMs: timeouts.config }),
     saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string; websiteUrl?: string }) =>
       requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),
+    addBrowserPasswordWebsite: (id: string, value: { url: string; name?: string; loginUrl?: string } | { loginUrl: string }) =>
+      requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}/websites`, { token, hostToken, method: "POST", body: value, timeoutMs: timeouts.config }),
+    removeBrowserPasswordWebsite: (id: string, value: { url?: string; loginUrl?: string }) => {
+      const query = new URLSearchParams();
+      if (value.url !== undefined) query.set("url", value.url);
+      if (value.loginUrl !== undefined) query.set("loginUrl", value.loginUrl);
+      return requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}/websites?${query}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config });
+    },
     deleteBrowserPassword: (id: string) => requestJson<{ ok: true }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
 
     // User-level env vars (host-auth only — desktop shell is the sole caller).

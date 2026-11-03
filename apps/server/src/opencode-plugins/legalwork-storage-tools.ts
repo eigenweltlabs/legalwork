@@ -28,6 +28,7 @@ Use storage_* tools for file storage connected in Settings and shown in Memory D
 - To answer what work was done, read the relevant documents after finding them and cite their connection and path. Filenames and modification dates alone do not establish completed work. If there are many documents, start with correspondence, reports or activity records and state what you reviewed. Python or shell processing is appropriate for these explicitly downloaded documents, not as a replacement for connected search.
 - Creating a file uses storage_write_file with mode=create. Replacing an existing file requires mode=replace and the exact version returned by reading it. Send content for text or local_path for a document you edited. On conflict preserve the draft and reread before applying the user's change; do not blindly retry with a fresh version. A local edit is not saved to connected storage until storage_write_file succeeds.
 - Use storage_rename for files or folders, with the exact path and kind returned by listings and a new name without slashes. Check rename capability first. Refresh the parent after renaming and use the returned path. An incomplete folder rename requires inspecting both locations, never automatic cleanup or a blind retry.
+- Use storage_transfer to move or copy a listed file or folder to another folder in the same connection or a different connection. Specify mode explicitly: copy keeps the source; move removes it. Check capabilities first: the destination must be writable, and moving requires write access to the source and rename or delete support. Use destination_path='' for the destination root. Existing destinations are refused. Exported Google documents can be copied, but cannot be moved across connections. After an incomplete transfer, inspect both locations; never blindly retry or clean up.
 - For source reading, research, extraction and wiki imports, use storage_read_file directly. Do not open source files in viewers or probe Word/in-app tools first. Live editors are for editing the document the user is working on or when the user asks to see a file. For a new editable deliverable from a template, inapp_documents_open with copy_to can create and open a working copy.
 - Respect read-only capabilities and the user's requested scope. For edits to a document already open in a live editor, prefer its existing live editing tools.`;
 
@@ -310,7 +311,7 @@ export default Plugin.define({
             bytes = await handle.readFile();
           } finally { await handle.close(); }
           if (bytes.length > PDF_MAX_BYTES) throw new ApiError(400, "pdf_size", "The PDF exceeds 64 MiB.");
-          const result = await pdf.read({ type: "file", mime: "application/pdf", filename: basename(args.path), url: `data:application/pdf;base64,${bytes.toString("base64")}` },
+          const result = await pdf.read({ type: "file", mime: "application/pdf", filename: basename(file.localPath), url: `data:application/pdf;base64,${bytes.toString("base64")}` },
             { ocr: args.ocr, pages: args.pages, offset: args.offset, limit: args.max_chars }, context);
           return new PdfToolResult(nativePdfResult({ ...result, output: JSON.stringify({ ...metadata, ...JSON.parse(result.output) }),
             metadata: { ...metadata, ...result.metadata } }));
@@ -409,6 +410,26 @@ export default Plugin.define({
           result: await request(`${source(current.id, args.connection_id)}/folders`, "POST", { path: args.path }),
         };
       }));
+      editor.add(defineTool(ctx, "storage_transfer", "Move or copy a file or folder within or between connected storage sources. Use exact listed paths and connection IDs. destination_path is the existing destination folder (empty for its root); the source name is preserved. Specify mode explicitly. Requires a writable destination; moves also require source write and rename/delete support. Refuses existing destinations. Cross-connection moves verify copies before removing originals. If incomplete, inspect both locations before any retry.",
+        sourceArgs.extend({
+          kind: z.enum(["file", "folder"]),
+          destination_connection_id: connectionId,
+          destination_path: z.string().max(4096).describe("Existing destination folder relative to the destination connection's root; empty for the root."),
+          mode: z.enum(["move", "copy"]),
+        }),
+        async (args, context) => {
+          storagePath(args.path, false);
+          storagePath(args.destination_path);
+          const current = await workspace(context);
+          return {
+            connection_id: args.connection_id,
+            destination_connection_id: args.destination_connection_id,
+            result: await request(`${source(current.id, args.connection_id)}/transfer`, "POST", {
+              path: args.path, kind: args.kind, destinationId: args.destination_connection_id,
+              destinationPath: args.destination_path, mode: args.mode,
+            }),
+          };
+        }));
     });
   },
 });

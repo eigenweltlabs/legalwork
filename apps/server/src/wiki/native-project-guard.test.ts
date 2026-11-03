@@ -10,7 +10,7 @@ test("wiki native file tools stay inside wiki even with symlinks or multi-file e
     const wiki = join(root, "wiki"), project = join(root, "project");
     await mkdir(wiki); await mkdir(project); await writeFile(join(project, "secret.txt"), "private");
     await symlink(project, join(wiki, "alias"));
-    for (const tool of ["read", "write", "edit", "grep", "glob", "list"])
+    for (const tool of ["read", "write", "edit", "grep", "glob", "list", "legalwork_task_download_attachment"])
       for (const path of [join(project, "secret.txt"), "../project/secret.txt", "alias/secret.txt", "alias/new.txt"])
         await expect(assertWikiNativeFileAccess(wiki, tool, { path })).rejects.toMatchObject({ code: "wiki_native_project_access" });
     for (const pattern of ["../project/*", join(project, "*")]) await expect(assertWikiNativeFileAccess(wiki, "glob", { pattern })).rejects.toThrow();
@@ -24,8 +24,8 @@ test("wiki native file tools stay inside wiki even with symlinks or multi-file e
     }
     await expect(assertWikiNativeFileAccess(wiki, "benchmark_create_task", {})).resolves.toBeUndefined();
     await expect(assertWikiNativeFileAccess(wiki, "legalwork_skill_create", {})).resolves.toBeUndefined();
-    for (const tool of ["write", "edit"]) for (const filePath of ["Dashboards/test.view.json", "test.VIEW.JSON", "test.view.conflict-123456789abc.json"])
-      await expect(assertWikiNativeFileAccess(wiki, tool, { filePath })).rejects.toMatchObject({ code: "human_save_required" });
+    for (const tool of ["write", "edit", "legalwork_task_download_attachment"]) for (const path of ["Dashboards/test.view.json", "test.VIEW.JSON", "test.view.conflict-123456789abc.json"])
+      await expect(assertWikiNativeFileAccess(wiki, tool, { path })).rejects.toMatchObject({ code: "human_save_required" });
     await expect(assertWikiNativeFileAccess(wiki, "read", { filePath: "test.view.json" })).resolves.toBeUndefined();
     await expect(assertWikiNativeFileAccess(wiki, "write", { filePath: "new.md" })).resolves.toBeUndefined();
     await expect(assertWikiNativeFileAccess(wiki, "glob", {})).resolves.toBeUndefined();

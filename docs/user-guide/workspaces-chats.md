@@ -18,6 +18,12 @@ In a project, **New Chat** starts a conversation in that project. From the Perso
 
 The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them. Stopping also cancels document requests that are still waiting to run. An edit already applied may finish saving; Stop does not undo that edit.
 
+Questions appear above the composer with numbered choices. Click once to select a choice, or select several when multiple answers are allowed; selected answers have a highlighted border. Use the arrow keys to move through single-choice answers. If **Or type a custom answer** appears, you can enter your own response there. For a single question, double-click a choice, choose **Send** or press Enter in the response field to send your answer.
+
+When the assistant asks several questions together, LegalWork shows one at a time with a counter such as **1 / 3**. Use **Next** and **Back** to navigate; selections and typed answers stay available when you return to a step. Double-click a choice, or press Enter in the response field, to continue to the next question. On the final question, double-click or choose **Send** to send all answers together. Required answers and field constraints are checked before advancing. Longer questions scroll while the navigation stays visible.
+
+Choose **Skip** or the **Close** (×) button to decline the question request without sending an answer, including all its steps and questions from subagents. If cancellation fails, the question stays available so you can retry.
+
 A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
 
 In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry. Messages for busy or paused chats remain in the editable queue until delivered.
@@ -36,7 +42,9 @@ If a message is rejected, its draft stays available with the reason. An unconfir
 
 Use a conversation's action menu to rename, pin, archive or delete it. Archiving preserves the conversation; deletion is a different action. Sidebar groups organize conversations, and moving a chat into a group does not move its underlying documents. Search can locate earlier chats by title or message text. Opening a previous chat is the way to resume its context; a new chat is not an assurance that the assistant remembers every prior conversation.
 
-Tool activity shows the tools the assistant uses, with icons for actions such as reading, editing, searching and running commands. Expand an activity row to see its individual actions; one row can include several tools. When the assistant starts a subagent, its row shows progress and opens the child chat when selected. Results such as review cards, draft emails, calculations and dashboard previews appear directly in the conversation, including when you reopen it. Filed tasks and LegalMemory sources also appear with the assistant's answer.
+Tool activity stays in one compact row while the assistant works through consecutive actions. The label updates in place, for example **Using browser**, then **Reviewing results…**, with an action count. Brief pauses keep the previous label to avoid flicker. Completed activity remains expandable; select the row to see individual actions. Failed actions and declined permissions remain marked. Scrolling up lets you read earlier messages without status updates pulling you back to the bottom.
+
+When the assistant starts a subagent, its row shows progress and opens the child chat when selected. Results such as review cards, draft emails, calculations and dashboard previews appear directly in the conversation, including when you reopen it. Filed tasks and LegalMemory sources also appear with the assistant's answer.
 
 The command palette searches available navigation/actions. File/document tabs keep artifacts beside chat, and the terminal runs commands on the computer running LegalWork. Click the X on a chat tab once to close its view. The conversation remains in Sessions and can be reopened from there. A tab being open does not establish that its unsaved edits are already on disk. When a tool asks for permission or the assistant presents a question, respond in that control; stopping the response does not undo completed file changes.
 
@@ -47,6 +55,8 @@ When asking what was said previously, name the chat or topic and let the assista
 Answers display mathematical formulas and monetary calculations with their formatting, including euro amounts. This also applies when you reopen an earlier chat. Plain prices and examples inside code blocks keep their original text. A formula may appear as text while the assistant is still writing it and becomes formatted when it is complete. Wide formulas scroll horizontally within the answer.
 
 ## Connected services
+
+Browser pages opened by the agent stay in the chat's preview tiles while it works. Opening or switching between those pages does not change the tab you are viewing. Click a preview tile to open that browser beside the conversation. Close its browser tab to return it to the background while the agent continues working; the agent switching back to that page does not reopen it on your screen.
 
 When a browser task needs a login that is not saved, the assistant can show a **Sign-in details needed** card inline in the conversation. Enter the credentials there and choose **Save and continue**, or choose **Cancel** to stop the login attempt. The password is saved directly to the device vault and is not sent as chat text or an agent form answer. See [browser passwords](settings-privacy.md#browser-passwords) for saving, reuse and management.
 

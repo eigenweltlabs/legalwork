@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createProjectFileAccess } from "../src/react-app/domains/workspace/project-file-context";
 import { createLegalworkServerClient, type LegalworkServerClient } from "../src/app/lib/legalwork-server";
 import type { WorkspaceSessionGroup } from "../src/app/types";
+import { parseWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 
 const groups: WorkspaceSessionGroup[] = [
   { workspace: { id: "a", name: "Source", path: "/fixture/a", preset: "starter", workspaceType: "local" }, status: "ready", sessions: [] },
@@ -41,6 +42,31 @@ test("saved snapshots read only from the origin and detect source changes during
   expect(legacy.filename).toBe("Contract.docx");
   mutate = true;
   await expect(access.readSaved(source)).rejects.toThrow("changed during");
+});
+
+test("cloud project attachments keep the checked-out filename while storage calls retain opaque identities", async () => {
+  const remotePath = "~lw~Zm9sZGVy~Matters/~lw~cHJvdmlkZXItZmlsZQ~Rechnung (Signatur).pdf";
+  const localPath = ".legalwork/storage-downloads/file-copy/Rechnung (Signatur).pdf";
+  const bytes = new TextEncoder().encode("original PDF bytes");
+  const client: LegalworkServerClient = {
+    ...createLegalworkServerClient({ baseUrl: "http://localhost:4000" }),
+    checkoutStorageFile: async (workspace, connection, path) => {
+      expect(workspace).toBe("a"); expect(connection).toBe("connector:google-drive:account"); expect(path).toBe(remotePath);
+      return { localPath, contentType: "application/pdf", version: "source-version", size: bytes.length, updatedAt: 1, writable: false, localWritable: true };
+    },
+    statWorkspaceFile: async (_workspace, path) => { expect(path).toBe(localPath); return { path, exists: true, kind: "file", size: bytes.length, updatedAt: 1 }; },
+    downloadWorkspaceFile: async (_workspace, path) => { expect(path).toBe(localPath); return { data: bytes.buffer, filename: "Rechnung (Signatur).pdf", contentType: "application/pdf" }; },
+  };
+  const access = createProjectFileAccess(groups, client, () => "draft");
+  const saved = await access.readSaved({ ...source, connectionId: "connector:google-drive:account", path: remotePath, name: "Rechnung (Signatur).pdf" });
+  expect(saved.filename).toBe("Rechnung (Signatur).pdf");
+  const mention = await uploadWorkspaceAttachment({ writeWorkspaceBinaryFile: async (_workspace, input) => {
+    expect(new Uint8Array(input.data)).toEqual(bytes);
+    expect(input.path).not.toContain("~lw~"); expect(input.path).not.toContain("_lw_");
+    return { ok: true, path: input.path, bytes: input.data.byteLength, updatedAt: 1 };
+  } }, "b", new File([saved.data], saved.filename, { type: saved.contentType }));
+  expect(parseWorkspaceAttachmentMention(mention)?.name).toBe("Rechnung (Signatur).pdf");
+  expect(workspaceAttachmentDisplayText(mention)).toStartWith("[Rechnung (Signatur).pdf](");
 });
 
 test("a drop creates a draft in the receiving project, preserves text, and never sends it", async () => {

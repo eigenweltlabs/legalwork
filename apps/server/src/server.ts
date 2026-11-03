@@ -1,6 +1,6 @@
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
-import { browserPasswords } from "./browser-passwords.js";
+import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
 import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
@@ -2262,13 +2262,7 @@ function createRoutes(
     return jsonResponse({ item: await configureResearchDatabase(config, await readJsonBody(ctx.request)) });
   });
 
-  // Agent discovery exposes destinations and vault references, never credentials.
-  addRoute(routes, "GET", "/workspace/:id/browser-connections", "client", async ctx => {
-    requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
-    const origin = new URL(ctx.request.url).searchParams.get("origin") ?? undefined;
-    return jsonResponse({ items: (await browserPasswords(config).list(origin)).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
-  });
+  registerBrowserConnectionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, resolveWorkspace });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
     await resolveWorkspace(config, ctx.params.id);
@@ -4911,10 +4905,12 @@ function createRoutes(
     if (!scope) throw new ApiError(404, "connector_not_found", "This connector is no longer available.");
     const removals = mcpEditRemovalsSchema.safeParse(body);
     if (!removals.success) throw new ApiError(400, "invalid_payload", "Connector removals must name header, environment or optional setting fields.");
-    const result = await addMcp(config, workspace.id, name, configPayload, scope, body.preserveScope === true ? removals.data : undefined);
-    // Hot-add into the running engine so connect/auth works immediately,
-    // without waiting for an engine instance rebuild.
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+    const result = await withPluginImportLock(() => publishRuntimeConfigChanges(config, workspace.id, () =>
+      addMcp(config, workspace.id, name, configPayload, scope, body.preserveScope === true ? removals.data : undefined)));
+    // Publish once, then retain the existing refresh order and completion
+    // barrier: connect this project first, then await all other shared-project
+    // refreshes before the client starts OAuth. Reuse the published settings.
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], true).catch(() => undefined);
     if (scope === "global") await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -5759,7 +5755,7 @@ async function syncSharedMcpToOtherWorkspaces(
 ): Promise<void> {
   await Promise.all(
     otherLocalWorkspaces(config, origin).map((workspace) =>
-      syncRuntimeMcpToOpencodeEngine(config, workspace, names).catch(() => undefined),
+      syncRuntimeMcpToOpencodeEngine(config, workspace, names, true).catch(() => undefined),
     ),
   );
 }

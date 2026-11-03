@@ -15,12 +15,13 @@ import { ArtifactFrame } from "./artifact-frame";
 import { ArtifactIcon } from "./artifact-icon";
 import { MarkdownPreview, PreviewError, PreviewLoading } from "./preview";
 import { ArtifactMarkdownEditor } from "./artifact-markdown-editor";
-import { artifactDocumentKey, registerUnsavedDocument } from "./docx-document-state";
+import { artifactDocumentKey, documentIsInFront, registerDocumentShutdown, registerUnsavedDocument } from "./docx-document-state";
 import { loadMarkdownDraft, savedMarkdownDraft, replaceMarkdownText, type MarkdownDraft } from "./markdown-draft";
 import { useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
 import { resolveHrefOpenTarget, type OpenTarget } from "./open-target";
 import { parseTaskLink } from "../../tasks/task-reference";
 import { parseViewReference, viewPanelTab } from "../../views/view-reference";
+import { openUnsavedArtifact } from "./document-shutdown-navigation";
 import { useRequestOpenTask, useRequestPanelTab } from "../panel/panel-tab-destination";
 import { projectFileTab } from "../../workspace/project-file-tab";
 import { useProjectFiles } from "../../workspace/project-file-context";
@@ -89,6 +90,7 @@ function ArtifactMarkdownContent({ sessionId, client, workspaceId, workspaceRoot
     else toast.error(t("project_files.source_unavailable"));
   }, [client, requestOpenTask, requestPanelTab, projectFiles, workspaceId, workspaceRoot]);
   const runtimeEntry = useDocumentRuntimeEntry();
+  const panel = useRef<HTMLDivElement>(null);
   const streams = useMarkdownStreams(state => state.items);
   const stream = Object.values(streams).findLast(item => item.workspaceId === workspaceId && item.path === target.value);
   const writing = stream?.status === "writing";
@@ -258,6 +260,17 @@ function ArtifactMarkdownContent({ sessionId, client, workspaceId, workspaceRoot
     queryClient.setQueryData(["markdown-editor", workspaceId, target.value, client.baseUrl], { content: theirs.content, updatedAt: theirs.updatedAt });
   };
 
+  useEffect(() => registerDocumentShutdown(artifactDocumentKey(workspaceId, sessionId, target.id), {
+    save,
+    discard: () => {
+      update(current => current ? { ...current, content: current.baseline } : current);
+      setClash(null); setSaveError(null);
+    },
+    isBusy: () => savingRef.current,
+    open: navigate => openUnsavedArtifact(sessionId, workspaceId, runtimeEntry?.props.tab ?? { id: target.id, type: "artifact", label: target.name, value: target.value, preview: target.preview }, navigate),
+    isVisible: () => documentIsInFront(panel.current),
+  }), [workspaceId, sessionId, target.id, target.name, target.value, target.preview, save, update, runtimeEntry]);
+
   const imageUpload = useCallback(async (file: File) => {
     if (localReadOnly) throw new Error(t("storage.read_only"));
     const directory = target.value.split("/").slice(0, -1).join("/");
@@ -326,7 +339,7 @@ function ArtifactMarkdownContent({ sessionId, client, workspaceId, workspaceRoot
   const runFileAction = async (action: () => Promise<unknown>) => {
     try { await action(); } catch (error) { toast.error(error instanceof Error ? error.message : t("markdown.open_file_failed")); }
   };
-  return <div className="h-full min-h-0" onKeyDownCapture={(event) => {
+  return <div ref={panel} className="h-full min-h-0" onKeyDownCapture={(event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); if (access.editable) void save(); }
   }}>
     <ArtifactFrame expandable title={projectFileDisplayName(target.value, target.name)} icon={<ArtifactIcon type="markdown" className="size-5" />}

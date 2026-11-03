@@ -27,6 +27,7 @@ async function snapshot(adapter: StorageAdapter, item: StorageEntry, onCount?: (
     const children = new Set<string>();
     do {
       const page = await adapter.list(folder.path, cursor);
+      if (page.truncated) throw new ApiError(502, "storage_listing_incomplete", "The folder listing is incomplete. Refresh before transferring it.");
       for (const child of page.entries) {
         storagePath(child.path, false);
         if (child.path.split("/").slice(0, -1).join("/") !== folder.path || children.has(child.path))
@@ -68,6 +69,28 @@ export async function transferEntry(source: StorageAdapter, target: StorageAdapt
   const entries = await snapshot(source, original, (count) => report({ phase: "scanning", completedFiles: count, totalFiles: null }));
   const totalFiles = entries.filter((item) => item.kind === "file").length;
   report({ phase: "transferring", completedFiles: 0, totalFiles });
+  if (sameRoot && input.mode === "copy" && source.copyFile) {
+    let completedFiles = 0;
+    try {
+      const destinations = new Map([[input.path, destination]]);
+      for (const item of entries) {
+        const parent = item.path.split("/").slice(0, -1).join("/");
+        const path = item.path === input.path ? destination : `${destinations.get(parent)!}/${item.name}`;
+        destinations.set(item.path, path);
+        if (item.kind === "folder") { await target.mkdir(path); continue; }
+        report({ phase: "transferring", completedFiles, totalFiles, currentFile: item.path });
+        await source.copyFile(item.path, path);
+        report({ phase: "transferring", completedFiles: ++completedFiles, totalFiles, currentFile: item.path });
+      }
+    } catch (error) {
+      // A timed-out provider request can still have created a copy. Never
+      // fall back to a byte transfer or automatically clean up either location.
+      const failure = providerError(error);
+      throw new ApiError(failure.status, "storage_transfer_incomplete", `The provider-side copy did not finish. Originals were kept; some copies may exist or still be processing. Refresh both folders before retrying. ${failure.message}`);
+    }
+    report({ phase: "completed", completedFiles, totalFiles });
+    return destination;
+  }
   if (sameRoot && input.mode === "move" && source.rename) {
     await source.rename(input.path, destination, input.kind, report);
     report({ phase: "completed", completedFiles: totalFiles, totalFiles });

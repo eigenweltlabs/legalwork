@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -42,9 +42,11 @@ export function CalendarView(props: CalendarViewProps) {
   const [opening, setOpening] = useState(false);
   const [connectedEvent, setConnectedEvent] = useState<CalendarDisplayOccurrence | null>(null);
   const range = calendarRange(anchor, view);
+  const loadedStart = shiftDay(range.start, view === "week" ? -7 : 0), loadedEnd = shiftDay(range.end, view === "week" ? 7 : 0);
+  const loadedRange = { from: calendarDay(loadedStart), to: calendarDay(loadedEnd) };
   // Project records are expanded in their own zones. Include adjacent dates before
   // placing them on the viewer's common clock, then clip to the actual view.
-  const query = useCalendarOccurrences(props, calendarDay(shiftDay(range.start, -2)), calendarDay(shiftDay(range.end, 2))), records = useCalendarRecords(props), refresh = useCalendarRefresh();
+  const query = useCalendarOccurrences(props, calendarDay(shiftDay(loadedStart, -2)), calendarDay(shiftDay(loadedEnd, 2))), records = useCalendarRecords(props), refresh = useCalendarRefresh();
   // Personal overlays always use this computer's client, including in remote projects.
   const personalClient = props.personalClient === undefined ? props.client : props.personalClient;
   const connected = useConnectedCalendars(personalClient);
@@ -53,12 +55,19 @@ export function CalendarView(props: CalendarViewProps) {
   const hidden = visibility.hidden[visibilityScope] ?? [];
   const calendars = connected.data?.calendars ?? [];
   const visibleCalendars = calendars.filter(calendar => !hidden.includes(calendar.key));
-  const eventQueries = useConnectedCalendarEvents(personalClient, visibleCalendars, range.from, range.to);
+  const eventQueries = useConnectedCalendarEvents(personalClient, visibleCalendars, loadedRange.from, loadedRange.to);
   const local = query.data?.occurrences ?? [];
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const all: CalendarDisplayOccurrence[] = [...local, ...eventQueries.flatMap(result => result.data ?? [])].map(item => item.allDay ? item : { ...item, timeZone }).filter(item => occursInRange(item, range.from, range.to)).sort((a, b) => a.start.localeCompare(b.start));
-  const connectedUnavailable = [...(connected.data?.unavailable ?? []), ...eventQueries.flatMap((result, index) => result.isError ? [visibleCalendars[index].name] : [])];
+  const all: CalendarDisplayOccurrence[] = [...new Map([...local, ...eventQueries.flatMap(result => result.data ?? [])].map(item => [item.id, item.allDay ? item : { ...item, timeZone }])).values()].filter(item => occursInRange(item, loadedRange.from, loadedRange.to)).sort((a, b) => a.start.localeCompare(b.start));
+  const connectedUnavailable = [...new Set([...(connected.data?.unavailable ?? []), ...eventQueries.flatMap(result => result.isError ? [result.calendar.name] : [])])];
   const connectedLoading = connected.isFetching || eventQueries.some(result => result.isFetching);
+  useEffect(() => {
+    if (!connectedEvent?.connectedEvent) return;
+    const key = connectedEvent.connectedEvent.calendar.key;
+    const pages = eventQueries.filter(result => result.calendar.key === key && occursInRange(connectedEvent, result.from, result.to));
+    if ((connected.isSuccess && !calendars.some(calendar => calendar.key === key)) ||
+      (pages.length > 0 && pages.every(result => result.isSuccess && !result.isFetching) && !pages.some(result => result.data?.some(item => item.id === connectedEvent.id)))) setConnectedEvent(null);
+  }, [connectedEvent, connected.isSuccess, calendars, eventQueries]);
   const membersWorkspaceId = props.workspaceId ?? local.find(item => item.projectId && !props.remoteSources?.some(source => source.id === item.projectId))?.projectId ?? "";
   const members = useTaskMembers({ client: props.client, workspaceId: membersWorkspaceId });
   const projects = [...new Map(local.map(item => [item.projectId ?? "inbox", item.projectName])).entries()];
@@ -138,15 +147,16 @@ export function CalendarView(props: CalendarViewProps) {
         {query.data?.unavailable.length ? <p role="status" className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">{t("calendar.unavailable_projects", { projects: query.data.unavailable.join(", ") })}</p> : null}
         {connected.isError || connectedUnavailable.length > 0 ? <p role="alert" className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">{t("calendar.connected_unavailable", { calendars: connectedUnavailable.join(", ") || t("calendar.connected_calendars") })}</p> : null}
         {query.isError || records.isError ? <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-destructive/20 p-4 text-sm"><span>{calendarError(query.error ?? records.error)}</span><Button size="sm" variant="outline" onClick={refresh}>{t("workspace_files.try_again")}</Button></div> : null}
-        {query.isPending ? <div role="status" className="flex min-h-72 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("calendar.loading")}</div> : <>
-          {(["day", "week", "month"] satisfies ("day" | "week" | "month")[]).map(mode => <TabsContent key={mode} value={mode} className="min-h-0 overflow-hidden"><CalendarGrid view={mode} anchor={anchor} start={range.start} items={items} projectId={props.projectId ?? props.workspaceId} showProjects={!props.workspaceId} timeZone={timeZone} onDay={showDay} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>)}
+        <>
+          {query.isPending && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("calendar.loading")}</p>}
+          {(["day", "week", "month"] satisfies ("day" | "week" | "month")[]).map(mode => <TabsContent key={mode} value={mode} className="min-h-0 overflow-hidden"><CalendarGrid view={mode} anchor={anchor} start={range.start} items={items} projectId={props.projectId ?? props.workspaceId} showProjects={!props.workspaceId} timeZone={timeZone} onDay={showDay} onWeekChange={direction => setAnchor(current => moveCalendar(current, "week", direction))} onOpen={item => void open(item)} onCreate={canCreate ? create : undefined} /></TabsContent>)}
           <TabsContent value="agenda" className="min-h-0 overflow-y-auto"><CalendarAgenda from={range.from} items={items} projectId={props.projectId ?? props.workspaceId} showProjects={!props.workspaceId} onOpen={item => void open(item)} /></TabsContent>
-        </>}
+        </>
       </Tabs>
       {trashOpen && props.client && props.workspaceId && <CalendarTrash client={props.client} workspaceId={props.workspaceId} items={records.data?.items.filter(item => item.deletedAt) ?? []} onClose={() => setTrashOpen(false)} onChanged={refresh} />}
       {subscriptionOpen && props.client && <CalendarSubscriptionDialog client={props.client} workspaceId={props.workspaceId ?? null} projectName={props.projectName} hasRemoteProjects={!props.workspaceId && Boolean(props.remoteSources?.length)} onClose={() => setSubscriptionOpen(false)} />}
       {task && <TaskDialog taskId={task.id} client={task.client} workspaceId={task.workspaceId} projects={task.projects} onClose={() => setTask(null)} />}
-      {connectedEvent && <ConnectedCalendarEventDialog item={connectedEvent} onClose={() => setConnectedEvent(null)} />}
+      {connectedEvent && <ConnectedCalendarEventDialog item={all.find(item => item.id === connectedEvent.id) ?? connectedEvent} onClose={() => setConnectedEvent(null)} />}
       {editing && <DeadlineDialog key={editing.item?.id ?? editing.day} client={editing.client} workspaceId={editing.workspaceId} projectId={editing.projectId} projectName={editing.projectName} projects={props.projects} item={editing.item} day={editing.day} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
     </div>
   </div>;

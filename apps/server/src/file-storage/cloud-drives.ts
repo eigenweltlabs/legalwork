@@ -8,6 +8,7 @@ import { checkResponse, chunks, sourceSize } from "./oauth/http.js";
 import { nativeDriveAdapter, type DriveItem } from "./native-drive.js";
 import { conflict, type StorageAdapter } from "./common.js";
 import { googleDriveTree, googleFolder, googleExports } from "./google-drive-tree.js";
+import { microsoftCopy } from "./microsoft-copy.js";
 
 export const cloudStorageProviders = ["google-drive", "onedrive", "onedrive-personal", "sharepoint-files"];
 export function isCloudStorage(config: StorageConfig): config is Extract<StorageConfig, { kind: "oauth" }> {
@@ -28,14 +29,6 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
   }
   const tree = await googleDriveTree(config, request);
   const adapter = nativeDriveAdapter({ ...tree,
-    async download(item) {
-      if (item.exported && !Object.values(googleExports).some((format) => format.type === item.contentType)) throw new ApiError(415, "storage_export_unsupported", "This Google file cannot be exported to a supported editor format. Open its provider link.");
-      const file = await tree.get(item.id);
-      const target = file.targetId ?? file.id;
-      const key = file.targetResourceKey ?? file.resourceKey;
-      const path = `/drive/v3/files/${encodeURIComponent(target)}`;
-      return request.response(item.exported ? `${path}/export?${new URLSearchParams({ mimeType: item.contentType })}` : `${path}?alt=media&supportsAllDrives=true`, { bytes: true, ...(key ? { headers: { "X-Goog-Drive-Resource-Keys": `${target}/${key}` } } : {}) });
-    },
     async upload(parent, name, current, source, type, condition) {
       parent = await tree.writeParent(parent);
       const size = await sourceSize(source);
@@ -64,11 +57,31 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
       parent = await tree.writeParent(parent);
       await request(`/drive/v3/files?supportsAllDrives=true&fields=id`, { method: "POST", body: { name, mimeType: googleFolder, parents: [parent.id] } });
     },
-    async remove(item, version) {
-      await request(`/drive/v3/files/${encodeURIComponent(item.id)}?supportsAllDrives=true`, { method: "PATCH", body: { trashed: true }, headers: { "If-Match": version ?? item.version } });
+    async copyFile(item, parent, name) {
+      parent = await tree.writeParent(parent);
+      const source = await tree.get(item.id);
+      const target = source.targetId ?? source.id;
+      const key = source.targetResourceKey ?? source.resourceKey;
+      const format = Object.values(googleExports).find(format => format.type === source.contentType);
+      // Native Google documents have an export suffix only in Memory Drive.
+      // Copy the native document, preserving its real title and format.
+      const title = source.exported && format && name.endsWith(`.${format.extension}`) ? name.slice(0, -format.extension.length - 1) : name;
+      const copied = parseNative(z.object({ id: z.string() }), await request(`/drive/v3/files/${encodeURIComponent(target)}/copy?supportsAllDrives=true&fields=id`, {
+        method: "POST", body: { name: title, parents: [parent.id] },
+        ...(key ? { headers: { "X-Goog-Drive-Resource-Keys": `${target}/${key}` } } : {}),
+      }));
+      const result = await tree.get(copied.id);
+      if (result.id === target || result.folder || !result.parents.includes(parent.id) || result.name !== name ||
+          (!source.exported && result.size !== source.size) || (source.checksum && result.checksum !== source.checksum))
+        throw new ApiError(409, "storage_conflict", "The copied file's metadata did not match the source and destination. Refresh both folders.");
     },
   });
-  return { ...adapter, ...(tree.listFilesAtRoot ? { listFilesAtRoot: tree.listFilesAtRoot } : {}),
+  return { ...adapter,
+    async list(path, cursor) {
+      await request.assertRead?.();
+      return adapter.list(path, cursor);
+    },
+    ...(tree.listFilesAtRoot ? { listFilesAtRoot: tree.listFilesAtRoot } : {}),
     async restrictToFolder(reference) {
       if (!reference.id || reference.id.startsWith("legalwork:google:")) return null;
       const folder = await tree.get(reference.id);
@@ -146,6 +159,12 @@ export async function microsoftStorageAdapter(config: Extract<StorageConfig, { k
       if (offset !== size) conflict();
     },
     async mkdir(parent, name) { await request(`${itemPath(parent.id)}/children`, { method: "POST", body: { name, folder: {}, [behavior]: "fail" } }); },
+    async copyFile(item, parent, name) {
+      const copiedId = await microsoftCopy(request, `${itemPath(item.id)}/copy`, parent.id, drive.id, name, origin, config.provider === "onedrive-personal");
+      const copied = graphItem(await raw(copiedId));
+      if (copied.id === item.id || copied.folder || !copied.parents.includes(parent.id) || copied.name !== name || copied.size !== item.size)
+        throw new ApiError(409, "storage_conflict", "The copied file's metadata did not match the source and destination. Refresh both folders.");
+    },
     async rename(item, parent, name) { await request(itemPath(item.id), { method: "PATCH", body: { name, parentReference: { id: parent.id, driveId: drive.id }, [behavior]: "fail" }, headers: { "If-Match": item.version } }); },
     async remove(item, version) { await request(itemPath(item.id), { method: "DELETE", empty: true, headers: { "If-Match": version ?? item.version } }); },
   });

@@ -8,7 +8,7 @@ import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import type { ComposerDraft } from "@/app/types";
-import { useComposerStateStore, type QueuedComposerDraft, type ComposerSessionState } from "./composer-state-store";
+import { QueuedEditRecoveredError, useComposerStateStore, type QueuedComposerDraft, type ComposerSessionState } from "./composer-state-store";
 
 const fileData = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -96,7 +96,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       const current = editor?.queuedDraftId ? claim.current : null;
       if (editor?.queuedDraftId && current?.id !== editor.queuedDraftId) {
         useComposerStateStore.getState().recoverQueuedEdit(sessionId);
-        throw new Error(t("composer.queue_edit_recovered"));
+        throw new QueuedEditRecoveredError(t("composer.queue_edit_recovered"));
       }
       if (!reservedId && (!submission.current || submission.current.signature !== signature)) submission.current = { signature, id: crypto.randomUUID() };
       const id = current?.id ?? reservedId ?? submission.current?.id;
@@ -106,7 +106,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
         if (current && error instanceof LegalworkServerError && error.status === 409) {
           claim.current = null;
           useComposerStateStore.getState().recoverQueuedEdit(sessionId);
-          throw new Error(t("composer.queue_edit_recovered"));
+          throw new QueuedEditRecoveredError(t("composer.queue_edit_recovered"));
         }
         throw error;
       }
