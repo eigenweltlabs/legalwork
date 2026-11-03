@@ -30,7 +30,7 @@ test("a worker has only its exact active contract and submit authority with the 
   const f = await fixture(), dispose = await f.grant({ type: "remote", scope: "collaborator" });
   expect(await authenticateWikiAgentRequest(f.config, f.request())).toMatchObject({ reviewWorker: true, sessionId: "worker", generation: f.claim.id, actor: { scope: "collaborator" } });
   expect((await authenticateWikiAgentRequest(f.config, f.request("/workspace/matter/reviews/workers/worker/submit", "POST")))?.reviewWorker).toBe(true);
-  for (const [path, method] of [["/workspaces", "GET"], ["/wikis", "GET"], ["/workspace/matter/storage/roots", "GET"],
+  for (const [path, method] of [["/workspaces", "GET"], ["/wikis", "GET"], ["/workspace/matter/storage/roots", "GET"], ["/workspace/matter/storage/source/transfer", "POST"],
     ["/workspace/matter/office-tools/execute", "POST"], ["/workspace/matter/sandbox/command", "POST"], ["/workspace/matter/sandbox/http", "POST"],
     ["/workspace/matter/reviews/workers/worker/contract", "POST"], ["/workspace/matter/opencode/api/session/worker/prompt", "POST"]])
     await expect(authenticateWikiAgentRequest(f.config, f.request(path, method))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });

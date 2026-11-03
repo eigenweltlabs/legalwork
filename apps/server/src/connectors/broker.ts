@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { oauthVaultPath } from "../file-storage/oauth/vault.js";
 import { z } from "zod";
 import {
@@ -16,6 +16,7 @@ import { createLocalOAuthFlows, disconnectLocalOAuth, localOAuthAccessToken, loc
 import { requireConnectorConnectSlot, reserveConnectorConnectSlot, withConnectorConnectLock } from "./single-connection.js";
 import { clearConnectorActivation, connectorIsActivated, recordConnectorActivation, requireConnectorActivated } from "./settings.js";
 import { defaultConnectorOAuthClient } from "./oauth-providers.js";
+import { connectorCredentials, connectorCredentialScope, invalidateConnectorCredentials } from "./credential-cache.js";
 export { connectorDefinition } from "./definition.js";
 
 const statusSchema = z.object({ connection: connectorConnectionSchema });
@@ -88,15 +89,16 @@ async function checkConnection(config: ServerConfig, owner: string, id: string, 
   }
 }
 
-// Only status metadata is cached. Credential retrieval still verifies current
-// ownership for every request. Share checks across modals, workspaces and the
-// two Outlook connectors, with saved state in the key to invalidate changes.
+// Short authorization leases are independent of the provider token's lifetime.
+// Local changes invalidate both; writes force a fresh broker status check.
 const statusChecks = new Map<string, { until: number; result: Promise<StoredConnectorConnection | null> }>();
 const STATUS_CACHE_MS = 30_000;
 
 async function refreshConnection(config: ServerConfig, owner: string, id: string, connection: StoredConnectorConnection, forceRefresh = false) {
   if (connection.needsReconnect) return connection;
-  const key = JSON.stringify([oauthVaultPath(config), owner, connectionProvider(id), connection]);
+  const scope = connectorCredentialScope(config);
+  const generation = connectorCredentials.generation(scope);
+  const key = JSON.stringify([oauthVaultPath(config), owner, connectionProvider(id), connection, generation]);
   let entry = statusChecks.get(key);
   if (!entry || (entry.until !== 0 && (forceRefresh || entry.until <= Date.now()))) {
     if (statusChecks.size >= 256) {
@@ -119,13 +121,19 @@ export async function listConnectorConnections(config: ServerConfig, id: string,
   const account = platform.account;
   if (!account || (!platform.platformToken && !platform.refreshToken)) return local;
   const owner = ownerKey(account);
+  const scope = connectorCredentialScope(config), generation = connectorCredentials.generation(scope);
   const provider = connectionProvider(id);
   const savedState = await readConnectorState(config, owner, provider);
   let connections = savedState.connections;
   if (connections.some((connection) => !connection.needsReconnect)) {
     const refreshed = await Promise.all(connections.map((connection) => refreshConnection(config, owner, id, connection, forceRefresh)));
+    if (connectorCredentials.generation(scope) !== generation) {
+      const current = (await readEigenweltConnection(config)).account;
+      return [...(current && ownerKey(current) === owner ? await readConnectorConnections(config, owner, provider) : []), ...await localOAuthConnections(config, id)];
+    }
     connections = refreshed.filter((connection) => connection !== null);
-    if (savedState.snapshot !== null && !await writeConnectorConnections(config, owner, provider, connections, savedState.snapshot)) {
+    if (JSON.stringify(connections) === JSON.stringify(savedState.connections) ||
+        (savedState.snapshot !== null && !await writeConnectorConnections(config, owner, provider, connections, savedState.snapshot))) {
       connections = await readConnectorConnections(config, owner, provider);
     }
   }
@@ -216,18 +224,31 @@ export async function connectorAccessToken(config: ServerConfig, id: string, con
   await requireConnectorActivated(config, id, connectionId);
   const localToken = await localOAuthAccessToken(config, id, connectionId, forceRefresh);
   if (localToken) return localToken;
-  const account = (await readEigenweltConnection(config)).account;
+  const session = await readEigenweltConnection(config);
+  const account = session.account;
   if (!account) throw new ApiError(403, "connector_signin_required", "Sign in with Eigenwelt to connect an account.");
   const owner = ownerKey(account);
   const saved = await readConnectorConnections(config, owner, connectionProvider(id));
   const connection = saved.find((connection) => connection.id === connectionId && !connection.needsReconnect);
   if (!connection) throw new ApiError(409, "connector_not_connected", "Connect this account in Integrations before using it.");
-  return parse(connectorTokenSchema, await brokerRequest(config, "POST",
-    `/${encodeURIComponent(id)}/connection/token`, { connectionId: connection.nangoConnectionId, forceRefresh }, owner)).accessToken;
+  const sessionKey = createHash("sha256").update(session.refreshToken ?? session.platformToken ?? "").digest("hex");
+  const key = JSON.stringify([oauthVaultPath(config), owner, connectionProvider(id), connection, sessionKey]);
+  return connectorCredentials.get(connectorCredentialScope(config), key, forceRefresh, async () => {
+    const credential = parse(connectorTokenSchema, await brokerRequest(config, "POST",
+      `/${encodeURIComponent(id)}/connection/token`, { connectionId: connection.nangoConnectionId, forceRefresh }, owner));
+    const current = await readEigenweltConnection(config);
+    if (!current.account || ownerKey(current.account) !== owner)
+      throw new ApiError(409, "connector_account_changed", "This account changed while credentials were being retrieved.");
+    await requireConnectorActivated(config, id, connectionId);
+    const latest = await readConnectorConnections(config, owner, connectionProvider(id));
+    if (!latest.some(item => JSON.stringify(item) === JSON.stringify(connection))) throw new ApiError(409, "connector_account_changed", "This connection changed while credentials were being retrieved.");
+    return credential;
+  });
 }
 
 export async function disconnectConnector(config: ServerConfig, id: string, connectionId: string) {
   connectorDefinition(id);
+  invalidateConnectorCredentials(config);
   if (await disconnectLocalOAuth(config, id, connectionId)) {
     await clearConnectorActivation(config, id, connectionId);
     return savedConnectorStatus(config);

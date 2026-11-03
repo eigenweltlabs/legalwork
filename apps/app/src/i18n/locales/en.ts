@@ -2901,6 +2901,8 @@ export default {
   "composer.resume_queue": "Resume queue",
   "composer.queue_edit_recovered": "Your queued edit was kept as a new draft. The original queue entry is unchanged; review it before sending again.",
   "composer.queue_failed": "Message queue paused",
+  "composer.preparing_attachments": "Preparing attachments…",
+  "composer.send_failed_restored": "Message not sent. Your draft has been restored.",
   "composer.queue": "Send when agent finishes",
   "composer.queue_hint": "Send once the agent finishes the current task",
   "composer.send_options": "More send options",

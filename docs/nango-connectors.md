@@ -18,13 +18,27 @@ sequenceDiagram
     Nango-->>Local: Random connection ID, stored in the local OAuth vault
     Nango-->>App: Browser consent flow
     App->>Local: Run email action
-    Local->>Broker: Request account access token
-    Broker->>Nango: Retrieve / refresh credentials
-    Nango-->>Local: Short-lived access token, via broker
+    Local->>Broker: Verify access periodically, or before the first write
+    Broker-->>Local: Current account authorization
+    opt Token absent or near expiry
+        Local->>Broker: Request account access token
+        Broker->>Nango: Retrieve / refresh credentials
+        Nango-->>Local: Short-lived access token, via broker
+    end
     Local->>Mail: Direct native API request
     Mail-->>Local: Email data
     Local-->>App: Tool result
 ```
+
+## Credential reuse and authorization
+
+Managed personal connections retain access tokens only in the LegalWork server process, until one minute before the broker's `expiresAt`. Tokens without a usable future expiration are used for the current operation only. Concurrent retrievals share a request. Cache keys separate profiles, platform origins, users, organizations, provider/connection identities and sign-in sessions. Own-app OAuth and delegated team credentials retain their existing credential paths.
+
+Token validity does not authorize access by itself. Each provider request checks current local account, activation and write settings. Cloud membership/connection status is checked independently using the existing 30-second status cache. Each connector operation forces a fresh status check before its first write, then renews it during long operations when that interval expires. Failed cloud checks stop provider requests; a provider 401 permits one credential refresh and one retry after checking permissions again.
+
+Local sign-out/sign-in, changed connection metadata, disconnect and permission/activation changes invalidate reusable credentials and authorization status. A generation check rejects old managed request objects and late credential responses. Settings status requests return the current saved state when a concurrent local change wins; they cannot restore removed accounts. Virtual Google account listings also explicitly check authorization even when no provider request is necessary.
+
+The browsing authorization interval is independent of the token lifetime: remote policy changes may take about 30 seconds to be detected by new browsing requests. Requests already sent to the provider are not retroactively cancelled. Tokens, authorization headers and private Nango handles remain absent from UI/agent results and logs. No token cache is persisted to disk.
 
 ## Setup
 

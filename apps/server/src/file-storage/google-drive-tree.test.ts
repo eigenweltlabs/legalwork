@@ -44,7 +44,7 @@ function fixture() {
     const id = url.pathname.split("/").at(-1);
     const value = id === "root" ? my : files.find((value) => value.id === id);
     if (!value) throw new ApiError(404, "storage_not_found", "Missing fixture file");
-    return url.searchParams.get("alt") === "media" ? new Response(`bytes:${value.id}`) : Response.json(value, { headers: { etag: '"fixture-v1"' } });
+    return url.searchParams.get("alt") === "media" ? new Response(`bytes:${value.id}`) : Response.json(value, { headers: { etag: `"fixture-v${value.version}"` } });
   };
   const request: StreamingConnectorRequest = Object.assign(async (path: string, options?: ConnectorRequestOptions) => (await response(path, options)).json(), { response, assertWrite: async () => {} });
   return { request, calls, my, company, shared, files, markIncomplete: () => { incomplete = true; } };
@@ -56,6 +56,146 @@ async function pages(load: (cursor?: string) => Promise<StoragePage>) {
   return entries;
 }
 const config = { kind: "oauth", provider: "google-drive", root: "", accountId: "fixture-account" } satisfies import("@legalwork/types/file-storage").StorageConfig;
+
+test("folder expansion fetches each path item's metadata once and performs one child listing", async () => {
+  const { request, calls, my, company, files } = fixture();
+  const adapter = await googleStorageAdapter(config, request);
+  await adapter.list("");
+  expect(calls.map(({ url }) => url.pathname)).toEqual(["/drive/v3/files/root"]);
+  for (const path of [nativeSegment(my), `${nativeSegment({ id: "legalwork:google:drives", name: "Shared drives" })}/${nativeSegment(company)}/${nativeSegment(files.find(file => file.id === "matter")!)}`]) {
+    calls.length = 0;
+    await adapter.list(path);
+    const metadata = calls.filter(({ url }) => url.pathname.startsWith("/drive/v3/files/"));
+    expect(metadata.length).toBe(new Set(metadata.map(({ url }) => url.pathname)).size);
+    expect(calls.filter(({ url }) => url.pathname === "/drive/v3/files")).toHaveLength(1);
+  }
+});
+
+test("account paths fetch independent metadata concurrently before validating their parent links", async () => {
+  const { request, company, files } = fixture();
+  const adapter = await googleStorageAdapter(config, request);
+  const response = request.response;
+  let active = 0, maximum = 0;
+  request.response = async (path, options) => {
+    active++; maximum = Math.max(maximum, active);
+    try { await new Promise<void>(resolve => setImmediate(resolve)); return await response(path, options); }
+    finally { active--; }
+  };
+  const path = `${nativeSegment({ id: "legalwork:google:drives", name: "Shared drives" })}/${nativeSegment(company)}/${nativeSegment(files.find(file => file.id === "matter")!)}`;
+  expect((await adapter.list(path)).entries.map(entry => entry.id)).toEqual(["company-file", "company-file-2"]);
+  expect(maximum).toBeGreaterThan(1);
+  expect(maximum).toBeLessThanOrEqual(8);
+});
+
+test("opening a Google file fetches its metadata only once before and once after transferring content", async () => {
+  for (const streaming of [false, true]) {
+    const { request, calls, my, files } = fixture();
+    const adapter = await googleStorageAdapter(config, request);
+    const file = files.find(file => file.id === "my-file")!;
+    const path = `${nativeSegment(my)}/${nativeSegment(file)}`;
+    calls.length = 0;
+    if (streaming) await adapter.download(path); else await adapter.read(path);
+    expect(calls.filter(call => call.url.pathname.endsWith(`/files/${file.id}`) && !call.url.searchParams.has("alt"))).toHaveLength(2);
+    expect(calls.filter(call => call.url.searchParams.get("alt") === "media")).toHaveLength(1);
+  }
+});
+
+test("whole-account ID reads use exactly two metadata requests including adapter setup, even with stale display ancestors", async () => {
+  for (const streaming of [false, true]) {
+    const { request, calls, files } = fixture();
+    const file = files.find(file => file.id === "company-file")!;
+    const adapter = await googleStorageAdapter(config, request);
+    const path = `${nativeSegment({ id: "stale-parent", name: "Old location" })}/${nativeSegment(file)}`;
+    const result = streaming ? await adapter.download(path) : await adapter.read(path);
+    expect(result.size).toBe(`bytes:${file.id}`.length);
+    const metadata = calls.filter(call => call.url.pathname.startsWith("/drive/v3/files/") && !call.url.searchParams.has("alt"));
+    expect(metadata.map(call => call.url.pathname)).toEqual([`/drive/v3/files/${file.id}`, `/drive/v3/files/${file.id}`]);
+    expect(calls.filter(call => call.url.searchParams.get("alt") === "media")).toHaveLength(1);
+  }
+});
+
+test("whole-account reads still stop when provider access is lost before or during the download", async () => {
+  for (const duringDownload of [false, true]) {
+    const { request, calls, files } = fixture();
+    const file = files.find(file => file.id === "company-file")!;
+    const response = request.response;
+    let downloaded = false;
+    request.response = async (path, options) => {
+      const url = new URL(path, "https://www.googleapis.com");
+      if (url.pathname.endsWith(`/files/${file.id}`) && !url.searchParams.has("alt") && (!duringDownload || downloaded))
+        throw new ApiError(403, "connector_access_denied", "Provider access was revoked.");
+      const result = await response(path, options);
+      if (url.searchParams.get("alt") === "media") downloaded = true;
+      return result;
+    };
+    const adapter = await googleStorageAdapter(config, request);
+    await expect(adapter.read(nativeSegment(file))).rejects.toMatchObject({ code: "connector_access_denied" });
+    expect(calls.filter(call => call.url.searchParams.get("alt") === "media")).toHaveLength(duringDownload ? 1 : 0);
+  }
+});
+
+test("whole-account reads keep name-based resolution and syntax validation when no file identity is supplied", async () => {
+  const { request, my } = fixture();
+  const adapter = await googleStorageAdapter(config, request);
+  expect((await adapter.read(`${nativeSegment(my)}/Personal.txt`)).data.toString()).toBe("bytes:my-file");
+  await expect(adapter.read(`../${nativeSegment({ id: "my-file", name: "Personal.txt" })}`)).rejects.toMatchObject({ code: "invalid_storage_path" });
+});
+
+test("a folder moved outside a restricted location during download is still rejected", async () => {
+  const { request, company, files } = fixture();
+  const matter = files.find(file => file.id === "matter")!, file = files.find(file => file.id === "company-file")!;
+  const path = `${nativeSegment(matter)}/${nativeSegment(file)}`;
+  const response = request.response;
+  request.response = async (path, options) => {
+    const result = await response(path, options);
+    if (new URL(path, "https://www.googleapis.com").searchParams.get("alt") === "media") matter.parents = ["outside"];
+    return result;
+  };
+  const adapter = await googleStorageAdapter({ ...config, root: company.id }, request);
+  await expect(adapter.download(path)).rejects.toMatchObject({ status: 404 });
+});
+
+test("explicit folder views reject an outside ancestor before fetching descendant metadata", async () => {
+  const { request, calls, my, files } = fixture();
+  const matter = files.find(file => file.id === "matter")!, file = files.find(file => file.id === "company-file")!;
+  const adapter = await googleStorageAdapter({ ...config, root: my.id }, request);
+  calls.length = 0;
+  await expect(adapter.read(`${nativeSegment(matter)}/${nativeSegment(file)}`)).rejects.toMatchObject({ status: 404 });
+  expect(calls.some(call => call.url.pathname.endsWith(`/files/${file.id}`))).toBe(false);
+});
+
+test("retargeting a shortcut during download is detected even when both targets have the same version", async () => {
+  const { request, my, files } = fixture();
+  const shortcut = files.find(file => file.id === "file-shortcut")!;
+  const response = request.response;
+  request.response = async (path, options) => {
+    const result = await response(path, options);
+    if (new URL(path, "https://www.googleapis.com").searchParams.get("alt") === "media" && shortcut.shortcutDetails) shortcut.shortcutDetails.targetId = "my-file";
+    return result;
+  };
+  const adapter = await googleStorageAdapter(config, request);
+  await expect(adapter.read(`${nativeSegment(my)}/${nativeSegment(shortcut)}`)).rejects.toMatchObject({ code: "storage_conflict" });
+});
+
+test("metadata reuse preserves fresh versions, parent checks and changes during download", async () => {
+  const { request, my, files } = fixture();
+  const adapter = await googleStorageAdapter(config, request);
+  const file = files.find(file => file.id === "my-file")!;
+  const path = `${nativeSegment(my)}/${nativeSegment(file)}`;
+  expect((await adapter.stat(path))?.version).toBe('"fixture-v1"');
+  file.version = "2";
+  expect((await adapter.stat(path))?.version).toBe('"fixture-v2"');
+  file.parents = ["another-folder"];
+  expect(await adapter.stat(path)).toBeNull();
+  file.parents = [my.id];
+  const response = request.response;
+  request.response = async (path, options) => {
+    const result = await response(path, options);
+    if (new URL(path, "https://www.googleapis.com").searchParams.get("alt") === "media") file.version = "3";
+    return result;
+  };
+  await expect(adapter.read(path)).rejects.toMatchObject({ code: "storage_conflict" });
+});
 
 test("default Google account exposes My Drive, Shared with me and paginated company drives", async () => {
   const { request, shared, calls } = fixture(); const adapter = await googleStorageAdapter(config, request);
@@ -119,12 +259,16 @@ test("account browsing follows accessible folder/file shortcuts and restricted v
   await expect(scoped.read(nativeSegment(file))).rejects.toMatchObject({ code: "storage_outside_root" });
 });
 
-test("virtual locations cannot be mutated and forged paths still check provider parent membership", async () => {
+test("virtual locations and mutations still require valid parent membership even though account reads use IDs", async () => {
   const { request, calls, files } = fixture(); const adapter = await googleStorageAdapter(config, request);
   const root = await adapter.list(""); const shared = root.entries.find((entry) => entry.name === "Shared with me")!, drives = root.entries.find((entry) => entry.name === "Shared drives")!;
   const personal = files.find((value) => value.id === "my-file")!;
-  await expect(adapter.read(`${shared.path}/${nativeSegment(personal)}`)).rejects.toMatchObject({ status: 404 });
-  await expect(adapter.read(`${drives.path}/${nativeSegment(personal)}`)).rejects.toMatchObject({ status: 404 });
+  for (const location of [shared, drives]) {
+    const path = `${location.path}/${nativeSegment(personal)}`;
+    expect(await adapter.stat(path)).toBeNull();
+    await expect(adapter.deleteFile!(path)).rejects.toMatchObject({ status: 404 });
+    await expect(adapter.copyFile!(path, "Copy.txt")).rejects.toMatchObject({ status: 404 });
+  }
   await expect(adapter.mkdir(`${shared.path}/Unsafe`)).rejects.toMatchObject({ code: "storage_invalid_destination" });
   await expect(adapter.deleteFolder!(shared.path, true)).rejects.toMatchObject({ code: "storage_read_only" });
   expect(calls.some(({ options }) => options.method)).toBe(false);
@@ -146,6 +290,12 @@ test("existing My Drive ID paths and project references survive the account root
   expect((await adapter.read(nativeSegment(personal))).data.toString()).toBe("bytes:my-file");
   const old = { id: my.id, name: "Drive", path: "", namespace: `google-drive:${config.accountId}:${my.id}` };
   expect(await adapter.resolveFolder!(old)).toBe(nativeSegment({ ...my, name: "My Drive" }));
+});
+
+test("lazy account setup preserves My Drive labels and existing folder-reference namespaces", async () => {
+  const { request, my } = fixture(); my.name = "Provider root name";
+  const adapter = await googleStorageAdapter(config, request);
+  expect(await adapter.folderReference!(nativeSegment(my))).toMatchObject({ name: "My Drive", id: my.id, namespace: `google-drive:${config.accountId}:${my.id}` });
 });
 
 test("shortcut cycles cannot recursively walk the account indefinitely", async () => {

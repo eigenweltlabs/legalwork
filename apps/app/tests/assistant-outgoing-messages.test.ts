@@ -7,7 +7,11 @@ import {
   canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, isLocalOutgoingMessage,
   mergeAssistantOutgoingMessages, moveAssistantOutgoingMessage, outgoingMessageId,
   rememberAcceptedSteeringMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages,
+  preparingAttachmentNames,
 } from "../src/react-app/domains/session/surface/assistant-outgoing-messages";
+import { buildComposerDraft } from "../src/react-app/domains/session/surface/composer/composer-draft";
+import { encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
+import { createProjectAttachmentMention, createWorkspaceAttachmentMention } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 
 const scope = assistantOutgoingScope("http://server", "assistant", "today");
 const draft: ComposerDraft = { mode: "prompt", text: "Hello", parts: [{ type: "text", text: "Hello" }], attachments: [], modelContext: "Private instructions" };
@@ -25,6 +29,28 @@ test("a local bubble is available synchronously, then the canonical ID replaces 
   const confirmed = mergeAssistantOutgoingMessages([canonical], entries(), scope);
   expect(confirmed).toEqual([canonical]);
   expect(isLocalOutgoingMessage(confirmed[0])).toBe(false);
+});
+
+test("cloud attachment previews show filenames while preparing, never temporary paths or source IDs", () => {
+  const name = "Agreement [final] (Müller).pdf";
+  const pending = createProjectAttachmentMention({ projectId: "project", workspaceId: "project", connectionId: "cloud", path: "~lw~cHJpdmF0ZS1pZA~Agreement.pdf", name }, "Source project");
+  const build = (value: string, text = " What does it say?") => buildComposerDraft(`@${encodeComposerMentionValue(value)}${text}`, [], { [value]: "upload" }, []);
+  addAssistantOutgoingMessage(scope, "cloud-send", build(pending));
+  const preview = entries()[0].message;
+  expect(preparingAttachmentNames(preview)).toEqual([`${name} · Source project`]);
+  expect(preview.parts).toEqual([{ type: "text", text: " What does it say?" }]);
+  expect(JSON.stringify(preview)).not.toContain("pending/");
+  expect(JSON.stringify(preview)).not.toContain("~lw~");
+  addAssistantOutgoingMessage(scope, "cloud-send", build(createWorkspaceAttachmentMention(name, ".legalwork/attachments/copy/Agreement.pdf")));
+  expect(entries()).toHaveLength(1);
+  expect(entries()[0].message.id).toBe(preview.id);
+  expect(preparingAttachmentNames(entries()[0].message)).toEqual([]);
+  expect(JSON.stringify(entries()[0].message.parts)).toContain(".legalwork/attachments/copy/Agreement.pdf");
+  addAssistantOutgoingMessage(scope, "cloud-send", build(pending, ""));
+  expect(preparingAttachmentNames(entries()[0].message)).toHaveLength(1);
+  expect(entries()[0].message.parts).toEqual([]);
+  removeAssistantOutgoingMessage("cloud-send");
+  expect(entries()).toEqual([]);
 });
 
 test("accepted steering renders from the shared queue before history, including after a window reload", () => {

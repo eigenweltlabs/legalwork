@@ -10,6 +10,7 @@ import { beginNativeConfigComponent, completeNativeConfigComponent } from "../ru
 import { OAuthVault, oauthVaultPath, vaultLock } from "../file-storage/oauth/vault.js";
 import { connectorEntryDigest, connectorStorageStatePath, missingFile, readConnectorStorageState, requireConnectorStorageState, writeConnectorStorageState } from "./storage-state.js";
 import { prepareConnectorSettings } from "./settings.js";
+import { invalidateConnectorCredentials } from "./credential-cache.js";
 
 const connectionsSchema = z.array(connectorConnectionSchema.strict());
 const storedConnectionsSchema = z.array(connectorConnectionSchema.extend({ nangoConnectionId: z.string().min(1).max(500) }).strict());
@@ -131,6 +132,7 @@ export async function writeConnectorConnections(config: ServerConfig, owner: str
   return vaultLock(connectorStorageStatePath(config), async () => {
     const current = await readState(config, owner, id);
     if (expectedSnapshot !== undefined && expectedSnapshot !== current.snapshot) return false;
+    if (JSON.stringify(parsed) !== JSON.stringify(current.connections)) invalidateConnectorCredentials(config);
     const state = await requireConnectorStorageState(config);
     const digest = connectorEntryDigest(key(owner, id));
     await writeConnectorStorageState(config, { ...state, pending: { key: digest, present: parsed.length > 0 } });

@@ -1,6 +1,6 @@
 import { CalendarEventDraftToolCard } from "./calendar-event-draft-card";
 import { integrationMessageMetadata, splitIntegrationMessage } from "@/react-app/domains/session/surface/composer/integration-message";
-import { isLocalOutgoingMessage } from "@/react-app/domains/session/surface/assistant-outgoing-messages";
+import { isLocalOutgoingMessage, preparingAttachmentNames } from "@/react-app/domains/session/surface/assistant-outgoing-messages";
 import { assistantIsWriting } from "@/react-app/domains/session/surface/assistant-bubbles";
 import { EmailDraftToolCard } from "./email-draft-card";
 import { WikiSuggestionCard, useWikiSuggestions } from "@/react-app/domains/wiki/wiki-suggestion-card";
@@ -642,6 +642,7 @@ const UserMessage = React.memo(
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, readOnly, assistantChat } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
     const localOutgoing = isLocalOutgoingMessage(sourceMessage)
+    const preparingAttachments = preparingAttachmentNames(sourceMessage)
     const sender = assistantMessageSender(message)
     const assistantScheduledRun = scheduledRunOf(message)
     const scheduledRun = React.useMemo(() => parseScheduledRunMessage(message), [message])
@@ -664,13 +665,15 @@ const UserMessage = React.memo(
                 {message.parts.filter(isFileUIPart).map((part, index) => (
                   <FileMessage key={`${part.url}-${index}`} part={part} tone="user" />
                 ))}
-                {assistantChat && assistantScheduledRun && !scheduledRun?.taskId ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : message.parts.some((part) => part.type === "text" && part.text) ? (
+                {assistantChat && assistantScheduledRun && !scheduledRun?.taskId ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : preparingAttachments.length > 0 || message.parts.some((part) => part.type === "text" && part.text) ? (
                   <MessageContent
                     layoutId={assistantChat ? undefined : message.id}
                     data-user-message-bubble=""
                     className="relative bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
                   >
+                    {preparingAttachments.map((name, index) => <span key={`${index}:${name}`} data-preparing-attachment="" title={name} className="mr-1 inline-flex max-w-full items-center gap-1.5 rounded-full border border-gray-6 px-2.5 py-1 text-xs font-medium align-middle"><FileIcon className="size-3.5 shrink-0" /><span className="truncate">{name}</span></span>)}
                     {renderUserMessageText(message)}
+                    {preparingAttachments.length > 0 && <div role="status" className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><LoaderCircle className="size-3 animate-spin" />{t("composer.preparing_attachments")}</div>}
                     {reaction && <span role="img" aria-label={t("assistant.reaction", { emoji: reaction })} data-assistant-reaction="" className="absolute -top-3 -left-3 flex h-7 min-w-8 items-center justify-center rounded-full border-2 border-background bg-muted px-1.5 text-base shadow-sm">{reaction}</span>}
                   </MessageContent>
                 ) : null}

@@ -203,6 +203,30 @@ export const useComposerStateStore = create<ComposerStateStore>((set) => ({
   }),
 }));
 
+export class QueuedEditRecoveredError extends Error {}
+
+/** Keep the submitted editor until admission succeeds, without blocking the next draft. */
+export async function submitComposerDraft(sessionId: string, editor: ComposerSessionState, submit: () => Promise<void>, onChange: () => void) {
+  try {
+    useComposerStateStore.getState().clearSession(sessionId);
+    onChange();
+    await submit();
+  } catch (error) {
+    const restored = { ...editor };
+    if (error instanceof QueuedEditRecoveredError) delete restored.queuedDraftId;
+    useComposerStateStore.setState(state => {
+      const current = state.sessions[sessionId];
+      const keepCurrent = current && current !== editor && (current.draft.trim() || current.attachments.length || current.pasteParts.length || current.queuedDraftId);
+      return {
+        sessions: { ...state.sessions, [sessionId]: restored },
+        stashedDrafts: { ...state.stashedDrafts, [sessionId]: [...(state.stashedDrafts[sessionId] ?? []), ...(keepCurrent ? [current] : [])] },
+      };
+    });
+    onChange();
+    throw error;
+  }
+}
+
 export function getComposerDraft(state: ComposerStateStore, sessionId: string): string {
   return state.sessions[sessionId]?.draft ?? "";
 }

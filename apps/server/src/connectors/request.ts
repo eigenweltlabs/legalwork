@@ -5,6 +5,8 @@ import { boundedDownload } from "./native.js";
 import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
 import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "./local-oauth.js";
 import { requireSingleConnectorAccount } from "./single-connection.js";
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { connectorCredentials, connectorCredentialScope } from "./credential-cache.js";
 
 export type ConnectorRequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown; rawBody?: Blob; content?: boolean; bytes?: boolean;
@@ -16,6 +18,8 @@ export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions
 export type StreamingConnectorRequest = ConnectorRequest & {
   response: (path: string, options?: ConnectorRequestOptions) => Promise<Response>;
   assertWrite: () => Promise<void>;
+  /** Recheck access when a virtual listing needs no provider HTTP request. */
+  assertRead?: () => Promise<void>;
 };
 
 /** Only provider adapters call this. Agents cannot supply arbitrary URLs or headers. */
@@ -34,16 +38,39 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
   }
   if (connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
   const apiOrigin = connection.source === "custom" && id === "onedrive-personal" ? "https://graph.microsoft.com" : definition.apiOrigin;
+  const managed = connection.source !== "custom";
+  const scope = connectorCredentialScope(config);
+  const generation = connectorCredentials.generation(scope);
+  const owner = managed ? (await readEigenweltConnection(config)).account : null;
+  let writeAuthorizedUntil = 0;
+  const assertGeneration = () => {
+    if (managed && connectorCredentials.generation(scope) !== generation) throw new ApiError(409, "connector_account_changed", "This connection or its permissions changed. Start the operation again.");
+  };
   const assertCurrent = async (writing: boolean, organize = false) => {
     const current = await savedConnectorConnections(config, id);
     requireSingleConnectorAccount(current);
     if (!current.some((item) => item.id === connection.id && !item.needsReconnect)) throw new ApiError(409, "connector_account_changed", "This account changed. Refresh the connection before continuing.");
     await requireConnectorActivated(config, id, connection.id);
     if (writing) {
+      await ensureConnectorWritesAllowed(config, id);
       if (connection.source === "custom") {
         await requireLocalOAuthWriteAccess(config, id, connection.id);
         if (organize) await requireLocalOAuthOrganizeAccess(config, id, connection.id);
       }
+    }
+    assertGeneration();
+    if (managed) {
+      const account = (await readEigenweltConnection(config)).account;
+      if (!account || !owner || account.orgId !== owner.orgId || account.userId !== owner.userId) throw new ApiError(409, "connector_account_changed", "This account changed. Start the operation again.");
+      // Status leases check cloud membership/ownership independently of the
+      // cached provider token. Each operation's first write forces a fresh check;
+      // long uploads and cleanup renew it at least every thirty seconds.
+      const fresh = writing && Date.now() >= writeAuthorizedUntil;
+      const latest = await listConnectorConnections(config, id, fresh);
+      requireSingleConnectorAccount(latest);
+      if (!latest.some(item => item.id === connection.id && !item.needsReconnect)) throw new ApiError(409, "connector_reconnect_required", "This account is no longer authorized. Reconnect it in Integrations.");
+      assertGeneration();
+      if (fresh) writeAuthorizedUntil = Date.now() + 30_000;
     }
   };
   return createAuthorizedConnectorRequest(config, id, {
@@ -95,7 +122,8 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     let response = await request();
     // A rejected token has not executed the request. Retry exactly once with a refreshed token.
     if (response.status === 401) {
-      refresh ??= authorization.token(true);
+      await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
+      refresh ??= authorization.token(true).finally(() => { refresh = undefined; });
       accessToken = await refresh;
       response = await request();
     }
@@ -118,7 +146,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     if (options.bytes) return boundedDownload(response);
     try { return await response.json(); }
     catch { throw new ApiError(502, "connector_api_invalid", `${definition.name} returned an invalid response.`); }
-  }, { response: responseRequest, assertWrite: () => assertCurrent(true) });
+  }, { response: responseRequest, assertWrite: () => assertCurrent(true), assertRead: () => assertCurrent(false) });
   connectorRequest.apiOrigin = apiOrigin;
   return connectorRequest;
 }

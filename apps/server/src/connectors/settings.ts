@@ -8,6 +8,7 @@ import { ApiError } from "../errors.js";
 import { oauthVaultPath, vaultLock } from "../file-storage/oauth/vault.js";
 import { connectorDefinition } from "./definition.js";
 import { atomicPrivateFile, connectorStorageStatePath, missingFile, requireConnectorStorageState, writeConnectorStorageState } from "./storage-state.js";
+import { invalidateConnectorCredentials } from "./credential-cache.js";
 
 export const connectorSettingsPath = (config: ServerConfig) => join(dirname(oauthVaultPath(config)), "connector-settings.json");
 const defaults = () => connectorSettingsSchema.parse({ writeAccess: {} });
@@ -59,6 +60,7 @@ export async function saveConnectorSettings(config: ServerConfig, input: unknown
       catch { throw new ApiError(503, "connector_settings_missing", "The established connector permission settings are missing. Restore the original settings before using connectors."); }
     }
     await writeConnectorStorageState(config, { ...state, settingsExpected: true });
+    invalidateConnectorCredentials(config);
     await atomicPrivateFile(connectorSettingsPath(config), JSON.stringify(parsed.data));
     return parsed.data;
   });
