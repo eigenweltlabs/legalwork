@@ -56,6 +56,8 @@ Answers display mathematical formulas and monetary calculations with their forma
 
 ## Connected services
 
+Browser pages opened by the agent stay in the chat's preview tiles while it works. Opening or switching between those pages does not change the tab you are viewing. Click a preview tile to open that browser beside the conversation. Close its browser tab to return it to the background while the agent continues working; the agent switching back to that page does not reopen it on your screen.
+
 When a browser task needs a login that is not saved, the assistant can show a **Sign-in details needed** card inline in the conversation. Enter the credentials there and choose **Save and continue**, or choose **Cancel** to stop the login attempt. The password is saved directly to the device vault and is not sent as chat text or an agent form answer. See [browser passwords](settings-privacy.md#browser-passwords) for saving, reuse and management.
 
 Reloading the LegalWork window keeps its browser pages and text you have entered open. Closing the app can still discard unsaved website changes; save those changes on the website before quitting.
