@@ -28,6 +28,8 @@ const broker = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
 const previousDiscovery = process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
 const bridgeCalls: unknown[] = [];
+const websiteAdds: Array<{ id: string; url: string; name?: string; loginUrl?: string }> = [];
+let rejectWebsiteAdd = false;
 let bridgeResult: unknown;
 let transferReads = 0;
 const policy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -37,6 +39,16 @@ const policy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (path.endsWith("/browser-connections")) {
     expect(request.headers.get("authorization")).toBe("Bearer fixture");
     return Response.json({ items: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", origin: "https://auth.example.com", websites: [{ name: "Portal", url: "https://example.com/research" }], password: "must-not-leak", username: "must-not-leak" }] });
+  }
+  const websiteAdd = /^\/workspace\/project\/browser-connections\/([^/]+)\/websites$/.exec(path);
+  if (websiteAdd && request.method === "POST") {
+    expect(request.headers.get("authorization")).toBe("Bearer fixture");
+    expect(request.headers.get("x-legalwork-host-token")).toBeNull();
+    if (rejectWebsiteAdd) return Response.json({ code: "insufficient_scope", message: "Only the connection owner can update saved login websites." }, { status: 403 });
+    const body = z.object({ url: z.string(), name: z.string().optional(), loginUrl: z.string().optional() }).strict().parse(await request.json());
+    websiteAdds.push({ id: websiteAdd[1]!, ...body });
+    return Response.json({ item: { id: websiteAdd[1], label: "Portal", origin: "https://auth.example.com",
+      additionalOrigins: body.loginUrl ? [new URL(body.loginUrl).origin] : [], websites: [{ name: body.name ?? "Portal", url: body.url }], password: "must-not-leak", username: "must-not-leak" } });
   }
   if (path === "/execute") { bridgeCalls.push(await request.json()); return Response.json(bridgeResult); }
   if (path.endsWith(`/extensions/${token}/execute/downloads`)) return Response.json({ downloads: [{ id: "file_remote", name: "large-record.bin", state: "completed", path: null, relativePath: null, receivedBytes: bytes.length, totalBytes: bytes.length, error: null, transferRequired: true }] });
@@ -57,6 +69,7 @@ test("registered browser tools expose typed direct results and compose with nati
     bridgeResult = { ok: true, actionId: "browser.open_url", result: { tab_id: "exact-tab", url: snapshot.tab.url, browser_url, snapshot } };
     const open = runtime.tools.get("legalwork_browser_open_url")!;
     const connect = runtime.tools.get("legalwork_browser_connect")!;
+    expect(runtime.tools.has("legalwork_browser_add_website")).toBe(true);
     const opened = (await open.execute({ url: snapshot.tab.url }, nativeTestInvocation("ses_upload"))).output;
     const output = z.object({ tabID: z.string(), browser_url: z.string(), snapshot: z.object({ content: z.string() }) }).parse(opened);
     expect(output).toMatchObject({ tabID: "exact-tab", browser_url, snapshot: { content: snapshot.content } });
@@ -83,10 +96,47 @@ test("registered browser tools expose typed direct results and compose with nati
     await expect(open.execute({ url: snapshot.tab.url }, nativeTestInvocation("ses_upload"))).rejects.toThrow();
   } finally { await runtime.close(); }
 });
-function tool(name: "legalwork_browser_connections" | "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads" | "legalwork_browser_passwords" | "legalwork_browser_fill_password") {
+function tool(name: "legalwork_browser_connections" | "legalwork_browser_add_website" | "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads" | "legalwork_browser_passwords" | "legalwork_browser_fill_password", ctx = native.ctx) {
   const definition = legalworkBrowserTools[name];
-  return nativeTool(native.ctx, { name, description: definition.description, schema: z.object(definition.args), execute: (input, context) => definition.execute(input, context) });
+  return nativeTool(ctx, { name, description: definition.description, schema: "inputSchema" in definition ? definition.inputSchema : z.object(definition.args), execute: (input, context) => definition.execute(input, context) });
 }
+
+test("agents add destination URLs directly with a narrow metadata mutation and optional explicit sign-in scope", async () => {
+  const permissionCount = native.permissions.length;
+  const password_id = "a8b2378c-4bf0-492a-a113-5ef80723e089";
+  blockNetwork = true;
+  try {
+    const result = await tool("legalwork_browser_add_website").execute({ password_id, url: "https://research.example.net/", name: "Library" }, nativeTestInvocation("ses_upload"));
+    expect(websiteAdds.at(-1)).toEqual({ id: password_id, url: "https://research.example.net/", name: "Library" });
+    expect(result.output).toMatchObject({ item: { id: password_id, additionalOrigins: [], websites: [{ url: "https://research.example.net/" }] } });
+    expect(JSON.stringify(result.output)).not.toContain("must-not-leak");
+    const expanded = await tool("legalwork_browser_add_website").execute({ password_id, url: "https://research.example.net/", login_url: "https://signin.example.net/login" }, nativeTestInvocation("ses_upload"));
+    expect(websiteAdds.at(-1)).toEqual({ id: password_id, url: "https://research.example.net/", loginUrl: "https://signin.example.net/login" });
+    expect(expanded.output).toMatchObject({ item: { additionalOrigins: ["https://signin.example.net"] } });
+    expect(native.permissions.slice(permissionCount)).toMatchObject([{ action: "legalwork_browser_add_website" }, { action: "legalwork_browser_add_website" }]);
+  } finally { blockNetwork = false; }
+});
+
+test("direct website additions retain native permission denials, owner errors and strict secure URL validation", async () => {
+  const args = { password_id: "a8b2378c-4bf0-492a-a113-5ef80723e089", url: "https://research.example.net/" };
+  const before = websiteAdds.length;
+  const denied = new Proxy(native.ctx, { get(target, property) {
+    if (property === "permission") return { ...target.permission, assert: async () => { throw new Error("Native permission denied"); } };
+    return Reflect.get(target, property);
+  } });
+  await expect(tool("legalwork_browser_add_website", denied).execute(args, nativeTestInvocation("ses_upload"))).rejects.toThrow("Native permission denied");
+  expect(websiteAdds).toHaveLength(before);
+  native.permissionHandler(async () => {});
+  for (const invalid of [{ ...args, url: "http://insecure.example.net" }, { ...args, login_url: "https://user:secret@example.net" }, { ...args, password: "not-accepted" }, { ...args, password_id: "missing" }]) {
+    await expect(tool("legalwork_browser_add_website").execute(invalid, nativeTestInvocation("ses_upload"))).rejects.toThrow();
+  }
+  expect(websiteAdds).toHaveLength(before);
+  rejectWebsiteAdd = true;
+  try {
+    await expect(tool("legalwork_browser_add_website").execute(args, nativeTestInvocation("ses_upload"))).rejects.toThrow("Only the connection owner");
+    expect(websiteAdds).toHaveLength(before);
+  } finally { rejectWebsiteAdd = false; }
+});
 test("native password tools send only the ID/ref, preserve calling identity and decline manual-server forwarding", async () => {
   const password_id = "a8b2378c-4bf0-492a-a113-5ef80723e089";
   native.permissionHandler(async () => {});
@@ -139,12 +189,12 @@ test("a cancelled capture cannot write or replay the image after a delayed deskt
   expect(await readFile(join(root, "cancelled.png")).catch(() => null)).toBeNull(); holdCapture = false;
 });
 
-test("website discovery is typed, metadata-only and respects the calling chat's network policy", async () => {
+test("website discovery is typed metadata and remains available without browser network access", async () => {
   native.permissionHandler(async () => {});
   const result = await tool("legalwork_browser_connections").execute({}, nativeTestInvocation("ses_upload"));
-  expect(result.output).toEqual({ items: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", origin: "https://auth.example.com", websites: [{ name: "Portal", url: "https://example.com/research" }] }] });
+  expect(result.output).toEqual({ items: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", origin: "https://auth.example.com", additionalOrigins: [], websites: [{ name: "Portal", url: "https://example.com/research" }] }] });
   expect(JSON.stringify(result.output)).not.toContain("must-not-leak");
   blockNetwork = true;
-  try { await expect(tool("legalwork_browser_connections").execute({}, nativeTestInvocation("ses_upload"))).rejects.toThrow("network access is Approve or Off"); }
+  try { expect((await tool("legalwork_browser_connections").execute({}, nativeTestInvocation("ses_upload"))).output).toEqual(result.output); }
   finally { blockNetwork = false; }
 });

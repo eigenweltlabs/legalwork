@@ -36,7 +36,6 @@ export function createBrowserPanel(options) {
   let autofillPreload;
   const nativeHost = options.resolveEngine ? createNativeBrowserHost({ ...options, capture, partition: BROWSER_SESSION_PARTITION,
     adoptPage: (owner, page, context, directory) => panelFor(owner).panel.adoptNativePage(page, context, directory),
-    focusPage: (owner, tabID) => panelFor(owner).panel.focusNativePage(tabID),
     sessionError: (owner, context, error) => owner.webContents.send("legalwork:browser:error", { sessionId: context.sessionId, error }),
   }) : null;
   app.once("will-quit", () => { destroy(); void automationBroker.close(); void nativeHost?.dispose(); });
@@ -287,11 +286,6 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       path: file.path, relativePath: path.relative(downloadDirectory, file.path).split(path.sep).join("/"),
       error: file.state === "failed" ? "Download failed; inspect the page before retrying." : null })) });
     return tab;
-  }
-
-  function focusNativePage(tabID) {
-    const tab = selectBrowserTab(tabID);
-    sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tab.tabId });
   }
 
   function prepareBrowserCapture(tab) {
@@ -1099,7 +1093,6 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   return {
     destroy: destroyBrowserView,
     adoptNativePage,
-    focusNativePage,
     isMainWindowAllowedNavigation,
     registerIpc,
     routeBlockedMainWindowNavigation,
