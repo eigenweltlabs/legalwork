@@ -21,6 +21,7 @@ const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
+export const BROWSER_PRELOAD_CHANNELS = ["legalwork:menu-overlay:dismiss", "legalwork:autofill:suggest", "legalwork:autofill:dismiss"];
 
 // Cookies and proxy settings belong to the app; tabs, bounds and selection
 // belong to one app window. A detached window must never adopt another's tabs.

@@ -35,7 +35,8 @@ if (!process.versions.electron) {
   } finally { await vite.close(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 } else {
   const { app, BrowserWindow, BaseWindow, WebContentsView, clipboard, session, ipcMain } = await import("electron");
-  const { createBrowserPanel } = await import("../electron/browser-panel.mjs");
+  const { BROWSER_PRELOAD_CHANNELS, createBrowserPanel } = await import("../electron/browser-panel.mjs");
+  const { createAppUrlMatcher, guardIpcMain } = await import("../electron/app-url.mjs");
   const { BrowserPasswordStore, OAuthVault } = await import(pathToFileURL(process.env.LEGALWORK_AUTOFILL_STORE));
   const root = process.env.LEGALWORK_AUTOFILL_PROFILE;
   app.setName("LegalWork Autofill Verification"); app.setPath("userData", path.join(root, "profile"));
@@ -63,10 +64,14 @@ if (!process.versions.electron) {
     getWindow: () => window, getWindowForEvent: () => window,
     authorizeBrowserAutomation: async () => {}, loadBrowserPasswords: async () => store,
     isAllowedAppNavigation: () => true, safeOpen: { openExternal: async () => false }, resolveDownloadDirectory: async () => null });
-  panel.registerIpc({ handle: (name, callback) => handlers.set(name, callback), on: (name, callback) => ipcMain.on(name, (event, ...args) => {
+  panel.registerIpc(guardIpcMain({ handle: (name, callback) => handlers.set(name, callback), on: (name, callback) => ipcMain.on(name, (event, ...args) => {
     trace.push({ name, focused: window.isFocused(), page: event.sender.getURL() });
     callback(event, ...args);
-  }) });
+  }) }, {
+    isTrustedUrl: createAppUrlMatcher({ devServerUrl: process.env.LEGALWORK_AUTOFILL_UI, appRoot: root }),
+    openChannels: BROWSER_PRELOAD_CHANNELS,
+    onRejected: channel => trace.push({ rejected: channel }),
+  }));
   const invoke = (name, ...args) => handlers.get(`legalwork:browser:${name}`)({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, ...args);
   const until = async (predicate, label) => { for (let i = 0; i < 160; i++) { if (await predicate()) return; await delay(50); } throw new Error(`Timed out: ${label}; recent events: ${JSON.stringify(trace.slice(-12))}`); };
   let status = 0;
@@ -84,6 +89,7 @@ if (!process.versions.electron) {
       await until(() => window.isFocused(), "active test window");
       browser.webContents.focus();
       await until(() => browser.webContents.isFocused(), "browser keyboard focus");
+      await browser.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
       const point = await browser.webContents.executeJavaScript(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.x+10),y:Math.round(r.y+10)}})()`);
       browser.webContents.sendInputEvent({ type: "mouseDown", ...point, button: "left", clickCount: 1 });
       browser.webContents.sendInputEvent({ type: "mouseUp", ...point, button: "left", clickCount: 1 });

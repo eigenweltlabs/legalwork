@@ -60,7 +60,7 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
 import { createHttpRequests } from "./http-requests.mjs";
 import { createEventStreams } from "./event-streams.mjs";
-import { createBrowserPanel } from "./browser-panel.mjs";
+import { BROWSER_PRELOAD_CHANNELS, createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
@@ -140,11 +140,11 @@ const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || proces
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, "app-dist") : path.resolve(__dirname, "../../app/dist");
 const isAppUrl = createAppUrlMatcher({ devServerUrl: APP_START_URL, appRoot: APP_ROOT });
 
-// Only LegalWork's own pages may use the desktop bridge. Browser tabs send
-// menu-overlay:dismiss so a click in a web page closes an open menu.
+// Browser preload events are validated by the owning panel; other desktop
+// bridge channels remain restricted to LegalWork's own pages.
 const ipcMain = guardIpcMain(electronIpcMain, {
   isTrustedUrl: isAppUrl,
-  openChannels: ["legalwork:menu-overlay:dismiss"],
+  openChannels: BROWSER_PRELOAD_CHANNELS,
   onRejected: (channel, event) => console.warn(`[security] refused ${channel} from ${event?.senderFrame?.url ?? "an unknown page"}`),
 });
 
