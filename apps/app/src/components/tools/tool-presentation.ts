@@ -69,6 +69,14 @@ export function getToolIcon(part: ToolPart) {
   return icons[categoryOf(part)];
 }
 
+/** Keep batches readable in the status row; individual names remain in its history. */
+export function getToolRunActivityLabel(part: ToolPart): string {
+  const names = getCodeModeToolNames(part);
+  const activities = names.length ? names : [nameOf(part)];
+  if (activities.every(name => /^(?:legalwork_)?browser[_.]/.test(name))) return t("tool_run.using_browser");
+  return names.length ? t("tool.working") : getToolActivityLabel(part);
+}
+
 /** Compact history labels retain the useful target without exposing command bodies. */
 export function getToolHistoryLabel(part: ToolPart): string {
   if (isToolPartInFlight(part)) return getToolActivityLabel(part);

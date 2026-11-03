@@ -98,6 +98,20 @@ test("runtime auth permits only the page tool endpoints and refuses broader mana
     await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
 });
 
+test("website metadata additions are limited to the admitted chat's workspace and exact endpoint", async () => {
+  const { config, root, request } = await fixture();
+  const path = "/workspace/project/browser-connections/saved-id/websites";
+  await expect(authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "owner" });
+  expect(await authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).toMatchObject({ actor: { scope: "owner" } });
+  await expect(authenticateWikiAgentRequest(config, request(path.replace("/project/", "/other-project/"), { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  for (const [deniedPath, method] of [[path, "GET"], [path, "DELETE"], [path, "PUT"], ["/browser-passwords", "GET"], ["/browser-passwords", "PUT"],
+    ["/browser-passwords/saved-id/websites", "POST"], ["/workspace/project/browser-connections/saved-id", "DELETE"]])
+    await expect(authenticateWikiAgentRequest(config, request(deniedPath, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+  await revokeWikiAgentSession(config, "session-1");
+  await expect(authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+});
+
 test("engine-verified descendants inherit current ancestor scope without becoming independent grants", async () => {
   const { config, root, request } = await fixture();
   await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });

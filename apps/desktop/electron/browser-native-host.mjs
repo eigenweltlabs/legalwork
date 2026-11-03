@@ -79,7 +79,8 @@ export function createNativeBrowserHost(options) {
       emit(windowID, { binding, event }) {
         const entry = [...entries.values()].find(entry => entry.binding === binding && entry.owner.id === windowID);
         if (!entry || entry.closed) return;
-        if (event.type === "focus") options.focusPage(entry.owner, event.tabID, entry.context);
+        // Native focus selects the agent's working page. Only the renderer's
+        // selectTab IPC may promote it into the user's visible workspace.
         if (event.type === "state" && event.error) {
           entry.closed = true;
           entry.replaced = event.error === "browser.pane.replaced";

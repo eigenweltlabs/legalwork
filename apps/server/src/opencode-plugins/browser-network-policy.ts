@@ -2,6 +2,10 @@ import { z } from "zod";
 import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 
 export function isBrowserTool(tool: string, args: Record<string, unknown>) {
+  // Saved-login metadata does not contact a website. A request tied to an
+  // actual browser tab still observes the calling chat's network policy.
+  if (tool === "legalwork_browser_connections" || tool === "legalwork_browser_add_website") return false;
+  if (tool === "legalwork_browser_request_password") return typeof args.browser_url === "string";
   return tool === "browser" || tool.startsWith("browser.") || /(^|_)browser_/.test(tool) || tool === "legalwork_ui_execute_action" &&
     typeof args.actionId === "string" && args.actionId.startsWith("browser.");
 }

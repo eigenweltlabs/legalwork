@@ -4,11 +4,12 @@ import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type ToolUIPar
 import { Ban, ChevronDown, CircleAlert, ListChecks } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { isEnvVarRequestToolPart, isQuestionToolPart } from "@/lib/build-in-tools";
-import { getToolActivityLabel, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
-import { getToolHistoryLabel, getToolIcon, getToolRunSummary } from "@/components/tools/tool-presentation";
+import { isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
+import { getToolHistoryLabel, getToolIcon, getToolRunActivityLabel } from "@/components/tools/tool-presentation";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { MessageContent } from "@/components/ui/message";
+import { useActivityLabel } from "./use-activity-label";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 export function ToolRun({ parts, showDetails, renderTool, active = false, defaultOpen = false }: {
@@ -25,7 +26,14 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
   const latestTool = activeTool ?? tools.at(-1);
   const working = active || Boolean(activeTool);
   const Icon = latestTool ? getToolIcon(latestTool) : ListChecks;
-  const label = working && latestTool ? getToolActivityLabel(latestTool) : tools.length ? getToolRunSummary(tools) : t(working ? "tool.working" : "tool_run.summary.tool");
+  const label = useActivityLabel(
+    activeTool ? getToolRunActivityLabel(activeTool)
+      : active ? t("tool_run.reviewing_results")
+      : failedTool ? t("tool_run.action_failed")
+      : deniedTool ? t("tool_run.permission_denied") : t("tool_run.completed"),
+    active && !activeTool,
+  );
+  const countLabel = t(tools.length === 1 ? "tool_run.action_count_one" : "tool_run.action_count", { count: tools.length });
   // Questions and credential forms remain reachable while awaiting user input.
   const needsInput = tools.some((part) => isToolPartInFlight(part) && (isQuestionToolPart(part) || isEnvVarRequestToolPart(part)));
   const expanded = open || needsInput;
@@ -44,10 +52,10 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
     if (expanded && following.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
   }, [expanded, parts, showDetails]);
   return <Collapsible open={expanded} onOpenChange={setOpen} className="w-full min-w-0">
-    <CollapsibleTrigger className="group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm py-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <CollapsibleTrigger data-tool-run-status aria-label={`${label} · ${countLabel}`} className="group flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm text-left text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <Icon className="size-4 shrink-0" strokeWidth={1.6} aria-hidden />
-      <span className={cn("min-w-0 truncate", working && !needsInput && "lw-tool-shimmer")} title={label}>{label}</span>
-      <span className="min-w-4 shrink-0 text-xs tabular-nums opacity-50">{tools.length || ""}</span>
+      <span role="status" aria-live="polite" className={cn("min-w-0 truncate", working && !needsInput && "lw-tool-shimmer")} title={label}>{label}</span>
+      {tools.length > 0 && <span className="shrink-0 text-xs tabular-nums opacity-50">· {countLabel}</span>}
       {failedTool && <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-label={t("tool_run.failed")} />}
       {deniedTool && !failedTool && <Ban className="size-3.5 shrink-0" aria-label={t("tool_run.permission_denied")} />}
       <ChevronDown className="size-3.5 shrink-0 opacity-50 transition-[transform,opacity] group-hover:opacity-100 group-data-panel-open:rotate-180" aria-hidden />

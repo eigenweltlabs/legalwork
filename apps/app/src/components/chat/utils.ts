@@ -220,6 +220,12 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
   return result
 }
 
+/** Only a trailing tool row can carry the live status in place. Rich cards cannot. */
+export function hasToolRunTail(items: UIMessageWithIndex[], showThinking: boolean): boolean {
+  const tail = groupAssistantToolRuns(items, showThinking).at(-1);
+  return Boolean(tail && getAssistantRenderGroups(tail.message.parts, showThinking).at(-1)?.kind === "tools");
+}
+
 export function getAssistantRenderGroups(
   parts: UIMessage["parts"],
   showThinking: boolean

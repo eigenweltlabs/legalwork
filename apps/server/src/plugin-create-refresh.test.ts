@@ -220,13 +220,15 @@ for (const kind of ["plugin", "connector"]) test.skipIf(!binary)(`created and re
         entries => entries.length === 1 && entries[0]?.name === "retained", `retained connector in ${workspace.id}`);
     }
     stopWatching = keepLegalworkRuntimeConfigFileFresh(config, origin.id);
+    // Native connector Add and removal refresh all 11 projects, including cold
+    // projects. Allow CI cold starts without weakening the refresh barrier checks.
     const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/${kind === "plugin" ? "workflow-plugins" : "mcp"}`, {
       method: "POST", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" },
       body: JSON.stringify(kind === "plugin"
         ? { name: "Native custom connector", skills: [], connectors: [], newConnector: { type: "remote", url: `${mcp.url}mcp`, oauth: false } }
         : { name: "native-custom-connector", config: { type: "remote", url: `${mcp.url}mcp`, oauth: false } }),
-      signal: AbortSignal.timeout(15_000),
-    });
+      signal: AbortSignal.timeout(60_000),
+    }).catch(cause => { throw new Error(`Native ${kind} creation across ${config.workspaces.length} projects failed`, { cause }); });
     expect(response.status, await response.text()).toBe(200);
     for (const workspace of [origin, loaded, unopened]) {
       // Opening a cold project activates its native plugin registrations.
@@ -236,8 +238,8 @@ for (const kind of ["plugin", "connector"]) test.skipIf(!binary)(`created and re
       expect(connectors).toHaveLength(2);
     }
     const removed = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/${kind === "plugin" ? `cloud-plugins/${encodeURIComponent(createdPluginId("Native custom connector"))}` : "mcp/native-custom-connector"}`, {
-      method: "DELETE", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host" }, signal: AbortSignal.timeout(15_000),
-    });
+      method: "DELETE", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host" }, signal: AbortSignal.timeout(60_000),
+    }).catch(cause => { throw new Error(`Native ${kind} removal across ${config.workspaces.length} projects failed`, { cause }); });
     expect(removed.status, await removed.text()).toBe(200);
     for (const workspace of [origin, loaded, unopened, config.workspaces[3]!]) {
       if (workspace === config.workspaces[3]) await client.model.list({ location: { directory: workspace.path } });
@@ -253,7 +255,7 @@ for (const kind of ["plugin", "connector"]) test.skipIf(!binary)(`created and re
       expect(connectors).toEqual([]);
     }
   } finally { await stopWatching?.(); await engine?.close(); await server?.stop(); mcp.stop(true); }
-}), 60_000);
+}), 180_000);
 
 test("batched publication retains rollback and normal write notifications", async () => fixture(async config => {
   const stopWatching = keepLegalworkRuntimeConfigFileFresh(config, "ws_0");
