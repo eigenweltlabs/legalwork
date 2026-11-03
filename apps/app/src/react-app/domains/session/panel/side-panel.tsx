@@ -45,7 +45,7 @@ import {
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
-import { ChatTabIcon } from "@/components/chat/chat-tab-icon";
+import { ChatTabIcon, ChatTabIndicators } from "@/components/chat/chat-tab-icon";
 import { toast } from "@/components/ui/sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { hasViewerFileDrag, readViewerFileDrop, viewerFileTabs } from "./viewer-file-drop";
@@ -432,6 +432,7 @@ function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinati
             <ArtifactIcon type={tab.preview} />
           )}
           <span className={cn("min-w-0 flex-1 truncate text-left", preview && "italic text-muted-foreground")}>{label}</span>
+          {tab.type === "chat" && <ChatTabIndicators workspaceId={workspaceId} sessionId={tab.sessionId} />}
         </PanelTab>
         <PanelTabClose
           active={active}
