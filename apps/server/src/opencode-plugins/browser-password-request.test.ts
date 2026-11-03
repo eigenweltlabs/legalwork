@@ -228,21 +228,25 @@ test("manual-server extension capabilities cannot request passwords", async () =
   } finally { await f.close(); }
 });
 
-test("verified Austrian Lexis product URLs show the separate sign-in host and preserve the regional entry point", async () => {
-  for (const startUrl of ["https://360.lexisnexis.at/", "https://plus.lexis.com/at", "https://plus.lexis.com/at/"]) {
+test("verified Lexis product URLs show the separate sign-in host and preserve the regional entry point", async () => {
+  for (const startUrl of ["https://360.lexisnexis.at/", "https://plus.lexis.com/at", "https://plus.lexis.com/at/",
+    "https://plus.lexis.com/", "https://plus.lexis.com/uk", "https://plus.lexis.com/uk/",
+    "https://www.lexis360intelligence.fr/"]) {
     const f = await fixture("https://signin.lexisnexis.com");
     try {
       const pending = f.tool.execute({ website_url: startUrl }, nativeTestInvocation("chat")); await f.ready();
       expect(f.form?.metadata).toMatchObject({ legalworkBrowserPassword: { website: "https://signin.lexisnexis.com", startUrl } });
-      f.connections([{ id: saved.id, label: "Lexis Austria", origin: "https://signin.lexisnexis.com", websites: [{ name: "Lexis Austria", url: startUrl }] }]);
+      f.connections([{ id: saved.id, label: "Lexis", origin: "https://signin.lexisnexis.com", websites: [{ name: "Lexis", url: startUrl }] }]);
       await f.answer({ password_id: saved.id });
       expect((await pending).output).toMatchObject({ status: "saved", login_url: "https://signin.lexisnexis.com/lnaccess/app/signin", start_url: startUrl });
     } finally { await f.close(); }
   }
-  const f = await fixture();
-  try {
-    const pending = f.tool.execute({ website_url: "https://plus.lexis.com/other-country" }, nativeTestInvocation("chat")); await f.ready();
-    expect(f.form?.metadata).toMatchObject({ legalworkBrowserPassword: { website: "https://plus.lexis.com", startUrl: "https://plus.lexis.com/other-country" } });
-    await f.answer({ cancelled: true }); await pending;
-  } finally { await f.close(); }
+  for (const website_url of ["https://plus.lexis.com/other-country", "https://plus.lexis.com/uk-extra", "https://plus.lexis.com.evil.net/uk", "https://plus.lexis.com:8443/uk", "https://www.lexis360intelligence.fr.evil.net/"]) {
+    const f = await fixture();
+    try {
+      const pending = f.tool.execute({ website_url }, nativeTestInvocation("chat")); await f.ready();
+      expect(f.form?.metadata).toMatchObject({ legalworkBrowserPassword: { website: new URL(website_url).origin, startUrl: website_url } });
+      await f.answer({ cancelled: true }); await pending;
+    } finally { await f.close(); }
+  }
 });

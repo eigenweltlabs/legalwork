@@ -166,7 +166,7 @@ test("website metadata updates preserve provider fields, serialize concurrent ad
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("legacy Austrian Lexis entries are repaired once without changing credentials or other countries", async () => {
+test("legacy Austrian Lexis entries are repaired once without changing credentials or ambiguous records", async () => {
   const root = await mkdtemp(join(tmpdir(), "browser-lexis-migration-"));
   try {
     const vault = new OAuthVault(join(root, "test.vault")), store = new BrowserPasswordStore(vault);
@@ -181,7 +181,7 @@ test("legacy Austrian Lexis entries are repaired once without changing credentia
     const legacyEmpty = { ...base, id: randomUUID(), origin: "https://360.lexisnexis.at", websites: [] };
     const unaffected = [
       { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [{ name: "US", url: "https://plus.lexis.com/" }] },
-      { ...base, id: randomUUID(), origin: "https://www.lexis360intelligence.fr", websites: [{ name: "France", url: "https://www.lexis360intelligence.fr/" }] },
+      { ...base, id: randomUUID(), origin: "https://www.lexis360intelligence.fr.evil.net", websites: [{ name: "France", url: "https://www.lexis360intelligence.fr.evil.net/" }] },
       { ...base, id: randomUUID(), origin: "https://custom.example.org", websites: [{ name: "Lexis Austria", url: "https://custom.example.org" }] },
       { ...base, id: randomUUID(), origin: "https://360.lexisnexis.at.evil.net" },
       { ...base, id: randomUUID(), origin: "https://legacy.example.net", websites: [] },
@@ -196,7 +196,7 @@ test("legacy Austrian Lexis entries are repaired once without changing credentia
       expect(migrated.username).toBe(original.username);
       expect(migrated.origin).toBe(original.origin);
       expect(migrated.updatedAt).toBe(original.updatedAt);
-      expect(migrated.migrationVersion).toBe(1);
+      expect(migrated.migrationVersion).toBe(2);
     }
     expect((await store.get(direct.id)).additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
     expect((await store.get(plus.id)).additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
@@ -221,5 +221,111 @@ test("legacy Austrian Lexis entries are repaired once without changing credentia
     await store.removeWebsite(legacy.id, { url: legacy.origin });
     expect((await new BrowserPasswordStore(new OAuthVault(vault.path)).get(legacy.id)).websites).toEqual([]);
     expect(JSON.stringify(await store.list())).not.toContain("migrationVersion");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Lexis migration repairs each verified FR, UK and US product on shared accounts while preserving custom metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-lexis-regions-"));
+  try {
+    const vault = new OAuthVault(join(root, "test.vault")), store = new BrowserPasswordStore(vault);
+    const base = { label: "Shared research", username: "fixture", password: "fixture-secret", updatedAt: "2026-10-30T00:00:00.000Z" };
+    const generic = { name: "Login", url: "https://signin.lexisnexis.com/" };
+    const countries = [
+      { name: "French library", url: "https://www.lexis360intelligence.fr/", providerId: "lexis360-fr", country: "FR" },
+      { name: "UK library", url: "https://plus.lexis.com/uk", providerId: "lexis-uk", country: "OTHER" },
+      { name: "US library", url: "https://plus.lexis.com/", providerId: "lexis-us", country: "US" },
+    ];
+    const custom = { name: "Firm research", url: "https://custom.example.org/research?required=context", providerId: "custom-firm", country: "OTHER" };
+    const shared = { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [generic, ...countries, custom] };
+    const france = { ...base, id: randomUUID(), origin: "https://www.lexis360intelligence.fr" };
+    const uk = { ...base, id: randomUUID(), origin: "https://plus.lexis.com", websites: [countries[1]!] };
+    const us = { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [generic, { name: "US", url: "https://plus.lexis.com/" }] };
+    const allRegions = { ...shared, id: randomUUID(), websites: [...shared.websites, { name: "Austria", url: "https://360.lexisnexis.at/", providerId: "lexis360-at", country: "AT" }] };
+    const unknown = [
+      { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [generic] },
+      { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [{ name: "Lexis+ UK", url: "https://signin.lexisnexis.com/lnaccess/app/signin", country: "GB" }] },
+      { ...base, id: randomUUID(), origin: "https://plus.lexis.com" },
+      { ...base, id: randomUUID(), origin: "https://custom.example.org", websites: [{ name: "US", url: "https://plus.lexis.com/" }] },
+    ];
+    await vault.setEntry(JSON.stringify(["browser-passwords", 1]), z.array(z.unknown()), [shared, france, uk, us, allRegions, ...unknown]);
+    expect((await store.get(shared.id)).websites).toEqual([...countries, custom]);
+    for (const original of [shared, france, uk, us, allRegions]) {
+      const migrated = await store.get(original.id);
+      expect(migrated).toMatchObject({ id: original.id, origin: original.origin, password: original.password, username: original.username, updatedAt: original.updatedAt, migrationVersion: 2 });
+      expect(migrated.websites).not.toContainEqual(generic);
+      expect(store.matchesEntryWebsite(migrated, "https://signin.lexisnexis.com/lnaccess/app/signin")).toBe(true);
+    }
+    expect((await store.get(france.id)).websites).toEqual([{ name: "Shared research", url: "https://www.lexis360intelligence.fr/" }]);
+    expect((await store.get(uk.id)).websites).toEqual([countries[1]!]);
+    expect((await store.get(us.id)).websites).toEqual([{ name: "US", url: "https://plus.lexis.com/" }]);
+    expect((await store.get(allRegions.id)).websites.map(site => site.url)).toEqual([
+      ...countries.map(site => site.url), custom.url, "https://360.lexisnexis.at/", "https://plus.lexis.com/at",
+    ]);
+    for (const original of unknown) {
+      const migrated = await store.get(original.id);
+      expect(migrated.websites).toEqual("websites" in original ? original.websites : [{ name: original.label, url: `${original.origin}/` }]);
+      expect(migrated.additionalOrigins).toEqual([]);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("version 2 preserves earlier removals and grants, and never auto-repairs newly created entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-lexis-revocations-"));
+  try {
+    const vault = new OAuthVault(join(root, "test.vault")), store = new BrowserPasswordStore(vault);
+    const base = { label: "Lexis", username: "fixture", password: "fixture-secret", updatedAt: "2026-10-30T00:00:00.000Z", migrationVersion: 1, additionalOrigins: [] };
+    const generic = { name: "Login", url: "https://signin.lexisnexis.com/" };
+    const cleaned = { ...base, id: randomUUID(), origin: "https://www.lexis360intelligence.fr", websites: [generic, { name: "France", url: "https://www.lexis360intelligence.fr/", providerId: "lexis360-fr", country: "FR" }] };
+    const untouched = [
+      { ...base, id: randomUUID(), origin: "https://www.lexis360intelligence.fr", websites: [] },
+      { ...base, id: randomUUID(), origin: "https://360.lexisnexis.at", websites: [generic, { name: "Austria", url: "https://plus.lexis.com/at" }] },
+      { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [generic, { name: "Custom UK", url: "https://custom.example.org", providerId: "lexis-uk", country: "OTHER" }] },
+      { ...base, id: randomUUID(), origin: "https://www.lexis360intelligence.fr", migrationVersion: 2, websites: [generic] },
+    ];
+    await vault.setEntry(JSON.stringify(["browser-passwords", 1]), z.array(z.unknown()), [cleaned, ...untouched]);
+    expect((await store.get(cleaned.id)).websites).toEqual([cleaned.websites[1]!]);
+    expect((await store.get(cleaned.id)).additionalOrigins).toEqual([]);
+    for (const original of untouched) {
+      const migrated = await store.get(original.id);
+      expect(migrated).toEqual({ ...original, migrationVersion: 2 });
+    }
+    const saved = await store.save({ label: "New France login", origin: "https://www.lexis360intelligence.fr", username: "fixture", password: "new-secret" });
+    const reopened = await new BrowserPasswordStore(new OAuthVault(vault.path)).get(saved.id);
+    expect(reopened.migrationVersion).toBe(2);
+    expect(reopened.additionalOrigins).toEqual([]);
+    expect(reopened.websites).toEqual(saved.websites);
+    await store.removeWebsite(cleaned.id, { url: cleaned.websites[1]!.url });
+    expect((await new BrowserPasswordStore(new OAuthVault(vault.path)).get(cleaned.id)).websites).toEqual([]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Lexis destination repair never grants sign-in access to firm SSO, lookalike domains or alternate ports", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-lexis-sso-"));
+  try {
+    const vault = new OAuthVault(join(root, "test.vault")), store = new BrowserPasswordStore(vault);
+    const websites = [
+      { name: "Login", url: "https://signin.lexisnexis.com/" },
+      { name: "France", url: "https://www.lexis360intelligence.fr/", providerId: "lexis360-fr", country: "FR" },
+      { name: "UK", url: "https://plus.lexis.com/uk", providerId: "lexis-uk", country: "GB" },
+      { name: "Austria", url: "https://360.lexisnexis.at/", providerId: "lexis360-at", country: "AT" },
+    ];
+    const originals = [
+      "https://sso.firm.example",
+      "https://360.lexisnexis.at.evil.net",
+      "https://www.lexis360intelligence.fr.evil.net",
+      "https://plus.lexis.com.evil.net",
+      "https://360.lexisnexis.at:444",
+      "https://www.lexis360intelligence.fr:444",
+      "https://plus.lexis.com:444",
+    ].map(origin => ({ id: randomUUID(), origin, label: "Firm SSO", username: "fixture", password: "fixture-secret", websites, updatedAt: "2026-10-30T00:00:00.000Z" }));
+    await vault.setEntry(JSON.stringify(["browser-passwords", 1]), z.array(z.unknown()), originals);
+    for (const original of originals) {
+      const migrated = await store.get(original.id);
+      expect(migrated).toMatchObject({ id: original.id, origin: original.origin, password: original.password, username: original.username, updatedAt: original.updatedAt, migrationVersion: 2 });
+      expect(migrated.websites).toEqual([...websites.slice(1), { name: "Lexis+ Österreich", url: "https://plus.lexis.com/at" }]);
+      expect(migrated.additionalOrigins).toEqual([]);
+      expect(store.matchesEntryWebsite(migrated, "https://signin.lexisnexis.com")).toBe(false);
+    }
+    expect(await store.list("https://signin.lexisnexis.com")).toEqual([]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
