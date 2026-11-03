@@ -35,7 +35,7 @@ The **Save logins for the in-app browser** welcome screen lets you save your own
 1. Open **Settings > Integrations > Legal databases**. Search for your provider, including **beck-online**, **juris**, **Libra**, **Lexis** or **Westlaw**.
 2. Select the website and choose **Save login**. Give the login a name, enter your username and password, then choose **Save login**. If the provider has no preset sign-in address, enter its current sign-in website.
 3. For any other website, choose **Add > Saved browser login** and enter its website and sign-in URL as well as your account details. Give each login a name so you can distinguish multiple accounts.
-4. Find the saved login under **Installed**. Open it and choose **Manage** to rename it or change credentials. Leave the password blank to keep the saved password. **Save another login** saves a separate named account. The website detail page lists these under **Your saved logins**. Removing a saved login also removes all website destinations linked to that login.
+4. Find the saved login under **Installed**. Open it and choose **Manage** to rename it, change credentials or add websites. Leave the password blank to keep the saved password. **Save another login** saves a separate named account. The website detail page lists these under **Your saved logins**. Removing a saved login also removes all website destinations linked to that login.
 5. Ask, for example, “Open beck-online so I can research my legal question.” Complete any MFA, CAPTCHA or institutional sign-in in the visible browser when requested. Saving a login does not verify your subscription or sign-in.
 
 The welcome screen offers country suggestions and lets you save logins for several websites. All these paths use the same saved logins across projects.
@@ -44,7 +44,23 @@ You can also ask in any chat: “Set up CourtListener for your legal research.�
 
 Press **Stop** in the chat to cancel a pending sign-in card, including one that is still opening.
 
-Website logins use LegalWork's existing encrypted vault. Onboarding, the chat sign-in card and **Settings > Secrets > Browser passwords** all save to this same store, available across your chats on this installation. Manage these logins from their integration detail pages or from Secrets. Each entry has its sign-in website and can link several destinations, for example two services using the same sign-in account. Destination URLs do not expand where a password can be filled.
+Website logins use LegalWork's existing encrypted vault. Onboarding, the chat sign-in card and **Settings > Secrets > Browser passwords** all save to this same store, available across your chats on this installation. Manage these logins from their integration detail pages or from Secrets.
+
+### Add URLs to an existing login
+
+1. Open **Settings > Integrations > Installed**, select the saved login and choose **Manage**. Alternatively, open **Settings > Secrets > Browser passwords** and choose **Edit password** for the login.
+2. Under **Websites to open**, choose **Add URL** and enter the stable website address you want the browser to open. Use the product's entry page, rather than a temporary sign-in redirect containing session parameters.
+3. Choose **Save URL**. The URL change saves immediately, and you do not need to enter the password again. Use **Add URL** again for another address.
+
+Each addition has one URL field. To allow the password on another sign-in website, use the separate **Sign-in websites > Add sign-in URL** action and save that address. This changes where the password may be filled, without adding a page to open.
+
+**Websites to open** lists starting pages. **Sign-in websites** lists where the saved password can be used. The two can differ: Austrian Lexis starts at `https://360.lexisnexis.at/` or `https://plus.lexis.com/at`, then signs in at `https://signin.lexisnexis.com`. Open the product page first so Lexis supplies the correct sign-in context.
+
+Use a row's remove button to remove a starting page or revoke an additional sign-in website. Removing a starting page does not revoke sign-in access; remove the corresponding additional sign-in website too when that is your intention. The original sign-in website remains attached to the account. URL changes do not delete the login or change its password.
+
+You can also ask the assistant to add a URL to an existing saved login. It updates that account directly with its add-website tool, without a credential card or password re-entry. If the password should also work on another sign-in website, include that address in your request. No password is sent to the assistant. A website being added does not by itself prove that the account can sign in or access that product.
+
+Earlier Austrian Lexis entries are repaired automatically when the updated app reads the saved logins. The repair adds the Austrian entry pages and correct sign-in website, and removes generic sign-in shortcuts that lead to the wrong product or an error. Your saved account and password stay intact. This repair runs once for affected entries, so later URL removals are respected. Other countries' Lexis accounts are not changed.
 
 Saving a login does not install a plugin or create a site-specific skill. The built-in **legal-research** skill is available in every project. For legal research, the assistant discovers saved websites, selects suitable research sources, and uses a site-specific skill if one is installed. Otherwise it uses the observed website controls. The country list only helps fill in provider URLs. A normal website and a research database use exactly the same login mechanism.
 

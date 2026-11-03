@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,7 +98,128 @@ test("one vault login retains multiple destinations across edits without expandi
     expect((await store.list())[0]!.websites).toHaveLength(2);
     await expect(store.connect(login.id, "https://unrelated.example", { name: "No", url: "https://another.example" })).rejects.toThrow();
     const changed = await store.save({ id: login.id, label: "New account", origin: "https://different.example", username: "fixture", password: "new-fixture" });
-    expect(changed.websites).toEqual([{ name: "New account", url: "https://different.example" }]);
+    expect(changed.websites).toEqual([{ name: "New account", url: "https://different.example/" }]);
     expect((await store.get(login.id)).password).toBe("new-fixture");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("additional destinations and explicitly approved sign-in websites remain separate and preserve the existing secret", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-websites-"));
+  try {
+    const vault = new OAuthVault(join(root, "test.vault")), store = new BrowserPasswordStore(vault);
+    const login = await store.save({ label: "Research", origin: "https://360.lexisnexis.at", username: "fixture", password: "fixture-secret" });
+    await store.addWebsite(login.id, { url: "https://plus.lexis.com/at?private=value#session" });
+    expect(await store.list("https://signin.lexisnexis.com")).toEqual([]);
+    const beforeSignIn = (await store.list())[0]!;
+    const expanded = await store.addWebsite(login.id, { loginUrl: "https://SIGNIN.lexisnexis.com/login?private=value" });
+    expect(expanded.additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
+    expect(expanded.websites).toEqual(beforeSignIn.websites);
+    expect(expanded.websites).toHaveLength(2);
+    expect(expanded.websites[1]?.url).toBe("https://plus.lexis.com/at");
+    expect((await store.list("https://signin.lexisnexis.com"))[0]?.id).toBe(login.id);
+    expect(await store.list("https://signin.lexisnexis.com.evil.net")).toEqual([]);
+    expect(await store.list("http://signin.lexisnexis.com")).toEqual([]);
+    expect(await store.list("https://signin.lexisnexis.com:8443")).toEqual([]);
+    await store.addWebsite(login.id, { url: "https://plus.lexis.com/at", loginUrl: "https://auth.lexisnexis.com" });
+    expect((await store.get(login.id)).additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
+    await store.save({ ...login, additionalOrigins: ["https://attacker.example"], password: "" });
+    expect((await store.get(login.id)).additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
+    expect(await store.list("https://attacker.example")).toEqual([]);
+    expect((await store.get(login.id)).password).toBe("fixture-secret");
+    await store.removeWebsite(login.id, { url: "https://plus.lexis.com/at" });
+    expect(await store.list("https://signin.lexisnexis.com")).toHaveLength(1);
+    await store.removeWebsite(login.id, { loginUrl: "https://signin.lexisnexis.com" });
+    expect(await store.list("https://signin.lexisnexis.com")).toEqual([]);
+    await expect(store.removeWebsite(login.id, { loginUrl: "https://360.lexisnexis.at" })).rejects.toThrow("primary sign-in website");
+    await store.removeWebsite(login.id, { url: login.websites[0]!.url });
+    expect((await new BrowserPasswordStore(new OAuthVault(vault.path)).get(login.id)).websites).toEqual([]);
+    expect(JSON.stringify(await store.list())).not.toContain("fixture-secret");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("website metadata updates preserve provider fields, serialize concurrent additions and enforce limits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-website-limits-"));
+  try {
+    const store = new BrowserPasswordStore(new OAuthVault(join(root, "test.vault")));
+    const login = await store.save({ label: "Research", origin: "https://login.example.com", username: "fixture", password: "fixture-secret" });
+    await store.connect(login.id, login.origin, { name: "Provider", url: "https://research.example.org", providerId: "example", country: "AT" });
+    await Promise.all([
+      store.addWebsite(login.id, { url: "https://research.example.org", name: "Renamed provider" }),
+      store.addWebsite(login.id, { url: "https://other.example.org" }),
+    ]);
+    expect((await store.get(login.id)).websites).toHaveLength(3);
+    expect((await store.get(login.id)).websites.find(site => site.providerId === "example")).toEqual({ name: "Renamed provider", url: "https://research.example.org/", providerId: "example", country: "AT" });
+    await expect(store.addWebsite(login.id, { url: "http://insecure.example.org" })).rejects.toThrow();
+    await expect(store.addWebsite(login.id, {})).rejects.toThrow();
+    await expect(store.addWebsite(login.id, { name: "No URL" })).rejects.toThrow();
+    await expect(store.addWebsite(login.id, { loginUrl: "http://insecure.example.org" })).rejects.toThrow();
+    await expect(store.addWebsite(login.id, { url: "https://user:secret@example.org" })).rejects.toThrow();
+    await expect(store.addWebsite(login.id, { url: "https://example.org", loginUrl: "http://insecure.example.org" })).rejects.toThrow();
+    await expect(store.addWebsite(login.id, { url: "https://example.org", additionalOrigins: ["https://attacker.example"] })).rejects.toThrow();
+    for (let index = 3; index < 32; index++) await store.addWebsite(login.id, { url: `https://research.example.org/${index}` });
+    await expect(store.addWebsite(login.id, { url: "https://research.example.org/overflow" })).rejects.toThrow("at most 32");
+    for (let index = 0; index < 32; index++) await store.addWebsite(login.id, { url: "https://research.example.org", loginUrl: `https://auth${index}.example.net` });
+    // Subdomains already share a permitted site, so one explicit grant covers these.
+    expect((await store.get(login.id)).additionalOrigins).toHaveLength(1);
+    for (let index = 1; index < 32; index++) await store.addWebsite(login.id, { url: "https://research.example.org", loginUrl: `https://auth${index}.example` });
+    await expect(store.addWebsite(login.id, { url: "https://research.example.org", loginUrl: "https://overflow.example" })).rejects.toThrow("at most 32");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("legacy Austrian Lexis entries are repaired once without changing credentials or other countries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-lexis-migration-"));
+  try {
+    const vault = new OAuthVault(join(root, "test.vault")), store = new BrowserPasswordStore(vault);
+    const base = { label: "Lexis", username: "fixture", password: "fixture-secret", updatedAt: "2026-10-30T00:00:00.000Z" };
+    const direct = { ...base, id: randomUUID(), origin: "https://360.lexisnexis.at" };
+    const preset = { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [
+      { name: "Login", url: "https://signin.lexisnexis.com/" },
+      { name: "Broken login", url: "https://signin.lexisnexis.com/lnaccess/app/signin" },
+      { name: "Austrian research", url: "https://research.example.org", providerId: "lexis360-at", country: "AT" },
+    ] };
+    const plus = { ...base, id: randomUUID(), origin: "https://plus.lexis.com", websites: [{ name: "Lexis+ Austria", url: "https://plus.lexis.com/at" }] };
+    const legacyEmpty = { ...base, id: randomUUID(), origin: "https://360.lexisnexis.at", websites: [] };
+    const unaffected = [
+      { ...base, id: randomUUID(), origin: "https://signin.lexisnexis.com", websites: [{ name: "US", url: "https://plus.lexis.com/" }] },
+      { ...base, id: randomUUID(), origin: "https://www.lexis360intelligence.fr", websites: [{ name: "France", url: "https://www.lexis360intelligence.fr/" }] },
+      { ...base, id: randomUUID(), origin: "https://custom.example.org", websites: [{ name: "Lexis Austria", url: "https://custom.example.org" }] },
+      { ...base, id: randomUUID(), origin: "https://360.lexisnexis.at.evil.net" },
+      { ...base, id: randomUUID(), origin: "https://legacy.example.net", websites: [] },
+    ];
+    await vault.setEntry(JSON.stringify(["browser-passwords", 1]), z.array(z.unknown()), [direct, preset, plus, legacyEmpty, ...unaffected]);
+    await Promise.all([store.list(), store.list()]);
+    for (const original of [direct, preset, plus, legacyEmpty]) {
+      const migrated = await store.get(original.id);
+      expect(migrated.websites.map(site => site.url)).toContain("https://360.lexisnexis.at/");
+      expect(migrated.websites.map(site => site.url)).toContain("https://plus.lexis.com/at");
+      expect(migrated.password).toBe(original.password);
+      expect(migrated.username).toBe(original.username);
+      expect(migrated.origin).toBe(original.origin);
+      expect(migrated.updatedAt).toBe(original.updatedAt);
+      expect(migrated.migrationVersion).toBe(1);
+    }
+    expect((await store.get(direct.id)).additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
+    expect((await store.get(plus.id)).additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
+    expect((await store.get(legacyEmpty.id)).additionalOrigins).toEqual(["https://signin.lexisnexis.com"]);
+    expect((await store.get(preset.id)).websites).toHaveLength(3);
+    expect((await store.get(preset.id)).websites[0]).toEqual(preset.websites[2]);
+    for (const original of unaffected) {
+      const migrated = await store.get(original.id);
+      expect(migrated.websites).toEqual("websites" in original && original.websites.length ? original.websites : [{ name: original.label, url: `${original.origin}/` }]);
+      expect(migrated.additionalOrigins).toEqual([]);
+    }
+    const repaired = await readFile(vault.path);
+    await store.list();
+    expect(await readFile(vault.path)).toEqual(repaired);
+    await store.removeWebsite(direct.id, { url: "https://360.lexisnexis.at/" });
+    await store.removeWebsite(direct.id, { url: "https://plus.lexis.com/at", loginUrl: "https://signin.lexisnexis.com" });
+    const reopened = await new BrowserPasswordStore(new OAuthVault(vault.path)).get(direct.id);
+    expect(reopened.websites).toEqual([]);
+    expect(reopened.additionalOrigins).toEqual([]);
+    expect(reopened.password).toBe("fixture-secret");
+    const legacy = unaffected[4]!;
+    await store.removeWebsite(legacy.id, { url: legacy.origin });
+    expect((await new BrowserPasswordStore(new OAuthVault(vault.path)).get(legacy.id)).websites).toEqual([]);
+    expect(JSON.stringify(await store.list())).not.toContain("migrationVersion");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

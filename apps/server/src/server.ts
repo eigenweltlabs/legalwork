@@ -1,6 +1,6 @@
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
-import { browserPasswords } from "./browser-passwords.js";
+import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
 import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
@@ -2262,13 +2262,7 @@ function createRoutes(
     return jsonResponse({ item: await configureResearchDatabase(config, await readJsonBody(ctx.request)) });
   });
 
-  // Agent discovery exposes destinations and vault references, never credentials.
-  addRoute(routes, "GET", "/workspace/:id/browser-connections", "client", async ctx => {
-    requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
-    const origin = new URL(ctx.request.url).searchParams.get("origin") ?? undefined;
-    return jsonResponse({ items: (await browserPasswords(config).list(origin)).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
-  });
+  registerBrowserConnectionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, resolveWorkspace });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
     await resolveWorkspace(config, ctx.params.id);

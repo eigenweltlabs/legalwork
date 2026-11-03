@@ -17,6 +17,11 @@
       "id": "browser-autofill",
       "guide": "settings-privacy.md",
       "source": "apps/app/src/overlay/index.tsx"
+    },
+    {
+      "id": "manage-saved-login",
+      "guide": "integrations.md",
+      "source": "apps/app/src/react-app/domains/settings/pages/research-connection-dialog.tsx"
     }
   ],
   "routes": [

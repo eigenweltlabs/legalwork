@@ -17,7 +17,7 @@ export async function prepareBrowserAutofill(tab, event, details, loadStore, vis
     async fill(id) {
       if (!entries.some(entry => entry.id === id) || !current()) return false;
       const saved = await store.get(id);
-      if (!current() || !store.matchesWebsite(saved.origin, url)) return false;
+      if (!current() || !store.matchesEntryWebsite(saved, url)) return false;
       frame.send("legalwork:autofill:fill", { document: details.document, token: details.token, url, username: saved.username, password: saved.password });
       return true;
     },

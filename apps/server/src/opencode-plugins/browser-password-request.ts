@@ -18,6 +18,12 @@ const loginDetails = z.object({
 function stableUrl(value: string) {
   const url = new URL(value); url.search = ""; url.hash = ""; return url.href;
 }
+function signInUrl(value: string) {
+  const url = stableUrl(value);
+  // Verified Austrian product entry points establish state on a separate sign-in host.
+  return ["https://360.lexisnexis.at/", "https://plus.lexis.com/at", "https://plus.lexis.com/at/"].includes(url)
+    ? "https://signin.lexisnexis.com/lnaccess/app/signin" : url;
+}
 
 export function browserPasswordRequestTool(ctx: Plugin.Context) {
   return nativeTool(ctx, {
@@ -39,8 +45,8 @@ export function browserPasswordRequestTool(ctx: Plugin.Context) {
       const provider = preset[0];
       if (provider && !provider.loginUrl) return JSON.stringify({ status: "login_url_required", research_url: provider.researchUrl,
         message: "This provider has no confirmed sign-in URL. Ask the user for it, then pass website_url with this research_url as start_url. Do not infer an authentication domain." });
-      const direct = "website_url" in input ? { loginUrl: stableUrl(input.website_url),
-        request: { website: new URL(input.website_url).origin, label: input.label ?? new URL(input.website_url).hostname, username: input.username ?? "", startUrl: stableUrl(input.start_url ?? input.website_url) } }
+      const direct = "website_url" in input ? { loginUrl: signInUrl(input.website_url),
+        request: { website: new URL(signInUrl(input.website_url)).origin, label: input.label ?? new URL(input.website_url).hostname, username: input.username ?? "", startUrl: stableUrl(input.start_url ?? input.website_url) } }
         : provider?.loginUrl ? { loginUrl: provider.loginUrl,
           request: { website: new URL(provider.loginUrl).origin, label: provider.name, username: "", startUrl: provider.researchUrl } } : undefined;
       // Saving a login needs no website access. Browser use afterwards

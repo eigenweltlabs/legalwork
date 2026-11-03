@@ -18,7 +18,7 @@ function fixture() {
     },
   };
   const matchesWebsite = (_saved, website) => ["https://login.example.org", "https://example.org", "https://auth.example.org"].includes(new URL(website).origin);
-  const actions = createBrowserPasswordActions(page, async () => ({ get: async () => saved, matchesWebsite,
+  const actions = createBrowserPasswordActions(page, async () => ({ get: async () => saved, matchesEntryWebsite: (entry, website) => matchesWebsite(entry.origin, website),
     list: async website => matchesWebsite(saved.origin, website) ? [{ id: saved.id }] : [] }));
   return { actions, calls, saved, set: value => { url = value.url ?? url; frame = value.frame ?? frame; kind = value.kind ?? kind; fail = value.fail ?? fail; generation = value.generation ?? generation; } };
 }
@@ -59,7 +59,8 @@ function autofillFixture() {
   const saved = { id: "saved", label: "Work", username: "lawyer", password: "synthetic-secret", origin: "https://example.org" };
   const contents = { getURL: () => "https://example.org/login", isDestroyed: () => false, mainFrame: { detached: false, send: (...args) => messages.push(args) } };
   const tab = { view: { webContents: contents }, autofillGeneration: 1 };
-  const store = { list: async () => [{ id: saved.id, label: saved.label, username: saved.username }], get: async () => saved, matchesWebsite: (origin, url) => new URL(url).origin === origin };
+  const store = { list: async () => [{ id: saved.id, label: saved.label, username: saved.username }], get: async () => saved,
+    matchesEntryWebsite: (entry, url) => [entry.origin, ...(entry.additionalOrigins ?? [])].includes(new URL(url).origin) };
   const event = { sender: contents, senderFrame: contents.mainFrame };
   const details = { document: "document", token: "field", rect: { x: 10, y: 20, width: 200, height: 30 } };
   return { messages, saved, contents, tab, store, event, details };
@@ -103,4 +104,33 @@ test("a navigation while the selected credential is being read invalidates the f
   const suggestion = await prepareBrowserAutofill(f.tab, f.event, f.details, async () => f.store, () => true);
   assert.equal(await suggestion.fill("saved"), false);
   assert.equal(f.messages.length, 0);
+});
+
+test("agent fills an explicitly added sign-in website but rechecks a revoked grant before releasing the password", async () => {
+  for (const revoke of [false, true]) {
+    const calls = [], origin = "https://signin.lexisnexis.com";
+    let reads = 0;
+    const saved = { id: "saved", origin: "https://360.lexisnexis.at", additionalOrigins: [origin], password: "synthetic-lexis" };
+    const page = { contents: { isDestroyed: () => false, getURL: () => `${origin}/login` }, state: () => ({ id: "tab", generation: 1 }),
+      execute: async command => { calls.push(command); return command.inspect ? { value: { resources: [origin] } } : { value: { value: true } }; } };
+    const store = { get: async () => ({ ...saved, additionalOrigins: ++reads > 1 && revoke ? [] : saved.additionalOrigins }),
+      matchesEntryWebsite: (entry, url) => [entry.origin, ...entry.additionalOrigins].includes(new URL(url).origin) };
+    const action = createBrowserPasswordActions(page, async () => store).fill({ password_id: saved.id, ref: "@e1" }, new AbortController().signal);
+    if (revoke) await assert.rejects(action, /no longer allowed/);
+    else assert.deepEqual(await action, { filled: true, password_id: saved.id });
+    assert.equal(calls.some(call => call.action.text === saved.password), !revoke);
+    assert.equal(reads, 2);
+  }
+});
+
+test("manual autofill uses additional sign-in websites and respects revocation after suggestions appear", async () => {
+  for (const revoke of [false, true]) {
+    const f = autofillFixture();
+    f.saved.origin = "https://other.org";
+    f.saved.additionalOrigins = ["https://example.org"];
+    const suggestion = await prepareBrowserAutofill(f.tab, f.event, f.details, async () => f.store, () => true);
+    if (revoke) f.saved.additionalOrigins = [];
+    assert.equal(await suggestion.fill("saved"), !revoke);
+    assert.equal(f.messages.length, revoke ? 0 : 1);
+  }
 });

@@ -90,7 +90,7 @@ export function ResearchDatabasesStep(props: ResearchDatabasesProps) {
         <div className="mt-1 break-all">{current.researchUrl}</div>
       </div>
       {current.loginUrl ? <BrowserPasswordForm key={`${current.providerId ?? current.researchUrl}:${current.loginUrl}`} client={client ?? undefined}
-        request={{ website: new URL(current.loginUrl).origin, label: current.name, username: "" }} busy={saving}
+        request={{ website: new URL(current.loginUrl).origin, label: current.name, username: "", startUrl: current.researchUrl }} busy={saving}
         onComplete={passwordId => void configure(passwordId)} onCancel={() => { setQueue([]); setError(""); }} />
         : <form className="space-y-4 rounded-xl border border-border p-4" onSubmit={event => {
           event.preventDefault();
