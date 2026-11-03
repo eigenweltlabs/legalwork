@@ -334,6 +334,12 @@ jobs:
         with:
           bun-version: 1.4.4
 
+      - name: Reserve fixed sign-in ports from Linux ephemeral allocation
+        if: runner.os == 'Linux' && needs.changes.outputs.server == 'true'
+        run: |
+          reserved="$(cat /proc/sys/net/ipv4/ip_local_reserved_ports)"
+          sudo sysctl -w "net.ipv4.ip_local_reserved_ports=${reserved:+$reserved,}43117-43119"
+
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
 

@@ -45,6 +45,27 @@ test('unit jobs start independently while integration jobs require the verified 
   assert.ok(integration.needs.includes('opencode-derivative'));
 });
 
+test('Linux unit workers keep registered OAuth callback ports out of ephemeral allocation', () => {
+  const steps = main.jobs['unit-tests'].steps;
+  const reserve = steps.find(step => step.name === 'Reserve fixed sign-in ports from Linux ephemeral allocation');
+  assert.equal(condition(reserve.if, changeScope(null)), true);
+  assert.equal(condition(reserve.if, changeScope(null), { os: 'macOS' }), false);
+  assert.equal(condition(reserve.if, changeScope(['apps/app/src/components/ui/button.tsx'])), false);
+  assert.ok(steps.indexOf(reserve) < steps.findIndex(step => step.name === 'Install dependencies'));
+  const source = readFileSync(new URL('../../apps/server/src/eigenwelt-auth.ts', import.meta.url), 'utf8');
+  const ports = JSON.parse(source.match(/EIGENWELT_LOOPBACK_PORTS = (\[[\d, ]+\])/)[1]);
+  assert.deepEqual(ports, [43117, 43118, 43119], 'Update the reserved range when the registered redirect ports change');
+  const directory = mkdtempSync(path.join(tmpdir(), 'ci-callback-reservation-'));
+  try {
+    for (const existing of ['', '30000-30005,45000']) {
+      writeFileSync(path.join(directory, 'cat'), '#!/bin/sh\nprintf "%s" "$EXISTING_RESERVED_PORTS"\n', { mode: 0o755 });
+      writeFileSync(path.join(directory, 'sudo'), '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+      const result = execFileSync('bash', ['-eu', '-c', reserve.run], { encoding: 'utf8', env: { ...process.env, PATH: directory + path.delimiter + process.env.PATH, EXISTING_RESERVED_PORTS: existing } });
+      assert.equal(result, `sysctl\n-w\nnet.ipv4.ip_local_reserved_ports=${existing ? existing + ',' : ''}43117-43119\n`);
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('documentation and focused manual acceptance do not accidentally launch full unit suites', () => {
   assert.equal(condition(main.jobs['unit-tests'].if, changeScope(['docs/user-guide/chat.md'])), false);
   for (const key of ['mac_signing_acceptance', 'windows_archive_acceptance', 'native_source_acceptance']) {

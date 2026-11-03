@@ -121,7 +121,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
       child.stdout?.off("data", onStdout);
       child.stderr?.off("data", onStderr);
       child.off("error", fail);
-      child.off("exit", onExit);
+      child.off("close", onClose);
     };
     const done = (value: string) => {
       if (settled) return;
@@ -155,7 +155,9 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     const onStderr = (chunk: Buffer) => {
       output += chunk.toString();
     };
-    const onExit = (code: number | null) =>
+    // Exit can precede the final pipe data. Close follows stdio closure, so
+    // startup diagnostics and lock detection include the child's last bytes.
+    const onClose = (code: number | null) =>
       fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`));
     const timeout = setTimeout(
       () => fail(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms${output.trim() ? `\n${output}` : ""}`)),
@@ -164,7 +166,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
     child.once("error", fail);
-    child.once("exit", onExit);
+    child.once("close", onClose);
   });
 }
 
