@@ -84,7 +84,7 @@ test('existing required check names fail if units or a selected engine build fai
   assert.equal(gate['runs-on'], 'ubuntu-latest');
   assert.equal(workflow('ci-tests').jobs['unit-tests']['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
   assert.equal(workflow('ci-tests').jobs['engine-tests-mac'].with.os, 'macos-15');
-  assert.equal(workflow('ci-tests').jobs['engine-tests-linux'].with.os, 'ubuntu-latest');
+  assert.equal(workflow('ci-tests').jobs['engine-tests-linux'].with.os, 'ubuntu-24.04');
   assert.ok(gate.needs.includes('unit-tests'));
   assert.ok(gate.needs.includes('engine-tests-linux'));
   assert.ok(gate.needs.includes('engine-tests-mac'));

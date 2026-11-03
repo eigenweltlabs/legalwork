@@ -8,6 +8,9 @@ on:
       arch:
         type: string
         required: true
+      engine-workers:
+        type: number
+        default: 2
       engine-required:
         type: boolean
         required: true
@@ -141,7 +144,7 @@ jobs:
 
       - name: Run server engine integration tests
         env:
-          LEGALWORK_TEST_WORKERS: '4'
+          LEGALWORK_TEST_WORKERS: ${{ inputs.engine-workers }}
         if: inputs.server
         run: node scripts/ci/run-engine-tests.mjs
 

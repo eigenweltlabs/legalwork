@@ -153,7 +153,9 @@ test('PR targets prepare and validate their own native bytes without a global ho
   assert.equal(condition(resources.if, changeScope(null), { inputs: { server: false, 'runtime-required': true } }), true);
   assert.equal(condition(resources.if, changeScope(null), { inputs: { server: false, 'runtime-required': false } }), false);
   const general = integration.steps.find(step => step.name === 'Run server engine integration tests');
-  assert.equal(general.env.LEGALWORK_TEST_WORKERS, '4');
+  assert.equal(general.env.LEGALWORK_TEST_WORKERS, '${{ inputs.engine-workers }}');
+  assert.equal(main.jobs['engine-tests-linux'].with['engine-workers'], 4);
+  assert.equal(main.jobs['engine-tests-mac'].with['engine-workers'], 2);
   assert.equal(integration.env.LEGALWORK_TEST_WORKERS, '2');
   assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { guest: 'success' }), true);
   assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { guest: 'failure' }), false);
