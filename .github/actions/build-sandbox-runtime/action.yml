@@ -1,0 +1,59 @@
+name: Build native sandbox runtime
+description: Exact QEMU build recipe included in the verified runtime cache identity
+inputs:
+  qemu:
+    required: true
+    description: QEMU target architecture
+  msystem:
+    default: ''
+    description: Windows MSYS environment
+  prefix:
+    default: ''
+    description: Windows package prefix
+runs:
+  using: composite
+  steps:
+    - name: Build QEMU (macOS)
+      if: runner.os == 'macOS'
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: '1'
+      shell: bash
+      run: |
+        brew install ninja pkgconf
+        bash scripts/sandbox/build-macos.sh ${{ inputs.qemu }}
+    - name: Install QEMU build dependency (Windows)
+      if: runner.os == 'Windows'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ inputs.msystem }}
+        path-type: inherit
+        update: true
+    - name: Install checksum-pinned QEMU packages (Windows)
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: bash scripts/sandbox/install-windows-qemu.sh ${{ inputs.prefix }}
+    - name: Bundle QEMU (Windows)
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        cc -O2 -municode -static scripts/sandbox/host-windows.c -o apps/server/resources/agent-sandbox/runtime/legalwork-host.exe
+        node scripts/sandbox/package-runtime.mjs "$(cygpath -w /${{ inputs.prefix }}/bin/qemu-system-${{ inputs.qemu }}.exe)"
+    - name: Build QEMU (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update
+        sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y ninja-build libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
+        curl -fL https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
+        echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | sha256sum -c -
+        tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
+        cd "$RUNNER_TEMP/qemu-11.1.2"
+        ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ inputs.qemu }}-softmmu --without-default-features --enable-tcg --enable-slirp
+        make -j2
+        make install
+    - name: Bundle QEMU (macOS and Linux)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ inputs.qemu }}"
+        QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"

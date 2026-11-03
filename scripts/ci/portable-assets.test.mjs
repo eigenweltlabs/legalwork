@@ -19,3 +19,15 @@ test('portable assets cover both entrypoints and reject missing files or linked 
     assert.throws(() => portableFiles(root), /links/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test('PR renderer handoff requires its entrypoint without requiring an unused Office build', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pr-renderer-'));
+  try {
+    mkdirSync(path.join(root, 'dist'));
+    assert.throws(() => portableFiles(root, 'renderer'), /entrypoints/);
+    writeFileSync(path.join(root, 'dist/index.html'), 'renderer');
+    assert.deepEqual(Object.keys(portableFiles(root, 'renderer')), ['dist/index.html']);
+    assert.throws(() => portableFiles(root, 'unknown'), /Unknown/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

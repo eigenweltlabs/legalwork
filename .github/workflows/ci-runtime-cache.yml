@@ -6,7 +6,7 @@ on:
       - scripts/sandbox/**
       - apps/server/resources/agent-sandbox/**
       - scripts/ci/cache-sandbox-runtime.mjs
-      - .github/workflows/sandbox-runtime.yml
+      - .github/actions/build-sandbox-runtime/**
       - .github/workflows/ci-runtime-cache.yml
   workflow_dispatch:
   # Image/toolchain revisions are part of the exact cache key.

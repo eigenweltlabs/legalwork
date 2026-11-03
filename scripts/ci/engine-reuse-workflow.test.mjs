@@ -77,7 +77,7 @@ test('existing required check names fail if units or a selected engine build fai
   assert.deepEqual(gate.strategy.matrix.os, ['ubuntu-latest', 'macos-14']);
   assert.equal(gate.name, 'legalwork-tests (${{ matrix.os }})');
   assert.equal(gate['runs-on'], 'ubuntu-latest');
-  for (const name of ['unit-tests', 'sandbox-engine']) {
+  for (const name of ['unit-tests', 'engine-tests']) {
     assert.equal(workflow('ci-tests').jobs[name]['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
   }
   assert.ok(gate.needs.includes('unit-tests'));

@@ -125,6 +125,8 @@ jobs:
         if: inputs.run_tests
       - uses: ./.github/actions/install-dependencies
         if: inputs.run_tests
+        with:
+          filter: legalwork-server...
       - name: Prepare checksum-pinned Node for worker tests
         if: inputs.run_tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
@@ -133,49 +135,12 @@ jobs:
           name: sandbox-guest-${{ matrix.arch }}
           path: apps/server/resources/agent-sandbox/runtime/
         if: steps.runtime-cache.outputs.cache-hit != 'true'
-      - name: Build QEMU (macOS)
-        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'macOS')
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: '1'
-        run: |
-          brew install ninja pkgconf
-          bash scripts/sandbox/build-macos.sh ${{ matrix.qemu }}
-      - name: Install QEMU build dependency (Windows)
-        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Windows')
-        uses: msys2/setup-msys2@v2
+      - uses: ./.github/actions/build-sandbox-runtime
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         with:
-          msystem: ${{ matrix.msystem }}
-          path-type: inherit
-          update: true
-      - name: Install checksum-pinned QEMU packages (Windows)
-        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Windows')
-        shell: msys2 {0}
-        run: bash scripts/sandbox/install-windows-qemu.sh ${{ matrix.prefix }}
-      - name: Bundle QEMU (Windows)
-        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Windows')
-        shell: msys2 {0}
-        run: |
-          cc -O2 -municode -static scripts/sandbox/host-windows.c -o apps/server/resources/agent-sandbox/runtime/legalwork-host.exe
-          node scripts/sandbox/package-runtime.mjs "$(cygpath -w /${{ matrix.prefix }}/bin/qemu-system-${{ matrix.qemu }}.exe)"
-      - name: Build QEMU (Linux)
-        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os == 'Linux')
-        shell: bash
-        run: |
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y ninja-build libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
-          curl -fL https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
-          echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | sha256sum -c -
-          tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
-          cd "$RUNNER_TEMP/qemu-11.1.2"
-          ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-slirp
-          make -j2
-          make install
-      - name: Bundle QEMU (macOS and Linux)
-        if: steps.runtime-cache.outputs.cache-hit != 'true' && (runner.os != 'Windows')
-        shell: bash
-        run: |
-          binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
-          QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"
+          qemu: ${{ matrix.qemu }}
+          msystem: ${{ matrix.msystem || '' }}
+          prefix: ${{ matrix.prefix || '' }}
       - name: Seal newly built sandbox bytes
         if: steps.runtime-cache.outputs.cache-hit != 'true'
         run: node scripts/ci/cache-sandbox-runtime.mjs seal runtime ${{ matrix.arch }}
@@ -205,27 +170,5 @@ jobs:
         with:
           name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
           path: sandbox-runtime.tgz
-      - name: Test packaged sandbox paths and macOS compatibility
+      - uses: ./.github/actions/test-sandbox-runtime
         if: inputs.run_tests
-        run: node --test scripts/sandbox/probe-packaged.test.mjs scripts/sandbox/macos-compatibility.test.mjs
-      - name: Record temporary filesystem capacity
-        if: inputs.run_tests
-        shell: bash
-        run: |
-          for runtime in node bun; do
-            "$runtime" -e 'const fs = require("node:fs"), os = require("node:os"); const temporary = os.tmpdir(), space = fs.statfsSync(temporary); console.log(JSON.stringify({ kind: "sandbox-tmp-capacity", node: process.versions.node, bun: process.versions.bun, platform: process.platform, arch: process.arch, temporary, statfs: space, availableBytes: space.bavail * space.bsize }));'
-            temporary="$("$runtime" -e 'process.stdout.write(require("node:os").tmpdir())')"
-            if [ "$RUNNER_OS" = Windows ]; then temporary="$(cygpath -u "$temporary")"; fi
-            df -Pk "$temporary"
-          done
-      - name: Exercise real isolation and permission enforcement
-        if: inputs.run_tests
-        timeout-minutes: 30
-        env:
-          LEGALWORK_SANDBOX_INTEGRATION: '1'
-        shell: bash
-        run: |
-          if [ '${{ runner.os }}' = macOS ]; then
-            sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
-          fi
-          bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts apps/server/src/skill-package.test.ts

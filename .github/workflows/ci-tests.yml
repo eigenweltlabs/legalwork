@@ -173,6 +173,8 @@ jobs:
     if: >-
       needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.unit_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      run_tests: false
   engine-source-build:
     needs: changes
     if: >-
@@ -263,14 +265,48 @@ jobs:
           ignore-scripts: "true"
       - run: node --test scripts/gen-core-skills.test.mjs
       - run: pnpm docs:check
-  unit-tests:
+  pr-renderer:
     needs: changes
+    if: >-
+      (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install-dependencies
+        with:
+          filter: '@legalwork/app...'
+      - name: Build UI for unsaved-change Electron checks
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          node scripts/gen-core-skills.mjs
+          pnpm --filter @legalwork/app build
+          node scripts/ci/portable-assets.mjs seal renderer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-renderer
+          path: |
+            apps/app/dist/
+            apps/app/portable-ui-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+  unit-tests:
+    needs: [ changes, pr-renderer ]
     # No engine installation here: real-engine fixtures run in the gated job.
     env:
       LEGALWORK_TEST_OPENCODE_BIN: ''
       LEGALWORK_TEST_OPENCODE_CACHE: ''
     if: >-
-      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' && (needs.pr-renderer.result == 'success' || needs.pr-renderer.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     # Keep historical required check names while using the supported runner.
     runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
 
@@ -321,11 +357,14 @@ jobs:
         if: needs.changes.outputs.app == 'true'
         run: pnpm --filter @legalwork/app test
 
-      - name: Build UI for unsaved-change Electron checks
+      - uses: actions/download-artifact@v4
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm --filter @legalwork/app build
+        with:
+          name: pr-renderer
+          path: apps/app
+      - name: Verify exact renderer source, settings and output hashes
+        if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        run: node scripts/ci/portable-assets.mjs verify renderer
 
       - name: Verify workflow editing and close/restart decisions in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
@@ -410,16 +449,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  sandbox-engine:
-    needs: [ sandbox-runtime, opencode-derivative ]
-    if: >-
-      always() && !cancelled() && needs.sandbox-runtime.result == 'success' && needs.opencode-derivative.result == 'success'
-    # Keep historical required check names while using the supported runner.
-    runs-on: ${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}
+  sandbox-validation:
+    needs: sandbox-runtime
+    if: needs.sandbox-runtime.result == 'success'
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-14 ]
+        include:
+          - { os: macos-15-intel, platform: darwin, arch: x64 }
+          - { os: windows-2022, platform: win32, arch: x64 }
+          - { os: windows-11-arm, platform: win32, arch: arm64 }
+          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -431,35 +473,21 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-      - uses: actions/download-artifact@v4
-        if: needs.opencode-derivative.result == 'success'
-        with:
-          name: opencode-derivative-ci-${{ runner.os }}
-          path: ${{ runner.temp }}/opencode-derivative
-      - uses: ./.github/actions/setup-opencode
-        with:
-          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
-          manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
-          build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
-          archive-family: "true"
       - uses: ./.github/actions/install-dependencies
+        with:
+          filter: legalwork-server...
       - name: Prepare checksum-pinned Node for worker tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
       - uses: actions/download-artifact@v4
         with:
-          name: sandbox-runtime-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}
+          name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/sandbox-runtime
-      - name: Unpack protected runtime
+      - name: Unpack exact same-run runtime
+        shell: bash
         run: |
           mkdir -p apps/server/resources/agent-sandbox/runtime
           tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
-
-      - name: Verify the shipped engine uses protected execution
-        env:
-          LEGALWORK_SANDBOX_INTEGRATION: '1'
-        run: |
-          pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
+      - uses: ./.github/actions/test-sandbox-runtime
 
   ci-result:
     name: Selected checks passed
@@ -480,8 +508,9 @@ jobs:
       - windows-meetings
       - windows-drafts
       - documentation
+      - pr-renderer
       - unit-tests
-      - sandbox-engine
+      - sandbox-validation
       - engine-tests
       - legalwork-tests
     runs-on: ubuntu-latest
@@ -492,9 +521,11 @@ jobs:
         run: |
           node -e 'const jobs = JSON.parse(process.env.RESULTS); const failed = Object.entries(jobs).filter(([, job]) => !["success", "skipped"].includes(job.result)); if (failed.length) { console.error(failed); process.exit(1); }'
   engine-tests:
+    timeout-minutes: 40
     needs:
       - changes
       - opencode-derivative
+      - sandbox-runtime
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     # Keep historical required check names while using the supported runner.
@@ -560,6 +591,24 @@ jobs:
       - name: Build server and native plugins
         if: needs.changes.outputs.engine == 'true'
         run: pnpm --filter legalwork-server build
+
+      - uses: actions/download-artifact@v4
+        if: needs.sandbox-runtime.result == 'success'
+        with:
+          name: sandbox-runtime-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack exact same-run runtime
+        if: needs.sandbox-runtime.result == 'success'
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+      - uses: ./.github/actions/test-sandbox-runtime
+        if: needs.sandbox-runtime.result == 'success'
+      - name: Verify the shipped engine uses protected execution
+        if: needs.sandbox-runtime.result == 'success'
+        env:
+          LEGALWORK_SANDBOX_INTEGRATION: '1'
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
 
       - name: Run desktop unit tests
         if: needs.changes.outputs.desktop == 'true'
@@ -646,8 +695,9 @@ jobs:
       - windows-meetings
       - windows-drafts
       - documentation
+      - pr-renderer
       - unit-tests
-      - sandbox-engine
+      - sandbox-validation
       - engine-tests
     if: always()
     # These preserve historical required names and only aggregate outcomes.

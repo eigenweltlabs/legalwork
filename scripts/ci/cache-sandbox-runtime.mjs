@@ -13,12 +13,12 @@ export function sandboxCacheKey(kind, arch, repository = root) {
   assert.ok(['guest', 'runtime'].includes(kind));
   assert.ok(['x64', 'arm64'].includes(arch));
   const names = execFileSync('git', ['ls-files', '-z', '--', 'scripts/sandbox', 'apps/server/resources/agent-sandbox',
-    'scripts/ci/cache-sandbox-runtime.mjs', '.github/workflows/sandbox-runtime.yml'], { cwd: repository, encoding: 'utf8' }).split('\0').filter(Boolean).sort();
+    'scripts/ci/cache-sandbox-runtime.mjs', '.github/actions/build-sandbox-runtime/action.yml'], { cwd: repository, encoding: 'utf8' }).split('\0').filter(Boolean).sort();
   const inputs = Object.fromEntries(names.filter(name => !name.includes('/runtime/') && !/\.test\.[cm]?[jt]s$/.test(name))
     .map(name => [name, hash(readFileSync(path.join(repository, name)))]));
-  const identity = { version: 1, kind, arch, platform: process.platform,
+  const identity = { version: 2, kind, arch, platform: process.platform, node: process.version,
     image: process.env.ImageOS ?? 'local', imageVersion: process.env.ImageVersion ?? 'local', inputs };
-  return `sandbox-${kind}-v1-${process.platform}-${arch}-${hash(JSON.stringify(identity))}`;
+  return `sandbox-${kind}-v2-${process.platform}-${arch}-${hash(JSON.stringify(identity))}`;
 }
 
 export function verifyRuntimeCache(directory, key, kind, arch) {

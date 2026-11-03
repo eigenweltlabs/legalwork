@@ -10,7 +10,7 @@ const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${n
 const main = workflow('ci-tests');
 function condition(expression, scope, { engine = 'skipped', event = 'pull_request', inputs = {}, os = 'Linux' } = {}) {
   const needs = { changes: { result: 'success', outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)])) },
-    'opencode-derivative': { result: engine }, 'engine-build-inputs': { result: 'success' } };
+    'opencode-derivative': { result: engine }, 'pr-renderer': { result: 'success' }, 'engine-build-inputs': { result: 'success' } };
   const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]');
   return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', `return (${js});`)(needs,
     { event_name: event }, inputs, { os }, () => true, () => false));
@@ -26,7 +26,7 @@ test('unit jobs start independently while integration jobs require the verified 
   const e2e = integration.steps.find(step => step.name === 'Run e2e tests');
   assert.equal(condition(e2e.if, ui), false);
   assert.equal(steps.some(step => step.uses === './.github/actions/setup-opencode'), false);
-  assert.equal(main.jobs['unit-tests'].needs, 'changes');
+  assert.deepEqual(main.jobs['unit-tests'].needs, ['changes', 'pr-renderer']);
   assert.equal(main.jobs['unit-tests'].env.LEGALWORK_TEST_OPENCODE_BIN, '');
   const session = changeScope(['apps/app/src/react-app/domains/session/send.ts']);
   assert.equal(condition(main.jobs['opencode-derivative'].if, session), true);
@@ -86,4 +86,42 @@ test('required PR workflows have job filtering, and reusable/manual workflows st
       for (const dependency of [job.needs ?? []].flat()) assert.ok(config.jobs[dependency], `${file}: unknown dependency ${dependency}`);
     }
   }
+});
+
+
+test('PR sandbox validation covers all six exact producer archives without a late Mac allocation', () => {
+  assert.equal(main.jobs['sandbox-engine'], undefined);
+  assert.equal(main.jobs['sandbox-runtime'].with.run_tests, false);
+  const separate = main.jobs['sandbox-validation'];
+  assert.equal(separate.needs, 'sandbox-runtime');
+  const targets = separate.strategy.matrix.include.map(({ platform, arch }) => `${platform}-${arch}`);
+  const integration = main.jobs['engine-tests'];
+  assert.ok(integration.needs.includes('sandbox-runtime'));
+  const validate = integration.steps.find(step => step.uses === './.github/actions/test-sandbox-runtime');
+  assert.equal(validate.if, "needs.sandbox-runtime.result == 'success'");
+  const archive = integration.steps.find(step => step.with?.name?.startsWith('sandbox-runtime-'));
+  assert.match(archive.with.name, /darwin-arm64/);
+  assert.match(archive.with.name, /linux-x64/);
+  assert.deepEqual([...targets, 'darwin-arm64', 'linux-x64'].sort(),
+    ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
+  for (const job of [separate, integration]) {
+    assert.ok(job.steps.some(step => step.uses === './.github/actions/test-sandbox-runtime'));
+    assert.ok(job.steps.some(step => step.name === 'Unpack exact same-run runtime'));
+  }
+  const protectedStep = integration.steps.find(step => step.name === 'Verify the shipped engine uses protected execution');
+  assert.equal(protectedStep.env.LEGALWORK_SANDBOX_INTEGRATION, '1');
+  for (const file of ['agent-sandbox/engine.integration.test.ts', 'opencode-plugins/legalwork-skill-resources.integration.test.ts']) assert.ok(protectedStep.run.includes(file));
+  assert.ok(main.jobs['legalwork-tests'].needs.includes('sandbox-validation'));
+  assert.ok(main.jobs['ci-result'].needs.includes('sandbox-validation'));
+});
+
+test('Mac Electron tests consume the Linux renderer only after source and output verification', () => {
+  const producer = main.jobs['pr-renderer'];
+  assert.equal(producer['runs-on'], 'ubuntu-latest');
+  assert.ok(producer.steps.some(step => step.run?.includes('portable-assets.mjs seal renderer')));
+  const steps = main.jobs['unit-tests'].steps;
+  assert.equal(steps.some(step => step.run?.includes('@legalwork/app build')), false);
+  const verify = steps.findIndex(step => step.run === 'node scripts/ci/portable-assets.mjs verify renderer');
+  const electron = steps.findIndex(step => step.name === 'Verify workflow editing and close/restart decisions in Electron');
+  assert.ok(verify >= 0 && verify < electron);
 });
