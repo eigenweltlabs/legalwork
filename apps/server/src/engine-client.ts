@@ -1,5 +1,6 @@
 import { OpenCode, type OpenCodeClient, type SessionInfo, type SessionListInput, type SessionMessageInfo } from "@opencode/client";
 import { canonicalFilePath } from "./file-write-lock.js";
+import { sameProjectDirectory } from "./workspace-path-match.js";
 import { ApiError, findApiError } from "./errors.js";
 import { nativeResponseError } from "./native-delivery.js";
 import { awaitRegisteredEngineProjects } from "./project-engine-registration.js";
@@ -71,7 +72,9 @@ export async function getWorkspaceEngineSession(client: OpenCodeClient, workspac
     canonicalFilePath(workspaceEngineLocation(workspace).directory),
     canonicalFilePath(session.location.directory),
   ]);
-  if (expected !== actual) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+  // canonicalFilePath is realpath: a mapped drive and its UNC target can still
+  // differ in case/separators/prefix. Compare with the shared project rule.
+  if (expected !== actual && !await sameProjectDirectory(expected, actual)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
   return session;
 }
 
