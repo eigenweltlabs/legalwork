@@ -122,6 +122,7 @@ test('PR targets prepare and validate their own native bytes without a global ho
   const targets = [];
   for (const [id, job] of [...validators, ...engines]) {
     const arch = job.with.arch;
+    if (id.startsWith('sandbox-validation-')) assert.equal(job.with['dependency-cache'] ?? true, id !== 'sandbox-validation-win32-arm64');
     const guest = `sandbox-guest-${arch}`;
     assert.ok(job.needs.includes(guest), id);
     assert.ok(!job.needs.includes(`sandbox-guest-${arch === 'x64' ? 'arm64' : 'x64'}`), id);
@@ -141,6 +142,9 @@ test('PR targets prepare and validate their own native bytes without a global ho
     for (const gate of ['legalwork-tests', 'ci-result']) assert.ok(main.jobs[gate].needs.includes(id));
   }
   assert.deepEqual(targets.sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
+  const native = workflow('ci-sandbox-validation');
+  assert.equal(native.on.workflow_call.inputs['dependency-cache'].default, true);
+  assert.equal(native.jobs.tests.steps.find(step => step.uses === './.github/actions/install-dependencies').with.cache, '${{ inputs.dependency-cache }}');
   const integration = workflow('ci-engine-tests').jobs.tests;
   const validate = integration.steps.find(step => step.uses === './.github/actions/test-sandbox-runtime');
   assert.equal(validate.if, 'inputs.runtime-required');

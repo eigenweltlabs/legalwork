@@ -11,6 +11,9 @@ on:
       arch:
         type: string
         required: true
+      dependency-cache:
+        type: boolean
+        default: true
       runtime-artifact:
         type: boolean
         default: false
@@ -41,6 +44,7 @@ jobs:
       - uses: ./.github/actions/install-dependencies
         with:
           filter: legalwork-server...
+          cache: ${{ inputs.dependency-cache }}
       - name: Prepare checksum-pinned Node for worker tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
       - uses: actions/download-artifact@v4

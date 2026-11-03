@@ -509,6 +509,7 @@ jobs:
       os: windows-11-arm
       platform: win32
       arch: arm64
+      dependency-cache: false
       runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
 
   sandbox-validation-linux-arm64:
