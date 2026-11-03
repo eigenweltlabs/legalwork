@@ -14,6 +14,8 @@ File sources and saved website logins support multiple named connections. Choose
 
 For a service outside the catalogue, choose **Add > Custom connection** and enter the connection details supplied by the provider. Choose **Add > Import connection** for a supported package or repository, review the requested access, and complete any remaining setup. Removing an imported connection package also removes its included capabilities from the shared library. Existing projects use the updated library.
 
+Adding or editing a custom connection updates the shared library and connects it in your current project. Other open projects pick up the settings automatically; projects you open later use the saved connection without needing to be opened during setup. If a firm connector has invalid settings, LegalWork skips that connector and keeps the app available. Ask your firm's administrator to correct it in the platform's **Knowledge Hub > Integrations**.
+
 The chat tool picker has three groups: **Workflows**, **Skills** and **Integrations**. Integrations combines installed packages, MCP connections, signed-in app accounts, named file storage, website logins and installed firm connections in one list. Select any integration to insert its chip into your message. The chip tells the agent which connection to use and stays visible inline in the sent message. Use **Configure** to manage items in the matching library.
 
 Reusable instructions live under **Workflows > Skills**. The Workflows page also has **Workflows** and **Review prompts** tabs.
