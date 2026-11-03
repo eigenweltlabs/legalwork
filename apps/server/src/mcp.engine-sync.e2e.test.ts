@@ -45,7 +45,8 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
     async fetch(request) {
       const url = new URL(request.url);
       const body = request.method === "POST" ? await request.json().catch(() => null) : null;
-      requests.push({ method: request.method, pathname: url.pathname, search: url.search, body });
+      const recorded: EngineRequest = { method: request.method, pathname: url.pathname, search: url.search, body };
+      requests.push(recorded);
 
       if (url.pathname === "/api/info") return Response.json({ version: "2.1.4", pid: process.pid });
       if (url.pathname === "/api/config") return Response.json([]);
@@ -54,8 +55,7 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
         if (!path) throw new Error("The fixture requires a private runtime store");
         const settings = await readManagedEngineSettings(join(dirname(path), "runtime-opencode-settings.json"), url.searchParams.get("location[directory]") ?? "");
         const native = nativeOpencodeConfig(settings.configuration && typeof settings.configuration === "object" && !Array.isArray(settings.configuration) ? Object.fromEntries(Object.entries(settings.configuration)) : {}).config;
-        const latest = requests.at(-1);
-        if (latest) latest.definitions = native.mcp?.servers ?? {};
+        recorded.definitions = native.mcp?.servers ?? {};
         if (Object.keys(native.mcp?.servers ?? {}).some(name => options?.failMcpNames?.includes(name))) return Response.json({ code: "refresh_failed" }, { status: 500 });
         return Response.json({ refreshed: true });
       }
@@ -169,7 +169,7 @@ describe("runtime MCP engine sync", () => {
     }
   });
 
-  test("a shared connector is hot-added into every local workspace's engine instance, and dropped from all on removal", async () => {
+  test("a shared connector refreshes every project before returning, and is dropped from all on removal", async () => {
     const rootA = await createWorkspaceRoot();
     const rootB = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
