@@ -10,6 +10,7 @@ import { t } from "@/i18n";
 type ContextMenuItem = {
   id: string;
   label: string;
+  description?: string;
   iconName?: "copy" | "external" | "close";
   disabled?: boolean;
   shortcut?: string;
@@ -18,7 +19,7 @@ type ContextMenuItem = {
 
 type ContextMenuRequest = {
   id: string;
-  source: "tab" | "page" | "sidebar";
+  source: "tab" | "page" | "sidebar" | "autofill";
   items: ContextMenuItem[];
 };
 
@@ -65,14 +66,18 @@ function ContextMenuSurface({
         } else if (event.key === "ArrowUp") {
           event.preventDefault();
           buttons[(currentIndex - 1 + buttons.length) % buttons.length]?.focus();
+        } else if ((event.key === "Enter" || event.key === " ") && document.activeElement instanceof HTMLButtonElement) {
+          event.preventDefault();
+          document.activeElement.click();
         }
       }}
     >
       <ContextMenuContent
         role="menu"
-        aria-label={t("overlay.context_menu", { source: request.source })}
-        className="w-full"
+        aria-label={request.source === "autofill" ? t("browser.autofill.title") : t("overlay.context_menu", { source: request.source })}
+        className="max-h-full w-full"
       >
+        {request.source === "autofill" ? <div className="px-3 py-2 text-xs text-muted-foreground">{t("browser.autofill.title")}</div> : null}
         {request.items.map((item) => {
           return (
             <React.Fragment key={item.id}>
@@ -82,7 +87,7 @@ function ContextMenuSurface({
                 disabled={item.disabled}
                 onClick={() => onChoose(item.id)}
               >
-                <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                <span className="min-w-0 flex-1 text-left"><span className="block truncate">{item.label}</span>{item.description ? <span className="block truncate text-xs text-muted-foreground">{item.description}</span> : null}</span>
                 {item.shortcut ? <ContextMenuShortcut>{item.shortcut}</ContextMenuShortcut> : null}
               </ContextMenuItem>
             </React.Fragment>

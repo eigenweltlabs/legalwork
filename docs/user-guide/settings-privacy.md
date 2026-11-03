@@ -49,9 +49,11 @@ Open **Settings > Secrets**. Use **Browser passwords > Add password** for websit
 
 ### Browser passwords
 
+Saved browser logins also work when you browse yourself. Click a username, email or password field on a matching website to see **Fill saved login**, then select an account. You can also press **Arrow Down** to enter the suggestions and **Enter** to select one. **Escape** dismisses the list. LegalWork fills the username and password without submitting the form. For a two-step sign-in, choose the account again on the password page. Suggestions use the same saved logins as Settings and Integrations and appear on top-level sign-in forms in visible local browser tabs. Embedded frames, password-creation fields and verification-code fields do not receive suggestions.
+
 To save a login for any website from chat, give the assistant its sign-in URL and ask to set it up. It shows the secure **Sign-in details needed** card directly. For a known provider, its name is enough. If the URL is missing, the assistant asks you for it first. The card uses the same vault as this settings page. Browser verification happens after you save or select an existing login.
 
-If the assistant reaches a sign-in page without a saved login, it can show **Sign-in details needed** inline in the conversation. Check the displayed website, enter your **Username** (optional) and **Password**, then choose **Save and continue**. The website comes from the browser tab and cannot be edited in this card. Your password goes directly to the same device vault as Settings; the assistant receives only the saved entry’s ID and metadata, then continues in the existing tab. Choose **Cancel** to stop the login attempt. Reloading the chat restores a pending request. If the login was already saved, choose **Continue with saved login** without entering it again. You can later edit or delete it under **Settings > Secrets > Browser passwords**.
+If the assistant reaches a sign-in page without a saved login, it can show **Sign-in details needed** inline in the conversation. Check the displayed website, enter your **Username** (optional) and **Password**, then choose **Save login and resume task**. The website comes from the browser tab and cannot be edited in this card. Your password goes directly to the same device vault as Settings; the assistant receives only the saved entry’s ID and metadata, then continues in the existing tab. Choose **Cancel** to stop the login attempt. Reloading the chat restores a pending request. If the login was already saved, choose **Resume task with saved login** without entering it again. You can later edit or delete it under **Settings > Secrets > Browser passwords**.
 
 On the local desktop, open **Settings > Secrets > Browser passwords > Add password**. Enter a **Name**, the **Website** (a complete HTTPS address), an optional **Username**, and the **Password**, then choose **Save**. The main domain and its subdomains share the saved password. For example, `example.com`, `www.example.com` and `login.example.com` use the same entry. Scheme and port must still match; paths are ignored. Independently owned hosted sites, such as `a.github.io` and `b.github.io`, remain separate. HTTP is supported only for localhost development pages.
 
@@ -94,3 +96,13 @@ Official builds can send content-free usage telemetry when enabled. **Settings >
 Related: [Localization](localization.md), [Audio](audio.md), [Troubleshooting](troubleshooting.md).
 
 Opening a project does not require a separate project-automation approval. Chat permissions, added-folder access, command approvals and sandbox settings still apply to the agent's operations.
+
+## Unsaved changes when closing or restarting
+
+When you close LegalWork or choose **Settings > Updates > Install and restart**, LegalWork checks for unsaved work, including workflow instructions and files open behind another page. The dialog lists the affected files, with its actions together in the bottom row. The discard action appears in red.
+
+- **Save and close** or **Save and restart** saves the changes before continuing. If a save fails or changes arrive during saving, LegalWork stays open so you can resolve them.
+- **Discard and close** or **Discard and restart** discards the listed changes before continuing.
+- **Open unsaved file** cancels closing or restarting and brings an affected file to the front. This button appears only when an unsaved file is not already visible.
+
+Use the dialog's close button or press **Esc** to keep working without closing or restarting. If a save is already running, wait for it to finish and try again. A downloaded update remains ready to install when you cancel the restart.

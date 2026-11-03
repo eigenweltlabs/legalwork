@@ -7,7 +7,7 @@ import type { PendingPermission, PendingQuestion } from "../src/app/types";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import {
   createInteractionSnapshot, interactionRequestKey, interactionSessionIds, interactionSessionsKey,
-  permissionKey, questionKey, refreshWorkspaceInteractions, replyToPermission, replyToQuestion,
+  permissionKey, questionKey, refreshWorkspaceInteractions, replyToPermission, replyToQuestion, cancelQuestion,
   seedInteractionSession, seedPermissionState, seedQuestionState, type InteractionSessions,
 } from "../src/react-app/domains/session/sync/interaction-state";
 import {
@@ -340,6 +340,34 @@ describe("recovery and reply routing", () => {
       { path: "/api/session/child/permission/approval-v2/reply", body: { decision: "reject" } },
       { path: "/api/session/child/form/question/reply", body: { answer:{choice:"Yes"} } },
     ]);
+  });
+
+  test("skipping a child question cancels its owning form without fabricating an answer", async () => {
+    seedQuestionState(workspaceId, "child", [question()], { protocol: "v2" });
+    seedQuestionState(workspaceId, "parent", [question("parent-question", "parent")], { protocol: "v2" });
+    const cancellations: Array<{ method: string; path: string; message: string | null }> = [];
+    const { client, calls } = testClient((request) => {
+      if (request.method !== "DELETE") return;
+      const url = new URL(request.url);
+      cancellations.push({ method: request.method, path: url.pathname, message: url.searchParams.get("message") });
+      expect(request.body).toBeNull();
+      return new Response(null, { status: 204 });
+    });
+    await cancelQuestion(client, pendingQuestions()[0]!);
+    acknowledgeInteraction(workspaceId, "child", "question", "question");
+    expect(cancellations).toEqual([{ method: "DELETE", path: "/api/session/child/form/question", message: "The user skipped this question." }]);
+    expect(calls).toEqual([]);
+    expect(pendingQuestions()).toHaveLength(0);
+    expect(pendingQuestions("parent")).toHaveLength(1);
+  });
+
+  test("failed cancellation leaves the question available for retry", async () => {
+    seedQuestionState(workspaceId, "child", [question()], { protocol: "v2" });
+    const { client } = testClient((request) => {
+      if (request.method === "DELETE") return new Response("Unavailable", { status: 503 });
+    });
+    await expect(cancelQuestion(client, pendingQuestions()[0]!)).rejects.toBeDefined();
+    expect(pendingQuestions()).toHaveLength(1);
   });
 
   test("failed replies leave the pending approval available for retry", async () => {

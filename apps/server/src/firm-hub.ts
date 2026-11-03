@@ -12,6 +12,8 @@ import { ApiError } from "./errors.js";
 import { OcrVault } from "./ocr/vault.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { nativeMcpDefinition } from "./native-mcp-config.js";
+import { nativeMcpServer } from "./native-opencode-config.js";
 import type { ServerConfig, SkillItem } from "./types.js";
 
 /**
@@ -401,7 +403,16 @@ export async function firmHubConnectorBlocks(config: ServerConfig): Promise<Reco
     const connector = await connectorOf(config, item);
     if (!connector) continue;
     const entry = connectorEntry(item, connector, runtime.secrets.get(item.id)?.value, await runtime.vault.get(item.id));
-    if (entry) blocks[connector.key] = entry;
+    if (!entry) continue;
+    // The platform and older desktop shares use form fields such as enabled,
+    // numeric timeouts and camel-case OAuth keys. Convert and validate each
+    // connector before it reaches the strict native startup configuration.
+    try { blocks[connector.key] = nativeMcpDefinition(nativeMcpServer(entry)); }
+    catch {
+      // One invalid hub item must not prevent the whole local server starting.
+      // Never log the entry: it can contain the firm's credential.
+      console.warn(`[firm-hub] Connector ${item.id} has invalid settings and was not loaded.`);
+    }
   }
   return blocks;
 }

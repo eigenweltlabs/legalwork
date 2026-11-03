@@ -12,6 +12,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
 | Message queue above the composer | Edit or reorder pending messages; use Steer to send one at the next step without stopping the current work | [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
+| Fill saved login | Choose a saved account from a browser login field and fill its username and password | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Projects | Select the matter or working context from the project catalog | [Projects](projects-sharing.md) |
 | Project Home | Matter details, notes, linked folders, recordings and upcoming deadlines | [Projects](projects-sharing.md) |
 | Project Files | Local files and linked storage, with import and document panels | [Files](files-documents.md), [Storage](connected-storage.md) |
@@ -50,6 +51,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Customization | How do I change language, appearance and project defaults? | [Settings](settings-privacy.md), [Localization](localization.md) |
 | Secrets | How do I save browser passwords, use automatic filling and apply environment changes? | [Settings](settings-privacy.md) |
 | Privacy | How do usage analytics and online catalog updates work? | [Settings](settings-privacy.md) |
+| Unsaved changes before closing or restarting | Save or discard pending workflow and file edits, or open an affected file | [Unsaved changes](settings-privacy.md#unsaved-changes-when-closing-or-restarting) |
 | Updates | Which version/channel is running, and how do I install an update? | [Troubleshooting](troubleshooting.md) |
 | Workspace Permissions | Which folders can this workspace access? | [Settings](settings-privacy.md) |
 | Advanced / Recovery / Debug | How do I inspect or repair the runtime when those diagnostic screens are exposed? | [Troubleshooting](troubleshooting.md) |

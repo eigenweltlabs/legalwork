@@ -1,6 +1,7 @@
 // Real Electron windows and app shutdown, with only the native update request
 // simulated. No installed app, updater cache, microphone or desktop UI is used.
 import assert from "node:assert/strict";
+import { boundedShutdown } from "../electron/bounded-shutdown.mjs";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -75,7 +76,7 @@ if (!process.versions.electron) {
       return source.slice(from, to);
     };
     const context = {
-      app, autoUpdater, mainWindow: window, process,
+      app, autoUpdater, mainWindow: window, process, boundedShutdown,
       keepAliveOnClose: () => true,
       systemDictation: { status: () => ({ enabled: true }), dispose: () => disposed.push("dictation") },
       appTray: { ensure() {}, destroy: () => disposed.push("tray") },
