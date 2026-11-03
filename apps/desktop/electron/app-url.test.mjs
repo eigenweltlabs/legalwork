@@ -3,6 +3,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { createAppUrlMatcher, guardIpcMain, isAllowedPreviewNavigation } from "./app-url.mjs";
+import { BROWSER_PRELOAD_CHANNELS } from "./browser-panel.mjs";
 
 const macRoot = "/Applications/LegalWork.app/Contents/Resources/app-dist";
 
@@ -97,4 +98,17 @@ test("guarded listeners ignore other pages, open channels accept everyone", () =
   ipc.listeners.get("legalwork:audio:pcm")(appEvent);
   ipc.listeners.get("legalwork:menu-overlay:dismiss")(otherEvent);
   assert.deepEqual(calls, ["pcm", "dismiss"]);
+});
+
+test("browser preload requests reach panel validation without exposing account selection or the desktop bridge", () => {
+  const ipc = fakeIpcMain(), calls = [];
+  const guarded = guardIpcMain(ipc, {
+    isTrustedUrl: createAppUrlMatcher({ appRoot: macRoot }),
+    openChannels: BROWSER_PRELOAD_CHANNELS,
+  });
+  for (const channel of ["legalwork:autofill:suggest", "legalwork:autofill:dismiss", "legalwork:menu-overlay:choose", "legalwork:desktop"]) {
+    guarded.on(channel, () => calls.push(channel));
+    ipc.listeners.get(channel)(otherEvent);
+  }
+  assert.deepEqual(calls, ["legalwork:autofill:suggest", "legalwork:autofill:dismiss"]);
 });

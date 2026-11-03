@@ -353,6 +353,19 @@ jobs:
             ${{ runner.temp }}/unsaved-shutdown
             ${{ runner.temp }}/workflow-editor
 
+      - name: Verify saved-login suggestions in Electron
+        if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        env:
+          LEGALWORK_AUTOFILL_TEST_OUTPUT: ${{ runner.temp }}/browser-autofill
+        run: pnpm --filter @legalwork/desktop test:browser-autofill
+
+      - name: Upload browser autofill evidence
+        if: always() && (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-autofill-evidence
+          path: ${{ runner.temp }}/browser-autofill
+
       - name: Verify engine source policy, preparation and immutable artifacts
         if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.tooling == 'true'
         run: node --test packages/opencode-release/*.test.mjs packages/opencode-release/build/*.test.mjs

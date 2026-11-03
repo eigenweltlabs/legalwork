@@ -6507,6 +6507,7 @@ export default {
   "message_list.task_badge": "Intake task {id}",
   "markdown.open_with": "Open with",
   "overlay.context_menu": "{source} context menu",
+  "browser.autofill.title": "Fill saved login",
   "benchmark.tasks_passed": "{passed}/{total} tasks fully passed",
   "benchmark.run_name_placeholder": "Benchmark {date}",
   "control.narration_moving": "Moving to {label}…",
