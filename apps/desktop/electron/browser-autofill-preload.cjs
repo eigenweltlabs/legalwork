@@ -19,15 +19,17 @@ if (process.isMainFrame) {
     token = "";
     ipcRenderer.send("legalwork:autofill:dismiss");
   }
-  function suggest(input) {
+  function suggest(input, preserveToken = false) {
     if (filling || input === filledTarget) return;
     if (!eligible(input)) { dismiss(); return; }
+    // Native focus can return from the picker while the selected credential
+    // is still being read. Keep that same field's pending selection valid.
+    if (!preserveToken || target !== input || !token) token = crypto.randomUUID();
     target = input;
-    token = crypto.randomUUID();
     const { x, y, width, height } = input.getBoundingClientRect();
     ipcRenderer.send("legalwork:autofill:suggest", { document: documentId, token, rect: { x, y, width, height } });
   }
-  window.addEventListener("focusin", event => suggest(event.composedPath()[0]), true);
+  window.addEventListener("focusin", event => suggest(event.composedPath()[0], true), true);
   window.addEventListener("input", event => { const input = event.composedPath()[0]; if (!filling && event.isTrusted) filledTarget = null; if (username(input)) suggest(input); }, true);
   window.addEventListener("pointerdown", event => {
     const input = event.composedPath()[0];

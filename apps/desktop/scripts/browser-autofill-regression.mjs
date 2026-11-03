@@ -75,6 +75,7 @@ if (!process.versions.electron) {
   const invoke = (name, ...args) => handlers.get(`legalwork:browser:${name}`)({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, ...args);
   const until = async (predicate, label) => { for (let i = 0; i < 160; i++) { if (await predicate()) return; await delay(50); } throw new Error(`Timed out: ${label}; recent events: ${JSON.stringify(trace.slice(-12))}`); };
   let status = 0;
+  let releaseCredentialRead = () => {};
   try {
     const { tabId } = await invoke("createTab", website);
     invoke("show", { x: 0, y: 0, width: 960, height: 710 }, tabId);
@@ -121,13 +122,24 @@ if (!process.versions.electron) {
     assert.equal(await browser.webContents.executeJavaScript("document.querySelector('[name=username]').value"), "lawyer@example.org");
     await browser.webContents.loadURL(website + "/password");
     await focus('[name="password"]');
+    // A vault read can outlast native focus returning from the picker. Hold it
+    // so this ordering is exercised deterministically rather than by CI timing.
+    const getSaved = store.get.bind(store);
+    let readingCredential = false;
+    const credentialRead = new Promise(resolve => { releaseCredentialRead = resolve; });
+    store.get = async id => { readingCredential = true; await credentialRead; return getSaved(id); };
     browser.webContents.sendInputEvent({ type: "keyDown", keyCode: "Down" });
     await until(() => popup()?.webContents.executeJavaScript("document.activeElement.tagName === 'BUTTON'"), "keyboard selection");
     popup().webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     popup().webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+    await until(() => readingCredential && !popup(), "selected credential read");
+    browser.webContents.focus();
+    await browser.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    releaseCredentialRead();
     await delay(200);
     await until(async () => await browser.webContents.executeJavaScript("document.querySelector('[name=password]').value") === "synthetic-work-password", "keyboard fill");
     assert.equal(popup(), undefined);
+    store.get = getSaved;
     console.log("PASS: username-first and keyboard-selected password steps");
     await focus('[name="password"]');
     browser.webContents.sendInputEvent({ type: "keyDown", keyCode: "Down" });
@@ -148,6 +160,6 @@ if (!process.versions.electron) {
     assert.equal(await browser.webContents.executeJavaScript("document.querySelector('[name=password]').value"), "");
     console.log("PASS: password creation, OTP and navigation dismiss or suppress suggestions");
   } catch (error) { status = 1; console.error(error); }
-  finally { panel.destroy(); window.destroy(); site.close(); await once(site, "close"); app.exit(status); }
+  finally { releaseCredentialRead(); panel.destroy(); window.destroy(); site.close(); await once(site, "close"); app.exit(status); }
   }).catch(error => { console.error(error); app.exit(1); });
 }
