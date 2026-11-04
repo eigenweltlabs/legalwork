@@ -23,6 +23,7 @@ patchedDependencies:
   '@eigenpal/docx-editor-agents@1.8.3': 5da7071d2dd079a10cdb38fd54f58ebf23967ab5e5c6619178d2dceceabf3cbf
   '@eigenpal/docx-editor-core@1.8.3': 31ac887960976c7d505919d946d3bd3898a416ec5800e44a006c70c161d7606f
   '@eigenpal/docx-editor-react@1.8.3': 0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457
+  electron-updater@6.8.3: 4e3dc51957f71275f5d8a487c74585a5c05f379a05edbb0a15342c5c71891c22
   pptx-react-viewer@3.5.4: ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b
   smb3-client@0.2.0: 6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d
 
@@ -469,8 +470,8 @@ importers:
         specifier: 4.0.1
         version: 4.0.1
       electron-updater:
-        specifier: ^6.3.9
-        version: 6.8.3
+        specifier: 6.8.3
+        version: 6.8.3(patch_hash=4e3dc51957f71275f5d8a487c74585a5c05f379a05edbb0a15342c5c71891c22)
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
@@ -16489,7 +16490,7 @@ snapshots:
 
   electron-to-chromium@1.5.267: {}
 
-  electron-updater@6.8.3:
+  electron-updater@6.8.3(patch_hash=4e3dc51957f71275f5d8a487c74585a5c05f379a05edbb0a15342c5c71891c22):
     dependencies:
       builder-util-runtime: 9.5.1
       fs-extra: 10.1.0

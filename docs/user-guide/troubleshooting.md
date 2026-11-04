@@ -44,6 +44,8 @@ Configuration changes can require an engine reload. Use the reload prompt when o
 
 Open **Settings > Updates** to see the current version, release channel and last check. Use the available check, download and install/restart controls. Background checking and automatic-download preferences are separate. A check reporting an error or unsupported runtime does not mean the app is up to date. Active work can block or warn before restart. Browser/development/package-manager environments may not support the same updater as an installed desktop build.
 
+On Windows, verifying a downloaded update can take a few minutes. Keep LegalWork open while it prepares the installer. If an older version repeatedly reports a signature-check command error, quit LegalWork and run the matching official installer from the LegalWork download page. This retains your existing app profile; you do not need to uninstall the app or delete its settings.
+
 ## Diagnostics and recovery
 
 In the desktop app, open **Settings > Updates** for two separate support exports. **Collect support logs** saves the existing `.txt` report with runtime details and log excerpts. Logs can contain filenames or content from an error; review that report before sharing it.
