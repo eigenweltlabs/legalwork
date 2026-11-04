@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { eligibleRecoveryRun, findRecovery, producerProof, verifyRecoveryPin } from './recover-opencode-artifact.mjs';
+import { eligibleRecoveryRun, findRecovery, producerProof, readGitHubApi, verifyRecoveryPin } from './recover-opencode-artifact.mjs';
 
 const context = { repository: 'eigenweltlabs/legalwork', branch: 'fixture/branch', pullRequest: 370, currentRun: '99' };
 const run = { id: 42, event: 'pull_request', path: '.github/workflows/ci-tests.yml', status: 'completed',
@@ -80,4 +80,24 @@ test('production always compiles fresh while recovered development bytes still p
   assert.equal(selected('development', 'true', ''), false);
   assert.equal(selected('development', 'false', '42'), false);
   assert.equal(selected('development', 'false', ''), true);
+});
+
+
+test('programmatic gh logs handle the ANSI guard without displaying terminal controls or retrying unrelated errors', () => {
+  const endpoint = 'repos/eigenweltlabs/legalwork/actions/jobs/7/logs';
+  let calls = 0;
+  const body = readGitHubApi(endpoint, (command, args, options) => {
+    assert.equal(command, 'gh');
+    assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe']);
+    if (++calls === 1) throw Object.assign(new Error('CLI output guard'), { stderr: 'the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway' });
+    assert.ok(args.includes('--allow-escape-sequences'));
+    return '\x1b[31m' + log + '\x1b[0m';
+  });
+  assert.equal(calls, 2); assert.equal(body, log); assert.equal(producerProof(body, key), pin);
+  assert.equal(producerProof('\x1b[31m' + log + '\x1b[0m', key), pin);
+  calls = 0;
+  const error = new Error('HTTP 403');
+  assert.throws(() => readGitHubApi(endpoint, () => { calls++; throw error; }), value => value === error);
+  assert.equal(calls, 1);
+  assert.equal(readGitHubApi(endpoint, () => log), log); // Older gh needs no opt-in.
 });
