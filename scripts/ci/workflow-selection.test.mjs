@@ -217,3 +217,25 @@ printf '%s' "$2" > "$ARCHIVE_TRACE"
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('transport profiling is an exclusive manual mode and cannot suppress PR checks', () => {
+  const outputs = main.jobs.changes.outputs;
+  for (const expression of Object.values(outputs)) {
+    const evaluate = (event, diagnostic) => Function('github', 'inputs', 'steps', `return ${expression.slice(3, -2)};`)(
+      { event_name: event }, { transport_diagnostic: diagnostic }, { scope: { outputs: Object.fromEntries(Object.keys(outputs).map(name => [name, 'true'])) } });
+    assert.equal(evaluate('pull_request', true), 'true');
+    assert.equal(evaluate('push', true), 'true');
+    assert.equal(evaluate('workflow_dispatch', false), 'true');
+    assert.equal(evaluate('workflow_dispatch', true), 'false');
+  }
+  const diagnostic = main.jobs['transport-diagnostic'];
+  assert.equal(condition(diagnostic.if, changeScope(null)), false);
+  assert.equal(condition(diagnostic.if, changeScope(null), { event: 'workflow_dispatch', inputs: { transport_diagnostic: true } }), true);
+  assert.equal(diagnostic['runs-on'], 'macos-15-intel');
+  for (const gate of ['ci-result', 'legalwork-tests']) assert.ok(main.jobs[gate].needs.includes('transport-diagnostic'));
+  const guard = main.jobs.changes.steps.find(step => step.name === 'Reject contradictory production package inputs').run;
+  const environment = { TRANSPORT_ONLY: 'true', PRODUCTION_ENGINE: 'false', PACKAGE_DESKTOP: 'false', SIGNING_ONLY: 'false', UNIT_ONLY: 'false', WINDOWS_ONLY: 'false', NATIVE_SOURCE_ONLY: 'false', REUSE_RUN: '', REUSE_PIN: '' };
+  const execute = extra => execFileSync('bash', ['-e', '-c', guard], { env: { ...process.env, ...environment, ...extra }, stdio: 'pipe' });
+  assert.doesNotThrow(() => execute({}));
+  for (const name of ['PRODUCTION_ENGINE', 'PACKAGE_DESKTOP', 'SIGNING_ONLY', 'UNIT_ONLY', 'WINDOWS_ONLY', 'NATIVE_SOURCE_ONLY', 'REUSE_RUN', 'REUSE_PIN']) assert.throws(() => execute({ [name]: 'true' }));
+});

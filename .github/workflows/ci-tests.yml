@@ -32,6 +32,10 @@ on:
         description: Only run all six native host cold-build, real integration and warm-cache engine checks
         type: boolean
         default: false
+      transport_diagnostic:
+        description: Only compare the full binary transport on Intel Mac under Bun and the production Node runtime
+        type: boolean
+        default: false
       engine_reuse_run_id:
         description: Optional same-repository producer run ID (requires independent manifest SHA256)
         type: string
@@ -45,23 +49,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && '-package' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && '-unit' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && '-windows-archive' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.native_source_acceptance && '-native-source' || '' }}
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && '-package' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && '-unit' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && '-windows-archive' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.native_source_acceptance && '-native-source' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && '-transport' || '' }}
   cancel-in-progress: true
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      app: ${{ steps.scope.outputs.app }}
-      server: ${{ steps.scope.outputs.server }}
-      desktop: ${{ steps.scope.outputs.desktop }}
-      tooling: ${{ steps.scope.outputs.tooling }}
-      docs: ${{ steps.scope.outputs.docs }}
-      engine: ${{ steps.scope.outputs.engine }}
-      sandbox: ${{ steps.scope.outputs.sandbox }}
-      windows_meetings: ${{ steps.scope.outputs.windows_meetings }}
-      windows_drafts: ${{ steps.scope.outputs.windows_drafts }}
-      units: ${{ steps.scope.outputs.units }}
+      app: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.app }}
+      server: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.server }}
+      desktop: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.desktop }}
+      tooling: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.tooling }}
+      docs: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.docs }}
+      engine: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.engine }}
+      sandbox: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.sandbox }}
+      windows_meetings: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.windows_meetings }}
+      windows_drafts: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.windows_drafts }}
+      units: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.units }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -71,6 +75,7 @@ jobs:
       - name: Reject contradictory production package inputs
         if: github.event_name == 'workflow_dispatch'
         env:
+          TRANSPORT_ONLY: ${{ inputs.transport_diagnostic }}
           PRODUCTION_ENGINE: ${{ inputs.production_engine }}
           PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
           SIGNING_ONLY: ${{ inputs.mac_signing_acceptance }}
@@ -80,6 +85,10 @@ jobs:
           REUSE_RUN: ${{ inputs.engine_reuse_run_id }}
           REUSE_PIN: ${{ inputs.engine_reuse_manifest_sha256 }}
         run: |
+          if [ "$TRANSPORT_ONLY" = true ] && { [ "$PRODUCTION_ENGINE" = true ] || [ "$PACKAGE_DESKTOP" = true ] || [ "$SIGNING_ONLY" = true ] || [ "$UNIT_ONLY" = true ] || [ "$WINDOWS_ONLY" = true ] || [ "$NATIVE_SOURCE_ONLY" = true ] || [ -n "$REUSE_RUN" ] || [ -n "$REUSE_PIN" ]; }; then
+            echo 'transport_diagnostic must run alone.' >&2
+            exit 1
+          fi
           if [ "$NATIVE_SOURCE_ONLY" = true ] && { [ "$PRODUCTION_ENGINE" = true ] || [ "$PACKAGE_DESKTOP" = true ] || [ "$SIGNING_ONLY" = true ] || [ "$UNIT_ONLY" = true ] || [ "$WINDOWS_ONLY" = true ] || [ -n "$REUSE_RUN" ] || [ -n "$REUSE_PIN" ]; }; then
             echo 'native_source_acceptance cannot be combined with production, package, signing, unit, Windows archive or engine reuse inputs.' >&2
             exit 1
@@ -88,6 +97,34 @@ jobs:
             echo 'production_engine requires package_desktop with a fresh source build and no other focused mode.' >&2
             exit 1
           fi
+  transport-diagnostic:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install-dependencies
+        with:
+          filter: legalwork-server...
+      - run: node apps/desktop/scripts/prepare-node-runtime.mjs
+      - run: node scripts/ci/benchmark-transport.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intel-transport-comparison
+          path: ${{ runner.temp }}/legalwork-transport-profile/comparison.json
+          if-no-files-found: error
+          retention-days: 7
   signing-inputs:
     if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.native_source_acceptance
     runs-on: ubuntu-latest
@@ -531,6 +568,7 @@ jobs:
       - changes
       - signing-inputs
       - unit-inputs
+      - transport-diagnostic
       - windows-archive-inputs
       - windows-archive-acceptance
       - windows-protected-runtime
@@ -613,6 +651,7 @@ jobs:
       - changes
       - signing-inputs
       - unit-inputs
+      - transport-diagnostic
       - windows-archive-inputs
       - windows-archive-acceptance
       - windows-protected-runtime
