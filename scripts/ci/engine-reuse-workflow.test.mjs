@@ -149,3 +149,21 @@ test('every native package consumer uses one portable producer and an OS-family 
   assert.equal(build.env.LEGALWORK_ELECTRON_BUILD, '1');
   assert.ok(build.steps.some(step => step.run?.includes('portable-assets.mjs seal')));
 });
+
+
+test('MSYS2 provisioning recovery is bounded and preserves the reviewed package installation', () => {
+  const action = parse(readFileSync(new URL('../../.github/actions/build-sandbox-runtime/action.yml', import.meta.url), 'utf8'));
+  const bootstraps = action.runs.steps.filter(step => step.uses === 'msys2/setup-msys2@v2');
+  assert.equal(bootstraps.length, 2);
+  const [initial, recovery] = bootstraps;
+  assert.equal(initial['continue-on-error'], true);
+  assert.equal(initial.id, 'msys2');
+  assert.equal(recovery['continue-on-error'], undefined);
+  assert.equal(recovery.if, "runner.os == 'Windows' && steps.msys2.outcome == 'failure'");
+  assert.equal(recovery.with.location, '${{ runner.temp }}/msys2-bootstrap-retry');
+  for (const step of bootstraps) assert.equal(step.with.update, true);
+  assert.ok(action.runs.steps.findIndex(step => step.run?.includes('install-windows-qemu.sh')) > action.runs.steps.indexOf(recovery));
+  const install = readFileSync(new URL('../sandbox/install-windows-qemu.sh', import.meta.url), 'utf8');
+  assert.match(install, /sha256sum -c/);
+  assert.match(install, /pacman -U --noconfirm/);
+});

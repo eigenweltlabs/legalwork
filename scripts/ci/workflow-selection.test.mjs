@@ -12,7 +12,7 @@ const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${n
 const main = workflow('ci-tests');
 function condition(expression, scope, { engine = 'skipped', event = 'pull_request', inputs = {}, os = 'Linux', sandbox = 'skipped', guest = 'skipped', labels = [] } = {}) {
   const needs = { changes: { result: 'success', outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)])) },
-    'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'sandbox-guest-x64': { result: guest }, 'sandbox-guest-arm64': { result: guest }, 'pr-renderer': { result: 'success' }, 'engine-runtime-linux': { result: guest }, 'engine-runtime-mac': { result: guest }, 'engine-build-inputs': { result: 'success' } };
+    'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'sandbox-guest-x64': { result: guest }, 'sandbox-guest-arm64': { result: guest }, 'pr-renderer': { result: 'success' }, 'engine-runtime-linux': { result: guest }, 'engine-build-inputs': { result: 'success' } };
   const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]').replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace('github.event.pull_request.labels.*.name', 'github.event.pull_request.labels.map(label => label.name)');
   return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', 'contains', `return (${js});`)(needs,
     { event_name: event, event: { pull_request: { labels: labels.map(name => ({ name })) } } }, inputs, { os }, () => true, () => false, (values, value) => values.includes(value)));
@@ -168,7 +168,7 @@ test('PR targets prepare and validate their own native bytes without a global ho
 
 test('cold engine-host runtime preparation overlaps compilation and failures gate the result', () => {
   assert.equal(changeScope(['.github/workflows/ci-prepare-engine-runtime.yml']).sandbox, true);
-  for (const [platform, arch] of [['linux', 'x64'], ['mac', 'arm64']]) {
+  for (const [platform, arch] of [['linux', 'x64']]) {
     const name = 'engine-runtime-' + platform;
     const prepare = main.jobs[name];
     assert.equal(prepare.needs, 'sandbox-guest-' + arch);
@@ -180,6 +180,8 @@ test('cold engine-host runtime preparation overlaps compilation and failures gat
     assert.equal(condition(engine.if, changeScope(null), { engine: 'success', guest: 'failure' }), false);
     for (const gate of ['legalwork-tests', 'ci-result']) assert.ok(main.jobs[gate].needs.includes(name));
   }
+  assert.equal(main.jobs['engine-runtime-mac'], undefined);
+  assert.equal(main.jobs['engine-tests-mac'].with['runtime-artifact'], "${{ needs.sandbox-runtime.result == 'success' }}");
   const prepare = workflow('ci-prepare-engine-runtime').jobs.prepare;
   assert.ok(prepare.steps.some(step => step.uses === './.github/actions/prepare-sandbox-runtime'));
   assert.ok(!prepare.steps.some(step => step.uses === './.github/actions/install-dependencies'));

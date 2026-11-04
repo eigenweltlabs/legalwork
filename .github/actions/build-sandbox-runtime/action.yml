@@ -22,9 +22,21 @@ runs:
         brew install ninja pkgconf
         bash scripts/sandbox/build-macos.sh ${{ inputs.qemu }}
     - name: Install QEMU build dependency (Windows)
+      id: msys2
       if: runner.os == 'Windows'
+      continue-on-error: true
       uses: msys2/setup-msys2@v2
       with:
+        msystem: ${{ inputs.msystem }}
+        path-type: inherit
+        update: true
+    # A failed database sync can leave a partial upgrade. Retry bootstrap once in
+    # a fresh installation, retaining the complete system upgrade and signatures.
+    - name: Retry MSYS2 bootstrap after a provisioning failure
+      if: runner.os == 'Windows' && steps.msys2.outcome == 'failure'
+      uses: msys2/setup-msys2@v2
+      with:
+        location: ${{ runner.temp }}/msys2-bootstrap-retry
         msystem: ${{ inputs.msystem }}
         path-type: inherit
         update: true
