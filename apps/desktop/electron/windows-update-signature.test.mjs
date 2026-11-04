@@ -50,7 +50,11 @@ test("a fast valid check completes immediately without waiting for the deadline"
   assert.equal(await check.result, null);
 });
 
-for (const [status, reason] of [[2, "unsigned"], [3, "modified"], [4, "untrusted"]]) {
+for (const { status, reason } of [
+  { status: 2, reason: "unsigned" },
+  { status: 3, reason: "modified" },
+  { status: 4, reason: "untrusted" },
+]) {
   test(`the longer deadline still rejects ${reason} installers`, async t => {
     const check = verification(t, { status });
     t.mock.timers.tick(30_000);
