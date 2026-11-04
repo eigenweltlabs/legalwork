@@ -7,7 +7,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { PDFDocument } from "pdf-lib";
-import { epostDraft, epostQuote, epostReceipt } from "@legalwork/types/epost";
+import { epostDraft, epostMode, epostQuote, epostReceipt } from "@legalwork/types/epost";
 import { z } from "zod";
 import { hasConnectorRuntimeCapability } from "../connectors/capability.js";
 import { connectorSettingsPath } from "../connectors/settings.js";
@@ -80,11 +80,17 @@ async function createPacket(workspace: WorkspaceInfo, files: string[]) {
 
 async function platformRequest(config: ServerConfig, input?: unknown) {
   const connection = await readEigenweltConnection(config);
-  const token = await ensureFreshPlatformToken(config);
-  if (!connection.platformURL || !token) throw new ApiError(403, "epost_unavailable", "Connect a development account to use postal mail.");
-  return fetch(`${connection.platformURL.replace(/\/$/, "")}/api/desktop/epost`, {
+  if (!connection.account?.orgId) throw new ApiError(403, "epost_unavailable", "Sign in to use postal mail.");
+  const override = process.env.LEGALWORK_DEV_MODE === "1" ? process.env.LEGALWORK_EPOST_SANDBOX_ORIGIN : undefined;
+  const sandbox = override && /^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(override) ? override : undefined;
+  if (override !== undefined && !sandbox) throw new ApiError(503, "epost_unavailable", "The postal sandbox must use a local address.");
+  const origin = sandbox ?? connection.platformURL;
+  const token = sandbox ? process.env.LEGALWORK_EPOST_SANDBOX_TOKEN : await ensureFreshPlatformToken(config);
+  if (!origin || !token) throw new ApiError(403, "epost_unavailable", "Sign in to use postal mail.");
+  return fetch(`${origin.replace(/\/$/, "")}/api/desktop/epost`, {
     method: input === undefined ? "GET" : "POST", redirect: "error",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
+      ...(sandbox ? { "X-LegalWork-Epost-Sandbox": "required" } : {}) },
     body: input === undefined ? undefined : JSON.stringify(input), signal: AbortSignal.timeout(55_000),
   });
 }
@@ -105,7 +111,7 @@ async function platformResult(config: ServerConfig, input: unknown): Promise<unk
     epost_review_required: "The quote expired or the mailing changed. Review it again.",
     epost_operation_missing: "This mailing has no submission record yet.",
   };
-  throw new ApiError(result.status, code, result.status === 402 ? "The development wallet or spending limit cannot cover this mailing." :
+  throw new ApiError(result.status, code, result.status === 402 ? "Your wallet balance or spending limit cannot cover this mailing." :
     messages[code] ?? "Postal mail could not complete the request.");
 }
 
@@ -127,12 +133,13 @@ export function registerEpostRoutes(options: {
   }
   const office = process.env.LEGALWORK_EPOST_SOFFICE ?? (process.platform === "darwin"
     ? "/Applications/LibreOffice.app/Contents/MacOS/soffice" : "/usr/bin/libreoffice");
-  const available = async () => !config.readOnly && Boolean(await platformRequest(config).then(result => result.ok).catch(() => false));
+  const platformStatus = z.object({ available: z.boolean(), mode: epostMode });
   const status = async () => {
-    const devAvailable = await available();
-    const wordAvailable = devAvailable && Boolean(office && isAbsolute(office) &&
-      await access(office, constants.X_OK).then(() => true).catch(() => false));
-    return { available: devAvailable, enabled: devAvailable && await enabled(await statePath()), wordAvailable };
+    const capability = !config.readOnly && await platformRequest(config).then(async result =>
+      result.ok ? platformStatus.safeParse(await result.json()).data : undefined).catch(() => undefined);
+    if (!capability || !capability.available) return { available: false, enabled: false, wordAvailable: false, mode: null };
+    const wordAvailable = isAbsolute(office) && await access(office, constants.X_OK).then(() => true).catch(() => false);
+    return { available: true, enabled: await enabled(await statePath()), wordAvailable, mode: capability.mode };
   };
   const reviews = new Map<string, {
     workspaceId: string; accountPath: string; sources: { path: string; digest: string }[];
@@ -152,7 +159,7 @@ export function registerEpostRoutes(options: {
   host("PUT", "/epost/settings", async ctx => {
     const { enabled: value } = z.object({ enabled: z.boolean() }).strict().parse(await readJsonBodyLimited(ctx.request, 1000));
     const path = await statePath();
-    if (!path || (value && !await available())) throw new ApiError(403, "epost_unavailable", "Postal mail is unavailable.");
+    if (!path || (value && !(await status()).available)) throw new ApiError(403, "epost_unavailable", "Postal mail is unavailable.");
     await atomicPrivateFile(path, JSON.stringify(value));
     if (!value) reviews.clear();
     return jsonResponse(await status());
@@ -175,7 +182,7 @@ export function registerEpostRoutes(options: {
     if (input.action === "status") return jsonResponse(epostReceipt.parse(await platformResult(config, input)));
     if (input.action === "convert") {
       if (!office || !isAbsolute(office) || !/\.docx$/i.test(input.path))
-        throw new ApiError(400, "epost_word_unavailable", "Configure the development Word-to-PDF converter.");
+        throw new ApiError(400, "epost_word_unavailable", "Install LibreOffice to send Word documents by post.");
       const temp = await mkdtemp(join(tmpdir(), "legalwork-epost-"));
       try {
         const source = join(temp, "source.docx");
@@ -185,7 +192,8 @@ export function registerEpostRoutes(options: {
           { timeout: 60_000, maxBuffer: 16_384 });
         const pdf = await readFile(join(temp, "source.pdf"));
         if (pdf.length > maxBytes) throw new Error("converted PDF exceeds the limit");
-        const file = `.legalwork/epost/${randomUUID()}/Word document.pdf`;
+        const name = normalizeWorkspaceRelativePath(input.path, { allowSubdirs: true }).split("/").at(-1) ?? "Document.docx";
+        const file = `.legalwork/epost/${randomUUID()}/${name.replace(/\.docx$/i, ".pdf")}`;
         const target = await localPath(workspace, file);
         await mkdir(dirname(target), { recursive: true, mode: 0o700 });
         await writeFile(target, pdf, { flag: "wx", mode: 0o600 });

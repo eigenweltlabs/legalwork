@@ -88,6 +88,14 @@ For a new Microsoft connection, open **Settings > Integrations**, use **Communic
 
 Connecting a calendar service lets the assistant use that service's available tools. It does not automatically import those events into LegalWork's project Calendar. Connecting a drive does not establish mail access. Check the individual connector's status and granted permissions.
 
+## Send documents by post
+
+Open **Settings > Integrations** and turn on **Postal mail (E-POST)** if your account offers it. Open a PDF or Word document in a project and choose **Send by post** in the viewer toolbar. You can also ask the assistant to prepare a letter from PDFs in the project. Word conversion requires LibreOffice on the computer running the LegalWork server.
+
+Fill in the German return address and the recipient's address. Choose the delivery and print options. For destinations outside Germany, enter the country name in German. Registered delivery is available within Germany. Choose **Add PDF** to browse project files. Click a filename to open it in a workspace tab, and use the arrows to arrange the print order. Use portrait A4 pages and keep the combined PDFs within 20 MB.
+
+Choose **Confirm details and review price**. Review the recipient, the documents, and the amount including the cover sheet. Choose **Send letter** to submit it and charge your wallet. The card shows progress. Choose **Check submission status** if confirmation is delayed. If Deutsche Post rejects the letter, you can edit the draft and try again. In test mode, the final button is **Send test letter** and the submission is free.
+
 ## Browser and Computer Use
 
 The built-in browser opens websites in a browser panel. Ask the assistant to open a URL and inspect the page with the browser tools. Opening or reconnecting a tab gives the assistant a page observation it can use directly for searches, forms, links and other interactions. It can perform known steps together, then inspect the result; a new page or an unexpected result requires another observation. For saved website passwords, use **Settings > Secrets > Browser passwords**; see [browser password setup and limits](settings-privacy.md#browser-passwords). Filling uses the existing tab. Background task tabs remain available after the assistant finishes, so you can reopen them from their chat cards or continue in the same tab on a follow-up. Close a tab when you no longer need it. Website sign-ins, downloads and site permissions are separate from LegalWork model-provider sign-in. Inspect the returned file location after downloading.

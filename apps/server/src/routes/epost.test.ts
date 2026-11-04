@@ -26,18 +26,18 @@ test("postal mail requires opt-in, a human review, stable PDF bytes, and a host-
       globalThis.fetch = Object.assign(async (input, init) => {
         if (new URL(String(input)).hostname !== "post.test") return nativeFetch(input, init);
         assert.equal(new Headers(init.headers).get("Authorization"), "Bearer fixture-platform-token");
-        if (!init.body) return Response.json({ available: true, testMode: true });
+        if (!init.body) return Response.json({ available: true, mode: "sandbox" });
         const data = JSON.parse(init.body);
         if (data.action === "review") {
           reviewedPdf = data.letter.pdf;
           assert.equal((await PDFDocument.load(Buffer.from(reviewedPdf, "base64"))).getPageCount(), 2);
-          return Response.json({ amountCents: 88, sheets: 3, pages: 2, expires: Date.now() + 60000, proof: "a".repeat(64) });
+          return Response.json({ mode: "sandbox", amountCents: 88, sheets: 3, pages: 2, expires: Date.now() + 60000, proof: "a".repeat(64) });
         }
         assert.equal(data.action, "submit");
         assert.equal(data.letter.pdf, reviewedPdf);
         assert.equal(data.proof, "a".repeat(64));
         submitted++;
-        return Response.json({ state: "accepted", letterId: 42, amountCents: 88 });
+        return Response.json({ state: "accepted", letterId: 42, mode: "sandbox", amountCents: 88 });
       }, nativeFetch);
       const server = await startServer(config);
       try {

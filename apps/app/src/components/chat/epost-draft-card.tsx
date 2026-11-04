@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getToolName, type DynamicToolUIPart, type ToolUIPart } from "ai";
-import { FileText, Mail, X } from "lucide-react";
+import { ChevronDown, ChevronUp, FileText, Loader2, Mail, Paperclip, X } from "lucide-react";
 import { epostDraft, emptyEpostAddress, type EpostDraft, type EpostQuote, type EpostReceipt } from "@legalwork/types/epost";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +12,7 @@ import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { useOpenTargets } from "@/lib/target-provider";
 import { resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target";
+import { ProjectFilePicker } from "@/react-app/domains/calendar/deadline-links";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import { InlineCard, InlineCardFooter, InlineCardHeader } from "./inline-card";
 import { useMessageList } from "./message-list-provider";
@@ -77,27 +78,36 @@ export function EpostDraftCard({ initial, client, panelScope, onClose }: {
 }) {
   const { openTargets, onOpenTarget } = useOpenTargets();
   const [draft, setDraft] = useState(initial);
-  const [attachment, setAttachment] = useState("");
+  const [pickingFiles, setPickingFiles] = useState(false);
   const [quote, setQuote] = useState<EpostQuote | null>(null);
-  const [receipt, setReceipt] = useState<EpostReceipt | null>(null);
+  const query = useQueryClient();
   const [uncertain, setUncertain] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const id = useId();
   const settings = useEpostSettings(client);
+  const receiptKey = ["epost-receipt", client.baseUrl, draft.workspaceId, draft.id];
   const previous = useQuery({
-    queryKey: ["epost-receipt", client.baseUrl, draft.workspaceId, draft.id], enabled: settings.data?.enabled === true, retry: false,
+    queryKey: receiptKey, enabled: settings.data?.enabled === true, retry: false,
+    refetchInterval: state => {
+      const receipt = state.state.data;
+      if (receipt?.state === "pending" || receipt?.state === "accepted" ||
+        (receipt?.mode === "live" && receipt.state === "processed")) return receipt.mode === "sandbox" ? 20_000 : 60_000;
+      return false;
+    },
     queryFn: async () => {
       try { return await client.epostReceipt(draft.workspaceId, draft.id); }
       catch (cause) { if (cause instanceof LegalworkServerError && cause.status === 404) return null; throw cause; }
     },
   });
-  const final = receipt ?? previous.data;
-  const locked = Boolean(final || busy || quote || uncertain || previous.isFetching || !settings.data?.enabled);
+  const final = previous.data;
+  const mode = final?.mode ?? settings.data?.mode;
+  const locked = Boolean(final || busy || quote || uncertain || previous.isLoading || !settings.data?.enabled);
   const sender = draft.sender ?? emptyEpostAddress;
   const recipient = draft.recipient ?? emptyEpostAddress;
-  const ready = draft.files.length > 0 && addressKeys.every(key => sender[key].trim() && recipient[key].trim());
+  const ready = draft.files.length > 0 && addressKeys.every(key => sender[key].trim() && recipient[key].trim()) &&
+    /^\d{5}$/.test(sender.postalCode.trim()) && (Boolean(draft.recipient?.country?.trim()) || /^\d{5}$/.test(recipient.postalCode.trim()));
   const country = draft.recipient?.country ?? "";
   const run = async (action: () => Promise<void>) => {
     if (busyRef.current) return;
@@ -111,7 +121,7 @@ export function EpostDraftCard({ initial, client, panelScope, onClose }: {
   });
   const submit = () => run(async () => {
     if (!quote || !settings.data?.enabled) return;
-    try { setReceipt(await client.epostSubmit(draft.workspaceId, quote.reviewId)); }
+    try { query.setQueryData<EpostReceipt>(receiptKey, await client.epostSubmit(draft.workspaceId, quote.reviewId)); }
     catch (cause) {
       if (!(cause instanceof LegalworkServerError) || cause.status >= 500) setUncertain(true);
       throw cause;
@@ -120,21 +130,34 @@ export function EpostDraftCard({ initial, client, panelScope, onClose }: {
   const refresh = () => run(async () => {
     const response = await previous.refetch();
     if (response.error) throw response.error;
-    setReceipt(response.data ?? null);
     if (!response.data) setUncertain(false);
   });
 
+  const moveFile = (index: number, offset: number) => {
+    const files = [...draft.files];
+    const [file] = files.splice(index, 1);
+    files.splice(index + offset, 0, file);
+    setDraft({ ...draft, files });
+  };
+  const retry = () => {
+    setError("");
+    setDraft({ ...draft, id: crypto.randomUUID() });
+  };
+
   return <InlineCard>
-    <InlineCardHeader icon={<Mail className="size-3.5" />} title={t("epost.draft_title")} status={<span>{t("epost.test_mode")}</span>}
+    <InlineCardHeader icon={<Mail className="size-3.5" />} title={t("epost.draft_title")} status={mode === "sandbox" ? <span>{t("epost.test_mode")}</span> : undefined}
       actions={onClose ? <Button variant="ghost" size="icon-xs" aria-label={t("common.close")} disabled={busy} onClick={onClose}><X /></Button> : undefined} />
     <fieldset disabled={locked} className="grid gap-4 px-5 py-4 sm:grid-cols-2">
       {(["sender", "recipient"] as const).map(kind => <fieldset key={kind} className="space-y-2">
         <legend className="mb-2 text-sm font-medium">{t(`epost.${kind}`)}</legend>
-        {addressKeys.map(key => <label key={key} className="block space-y-1 text-xs">
+        <div className="grid grid-cols-[minmax(5rem,0.45fr)_minmax(0,1fr)] gap-2">
+        {addressKeys.map(key => <label key={key} className={key === "name" || key === "street" ? "col-span-2 block space-y-1 text-xs" : "block space-y-1 text-xs"}>
           <span>{t(`epost.${key}`)}</span>
           <Input value={(kind === "sender" ? sender : recipient)[key]} maxLength={key === "postalCode" ? 16 : 80}
+            autoComplete="off"
             onChange={event => setDraft(current => ({ ...current, [kind]: { ...emptyEpostAddress, ...current[kind], [key]: event.target.value } }))} />
         </label>)}
+        </div>
       </fieldset>)}
       <label className="space-y-1 text-xs"><span>{t("epost.country")}</span>
         <Input value={country} maxLength={80} placeholder={t("epost.country_hint")} onChange={event => {
@@ -152,42 +175,51 @@ export function EpostDraftCard({ initial, client, panelScope, onClose }: {
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={draft.duplex} onChange={event => setDraft({ ...draft, duplex: event.target.checked })} />{t("epost.duplex")}</label>
     </fieldset>
     <div className="space-y-2 px-5 pb-4">
-      <p className="text-sm font-medium">{t("epost.included_pdfs")}</p>
-      <ul className="space-y-1">{draft.files.map((path, index) => <li key={`${path}:${index}`} className="flex items-center gap-1">
-        <Button variant="ghost" size="sm" className="max-w-full justify-start" title={path} onClick={() => {
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium">{t("epost.included_pdfs")}</p>
+        {!locked && draft.files.length < 20 && <Button variant="outline" size="sm" onClick={() => setPickingFiles(true)}><Paperclip />{t("epost.add_pdf")}</Button>}
+      </div>
+      <ul className="space-y-1">{draft.files.map((path, index) => <li key={`${path}:${index}`} className="flex min-w-0 items-center gap-1 rounded-md border border-border/60 px-1">
+        <Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" title={path} onClick={() => {
           const target = onOpenTarget ? resolvePathOpenTarget(path, openTargets, "attachment") : null;
           if (target && onOpenTarget) { onOpenTarget(target); return; }
           usePanelTabStore.getState().openTab(panelScope, { id: `file:${path}`, type: "artifact", preview: "pdf", label: fileName(path), value: path }, undefined, undefined, { besideChat: true });
         }}><FileText className="size-4" /><span className="truncate">{fileName(path)}</span></Button>
+        {!locked && draft.files.length > 1 && <>
+          <Button variant="ghost" size="icon-xs" disabled={index === 0} aria-label={t("epost.move_up", { file: fileName(path) })} onClick={() => moveFile(index, -1)}><ChevronUp /></Button>
+          <Button variant="ghost" size="icon-xs" disabled={index === draft.files.length - 1} aria-label={t("epost.move_down", { file: fileName(path) })} onClick={() => moveFile(index, 1)}><ChevronDown /></Button>
+        </>}
         {!locked && <Button variant="ghost" size="icon-xs" aria-label={t("epost.remove_pdf", { file: fileName(path) })} onClick={() => setDraft(current => ({ ...current, files: current.files.filter((_, i) => i !== index) }))}><X /></Button>}
       </li>)}</ul>
-      {!locked && draft.files.length < 20 && <div className="flex gap-2">
-        <Input value={attachment} aria-label={t("epost.pdf_path")} placeholder={t("epost.pdf_path")} onChange={event => setAttachment(event.target.value)} />
-        <Button variant="outline" size="sm" disabled={!/\.pdf$/i.test(attachment.trim()) || draft.files.includes(attachment.trim())}
-          onClick={() => { setDraft(current => ({ ...current, files: [...current.files, attachment.trim()] })); setAttachment(""); }}>{t("epost.add_pdf")}</Button>
-      </div>}
+      {pickingFiles && !locked && <ProjectFilePicker pdfOnly client={client} workspaceId={draft.workspaceId} selected={draft.files}
+        onClose={() => setPickingFiles(false)} onSelect={path => {
+          setDraft(current => ({ ...current, files: [...current.files, path] }));
+          setPickingFiles(false);
+        }} />}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {final && <p role="status" className="text-sm">{t(`epost.state_${final.state}`, { amount: money(final.amountCents), id: final.letterId ?? "" })}</p>}
+      {final && <p role="status" className="text-sm">{t(final.mode === "sandbox" ? `epost.sandbox_${final.state}` : `epost.state_${final.state}`, { amount: money(final.amountCents), id: final.letterId ?? "" })}</p>}
     </div>
     <InlineCardFooter>
-      {(final?.state === "pending" || final?.state === "accepted") || uncertain || previous.isError
-        ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void refresh()}>{t("epost.check_status")}</Button>
-        : <Button size="sm" disabled={locked || !ready} onClick={() => void review()}>{t("epost.review")}</Button>}
+      {final?.state === "rejected" && <Button size="sm" variant="outline" disabled={!settings.data?.enabled} onClick={retry}>{t("epost.retry")}</Button>}
+      {(final?.state === "pending" || final?.state === "accepted" || (final?.mode === "live" && final.state === "processed") || uncertain || previous.isError) &&
+        <Button size="sm" variant="outline" disabled={busy || previous.isFetching} onClick={() => void refresh()}>{t("epost.check_status")}</Button>}
+      {!final && !uncertain && !previous.isError &&
+        <Button size="sm" disabled={locked || !ready} onClick={() => void review()}>{busy && <Loader2 className="animate-spin" />}{t("epost.review")}</Button>}
     </InlineCardFooter>
     <Dialog open={Boolean(quote)} onOpenChange={open => { if (!open && !busy) setQuote(null); }}>
       <DialogContent showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>{t("epost.confirm")}</DialogTitle>
-          <DialogDescription id={id}>{quote && t("epost.confirm_description", { amount: money(quote.amountCents), sheets: quote.sheets })}</DialogDescription>
+          <DialogDescription id={id}>{quote && t(quote.mode === "sandbox" ? "epost.sandbox_confirmation" : "epost.confirm_description", { amount: money(quote.amountCents), sheets: quote.sheets })}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-2 text-sm"><div><strong>{t("epost.sender")}</strong> {Object.values(sender).join(", ")}</div>
+        <div className="space-y-2 rounded-lg border bg-muted/25 p-3 text-sm"><div><strong>{t("epost.sender")}</strong> {Object.values(sender).join(", ")}</div>
           <div><strong>{t("epost.recipient")}</strong> {[recipient.name, recipient.street, recipient.postalCode, recipient.city, country].filter(Boolean).join(", ")}</div>
           <div>{t(`epost.service_${draft.registered}`)} · {t(draft.color ? "epost.color" : "epost.black_white")} · {t(draft.duplex ? "epost.duplex" : "epost.simplex")}</div>
-          <ol className="list-decimal ps-5">{draft.files.map((path, index) => <li key={`${path}:${index}`}>{fileName(path)}</li>)}</ol>
+          <ol className="list-decimal break-all ps-5">{draft.files.map((path, index) => <li key={`${path}:${index}`}>{fileName(path)}</li>)}</ol>
         </div>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={() => setQuote(null)}>{t("common.cancel")}</Button>
-          <Button disabled={busy || !settings.data?.enabled} aria-describedby={id} onClick={() => void submit()}>{t("epost.submit")}</Button>
+          <Button disabled={busy || !settings.data?.enabled} aria-describedby={id} onClick={() => void submit()}>{busy && <Loader2 className="animate-spin" />}{t(quote?.mode === "sandbox" ? "epost.sandbox_submit" : "epost.submit")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

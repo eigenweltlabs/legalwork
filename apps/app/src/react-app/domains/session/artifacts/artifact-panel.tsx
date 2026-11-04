@@ -1,6 +1,6 @@
 import { EpostDraftCard, useEpostSettings } from "@/components/chat/epost-draft-card";
 import type { EpostDraft } from "@legalwork/types/epost";
-import { Mail as PostalMailIcon } from "lucide-react";
+import { Loader2 as PostalSpinner, Mail as PostalMailIcon } from "lucide-react";
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
 import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
@@ -789,7 +789,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
             <Tooltip>
               <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("epost.send_by_post")}
                 disabled={postalPreparing || Boolean(postalDraft) || documentSaving || isSaving}
-                onClick={() => void runFileAction(preparePostalDraft)}><PostalMailIcon /></Button>} />
+                onClick={() => void runFileAction(preparePostalDraft)}>{postalPreparing ? <PostalSpinner className="animate-spin" /> : <PostalMailIcon />}</Button>} />
               <TooltipContent>{t("epost.send_by_post")}</TooltipContent>
             </Tooltip>
           )}
