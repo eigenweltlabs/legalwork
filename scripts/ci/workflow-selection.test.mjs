@@ -12,7 +12,7 @@ const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${n
 const main = workflow('ci-tests');
 function condition(expression, scope, { engine = 'skipped', event = 'pull_request', inputs = {}, os = 'Linux', sandbox = 'skipped', guest = 'skipped', labels = [] } = {}) {
   const needs = { changes: { result: 'success', outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)])) },
-    'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'sandbox-guest-x64': { result: guest }, 'sandbox-guest-arm64': { result: guest }, 'pr-renderer': { result: 'success' }, 'engine-build-inputs': { result: 'success' } };
+    'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'sandbox-guest-x64': { result: guest }, 'sandbox-guest-arm64': { result: guest }, 'pr-renderer': { result: 'success' }, 'engine-runtime-linux': { result: guest }, 'engine-runtime-mac': { result: guest }, 'engine-build-inputs': { result: 'success' } };
   const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]').replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace('github.event.pull_request.labels.*.name', 'github.event.pull_request.labels.map(label => label.name)');
   return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', 'contains', `return (${js});`)(needs,
     { event_name: event, event: { pull_request: { labels: labels.map(name => ({ name })) } } }, inputs, { os }, () => true, () => false, (values, value) => values.includes(value)));
@@ -102,7 +102,7 @@ test('required PR workflows have job filtering, and reusable/manual workflows st
     assert.equal(workflow(name).on.pull_request.paths, undefined);
     assert.ok(workflow(name).jobs.changes);
   }
-  for (const name of ['ci-opencode-derivative', 'ci-opencode-source-hosts', 'ci-desktop-packaging', 'ci-windows-opencode-install', 'mac-engine-signing-acceptance', 'ci-engine-tests', 'ci-sandbox-validation']) {
+  for (const name of ['ci-opencode-derivative', 'ci-opencode-source-hosts', 'ci-desktop-packaging', 'ci-windows-opencode-install', 'mac-engine-signing-acceptance', 'ci-engine-tests', 'ci-sandbox-validation', 'ci-prepare-engine-runtime']) {
     assert.deepEqual(Object.keys(workflow(name).on), ['workflow_call']);
   }
   for (const file of readdirSync(new URL('../../.github/workflows/', import.meta.url))) {
@@ -164,6 +164,25 @@ test('PR targets prepare and validate their own native bytes without a global ho
   assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { guest: 'success' }), true);
   assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { guest: 'failure' }), false);
   assert.equal(condition(main.jobs['sandbox-validation-win32-arm64'].if, changeScope(null), { sandbox: 'success', event: 'workflow_dispatch' }), true);
+});
+
+test('cold engine-host runtime preparation overlaps compilation and failures gate the result', () => {
+  assert.equal(changeScope(['.github/workflows/ci-prepare-engine-runtime.yml']).sandbox, true);
+  for (const [platform, arch] of [['linux', 'x64'], ['mac', 'arm64']]) {
+    const name = 'engine-runtime-' + platform;
+    const prepare = main.jobs[name];
+    assert.equal(prepare.needs, 'sandbox-guest-' + arch);
+    assert.equal(prepare.uses, './.github/workflows/ci-prepare-engine-runtime.yml');
+    assert.equal(prepare.with.arch, arch);
+    const engine = main.jobs['engine-tests-' + platform];
+    assert.ok(engine.needs.includes(name));
+    assert.match(engine.with['runtime-artifact'], new RegExp('needs\\.' + name + "\\.result == 'success'"));
+    assert.equal(condition(engine.if, changeScope(null), { engine: 'success', guest: 'failure' }), false);
+    for (const gate of ['legalwork-tests', 'ci-result']) assert.ok(main.jobs[gate].needs.includes(name));
+  }
+  const prepare = workflow('ci-prepare-engine-runtime').jobs.prepare;
+  assert.ok(prepare.steps.some(step => step.uses === './.github/actions/prepare-sandbox-runtime'));
+  assert.ok(!prepare.steps.some(step => step.uses === './.github/actions/install-dependencies'));
 });
 
 test('Mac Electron tests consume the Linux renderer only after source and output verification', () => {

@@ -551,6 +551,8 @@ jobs:
       - sandbox-validation-win32-x64
       - sandbox-validation-win32-arm64
       - sandbox-validation-linux-arm64
+      - engine-runtime-linux
+      - engine-runtime-mac
       - engine-tests-linux
       - engine-tests-mac
       - legalwork-tests
@@ -561,11 +563,25 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           node -e 'const jobs = JSON.parse(process.env.RESULTS); const failed = Object.entries(jobs).filter(([, job]) => !["success", "skipped"].includes(job.result)); if (failed.length) { console.error(failed); process.exit(1); }'
+  engine-runtime-linux:
+    needs: sandbox-guest-x64
+    if: always() && !cancelled() && needs.sandbox-guest-x64.result == 'success'
+    uses: ./.github/workflows/ci-prepare-engine-runtime.yml
+    with:
+      os: ubuntu-24.04
+      arch: x64
+  engine-runtime-mac:
+    needs: sandbox-guest-arm64
+    if: always() && !cancelled() && needs.sandbox-guest-arm64.result == 'success'
+    uses: ./.github/workflows/ci-prepare-engine-runtime.yml
+    with:
+      os: macos-15
+      arch: arm64
   engine-tests-linux:
     name: engine-tests (ubuntu-latest)
-    needs: [ changes, opencode-derivative, sandbox-guest-x64, sandbox-runtime ]
+    needs: [ changes, opencode-derivative, sandbox-guest-x64, sandbox-runtime, engine-runtime-linux ]
     if: >-
-      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && (needs.engine-runtime-linux.result == 'success' || needs.engine-runtime-linux.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     uses: ./.github/workflows/ci-engine-tests.yml
     with:
       os: ubuntu-24.04
@@ -578,13 +594,13 @@ jobs:
       server: ${{ needs.changes.outputs.server == 'true' }}
       desktop: ${{ needs.changes.outputs.desktop == 'true' }}
       runtime-required: ${{ needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success' }}
-      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' || needs.engine-runtime-linux.result == 'success' }}
       production-engine: ${{ inputs.production_engine == true }}
   engine-tests-mac:
     name: engine-tests (macos-14)
-    needs: [ changes, opencode-derivative, sandbox-guest-arm64, sandbox-runtime ]
+    needs: [ changes, opencode-derivative, sandbox-guest-arm64, sandbox-runtime, engine-runtime-mac ]
     if: >-
-      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && (needs.engine-runtime-mac.result == 'success' || needs.engine-runtime-mac.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     uses: ./.github/workflows/ci-engine-tests.yml
     with:
       os: macos-15
@@ -597,7 +613,7 @@ jobs:
       server: ${{ needs.changes.outputs.server == 'true' }}
       desktop: ${{ needs.changes.outputs.desktop == 'true' }}
       runtime-required: ${{ needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success' }}
-      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
+      runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' || needs.engine-runtime-mac.result == 'success' }}
       production-engine: ${{ inputs.production_engine == true }}
   legalwork-tests:
     name: legalwork-tests (${{ matrix.os }})
@@ -625,6 +641,8 @@ jobs:
       - sandbox-validation-win32-x64
       - sandbox-validation-win32-arm64
       - sandbox-validation-linux-arm64
+      - engine-runtime-linux
+      - engine-runtime-mac
       - engine-tests-linux
       - engine-tests-mac
     if: always()
