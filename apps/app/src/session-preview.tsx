@@ -32,7 +32,10 @@ import {
   type LegalworkWorkspaceDirectoryEntry,
   type LegalMemoryTreeFile,
 } from "@/app/lib/legalwork-server";
-import type { WorkspaceInfo } from "@/app/lib/desktop";
+import { engineStop, type WorkspaceInfo } from "@/app/lib/desktop";
+import { useStore } from "zustand";
+import { createLocalReconnectRecovery } from "@/react-app/shell/local-reconnect-recovery";
+import { ensureDesktopLocalLegalworkConnection } from "@/react-app/shell/desktop-local-legalwork";
 import type { ComposerDraft, WorkspaceSessionGroup } from "@/app/types";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -112,6 +115,14 @@ const workspace: WorkspaceInfo = {
   id: "visual-workspace", name: "Northstar Legal", displayName: "Northstar Legal",
   path: "/workspaces/northstar-legal", preset: "starter", workspaceType: "local",
 };
+const reconnectDemoRoot = previewParams.get("reconnect-root");
+const reconnectPreviewRecovery = createLocalReconnectRecovery(async () => {
+  if (!reconnectDemoRoot) throw new Error("Open the isolated Electron reconnect demo with a sample folder.");
+  const demoWorkspace = { ...workspace, path: reconnectDemoRoot };
+  const info = await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: demoWorkspace, allWorkspaces: [demoWorkspace] });
+  if (!info) throw new Error("The local service did not reconnect.");
+  await createLegalworkServerClient({ baseUrl: info.baseUrl, token: info.ownerToken || info.clientToken, hostToken: info.hostToken }).listWorkspaces();
+});
 const otherWorkspace: WorkspaceInfo = {
   ...workspace, id: "visual-personal", name: "Personal", displayName: "Personal", path: "/workspaces/personal",
 };
@@ -584,6 +595,7 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 let previewAssistantSettings = { ...DEFAULT_ASSISTANT_SETTINGS };
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  getEngineProjectStatus: async () => ({ state: "ready", required: false, directory: workspace.path, approvalScope: [], projection: {}, plugins: [] }),
   assistantSettings: async () => ({ settings: previewAssistantSettings }),
   updateAssistantSettings: async settings => ({ settings: previewAssistantSettings = AssistantSettingsSchema.parse(settings) }),
   ...(dashboardExplorer ? {
@@ -811,6 +823,7 @@ const fixtureClient: LegalworkServerClient = {
 };
 
 function SessionPreview() {
+  const reconnectPreview = useStore(reconnectPreviewRecovery);
   useEffect(() => {
     if (!assistantPreview || !previewParams.has("unread")) return;
     useSessionInboxStore.persist.setOptions({ name: "legalwork.preview.sessionInbox" });
@@ -925,7 +938,11 @@ function SessionPreview() {
       </>}
 
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
-        Interactive visual preview · Sample data and simulated replies · No connected services
+        {reconnectDemoRoot ? "Isolated Electron reconnect demo · sample chats · real local-service recovery" : "Interactive visual preview · Sample data and simulated replies · No connected services"}
+        {reconnectDemoRoot && <span className="ml-4 inline-flex gap-3">
+          <button disabled={reconnectPreview.pending} className="underline" onClick={() => void engineStop().then(() => toast.success("Demo service stopped"), error => toast.error(String(error)))}>Stop demo service</button>
+          <button disabled={reconnectPreview.pending} className="underline" onClick={() => void reconnectPreviewRecovery.getState().retry()}>Attempt reconnect</button>
+        </span>}
         {previewParams.has("activity") && <span className="ml-4 inline-flex gap-3">
           {["Thinking", "Run tool", "Review results", "Next tool", "Complete"].map((label, step) => <button key={label} className="underline" onClick={() => window.dispatchEvent(new CustomEvent("legalwork-preview-activity", { detail: step }))}>{label}</button>)}
         </span>}
@@ -987,6 +1004,7 @@ function SessionPreview() {
           wikiWorkspace={activeWorkspace.id === wikiWorkspace.id ? fixtureWiki : undefined}
           wiki={dashboardExplorer ? { client: fixtureClient, serverUrl: fixtureClient.baseUrl, workspaceId: activeWorkspace.id, workspaces: fixtureWorkspaces, selectedWikiId: fixtureWiki.id, onOpenWiki: wiki => navigate(`/wikis/${wiki.workspaceId}`), onOpenWikiSession: async () => { previewNotice(); } } : undefined}
           clientConnected legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
+          reconnect={reconnectDemoRoot ? { error: reconnectPreview.error, pending: reconnectPreview.pending, onRetry: reconnectPreview.retry } : undefined}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
           onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}

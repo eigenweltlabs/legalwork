@@ -512,6 +512,7 @@ export function SessionRoute() {
     routeNotFoundMessage,
     endpointForWorkspace,
     refreshRouteState,
+    reconnect,
     loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
     handleRuntimeSessionLoaded,
@@ -2740,6 +2741,7 @@ export function SessionRoute() {
       opencodeBaseUrl={opencodeBaseUrl}
       workspaces={sidebarWorkspaces}
       clientConnected={canCreateChat}
+      reconnect={{ error: reconnect.error, pending: reconnect.pending, onRetry: reconnect.retry }}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
       wikiWorkspace={activeWiki}
