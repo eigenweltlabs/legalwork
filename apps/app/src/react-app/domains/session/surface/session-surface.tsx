@@ -136,6 +136,7 @@ import {
   getComposerMentions,
   getComposerPasteParts,
   getComposerQueuedDrafts,
+  submitComposerDraft,
   useComposerStateStore,
 } from "./composer-state-store";
 import { LEGALMEMORY_OPEN_EVENT, LEGALMEMORY_REF_EVENT } from "@/components/markdown/legalmemory-ref";
@@ -1167,33 +1168,29 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (props.assistantOnboarding?.state.needed && props.assistantOnboarding.state.step === "avatar") return;
     if ((!text && attachments.length === 0) || queueSubmitting.current) return;
     queueSubmitting.current = true; setQueueSaving(true);
-    const editor = useComposerStateStore.getState().sessions[props.sessionId];
+    const editor = useComposerStateStore.getState().sessions[props.sessionId] ?? { draft: text, attachments, mentions, pasteParts };
     let outgoingId: string | undefined;
     try {
-      const localDraft = buildDraft(text, attachments);
-      outgoingId = sharedQueue.reserve(localDraft, editor);
-      if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor?.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope), localDraft)) {
-        addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
-        sessionScroll.scrollToBottom("auto");
-      }
-      const prepared = await prepareProjectAttachments(text, attachments);
-      await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);
-      preparedProjectDraft.current = null;
-      // Typing during the request must not be cleared by its acknowledgement.
-      if (useComposerStateStore.getState().sessions[props.sessionId] === editor) clearComposer();
-      else if (editor?.queuedDraftId) {
-        // The submitted edit is complete. Preserve anything typed meanwhile as
-        // this window's new draft, without retaining an expired queue lease.
-        useComposerStateStore.setState(state => {
-          const current = state.sessions[props.sessionId];
-          if (!current || current.queuedDraftId !== editor.queuedDraftId) return state;
-          return { sessions: { ...state.sessions, [props.sessionId]: { ...current, queuedDraftId: undefined } } };
-        });
-      }
-      appendComposerHistory(props.sessionId, text);
+      await submitComposerDraft(props.sessionId, editor, async () => {
+        const localDraft = buildDraft(text, attachments);
+        outgoingId = sharedQueue.reserve(localDraft, editor);
+        if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope), localDraft)) {
+          addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
+          sessionScroll.scrollToBottom("auto");
+        }
+        const prepared = await prepareProjectAttachments(text, attachments);
+        if (useAssistantOutgoingMessages.getState().entries.some(entry => entry.queueId === outgoingId))
+          addAssistantOutgoingMessage(outgoingScope, outgoingId, prepared.draft);
+        await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);
+        preparedProjectDraft.current = null;
+        appendComposerHistory(props.sessionId, text);
+      }, () => {
+        const current = useComposerStateStore.getState().sessions[props.sessionId];
+        props.onDraftChange(buildComposerDraft(current?.draft ?? "", current?.attachments ?? [], current?.mentions ?? {}, current?.pasteParts ?? []));
+      });
     } catch (error) {
       if (outgoingId) removeAssistantOutgoingMessage(outgoingId);
-      queueFailure(error);
+      toast.error(t("composer.send_failed_restored"), { description: error instanceof Error ? error.message : String(error) });
     }
     finally { queueSubmitting.current = false; setQueueSaving(false); }
   };
@@ -2156,7 +2153,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onStop={handleAbort}
         busy={chatStreaming}
         queuedCount={queuedDrafts.length}
-        disabled={model.transitionState !== "idle" || sendBlocked}
+        disabled={model.transitionState !== "idle" || sendBlocked || queueSaving}
         inputDisabled={model.transitionState !== "idle"}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableLabelHidden={lockedOutNoticeVisible}

@@ -6,6 +6,25 @@ import { Readable } from "node:stream";
 import { keepWorkspaceCopy, snapshotWorkspaceFile, workingCopy } from "./working-copy.js";
 import { receiveFile } from "./common.js";
 import { smbPath } from "./smb.js";
+import { nativeFilename, nativeSegment } from "./native-drive.js";
+
+test("native cloud checkouts use readable filenames and keep same-named files in separate directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storage-cloud-names-"));
+  try {
+    const name = "Rechnung Müller (Signatur).pdf";
+    const firstPath = nativeSegment({ id: "first-file", name }), secondPath = nativeSegment({ id: "second-file", name });
+    const first = await workingCopy(root, nativeFilename(firstPath)), second = await workingCopy(root, nativeFilename(secondPath));
+    expect(first.relativePath).toEndWith(`/${name}`); expect(second.relativePath).toEndWith(`/${name}`);
+    expect(first.relativePath).not.toBe(second.relativePath);
+    expect(first.relativePath).not.toContain("~lw~");
+    await writeFile(first.path, "first"); await writeFile(second.path, "second");
+    expect(await readFile(first.path, "utf8")).toBe("first"); expect(await readFile(second.path, "utf8")).toBe("second");
+    expect(firstPath).toStartWith("~lw~");
+    const literal = await workingCopy(root, firstPath);
+    expect(literal.relativePath).toEndWith(`/${firstPath}`);
+    for (const suffix of ["", ".", "..", "bad\\name.pdf"]) expect(() => nativeFilename(`~lw~Zmlyc3QtZmlsZQ~${suffix}`)).toThrow();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("working copies remain separate, preserve existing destinations and reject workspace escapes", async () => {
   const root = await mkdtemp(join(tmpdir(), "storage-copies-"));

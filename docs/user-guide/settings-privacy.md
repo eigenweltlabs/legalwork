@@ -63,9 +63,13 @@ Ask the assistant to open that website and use the saved entry to fill the passw
 
 Choose **Edit password** to update an entry. Leave **Password** empty to retain it; enter it again if changing to a different website. Changing only a subdomain retains it. The saved value is not revealed by this form. **Delete** removes the saved entry from this device’s encrypted vault; it does not sign you out of an existing website session. Browser passwords are not environment variables. This first version is available only in the local desktop browser, not through a separately connected LegalWork server.
 
+To use the same account at more URLs, choose **Edit password > Add URL**. Enter one address under **Website**, then choose **Save URL**. Use **Add URL** again for another address. To allow the password on a separate sign-in website, use **Sign-in websites > Add sign-in URL**, which has its own single address field. Changes save immediately without re-entering your password. Each list has remove buttons; removing a starting page does not revoke its sign-in permission. See [adding URLs to a saved login](integrations.md#add-urls-to-an-existing-login) for the full steps and the automatic repair of older Lexis entries for Austria, France, the UK and the US.
+
+The assistant can add URLs directly when you ask, without a credential card or password re-entry. Specify the saved account and starting page, and include any additional sign-in website where you want that password to work.
+
 The fill tool avoids putting the password into chat or its response. It does not isolate the agent from the password: unrestricted host commands can still read the vault, and page scripts or browser readback tools can access a filled field. The website receives the password normally. Use this with websites and agents you trust.
 
-If no matching entry appears, check the website reported by the password tool against **Website**, including its main domain, scheme and port. Redirects to a login subdomain on the same website are supported. A fill requires a current password-field reference in the same chat’s local browser. After navigation, cancellation or a failed fill, inspect the page before retrying. An unreadable vault error requires restoring access to the existing vault/key; do not delete it to reset a password entry.
+If no matching entry appears, check the website reported by the password tool against **Sign-in websites**, including its main domain, scheme and port. Redirects to a login subdomain on the same website are supported. If the provider uses a separate sign-in website, add that address to the existing login as described above. A fill requires a current password-field reference in the same chat’s local browser. After navigation, cancellation or a failed fill, inspect the page before retrying. An unreadable vault error requires restoring access to the existing vault/key; do not delete it to reset a password entry.
 
 In **Tool Permissions**, inspect the displayed rule for the operation before changing it. Allowing a tool to run automatically can affect later chats as well as the current one. In workspace **Permissions**, add/remove the intended folder grant and check the selected workspace. Neither setting replaces provider consent or OS access grants.
 
@@ -86,6 +90,12 @@ The Memory section can contain cleanup controls for legacy local memories. The a
 Change the display language in **Customization**. Use the appearance selector to choose light, dark or system appearance. Task suggestions controls starter suggestions; showing model reasoning changes what is displayed, not the model's reasoning budget.
 
 **Projects** offers defaults for matter fields and a new-window preference to ask, open empty or copy the current context. Project defaults apply when creating a project; they do not overwrite every existing matter.
+
+## App updates
+
+Under **Settings > Updates**, automatic checks run at startup and periodically while the app is visible. They can check again after you return to a long-running app. Turning automatic checks off stops these periodic checks. A download in progress or an update ready to install is left alone. Website outages fall back to GitHub for the same selected release.
+
+To support gradual updates, the updater creates a random installation ID at the first update check and stores it locally. It uses this ID to keep your installation in a consistent rollout group. The ID is included in requests to the update feed, together with the selected update channel and app version.
 
 ## Privacy and data flow
 

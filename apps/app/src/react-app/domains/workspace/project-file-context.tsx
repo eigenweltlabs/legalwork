@@ -61,7 +61,7 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
       const digest = await crypto.subtle.digest("SHA-256", download.data);
       const version = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
       const data = forCopy && !source.connectionId && isViewFile(source.path) ? await prepareViewFileCopy(owner.client, owner.workspaceId, download.data) : download.data;
-      return { ...download, data, version, projectName: owner.name, filename: attachmentFilename(source.path) };
+      return { ...download, data, version, projectName: owner.name, filename: attachmentFilename(path) };
     },
     async newChat(projectId: string, source: ProjectFileSource | ProjectFileSource[]) {
       const sources = Array.isArray(source) ? source : [source];

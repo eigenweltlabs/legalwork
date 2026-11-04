@@ -1,6 +1,6 @@
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
-import { browserPasswords } from "./browser-passwords.js";
+import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
 import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
@@ -54,6 +54,7 @@ import {
 import { createNativeLegalMemoryClient, legalMemoryRouteError, listNativeLegalMemoryPermissions, replyNativeLegalMemoryPermission } from "./legalmemory-native.js";
 import { fileURLToPath } from "node:url";
 import { assertManagedHistoryReadable, createEngineClient, getWorkspaceEngineSession, getWorkspaceEngineSessionOrNull, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
+import { sameProjectDirectory } from "./workspace-path-match.js";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { scopedNativeEvents } from "./native-proxy-events.js";
 import { nativeProxyPath, assertNativeProxyRoute, nativeProxySessionID, assertNativeProxyDirectory, nativeProxyFilePath, pathWithin } from "./native-proxy-policy.js";
@@ -982,7 +983,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         const currentId: string = id;
         const session = await getWorkspaceEngineSession(client, workspace, currentId);
         const directory = resolveOpencodeDirectory(workspace);
-        if (!directory || resolve(session.location.directory) !== resolve(directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
+        if (!directory || !await sameProjectDirectory(session.location.directory, directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
         lineage.push(id);
         id = session.parentID;
       }
@@ -992,7 +993,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = await getWorkspaceEngineSession(client, workspace, sessionID);
       const directory = resolveOpencodeDirectory(workspace);
-      if (!directory || resolve(session.location.directory) !== resolve(directory)) {
+      if (!directory || !await sameProjectDirectory(session.location.directory, directory)) {
         throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
       }
       await client.model.list({ location: session.location });
@@ -2262,13 +2263,7 @@ function createRoutes(
     return jsonResponse({ item: await configureResearchDatabase(config, await readJsonBody(ctx.request)) });
   });
 
-  // Agent discovery exposes destinations and vault references, never credentials.
-  addRoute(routes, "GET", "/workspace/:id/browser-connections", "client", async ctx => {
-    requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
-    const origin = new URL(ctx.request.url).searchParams.get("origin") ?? undefined;
-    return jsonResponse({ items: (await browserPasswords(config).list(origin)).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
-  });
+  registerBrowserConnectionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, resolveWorkspace });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
     await resolveWorkspace(config, ctx.params.id);

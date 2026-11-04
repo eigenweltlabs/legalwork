@@ -132,6 +132,47 @@ app.whenReady().then(async () => {
     assert.equal(JSON.stringify(after).includes(secret), false);
     assert.ok(after.tab.generation > login.snapshot.tab.generation);
     checks.push("Username, vault password and authorized submit compose without an intermediate snapshot; condition wait verifies navigation");
+
+    // Exercise the released native tools, not just the legacy openUrl bridge.
+    // Agent focus must remain independent of the user's visible workspace.
+    for (const input of [{ url: origin, focus: true }, { url: origin }, { url: origin, focus: false }]) {
+      const tab = await run("tabs.open", input);
+      assert.equal(invoke("state").activeTabId, null, "Agent opening must not select a user tab");
+      assert.equal(invoke("state").tabs.find(candidate => candidate.id === tab.id).background, true);
+      assert.equal(window.contentView.children.length, 0);
+    }
+    await run("tabs.focus", { tabID: opened.tab_id });
+    assert.equal((await run("tabs.list", {})).focusedTabID, opened.tab_id);
+    assert.equal(invoke("state").activeTabId, null);
+    checks.push("Native opening with explicit, default or disabled focus and tabs.focus keep agent tabs in the background");
+
+    const foreground = await invoke("createTab", origin);
+    const bounds = { x: 0, y: 0, width: 900, height: 700 };
+    invoke("show", bounds, foreground.tabId);
+    const visibleView = window.contentView.children[0];
+    const agentTab = await run("tabs.open", { url: origin, focus: true });
+    await run("tabs.focus", { tabID: opened.tab_id });
+    assert.equal((await run("tabs.list", {})).focusedTabID, opened.tab_id);
+    assert.equal(invoke("state").activeTabId, foreground.tabId);
+    assert.deepEqual(window.contentView.children, [visibleView]);
+
+    invoke("selectTab", agentTab.id);
+    invoke("hide", foreground.tabId);
+    invoke("show", bounds, agentTab.id);
+    assert.equal(invoke("state").activeTabId, agentTab.id);
+    assert.equal(invoke("state").tabs.find(candidate => candidate.id === agentTab.id).background, false);
+    assert.notEqual(window.contentView.children[0], visibleView);
+    invoke("closeTab", agentTab.id);
+    assert.equal(invoke("state").tabs.find(candidate => candidate.id === agentTab.id).background, true);
+    invoke("selectTab", foreground.tabId);
+    invoke("show", bounds, foreground.tabId);
+    await run("tabs.focus", { tabID: agentTab.id });
+    assert.equal((await run("tabs.list", {})).focusedTabID, agentTab.id);
+    assert.equal(invoke("state").activeTabId, foreground.tabId);
+    assert.deepEqual(window.contentView.children, [visibleView]);
+    checks.push("User selection reveals an agent tab; closing returns it to the background and later agent focus cannot reopen it");
+    invoke("closeTab", foreground.tabId);
+
     await window.loadURL("data:text/html,<title>Untrusted host navigation</title>");
     await until(() => invoke("state").tabs.length === 0);
     checks.push("Navigating the host outside the trusted app still closes its browser attachment");

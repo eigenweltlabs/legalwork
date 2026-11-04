@@ -275,6 +275,42 @@ if (assistantPreview) {
   }
 }
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
+// Deterministic status transitions for layout/scroll regression checks, without model calls.
+if (previewParams.has("activity")) {
+  const history = snapshots.get("visual-review");
+  if (!history) throw new Error("Missing activity preview history");
+  for (const message of history.messages) {
+    message.info.time.created -= 120_000;
+    if (message.info.role === "assistant") for (const part of message.parts) {
+      if (part.type === "text") part.text = Array(5).fill(reply).join("\n\n");
+    }
+  }
+  const turn = snapshot("visual-review", "Browser activity", "Inspect the page and check the result.", "");
+  const user = turn.messages[0];
+  const assistant = turn.messages[1];
+  function activityStep(step: number) {
+    const parts: Part[] = [];
+    if (step > 0) {
+      for (let index = 0; index < (step >= 3 ? 2 : 1); index++) {
+        const running = (step === 1 && index === 0) || (step === 3 && index === 1);
+        const input = { code: "await tools.browser.snapshot();" };
+        const metadata = { toolCalls: ["browser.click", "browser.snapshot"].map(tool => ({ tool, status: running ? "running" : "completed", input: {} })) };
+        parts.push({ id: `activity-tool-${index}`, messageID: assistant.info.id, sessionID: turn.session.id, type: "tool", tool: "execute", callID: `activity-call-${index}`,
+          state: running
+            ? { status: "running", input, metadata, time: { start: now } }
+            : { status: "completed", input, output: "Page inspected.", title: "Browser", metadata, time: { start: now, end: now + 1 } } });
+      }
+    }
+    if (step === 2) parts.push({ id: "activity-reasoning", messageID: assistant.info.id, sessionID: turn.session.id, type: "reasoning", text: "Checking the page result.", time: { start: now } });
+    const info = assistant.info;
+    if (info.role !== "assistant") return;
+    saveSnapshot({ ...turn, status: { type: step === 4 ? "idle" : "busy" }, messages: [...history.messages, user, { ...assistant, info: { ...info, time: { created: now, ...(step === 4 ? { completed: now + 2 } : {}) } }, parts }] });
+  }
+  activityStep(1);
+  window.addEventListener("legalwork-preview-activity", event => {
+    if (event instanceof CustomEvent && typeof event.detail === "number") activityStep(event.detail);
+  });
+}
 if (previewParams.has("sent-by")) {
   const delegated = snapshots.get("visual-review");
   const prompt = delegated?.messages[0]?.parts[0];
@@ -792,7 +828,7 @@ function SessionPreview() {
   } : undefined);
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || subagentTabs || previewParams.has("sent-by") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || subagentTabs || previewParams.has("sent-by") || previewParams.has("activity") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();
@@ -890,6 +926,9 @@ function SessionPreview() {
 
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
+        {previewParams.has("activity") && <span className="ml-4 inline-flex gap-3">
+          {["Thinking", "Run tool", "Review results", "Next tool", "Complete"].map((label, step) => <button key={label} className="underline" onClick={() => window.dispatchEvent(new CustomEvent("legalwork-preview-activity", { detail: step }))}>{label}</button>)}
+        </span>}
         {subagentTabs && <button className="ml-3" onClick={() => {
           const item = snapshots.get("visual-drafting");
           if (item) saveSnapshot({ ...item, status: { type: "idle" } });

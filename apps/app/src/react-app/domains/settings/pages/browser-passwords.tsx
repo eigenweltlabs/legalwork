@@ -13,6 +13,7 @@ import { SecretsEmptyState, SecretsSectionHeader } from "./secrets-section";
 import { SettingsNotice } from "../settings-section";
 import type { LegalworkBrowserPassword, LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
+import { BrowserPasswordWebsites } from "./browser-password-websites";
 
 type Draft = { id?: string; label: string; origin: string; username: string; password: string };
 export function BrowserPasswords({ client }: { client: LegalworkServerClient }) {
@@ -20,6 +21,8 @@ export function BrowserPasswords({ client }: { client: LegalworkServerClient }) 
   const queryKey = ["browser-passwords", client.baseUrl];
   const list = useQuery({ queryKey, queryFn: () => client.listBrowserPasswords() });
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [editing, setEditing] = useState<LegalworkBrowserPassword | null>(null);
+  const [websitesBusy, setWebsitesBusy] = useState(false);
   const [removing, setRemoving] = useState<LegalworkBrowserPassword | null>(null);
   const fieldsId = useId();
   const save = useMutation({ gcTime: 0, mutationFn: (value: Draft) => client.saveBrowserPassword(value), onSuccess: async () => {
@@ -28,8 +31,8 @@ export function BrowserPasswords({ client }: { client: LegalworkServerClient }) 
   const remove = useMutation({ mutationFn: (id: string) => client.deleteBrowserPassword(id), onSuccess: async () => {
     setRemoving(null); await queryClient.invalidateQueries({ queryKey });
   } });
-  const busy = save.isPending || remove.isPending;
-  const open = (value: Draft) => { save.reset(); setDraft(value); };
+  const busy = save.isPending || remove.isPending || websitesBusy;
+  const open = (value: Draft, saved?: LegalworkBrowserPassword) => { save.reset(); setDraft(value); setEditing(saved ?? null); };
   return <LayoutSection>
     <SecretsSectionHeader title={t("settings.browser_passwords.title")} description={t("settings.browser_passwords.description")}
       addLabel={t("settings.browser_passwords.add")} disabled={busy} onAdd={() => open({ label: "", origin: "", username: "", password: "" })} />
@@ -44,15 +47,15 @@ export function BrowserPasswords({ client }: { client: LegalworkServerClient }) 
           {item.websites?.filter(site => site.url !== `${item.origin}/` && site.url !== item.origin).map(site => <p key={site.url} className="text-xs text-muted-foreground break-all">{site.name}: {site.url}</p>)}
         </div>
         <div className="flex gap-1">
-          <Button size="icon-sm" variant="ghost" className="text-muted-foreground" aria-label={`${t("settings.browser_passwords.edit")} ${item.label}`} title={t("settings.browser_passwords.edit")} disabled={busy} onClick={() => open({ ...item, password: "" })}><Pencil /></Button>
+          <Button size="icon-sm" variant="ghost" className="text-muted-foreground" aria-label={`${t("settings.browser_passwords.edit")} ${item.label}`} title={t("settings.browser_passwords.edit")} disabled={busy} onClick={() => open({ id: item.id, label: item.label, origin: item.origin, username: item.username, password: "" }, item)}><Pencil /></Button>
           <Button size="icon-sm" variant="ghost" className="text-muted-foreground hover:text-destructive" aria-label={`${t("settings.environment.delete")} ${item.label}`} title={t("settings.environment.delete")} disabled={busy} onClick={() => { remove.reset(); setRemoving(item); }}><Trash2 /></Button>
         </div>
       </div>)}
     </Surface> : null}
-    <Dialog open={draft !== null} onOpenChange={value => { if (!value && !save.isPending) setDraft(null); }}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={draft !== null} onOpenChange={value => { if (!value && !busy) setDraft(null); }}>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader><DialogTitle>{t(draft?.id ? "settings.browser_passwords.edit" : "settings.browser_passwords.add")}</DialogTitle></DialogHeader>
-        {draft ? <form onSubmit={event => { event.preventDefault(); if (!save.isPending) save.mutate(draft); }}>
+        {draft ? <form onSubmit={event => { event.preventDefault(); if (!busy) save.mutate(draft); }}>
           <FieldGroup>
             <Field><FieldLabel htmlFor={`${fieldsId}-label`}>{t("settings.browser_passwords.label")}</FieldLabel>
               <Input id={`${fieldsId}-label`} value={draft.label} required maxLength={200} disabled={save.isPending} onChange={e => setDraft({ ...draft, label: e.target.value })} />
@@ -69,10 +72,12 @@ export function BrowserPasswords({ client }: { client: LegalworkServerClient }) 
               {draft.id ? <FieldDescription>{t("settings.browser_passwords.keep_password")}</FieldDescription> : null}
             </Field>
           </FieldGroup>
+          {editing ? <div className="mt-5"><BrowserPasswordWebsites key={editing.id} client={client} connection={editing} disabled={save.isPending}
+            onBusyChange={setWebsitesBusy} onSaved={() => { void queryClient.invalidateQueries({ queryKey }); }} /></div> : null}
           {save.error ? <SettingsNotice tone="error">{save.error.message}</SettingsNotice> : null}
           <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" disabled={save.isPending} onClick={() => setDraft(null)}>{t("settings.environment.cancel")}</Button>
-            <Button type="submit" disabled={save.isPending}>{t(save.isPending ? "settings.environment.saving" : "settings.environment.save")}</Button>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setDraft(null)}>{t("settings.environment.cancel")}</Button>
+            <Button type="submit" disabled={busy}>{t(save.isPending ? "settings.environment.saving" : "settings.environment.save")}</Button>
           </DialogFooter>
         </form> : null}
       </DialogContent>
