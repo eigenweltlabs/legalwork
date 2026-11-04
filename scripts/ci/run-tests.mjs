@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import timing from './timing.cjs';
-import { serverUnitIgnorePatterns } from './sandbox-test-files.mjs';
+import { sandboxTransportTestFile, serverUnitIgnorePatterns } from './sandbox-test-files.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 export function testWorkers(value = process.env.LEGALWORK_TEST_WORKERS) {
@@ -29,17 +29,31 @@ export function testArguments(suite, files = [], workers = suite === 'sandbox' ?
     ...(files.length ? files : [suite === 'app' ? 'tests/' : 'src/'])];
 }
 
+export function testGroups(suite, files) {
+  if (suite !== 'sandbox') return [files];
+  const isTransport = file => file.replaceAll('\\', '/').endsWith('/' + sandboxTransportTestFile);
+  const transport = files.filter(isTransport), remaining = files.filter(file => !isTransport(file));
+  // Large IPC buffers do not share a Bun heap/module context with VM fixtures.
+  // Both processes remain serial; every selected file still executes once.
+  return transport.length && remaining.length ? [transport, remaining] : [files];
+}
+
 export function runTests(suite, files = []) {
   const prepared = spawnSync(process.execPath, [path.join(root, 'scripts/gen-core-skills.mjs'), '--check'], { cwd: root, stdio: 'inherit' });
   if (prepared.status !== 0) return prepared.status ?? 1;
   const workers = suite === 'sandbox' ? 1 : testWorkers(), started = performance.now();
-  const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', testArguments(suite, files, workers), {
-    cwd: ['engine', 'sandbox'].includes(suite) ? root : path.join(root, 'apps', suite === 'app' ? 'app' : 'server'),
-    env: { ...process.env, LEGALWORK_TEST_PREPARED: '1' }, stdio: 'inherit', windowsHide: true,
-  });
-  timing.recordSpan(`tests:${suite}`, started, { workers, status: result.status });
-  if (result.error) throw result.error;
-  return result.status ?? 1;
+  const groups = testGroups(suite, files);
+  let status = 0;
+  for (const group of groups) {
+    const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', testArguments(suite, group, workers), {
+      cwd: ['engine', 'sandbox'].includes(suite) ? root : path.join(root, 'apps', suite === 'app' ? 'app' : 'server'),
+      env: { ...process.env, LEGALWORK_TEST_PREPARED: '1' }, stdio: 'inherit', windowsHide: true,
+    });
+    if (result.error) throw result.error;
+    status ||= result.status ?? 1;
+  }
+  timing.recordSpan(`tests:${suite}`, started, { workers, groups: groups.length, status });
+  return status;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

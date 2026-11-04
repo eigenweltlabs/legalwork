@@ -13,7 +13,7 @@
 - Fresh engine compilation uses two independent staging workers. Failures stop new work and wait for in-flight builds. Production provenance, twelve-target coverage and required signatures remain enforced.
 - Test, engine-target, desktop build, notarization-archive, notary submission and stapling spans are retained with workflow artifacts. Notary submission includes Apple's upload and processing time; it is not an upload-only measurement.
 - Linux release tarballs use gzip level 6 rather than electron-builder's default level 9. A manual nonpublishing alpha benchmark builds each Linux app once, then measures both archive levels on those exact bytes, verifying every file hash, link and mode and reporting the size difference. AppImage configuration is unchanged.
-- Manual alpha `signing_test` runs can compare `serial-full-ui` (one engine worker and per-platform frontend builds) with `optimized` (two engine workers and verified shared frontend assets) on one commit and an identical `benchmark_version`. These controls require publishing to be disabled. The serial control still uses the improved source staging and one shared producer, so it measures those selected execution/scheduling differences rather than reproducing the entire historical pair of alpha workflows. Optional `linux_benchmark` adds x64 and ARM64 archive comparisons. Windows ARM alpha jobs use a fresh full-workspace dependency store after the paired hosted sample measured5m19s versus6m25s with store restoration; the serial control retains cache reuse. Other full-workspace consumers keep their caches. Failed startup checks retain redacted diagnostics without changing their assertions or deadlines.
+- Manual alpha `signing_test` runs can compare `serial-full-ui` (one engine worker and per-platform frontend builds) with `optimized` (two engine workers and verified shared frontend assets) on one commit and an identical `benchmark_version`. These controls require publishing to be disabled. The serial control still uses the improved source staging and one shared producer, so it measures those selected execution/scheduling differences rather than reproducing the entire historical pair of alpha workflows. Optional `linux_benchmark` adds x64 and ARM64 archive comparisons. Windows ARM alpha jobs use a fresh full-workspace dependency store after the paired hosted sample measured 5m19s versus 6m25s with store restoration; the serial control retains cache reuse. Other full-workspace consumers keep their caches. Failed startup checks retain redacted diagnostics without changing their assertions or deadlines.
 
 ## Execution changes
 
@@ -52,7 +52,7 @@ The coordinator probes both pinned Node binaries before measurement. Both inputs
 
 ### Nonpublishing deployment measurements (2026-11-04)
 
-Same source3088e395 and fixed version0.3.7-alpha.0.g3088e39, one paired sample:
+Same source `3088e395` and fixed version `0.3.7-alpha.0.g3088e39`, one paired sample:
 
 | Stage | Control | Optimized |
 | --- | ---: | ---: |
@@ -64,8 +64,18 @@ Same source3088e395 and fixed version0.3.7-alpha.0.g3088e39, one paired sample:
 | Linux x64 release tarball | 17m24s | 2m45s |
 | Linux ARM release tarball | 14m11s | 1m55s |
 
-Linux level6 archives were0.82%/0.87% larger (x64/ARM), with identical verified file hashes, links and modes. Real packaged startup and AppImage checks passed on both architectures. Mac signed/notarized packaging took12m34s→13m18s; Windows x64 packaging took5m37s→7m53s, so these samples do not establish a packaging speedup for those stages. All native startup/signature checks passed.
+Linux level 6 archives were 0.82%/0.87% larger (x64/ARM), with identical verified file hashes, links and modes. Real packaged startup and AppImage checks passed on both architectures. Mac signed/notarized packaging took12m34s → 13m18s; Windows x64 packaging took5m37s → 7m53s, so these samples do not establish a packaging speedup for those stages. All native startup/signature checks passed.
 
-Control41850196784 and optimized41859349170 retain their failed first attempts: PR-branch Windows signing was initially blocked and optimized Mac runtime allocation was abandoned. The user approved an exact temporary branch rule; attempt2 completed the previously blocked/provisioning jobs using original same-run production artifacts. That rule was removed afterward. Never describe those incremental attempts as fresh full-alpha wall times.
+Control 41850196784 and optimized 41859349170 retain their failed first attempts: PR-branch Windows signing was initially blocked and optimized Mac runtime allocation was abandoned. The user approved an exact temporary branch rule; attempt2 completed the previously blocked/provisioning jobs using original same-run production artifacts. That rule was removed afterward. Never describe those incremental attempts as fresh full-alpha wall times.
 
-Manual `transport_diagnostic` runs only the Intel transport comparison, with identical17MiB payload assertions and30s deadlines under Bun and the shipped Node runtime; it also compares the original Bun file with the full native file collection. PR and push events cannot select this mode. Required gates still fail on a diagnostic failure. This mode changes neither production transport behavior nor normal test assertions.
+Manual `transport_diagnostic` runs only the Intel transport comparison, with identical 17 MiB payload assertions and 30s deadlines under Bun and the shipped Node runtime; it also compares the original Bun file with the full native file collection. PR and push events cannot select this mode. Required gates still fail on a diagnostic failure. This mode changes neither production transport behavior nor normal test assertions.
+
+
+### Development cache eviction recovery
+
+A missing development engine cache first checks retained producers from this same repository, PR number and branch. A candidate must have a completed successful engine job, a successful full development verification step, the exact current source/cache key in its log, and one retained full distribution artifact. Its independently fetched producer-log manifest pin is checked against the downloaded manifest and receipt; the existing verifier then checks all twelve archives and provenance against the current recipe before saving or publishing same-run artifacts. A corrupt selected artifact fails the job. Discovery failure or no matching producer selects the normal source build. Forks and other branches/PRs cannot supply automatic recovery.
+
+Production never enters this path: every production run compiles and signs all twelve targets fresh, including when development cache/recovery outputs exist. Manual explicitly pinned acceptance reuse keeps its existing behavior. The recovery avoids recompiling unchanged reviewed source solely because another branch's caches evicted this PR's build.
+
+
+Native transport fixtures run in one Bun process, followed serially by the remaining ten native files in another. Both groups retain the same preload, payloads, assertions, deadlines and one VM worker; a failure in either group fails the job, and the second group still runs after a test failure in the first. The Intel comparison measured the selected 17 MiB case at 5.184s with its source file alone versus 7.041s loaded with all eleven files. That removes measured shared-context overhead; it is not proof that the earlier timeout is eliminated.

@@ -127,8 +127,30 @@ jobs:
         with:
           path: ${{ runner.temp }}/opencode-derivative/distribution
           key: ${{ steps.cache-key.outputs.key }}
+      - name: Find an exact same-PR producer after development cache eviction
+        id: artifact-source
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_MODE: ${{ inputs.build-mode }}
+          EXPECTED_KEY: ${{ steps.cache-key.outputs.key }}
+        run: node scripts/ci/recover-opencode-artifact.mjs find
+      - name: Download the retained development producer artifact
+        if: inputs.build-mode == 'development' && steps.artifact-source.outputs.run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.artifact-source.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/opencode-derivative/distribution
+      - name: Check the recovered manifest against the independent producer log
+        if: inputs.build-mode == 'development' && steps.artifact-source.outputs.run-id != ''
+        env:
+          EXPECTED_MANIFEST_SHA256: ${{ steps.artifact-source.outputs.manifest-sha256 }}
+        run: node scripts/ci/recover-opencode-artifact.mjs verify-pin "$RUNNER_TEMP/opencode-derivative/distribution"
       - name: Compile exact reviewed source and complete twelve-target distribution
-        if: steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
+        if: steps.mode.outputs.reuse != 'true' && (inputs.build-mode == 'production' || (steps.cache.outputs.cache-hit != 'true' && steps.artifact-source.outputs.run-id == ''))
         id: engine
         env:
           BUILD_MODE: ${{ inputs.build-mode }}

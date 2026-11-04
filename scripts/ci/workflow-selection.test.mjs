@@ -239,3 +239,8 @@ test('transport profiling is an exclusive manual mode and cannot suppress PR che
   assert.doesNotThrow(() => execute({}));
   for (const name of ['PRODUCTION_ENGINE', 'PACKAGE_DESKTOP', 'SIGNING_ONLY', 'UNIT_ONLY', 'WINDOWS_ONLY', 'NATIVE_SOURCE_ONLY', 'REUSE_RUN', 'REUSE_PIN']) assert.throws(() => execute({ [name]: 'true' }));
 });
+
+
+test('development artifact recovery changes select real engine verification', () => {
+  assert.equal(changeScope(['scripts/ci/recover-opencode-artifact.mjs']).engine, true);
+});
