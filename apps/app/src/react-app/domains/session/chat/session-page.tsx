@@ -33,7 +33,6 @@ import { ArrowLeft, ArrowRight, Columns2, Folder, MessageSquare, PanelsTopLeft, 
 import { t } from "../../../../i18n";
 import {
   type LegalworkServerClient,
-  type LegalworkServerStatus,
   type LegalworkWorkspaceDirectoryEntry,
   type LegalMemoryTreeFile,
 } from "../../../../app/lib/legalwork-server";
@@ -79,7 +78,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
@@ -144,13 +142,6 @@ export type OpenSessionTab = {
   workspaceId: string;
   sessionId: string;
 };
-
-type StatusBarOverrides = Pick<
-  StatusBarProps,
-  | "loading"
-  | "showSettingsButton"
-  | "settingsOpen"
->;
 
 export type SessionPageHistoryControls = {
   canUndo: boolean;
@@ -230,7 +221,6 @@ export type SessionPageProps = {
   opencodeBaseUrl?: string | null;
   workspaces: WorkspaceInfo[];
   clientConnected: boolean;
-  legalworkServerStatus: LegalworkServerStatus;
   legalworkServerClient: LegalworkServerClient | null;
   environmentClient?: LegalworkServerClient | null;
   legalworkServerToken?: string | null;
@@ -243,7 +233,6 @@ export type SessionPageProps = {
   /** Connected providers that can actually serve a model right now. */
   providerConnectedCount?: number;
   providers?: ProviderListItem[];
-  mcpConnectedCount: number;
   onOpenSettings: () => void;
   sidebar: SessionPageSidebarProps;
   surface?: SessionPageSurfaceProps | null;
@@ -264,7 +253,6 @@ export type SessionPageProps = {
   questionReplyBusy?: boolean;
   respondQuestion?: (requestID: string, answers: string[][]) => void;
   onOpenInteractionSession?: (sessionId: string) => void;
-  statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   onOpenProviderAuth?: () => void;
   onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
@@ -1269,6 +1257,7 @@ export function SessionPage(props: SessionPageProps) {
           projectFilesOpen={!hasMainView && fileSidebar === "files"}
           activeProjectView={props.projectPage ?? (hasMainView ? null : "workspace")}
           onOpenNavWindow={isElectronRuntime() ? openNavWindow : undefined}
+          onOpenSettings={props.onOpenSettings}
           onOpenProjectFiles={workspaceId => {
             void Promise.resolve(props.sidebar.onSelectWorkspace(workspaceId, { navigate: false })).then(ok => { if (ok !== false) navigate(workspaceViewRoute(workspaceId, "files")); });
           }}
@@ -1323,9 +1312,7 @@ export function SessionPage(props: SessionPageProps) {
           onStartResize={startLeftSidebarResize}
         />
         {hasMainView ? (
-          // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
-          // chat has — the draggable top header and the bottom StatusBar (with the
-          // settings gear) — and swap only the center content.
+          // Top-level pages keep the same header and navigation as chats.
           <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden">
             <div className="flex min-h-0 flex-1">
             <ResizablePanelGroup orientation="horizontal" className={cn("lw-workspace-surface min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
@@ -1334,19 +1321,6 @@ export function SessionPage(props: SessionPageProps) {
               {workspaceErrorNotice}
               {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
               <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
-              {shellConfig.statusBar ? (
-                <StatusBar
-                  clientConnected={props.clientConnected}
-                  legalworkServerStatus={props.legalworkServerStatus}
-                  developerMode={props.developerMode}
-                  settingsOpen={props.statusBar?.settingsOpen ?? false}
-                  onOpenSettings={props.onOpenSettings}
-                  providerConnectedIds={props.providerConnectedIds}
-                  mcpConnectedCount={props.mcpConnectedCount}
-                  loading={props.statusBar?.loading ?? false}
-                  showSettingsButton={props.statusBar?.showSettingsButton}
-                />
-              ) : null}
             </main>
               </ResizablePanel>
               {sidePanelOpen ? (
@@ -1555,20 +1529,6 @@ export function SessionPage(props: SessionPageProps) {
               </>
             ) : null}
           </ResizablePanelGroup>
-
-          {shellConfig.statusBar ? (
-            <StatusBar
-              clientConnected={props.clientConnected}
-              legalworkServerStatus={props.legalworkServerStatus}
-              developerMode={props.developerMode}
-              settingsOpen={props.statusBar?.settingsOpen ?? false}
-              onOpenSettings={props.onOpenSettings}
-              providerConnectedIds={props.providerConnectedIds}
-              mcpConnectedCount={props.mcpConnectedCount}
-              loading={props.statusBar?.loading ?? false}
-              showSettingsButton={props.statusBar?.showSettingsButton}
-            />
-          ) : null}
               </main>
             </ResizablePanel>
           {fileSidebars}

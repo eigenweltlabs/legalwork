@@ -498,6 +498,7 @@ export type AppSidebarProps = {
   onOpenProjectFiles: (workspaceId: string) => void;
   projectFilesOpen?: boolean;
   onOpenNavWindow?: (key: ShellNavKey) => void;
+  onOpenSettings?: () => void;
   onOpenProjectWindow?: SidebarContextValue["onOpenProjectWindow"];
   activeProjectView?: SidebarContextValue["activeProjectFeature"];
   showSessionActions?: boolean;
@@ -777,7 +778,7 @@ function AppSidebarContent(props: AppSidebarProps) {
         className="group/project-sidebar mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="flex min-h-0 flex-1">
-        {(!customizingNavigation || collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} unreadTasks={unreadTasks}>
+        {(!customizingNavigation || collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} onOpenSettings={props.onOpenSettings} unreadTasks={unreadTasks}>
           <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
         </MainActionRail>}
         <div className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">

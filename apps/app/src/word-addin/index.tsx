@@ -35,7 +35,6 @@ function seedWordPaneShellConfig() {
       JSON.stringify({
         ...DEFAULT_SHELL_CONFIG,
         sidebar: false,
-        statusBar: false,
         welcomePage: false,
         cloudSignin: false,
         browser: false,
