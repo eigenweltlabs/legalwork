@@ -1,4 +1,5 @@
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
+import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
@@ -1508,13 +1509,27 @@ async function requestJson<T>(
   const url = `${baseUrl}${path}`;
   const method = options.method ?? "GET";
   const readOnly = method === "GET" || options.readOnly === true;
+  const workspaceId = /^\/workspace\/([^/?]+)/.exec(path)?.[1];
   const body = options.body === undefined ? undefined : JSON.stringify(options.body);
   const timeoutMs = options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS;
   const fetchImpl = method === "GET" && isDesktopRuntime() ? desktopReadFetch : resolveFetch(url);
-  const read = () => fetchWithTimeout(fetchImpl, url, {
-    method, headers: buildHeaders(options.token, options.hostToken),
-    body, signal: options.signal,
-  }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
+  const read = async (): Promise<JsonReply> => {
+    if (readOnly && workspaceId) await waitForProjectRemoval(baseUrl, workspaceId, options.signal);
+    try {
+      const response = await fetchWithTimeout(fetchImpl, url, {
+        method, headers: buildHeaders(options.token, options.hostToken),
+        body, signal: options.signal,
+      }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
+      if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) return response;
+    } catch (error) {
+      if (options.signal?.aborted || !readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) throw error;
+    }
+    // An earlier read can return a 404 after the server unregisters the
+    // project. Do not publish it as a project error during removal. Retry
+    // the read if deletion failed; confirmed deletion cancels it instead.
+    await waitForProjectRemoval(baseUrl, workspaceId, options.signal);
+    return read();
+  };
   // Never share mutations or a caller's cancellation. Only concurrent reads
   // join; there is no result cache, and every caller parses its own value.
   const key = readOnly && !options.signal

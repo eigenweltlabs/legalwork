@@ -140,6 +140,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
+import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { projectSectionGroups, reorderProjectSection } from "./project-sections";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
 import { unreadSession, unreadWorkspace, runningWorkspace, useSessionInboxStore } from "./session-inbox-store";
@@ -1051,6 +1052,7 @@ function WorkspaceSidebarGroup({
 }: WorkspaceSidebarGroupProps) {
   const ctx = useSidebarContext();
   const workspace = group.workspace;
+  const removing = useProjectRemoving(workspace.id);
   const unread = useUnreadChats(group.sessions);
   const backgroundRunning = useSessionInboxStore(state => runningWorkspace(state, workspaceServerId(workspace)));
   const isConnecting = ctx.connectingWorkspaceId === workspace.id;
@@ -1069,6 +1071,7 @@ function WorkspaceSidebarGroup({
 
 
   const statusLabel = (() => {
+    if (removing) return t("catalog.removing");
     if (connectionState.status === "error") return connectionState.message?.trim() || taskLoadError.message;
     if (group.status === "error") return taskLoadError.label;
     if (isConnectionActionBusy) return t("workspace_list.connecting");
@@ -1085,7 +1088,7 @@ function WorkspaceSidebarGroup({
         <SidebarMenu>
           <Collapsible
             render={<SidebarMenuItem />}
-            open={isExpanded}
+            open={isExpanded && !removing}
             onOpenChange={() => ctx.toggleWorkspaceExpanded(workspace.id)}
             className="group/collapsible"
           >
@@ -1096,12 +1099,14 @@ function WorkspaceSidebarGroup({
                 isActive={isSelected}
                 aria-current={isSelected ? "location" : undefined}
                 statusLabel={statusLabel}
-                isError={group.status === "error"}
-                isLoading={group.status === "loading" || isConnecting}
+                disabled={removing}
+                aria-busy={removing}
+                isError={!removing && group.status === "error"}
+                isLoading={removing || group.status === "loading" || isConnecting}
                 isRunning={backgroundRunning || group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
-                onTitlePointerDown={onWorkspaceTitlePointerDown}
+                onTitlePointerDown={removing ? undefined : onWorkspaceTitlePointerDown}
               /></ProjectFileDropTarget>
-              <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
+              {!removing && <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
                 {isExpanded && <Button
                   variant="ghost"
                   size="icon"
@@ -1120,13 +1125,14 @@ function WorkspaceSidebarGroup({
                   workspace={workspace}
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100 data-popup-open:opacity-100"
                 />
-              </div>
+              </div>}
               <Button
                 variant="ghost"
                 size="icon"
                 className="absolute right-2 top-1/2 size-6 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
                 aria-label={isExpanded ? t("sidebar.collapse") : t("sidebar.expand")}
                 aria-expanded={isExpanded}
+                disabled={removing}
                 onClick={(e) => {
                   e.stopPropagation();
                   ctx.toggleWorkspaceExpanded(workspace.id);
