@@ -11,6 +11,7 @@ import type {
 import type { TaskStore } from "./task-store.js";
 import type { RecorderBridge, WorkspaceInfo } from "./types.js";
 import { ApiError } from "./errors.js";
+import { sameProjectDirectory } from "./workspace-path-match.js";
 import { readProjectDetails } from "./project-store.js";
 
 export const contentKind = z.enum([
@@ -270,12 +271,9 @@ export async function listProjectContents(
           if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000)
             throw new Error("invalid_cursor");
           // Fetch one beyond the requested window, so an engine limit is never presented as a complete list.
-          const sessions = (
-            await sources.sessions(offset + query.limit + 1)
-          ).filter(
-            (session) =>
-              resolve(session.location.directory) === resolve(workspace.path),
-          );
+          const all = await sources.sessions(offset + query.limit + 1);
+          const owned = await Promise.all(all.map(session => sameProjectDirectory(session.location.directory, workspace.path)));
+          const sessions = all.filter((_, index) => owned[index]);
           page = {
             items: sessions
               .slice(offset, offset + query.limit)
@@ -329,7 +327,7 @@ export async function readProjectContent(
     const session = await sources.session(query.id);
     if (
       session.id !== query.id ||
-      resolve(session.location.directory) !== resolve(workspace.path) ||
+      !await sameProjectDirectory(session.location.directory, workspace.path) ||
       session.time.archived
     )
       missing();

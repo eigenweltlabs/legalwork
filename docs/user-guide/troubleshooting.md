@@ -6,6 +6,8 @@ Start with the exact error, current workspace, platform and action that failed. 
 
 After an engine upgrade, LegalWork copies your saved chat history into the new engine database before making chats available. It keeps the original database and a separate history backup. Development builds migrate their own saved development profile; they do not import the installed app's history. If an upgrade reports a history migration error or existing chats cannot be found, keep the profile intact and export diagnostics. Resetting your profile is not required to recover the saved chats.
 
+LegalWork also upgrades older saved connector settings during startup and retries settings that an earlier upgrade could not import. It preserves the original settings, credentials and permission rules. If startup still reports invalid settings, keep your profile intact and export diagnostics instead of deleting the saved connectors.
+
 | Symptom | What to check |
 | --- | --- |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |

@@ -102,7 +102,8 @@ function save(db: SqliteHandle, workspaceId: string, configJson: string, updated
 
 /** Bootstrap is the only operation permitted to read retired settings. Normal
  * connections accept current state or initialize a genuinely fresh profile. */
-export async function openNativeConfigState(databasePath: string, importLegacy?: LegacyConfigurationImport) {
+export async function openNativeConfigState(databasePath: string, importLegacy?: LegacyConfigurationImport,
+  repairNative?: (workspaceId: string, source: string) => ReturnType<LegacyConfigurationImport> | undefined) {
   const markerPath = nativeConfigStatePath(databasePath);
   let marker = await readMarker(markerPath);
   let file;
@@ -220,6 +221,21 @@ export async function openNativeConfigState(databasePath: string, importLegacy?:
         try { imported = importLegacy(row.workspaceId, row.configJson); } catch { continue; }
         db.run(`UPDATE ${backupTable} SET source_version=?,notices_json=? WHERE workspace_id=? AND source_hash=?`, [imported.sourceVersion, imported.noticesJson, row.workspaceId, hash(row.configJson)]);
         save(db, row.workspaceId, imported.configJson, Date.now());
+      }
+    });
+    // Repair only current rows at the explicit startup boundary. Preserve the
+    // exact original and replacement in one transaction, without replaying any
+    // retired settings or changing rows the narrow repair cannot validate.
+    if (repairNative) transaction(db, () => {
+      assertCurrent();
+      for (const row of db.all(`SELECT c.workspace_id AS workspaceId,c.config_json AS configJson FROM ${NATIVE_CONFIG_TABLE} c JOIN ${NATIVE_CONFIG_SCOPE_TABLE} s ON s.workspace_id=c.workspace_id WHERE s.status='ready'`)) {
+        if (typeof row.workspaceId !== "string" || typeof row.configJson !== "string") throw nativeConfigStateError("native_configuration_row_invalid");
+        let repaired;
+        try { repaired = repairNative(row.workspaceId, row.configJson); } catch { continue; }
+        if (!repaired) continue;
+        const now = Date.now();
+        original(db, row.workspaceId, row.configJson, repaired.sourceVersion, repaired.noticesJson, now);
+        save(db, row.workspaceId, repaired.configJson, now);
       }
     });
     return {

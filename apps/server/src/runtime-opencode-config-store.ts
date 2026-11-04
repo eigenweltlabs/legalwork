@@ -166,6 +166,12 @@ async function runtimeDb(config: ServerConfig, importLegacy = false): Promise<Ru
   const db = openNativeConfigState(path, importLegacy ? (workspaceId, source) => {
     const imported = upgradeRuntimeConfigRecord(JSON.parse(source), { scope: [GLOBAL_TOOL_PERMISSIONS_ID, GLOBAL_MCP_ID, GLOBAL_PERSONALIZATION_ID].includes(workspaceId) ? "host" : "workspace" });
     return { configJson: JSON.stringify(normalizeRuntimeOpencodeConfig(nativeRuntimeConfigRecord(imported))), sourceVersion: imported.sourceVersion, noticesJson: JSON.stringify(imported.notices) };
+  } : undefined, importLegacy ? (_workspaceId, source) => {
+    const value: unknown = JSON.parse(source);
+    if (!isRecord(value) || value.configurationVersion !== 2 || value.mcp === undefined) return;
+    const repaired = upgradeRuntimeConfigRecord(value);
+    if (!repaired.migrated) return;
+    return { configJson: JSON.stringify(normalizeRuntimeOpencodeConfig(nativeRuntimeConfigRecord(repaired))), sourceVersion: repaired.sourceVersion, noticesJson: JSON.stringify(repaired.notices) };
   } : undefined);
   dbByPath.set(path, db);
   void db.catch(() => { if (dbByPath.get(path) === db) dbByPath.delete(path); });
