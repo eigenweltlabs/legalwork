@@ -7,7 +7,7 @@ index c9a579eb3a7a21504ad89e663afc0f97399ac169..5c598fa12454fe94b2c7749641f27580
          const tempUpdateFile = unescapedTempUpdateFile.replace(/'/g, "''");
          logger.info(`Verifying signature ${tempUpdateFile}`);
 -        (0, child_process_1.execFile)(...preparePowerShellExec(`"Get-AuthenticodeSignature -LiteralPath '${tempUpdateFile}' | ConvertTo-Json -Compress"`, 20 * 1000), (error, stdout, stderr) => {
-+        (0, child_process_1.execFile)(...preparePowerShellExec(`"Get-AuthenticodeSignature -LiteralPath '${tempUpdateFile}' | ConvertTo-Json -Compress"`, 5 * 60 * 1000), (error, stdout, stderr) => {
++        (0, child_process_1.execFile)(...preparePowerShellExec(`"Get-AuthenticodeSignature -LiteralPath '${tempUpdateFile}' | ConvertTo-Json -Compress"`, 2 * 60 * 1000), (error, stdout, stderr) => {
              var _a;
              try {
                  if (error != null || stderr) {

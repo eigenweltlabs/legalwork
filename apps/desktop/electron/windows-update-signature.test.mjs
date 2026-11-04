@@ -41,7 +41,7 @@ test("a valid Windows update can finish verification after the old 20-second lim
   assert.equal(check.settled(), false, "a slow signature check must still be running");
   t.mock.timers.tick(9_999);
   assert.equal(await check.result, null);
-  assert.equal(check.calls[0].options.timeout, 300_000);
+  assert.equal(check.calls[0].options.timeout, 120_000);
 });
 
 test("a fast valid check completes immediately without waiting for the deadline", async t => {
@@ -71,10 +71,10 @@ test("malformed signature output remains an error", async t => {
   await rejected;
 });
 
-test("a hung Windows verifier still fails at the five-minute deadline", async t => {
+test("a hung Windows verifier still fails at the two-minute deadline", async t => {
   const check = verification(t, { delay: Infinity });
   const rejected = assert.rejects(check.result, /Signature verification timed out/);
-  t.mock.timers.tick(299_999);
+  t.mock.timers.tick(119_999);
   await Promise.resolve();
   assert.equal(check.settled(), false);
   t.mock.timers.tick(1);
