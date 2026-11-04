@@ -1,3 +1,4 @@
+import { isEpostDraftTool } from "./epost-draft-card";
 import { isCalendarEventDraftTool } from "./calendar-event-draft-card";
 import { isEmailDraftTool } from "./email-draft-card";
 import { suggestionOutcome, suggestionTools } from "@/react-app/domains/wiki/wiki-suggestion-model";
@@ -139,6 +140,7 @@ type AssistantRenderGroup =
   | { kind: "review"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "reviews"; parts: Array<ToolUIPart | DynamicToolUIPart> }
   | { kind: "calendar-event-draft"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "epost-draft"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "email-draft"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "delegation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "assistant-file"; part: ToolUIPart | DynamicToolUIPart }
@@ -322,6 +324,7 @@ export function getAssistantRenderGroups(
         groups.push({ kind: "review", part }); continue;
       }
       if (isCalendarEventDraftTool(part)) { groups.push({ kind: "calendar-event-draft", part }); continue; }
+      if (isEpostDraftTool(part)) { groups.push({ kind: "epost-draft", part }); continue; }
       if (isEmailDraftTool(part)) { groups.push({ kind: "email-draft", part }); continue; }
       if (isDelegationTool(part)) { groups.push({ kind: "delegation", part }); continue; }
       if (isAssistantFileTool(part)) { groups.push({ kind: "assistant-file", part }); continue; }

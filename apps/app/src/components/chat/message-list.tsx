@@ -2,6 +2,7 @@ import { CalendarEventDraftToolCard } from "./calendar-event-draft-card";
 import { integrationMessageMetadata, splitIntegrationMessage } from "@/react-app/domains/session/surface/composer/integration-message";
 import { isLocalOutgoingMessage, preparingAttachmentNames } from "@/react-app/domains/session/surface/assistant-outgoing-messages";
 import { assistantIsWriting } from "@/react-app/domains/session/surface/assistant-bubbles";
+import { EpostDraftToolCard } from "./epost-draft-card";
 import { EmailDraftToolCard } from "./email-draft-card";
 import { WikiSuggestionCard, useWikiSuggestions } from "@/react-app/domains/wiki/wiki-suggestion-card";
 import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
@@ -456,6 +457,7 @@ const AssistantMessage = React.memo(
             if (group.kind === "subagents") return <SubagentToolRows key={group.parts[0].toolCallId} parts={group.parts} />;
 
             if (group.kind === "calendar-event-draft") return <CalendarEventDraftToolCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "epost-draft") return <EpostDraftToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "email-draft") return <EmailDraftToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "delegation") return <DelegationCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "assistant-file") return <AssistantFileCard key={group.part.toolCallId} part={group.part} />;

@@ -1,3 +1,6 @@
+import { EpostDraftCard, useEpostSettings } from "@/components/chat/epost-draft-card";
+import type { EpostDraft } from "@legalwork/types/epost";
+import { Mail as PostalMailIcon } from "lucide-react";
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
 import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
@@ -216,6 +219,11 @@ function stringProperty(value: Record<string, unknown>, key: string) {
 }
 
 export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+  const postalCandidate = !loadFile && !localReadOnly && target.kind === "file" &&
+    (target.preview === "pdf" || (target.preview === "word" && /\.docx$/i.test(target.value)));
+  const postal = useEpostSettings(client, postalCandidate);
+  const [postalDraft, setPostalDraft] = useState<EpostDraft | null>(null);
+  const [postalPreparing, setPostalPreparing] = useState(false);
   const taskActive = useDocumentTaskActive();
   const runtimeEntry = useDocumentRuntimeEntry();
   const controlSessionIds = useDocumentControlSessions(sessionId);
@@ -745,6 +753,18 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       toast.error(error instanceof Error ? error.message : t("artifact.open_failed"));
     }
   };
+  const preparePostalDraft = async () => {
+    if (!client || !workspaceId || !postal.data?.enabled || postalPreparing || postalDraft) return;
+    setPostalPreparing(true);
+    try {
+      let path = target.value;
+      if (target.preview === "word") {
+        if (documentDirtyRef.current && !await persistWorkingCopy()) return;
+        path = (await client.epostConvertWord(workspaceId, path)).path;
+      }
+      setPostalDraft({ id: crypto.randomUUID(), workspaceId, files: [path], registered: "none", color: false, duplex: false });
+    } finally { setPostalPreparing(false); }
+  };
   const documentChangedOnDisk = documentDirty && documentSnapshot && data?.kind === "binary" && data.updatedAt !== documentSnapshot.updatedAt;
 
   return (
@@ -765,6 +785,14 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
           </span>}
         </>}
         actions={<>
+          {postalCandidate && postal.data?.enabled && data?.kind === "binary" && (target.preview === "pdf" || postal.data.wordAvailable) && (
+            <Tooltip>
+              <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("epost.send_by_post")}
+                disabled={postalPreparing || Boolean(postalDraft) || documentSaving || isSaving}
+                onClick={() => void runFileAction(preparePostalDraft)}><PostalMailIcon /></Button>} />
+              <TooltipContent>{t("epost.send_by_post")}</TooltipContent>
+            </Tooltip>
+          )}
           {canAutosave && access.editable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
             <Switch size="sm" checked={autosave} onCheckedChange={(enabled) => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
             {t("artifact.autosave")}
@@ -872,6 +900,9 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
           </Tooltip>
         </>}
       >
+      {client && postalDraft && <div className="max-h-[65%] shrink-0 overflow-auto border-b px-3">
+        <EpostDraftCard client={client} initial={postalDraft} panelScope={sessionId} onClose={() => setPostalDraft(null)} />
+      </div>}
       <DocumentAccessBanner access={access} />
       {autosaveError && <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
         {t("artifact.autosave_failed")} <span>{autosaveError}</span>
