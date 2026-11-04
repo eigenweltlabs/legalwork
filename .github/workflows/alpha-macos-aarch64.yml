@@ -391,7 +391,7 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
         with:
-          cache: ${{ matrix.arch != 'arm64' || !(github.event_name == 'workflow_dispatch' && inputs.signing_test && inputs.benchmark_profile == 'optimized') }}
+          cache: ${{ matrix.arch != 'arm64' || inputs.benchmark_profile == 'serial-full-ui' }}
 
       - name: Resolve alpha version
         id: alpha-version

@@ -13,7 +13,7 @@
 - Fresh engine compilation uses two independent staging workers. Failures stop new work and wait for in-flight builds. Production provenance, twelve-target coverage and required signatures remain enforced.
 - Test, engine-target, desktop build, notarization-archive, notary submission and stapling spans are retained with workflow artifacts. Notary submission includes Apple's upload and processing time; it is not an upload-only measurement.
 - Linux release tarballs use gzip level 6 rather than electron-builder's default level 9. A manual nonpublishing alpha benchmark builds each Linux app once, then measures both archive levels on those exact bytes, verifying every file hash, link and mode and reporting the size difference. AppImage configuration is unchanged.
-- Manual alpha `signing_test` runs can compare `serial-full-ui` (one engine worker and per-platform frontend builds) with `optimized` (two engine workers and verified shared frontend assets) on one commit and an identical `benchmark_version`. These controls require publishing to be disabled. The serial control still uses the improved source staging and one shared producer, so it measures those selected execution/scheduling differences rather than reproducing the entire historical pair of alpha workflows. Optional `linux_benchmark` adds x64 and ARM64 archive comparisons. The optimized manual Windows ARM profile also measures a fresh full-workspace dependency store; ordinary alpha runs keep store reuse until that comparison establishes a benefit. Failed startup checks retain redacted diagnostics without changing their assertions or deadlines.
+- Manual alpha `signing_test` runs can compare `serial-full-ui` (one engine worker and per-platform frontend builds) with `optimized` (two engine workers and verified shared frontend assets) on one commit and an identical `benchmark_version`. These controls require publishing to be disabled. The serial control still uses the improved source staging and one shared producer, so it measures those selected execution/scheduling differences rather than reproducing the entire historical pair of alpha workflows. Optional `linux_benchmark` adds x64 and ARM64 archive comparisons. Windows ARM alpha jobs use a fresh full-workspace dependency store after the paired hosted sample measured5m19s versus6m25s with store restoration; the serial control retains cache reuse. Other full-workspace consumers keep their caches. Failed startup checks retain redacted diagnostics without changing their assertions or deadlines.
 
 ## Execution changes
 
@@ -48,3 +48,24 @@ node scripts/ci/benchmark-efficiency.mjs \
 Each baseline, two-worker and four-worker case runs once, sequentially. Results include wall time, child CPU, maximum child RSS, exit status and test counts. The RSS value is the largest individual child, not simultaneous process-tree memory. Dependency installation and engine compilation are excluded from these local execution measurements. A separate hosted workflow run validates the actual cross-platform orchestration and packaging; historical scheduling replays are estimates, not measured deployment speedups.
 
 The coordinator probes both pinned Node binaries before measurement. Both inputs therefore launch their prepared native worker before a timed child-process fixture. Preserve failed samples and label any failure-driven confirmation separately.
+
+
+### Nonpublishing deployment measurements (2026-11-04)
+
+Same source3088e395 and fixed version0.3.7-alpha.0.g3088e39, one paired sample:
+
+| Stage | Control | Optimized |
+| --- | ---: | ---: |
+| Fresh signed twelve-target engine compile | 31m59s | 27m31s |
+| Mac Electron build | 11m21s | 2m29s |
+| Windows x64 Electron build | 3m45s | 2m12s |
+| Windows ARM Electron build | 8m54s | 5m49s |
+| Windows ARM full dependency setup | 6m25s | 5m19s |
+| Linux x64 release tarball | 17m24s | 2m45s |
+| Linux ARM release tarball | 14m11s | 1m55s |
+
+Linux level6 archives were0.82%/0.87% larger (x64/ARM), with identical verified file hashes, links and modes. Real packaged startup and AppImage checks passed on both architectures. Mac signed/notarized packaging took12m34s→13m18s; Windows x64 packaging took5m37s→7m53s, so these samples do not establish a packaging speedup for those stages. All native startup/signature checks passed.
+
+Control41850196784 and optimized41859349170 retain their failed first attempts: PR-branch Windows signing was initially blocked and optimized Mac runtime allocation was abandoned. The user approved an exact temporary branch rule; attempt2 completed the previously blocked/provisioning jobs using original same-run production artifacts. That rule was removed afterward. Never describe those incremental attempts as fresh full-alpha wall times.
+
+Manual `transport_diagnostic` runs only the Intel transport comparison, with identical17MiB payload assertions and30s deadlines under Bun and the shipped Node runtime; it also compares the original Bun file with the full native file collection. PR and push events cannot select this mode. Required gates still fail on a diagnostic failure. This mode changes neither production transport behavior nor normal test assertions.

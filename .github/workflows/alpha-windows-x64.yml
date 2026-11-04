@@ -125,6 +125,8 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+        with:
+          cache: ${{ matrix.arch != 'arm64' }}
 
       - name: Resolve alpha version
         id: alpha-version
