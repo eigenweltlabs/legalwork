@@ -17,6 +17,8 @@ choices do not change them. See [Personal Assistant](assistant.md).
 
 When upgrading from the earlier engine, LegalWork keeps custom providers and their selected models. You do not need to recreate a provider. Models you excluded from that provider stay excluded from the project's model selection.
 
+Older Azure Cognitive Services and Google Vertex Anthropic settings move to **Azure** and **Google Vertex**. Saved endpoints, API keys in those settings, selected models and provider restrictions carry forward. This also repairs settings already transferred by an earlier upgrade. Choose the connected model in the chat's model picker after upgrading.
+
 Keys can originate from a settings connection, environment variables or managed configuration. The AI Providers page identifies their source. An environment-managed connection may not be removable through the ordinary disconnect button; change it at the source instead. Store service secrets under **Settings > Secrets** when the relevant integration needs environment variables. Never paste a secret into a prompt as a setup shortcut.
 
 ## Model behavior
