@@ -133,7 +133,9 @@ test('every native package consumer uses one portable producer and an OS-family 
   for (const name of ['alpha-macos-aarch64', 'alpha-windows-x64', 'release-macos-aarch64', 'ci-desktop-packaging']) {
     const jobs = workflow(name).jobs;
     assert.equal(jobs['portable-assets'].uses, './.github/workflows/ci-portable-assets.yml');
-    const consumers = Object.values(jobs).filter(job => job.steps?.some(step => step.env?.LEGALWORK_PREBUILT_UI === '1'));
+    const consumers = Object.values(jobs).filter(job => job.steps?.some(step =>
+      step.env?.LEGALWORK_PREBUILT_UI === '1' || (name === 'alpha-macos-aarch64'
+        && step.env?.LEGALWORK_PREBUILT_UI === "${{ inputs.benchmark_profile == 'serial-full-ui' && '0' || '1' }}")));
     assert.ok(consumers.length, name);
     for (const job of consumers) {
       assert.ok(job.needs.includes('portable-assets'), name);

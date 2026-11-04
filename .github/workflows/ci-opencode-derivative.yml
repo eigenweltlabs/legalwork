@@ -10,6 +10,10 @@ on:
         description: Explicit development or production source build intent
         type: string
         required: true
+      build-workers:
+        description: Independent source build workers (one permits a serial benchmark)
+        type: number
+        default: 2
       reuse-run-id:
         description: Optional original same-repository Actions producer run
         type: string
@@ -129,8 +133,9 @@ jobs:
         env:
           BUILD_MODE: ${{ inputs.build-mode }}
           SIGNING_POLICY: ${{ steps.identity.outputs.policy }}
+          BUILD_WORKERS: ${{ inputs.build-workers }}
         run: |
-          arguments=("$RUNNER_TEMP/opencode-derivative" --mode "$BUILD_MODE")
+          arguments=("$RUNNER_TEMP/opencode-derivative" --mode "$BUILD_MODE" --workers "$BUILD_WORKERS")
           if [ "$BUILD_MODE" = production ]; then arguments+=(--mac-signing-config "$SIGNING_POLICY"); fi
           node scripts/ci/build-opencode-derivative.mjs "${arguments[@]}"
       - name: Verify all development archives against current source policy

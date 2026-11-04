@@ -10,11 +10,12 @@ if (!root || process.platform !== "darwin" || process.arch !== "arm64") throw ne
 const values = {};
 for (let index = 0; index < args.length; index += 2) {
   const name = args[index], value = args[index + 1];
-  if (!["--mode", "--mac-signing-config"].includes(name) || Object.hasOwn(values, name) || !value || value.startsWith("--")) throw new Error("Expected --mode development|production and optional --mac-signing-config <public-policy.json>.");
+  if (!["--mode", "--mac-signing-config", "--workers"].includes(name) || Object.hasOwn(values, name) || !value || value.startsWith("--")) throw new Error("Expected --mode development|production, optional --mac-signing-config <public-policy.json> and --workers 1|2|3|4.");
   values[name] = value;
 }
 const macSigning = values["--mac-signing-config"] === undefined ? undefined : JSON.parse(await readFile(values["--mac-signing-config"], "utf8"));
 const result = await buildOpencodeDistribution({ outputDirectory: path.resolve(root), targets: recipe.targets, mode: values["--mode"], macSigning,
+  ...(values["--workers"] === undefined ? {} : { workers: Number(values["--workers"]) }),
   onProgress(message) {
     console.log(message);
     const event = JSON.parse(message);
