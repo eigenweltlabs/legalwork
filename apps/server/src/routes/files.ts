@@ -1256,7 +1256,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "GET", "/workspace/:id/files/raw", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
-    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const fromWorkspace = isAbsolute(requested) ? relative(workspace.path, requested) : requested;
+    const insideWorkspace = fromWorkspace !== ".." && !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace);
+    const relativePath = normalizeWorkspaceRelativePath(insideWorkspace ? fromWorkspace : requested, { allowSubdirs: true });
     const absPath = resolveSafeChildPath(workspace.path, relativePath);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "file_not_found", "File not found");
