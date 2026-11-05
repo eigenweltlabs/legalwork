@@ -31,6 +31,7 @@ import type {
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
 import { removeProjectFromSidebar } from "./project-removal";
+import { isProjectRemoving, retainRemovingProjects } from "@/app/lib/project-removal-state";
 import { currentLocale, t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
@@ -1224,7 +1225,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         const list = await client.listWorkspaces();
         if (list.warnings?.length) notifyAlert({ kind: "system", title: "Remote agent workspaces retired", body: list.warnings.join("\n"), dedupeKey: "retired-remote-workspaces" });
         const serverWorkspaceIds = new Set(list.items.map((workspace) => workspace.id));
-        const nextWorkspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
+        const nextWorkspaces = retainRemovingProjects(normalizedBaseUrl, mergeRouteWorkspaces(list.items, desktopWorkspaces), workspacesRef.current);
         // Account/settings navigation needs the registry, not every engine's
         // cold session index. Publish the connection before starting that work.
         setLegalworkClient(client);
@@ -1241,7 +1242,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         });
         void Promise.all(
           nextWorkspaces.map(async (workspace) => {
-            if (!serverWorkspaceIds.has(workspace.id)) {
+            if (isProjectRemoving(workspace.id) || !serverWorkspaceIds.has(workspace.id)) {
               return { workspaceId: workspace.id, sessions: [], error: null as string | null };
             }
             try {

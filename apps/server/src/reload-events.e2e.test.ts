@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -91,6 +91,7 @@ describe("reload event API", () => {
     const stampPath = join(root, ".opencode", ".legalwork-core");
     const commandPath = join(root, ".opencode", "commands", "edit-docx.md");
     await writeFile(stampPath, "another-installed-version\n", "utf8");
+    await mkdir(join(root, ".opencode", "commands"), { recursive: true });
     await writeFile(commandPath, "OTHER INSTALLED VERSION\n", "utf8");
 
     const secondResponse = await fetch(`${base}/workspace/ws_1/config`, { headers: auth(token) });

@@ -185,8 +185,14 @@ describe("storage API access and validation", () => {
       const plugin = await LegalWorkStorageTools();
       const context = { directory: temporary, sessionID };
       const transfer = (input: Record<string, unknown>) => plugin.tool.storage_transfer.execute(input, context).then(parseToolJson);
-      expect(parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id: first, path: "Archive" }, context))).toMatchObject({ result: { ok: true } });
+      expect(parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id: first, parent_path: "", name: "Archive" }, context))).toMatchObject({ path: "Archive", result: { ok: true } });
       expect(dav.folders.has("first/Archive")).toBe(true);
+      expect(parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id: first, path: "Legacy folder" }, context))).toMatchObject({ result: { ok: true } });
+      expect(dav.folders.has("first/Legacy folder")).toBe(true);
+      await expect(plugin.tool.storage_create_folder.execute({ connection_id: first, path: "Archive", name: "Wrong folder" }, context)).rejects.toThrow("Use parent_path and name together");
+      expect(dav.folders.has("first/Wrong folder")).toBe(false);
+      expect((await api("POST", `/${first}/folders`, { path: "Ignored-name regression", name: "Wrong folder" })).status).toBe(400);
+      expect(dav.folders.has("first/Ignored-name regression")).toBe(false);
       const file = { connection_id: first, path: "note.txt", kind: "file", destination_connection_id: first, destination_path: "Archive", mode: "move" };
       expect(await transfer(file)).toMatchObject({ result: { ok: true, path: "Archive/note.txt" } });
       expect(dav.files.has("first/note.txt")).toBe(false);
