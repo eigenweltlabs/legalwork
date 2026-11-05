@@ -120,8 +120,11 @@ the trailing week or month up to now. German phrases such as **letzte Woche**
 and **letzter Monat** also work. Chosen filters stay visible in the input.
 The current project receives preference when its name
 matches. Wikis are kept separate from projects.
-File subtitles identify their source with an icon and **Wiki**, **Project**, or
-**Folder**, followed by its name. The file's own icon still shows its format.
+Result subtitles show the source icon directly beside its name, without an
+extra “Project” or “Wiki” label. This works consistently for files, project
+chats, tasks and recordings with a known source. A book identifies a Wiki;
+the folder symbol identifies a project or added folder. Hover over the symbol
+for its label. The primary icon still identifies the file format or result type.
 
 With **Files** selected, type **projects**, **wiki**, or **folders** and press
 **Enter** on **Projects only**, **Wikis only**, or **Added folders only** to
@@ -133,6 +136,19 @@ source filter. **Added folders only** searches the extra folders configured in
 **Settings > Assistant launcher**. Remove the chip to search all sources again;
 with an empty input, **Backspace** removes the last filter. Saved searches keep
 the selected source. Switching to another category clears the file source filter.
+
+To change the result order, type **sort** or **sorted** (**sortieren** in German)
+and press **Enter** on **Sort results**. Use **Up/Down** to choose **Name A–Z**,
+**Name Z–A**, **Most recently updated**, **Oldest updated first**, or **Relevance**,
+then press **Enter**. **Esc** or **Left** closes the menu without changing the
+order. The sort chip reopens this menu; its remove button restores relevance.
+This works for search categories such as files and tasks and when browsing a
+project's contents or a folder. It keeps source, type and date filters and is
+remembered with a saved search. “Updated” refers to the item's last change,
+not when you last opened it. Sources with partial coverage remain marked as such.
+
+Type **as** and continue toward **assistant** to put your personalized Assistant
+first, ahead of matching projects, files and history. Press **Enter** to open it.
 
 Use **Up/Down** to select a result and **Enter** to open it. Chats, tasks,
 projects and folders open inside the mini-bar where supported; files open in

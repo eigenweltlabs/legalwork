@@ -100,3 +100,18 @@ test("changing the file source clears old rows and passes the qualifier to both 
     expect(calls).toEqual(["project:false", "project:true", "wiki:false", "wiki:true"]);
   } finally { session.cancel(); }
 });
+
+test("explicit ordering also sorts late content hits and changing order invalidates the previous rows", async () => {
+  const session = new LauncherSearchSession(async input => ({
+    items: input.content ? [item("Zulu", 900), item("Alpha", 1)] : [item("Zulu", 900)], sources: [], unavailable: [],
+  }), { debounceMs: 0 });
+  try {
+    session.search({ query: "contract", kinds: ["files"], projectId: null, sort: "name-asc" });
+    await wait(20);
+    expect(session.current().items.map(item => item.id)).toEqual(["Alpha", "Zulu"]);
+    session.search({ query: "contract", kinds: ["files"], projectId: null, sort: "name-desc" });
+    expect(session.current().items).toEqual([]);
+    await wait(20);
+    expect(session.current().items.map(item => item.id)).toEqual(["Zulu", "Alpha"]);
+  } finally { session.cancel(); }
+});

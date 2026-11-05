@@ -1,13 +1,13 @@
 import { existingLauncherFiles } from "./launcher-file-visibility.js";
-import { isLauncherInternalPath } from "@legalwork/types/launcher";
+import { compareLauncherResults, isLauncherInternalPath } from "@legalwork/types/launcher";
 import { basename, extname } from "node:path";
 import { matchesSearch, searchExcerpt, type ContentSearchResponse, type ContentSearchResult } from "./search-schema.js";
 import { projectMatch } from "./assistant-project-search.js";
 import type { LauncherFileIndex } from "./launcher-file-index.js";
-import type { LauncherFileSourceKind, LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
+import type { LauncherSort, LauncherFileSourceKind, LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import type { WorkspaceInfo } from "./types.js";
 
-export type LauncherSearchInput = { query: string; kinds: LauncherSearchKind[]; projectId?: string; content: boolean; limit: number; fileTypes?: string[]; modifiedAfter?: number; sourceKind?: LauncherFileSourceKind };
+export type LauncherSearchInput = { query: string; kinds: LauncherSearchKind[]; projectId?: string; content: boolean; limit: number; fileTypes?: string[]; modifiedAfter?: number; sourceKind?: LauncherFileSourceKind; sort?: LauncherSort };
 export type LauncherRecording = { id: string; title: string; createdAt: number; durationMs: number; projectIds?: string[]; status?: string };
 export type LauncherSearchDeps = {
   workspaces: () => Promise<{ workspaces: WorkspaceInfo[]; unavailable: string[] }>;
@@ -108,9 +108,9 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
         const fileItems: LauncherSearchResult[] = [];
         const index = await deps.fileIndex.ensure(workspace.id, workspace.path, false);
         const seen = new Set<string>();
-        const filter = { types: input.fileTypes ?? null, modifiedAfter: input.modifiedAfter ?? null, browse: input.kinds.length === 1 };
+        const filter = { types: input.fileTypes ?? null, modifiedAfter: input.modifiedAfter ?? null, browse: input.kinds.length === 1, sort: input.sort };
         const passes = (path: string, updatedAt: number) => (!filter.types?.length || filter.types.includes(extname(path).replace(/^\./, "").toLowerCase())) && (filter.modifiedAfter === null || updatedAt >= filter.modifiedAfter);
-        if (query || filter.browse || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, 40, filter)) {
+        if (query || filter.browse || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, input.sort && input.sort !== "relevance" ? input.limit : 40, filter)) {
           seen.add(found.entry.path);
           fileItems.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, sourceKind: workspace.preset === "wiki" ? "wiki" : "project", path: found.entry.path, updatedAt: found.entry.mtimeMs,
             revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.directory ? "folder" : found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: found.entry.directory ? ["open"] : FILE_ACTIONS });
@@ -151,7 +151,14 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
     });
   }
   for (const id of unavailable) source({ id: `unavailable:${id}`, kind: "projects", workspaceId: id, label: id, coverage: "unavailable", count: 0 });
-  items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, "en") || a.id.localeCompare(b.id, "en"));
+  for (const item of items) {
+    if (item.kind === "projects" || !item.workspaceId) continue;
+    const workspace = workspaces.find(workspace => workspace.id === item.workspaceId);
+    if (!workspace) continue;
+    item.subtitle ??= deps.projectName(workspace);
+    item.sourceKind = workspace.preset === "wiki" ? "wiki" : "project";
+  }
+  items.sort((a, b) => compareLauncherResults(a, b, input.sort));
   // Projects are navigation targets without an activity timestamp. Keep their
   // name matches while applying the date constraint to dated content sources.
   return { items: items.filter(item => item.kind === "projects" || !input.modifiedAfter || item.updatedAt >= input.modifiedAfter).slice(0, input.limit), sources, unavailable };

@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { opendir, realpath, stat } from "node:fs/promises";
 import { basename, extname, join, relative } from "node:path";
 import { setImmediate } from "node:timers/promises";
-import { isLauncherInternalPath } from "@legalwork/types/launcher";
+import { compareLauncherResults, isLauncherInternalPath, type LauncherSort } from "@legalwork/types/launcher";
 
 const SKIP_DIRECTORIES = new Set(["node_modules", "vendor", "dist", "build", "coverage", "__pycache__"]);
 export type IndexedFile = { path: string; name: string; folded: string; mtimeMs: number; size: number; ext: string; directory?: boolean };
@@ -97,7 +97,7 @@ export class LauncherFileIndex {
     if (wait && index.building) await index.building;
     return index;
   }
-  search(workspaceId: string, query: string, limit = 50, filter: { types?: string[] | null; modifiedAfter?: number | null; browse?: boolean } = {}): FileMatch[] {
+  search(workspaceId: string, query: string, limit = 50, filter: { types?: string[] | null; modifiedAfter?: number | null; browse?: boolean; sort?: LauncherSort } = {}): FileMatch[] {
     const index = this.indexes.get(workspaceId);
     const terms = fold(query).trim().split(/\s+/).filter(Boolean);
     const types = filter.types?.length ? new Set(filter.types.map(type => `.${type.toLowerCase().replace(/^\./, "")}`)) : null;
@@ -125,7 +125,9 @@ export class LauncherFileIndex {
       score += Math.min(40, Math.max(0, 40 - (Date.now() - entry.mtimeMs) / 86_400_000)) + Math.min(20, (phrase.length / Math.max(1, name.length)) * 20);
       matches.push({ entry, match, score });
     }
-    return matches.sort((a, b) => b.score - a.score || b.entry.mtimeMs - a.entry.mtimeMs || a.entry.path.localeCompare(b.entry.path, "en")).slice(0, limit);
+    return matches.sort((a, b) => filter.sort && filter.sort !== "relevance"
+      ? compareLauncherResults({ id: a.entry.path, title: a.entry.name, updatedAt: a.entry.mtimeMs, score: a.score }, { id: b.entry.path, title: b.entry.name, updatedAt: b.entry.mtimeMs, score: b.score }, filter.sort)
+      : b.score - a.score || b.entry.mtimeMs - a.entry.mtimeMs || a.entry.path.localeCompare(b.entry.path, "en")).slice(0, limit);
   }
   size(workspaceId: string) { return this.indexes.get(workspaceId)?.entries.size ?? 0; }
   invalidate(workspaceId: string) {

@@ -1,3 +1,4 @@
+import { compareLauncherResults } from "@legalwork/types/launcher";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { LauncherFileFilter, LauncherSearchKind, LauncherSearchResult } from "@legalwork/types/launcher";
@@ -25,13 +26,17 @@ export function useLauncherDetailItems(detail: LauncherDetail | null, query: str
     queryKey: ["launcher-detail-items", client.baseUrl, result?.workspaceId, result?.folderId, result?.path, category, directory ? null : query, directory ? null : filter],
     enabled: Boolean(result && (directory || category)),
     staleTime: 0, refetchInterval: directory ? 2000 : false, refetchOnWindowFocus: "always",
-    select: response => directory ? { ...response, items: response.items.filter(item => item.title.toLocaleLowerCase().includes(fileQuery) && matchesLauncherFileFilter(item, fileFilter)) } : response,
+    select: response => {
+      const items = directory ? response.items.filter(item => item.title.toLocaleLowerCase().includes(fileQuery) && matchesLauncherFileFilter(item, fileFilter)) : [...response.items];
+      if (filter.sort && filter.sort !== "relevance") items.sort((a, b) => compareLauncherResults(a, b, filter.sort));
+      return { ...response, items };
+    },
     queryFn: async ({ signal }) => {
       if (!result) return { items: [], truncated: false };
       if (directory) {
         return client.launcherBrowse({ workspaceId: result.workspaceId ?? undefined, folderId: result.folderId, path: result.path ?? "" }, signal);
       }
-      const response = await client.launcherSearch({ query, kinds: category ? [category] : [], projectId: result.workspaceId, fileTypes: filter.types, modifiedAfter: filter.modifiedAfter, sourceKind: filter.sourceKind }, signal);
+      const response = await client.launcherSearch({ query, kinds: category ? [category] : [], projectId: result.workspaceId, fileTypes: filter.types, modifiedAfter: filter.modifiedAfter, sourceKind: filter.sourceKind, sort: filter.sort }, signal);
       return { items: response.items, truncated: response.sources.some(source => source.limited) };
     },
   });

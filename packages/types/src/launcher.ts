@@ -10,6 +10,8 @@ export const LauncherSearchFolderSchema = z.object({ id: z.string(), name: z.str
 export type LauncherSearchFolder = z.infer<typeof LauncherSearchFolderSchema>;
 export const LauncherFileSourceKindSchema = z.enum(["project", "wiki", "folder"]);
 export type LauncherFileSourceKind = z.infer<typeof LauncherFileSourceKindSchema>;
+export const LauncherSortSchema = z.enum(["relevance", "name-asc", "name-desc", "recent", "oldest"]);
+export type LauncherSort = z.infer<typeof LauncherSortSchema>;
 export const DEFAULT_LAUNCHER_ALIASES: Record<LauncherSearchKind, string> = { files: "f", projects: "p", chats: "c", tasks: "t", recordings: "r" };
 
 export const LauncherCoverageSchema = z.enum(["complete", "partial", "filename-only", "indexing", "searching", "unavailable", "offline"]);
@@ -27,6 +29,13 @@ export const LauncherSearchResultSchema = z.object({
   sources: z.array(z.object({ path: z.string(), hash: z.string(), page: z.number().nullable(), source: z.enum(["native", "ocr"]), quote: z.string(), preparationPath: z.string().optional() })).optional(),
 });
 export type LauncherSearchResult = z.infer<typeof LauncherSearchResultSchema>;
+const launcherNameCollator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+/** Shared by providers and the client so pagination and later content hits keep the chosen order. */
+export function compareLauncherResults(a: Pick<LauncherSearchResult, "title" | "updatedAt" | "score" | "id">, b: Pick<LauncherSearchResult, "title" | "updatedAt" | "score" | "id">, sort: LauncherSort = "relevance") {
+  const name = () => launcherNameCollator.compare(a.title, b.title);
+  const order = sort === "name-asc" ? name() : sort === "name-desc" ? -name() : sort === "recent" ? b.updatedAt - a.updatedAt : sort === "oldest" ? a.updatedAt - b.updatedAt : b.score - a.score || b.updatedAt - a.updatedAt;
+  return order || name() || a.id.localeCompare(b.id, "en");
+}
 /** Saved dashboard definitions are app metadata, not user documents in the launcher. */
 export function isLauncherInternalPath(path: string) {
   return path.split(/[\\/]/).some(part => part.startsWith(".")) || /\.view(?:\.conflict-[^.]+)?\.json$/i.test(path);
@@ -124,7 +133,7 @@ export const QuickActionSchema = QuickActionInputSchema.extend({ id: z.string(),
 export type QuickAction = z.infer<typeof QuickActionSchema>;
 /** A saved search keeps its scope visible: the category, the project and the words. */
 export const SavedSearchInputSchema = z.object({ name: z.string().trim().min(1).max(80), query: z.string().trim().max(300), kind: LauncherSearchKindSchema.nullable(), projectId: z.string().max(200).nullable(),
-  fileTypes: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable().optional(), modifiedAfter: z.number().nullable().optional(), sourceKind: LauncherFileSourceKindSchema.nullable().optional() });
+  fileTypes: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable().optional(), modifiedAfter: z.number().nullable().optional(), sourceKind: LauncherFileSourceKindSchema.nullable().optional(), sort: LauncherSortSchema.optional() });
 export type SavedSearchInput = z.infer<typeof SavedSearchInputSchema>;
 export const SavedSearchSchema = SavedSearchInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
 export type SavedSearch = z.infer<typeof SavedSearchSchema>;
@@ -135,7 +144,7 @@ export const LauncherCatalogEntrySchema = z.object({
   command: z.object({ name: z.string(), template: z.string().nullable(), agent: z.string().nullable() }).nullable(), quickAction: QuickActionSchema.nullable(), savedSearch: SavedSearchSchema.optional(),
 });
 /** File finder filters: extensions, a modification floor and source kind, shown as removable chips. */
-export const LauncherFileFilterSchema = z.object({ types: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable(), modifiedAfter: z.number().nullable(), sourceKind: LauncherFileSourceKindSchema.nullable().optional() });
+export const LauncherFileFilterSchema = z.object({ types: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable(), modifiedAfter: z.number().nullable(), sourceKind: LauncherFileSourceKindSchema.nullable().optional(), sort: LauncherSortSchema.optional() });
 export type LauncherFileFilter = z.infer<typeof LauncherFileFilterSchema>;
 /** Copy or move one file into another project. Explicit, approved and audited like the file routes; never a side effect of opening. */
 export const LauncherFileTransferInputSchema = z.object({ sourceWorkspaceId: z.string().min(1), targetWorkspaceId: z.string().min(1), path: z.string().min(1).max(4096), mode: z.enum(["copy", "move"]), folder: z.string().max(1024).optional() });

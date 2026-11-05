@@ -29,6 +29,9 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     expect(all.items.map(item => `${item.kind}:${item.id}`)).toEqual(["files:Mietvertrag Müller.docx", "tasks:task-1", "chats:ses-1", "recordings:rec-1", "files:Notes.md"]);
     expect(all.items[0]).toMatchObject({ match: "prefix", path: "Mietvertrag Müller.docx", actions: expect.arrayContaining(["attach", "compare"]) });
     expect(all.items[4]).toMatchObject({ match: "content", excerpt: "Der Mietvertrag endet…" });
+    expect(all.items.find(item => item.kind === "tasks")).toMatchObject({ sourceKind: "project", subtitle: mueller.name });
+    expect(all.items.find(item => item.kind === "chats")).toMatchObject({ sourceKind: "project", subtitle: mueller.name });
+    expect(all.items.find(item => item.kind === "recordings")).toMatchObject({ sourceKind: "project", subtitle: mueller.name });
     const coverage = Object.fromEntries(all.sources.map(source => [source.id, source.coverage]));
     expect(coverage).toMatchObject({ "files:mueller": "indexing", "chats:mueller": "complete", "chats:other": "unavailable", tasks: "complete", recordings: "complete", projects: "partial", "unavailable:offline-project": "unavailable" });
     expect(all.sources.find(source => source.id === "chats:other")?.error).toBe("database locked");
@@ -80,5 +83,14 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     const foldersOnly = await searchLauncher(withWiki, { query: "", kinds: ["files"], content: false, limit: 50, sourceKind: "folder" }, new AbortController().signal);
     expect(foldersOnly.items).toEqual([]);
     expect(foldersOnly.sources).toEqual([]);
+    const taskDeps: LauncherSearchDeps = { ...withWiki, tasks: async () => [
+      { kind: "tasks", id: "z", workspaceId: mueller.id, title: "Zulu", updatedAt: 20, excerpt: "" },
+      { kind: "tasks", id: "a", workspaceId: wiki.id, title: "Alpha", updatedAt: 10, excerpt: "" },
+    ] };
+    const alphabetical = await searchLauncher(taskDeps, { query: "", kinds: ["tasks"], content: false, limit: 1, sort: "name-asc" }, new AbortController().signal);
+    expect(alphabetical.items.map(item => item.id)).toEqual(["a"]);
+    expect(alphabetical.items[0]).toMatchObject({ sourceKind: "wiki", subtitle: wiki.name });
+    const recent = await searchLauncher(taskDeps, { query: "", kinds: ["tasks"], content: false, limit: 1, sort: "recent" }, new AbortController().signal);
+    expect(recent.items.map(item => item.id)).toEqual(["z"]);
   } finally { fileIndex.dispose(); await rm(root, { recursive: true, force: true }); }
 });

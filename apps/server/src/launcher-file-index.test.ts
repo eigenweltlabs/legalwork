@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LauncherFileIndex } from "./launcher-file-index.js";
@@ -71,4 +71,19 @@ test("filters narrow by extension and modification time, and list recent files w
     expect(index.search("w", "", 10, { browse: true }).map(match => match.entry.name).sort()).toEqual(["Alt.docx", "Mietvertrag.docx", "Mietvertrag.pdf", "Notiz.md", "Verträge"]);
     expect(index.search("w", "", 10, { browse: true }).at(-1)?.entry.name).toBe("Alt.docx");
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("explicit sorting chooses from the whole filename index before applying the result limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "launcher-sort-"));
+  const index = new LauncherFileIndex({ watch: false });
+  try {
+    for (const [name, time] of [["Contract 10.pdf", 30], ["Contract 2.pdf", 20], ["Agreement.pdf", 10]] satisfies [string, number][]) {
+      await writeFile(join(root, name), "x"); await utimes(join(root, name), time, time);
+    }
+    await index.ensure("w", root, true);
+    expect(index.search("w", "", 1, { browse: true, sort: "name-asc" }).map(item => item.entry.name)).toEqual(["Agreement.pdf"]);
+    expect(index.search("w", "", 2, { browse: true, sort: "name-desc" }).map(item => item.entry.name)).toEqual(["Contract 10.pdf", "Contract 2.pdf"]);
+    expect(index.search("w", "", 1, { browse: true, sort: "recent" }).map(item => item.entry.name)).toEqual(["Contract 10.pdf"]);
+    expect(index.search("w", "", 1, { browse: true, sort: "oldest" }).map(item => item.entry.name)).toEqual(["Agreement.pdf"]);
+  } finally { index.dispose(); await rm(root, { recursive: true, force: true }); }
 });

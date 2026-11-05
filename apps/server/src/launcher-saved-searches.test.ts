@@ -17,6 +17,10 @@ test("saved searches keep their scope, deduplicate the same search and join the 
     const project = store.create({ name: "Project contracts", query: "Mietvertrag", kind: "files", projectId: null, sourceKind: "project" });
     expect(wiki.id).not.toBe(project.id);
     expect(store.get(wiki.id)?.sourceKind).toBe("wiki");
+    const sortedWiki = store.create({ name: "Wiki contracts A–Z", query: "Mietvertrag", kind: "files", projectId: null, sourceKind: "wiki", sort: "name-asc" });
+    expect(sortedWiki.id).not.toBe(wiki.id);
+    expect(store.get(sortedWiki.id)?.sort).toBe("name-asc");
+    store.remove(sortedWiki.id);
     expect(store.create({ name: "Again", query: "Mietvertrag", kind: "files", projectId: null, sourceKind: "wiki" }).id).toBe(wiki.id);
     store.remove(wiki.id); store.remove(project.id);
     store.remove(filtered.id);

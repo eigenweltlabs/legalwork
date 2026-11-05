@@ -1,4 +1,4 @@
-import { LauncherFileOrigin } from "./launcher-file-origin";
+import { LauncherResultOrigin } from "./launcher-result-origin";
 import { useEffect, useRef, useState } from "react";
 import { CheckSquare, ChevronRight, File, FileText, Folder, Image, ListTodo, Mail, MessageSquare, Mic, Presentation, Sheet, Square } from "lucide-react";
 import type { LauncherResultAction, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
@@ -61,7 +61,7 @@ export function LauncherResultList(props: {
           <span className="launcher-row-icon" onClick={event => { event.stopPropagation(); props.onToggleMulti(key); }} aria-hidden="true">{item.kind === "files" ? multi ? <CheckSquare className="size-4" /> : props.multiSelect.size ? <Square className="size-4" /> : <Icon className="size-4" /> : <Icon className="size-4" />}</span>
           <div className="launcher-row-main">
             <div className="launcher-row-title"><Highlight text={item.title} query={props.query} /></div>
-            <div className="launcher-row-meta">{item.subtitle && <LauncherFileOrigin item={item} />}{item.subtitle && details ? " · " : ""}{details}{item.incomplete ? ` · ${t("content_search.partial")}` : ""}</div>
+            <div className="launcher-row-meta">{item.subtitle && <LauncherResultOrigin item={item} />}{item.subtitle && details ? " · " : ""}{details}{item.incomplete ? ` · ${t("content_search.partial")}` : ""}</div>
             {item.excerpt && item.excerpt !== item.path && <div className="launcher-row-excerpt"><Highlight text={item.excerpt} query={props.query} /></div>}
           </div>
           <span className="launcher-row-hint">{props.selectedKey === key ? <button type="button" aria-label={t("launcher.footer.actions")} onClick={event => { event.stopPropagation(); props.onOpenActions(key); }}><ChevronRight className="size-4" /></button> : item.kind === "projects" ? <Folder className="size-3.5" /> : null}</span>

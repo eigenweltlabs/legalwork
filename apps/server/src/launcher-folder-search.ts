@@ -21,7 +21,7 @@ export async function searchFolderFiles(folders: LauncherFolders, index: Launche
       try {
         await folders.root(folder.id);
         await index.ensure(sourceId, folder.path);
-        const found: LauncherSearchResult[] = index.search(sourceId, input.query, input.limit, { types: input.fileTypes, modifiedAfter: input.modifiedAfter, browse: input.kinds.length === 1 }).map(({ entry, match, score }) => ({
+        const found: LauncherSearchResult[] = index.search(sourceId, input.query, input.limit, { types: input.fileTypes, modifiedAfter: input.modifiedAfter, browse: input.kinds.length === 1, sort: input.sort }).map(({ entry, match, score }) => ({
           id: entry.path, kind: "files", workspaceId: null, folderId: folder.id, sourceId, title: entry.name, subtitle: folder.name, sourceKind: "folder", path: entry.path,
           updatedAt: entry.mtimeMs, revision: `${entry.mtimeMs}:${entry.size}`, fileType: entry.directory ? "folder" : entry.ext.slice(1), size: entry.size, match, score, actions: entry.directory ? ["open"] : actions,
         }));

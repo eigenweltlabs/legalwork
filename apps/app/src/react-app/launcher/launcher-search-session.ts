@@ -1,6 +1,7 @@
+import { compareLauncherResults, type LauncherSort } from "@legalwork/types/launcher";
 import type { LauncherFileSourceKind, LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 
-export type SearchInput = { query: string; kinds: LauncherSearchKind[]; projectId: string | null; fileTypes?: string[] | null; modifiedAfter?: number | null; sourceKind?: LauncherFileSourceKind | null };
+export type SearchInput = { query: string; kinds: LauncherSearchKind[]; projectId: string | null; fileTypes?: string[] | null; modifiedAfter?: number | null; sourceKind?: LauncherFileSourceKind | null; sort?: LauncherSort };
 export type SearchRun = (input: SearchInput & { content: boolean }, signal: AbortSignal) => Promise<LauncherSearchResponse>;
 export type SearchSnapshot = { items: LauncherSearchResult[]; sources: LauncherSourceState[]; pending: boolean; query: string; error: string | null };
 export const resultKey = (item: Pick<LauncherSearchResult, "kind" | "sourceId" | "id">) => `${item.kind}\u0000${item.sourceId}\u0000${item.id}`;
@@ -50,6 +51,7 @@ export class LauncherSearchSession {
       if (controller.signal.aborted || generation !== this.generation) return;
       const pages = [...responses.values()];
       rendered = this.merge(rendered, pages.flatMap(page => page.items));
+      if (input.sort && input.sort !== "relevance") rendered.sort((a, b) => compareLauncherResults(a, b, input.sort));
       this.publish({ items: rendered, sources: pages.flatMap(page => page.sources), pending: remaining > 0 });
       this.settledQuery = fingerprint;
     };

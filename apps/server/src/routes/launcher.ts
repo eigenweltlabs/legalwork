@@ -10,7 +10,7 @@ import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
 import { launcherDestination } from "../launcher-file-destination.js";
 import { z } from "zod";
-import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
+import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherSortSchema, compareLauncherResults, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority } from "../assistant-session-access.js";
 import { isMainAssistant } from "../main-assistant.js";
@@ -128,19 +128,19 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   addRoute(routes, "GET", "/launcher/search", "client", async ctx => {
     read(ctx);
     const input = parse(z.object({ q: z.string().trim().max(300).default(""), kinds: z.string().max(100).optional(), projectId: z.string().max(200).optional(), content: z.enum(["1", "0"]).optional(), limit: z.coerce.number().int().min(1).max(200).default(80),
-      types: z.string().max(200).optional(), since: z.coerce.number().int().positive().optional(), sourceKind: LauncherFileSourceKindSchema.optional() }),
+      types: z.string().max(200).optional(), since: z.coerce.number().int().positive().optional(), sourceKind: LauncherFileSourceKindSchema.optional(), sort: LauncherSortSchema.optional() }),
       Object.fromEntries(ctx.url.searchParams), "launcher_query", "Check the search query, categories and project scope.");
     const fileTypes = input.types ? input.types.split(",").map(type => type.trim().toLowerCase().replace(/^\./, "")).filter(type => /^[a-z0-9]{1,8}$/.test(type)) : undefined;
     const kinds = input.kinds ? input.kinds.split(",").map(kind => LauncherSearchKindSchema.parse(kind.trim())) : [...LAUNCHER_SEARCH_KINDS];
     const orgId = connectedTaskOrgId(await readEigenweltConnection(config));
     const store = await taskStore(config);
-    const [extra, response] = await Promise.all([searchFolderFiles(options.searchFolders, fileIndex, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes, modifiedAfter: input.since, sourceKind: input.sourceKind },
+    const [extra, response] = await Promise.all([searchFolderFiles(options.searchFolders, fileIndex, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes, modifiedAfter: input.since, sourceKind: input.sourceKind, sort: input.sort },
       (folder, signal) => searchFileContents(folder, input.q, signal, options.preparation), ctx.request.signal), searchLauncher({
       workspaces: () => accessible(kinds.length === 1 && kinds[0] === "files" ? input.sourceKind : undefined), projectName, fileIndex, recordings: recordings(),
       tasks: async (query, projectId) => store.searchTasks(query, orgId, projectId ?? "", Boolean(projectId)),
       sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
-    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since, sourceKind: input.sourceKind }, ctx.request.signal)]);
+    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since, sourceKind: input.sourceKind, sort: input.sort }, ctx.request.signal)]);
     // The Assistant's own conversations are chats too: resume them in place.
     const assistant = config.workspaces.find(isMainAssistant);
     if (assistant && kinds.includes("chats") && (input.q.length >= 2 || !input.q.trim() && kinds.length === 1) && (!input.projectId || input.projectId === assistant.id)) {
@@ -151,10 +151,10 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
         response.items.push({ id: conversation.id, kind: "chats", workspaceId: assistant.id, sourceId: "assistant", title: conversation.title, subtitle: projectName(assistant), updatedAt: conversation.updatedAt, sessionId: conversation.sessionId, match: score.match, score: score.score, actions: ["resume", "open"] });
       }
       response.sources.push({ id: "chats:assistant", kind: "chats", workspaceId: assistant.id, label: projectName(assistant), coverage: page.nextCursor ? "partial" : "complete", count: page.items.length, limited: Boolean(page.nextCursor) });
-      response.items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, "en"));
+      response.items.sort((a, b) => compareLauncherResults(a, b, input.sort));
     }
     response.items.push(...extra.items); response.sources.push(...extra.sources); response.unavailable.push(...extra.unavailable);
-    response.items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title));
+    response.items.sort((a, b) => compareLauncherResults(a, b, input.sort));
     response.items = response.items.slice(0, input.limit);
     return jsonResponse(response);
   });
