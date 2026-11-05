@@ -4,7 +4,7 @@ import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
@@ -355,6 +355,18 @@ describe("legalwork runtime config files", () => {
       expect((await stat(target)).isDirectory()).toBe(true);
       expect((await stat(join(target, "index.js"))).isFile()).toBe(true);
     }
+  });
+
+  test("Azure definitions read the public catalog even when the runtime database is redirected", async () => {
+    const { root, config } = await setup();
+    if (!config.configPath) throw new Error("Test server config path is required");
+    const state = join(root, "isolated-state");
+    await mkdir(state);
+    process.env.LEGALWORK_RUNTIME_DB = join(state, "runtime.sqlite");
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const mandatory = await readConfigurationFile(mandatoryRuntimeConfigFilePath(config));
+    const paths = mandatory.plugins?.flatMap(plugin => typeof plugin !== "string" && typeof plugin.options?.azureCatalogPath === "string" ? [plugin.options.azureCatalogPath] : []);
+    expect(paths).toEqual([join(dirname(config.configPath), "model-catalog-engine.json")]);
   });
 
   test("keepLegalworkRuntimeConfigFileFresh rewrites native settings on runtime-DB writes", async () => {

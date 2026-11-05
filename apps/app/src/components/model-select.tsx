@@ -126,13 +126,13 @@ function groupByProvider(modelOptions: ModelOption[]): ModelSelectGroup[] {
     .sort((a, b) => a.value.localeCompare(b.value));
 }
 
-function isSameModel(a: ModelRef, b: ModelRef) {
-  return a.providerID === b.providerID && a.modelID === b.modelID;
+function isSameModel(a: ModelRef | null, b: ModelRef) {
+  return a !== null && a.providerID === b.providerID && a.modelID === b.modelID;
 }
 
 interface ModelSelectProps {
   open: boolean;
-  value: ModelRef;
+  value: ModelRef | null;
   onOpenChange: (open: boolean) => void;
   onChange: (model: ModelRef) => void;
   disabled?: boolean;
@@ -205,7 +205,7 @@ function ModelSelectWithOptions({
     onOpenChange(false);
   };
 
-  if (locked) {
+  if (locked && value) {
     return (
       <span className="flex min-w-0 max-w-full items-center px-2.5 py-1.5 text-sm text-gray-10">
         <span className="max-w-48 truncate">
@@ -232,19 +232,19 @@ function ModelSelectWithOptions({
             <PopoverTrigger
               type="button"
               disabled={disabled}
-              aria-label={t("model_select.change_model")}
+              aria-label={t(value ? "model_select.change_model" : "model_select.select_model")}
               aria-keyshortcuts="Meta+Alt+/"
               className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
             />
           }
         >
           <span className="max-w-48 truncate">
-            {selectedOption?.title ?? (value.modelID || t("model_select.select_model"))}
+            {selectedOption?.title ?? (value?.modelID || t("model_select.select_model"))}
           </span>
           <ChevronDown className="h-3 w-3" />
         </TooltipTrigger>
         <TooltipContent>
-          {t("session.change_model")}
+          {t(value ? "session.change_model" : "model_select.select_model")}
         </TooltipContent>
       </Tooltip>
       <PopoverContent
