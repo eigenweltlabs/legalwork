@@ -399,7 +399,7 @@ describe("the firm's own providers", () => {
       .toEqual({ openai: ["allowed"], "org-custom": [], personal: ["mine"] });
   });
 
-  test.skipIf(!nativeMcpBinary)("restricted firm DigitalOcean models generate while excluded models stay blocked across restart and refresh", async () => {
+  test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("restricted firm DigitalOcean models generate while excluded models stay blocked across restart and refresh", async () => {
     const calls: string[] = [];
     const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
       const { model } = z.object({ model: z.string() }).parse(await request.json());
